@@ -418,6 +418,28 @@ functions, so the wrapper must gain an async variant that awaits the body before
 stamping — otherwise `sync_end` records coroutine *creation* and `defer` becomes
 meaningless.
 
+**The timed region must also close on the post-move SCROLL, not just the refocus
+(added during review — the original plan missed this and the first measurement
+was invalid because of it).** `_refocus_card` returns as soon as it *schedules*
+`_scroll_into_view_after_layout` for a card with no layout yet, and that helper
+re-queues itself until the card is laid out. Closing on the refocus alone
+therefore
+
+- **excludes** the work that actually puts the moved card on screen — work this
+  change newly deferred, and which the baseline *did* include, because
+  `on_focus`'s scroll used to run synchronously inside `_refocus_card`; and
+- lets that work **bleed into the next sample's** timed region, smearing the
+  measurement rather than merely under-counting it.
+
+So the refocus wrapper hands the close to the scroll chain whenever one is
+outstanding (`probe.scroll_pending`), and the scroll wrapper closes on its
+terminal invocation — scrolled, budget exhausted, or card gone. It resolves the
+default hop budget from `self_._SCROLL_LAYOUT_HOPS` rather than copying the
+value, so harness and production cannot drift. A card that is already laid out
+schedules no helper, so every pre-t1243_5 path and the whole vertical axis close
+exactly as before. Verified load-bearing rather than assumed: the helper fires 24
+times during the ungated smoke bench.
+
 **`FLIP_TABLE` and `EXPECTED_CALL_SITES` must NOT be edited.** This change alters
 no manager call, so write counts, changed-path sets and final board state are all
 unchanged. If either goes red, that is a real finding, not a table to update —
@@ -447,6 +469,10 @@ t1243_14 owns re-measuring.
   AITASK_BOARD_BENCH=1 ~/.aitask/venv/bin/python -m unittest \
     tests.test_board_movement.BoardMovementBenchmarkTests.test_bench_baseline -v
   ```
+  The timed region must close on the post-move **scroll**, not the refocus (see
+  §5c) — otherwise the number omits user-visible work this change introduced and
+  cannot prove the pass condition at all.
+
   **Target: ≥ 30 % reduction in median lateral keypress latency versus the
   t1243_1 baseline of 2173.2 ms — i.e. ≤ 1521.2 ms.** Report the harness floor
   and the vertical axis alongside (vertical must not regress against 184.1 ms).
@@ -493,11 +519,114 @@ a sibling and re-measures this axis.
 Merge to `main` (current-branch profile, no worktree), then archive per the
 shared workflow.
 
-## Upstream defects identified (pre-existing, out of scope)
+## Final Implementation Notes
 
-- `.aitask-scripts/board/aitask_board.py:8607-8633` — `_swap_adjacent_cards`
-  reorders cards with `move_child` and never repaints them, so the dirty `*`
-  that `_move_task_vertical`'s write turns on (`TaskManager._mark_written`) does
-  not appear on the moved card until the next full refresh. Pre-existing on the
-  vertical axis; this task fixes the lateral and to-edge paths only, because
-  touching the 184 ms vertical fast path buys no latency and adds risk.
+- **Actual work done:** two production files' worth of change in one, plus four
+  test files.
+  - `.aitask-scripts/board/aitask_board.py` (+233/−37, 9 hunks):
+    - `KanbanColumn.task_block(task)` — the per-task compose body extracted so
+      **one** generator builds a task's block for both `compose` and the
+      transplant; `compose` is now `yield from self.task_block(task)`.
+    - `KanbanApp._card_block(col_widget, card)` — the `_block` closure hoisted
+      out of `_swap_adjacent_cards`, now shared with the transplant.
+    - `KanbanApp._find_parent_card`, `_sync_header_count`, and
+      `async _transplant_block(...)` with its own recompose recovery.
+    - `_move_task_lateral` / `_move_task_to_extreme` and their four `action_*`
+      wrappers became `async`; both end in a scoped `apply_filter` + refocus
+      gated on the transplant's result.
+    - `_refocus_card` gained a guarded call to the new
+      `_scroll_into_view_after_layout`.
+  - `tests/test_board_dom_transplant.py` — **new**, 733 lines, 20 tests.
+  - `tests/lib/board_fixture.py` — `PristineTreeMixin` promoted for reuse.
+  - `tests/test_board_render_scoping.py` — mixin replaced by a one-line alias.
+  - `tests/test_board_movement.py` — probe mechanics only; **`FLIP_TABLE` and
+    `EXPECTED_CALL_SITES` deliberately untouched and green**, as predicted.
+
+- **Deviations from plan:**
+  1. **`_move_task_to_extreme` rebuilds its block instead of `move_child`** —
+     planned as a deviation up front and confirmed correct. `move_child` is
+     supported and cheaper, but it preserves the widget, so the dirty `*` that
+     the move's own write turns on would go unpainted — a visible regression
+     against the `refresh_column` it replaces. Rebuilding one block is cheap and
+     keeps a single code path.
+  2. **`_scroll_into_view_after_layout` — NOT in the plan, and needed.** The
+     moved card ended up focused but **off-screen**. `TaskCard.on_focus` scrolls
+     synchronously (t1248), but `scroll_visible` is a silent no-op for a widget
+     with no size, and a card mounted in this cycle has none. The recompose path
+     never hit this because it *drops* its mount awaitables, so its deferred
+     refocus naturally lands after the pump has laid out; awaiting the mount
+     inside the action blocks that pump instead. Measured: the size lands on the
+     3rd refresh callback, so the fix is a bounded re-queue (5-hop cap, reads
+     `card.region.area`), not a guessed hop count.
+  3. **The benchmark's timed region had to close on that scroll** — see "Issues".
+
+- **Issues encountered:**
+  1. **The first post-implementation measurement was invalid** (found in review,
+     not by me). The probe closed the timed region when `_refocus_card`
+     returned, but after deviation 2 that only *schedules* the scroll. So the
+     number excluded work this change newly deferred — work the baseline
+     included, since `on_focus`'s scroll used to run synchronously inside
+     `_refocus_card` — and let it bleed into the next sample. `_install_probe`
+     now hands the close to the scroll chain whenever one is outstanding.
+     Verified load-bearing rather than assumed: the helper fires 24× in the
+     ungated smoke bench.
+  2. **A single benchmark run cannot adjudicate anything on this box.** One
+     corrected run read 1631.6 ms (a miss) while its own within-run controls —
+     `-recompose` 1038.9, `-filter-git` 1065.0, `-filter-recompose` 1103.3,
+     legacy 1146.7 — clustered ~500 ms lower, though they differ from `full`
+     only by levers measuring 0–6 %. Repeating the lateral `full` config 5×
+     gave 1094.7 / 1105.5 / 1162.4 / 1343.9 / 1344.0 ms: the 1631.6 sits outside
+     the whole distribution. **Target met 5/5** (−46.5 % at the median of run
+     medians, −38.2 % worst run, against −30 %).
+  3. **A flaky-looking negative-control rerun** turned out to be my own fault
+     injection being able to fire outside the keypress. Arming it explicitly
+     before the press made the controls deterministic; the spurious extra
+     failures disappeared.
+  4. A concurrent session landed **t1379** into this same checkout mid-task,
+     including two hunks inside `aitask_board.py`, and advanced `main` three
+     commits. The code commit was built from a **hunk-filtered patch** so only
+     this task's 9 hunks were staged, and the suite was re-run on the moved base.
+
+- **Key decisions:**
+  - **Rebuild, don't reparent.** Textual 8.2.7 has no cross-parent move:
+    `move_child` raises for a foreign child, and — the trap — `mount()` on a live
+    widget is a **silent no-op** (`App._register` short-circuits on the
+    registry), so code assuming "mount moves it" looks like it works. The private
+    3-call NodeList reparent was rejected: unsupported, and it needs hand-rolled
+    stylesheet / arrangement-cache / query-cache fixups to save one card's
+    construction.
+  - **Recovery lives inside `_transplant_block`, not in its callers.** The model
+    write is committed before the DOM work, so a raise between the prune and the
+    mount would leave a task the model says exists and the board renders nowhere
+    — and an exception escaping an async action kills the app. Structural rather
+    than a rule each caller must remember; `except Exception` is broad by intent
+    (rebuilding from the committed model is right for every failure) and is
+    surfaced via `notify(severity="error")`, not swallowed.
+  - **`Logger.exception` does not exist in Textual 8.2.7**, and `Logger.__call__`
+    returns early unless devtools is attached — so the user-visible surface is
+    `notify`, with `log.error` as the devtools-only channel.
+  - **One generator for card construction.** `task_block` is consumed by both
+    `compose` and `mount_compose`, so a transplanted card cannot drift from a
+    composed one.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:8654-8663 — _swap_adjacent_cards reorders cards with move_child and never repaints them, so the dirty * marker that _move_task_vertical's write turns on (TaskManager._mark_written) does not appear on the moved card until the next full refresh. Pre-existing on the vertical axis; this task fixed the lateral and to-edge paths only, because touching the 184 ms vertical fast path buys no latency and adds risk.`
+  - `.aitask-scripts/board/aitask_board.py:7079-7098 — _column_widgets() issues four separate full-DOM class queries per call (~25 ms on a 200-card board, measured in t1243_4) and is still reached from the post-move refocus path via _card_fully_visible / _viewport_anchor. Reported by t1243_4 and still unaddressed; now named as a suspect in t1395.`
+
+- **Notes for sibling tasks:**
+  - **t1243_11 (block moves):** `_card_block` and `_transplant_block` are the
+    seams you want, and `KanbanColumn.task_block` is the single construction
+    path. Do **not** re-litigate the private NodeList reparent — the spike
+    result is recorded in the parent plan. Budget for the fact that a transplant
+    must explicitly maintain what the recompose maintained for free:
+    `column_id` on the **whole** block (child cards inside `.child-wrapper` rows
+    too), the header count, and the dirty `*`.
+  - **Anyone making a board action `async`:** awaiting inside the action blocks
+    the pump that lays out, so anything you queue afterwards runs *before* the
+    layout. `scroll_visible` silently does nothing on an unlaid-out widget.
+  - **t1243_14:** re-measure with repeats, never a single run (issue 2). The
+    three pre-implementation opportunity gates the bench still prints
+    (`R_pair`, `R_rm4`, `R_rm5`) ablate a recompose that no longer exists on the
+    lateral path — retire or re-scope them. Post-t1243_5 reference: lateral
+    ~1162 ms (range 1095–1344), vertical 192.6 ms, floor ~82 ms.
+  - **t1395** owns the ~1.16 s residual; read it before optimising anything here.
