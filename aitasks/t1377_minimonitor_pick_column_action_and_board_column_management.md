@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: [1243_7]
+depends: []
 issue_type: feature
 status: Ready
 labels: [aitask_monitormini, aitask_board, tui, board_columns]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-03 10:37
-updated_at: 2026-08-03 10:37
+updated_at: 2026-08-03 11:15
 ---
 
 Umbrella task with two related deliverables that share the same underlying seams
@@ -162,12 +162,34 @@ entries for the removed column.
 (3 children Done, 12 Ready, strictly serial via `depends`). Plan:
 `aiplans/p1243_board_task_groups_and_fast_reordering.md`.
 
-- **`t1243_7_move_to_column_command` is literally a board "move to column"
-  command** (Workstream D). It builds the same column-picker chain this task
-  needs. `depends: [1243_7]` is set on this task accordingly, matching the
-  protocol `t1210_5_trail_move_to_column_commands` already follows
-  (`depends: [t1210_4, t1243_3, t1243_7]`). **Do not build a second, parallel
-  column picker** — consume or extend whatever t1243_7 lands.
+- **`t1243_7_move_to_column_command` is a board "move to column" command**
+  (Workstream D). **This task deliberately carries no `depends` on it** — the
+  dependency was considered and dropped, because t1243_7's chain is
+  board-*internal* and cannot be consumed here:
+  - It reuses the already-existing `ColumnSelectScreen` (`aitask_board.py:5422`)
+    and adds a `SelectionList` task-select subdialog; its "shared picker chain"
+    is shared with `t1210_5`'s By-Trail view — **another board view**, not with
+    minimonitor. `ColumnSelectScreen` is board-local and not importable from
+    `monitor/`, and importing `aitask_board.py` drags in Textual-at-module-scope
+    plus a full task parse. Deliverable 1 must build its own picker on the
+    `ChooseSiblingModal` precedent either way.
+  - It writes **in-process** via `manager.move_tasks_to_column`, so it does not
+    create the headless write seam Deliverable 1 actually needs.
+  - Deliverable 2 (column *management*) is a different surface from moving tasks
+    *into* columns and has no relationship to it.
+
+  What remains is **convention alignment, not a blocker**: if t1243_7 has landed,
+  match its UX (`m` = "move the selected task(s) to a column", per-view semantics
+  gated in `check_action`) and read its `## Notes for sibling tasks`. Do not build
+  a second parallel picker *inside the board*.
+
+  **Real textual overlap to watch:** t1243_7 §1 mandates collapsing
+  `KanbanCommandProvider`'s verbatim-duplicated `discover()` / `search()` lists
+  onto a single `_COMMANDS` tuple. Deliverable 2 will also touch
+  `KanbanCommandProvider` if it adds palette entries — a merge-conflict risk. If
+  t1243_7 has not landed, do that de-dup refactor here first rather than adding to
+  the duplicated lists (`aidocs/framework/planning_conventions.md`, "Refactor
+  duplicates before adding to them").
 - **`t1369_board_batch_move_linear_index_arithmetic`** (Ready, `anchor: 1243`)
   rewrites `TaskManager.move_tasks_to_column` to linear index arithmetic and
   names t1243_7 and t1210_5 as its large-K consumers. It should land before
@@ -232,7 +254,9 @@ entries for the removed column.
    destination indices, removes the source column from both `columns` and
    `column_order`, and cleans up any `settings.collapsed_columns` entry.
 6. All new minimonitor modals ship a `.narrow` variant.
-7. No parallel re-implementation of t1243_7's column picker.
+7. No second column picker is introduced *inside the board TUI* — the board-side
+   work reuses `ColumnSelectScreen` / whatever t1243_7 landed. (Minimonitor
+   necessarily has its own, since the board's is not importable from `monitor/`.)
 8. Tests cover the headless write seam and the merge migration; existing board
    movement/ordering tests still pass.
 
