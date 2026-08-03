@@ -270,6 +270,195 @@ assert_eq "Stale lock removed by cleanup" "0" "$lock_after_cleanup"
 
 rm -rf "$TMPDIR_12"
 
+# --- Test 12b-12h: --cleanup exit contract (t1370) ---
+#
+# `--cleanup` runs on every pick via aitask_pick_own.sh's sync_remote(), which
+# used to discard both its stderr and its exit status. It now reports:
+#   0  completed (nothing to do, or all stale locks removed)
+#   11 the lock branch could not be READ — stale locks left in place
+#   12 the branch was readable but the removal push was rejected every time
+# The silent paths are ubiquitous, so each is pinned with an empty-stderr
+# negative control.
+
+# Run --cleanup in $1, capturing stderr to a FILE (command substitution would
+# run the assignment in a subshell and lose the exit code).
+cleanup_in() {
+    local dir="$1" err_file="$2" rc=0
+    (cd "$dir" && ./.aitask-scripts/aitask_lock.sh --cleanup >/dev/null 2>"$err_file") || rc=$?
+    echo "$rc"
+}
+
+# Make the bare remote reject every push. $2 = extra sh run before rejecting,
+# used to make the remote unreadable for the retry fetch that follows.
+reject_pushes() {
+    local tmpdir="$1" pre="${2:-}"
+    printf '#!/bin/sh\n%s\necho "rejected by test hook" >&2\nexit 1\n' "$pre" \
+        > "$tmpdir/remote.git/hooks/pre-receive"
+    chmod +x "$tmpdir/remote.git/hooks/pre-receive"
+}
+
+# Lock task 1 and archive it, so cleanup identifies exactly one stale lock.
+seed_stale_lock() {
+    local dir="$1"
+    (cd "$dir" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+    (cd "$dir" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
+    (
+        cd "$dir"
+        echo "---" > aitasks/archived/t1_test_task.md
+        git add -A && git commit -m "Archive task" --quiet && git push --quiet 2>/dev/null
+    )
+}
+
+# --- Test 12b: empty lock branch -> exit 0, silent ---
+# Regression test for a `set -euo pipefail` abort: the lock-file listing used to
+# pipe `git ls-tree` through `grep`, and an empty branch made grep exit 1, which
+# killed the sweep (exit 1) before the emptiness guard could return 0. This is
+# the ordinary state of any project where nothing is currently locked.
+echo "--- Test 12b: cleanup on an empty lock branch is silent ---"
+
+TMPDIR_12B="$(setup_paired_repos)"
+(cd "$TMPDIR_12B/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+rc_12b=$(cleanup_in "$TMPDIR_12B/local" "$TMPDIR_12B/err.txt")
+assert_eq "empty lock branch exits 0" "0" "$rc_12b"
+assert_eq "empty lock branch stays silent" "" "$(cat "$TMPDIR_12B/err.txt")"
+
+rm -rf "$TMPDIR_12B"
+
+# --- Test 12c: live (non-stale) lock -> exit 0, silent ---
+echo "--- Test 12c: cleanup with nothing stale is silent ---"
+
+TMPDIR_12C="$(setup_paired_repos)"
+(cd "$TMPDIR_12C/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_12C/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" >/dev/null 2>&1)
+rc_12c=$(cleanup_in "$TMPDIR_12C/local" "$TMPDIR_12C/err.txt")
+assert_eq "nothing stale exits 0" "0" "$rc_12c"
+assert_eq "nothing stale stays silent" "" "$(cat "$TMPDIR_12C/err.txt")"
+
+rm -rf "$TMPDIR_12C"
+
+# --- Test 12d: successful removal -> exit 0, no warning ---
+echo "--- Test 12d: a successful sweep exits 0 without warning ---"
+
+TMPDIR_12D="$(setup_paired_repos)"
+seed_stale_lock "$TMPDIR_12D/local"
+rc_12d=$(cleanup_in "$TMPDIR_12D/local" "$TMPDIR_12D/err.txt")
+assert_eq "successful sweep exits 0" "0" "$rc_12d"
+assert_eq "successful sweep does not warn" "" "$(cat "$TMPDIR_12D/err.txt")"
+
+rm -rf "$TMPDIR_12D"
+
+# --- Test 12e: lock branch absent on a reachable remote -> exit 0, silent ---
+# `git fetch` fails here too, but with "couldn't find remote ref" — genuinely
+# nothing to clean, and it must not be reported as a read failure.
+echo "--- Test 12e: absent lock branch is not a failure ---"
+
+TMPDIR_12E="$(setup_paired_repos)"   # deliberately no --init
+rc_12e=$(cleanup_in "$TMPDIR_12E/local" "$TMPDIR_12E/err.txt")
+assert_eq "absent lock branch exits 0" "0" "$rc_12e"
+assert_eq "absent lock branch stays silent" "" "$(cat "$TMPDIR_12E/err.txt")"
+
+rm -rf "$TMPDIR_12E"
+
+# --- Test 12f: unreachable remote -> exit 11, classified warning ---
+echo "--- Test 12f: unreachable remote reports exit 11 ---"
+
+TMPDIR_12F="$(setup_paired_repos)"
+(cd "$TMPDIR_12F/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_12F/local" && git remote set-url origin /nonexistent/repo.git)
+rc_12f=$(cleanup_in "$TMPDIR_12F/local" "$TMPDIR_12F/err.txt")
+err_12f="$(cat "$TMPDIR_12F/err.txt")"
+assert_eq "unreachable remote exits 11" "11" "$rc_12f"
+assert_contains "unreachable remote names the lock branch" "lock branch" "$err_12f"
+assert_contains "unreachable remote says cleanup did not run" "cleanup did not run" "$err_12f"
+assert_contains "unreachable remote gives a connectivity hint" "remote unreachable" "$err_12f"
+
+rm -rf "$TMPDIR_12F"
+
+# --- Test 12g: push rejected on every attempt -> exit 12, names the leftovers ---
+echo "--- Test 12g: exhausted removal push reports exit 12 ---"
+
+TMPDIR_12G="$(setup_paired_repos)"
+seed_stale_lock "$TMPDIR_12G/local"
+reject_pushes "$TMPDIR_12G"
+rc_12g=$(cleanup_in "$TMPDIR_12G/local" "$TMPDIR_12G/err.txt")
+err_12g="$(cat "$TMPDIR_12G/err.txt")"
+assert_eq "exhausted push exits 12" "12" "$rc_12g"
+assert_contains "exhausted push names what was left uncleaned" "1 stale lock(s)" "$err_12g"
+assert_contains "exhausted push reports the real attempt count" "5 push attempt(s)" "$err_12g"
+# The lock must still be there — the warning would be a lie otherwise.
+lock_still_there=$(cd "$TMPDIR_12G/local" && git ls-tree "origin/aitask-locks" 2>/dev/null | grep -c "t1_lock.yaml")
+assert_eq "rejected removal leaves the stale lock in place" "1" "$lock_still_there"
+
+rm -rf "$TMPDIR_12G"
+
+# --- Test 12h: remote becomes unreadable mid-retry -> exit 11, not 12 ---
+# The hook rejects the push AND disables the bare repo's HEAD, so the retry
+# fetch fails. That is a READ failure: reporting it as 12 would hand the user a
+# push-retry hint for a connectivity problem, and would claim MAX_RETRIES
+# attempts when only one was made.
+echo "--- Test 12h: a failed retry-fetch is reported as a read failure ---"
+
+TMPDIR_12H="$(setup_paired_repos)"
+seed_stale_lock "$TMPDIR_12H/local"
+reject_pushes "$TMPDIR_12H" 'mv HEAD HEAD.disabled 2>/dev/null'
+rc_12h=$(cleanup_in "$TMPDIR_12H/local" "$TMPDIR_12H/err.txt")
+err_12h="$(cat "$TMPDIR_12H/err.txt")"
+assert_eq "mid-retry read failure exits 11, not 12" "11" "$rc_12h"
+assert_contains "mid-retry failure names the leftover locks" "1 stale lock(s) left in place" "$err_12h"
+assert_contains "mid-retry failure gives a connectivity hint" "remote unreachable" "$err_12h"
+assert_not_contains "mid-retry failure does not claim push exhaustion" "push attempt(s)" "$err_12h"
+
+rm -rf "$TMPDIR_12H"
+
+# --- Test 12h2: lock branch deleted mid-retry -> exit 0, silent ---
+# "Branch absent" means nothing to clean, whether it is discovered by the first
+# fetch or by the retry refresh. Reporting it as 11 would warn about an
+# unreadable remote that is in fact perfectly readable — and retrying would push
+# the rebuilt tree back, resurrecting every lock the deleted branch held.
+echo "--- Test 12h2: a branch deleted mid-sweep is nothing to clean ---"
+
+TMPDIR_12H2="$(setup_paired_repos)"
+seed_stale_lock "$TMPDIR_12H2/local"
+# The quarantine env a pre-receive hook inherits forbids ref updates
+# ("ref updates forbidden inside quarantine environment"), so it must be
+# cleared before the hook can delete the branch it is rejecting a push to.
+reject_pushes "$TMPDIR_12H2" \
+    'unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+     git update-ref -d refs/heads/aitask-locks >/dev/null 2>&1'
+rc_12h2=$(cleanup_in "$TMPDIR_12H2/local" "$TMPDIR_12H2/err.txt")
+err_12h2="$(cat "$TMPDIR_12H2/err.txt")"
+assert_eq "branch deleted mid-sweep exits 0" "0" "$rc_12h2"
+assert_eq "branch deleted mid-sweep stays silent" "" "$err_12h2"
+# The branch must stay deleted — a retry would have recreated it with the locks.
+branch_12h2=$(cd "$TMPDIR_12H2/local" && git ls-remote --heads origin aitask-locks 2>/dev/null | wc -l | tr -d '[:space:]')
+assert_eq "a deleted lock branch is not resurrected" "0" "$branch_12h2"
+
+rm -rf "$TMPDIR_12H2"
+
+# --- Test 12i: a stray non-t<N> lock file does not abort the sweep ---
+# Same pipefail class as 12b: the task-id extraction used to pipe through
+# `grep -oE '^t[0-9]+'`, so one unrecognized filename killed the whole sweep.
+echo "--- Test 12i: an unrecognized lock file is skipped, not fatal ---"
+
+TMPDIR_12I="$(setup_paired_repos)"
+seed_stale_lock "$TMPDIR_12I/local"
+(
+    cd "$TMPDIR_12I/local"
+    git fetch origin aitask-locks --quiet 2>/dev/null
+    blob=$(echo "junk" | git hash-object -w --stdin)
+    tree=$( { git ls-tree "$(git rev-parse origin/aitask-locks^{tree})"
+              printf '100644 blob %s\tnotalock_lock.yaml\n' "$blob"; } | git mktree )
+    commit=$(echo "add stray lock file" | git commit-tree "$tree" -p "$(git rev-parse origin/aitask-locks)")
+    git push --quiet origin "$commit:refs/heads/aitask-locks" 2>/dev/null
+)
+rc_12i=$(cleanup_in "$TMPDIR_12I/local" "$TMPDIR_12I/err.txt")
+assert_eq "stray lock file does not abort the sweep" "0" "$rc_12i"
+remaining_12i=$(cd "$TMPDIR_12I/local" && git fetch origin aitask-locks --quiet 2>/dev/null && git ls-tree --name-only "origin/aitask-locks" 2>/dev/null | tr '\n' ' ')
+assert_contains "stray lock file is left alone" "notalock_lock.yaml" "$remaining_12i"
+assert_not_contains "stale t1 lock is still removed" "t1_lock.yaml" "$remaining_12i"
+
+rm -rf "$TMPDIR_12I"
+
 # --- Test 13: List shows all locks ---
 echo "--- Test 13: List shows all locks ---"
 

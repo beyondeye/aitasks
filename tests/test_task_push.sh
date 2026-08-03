@@ -797,14 +797,17 @@ popd > /dev/null || exit 1
 echo "--- Test 23: aitask_pick_own.sh --sync tokens ---"
 
 # Scaffold ./ait plus the libs aitask_pick_own.sh sources. In --sync mode it
-# only runs task_sync + aitask_lock.sh --cleanup (already `|| true`).
+# runs task_sync + aitask_lock.sh --cleanup, so the lock script must be present:
+# without it the cleanup call exits 127 and pick_own reports a spurious
+# invoke_failed warning that has nothing to do with the sync path under test.
 setup_pick_own_cli() {
     setup_fake_aitask_repo "$PWD"
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh"   .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"    .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_pick_own.sh"   .aitask-scripts/
-    chmod +x .aitask-scripts/aitask_pick_own.sh
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh"       .aitask-scripts/
+    chmod +x .aitask-scripts/aitask_pick_own.sh .aitask-scripts/aitask_lock.sh
 }
 
 setup_remote_and_clone
@@ -829,6 +832,63 @@ assert_success "pick_own --sync still returns 0 on failure" "$sync_rc"
 assert_eq "failed sync prints SYNC_FAILED:<reason>" "SYNC_FAILED:remote_unreachable" "$sync_out"
 assert_contains "failed sync warns on stderr" "1 local unpushed" "$pickown_err"
 
+popd > /dev/null || exit 1
+
+# --- Test 24: --sync stays silent about a healthy lock sweep ---
+# sync_remote() runs a stale-lock sweep on every pick. It used to discard both
+# its stderr and its exit status; now it reports failures — but the quiet paths
+# must stay quiet, and the child's progress notices must not leak into the
+# structured stdout that the pick skill parses.
+echo "--- Test 24: --sync lock sweep stays silent when it succeeds ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+setup_pick_own_cli
+git add .aitask-scripts/ && git commit -m "scaffold" --quiet && git push --quiet 2>/dev/null
+./.aitask-scripts/aitask_lock.sh --init > /dev/null 2>&1
+# Lock a task and archive it, so the sweep actually has something to remove.
+mkdir -p aitasks/archived
+./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" > /dev/null 2>&1
+echo "---" > aitasks/archived/t1_test_task.md
+git add aitasks/ && git commit -m "archive t1" --quiet && git push --quiet 2>/dev/null
+
+sync_out="$(./.aitask-scripts/aitask_pick_own.sh --sync 2>"$TEST_TMPDIR/sweep_ok_err.txt")"
+sync_rc=$?
+sweep_ok_err="$(cat "$TEST_TMPDIR/sweep_ok_err.txt")"
+assert_success "pick_own --sync returns 0 after a successful sweep" "$sync_rc"
+assert_eq "a successful sweep leaves stdout as exactly SYNCED" "SYNCED" "$sync_out"
+assert_eq "a successful sweep stays silent on stderr" "" "$sweep_ok_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 25: --sync reports a failed lock sweep without blocking the pick ---
+echo "--- Test 25: --sync reports a failed lock sweep, still exits 0 ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+setup_pick_own_cli
+git add .aitask-scripts/ && git commit -m "scaffold" --quiet && git push --quiet 2>/dev/null
+./.aitask-scripts/aitask_lock.sh --init > /dev/null 2>&1
+mkdir -p aitasks/archived
+./.aitask-scripts/aitask_lock.sh --lock 1 --email "user@test.com" > /dev/null 2>&1
+echo "---" > aitasks/archived/t1_test_task.md
+git add aitasks/ && git commit -m "archive t1" --quiet && git push --quiet 2>/dev/null
+
+# Make the remote reject the cleanup push (but stay readable, so the sync
+# itself still succeeds and only the lock sweep fails).
+printf '#!/bin/sh\necho "rejected by test hook" >&2\nexit 1\n' \
+    > "$TEST_REMOTE/hooks/pre-receive"
+chmod +x "$TEST_REMOTE/hooks/pre-receive"
+
+sync_out="$(./.aitask-scripts/aitask_pick_own.sh --sync 2>"$TEST_TMPDIR/sweep_fail_err.txt")"
+sync_rc=$?
+sweep_fail_err="$(cat "$TEST_TMPDIR/sweep_fail_err.txt")"
+assert_success "a failed sweep never blocks the pick" "$sync_rc"
+assert_eq "a failed sweep leaves the stdout token intact" "SYNCED" "$sync_out"
+assert_contains "the lock script's own diagnosis is forwarded" "1 stale lock(s)" "$sweep_fail_err"
+assert_contains "the consequence is named" "LOCK_FAILED for a task nobody is working on" "$sweep_fail_err"
+
+rm -f "$TEST_REMOTE/hooks/pre-receive"
 popd > /dev/null || exit 1
 
 # --- Summary ---

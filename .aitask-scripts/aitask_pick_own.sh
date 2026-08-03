@@ -28,6 +28,12 @@
 #                                Still exits 0 — sync is best-effort; details
 #                                and a recovery hint go to stderr.
 #
+# Stale-lock cleanup runs alongside the pull in both modes and is likewise
+# best-effort: a failed sweep never blocks a pick (this script still exits 0 and
+# --sync still prints SYNCED / SYNC_FAILED), but it is no longer silent —
+# aitask_lock.sh's own diagnosis is forwarded to stderr together with a warning
+# naming the consequence. Successful and nothing-to-do sweeps stay silent.
+#
 # Called by:
 #   .claude/skills/task-workflow/SKILL.md (Step 4)
 #   .claude/skills/aitask-pick/SKILL.md (Step 0c sync)
@@ -137,10 +143,58 @@ parse_args() {
     fi
 }
 
+# Outcome of the most recent lock_cleanup call. Like task_sync, lock_cleanup
+# always returns 0 — a failed sweep must never block a pick — so read these
+# when the outcome matters.
+LOCK_CLEANUP_STATUS=""   # ok | failed
+LOCK_CLEANUP_REASON=""   # branch_unreadable | push_failed | invoke_failed
+
 # --- Sync with remote (best-effort) ---
 sync_remote() {
     task_sync
-    "$SCRIPT_DIR/aitask_lock.sh" --cleanup 2>/dev/null || true
+    lock_cleanup
+}
+
+# Sweep locks abandoned by finished sessions. Best-effort but never silent:
+# a swallowed failure lets stale locks pile up until a later pick reports
+# LOCK_FAILED for a task nobody is actually working on.
+# shellcheck disable=SC2034  # the LOCK_CLEANUP_* globals ARE the return value; they are read by tests and by callers that care about the outcome
+lock_cleanup() {
+    LOCK_CLEANUP_STATUS=""
+    LOCK_CLEANUP_REASON=""
+
+    local out="" rc=0
+    # Combined capture: on success the child's progress notices are dropped
+    # (our stdout is a machine contract, and a successful housekeeping sweep is
+    # not worth reporting); on failure everything it said is forwarded.
+    out="$("$SCRIPT_DIR/aitask_lock.sh" --cleanup 2>&1)" || rc=$?
+
+    if [[ $rc -eq 0 ]]; then
+        LOCK_CLEANUP_STATUS="ok"
+        return 0
+    fi
+
+    LOCK_CLEANUP_STATUS="failed"
+    case $rc in
+        11) LOCK_CLEANUP_REASON="branch_unreadable" ;;
+        12) LOCK_CLEANUP_REASON="push_failed" ;;
+        *)  LOCK_CLEANUP_REASON="invoke_failed" ;;
+    esac
+    [[ -n "$out" ]] && printf '%s\n' "$out" >&2
+    _lock_cleanup_warn "$rc"
+    return 0
+}
+
+# Internal: name the consequence. aitask_lock.sh already reported the specific
+# git failure (forwarded above); this adds why the user should care.
+_lock_cleanup_warn() {
+    local rc="$1" what
+    case "$LOCK_CLEANUP_REASON" in
+        branch_unreadable) what="stale lock cleanup did not complete" ;;
+        push_failed)       what="stale locks could not be removed" ;;
+        *)                 what="stale lock cleanup failed (aitask_lock.sh --cleanup exited ${rc})" ;;
+    esac
+    warn "${what} — locks abandoned by finished sessions may persist, and a later pick can report LOCK_FAILED for a task nobody is working on; inspect with './ait lock --list'"
 }
 
 # --- Store email (idempotent, deduplicated) ---

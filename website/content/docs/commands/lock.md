@@ -26,7 +26,7 @@ ait lock --list                    # Show all active locks
 | `--check <task_id>` | Check lock status. Exit 0 = locked (prints lock info), exit 1 = free |
 | `--list` | List all currently locked tasks |
 | `--init` | Initialize the `aitask-locks` branch on the remote (usually done by `ait setup`) |
-| `--cleanup` | Remove stale locks for tasks that have been archived |
+| `--cleanup` | Remove stale locks for tasks that have been archived. Exit 0 = completed, 11 = lock branch unreadable, 12 = removal push rejected (see [Stale Lock Cleanup](#stale-lock-cleanup)) |
 
 | Option | Description |
 |--------|-------------|
@@ -56,6 +56,22 @@ hostname: my-laptop
 ```
 
 **Locking does not change task metadata.** The task's `status` and `assigned_to` fields are not modified -- locking is purely a reservation mechanism. The status changes to `Implementing` later when the task is actually picked for implementation (via `/aitask-pick` or similar).
+
+### Stale Lock Cleanup
+
+`ait lock --cleanup` sweeps the `aitask-locks` branch for locks belonging to tasks that have already been archived. The pick workflow runs it automatically before selecting a task, so it is what keeps a finished session's lock from blocking the next one.
+
+It reports its outcome through the exit status:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Completed -- no remote, no lock branch, nothing stale, or every stale lock removed |
+| `11` | The lock branch could not be read (unreachable remote, auth failure). No locks were removed |
+| `12` | The branch was readable, but the removal push was rejected on every retry. The stale locks are still there |
+
+Both failure codes warn on stderr, naming how many stale locks were left in place and how to recover. Successful sweeps and sweeps with nothing to do are silent.
+
+**A failed sweep never blocks a pick.** `/aitask-pick` and the other skills that sync first still proceed; they surface the warning and continue. This matters because the failure is self-perpetuating if unreported: stale locks that are never swept accumulate, and a later pick reports the task as locked by someone who is no longer working on it. If you see that warning, run `ait lock --list` to inspect the branch and `ait lock --unlock <task_id>` to clear a specific lock.
 
 ### When to Use `ait lock`
 

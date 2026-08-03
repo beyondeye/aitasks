@@ -12,6 +12,8 @@
 #   ait lock --list                        List all active locks
 #   ait lock --init                        Initialize the aitask-locks branch
 #   ait lock --cleanup                     Remove stale locks for archived tasks
+#                                          (exit 0=done, 11=branch unreadable,
+#                                           12=removal push rejected)
 #
 # Also called internally by:
 #   .aitask-scripts/aitask_pick_own.sh (lock acquisition and cleanup)
@@ -377,32 +379,92 @@ list_locks() {
 
 # --- Cleanup: remove stale locks for archived tasks ---
 
+# Internal: true when a failed `git fetch` of the lock branch means the branch
+# simply is not there — nothing to clean — as opposed to a remote we could not
+# read. Both fetch sites branch on this, so the two cannot drift apart.
+#   $1 = captured git stderr
+_cleanup_branch_absent() {
+    case "${1:-}" in
+        *"couldn't find remote ref"*|*"not our ref"*) return 0 ;;
+    esac
+    return 1
+}
+
+# Internal: report a lock branch we could not read. Reuses the canonical push
+# classifier from task_utils.sh so the wording matches task_sync's for the same
+# git failure.
+#   $1 = captured git stderr ("" when undeterminable)
+#   $2 = stale locks already identified and left in place ("" when none/unknown)
+_cleanup_warn_unreadable() {
+    local git_err="${1:-}" stale_count="${2:-}" reason detail="" left
+    reason="$(_task_push_classify "" "$git_err")"
+    if [[ "$reason" == "unknown" && -n "$git_err" ]]; then
+        detail=" (git: $(_task_push_first_line "$git_err"))"
+    fi
+    if [[ -n "$stale_count" && "$stale_count" != "0" ]]; then
+        left="${stale_count} stale lock(s) left in place"
+    else
+        left="stale lock cleanup did not run"
+    fi
+    warn "could not read the '$BRANCH' lock branch — ${left}; $(_task_push_reason_hint "$reason" "./ait lock --cleanup")${detail}"
+}
+
+# Best-effort for callers (aitask_pick_own.sh never lets it block a pick), but
+# honest about its own outcome — a swallowed failure lets stale locks pile up
+# until a later pick reports LOCK_FAILED for a task nobody is working on.
+#
+# Exit contract:
+#   0   completed: no remote, lock branch absent, nothing stale, or all stale
+#       locks removed
+#   11  the lock branch could not be READ (initial fetch/rev-parse, or the
+#       mid-retry refresh) — any identified stale locks were left in place
+#   12  the branch stayed readable but the removal push was rejected on all
+#       MAX_RETRIES attempts
 cleanup_locks() {
     if ! has_remote; then
         debug "No remote — skipping lock cleanup"
         return 0
     fi
 
-    if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-        debug "Lock branch not found, nothing to clean up"
-        return 0
+    # Disambiguate "branch genuinely absent" (nothing to clean) from "cannot
+    # read origin" (cleanup did not run). LC_ALL=C keeps git's message
+    # parseable — task_utils.sh pins it only inside _ait_data_git.
+    local fetch_err=""
+    if ! fetch_err="$(LC_ALL=C git fetch origin "$BRANCH" --quiet 2>&1)"; then
+        if _cleanup_branch_absent "$fetch_err"; then
+            debug "Lock branch '$BRANCH' not on remote — nothing to clean up"
+            return 0
+        fi
+        _cleanup_warn_unreadable "$fetch_err" ""
+        return 11
     fi
 
     local parent_hash current_tree_hash
-    parent_hash=$(git rev-parse "origin/$BRANCH")
-    current_tree_hash=$(git rev-parse "origin/$BRANCH^{tree}" 2>/dev/null) || return 0
+    if ! parent_hash=$(git rev-parse "origin/$BRANCH" 2>/dev/null) ||
+       ! current_tree_hash=$(git rev-parse "origin/$BRANCH^{tree}" 2>/dev/null); then
+        _cleanup_warn_unreadable "" ""
+        return 11
+    fi
 
     local lock_files
-    lock_files=$(git ls-tree "$current_tree_hash" | grep '_lock\.yaml' | awk '{print $4}')
+    # awk, not grep: an empty lock branch makes `grep` exit 1, which under
+    # `set -euo pipefail` kills the sweep before the emptiness guard below.
+    lock_files=$(git ls-tree "$current_tree_hash" | awk '$4 ~ /_lock\.yaml$/ {print $4}')
 
     [[ -z "$lock_files" ]] && return 0
 
     local stale_files=()
 
     while IFS= read -r lf; do
-        # Extract task ID from filename (t109_lock.yaml -> 109)
-        local tid
-        tid=$(echo "$lf" | grep -oE '^t[0-9]+' | sed 's/t//')
+        # Extract task ID from filename (t109_lock.yaml -> 109). Parameter
+        # expansion, not a grep pipeline: a stray non-t<N> file would make
+        # `grep -oE` exit 1 and abort the whole sweep.
+        local tid="${lf#t}"
+        tid="${tid%%_*}"
+        if [[ ! "$tid" =~ ^[0-9]+$ ]]; then
+            debug "Skipping unrecognized lock file: $lf"
+            continue
+        fi
 
         # Check if task is archived
         if ls "$ARCHIVED_DIR"/t${tid}_*.md &>/dev/null; then
@@ -437,15 +499,32 @@ cleanup_locks() {
             return 0
         fi
 
-        # Re-fetch and rebuild on retry (tree may have changed)
+        # Re-fetch and rebuild on retry (tree may have changed). A failure HERE
+        # is a read failure, not push exhaustion: reporting it as 12 would send
+        # the user to a push-retry hint for a connectivity problem.
         debug "Push failed during cleanup, retrying..."
         sleep "0.$((RANDOM % 4 + 1))"
-        git fetch origin "$BRANCH" --quiet 2>/dev/null || break
-        parent_hash=$(git rev-parse "origin/$BRANCH")
-        current_tree_hash=$(git rev-parse "origin/$BRANCH^{tree}")
+        if ! fetch_err="$(LC_ALL=C git fetch origin "$BRANCH" --quiet 2>&1)"; then
+            if _cleanup_branch_absent "$fetch_err"; then
+                # The branch vanished mid-sweep (concurrent delete, or a
+                # re-init). Its locks went with it, so there is nothing left to
+                # clean — and retrying would push our rebuilt tree back and
+                # resurrect every lock the branch used to hold.
+                debug "Lock branch '$BRANCH' disappeared mid-sweep — nothing left to clean up"
+                return 0
+            fi
+            _cleanup_warn_unreadable "$fetch_err" "${#stale_files[@]}"
+            return 11
+        fi
+        if ! parent_hash=$(git rev-parse "origin/$BRANCH" 2>/dev/null) ||
+           ! current_tree_hash=$(git rev-parse "origin/$BRANCH^{tree}" 2>/dev/null); then
+            _cleanup_warn_unreadable "" "${#stale_files[@]}"
+            return 11
+        fi
     done
 
-    warn "Failed to push stale lock cleanup after $MAX_RETRIES attempts"
+    warn "failed to remove ${#stale_files[@]} stale lock(s) after ${attempt} push attempt(s) — they remain on the '$BRANCH' branch; retry './ait lock --cleanup', or clear one with './ait lock --unlock <task_id>'"
+    return 12
 }
 
 # --- Email auto-detection ---
@@ -500,7 +579,11 @@ Commands:
   --check <task_id>                Check if locked (exit 0=locked, 1=free)
   --list                           List all currently locked tasks
   --init                           Initialize the aitask-locks branch on remote
-  --cleanup                        Remove stale locks for archived tasks
+  --cleanup                        Remove stale locks for archived tasks.
+                                   Exit 0 = completed (including nothing to do),
+                                   11 = the lock branch could not be read,
+                                   12 = the removal push was rejected on every
+                                   retry. Failures warn on stderr.
 
 Options:
   --email EMAIL  Override email for locking (default: auto-detect from
@@ -548,6 +631,11 @@ case "${1:-}" in
         list_locks
         ;;
     --cleanup|cleanup)
+        # Called bare on purpose. `set -e` propagates cleanup_locks' exact
+        # return code (11/12) as the script's exit status, and — unlike a
+        # `cleanup_locks || rc=$?` guard — it leaves `set -e` ACTIVE inside the
+        # function, so an unexpected failure mid-sweep aborts loudly instead of
+        # being swallowed and carried on with bogus state.
         cleanup_locks
         ;;
     --help|-h)

@@ -115,7 +115,7 @@ The internal script `.aitask-scripts/aitask_lock.sh` prevents race conditions wh
 - A task is locked when picked (during status change to "Implementing") and unlocked when archived or aborted
 - Locks are idempotent: the same email can refresh its own lock, and unlocking a non-existent lock succeeds silently
 - Available commands: `--init`, `--lock <task_id> --email <email>`, `--unlock <task_id>`, `--check <task_id>`, `--list`, `--cleanup`
-- The `--cleanup` command removes stale locks for tasks that have already been archived
+- The `--cleanup` command removes stale locks for tasks that have already been archived. It runs before every task pick, and reports its outcome rather than always exiting 0: exit `11` means the lock branch could not be read, exit `12` means the removal push was rejected on every retry. Both warn on stderr and name what was left uncleaned. The pick itself is never blocked — a failed sweep is forwarded as a warning and the workflow continues
 - Initialized via `ait setup` alongside the atomic ID counter
 
 ---
