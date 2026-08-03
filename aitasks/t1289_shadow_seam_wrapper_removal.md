@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: refactor
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 11:53
-updated_at: 2026-08-02 23:25
+updated_at: 2026-08-03 10:33
 boardidx: 360
 ---
 
@@ -80,3 +83,8 @@ the lift changed no behaviour. That proof has now served its purpose.
 - The full Python suite plus `tests/test_no_raw_tmux.sh` pass.
 - Behaviour is unchanged: this is a pure de-duplication, so any test that has to
   change should change only in *which name it calls*, never in what it asserts.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T07:33:28Z status=pass attempt=1 type=human
