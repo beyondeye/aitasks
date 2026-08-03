@@ -10,11 +10,11 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1354_3, t1354_4]
+children_to_implement: [t1354_4]
 folded_tasks: [1346, 1352]
 anchor: 1111
 created_at: 2026-07-31 07:41
-updated_at: 2026-08-02 12:16
+updated_at: 2026-08-03 09:43
 boardidx: 870
 ---
 
