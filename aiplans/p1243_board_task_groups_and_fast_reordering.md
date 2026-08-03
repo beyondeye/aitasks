@@ -503,32 +503,61 @@ block. The private three-call NodeList reparent
 no upstream contract, and it needs hand-rolled stylesheet / arrangement-cache /
 query-cache fixups. *Recorded here so t1243_11's block moves do not re-litigate it.*
 
+**Measurement defect found in review — the first post-implementation run was
+INVALID and is discarded.** The probe closed the timed region when `_refocus_card`
+returned, but this change made that premature: for a card with no layout yet,
+`_refocus_card` only *schedules* `_scroll_into_view_after_layout`, which re-queues
+until the card is on screen. So the timed region excluded the work that actually
+puts the moved card in view — work the **baseline included**, because
+`on_focus`'s scroll used to run synchronously inside `_refocus_card` — and let it
+bleed into the next sample. The harness now hands the close to the scroll chain
+whenever one is outstanding (`tests/test_board_movement.py`, `_install_probe`).
+Everything below is measured with the corrected region.
+
 **Post-implementation measurement** (same pre-registered method: 200 cards /
-5 columns, 3 warm-up + 20 recorded pairs per axis, production branch-mode
-topology, event-closed timed region):
+5 columns, 3 warm-up + 20 recorded pairs, production branch-mode topology,
+event-closed timed region, lateral `full` repeated **5×** because a single run's
+`full` disagreed with its own within-run controls by ~600 ms):
 
 | | t1243_1 baseline | post-t1243_4 | **post-t1243_5** |
 |---|---|---|---|
-| lateral median e2e | 2173.2 ms | 2395.2 ms | **1115.0 ms** |
-| lateral p90 | 2556.2 ms | — | 1805.9 ms |
-| vertical median | 184.1 ms | 191.9 ms | 193.7 ms |
-| harness floor | 104.5 ms | 94.3 ms | 91.6 ms |
+| lateral median e2e | 2173.2 ms | 2395.2 ms | **1162.4 ms** (median of 5 run medians; range 1094.7–1344.0) |
+| lateral p90 | 2556.2 ms | — | 1285.7–1898.2 ms across runs |
+| vertical median | 184.1 ms | 191.9 ms | 192.6 ms |
+| harness floor | 104.5 ms | 94.3 ms | 81.8 ms (median of 5) |
 
-**Target rule: PASS.** −48.7 % against the 2173.2 ms baseline (−53.4 % against
-the most recent recorded value), versus a ≥ 30 % target. The harness floor moved
-*down*, so the gain is not ambient-load luck. Vertical was not touched and sits
-+0.9 % from its last recorded value — within noise, no regression.
+**Target rule: PASS, in 5 runs out of 5.** −46.5 % against the 2173.2 ms baseline
+at the median of run medians; the **worst** run (1344.0 ms) is still −38.2 %,
+against a ≥ 30 % target and a 1521.2 ms threshold. Vertical was not touched and
+sits +0.4 % from its last recorded value — within noise, no regression.
 
-**The three gate lines the bench prints as MISSED are degenerate, not new
+**Two honest caveats.**
+1. **One contaminated run is on record.** A `full` reading of 1631.6 ms
+   (−24.9 %, i.e. a miss) fell outside the entire 5-run distribution, and its own
+   within-run controls contradicted it: `-recompose` 1038.9 ms, `-filter-git`
+   1065.0 ms, `-filter-recompose` 1103.3 ms and legacy 1146.7 ms all clustered
+   ~500 ms below a `full` that differs from them only by levers measuring 0–6 %.
+   Recorded rather than deleted, because it is the evidence for why this box
+   needs repeats.
+2. **Floor-normalising thins the margin.** Scaling the baseline by the floor
+   ratio (81.8 / 104.5) puts it at ~1701 ms, against which the median is −31.7 %
+   and the worst run −21.0 %. This is **not** the pre-registered rule (which
+   compares raw wall-clock medians) and the floor is a widget-count proxy rather
+   than a CPU-speed one — but it is a real reason to treat the residual as worth
+   chasing, which is what t1395 is for.
+
+**The gate lines the bench still prints as MISSED are degenerate, not new
 misses.** They are t1243_1's *pre-implementation opportunity* gates re-evaluated
 against post-change code: `R_rm5` asks "how much would removing the recompose
-save?" and there is no recompose left on the lateral path (`rc` span 0.0 %,
-`-recompose` ablation 1127.6 ms ≈ full 1115.0 ms). `R_pair` is degenerate for the
-same reason, and t1243_4's `R_rm4` miss was already adjudicated at the checkpoint
-above. **The post-implementation rule that governs this child passed.**
+save?" and there is no recompose left on the lateral path to ablate (`rc` span
+0.0 %). `R_pair` is degenerate for the same reason, and t1243_4's `R_rm4` miss
+was already adjudicated at the checkpoint above. Their post-change values are
+noise, not signal. **The post-implementation rule that governs this child
+passed.** Anyone reading the bench banner after this point should ignore those
+three lines; t1243_14 should retire or re-scope them.
 
 **Residual, recorded honestly.** The ablation predicted 138.6 ms; the real
-transplant lands at 1115.0 ms with **99.1 % unattributed** — the pre-registered
+transplant lands at ~1162 ms with **99.1 % unattributed** — the pre-registered
 "ideal-removal upper bound" caveat behaving exactly as written (the ablation
 removed the recompose by never touching the DOM; a real transplant still mounts
 and pays board-wide layout). Every lever is now at or below the noise floor:
@@ -539,7 +568,10 @@ full.
 and the residual were presented with four options — keep as-is / keep plus a
 follow-up / revise this child's scope now / postpone. No task was edited and no
 code reverted before the choice. **The user chose: keep the implementation and
-file a follow-up.** Applied: **t1395 `board_residual_move_layout_cost`** (anchored
+file a follow-up.** That choice was made against the since-discarded first run
+(1115.0 ms); the corrected 5-run measurement above reaches the **same** verdict —
+target met, residual large — so the decision stands unchanged, and the user was
+told the figures moved. Applied: **t1395 `board_residual_move_layout_cost`** (anchored
 to this topic) owns attributing the ~1.1 s residual — Textual's post-mount
 board-wide layout, `_refocus_card`'s full-tree query and focus-driven scroll, and
 t1243_4's still-unaddressed `_column_widgets()` four-full-DOM-queries defect are
