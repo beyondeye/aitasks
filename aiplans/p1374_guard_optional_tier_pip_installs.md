@@ -27,16 +27,33 @@ sites were left untouched as out of scope — this task closes them.
 
 **Audit finding that widens the scope (user-confirmed).** `setup_python_venv()`
 has the same shape at lines 852 / 860 / 875, and it runs **unconditionally on
-every `ait setup`** (line 3684) — *before* either optional tier. Line 852 is
-`pip install --quiet --upgrade pip`, which always contacts the index, so on an
-offline machine with a completely healthy venv `ait setup` already dies there and
-never reaches `setup_pypy_venv` / `setup_chat_deps` at all. Fixing only the two
-tiers would relocate the reported symptom rather than remove it.
+every `ait setup`** (line 3684) — *before* either optional tier. So the same
+defect class sits on the path every user takes, not only on opt-in tiers.
 
-**Intended outcome:** an offline / flaky-network `ait setup` degrades — warning
-where the tier is optional, dying with the *informative* message where the core
-venv is genuinely broken — instead of aborting partway through on a machine whose
-dependencies are already fine.
+> **Correction, measured during implementation.** The scope widening was
+> originally justified with "line 852 is `pip install --quiet --upgrade pip`,
+> which always contacts the index, so an offline `ait setup` on a healthy machine
+> already dies there". **That is wrong** — measured against real pip (25.x,
+> CPython 3.14) with an unreachable index:
+>
+> | command | rc |
+> |---|---|
+> | `pip install --quiet --upgrade pip` | **0** (requirement already satisfied) |
+> | `pip install --quiet <already-satisfied specs>` | **0** (short-circuits, no index round-trip) |
+> | `pip install --quiet <not-installed spec>` | **1** |
+>
+> So an offline `ait setup` on a fully-healthy machine does **not** abort today,
+> at any of the eight sites. The real trigger is narrower and is the same for the
+> core venv and the tiers: **offline (or a broken index / proxy / TLS path) AND a
+> dependency that is not already satisfied** — e.g. right after a version bump in
+> `AIT_PIP_SPECS_*`, or a first-time `--with-chat` / `--with-dev` opt-in. The fix
+> and the eight-site scope are unchanged and still correct; only this premise
+> was overstated.
+
+**Intended outcome:** when pip genuinely fails, `ait setup` degrades — the
+optional tiers warn (or, for PyPy, remove themselves so the board falls back),
+and the core venv dies with its *informative* message — instead of aborting
+mid-run at a bare `pip install` line with only pip's own error.
 
 ## Approach
 
@@ -263,6 +280,25 @@ functions read no seed file — `AIT_PIP_SPECS_*` in `aitask_setup.sh` is the so
 source — so seed deletion is a non-issue *for them*; the run demonstrates rather
 than assumes that.)
 
+### D2. Real-pip confirmation (added during implementation)
+
+The stub proves the control flow; this proves the *premise*. With the **real**
+pip, the real venv and an unreachable index (`PIP_INDEX_URL=http://127.0.0.1:9/simple`),
+drive the real `setup_chat_deps` with a spec that is not already satisfied —
+the actual offline trigger identified in the Context correction:
+
+```bash
+PIP_INDEX_URL=http://127.0.0.1:9/simple PIP_RETRIES=0 PIP_TIMEOUT=2 \
+bash -c 'set -euo pipefail; source "$1" --source-only
+         AIT_PIP_SPECS_CHAT=("nonexistent-ait-probe-pkg==1.0")
+         AIT_IMPORTS_CHAT=(nonexistent_ait_probe_pkg)
+         setup_chat_deps; echo __REACHED_END__' _ <script>
+```
+
+Guarded source → warns, `__REACHED_END__`, rc 0. The same command against a
+mechanically un-guarded copy → rc 1, no warning, no marker. (Installs nothing:
+the probe package does not exist, so the live venv is unchanged — verified.)
+
 ### E. Lint
 
 ```bash
@@ -274,7 +310,139 @@ bash tests/test_setup_verify_venv_imports.sh   # neighbouring sourcing test unaf
 
 - `.aitask-scripts/aitask_setup.sh` — new helper; 8 call sites; the escalating
   PyPy removal (§2b); 1 explanatory comment in `setup_dev_deps`.
+- `.aitask-scripts/lib/python_resolve.sh` — `resolve_pypy_python()` now requires
+  dependency visibility, not just PyPy identity (see Post-Review Changes §1).
 - `tests/test_setup_pip_install_guards.sh` — new.
+- `tests/test_python_resolve_pypy.sh` — stubs made sentinel-aware; Test 10 added.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-03 12:5x) — removal alone did not produce the fallback
+
+- **Requested by user:** blocking review finding, verified CONFIRMED.
+
+  §2b claimed that removing `$PYPY_VENV_DIR` forces the board onto CPython.
+  `resolve_pypy_python`'s candidate list continues past the venv to
+  `pypy$AIT_PYPY_PREFERRED` and `pypy3` **on PATH** — which is very often the
+  exact system interpreter `find_pypy()` built the venv from. Once the venv is
+  removed for unusable dependencies, resolution simply moved on to that
+  dep-bare system PyPy and the board still died at `import textual`. The new
+  PyPy cases asserted only directory removal, never the resolution outcome, so
+  they would have passed while the promised fallback did not happen.
+
+- **Verified independently, and it is broader than the degrade path.** `pypy3`
+  is a candidate unconditionally, so **any** machine with a system PyPy on PATH
+  got `ait board` launched on a dep-bare interpreter — even one that never ran
+  `ait setup --with-pypy`. That pre-existing defect is fixed by the same change.
+
+- **Changes made:**
+
+  1. `resolve_pypy_python()` now requires **both** PyPy identity **and**
+     dependency visibility. `textual` is the sentinel (every TUI is a Textual
+     app); `importlib.util.find_spec()` locates it without importing it and
+     folds into the single probe subprocess the loop already spawns. Fail-closed:
+     any error rejects the candidate. `find_pypy()` in `aitask_setup.sh` keeps an
+     identity-only probe on purpose — it looks for a bare interpreter to *create*
+     the venv from — and a comment records the asymmetry.
+     Measured cost: probe 17ms → 36ms, once per launch and memoized in
+     `_AIT_RESOLVED_PYPY`. The board settles in ~3s against a 45s budget
+     (`tests/test_board_header_row_live.py`), so +19ms is ~0.6% of a boot.
+     Real resolution on a healthy box is unchanged (still the PyPy venv).
+  2. The §2b comment and the user-facing warning were corrected — removal is
+     *half* the fallback, not all of it.
+  3. **New case 5d** in the guards test drives `setup_pypy_venv` to its degrade
+     **with a dep-bare PyPy planted on PATH**, then asserts the end state:
+     `resolve_pypy_python` returns empty and `require_ait_python_fast` returns
+     the CPython venv. A **positive control** (same stub, deps visible → still
+     selected) proves 5d measures the dependency rather than stub usability.
+  4. `tests/test_python_resolve_pypy.sh`: stubs gained a `has_deps` flag and run
+     the probe under `-S` so dependency visibility is set by the test and never
+     by the host's `python3` (on a dev box that is often the framework venv,
+     which *does* have textual — a dep-bare stub would have passed silently).
+     Their fake `sys.implementation` now copies the real namespace, because the
+     import machinery reads `cache_tag` and constructs the type. Test 10 added.
+
+- **Two test defects found and fixed while doing this** (both would have made a
+  green run meaningless):
+  - `make_mutant` was called inside `$( )`, so its anti-vacuity / parse /
+    sourceability self-checks ran in a **subshell**: their PASS/FAIL updates were
+    discarded and a failure message would have been spliced into the returned
+    path. Proven by probe: with a deliberately non-matching `sed`, the suite
+    still reported 40/40 green. It now returns via a global; the same probe now
+    correctly reports `mutation 'helper' changed nothing`, and the real count rose
+    40 → 46 as the lost self-checks started being counted.
+  - `run_case` inherited the developer's `PATH`, so the host's real
+    `/home/ddt/.local/bin/pypy3.11` — probed *before* `pypy3` — became the
+    resolved candidate instead of the planted stub. Cases now run with
+    `PATH=$home/stubbin:/usr/bin:/bin`.
+
+- **Files affected:** `.aitask-scripts/lib/python_resolve.sh`,
+  `.aitask-scripts/aitask_setup.sh` (comment + message),
+  `tests/test_setup_pip_install_guards.sh`, `tests/test_python_resolve_pypy.sh`,
+  this plan.
+
+### Change Request 2 (2026-08-03 13:1x) — locating one module is not proving the runtime
+
+- **Requested by user:** blocking review finding, verified CONFIRMED on both counts.
+
+  CR1's probe accepted a candidate when `find_spec('textual')` was non-null.
+  That proves only that a package *directory* is discoverable, and only for one
+  module. Two ways it still hands the board a doomed interpreter:
+
+  1. **One module is not the runtime.** `aitask_board.py:6` imports `yaml`
+     directly as well as Textual. A PyPy with textual but without
+     pyyaml / linkify-it-py / tomli passed the probe and crashed on launch.
+  2. **Discoverable is not importable.** Measured: with a `textual/__init__.py`
+     containing `raise ImportError`, `find_spec` still reports present while the
+     import fails — the shape of a broken install, or of a missing *transitive*
+     dependency of Textual itself.
+
+- **Changes made:**
+
+  1. The probe now **imports** the whole required set. The identity check runs
+     first so a non-PyPy candidate costs nothing; only a genuine PyPy pays the
+     imports. Measured on this box: 16ms identity / 32ms find_spec / **186ms
+     full import**, once per launch and memoized in `_AIT_RESOLVED_PYPY`. It is
+     the same import work the board performs ~171ms of immediately afterwards,
+     against a ~3s boot and a 45s budget.
+  2. **Single source of truth for the set.** `AIT_PYPY_RUNTIME_IMPORTS=(textual
+     yaml linkify_it tomli)` now lives in `lib/python_resolve.sh` — the resolver
+     needs it and setup sources that file, never the reverse — and
+     `aitask_setup.sh` *derives* `AIT_IMPORTS_COMMON` from it rather than
+     keeping a second copy.
+  3. **Found while running it for real: the probe leaked stdout.** Under PyPy,
+     `import yaml` prints Cython diagnostic lines. `resolve_pypy_python` echoes
+     the interpreter path on stdout, so the first live run returned
+     `"(_common_types_metatype, 9088, 128, 128)\n…/bin/python"` — every board
+     launch would have exec'd garbage. The probe now discards **both** streams.
+     This could not surface with the CR1 probe, which imported only
+     `importlib.util`.
+
+- **Tests:** `test_python_resolve_pypy.sh` stubs take a deps *profile*
+  (`full` / `none` / `partial` / `broken`) backed by real fake packages, so the
+  probe's behaviour is exercised by a real interpreter:
+  - **Test 11** — textual present, `yaml` absent → rejected.
+  - **Test 12** — all four discoverable, textual's `__init__` raises → rejected.
+  - Positive control — the same stub with the full working set → selected.
+  - The `full` and `broken` fixtures deliberately make `yaml` **print on
+    import**, reproducing the PyPy behaviour above, so the healthy-interpreter
+    assertions double as the guard for the stdout redirection.
+  - Guards test section B gained a **drift guard**: `AIT_PIP_SPECS_COMMON` and
+    `AIT_PYPY_RUNTIME_IMPORTS` must stay the same length (derivation cannot
+    catch a spec added without its import name), plus an assertion that
+    `AIT_IMPORTS_COMMON` really is derived and not a second copy.
+
+- **Negative controls, each flipping only what it should:**
+  - Probe reverted to `find_spec('textual')` → Tests 11 and 12 fail, Test 10 and
+    the control pass.
+  - Probe's `>/dev/null` removed → 4 tests fail, showing the corrupted path.
+  - A spec added to `AIT_PIP_SPECS_COMMON` without its import → drift guard fails
+    (`expected '5', got '4'`).
+
+- **Files affected:** `.aitask-scripts/lib/python_resolve.sh`,
+  `.aitask-scripts/aitask_setup.sh` (derived list),
+  `tests/test_python_resolve_pypy.sh`, `tests/test_setup_pip_install_guards.sh`,
+  this plan.
 
 ## Risk
 
@@ -316,6 +484,61 @@ bash tests/test_setup_verify_venv_imports.sh   # neighbouring sourcing test unaf
 
 ### Planned mitigations
 - timing: after | name: offline_setup_manual_verification | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — the guards are proven against a stub `pip` exiting 1, not a real network partition | desc: On a network-disconnected machine, verify `ait setup` completes with warnings and exit 0 when the venv and all installed tiers are already healthy, and still dies with the `CPython venv still bad (…). Check pip/network` message when a core dep is deliberately removed
+
+## Final Implementation Notes
+
+- **Actual work done:** `pip_install_guarded()` added and all 8 fallible
+  `pip install` sites in `aitask_setup.sh` routed through it
+  (`setup_pypy_venv` 3, `setup_chat_deps` 2, `setup_python_venv` 3); the PyPy
+  degrade path made escalating (full removal → interpreter-only removal → `die`
+  with instructions); `setup_dev_deps` left on its early-return shape with a
+  comment recording why. Beyond the original scope, `resolve_pypy_python()` was
+  hardened to require the whole importable runtime set (CR1 + CR2), with the set
+  single-sourced in `lib/python_resolve.sh` and `AIT_IMPORTS_COMMON` derived from
+  it. Two new/extended test files with negative controls throughout.
+
+- **Deviations from plan:**
+  - The task's suggested `if ! cmd; then warn; return 0; fi` was **not** applied
+    verbatim. Early-return would skip the `verify_venv_*` check that is the only
+    thing able to distinguish "network down" from "venv broken" — it would warn
+    that a healthy chat tier is broken, and skip PyPy's remove-and-fall-back.
+    The helper warns and lets each caller's existing verification decide.
+  - Scope widened to `setup_python_venv` (user-approved) and then, via review,
+    to `lib/python_resolve.sh`.
+
+- **Issues encountered:**
+  - The scope-widening premise was **wrong** and is corrected in Context above:
+    real pip exits 0 offline for `--upgrade pip` and for already-satisfied specs,
+    so a healthy offline machine never aborted. The real trigger is offline (or a
+    broken index/proxy/TLS path) **and** an unsatisfied dependency.
+  - Three defects in my own tests, each of which would have made a green run
+    meaningless: `make_mutant` running inside `$( )` (self-checks lost to a
+    subshell — a deliberately non-matching `sed` still reported 40/40 green);
+    `run_case` inheriting the developer's `PATH` (the host's real `pypy3.11`,
+    probed before `pypy3`, displaced the planted stub); and stubs whose
+    dependency visibility came from the host's `python3` rather than the test
+    (fixed with `-S` plus fake package trees).
+  - A stub-fidelity trap: a minimal fake `sys.implementation` breaks the import
+    machinery (`cache_tag`, then "takes no arguments"). The stubs now copy the
+    real namespace and override only `.name`.
+  - **The probe leaked stdout.** `import yaml` under PyPy prints Cython
+    diagnostics, and `resolve_pypy_python` returns the interpreter path on
+    stdout, so the first live run returned noise prepended to the path — every
+    board launch would have exec'd it. Both streams are now discarded.
+
+- **Key decisions:**
+  - The guard helper **always returns 0** by design; returning pip's status would
+    relocate the abort to every call site. Documented in-code so it is not
+    "simplified" away.
+  - The PyPy degrade may `die` — a deliberate exception to "an optional tier
+    never blocks setup" — because leaving a selectable, dependency-broken PyPy is
+    worse than stopping with instructions.
+  - The fast-path probe imports rather than locates, accepting ~154ms once per
+    `ait board` launch (memoized) to avoid handing the board an interpreter that
+    cannot run it.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:650,684 — install_pypy()/_install_pypy_linux() abort all of `ait setup` via `die` when the PyPy INTERPRETER cannot be installed (e.g. `uv python install` offline). Same defect class as this task fixed for pip: an opt-in tier taking down the core install. `ait setup --with-pypy` on an offline machine dies instead of warning and continuing without the fast path. Out of scope here (this task covers `pip install` sites only); the macOS branch `_install_pypy_macos` (~line 590-612) needs the same audit.`
 
 ## Step 9 (Post-Implementation)
 
