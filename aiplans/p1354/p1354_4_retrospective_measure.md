@@ -516,6 +516,231 @@ machine is idle now (load 1.76); N=6/8 runs take 6–8 of 24 cores.
 ### Planned mitigations
 - timing: after | name: syncer_inherited_test_dup_guard | type: test | priority: low | effort: low | addresses: code-health — the duplicate-inheritance pattern can silently return | desc: Structural guard asserting no `tests/test_*.py` class subclasses another class in the same module that defines its own `test_*` methods (the base's tests are then re-executed once per subclass — 75 wasted boots in test_syncer_rows.py before t1354_4). Reuse the AST scan written during t1354_4 planning, which found exactly one tree-wide instance; ship with a negative control proving the guard flags a synthetic offender.
 
+## Measured results
+
+Machine: 24 cores. Pinned **code `6c487b8be`** / **data `a47b40bc7`**, in the
+`../t1354_4_pre` and `../t1354_4_post` snapshot worktrees. Ambient load across
+the campaign 0.84–3.94 (the box quietened to ~1 partway through, after a
+concurrent agent's benchmark finished). Every suite run below **PASSED**.
+
+The snapshot earned its keep immediately: the primary checkout carried another
+session's uncommitted work, including an **untracked `tests/test_board_render_scoping.py`**
+that the runner's `test_*.py` glob would have swept into every measurement.
+
+### Suite wall clock — one denominator
+
+| lane | pre-dedup | post-dedup | tests |
+|---|---|---|---|
+| unittest serial (**no dev tier — what a user has by default**) | **408.4s** | — | 3136 |
+| pytest serial (`AIT_TEST_PARALLEL=0`) | 424.4s | 380.6s | 3135 → 3060 |
+| xdist `-n 1` | 423.7s | — | 3135 |
+| xdist `-n 2` (the old default; median of 3 interleaved) | **221.3s** | **200.1s** | 3135 → 3060 |
+| xdist `-n 4` | 143.3s | **111.3s** / 115.6s | 3135 → 3060 |
+| xdist `-n 6` | 145.1s | 101.0s | 3060 |
+| xdist `-n 8` | 145.5s | 101.4s | 3060 |
+| **shipping state** (load-aware default → `-n 4`, quiet box) | — | **115.6s** | 3060 |
+
+**Headline: 408.4s → 115.6s = 3.53x** against what a user without the dev tier
+has today.
+
+Two `-n 4` post-dedup samples are recorded (111.3s and 115.6s, 3.9% apart)
+rather than the more flattering one. That spread is the honest run-to-run
+variance of the single-sample curve points; it changes no decision here, because
+every effect the decisions rest on is a 40%+ effect.
+
+### The structural result — where the time actually goes
+
+Derived from `--durations=0` on the serial-pytest runs, i.e. measured in the
+lane's own backend on both sides, never by cross-backend subtraction:
+
+| quantity | pre-dedup | post-dedup |
+|---|---|---|
+| `W_pool` (total work, 110–111 pool modules) | 410.9s | 366.4s |
+| `F_pool` (slowest single file — `test_syncer_rows.py` both times) | 133.1s | 87.1s |
+| crossover `N* = W_pool / F_pool` | **3.09** | **4.21** |
+| `T_carve` (serial carve-out phase, N-invariant) | 3.71s | 3.71s |
+
+**`M(N) ≈ max(F_pool, W_pool/N) + ε + T_carve` holds.** Residual ε = +6.5 to
++9.1s pre-dedup, +10.1 to +16.0s post-dedup (worker startup + scheduling
+imbalance). Modelling the suite as a single pool would have been wrong — the
+carve-out is a genuinely additive second phase — but at 3.71s it is a small
+constant, not the distortion the plan budgeted for. The 45s figure in the
+runner's comment is a *boot budget*, not a cost.
+
+The plateau is the whole story: **pre-dedup the suite cannot go below ~143s at
+any worker count**, because one file is 133.1s of it. Post-dedup the wall moves
+to ~101s.
+
+### Per-file sweep (unittest per module, method-identical to the 2026-07-31 baseline)
+
+180 modules, sum **424.4s**, every module exit 0.
+
+| file | 2026-07-31 | today | note |
+|---|---|---|---|
+| `test_syncer_rows.py` | 124s | **125.2s** (211 tests) | untouched by t1354_1–3, as expected |
+| `test_board_bytrail_view.py` | 165s | **40.2s** | t1354_1 fixture migration (tree has grown since) |
+| `test_board_movement.py` | — | 27.8s | |
+| `test_board_scroll_focus_jump.py` | — | 21.2s | the one 1.1x migration in t1354_2 |
+
+### The de-duplication — decisive interleaved comparison
+
+`A/B/A/B/A/B` at N=2 across the two pinned trees, 3 samples each:
+
+- pre-dedup: median **221.3s** (221.1 / 221.3 / 221.5 — spread 0.4s)
+- post-dedup: median **200.1s** (198.0 / 200.1 / 204.8 — spread 6.8s)
+- **effect: −21.2s (9.6%), 1.106x**
+- CPU cross-check (contention-insensitive): 240.6s → 227.9s, −12.7s
+- Contamination rule (wall >10% off group median while CPU within 3%):
+  **no samples flagged**
+
+Test count 3135 → 3060 = **−75 exactly**. That is removed *duplicate
+executions*, **not lost coverage** — see the three proofs below.
+
+### Predictions written before measuring — three falsified
+
+Recorded so they could be falsified, and they were:
+
+| prediction | measured | verdict |
+|---|---|---|
+| `test_syncer_rows.py` ~62s post-dedup | **87.1s** | **falsified** — the file carries ~20s of non-boot fixed cost, so time is not proportional to boot count |
+| `W_pool` −62s | **−44.5s** | **falsified**, same cause |
+| crossover `N*` ≈ 6 | **4.21** | **falsified** — `F_pool` was 133.1s, not the 124s assumed |
+| N=2 total ~190s | 200.1s | slightly optimistic |
+
+### Flake probe
+
+**18 full-suite runs** across the campaign (including N=8, the worst
+contention) plus 3 carve-out runs: **zero failures, zero flakes.** No
+contention-only failure appeared, so no flake follow-up is warranted —
+discharging the repeat-run flake hunting t1354_3 deferred to this child.
+
+## Dispositions
+
+### Parent projections — accepted as the settled read-out (USER DECISION 2026-08-03)
+
+- **Fixtures → ~280s: MISSED.** Measured 408.4s unittest serial. The projection
+  was computed against the smaller pre-t1354_1 tree; the suite grew from ~2900
+  to 3136 tests in the meantime, so the target moved underneath it.
+- **+xdist → 60–120s: MET by the shipping configuration.** Missed at the old
+  `-n 2` default (221.3s), but the load-aware default lands at **115.6s** on a
+  machine with headroom — inside the band — and `-n 6` reaches 101.0s.
+
+t1354 closes on these numbers; no further in-family work opened.
+
+### Worker count — made dynamic (USER DECISION 2026-08-03)
+
+Rather than choosing one constant, the default is now **load-aware: 4 when the
+box has headroom (≥4 cpus and 1-min load ≤ cpus/2), 2 otherwise.** This resolves
+the tension the original cap existed for — N=4 is 1.80x faster than N=2 for ~10%
+more CPU, but taking 4 cores unconditionally would starve the ~10 agents that
+commonly run here.
+
+The load-dependence is confined behind `AIT_TEST_LOADAVG` / `AIT_TEST_NCPU`
+**test seams**, because a load-dependent argv would otherwise make
+`test_python_runner_exit_status.sh` machine- and moment-dependent — precisely
+the defect class t1354_3's blocking xdist shim was added to remove.
+
+### Split of `test_syncer_rows.py` — NOT DONE, and the arithmetic says why
+
+The rule was: split only if `F_pool` binds at the chosen default **and** the
+saving is ≥20%. At the shipping default `N=4`:
+
+```
+W_pool / 4 = 91.6s   >   F_pool = 87.1s      → the floor is NOT binding
+```
+
+Total work ÷ workers still dominates, so splitting the file would buy **≈0** at
+N=4. It only begins to pay at **N ≥ 6**, where `W_pool/6 = 61.1s < 87.1s` and
+the file becomes the sole constraint — there, splitting into ~3 whole-class
+pieces would drop the floor toward `test_board_bytrail_view.py` (38.7s) and take
+N=6 from 101.0s to roughly 75s. Recorded for whoever raises the default past 4;
+the de-duplication already moved the crossover from 3.09 to 4.21.
+
+## Final Implementation Notes
+
+- **Actual work done:** the measurement campaign (18 full-suite runs + a
+  180-module per-file sweep, all in pinned snapshot worktrees), plus three code
+  changes the data justified:
+  1. `tests/test_syncer_rows.py` — `TabbedShellTests` split into a test-free
+     `_TabbedShellBase` (the four boot helpers) and a concrete
+     `TabbedShellTests` holding its 25 tests; `VersionsTabTests`,
+     `UpgradeActionTests` and `SettingsTabTests` re-pointed at the base. Pure
+     moves, no test-logic edits. 211 → 136 collected.
+  2. `tests/run_all_python_tests.sh` — the fixed `-n 2` default replaced by a
+     load-aware `default_workers()` (4 with headroom, 2 under load), behind
+     `AIT_TEST_LOADAVG` / `AIT_TEST_NCPU` test seams. A malformed
+     `AIT_TEST_WORKERS` now falls back to that same default rather than a second
+     hard-coded constant, so "the default" has one meaning. The auto-selected
+     count is announced on stderr.
+  3. `tests/test_python_runner_exit_status.sh` — the default-path assertion was
+     machine-dependent the moment the default became load-aware, so it now
+     drives **both** branches through the seams, plus a small-box case (an
+     idle 2-cpu machine must still get 2) and a stronger override test. 56 → 61
+     assertions.
+  4. `CLAUDE.md` — knob table updated with the measured basis.
+
+- **Deviations from plan:** four, all recorded above in place.
+  1. **The split was not done** — the plan allowed for it, the measured
+     arithmetic ruled it out at the chosen default (`W_pool/4 = 91.6s >
+     F_pool = 87.1s`). See "Dispositions".
+  2. **The worker count became dynamic rather than a constant** (USER
+     DECISION). This was not in the plan, which offered only "keep 2 / raise
+     to N". It required the test-seam design to keep the runner's argv
+     contract deterministic.
+  3. **The contamination gate was recalibrated from load<3.0 to load<6.0**
+     (USER DECISION) after the box's ambient load turned out to be ~4.5, making
+     the planned threshold unsatisfiable. It became moot: a concurrent agent's
+     benchmark finished and the box quietened to ~1 for most of the campaign.
+  4. **One per-file sweep, not two backends** — stated AC deviation, recorded
+     in the plan's correction 5.
+
+- **Issues encountered:**
+  - **A concurrent session made the primary checkout unusable as a measurement
+    surface**, exactly as the plan anticipated: untracked `tests/test_board_render_scoping.py`
+    (reachable by the runner's glob) plus modified `aitask_board.py` and
+    `aitask_setup.sh`. The pinned snapshots isolated all of it. Main also
+    advanced twice mid-task (`4f6c0b319` → `6c487b8be` → `2b754b59d`); the
+    measurements stay attributable because both halves were pinned by SHA.
+  - **I had to abort the first campaign.** Another agent was recording a
+    timing-sensitive board benchmark on the same box; my suite run was
+    contaminating it and vice versa. Killed mine (the warm-up is discarded
+    anyway) and restarted after theirs finished. The orphaned pytest pool
+    survived `pkill` on the script name and needed a process-group kill.
+  - **`setsid` broke background-completion tracking** — it forks and returns
+    immediately, so the harness reported the campaign "complete" seconds after
+    launch while it ran on detached. Needed an explicit
+    wait-for-sentinel poller.
+  - **`/usr/bin/time` is not installed here**; the harness uses bash's `time`
+    keyword with `TIMEFORMAT` instead.
+
+- **Key decisions:**
+  - **De-duplicate rather than split.** The 75 duplicate executions were ~50%
+    of the file's boots and cost ~46s; removing them reduces *total work*, which
+    helps at every worker count, whereas splitting only lowers the floor and
+    does nothing below the crossover.
+  - **Load-dependence confined behind test seams.** Injecting both load and cpu
+    count keeps `test_python_runner_exit_status.sh` deterministic on any
+    machine — including small boxes, where a real `os.cpu_count()` under 4 would
+    otherwise silently turn the quiet-box case into the loaded-box case.
+  - **Predictions written down before measuring.** Three were falsified and are
+    reported as such rather than quietly dropped.
+  - **Both `-n 4` samples reported** (111.3s / 115.6s), not the flattering one.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** t1354_4 is the last child; t1354 archives with
+  it. For anyone revisiting suite performance:
+  - **The suite's floor is one file.** `test_syncer_rows.py` is 87.1s of 366.4s
+    total work post-dedup. Past `N=4` it is the sole constraint, and no worker
+    count fixes that — only splitting it (into ~3 whole-class pieces, dropping
+    the floor toward `test_board_bytrail_view.py` at 38.7s) would.
+  - **Adding a test class that subclasses another test-defining class silently
+    re-runs the base's tests once per subclass.** That cost 75 boots here. The
+    `syncer_inherited_test_dup_guard` follow-up makes it non-recurring.
+  - **Measure in a pinned snapshot worktree**, not the working checkout — the
+    recipe is in "Measurement surface" above, and it caught real pollution
+    twice in this task alone.
+
 ## Step 9 (Post-Implementation)
 
 Current-branch mode (profile `fast`): no worktree to remove — the three

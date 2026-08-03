@@ -434,3 +434,69 @@ Step 9's `ait gates run` covers `risk_evaluated` (the task's active gate set).
 - `_other_card_text`'s column budget is asserted at width 40 only; t1351's
   broader row-width audit is a separate task and this row is designed to fit
   under its stated budget · severity: low · → mitigation: TBD
+
+## Final Implementation Notes
+
+- **Actual work done:** All three fixes landed as planned.
+  - *Fix A* — `monitor_core._parse_list_panes` now calls the new
+    `TmuxMonitor._is_companion_pane(pane_id, pane_pid, session_name)`
+    unconditionally, dropping the `category == PaneCategory.AGENT and` conjunct.
+    The memo caches **only confirmed companions** (`_companion_memo`, keyed
+    `pane_id → (pane_pid, session, cached_at)`), with a 300 s
+    `_COMPANION_MEMO_TTL` backstop, an injectable `_monotonic` clock seam, and a
+    session-scoped `_evict_companion_memo` sweep driven by a `seen` set built in
+    the parse loop. `_is_companion_process` itself is unchanged, so
+    `find_companion_pane` and `kill_agent_pane_smart` keep calling it directly.
+  - *Fix B* — `minimonitor_app._rebuild_pane_list` partitions into
+    `agents` / `others`, mounts a bold `── other (n) ──`
+    (`.mini-section-header`) header when `others` is non-empty, and renders each
+    via the new `_other_card_text`. The session-divider block was factored into
+    a local `append_group(snaps, text_fn)` shared by both sections.
+    Guards added to `action_cycle_compare_mode` and `action_show_task_info`, and
+    to the shared `AgentMarksMixin.action_toggle_mark`.
+  - *Fix C* — new `_find_own_window_snapshot` (identity seam) backs the docked
+    panel, the list exclusion, and `_find_sibling_pane_id`; the header reads
+    `── this window ──` when the resolved pane is not an AGENT.
+    `_find_own_agent_snapshot` (action seam) is untouched.
+- **Deviations from plan:**
+  - `_other_card_text` uses **two** leading spaces, not three as sketched in the
+    plan; the budget arithmetic in its docstring is the two-space version and
+    still totals 36 of ~38 columns.
+  - The composited-screen width assertion uses a local 40-column `_RowHost`
+    App that mounts one `MiniPaneCard` with minimonitor's own CSS metrics,
+    rather than the `_screen_text`/`_flat` helpers named in the plan. Booting a
+    full `MiniMonitorApp` would have needed a real `TmuxMonitor`; the host gives
+    a genuine compositor pass at the true width without it.
+  - The plan listed `action_launch_shadow_pick` (`E`) as needing a guard. It
+    does not: it resolves through `_find_own_agent_snapshot`, which is
+    AGENT-only. Verified during planning and left unchanged.
+- **Issues encountered:**
+  - The negative control for the memo caught a bug in the **test**, not the
+    source: `test_same_pid_exec_transition_is_seen_on_the_next_pass` asserted
+    `"%2" not in _companion_memo` *after* the exec, where a memo entry is
+    correct (the pane is by then a confirmed companion). Fixed by snapshotting
+    the memo right after the negative pass and asserting against that snapshot,
+    and by ordering the behavioural assertion before the structural one so the
+    control trips on the user-visible consequence.
+  - Two negative controls initially failed with `AttributeError` rather than an
+    assertion (unstubbed collaborators on the post-guard happy path, and an
+    `IndexError` on an empty header list). Both test helpers were tightened so
+    every control now fails as a clean assertion.
+- **Key decisions:**
+  - **Never cache a negative companion verdict, at any TTL.** The launch chain
+    execs in place (`ait` → `aitask_monitor.sh:62` →
+    `exec python monitor/monitor_app.py`), so a companion's cmdline flips
+    `False → True` under an unchanged pid — the one direction a cached negative
+    would hide, and it would hide it for as long as the pane lived. This also
+    removed the need for the platform-split (`/proc` vs `ps`) memo an earlier
+    revision of the plan proposed.
+  - Prefix classification is kept; a renamed window is uncategorized by design,
+    so own-agent keys (`k`/`n`/`e`/`E`/`I`) keep refusing there. Only visibility
+    and companion-hiding were fixed.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:_find_sibling_pane_id` — the raw
+    `list-panes` fallback ("first pane in the window that is not me") still has
+    no shadow filter, so it can select a shadow pane. This change narrows the
+    exposure a lot (the fallback is now reached only when no snapshot resolves
+    at all, e.g. `_own_window_index` unset) but does not close it; the fallback
+    could filter on `@aitask_shadow_target` the way discovery does.
