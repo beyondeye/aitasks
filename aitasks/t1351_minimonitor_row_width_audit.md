@@ -8,7 +8,7 @@ labels: [aitask_monitormini, tui]
 gates: [risk_evaluated]
 anchor: 1326
 created_at: 2026-07-30 10:34
-updated_at: 2026-07-30 10:34
+updated_at: 2026-08-03 16:08
 boardidx: 850
 ---
 
@@ -50,6 +50,27 @@ name length.
       status verbosity, or a second line
 - [ ] Any change is confirmed by a real tmux capture at 40 columns, not only by
       Textual's headless renderer
+
+## Incoming scope: cell-width-aware truncation (from t1382)
+
+t1382 added an `other` section to the minimonitor pane list and, in review,
+confirmed a defect that applies to **every** row in this file: the name/command
+caps use `len()`, which counts code points rather than terminal cells. A window
+name of 20 double-width (CJK / emoji) characters occupies 40 cells, so the row
+overflows and Rich clips it — measured on the new `other` row at 36 code points
+/ **64 cells** against the 38-cell budget.
+
+It was dispositioned as a follow-up and routed here rather than fixed in t1382,
+because `_agent_card_text` has the identical flaw and is the far more common
+row: fixing one without the other would leave the audit's budget claim untrue.
+
+- [ ] Replace the `len()`-based caps in `_agent_card_text` and
+      `_other_card_text` with cell-width-aware truncation
+      (`rich.cells.cell_len` / `set_cell_size`)
+- [ ] Add a double-width case to the budget assertions — see the note in
+      `test_row_fits_the_column_budget` (`tests/test_minimonitor_other_section.py`),
+      which currently pins single-cell input only and says so
+- [ ] State the budget in **cells**, not code points, wherever it is documented
 
 ## Reference
 
