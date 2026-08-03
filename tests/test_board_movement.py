@@ -34,6 +34,7 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import shutil
@@ -186,6 +187,10 @@ class Probe:
         self.first_deferred_start: float | None = None
         self.filter_event: asyncio.Event | None = None
         self.refocus_event: asyncio.Event | None = None
+        # True while `_scroll_into_view_after_layout` still has a re-queue
+        # outstanding, i.e. the moved card is focused but NOT yet on screen.
+        # The timed region must not close on such a sample (t1243_5).
+        self.scroll_pending = False
 
     # -- span bookkeeping ----------------------------------------------------
 
@@ -289,11 +294,26 @@ def _install_probe(B, probe: Probe, ablate=()):
             return wrapper
         setattr(B.KanbanApp, attr, make(orig))
 
-    # End of synchronous key handling — the left edge of the deferral interval.
+    # End of the action body — the left edge of the deferral interval.
+    #
+    # `_move_task_lateral` and `_move_task_to_extreme` are coroutine functions
+    # (t1243_5: they await the DOM transplant's remove/mount), while
+    # `_move_task_vertical` stays synchronous. A sync wrapper around a coroutine
+    # function would stamp `sync_end` at coroutine CREATION — before any of the
+    # work — so the two are wrapped differently. `iscoroutinefunction` is read
+    # off the original at install time, not guessed per method name.
     for attr in ("_move_task_lateral", "_move_task_vertical", "_move_task_to_extreme"):
         orig = getattr(B.KanbanApp, attr)
 
         def make(orig):
+            if inspect.iscoroutinefunction(orig):
+                async def wrapper(self_, *a, **kw):
+                    try:
+                        return await orig(self_, *a, **kw)
+                    finally:
+                        probe.sync_end = time.perf_counter()
+                return wrapper
+
             def wrapper(self_, *a, **kw):
                 try:
                     return orig(self_, *a, **kw)
@@ -301,6 +321,39 @@ def _install_probe(B, probe: Probe, ablate=()):
                     probe.sync_end = time.perf_counter()
             return wrapper
         setattr(B.KanbanApp, attr, make(orig))
+
+    # The post-move scroll can outlive the refocus (t1243_5). `_refocus_card`
+    # returns as soon as it SCHEDULES `_scroll_into_view_after_layout` for a card
+    # that has no layout yet, and that helper then re-queues itself until the
+    # card is laid out. Closing the timed region on the refocus alone would
+    # exclude the work that actually puts the moved card on screen — and let it
+    # bleed into the NEXT sample's window. So the refocus defers the close to the
+    # scroll chain whenever one is outstanding.
+    #
+    # Nothing changes for a card that is already laid out (every pre-t1243_5 path
+    # and the whole vertical axis): no helper runs, so the refocus closes the
+    # region exactly as before.
+    orig_scroll = B.KanbanApp._scroll_into_view_after_layout
+
+    def _scroll_wrapper(orig):
+        def wrapper(self_, card, hops=None):
+            # Resolve the default from the production constant rather than
+            # copying its value, so the two cannot drift.
+            if hops is None:
+                hops = self_._SCROLL_LAYOUT_HOPS
+            probe.scroll_pending = True
+            try:
+                return orig(self_, card, hops)
+            finally:
+                # Terminal exactly when the production helper stops re-queueing:
+                # it scrolled (the card now has a layout), it exhausted its
+                # budget, or it lost the card.
+                if card.region.area or hops <= 0 or not card.is_attached:
+                    probe.scroll_pending = False
+                    if probe.refocus_event is not None:
+                        probe.refocus_event.set()
+        return wrapper
+    B.KanbanApp._scroll_into_view_after_layout = _scroll_wrapper(orig_scroll)
 
     # The LAST deferred callback every move path queues — the true
     # "keypress fully applied" signal, and the timed region's close condition.
@@ -310,10 +363,12 @@ def _install_probe(B, probe: Probe, ablate=()):
         def make(orig):
             def wrapper(self_, *a, **kw):
                 probe.mark_deferred()
+                probe.scroll_pending = False
                 try:
                     return orig(self_, *a, **kw)
                 finally:
-                    if probe.refocus_event is not None:
+                    # A scroll chain started inside `orig` owns the close.
+                    if not probe.scroll_pending and probe.refocus_event is not None:
                         probe.refocus_event.set()
             return wrapper
         setattr(B.KanbanApp, attr, make(orig))

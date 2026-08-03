@@ -2828,15 +2828,29 @@ class KanbanColumn(VerticalScroll):
                 placeholder.styles.display = "none"
             yield placeholder
             for task in tasks:
-                yield TaskCard(task, self.manager, column_id=self.col_id)
-                # Render children if parent is expanded
-                if task.filename in self.expanded_tasks:
-                    task_num, _ = TaskCard._parse_filename(task.filename)
-                    children = self.manager.get_child_tasks_for_parent(task_num)
-                    for child in children:
-                        with Horizontal(classes="child-wrapper"):
-                            yield Static("↳", classes="child-connector")
-                            yield TaskCard(child, self.manager, is_child=True, column_id=self.col_id)
+                yield from self.task_block(task)
+
+    def task_block(self, task):
+        """The widgets one task contributes to this column.
+
+        Its `TaskCard`, plus — when the parent is expanded — one
+        `.child-wrapper` row per child task.
+
+        Shared with the lateral / to-edge DOM transplant
+        (`KanbanApp._transplant_block`), which mounts it through
+        `mount_compose` so a moved block is built by exactly the code that
+        composed it in the first place. Keeping ONE generator is what stops a
+        transplanted card from drifting from a composed one.
+        """
+        yield TaskCard(task, self.manager, column_id=self.col_id)
+        # Render children if parent is expanded
+        if task.filename in self.expanded_tasks:
+            task_num, _ = TaskCard._parse_filename(task.filename)
+            children = self.manager.get_child_tasks_for_parent(task_num)
+            for child in children:
+                with Horizontal(classes="child-wrapper"):
+                    yield Static("↳", classes="child-connector")
+                    yield TaskCard(child, self.manager, is_child=True, column_id=self.col_id)
 
     def on_mount(self):
         if self.collapsed:
@@ -6552,9 +6566,42 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         for card in self.query(TaskCard):
             if card.task_data.filename == filename and card.styles.display != "none":
                 card.focus()
+                # `TaskCard.on_focus` scrolls synchronously (t1248), but
+                # `scroll_visible` silently does nothing for a widget with no
+                # size — and a card MOUNTED IN THIS CYCLE has none yet, so the
+                # transplant's card would end up focused but off-screen
+                # (t1243_5). Guarded on the missing layout, so every path whose
+                # card is already laid out is untouched.
+                if not card.region.area:
+                    self._scroll_into_view_after_layout(card)
                 return
         if fallback_col_id:
             self._refocus_column(fallback_col_id)
+
+    #: Refresh hops to wait for a just-mounted card's layout before giving up on
+    #: scrolling it into view. Measured need is 2 (the size lands on the third
+    #: callback); the margin absorbs a slower frame without ever spinning.
+    _SCROLL_LAYOUT_HOPS = 5
+
+    def _scroll_into_view_after_layout(self, card, hops: int = _SCROLL_LAYOUT_HOPS):
+        """Scroll `card` into view once the layout pass has given it a size.
+
+        A card mounted by `_transplant_block` has no size until the screen's
+        next layout, and `scroll_visible` is a silent no-op until then. The
+        recompose path never hit this: it drops its mount awaitables, so its
+        deferred refocus naturally lands after the pump has done the layout.
+        Awaiting the mount inside the action instead BLOCKS that pump, so the
+        refocus runs two hops early.
+
+        Re-queues until the card is laid out, bounded so a card that never gets
+        a size — filtered out, or its column removed underneath it — cannot spin.
+        """
+        if card.region.area:
+            card.scroll_visible(animate=False, immediate=True)
+            return
+        if hops > 0 and card.is_attached:
+            self.call_after_refresh(self._scroll_into_view_after_layout,
+                                    card, hops - 1)
 
     def _queue_refocus(self, refocus_filename: str = "", refocus_col_id: str = ""):
         """Queue a post-refresh focus restore: by task filename, else by column."""
@@ -8571,13 +8618,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     # --- Task Movement ---
 
-    def action_move_task_right(self):
-        self._move_task_lateral(1)
+    async def action_move_task_right(self):
+        await self._move_task_lateral(1)
 
-    def action_move_task_left(self):
-        self._move_task_lateral(-1)
+    async def action_move_task_left(self):
+        await self._move_task_lateral(-1)
 
-    def _move_task_lateral(self, direction):
+    async def _move_task_lateral(self, direction):
         focused = self._focused_card()
         if not focused: return
         if focused.is_child: return
@@ -8602,13 +8649,49 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         if 0 <= new_idx < len(cols):
             new_col = cols[new_idx]
+            task = focused.task_data
             # One write, in the destination only. The source column still needs
             # a repaint below, but no longer a rewrite (t1243_3). The dirty marker
             # comes from the write itself (`_mark_written`) rather than from a
             # `git status` subprocess per keypress (t1243_4).
             self.manager.move_task_to_column(filename, new_col)
-            self.refresh_columns({current_col_id, new_col}, refocus_filename=filename,
-                                 refocus_col_id=new_col)
+
+            def _full_refresh():
+                self.refresh_columns({current_col_id, new_col},
+                                     refocus_filename=filename,
+                                     refocus_col_id=new_col)
+
+            # `unordered` appears and disappears with its tasks, and only
+            # `refresh_columns` can express "the column is gone" (it escalates
+            # to a full `refresh_board`). A transplant cannot, so decline the
+            # fast path rather than desynchronise the board. Rare by
+            # construction: `unordered` exists only while some task has no
+            # `boardcol`.
+            if "unordered" in (current_col_id, new_col):
+                _full_refresh()
+                return
+
+            src_col = dst_col = None
+            for col in self.query(KanbanColumn):
+                if col.col_id == current_col_id:
+                    src_col = col
+                if col.col_id == new_col:
+                    dst_col = col
+            if src_col is None or dst_col is None:
+                _full_refresh()
+                return
+
+            # Append: `move_task_to_column` places past the destination maximum,
+            # so the task sorts last there.
+            if await self._transplant_block(task, src_col, dst_col,
+                                            refocus_col_id=new_col):
+                self._sync_header_count(src_col)
+                self._sync_header_count(dst_col)
+                # Synchronous: the awaits above settled the DOM, so the deferral
+                # `refresh_columns` needs (to avoid racing compose) does not
+                # apply. Same shape `_swap_adjacent_cards` already uses.
+                self.apply_filter({current_col_id, new_col})
+                self.call_after_refresh(self._refocus_card, filename, new_col)
 
     def action_move_task_up(self):
         self._move_task_vertical(-1)
@@ -8616,26 +8699,42 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def action_move_task_down(self):
         self._move_task_vertical(1)
 
-    def _swap_adjacent_cards(self, col_widget, card_above, card_below):
-        """Swap two adjacent TaskCard blocks in the DOM without rebuilding.
+    def _card_block(self, col_widget, card) -> list:
+        """A parent card plus the `.child-wrapper` rows that belong to it.
 
-        A 'block' is a TaskCard followed by zero or more child-wrapper
-        Horizontal widgets (present when a parent task is expanded).
+        An expanded parent's child rows are SIBLINGS that follow its card, so
+        every DOM operation on a card has to carry them along. `ColumnHeader`
+        and `EmptyColumnPlaceholder` only ever precede the first card, so
+        "stop at the first non-wrapper" is a complete rule.
+
+        Shared by the vertical swap below and the lateral / to-edge transplant.
         """
         children = list(col_widget.children)
+        idx = children.index(card)
+        block = [card]
+        for widget in children[idx + 1:]:
+            if isinstance(widget, Horizontal) and widget.has_class("child-wrapper"):
+                block.append(widget)
+            else:
+                break
+        return block
 
-        def _block(card):
-            idx = children.index(card)
-            block = [card]
-            for i in range(idx + 1, len(children)):
-                w = children[i]
-                if isinstance(w, Horizontal) and w.has_class("child-wrapper"):
-                    block.append(w)
-                else:
-                    break
-            return block
+    def _find_parent_card(self, col_widget, filename: str):
+        """The non-child `TaskCard` for `filename` among a column's DIRECT children.
 
-        below_block = _block(card_below)
+        Deliberately not `query()`: Textual 8.2.7 walks the whole tree wherever
+        a query is rooted (see `_filter_units`), and a movement path already
+        holds the column widget.
+        """
+        for widget in col_widget.children:
+            if (isinstance(widget, TaskCard) and not widget.is_child
+                    and widget.task_data.filename == filename):
+                return widget
+        return None
+
+    def _swap_adjacent_cards(self, col_widget, card_above, card_below):
+        """Swap two adjacent TaskCard blocks in the DOM without rebuilding."""
+        below_block = self._card_block(col_widget, card_below)
         anchor = card_above
         for widget in below_block:
             col_widget.move_child(widget, before=anchor)
@@ -8643,6 +8742,77 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Scoped: a DOM reorder inside one column cannot change what any other
         # column displays.
         self.apply_filter({col_widget.col_id})
+
+    def _sync_header_count(self, col_widget) -> None:
+        """Repaint a column header's task count after an in-place DOM change.
+
+        `ColumnHeader` bakes `task_count` in at construction, so a transplant
+        that skips the recompose would leave both headers stale — the recompose
+        used to refresh them for free. Reads the manager (unfiltered), matching
+        what `KanbanColumn.compose` puts there.
+        """
+        header = next((w for w in col_widget.children
+                       if isinstance(w, ColumnHeader)), None)
+        if header is None:
+            return
+        count = len(self.manager.get_column_tasks(col_widget.col_id))
+        if header.task_count != count:
+            header.task_count = count
+            header.refresh(recompose=True)
+
+    async def _transplant_block(self, task, src_col, dst_col, *, before=None,
+                                refocus_col_id: str = "") -> bool:
+        """Move one task's DOM block between (or within) columns, no recompose.
+
+        Textual 8.2.7 offers no cross-parent widget move: `move_child` refuses a
+        foreign child, and `mount()` on a live widget is a SILENT no-op because
+        `App._register` short-circuits on the app registry. So the old widgets
+        are pruned and the block is rebuilt from `KanbanColumn.task_block`.
+        Rebuilding is not a workaround — it is what keeps `column_id` (read at
+        17 sites) and the dirty `*` marker correct by construction.
+
+        **The caller has ALREADY committed the model write.** So this helper owns
+        its recovery: on any failure it recomposes the affected columns from the
+        committed model and returns False, rather than leaving a task the model
+        says exists and the board renders nowhere. It never propagates either —
+        an exception escaping an async action reaches Textual's message pump and
+        takes the app down.
+
+        Returns True only on a clean transplant. False means "already recovered
+        by recompose": the caller must NOT then run the scoped follow-ups,
+        because `refresh_columns` has done the filter pass and the refocus.
+        """
+        affected = {src_col.col_id, dst_col.col_id}
+
+        def _recover():
+            self.refresh_columns(affected, refocus_filename=task.filename,
+                                 refocus_col_id=refocus_col_id or dst_col.col_id)
+
+        card = self._find_parent_card(src_col, task.filename)
+        if card is None:
+            _recover()
+            return False
+        try:
+            block = self._card_block(src_col, card)
+            await src_col.remove_children(block)
+            await dst_col.mount_compose(dst_col.task_block(task), before=before)
+        except Exception as exc:
+            # Everything past the write is inside this guard because the write
+            # is already on disk: `_card_block` raises on a card that is not a
+            # direct child, and the mount raises MountError / DuplicateIds, or
+            # anything `task_block` raises. Past `remove_children` the old
+            # widgets are gone, so without this the board renders the task
+            # NOWHERE. Broad by intent: rebuilding from the committed model is
+            # the correct remedy for every failure, and enumerating the raisable
+            # types would only let an unforeseen one through. `BaseException`
+            # (notably `CancelledError`) still propagates — that is app
+            # teardown, where a repaint is meaningless.
+            self.log.error("board: block transplant failed; recomposing", exc)
+            self.notify(f"Board repaint failed ({type(exc).__name__}: {exc}) — "
+                        "affected columns were rebuilt.", severity="error")
+            _recover()
+            return False
+        return True
 
     def _move_task_vertical(self, direction):
         focused = self._focused_card()
@@ -8698,13 +8868,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.refresh_column(col_id, refocus_filename=filename,
                                     refocus_col_id=col_id)
 
-    def action_move_task_top(self):
-        self._move_task_to_extreme(-1)
+    async def action_move_task_top(self):
+        await self._move_task_to_extreme(-1)
 
-    def action_move_task_bottom(self):
-        self._move_task_to_extreme(1)
+    async def action_move_task_bottom(self):
+        await self._move_task_to_extreme(1)
 
-    def _move_task_to_extreme(self, direction):
+    async def _move_task_to_extreme(self, direction):
         """Move focused task to top (direction=-1) or bottom (direction=1) of its column."""
         focused = self._focused_card()
         if not focused or focused.is_child:
@@ -8722,11 +8892,37 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         if direction == 1 and current_idx == len(tasks) - 1:
             return
+        task = focused.task_data
         # One write past the column extremum — the old raw `±10` arithmetic
         # bypassed normalize_board_idx and raised TypeError on a quoted
         # boardidx sitting next to ints (t1243_3).
         self.manager.move_task_to_edge(filename, col_id, to_top=(direction == -1))
-        self.refresh_column(col_id, refocus_filename=filename, refocus_col_id=col_id)
+
+        col_widget = next((c for c in self.query(KanbanColumn)
+                           if c.col_id == col_id), None)
+        if col_widget is None:
+            self.refresh_column(col_id, refocus_filename=filename,
+                                refocus_col_id=col_id)
+            return
+
+        # Resolve the anchor BEFORE the removal. Moving to the top mounts before
+        # the column's first parent card — a different widget, guaranteed by the
+        # `current_idx == 0` early return above, and one that sits after the
+        # header and the placeholder. Moving to the bottom appends.
+        before = None
+        if direction == -1:
+            before = next((w for w in col_widget.children
+                           if isinstance(w, TaskCard) and not w.is_child), None)
+
+        # A same-column move: `move_child` would be cheaper, but it preserves
+        # the widget and so would leave the dirty `*` that this write just
+        # turned on unpainted — a regression against the recompose it replaces.
+        # Rebuilding one block gets the marker right by construction.
+        if await self._transplant_block(task, col_widget, col_widget,
+                                        before=before, refocus_col_id=col_id):
+            # No header sync: a same-column move does not change the count.
+            self.apply_filter({col_id})
+            self.call_after_refresh(self._refocus_card, filename, col_id)
 
     # --- Column Reordering ---
 

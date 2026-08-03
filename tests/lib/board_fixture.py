@@ -558,6 +558,31 @@ class FixtureBoardTestBase:
         return self.tree / "aitasks"
 
 
+class PristineTreeMixin:
+    """Restore the fixture tree's task files before every test.
+
+    `FixtureBoardTestBase` builds ONE tree per class, so a movement test mutates
+    the tree the next test starts from — positions drift and a later move can
+    early-return, turning its assertions vacuous. Restoring the committed bytes
+    also restores `git status` cleanliness, which the marking oracle depends on.
+
+    Mix in AFTER `FixtureBoardTestBase` and call `cls._snapshot_pristine()` at
+    the end of `setUpClass`, once the tree exists.
+    """
+
+    @classmethod
+    def _snapshot_pristine(cls):
+        base = (cls.tree / ".aitask-data" / "aitasks").resolve()
+        cls._pristine = {p: p.read_bytes() for p in sorted(base.rglob("*.md"))}
+        assert cls._pristine, "fixture tree produced no task files"
+
+    def setUp(self):
+        super().setUp()
+        for path, data in self._pristine.items():
+            if path.read_bytes() != data:
+                path.write_bytes(data)
+
+
 # --- Differ (shared with the movement characterization harness) --------------
 #
 # An explicit allowlist, never the whole tree. Snapshotting the tree root would
