@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-07-31 07:56
-updated_at: 2026-08-02 12:50
+updated_at: 2026-08-03 08:06
 ---
 
 ## Context
@@ -66,3 +67,8 @@ NOT standard install deps. The unittest fallback must remain fully working.
 - With pytest ABSENT (unittest branch): behavior byte-identical (run the contract test's unittest cases).
 - Never run the Python pool concurrently with tests/*.sh (shell suite owns the real git index) — note this in the runner header comment.
 - This finally makes t1320's "machine WITH real pytest" checklist items physically testable — flag that at review.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T05:07:03Z status=pass attempt=1 type=human
