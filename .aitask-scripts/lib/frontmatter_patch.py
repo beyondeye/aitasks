@@ -15,6 +15,14 @@ verbatim (leading/trailing space, a whitespace-preceded `#`, a leading quote or
 YAML indicator). Values containing a newline, or both quote styles, are rejected
 (out of scope, matching the reader's documented limits).
 
+Both subcommands rewrite the task file ATOMICALLY (temp file + os.replace, via
+lib/atomic_write.py). A plain open(path, "w") truncates before writing, so a
+concurrent reader -- `ait board`'s live trail scan racing `ait artifact new` --
+saw the file cut mid-YAML or emptied outright (t1365 hardened that reader, t1371
+the writer). That buys reader-visible atomicity only, not writer serialization:
+every caller here already runs its whole transaction under the global attach
+lock (lib/attachment_lock.sh).
+
 Usage:
   frontmatter_patch.py append <file> <field> [--now <ts>] key=value [key=value ...]
   frontmatter_patch.py remove <file> <field> --match-key <k> --match-val <v> [--now <ts>]
@@ -22,8 +30,13 @@ Usage:
 Subcommands exit non-zero with a message on misuse / unrepresentable input.
 """
 
+import os
 import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from atomic_write import atomic_write_text  # noqa: E402
 
 # Emission order for attachment (t1030 §3) and artifact (t1076_2, unified
 # artifact design §4) mapping fields. The two entry shapes never mix keys, so
@@ -211,8 +224,7 @@ def cmd_append(path, field, stamp, kv):
         fm_end += len(item_lines)
 
     fm_end = bump_updated_at(lines, fm_start, fm_end, stamp)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.writelines(lines)
+    atomic_write_text(path, "".join(lines))
 
 
 def cmd_remove(path, field, match_key, match_val, stamp):
@@ -235,8 +247,7 @@ def cmd_remove(path, field, match_key, match_val, stamp):
     del lines[start:end + 1]
     fm_end -= (end + 1 - start)
     bump_updated_at(lines, fm_start, fm_end, stamp)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.writelines(lines)
+    atomic_write_text(path, "".join(lines))
 
 
 def main(argv):

@@ -732,13 +732,19 @@ def _iter_active_task_frontmatter(unreadable=None):
     on malformed YAML. Reporting is what stops a torn read from masquerading as
     "there are no trails".
 
-    Both failure shapes matter, and they do not look alike.
-    ``frontmatter_patch`` rewrites task files in place with a plain
-    ``open(path, "w")``, which truncates to zero BEFORE writing, so a scan
-    racing ``ait artifact new`` sees either a file cut mid-YAML (raises) or an
-    empty / delimiter-truncated one — and for the second ``parse_frontmatter``
-    returns ``None`` rather than raising. Treating only the raise as a failure
-    would leave the *more likely* window silent.
+    Both failure shapes matter, and they do not look alike: a file cut mid-YAML
+    makes ``parse_frontmatter`` RAISE, while an empty / delimiter-truncated one
+    makes it return ``None``. Treating only the raise as a failure would leave
+    the *more likely* window silent.
+
+    ``frontmatter_patch`` is no longer such a window — it writes through
+    ``lib/atomic_write.py`` (temp file + ``os.replace``) since t1371, so a scan
+    racing ``ait artifact new`` now sees the whole old file or the whole new one.
+    The guard stays because the rest of the writers have not been converted:
+    ``aitask_update.sh``'s ``write_task_file`` still rebuilds a task file with
+    ``> "$file_path"``, and ``Task.save`` above still uses a plain
+    ``open(path, "w")`` — both truncate to zero before writing, so both failure
+    shapes remain reachable here.
 
     The task-named qualifier is what keeps that honest without crying wolf: a
     ``.md`` file under the task dir whose name is not ``t<N>_…`` is a document,
