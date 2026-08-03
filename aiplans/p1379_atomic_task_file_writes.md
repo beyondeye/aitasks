@@ -266,7 +266,23 @@ same-filesystem rename while still exposing a reader-visible window. So:
 
 **`tests/test_atomic_task_file_writes.sh`** (new) — per shell site, over a
 scaffolded fake repo: hardlink probe (truncate-in-place sites only), controlled-
-`TMPDIR`-stays-empty, `TMPDIR=/nonexistent` still succeeds, and no residue. Each
+`TMPDIR`-stays-empty, `TMPDIR=/nonexistent` still succeeds, and no residue.
+
+**All seven shell sites get a probe — including the two the first draft missed.**
+`aitask_plan_externalize.sh` (copy path *and* `splice_output_branch`, which is a
+separate renderer with its own former `$TMPDIR` temp — the copy-path probe uses a
+frontmatter-less source, where the splice never fires) and `aitask_projects.sh`.
+Reverting either was verified invisible to every pre-existing suite, including
+`test_plan_externalize.sh`, whose 300-odd `TMPDIR` mentions are all scratch
+directories, not atomicity probes.
+
+`aitask_projects.sh` is different in kind and its test says so: its former local
+`atomic_write` already staged in the destination directory, so the rename was
+already atomic and **the hardlink probe cannot discriminate the conversion**.
+What the shared helper adds there — and what is asserted — is mode preservation
+(the old `mktemp` left the registry 0600), symlink resolution (the old `mv -f`
+replaced the link and orphaned the backing file), and a dot-prefixed temp name
+invisible to a glob of the registry directory. Each
 site additionally gets a **failure-after-success render** test — driven by making
 that renderer's own guarded condition fail (e.g. an `aitask_plan_verified.sh`
 plan whose header cannot take the insertion, so `inserted` stays 0 while the
@@ -304,6 +320,9 @@ their own mutation:
 | directory destination | drop the `[[ -d "$dest" ]]` rejections |
 | render-stage failure (residue) | replace `ait_atomic_render` with the hand-rolled `tmp=…; { … } > "$tmp"; commit` shape |
 | mid-render failure-after-success (per site) | drop that renderer's explicit `\|\| return 1` guard |
+| externalize copy path | restore its `$TMPDIR` temp + `mv` |
+| externalize splice path | restore *its* `$TMPDIR` temp + `mv` (separate renderer, separate control) |
+| projects registry | restore the local `atomic_write` |
 | empty output | drop the `[[ -s "$tmp" ]]` check |
 | commit-stage failure | drop `rm -f "$1"` from `ait_atomic_commit` | Mutate and restore **by hand**, never `git checkout` (a concurrent
 session may have staged work in these files); run Python controls with
@@ -473,3 +492,82 @@ Step 9 archival then runs the `risk_evaluated` gate.
 ### Planned mitigations
 - timing: after | name: atomic_write_macos_portability | type: manual_verification | priority: medium | effort: low | addresses: code-health — BSD `stat -f` / `mktemp` template paths in `lib/atomic_write.sh` are untested | desc: Run tests/test_atomic_write_sh.sh, tests/test_atomic_task_file_writes.sh and the converted scripts' bash tests on macOS and record the results.
 - timing: after | name: test_scaffold_lib_drift_guard | type: test | priority: medium | effort: medium | addresses: code-health — hand-curated per-test `cp` lib lists rot silently | desc: Guard test that derives, for each bash test scaffolding a fake repo, the libs its copied scripts actually source, and fails when a curated cp list is missing one.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, with the scope extended once
+  during review (below).
+  - New `.aitask-scripts/lib/atomic_write.sh`: `ait_atomic_resolve`,
+    `ait_file_mode`, `ait_atomic_tmp`, `ait_atomic_commit`, `ait_atomic_discard`,
+    `ait_atomic_render`, `ait_atomic_write_text`. Resolve happens once in the
+    entry points; the primitives take a resolved path. Umask-derived mode for a
+    missing destination, mode preservation for an existing one, dot-prefixed temp
+    staged beside the resolved target, directory-destination rejection,
+    zero-byte-output backstop, inline cleanup (no EXIT trap).
+  - Eight shell writers converted to `ait_atomic_render`: `write_task_file`,
+    `aitask_create.sh` ×3 (`create_task_file`, `create_child_task_file`,
+    `create_draft_file`), `aitask_gate_pass.sh`'s witness,
+    `aitask_plan_verified.sh`'s `cmd_append`, `aitask_plan_externalize.sh`'s copy
+    and splice paths, and `aitask_issue_import.sh`'s
+    `inject_merge_frontmatter`. `aitask_projects.sh`'s local `atomic_write` was
+    deleted and its 6 call sites re-pointed at `ait_atomic_write_text`.
+  - Four Python writers routed through `lib/atomic_write.py`: board `Task.save`,
+    `aitask_merge`, `brainstorm_session`, and a new
+    `diffviewer/merge_engine.write_merged_plan` extracted out of the Textual
+    `SaveMergeDialog.on_save` so the write is testable without a `Pilot`.
+  - Docs: the board reader-guard docstring's rationale (no in-tree writer
+    produces a torn read any more — the guard now defends malformed/externally
+    written files), `lib/atomic_write.py`'s docstring naming the shell sibling,
+    and a new atomic-file-replacement bullet in `shell_conventions.md`.
+  - Tests: `tests/test_atomic_write_sh.sh` (30), `tests/test_atomic_task_file_writes.sh`
+    (62), `tests/test_atomic_task_writes.py` (8), plus a hardlink case in
+    `tests/test_brainstorm_module_ops_integration.py`. `tests/lib/test_scaffold.sh`
+    now copies both `atomic_write.sh` and `atomic_write.py`.
+
+- **Deviations from plan:** Two, both scope additions agreed during review.
+  - A pre-implementation sweep found two truncate-then-write sites the task's own
+    survey missed — `aitask_create.sh` (×3) and `aitask_gate_pass.sh:94` — and the
+    user chose to include both. The same sweep cleared `aitask_archive.sh:158,163`
+    and `aitask_gate.sh:280,297`, which already stage in the destination directory.
+  - Review caught that `aitask_plan_externalize.sh` (both paths) and
+    `aitask_projects.sh` had no atomicity probe. Verified by reverting each: the
+    reverts were invisible to every pre-existing suite. Probes and per-site
+    negative controls were added for all three.
+
+- **Issues encountered:**
+  - **No construct can restore `errexit` inside a renderer.** `ait_atomic_render`
+    tests its renderer's status, which disables errexit for everything inside, so
+    `echo a; false; printf b` commits a partial file. `if ! fn`, `( set -e; fn )`,
+    `( set -e; trap 'exit 1' ERR; fn )` and `( trap 'exit 1' ERR; fn )` were all
+    measured and all committed the partial output. The contract is therefore
+    explicit `|| return 1` guards per renderer, documented in the helper header
+    and backed by a failure-after-success test per site.
+  - **The hardlink probe does not detect a cross-device `mv`.** Measured tmpfs →
+    disk: probe holds the old bytes, destination the new, inodes differ —
+    identical to a clean rename. Three sites (`issue_import`, externalize copy,
+    externalize splice) were consequently blind until a `TMPDIR=/nonexistent`
+    discriminator was added; `aitask_projects.sh` needed mode/symlink assertions
+    instead, since its old writer already staged in the destination directory.
+  - **`mv -f tmp somedir` succeeds** by moving the temp inside the directory,
+    reporting success while writing nothing — hence the explicit directory guard.
+  - **Three negative controls initially passed**, which meant the tests were
+    wrong, not the code: the symlink control missed `ait_atomic_write_text`'s own
+    resolve; the retarget test handed both stages a pre-resolved path so it could
+    not detect double resolution; and the directory guard short-circuits before
+    `mv`, leaving the commit-cleanup branch unreachable (now driven by an `mv`
+    function override). A fourth was a driver bug: grepping only for `FAIL:` lines
+    missed aborts, because `set -e` kills the suite before any assertion prints.
+  - `aitask_gate_pass.sh`'s witness block ended in `[[ -n "$digest" ]] && echo …`,
+    which returns 1 when the digest is empty — as a renderer's last command that
+    would have discarded a valid witness. Rewritten as an `if`, with a test.
+  - The concurrent session in this checkout was editing `board/aitask_board.py`
+    (8 unrelated hunks) plus five test files. Only my three hunks in that file
+    were staged, via a hunk-filtered patch applied with `git apply --cached`;
+    every other path was staged explicitly.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_archive.sh:158,163 — task-file rewrite uses a FIXED temp name ("$file_path.tmp") instead of mktemp, so two concurrent archives of the same task collide, and the temp is visible to a *.md.tmp glob`
+  - `.aitask-scripts/aitask_gate.sh:280 — ledger temp name is PID-derived with no O_EXCL (same defect class as gate_ledger.py:357, which t1281 owns)`
+  - `.aitask-scripts/aitask_update.sh:6 — `set -e` only, no `-u`/`pipefail`, contrary to aidocs/framework/shell_conventions.md; same at aitask_issue_import.sh:6`
+
+- **Notes for sibling tasks:** n/a (not a child task).
