@@ -8,7 +8,7 @@ labels: [verification, manual]
 verifies: [1302]
 created_at: 2026-07-29 09:54
 updated_at: 2026-07-29 09:54
-boardidx: 550
+boardidx: 75776
 ---
 
 ## Manual Verification Task

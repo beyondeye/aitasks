@@ -7,7 +7,7 @@ status: Ready
 labels: [claudeskills, tmux]
 created_at: 2026-06-15 12:13
 updated_at: 2026-06-15 12:13
-boardidx: 1440
+boardidx: 163840
 ---
 
 ## Goal

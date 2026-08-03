@@ -73,3 +73,14 @@ is what keeps the base out of collection (same pattern as `GitRepoTestBase` /
 > **✅ gate:plan_approved** run=2026-08-03T13:59:44Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-03T19:37:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-03T19:45:48Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e44a5f810f943c70
+
+> **✅ gate:risk_evaluated** run=2026-08-03T19:45:48Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1384/risk_evaluated_2026-08-03T19:45:48Z-risk_evaluated-a1.log`

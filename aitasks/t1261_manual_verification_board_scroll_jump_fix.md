@@ -9,7 +9,7 @@ verifies: [1248]
 anchor: 1248
 created_at: 2026-07-27 00:01
 updated_at: 2026-07-27 00:01
-boardidx: 170
+boardidx: 40960
 ---
 
 ## Origin

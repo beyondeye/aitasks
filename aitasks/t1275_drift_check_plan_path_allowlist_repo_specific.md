@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1233
 created_at: 2026-07-28 01:06
 updated_at: 2026-07-28 01:06
-boardidx: 250
+boardidx: 47104
 ---
 
 ## Problem

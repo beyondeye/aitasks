@@ -16,7 +16,7 @@ children_to_implement: [t1210_5, t1210_6, t1210_7]
 implemented_with: claudecode/fable5
 created_at: 2026-07-22 10:14
 updated_at: 2026-07-26 00:19
-boardidx: 970
+boardidx: 115712
 ---
 
 ## Context

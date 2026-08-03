@@ -14,6 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-03 10:37
 updated_at: 2026-08-03 11:18
+boardidx: 8192
 ---
 
 Umbrella task with two related deliverables that share the same underlying seams

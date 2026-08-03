@@ -8,6 +8,7 @@ labels: [aitask_board, python, script-performance]
 anchor: 1243
 created_at: 2026-08-02 13:08
 updated_at: 2026-08-02 13:08
+boardidx: 3072
 ---
 
 ## Context

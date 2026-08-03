@@ -3,12 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [tui, minimonitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1326
 created_at: 2026-08-03 11:44
-updated_at: 2026-08-03 11:44
+updated_at: 2026-08-03 22:46
+boardidx: 11264
 ---
 
 ## Origin
