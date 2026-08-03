@@ -360,9 +360,8 @@ in `tests/test_minimonitor_own_task_info.py:93-118`, with the
    guards in `action_cycle_compare_mode` / `action_show_task_info`.
 4. `tests/test_monitor_companion_filter.py` (new).
 5. `tests/test_minimonitor_other_section.py` (new).
-6. Follow-up task (user-requested, created after the Step-8 commit via
-   `aitask_create.sh --batch`): *name-independent stamped agent and task
-   identity* — a pane-scoped `@aitask_agent` / `@aitask_task_id` stamp at spawn
+6. Follow-up task — **created as t1389** (user-requested): *name-independent
+   stamped agent and task identity* — a pane-scoped `@aitask_agent` / `@aitask_task_id` stamp at spawn
    time, mirroring `@aitask_shadow_target` (`monitor_core.py:2662-2669`), so a
    renamed window keeps both its agent classification and its task binding.
    Must cover: every launch seam routed through
@@ -506,9 +505,19 @@ Step 9's `ait gates run` covers `risk_evaluated` (the task's active gate set).
     task and dispositioned as a **follow-up**, routed to t1351 (the row-width
     audit), because fixing only the OTHER row would leave the far more common
     agent row wrong. Recorded in both docstrings and in the width test.
-  - `.aitask-scripts/monitor/minimonitor_app.py:_find_sibling_pane_id` — the raw
+  - **→ t1388.** `.aitask-scripts/monitor/minimonitor_app.py:_find_sibling_pane_id` — the raw
     `list-panes` fallback ("first pane in the window that is not me") still has
     no shadow filter, so it can select a shadow pane. This change narrows the
     exposure a lot (the fallback is now reached only when no snapshot resolves
     at all, e.g. `_own_window_index` unset) but does not close it; the fallback
     could filter on `@aitask_shadow_target` the way discovery does.
+
+## Follow-ups created
+
+- **t1388** — `_find_sibling_pane_id` rung-2 fallback has no shadow filter
+  (upstream defect surfaced here; exposure narrowed by this task, not closed).
+- **t1389** — name-independent stamped agent/task pane identity: the durable
+  fix this task deliberately deferred, with the full prefix-consumer survey.
+- **t1351** — inherited the cell-width truncation defect (`len()` vs terminal
+  cells) for both `_agent_card_text` and `_other_card_text`; see its
+  "Incoming scope" section.
