@@ -67,6 +67,7 @@ macos
 manual
 manual_verification
 memories
+minimonitor
 model_selection
 modelvrapper
 opencode
