@@ -156,32 +156,33 @@ def apply_filter(self, cols: set | None = None):
     """
 ```
 
-Two small scoped iterators, both reusing the existing `_column_widget`:
+Two small scoped iterators.
+
+> **AS-SHIPPED — this section was rewritten during implementation.** The version
+> planned here resolved each column with `self._column_widget(col_id)` and iterated
+> `col.query(TaskCard)`, per the task file's stated method. **Measured, it was a 10x
+> pessimization** (see Final Implementation Notes, deviation 2): `query()` walks the
+> whole tree wherever it is rooted, so the resolution cost dominates. What shipped
+> filters ONE app-wide query by `column_id`. The scoping contract — only units in
+> `cols` are decided, displayed or accumulated — is identical; only the mechanism
+> differs.
 
 ```python
 def _filter_units(self, cols):
     """The widgets whose visibility this pass decides.
 
-    Yields `TaskCard`s today. t1243_10 adds `GroupHeader` HERE — the accumulator
-    below reads only `.column_id`, so a second widget kind needs no rewrite of the
-    loop or of the scoping.
+    Yields `TaskCard`s today. t1243_10 adds `GroupHeader` HERE, as a second query
+    filtered the same way — the accumulator below reads only `.column_id`, so a
+    second widget kind needs no rewrite of the loop or of the scoping.
     """
-    if cols is None:
-        yield from self.query(TaskCard)
-        return
-    for col_id in cols:
-        col = self._column_widget(col_id)
-        if col is not None:            # column not mounted -> it has no units
-            yield from col.query(TaskCard)
+    for card in self.query(TaskCard):
+        if cols is None or card.column_id in cols:
+            yield card
 
 def _filter_placeholders(self, cols):
-    if cols is None:
-        yield from self.query(EmptyColumnPlaceholder)
-        return
-    for col_id in cols:
-        col = self._column_widget(col_id)
-        if col is not None:
-            yield from col.query(EmptyColumnPlaceholder)
+    for placeholder in self.query(EmptyColumnPlaceholder):
+        if cols is None or placeholder.column_id in cols:
+            yield placeholder
 ```
 
 Body becomes:
@@ -378,3 +379,168 @@ No mitigation tasks confirmed (user decision).
 
 Merge to `main` (current-branch profile, no worktree), then archive per the shared
 workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** two files.
+  - `.aitask-scripts/board/aitask_board.py` (+171/−33):
+    - `Task.search_haystack` — memoized lowercased `"<filename> <metadata>"`, with
+      `_invalidate_search_haystack()` called from `load()`, `save()`, and both the
+      `board_col` / `board_idx` setters; the memo slot is seeded in `__init__` **and**
+      in `from_text` (which bypasses `__init__` via `cls.__new__`).
+    - `task_matches_filter(task, visible, search)` — module-level, takes a `Task`,
+      never a widget. The t1243_10 prerequisite.
+    - `set_unit_display(unit, is_visible)` — module-level, widget-kind-agnostic
+      (`getattr(unit, "is_child", False)`), skips no-op `styles.display` writes and
+      carries the `.child-wrapper` handling.
+    - `apply_filter(cols=None)` plus `_filter_units` / `_filter_placeholders`; scoped
+      placeholder update and scoped focus rescue.
+    - `TaskManager._mark_written(task)` called at all four gap-indexing write sites
+      (`move_tasks_to_column`, `move_task_to_edge`, `reposition_task`,
+      `respace_column`); `refresh_git_status()` deleted from `_move_task_lateral`,
+      `_move_task_vertical` and `_move_task_to_extreme`.
+    - Scoped `apply_filter` wired at exactly 3 of the 14 call sites: `refresh_column`,
+      `refresh_columns`, `_swap_adjacent_cards`.
+  - `tests/test_board_render_scoping.py` — **new**, 644 lines, 33 tests in four
+    classes.
+  - `FLIP_TABLE` and `EXPECTED_CALL_SITES` deliberately **not** edited, as predicted at
+    planning time; both stayed green.
+
+- **Deviations from plan:**
+
+  1. **The search-haystack memo lives on `Task`, not on `TaskCard`** — contrary to the
+     task file's "cache per `TaskCard` (at construction / when its task data is
+     replaced)". Planned as a deviation up front and confirmed correct in
+     implementation, for two independent reasons: **(a)** t1243_10 filters collapsed
+     group members that mount **no card at all**, so a card-level memo is unreachable
+     exactly where that child needs it; **(b)** `_move_task_vertical` mutates
+     `board_idx` and then reorders the DOM through `_swap_adjacent_cards` **without a
+     recompose**, so the card survives its own task's mutation — and because the
+     corpus stringifies the whole metadata dict (board keys included), a card-lifetime
+     memo would serve a stale string on that path. Task-level invalidation covers both.
+     The invalidation surface is enumerated in the property's docstring rather than
+     assumed, and each of the four sites has its own test **and** its own negative
+     control.
+
+  2. **`_filter_units` / `_filter_placeholders` filter one app-wide query by
+     `column_id` instead of querying each touched column widget** — contrary to both
+     the task file ("via the column widget's own `query(TaskCard)`") and this plan's
+     own Step 2, which has been corrected in place above. The literal method was
+     implemented first and **measured as a 10x pessimization**. On a 200-card board:
+
+     | | median |
+     |---|---|
+     | whole-board `apply_filter(None)` | 13.1 ms |
+     | scoped `apply_filter({c0,c1})`, per-column resolution | **128.0 ms** |
+     | `_column_widget('c0')` | 33.3 ms |
+     | `_column_widgets()` | 24.8 ms |
+     | `self.query(TaskCard)` | 6.8 ms |
+     | `col.query(TaskCard)` | 1.4 ms |
+
+     Textual 8.2.7's `query()` walks the entire tree wherever it is rooted, so
+     `_column_widgets()` (four full-tree class queries) costs nearly twice the whole
+     unscoped pass, and the planned code called it four times per pass. Even resolving
+     once would have cost ~25 ms against the 13 ms it was meant to beat. Filtering a
+     single `query(TaskCard)` costs ~6 ms, is cheaper than the whole-board pass, works
+     for every column class without a class union, and preserves the t1243_10 seam
+     (that child adds a second query filtered the same way). **The scoping contract is
+     unchanged** — only units in `cols` are evaluated, display-written or accumulated,
+     which is what the tests assert.
+
+     Corollary worth carrying forward: `apply_filter`'s cost here is **DOM traversal,
+     not per-unit work**, so column scoping can only ever buy a few percent. That
+     independently corroborates t1243_1's measured 0.4% removable and is a second
+     reason this child has no latency target.
+
+  3. **One test added beyond the plan:** a render-level assertion
+     (`test_moved_card_renders_the_dirty_marker`) that the moved card actually draws
+     `t9005 *`. The plan's §4 had dropped the task file's "render-level assertions"
+     requirement; `styles.display` is the right oracle for filtering, but the dirty
+     marker is genuinely render-level and is the user-visible consequence of replacing
+     the scan with targeted marking. Its negative control renders bare `t9005`.
+
+- **Issues encountered:**
+  1. **The latency guard caught a regression I introduced** — this is the whole reason
+     it exists. The first post-change benchmark showed the vertical axis at 255.7 ms
+     against a 184.1 ms baseline, and `R_rm4` (the removable share of
+     `apply_filter` + `git_status`) at **27.8%** versus 0.4% at baseline. Because
+     ablation is a *within-run* comparison, that signal was sound even though the run
+     was contended: ablating `apply_filter` dropped the axis to 184.6 ms, i.e. back to
+     baseline. Root cause was deviation 2's pessimization. After the fix: `af` span
+     0.6% lateral (identical to baseline), `R_rm4` **1.4%**, and ablating
+     `apply_filter` on the vertical axis makes it *slower* than leaving it in — its
+     cost is below the noise floor, as at baseline.
+  2. **The first benchmark run was self-contaminated.** Tests and negative controls
+     were run concurrently with it. Absolute cross-run numbers were discarded; only
+     the within-run ablation was used. Re-measured afterwards on a quieter box.
+  3. **Absolute latencies remain ~4–10% above the t1243_1 baseline** (lateral 2395.2
+     vs 2173.2 ms; vertical 191.9 vs 184.1 ms) and this is **not attributable to this
+     change**: ~8 coding agents were active at ~4.9 load, the harness floor actually
+     *improved* (94.3 vs 104.5 ms) so the box is not uniformly slower, and every
+     within-run attribution puts `apply_filter` and `git_status` at ~0%. Recorded for
+     t1243_14 as ambient drift, not regression.
+  4. The bench prints `MISS t1243_4 opportunity (max R_rm4 >= 0.30): 1.4% vs 30%`.
+     This is the **already-adjudicated** gate from t1243_1's user-confirmed checkpoint,
+     not a new miss — this child carries no latency target. No corrective action taken
+     and none is required.
+
+- **Key decisions:**
+  - **Mark at the write site, not in the movement action.** `reposition_task` can
+    respace a whole column, writing N files its `MoveResult.moved` never names, so a
+    caller-side update keyed on `moved` would under-report exactly in the compaction
+    case. `_mark_written` sits next to each `reload_and_save_board_fields` call.
+  - **The four `reload_and_save_board_fields` calls were deliberately NOT folded into
+    a helper**, even though that would make the marking unforgettable:
+    `EXPECTED_CALL_SITES` in `tests/test_board_persistence_seam.py` maps each caller to
+    the field tuple it names, and collapsing them would weaken that guard. The
+    behavioral marking test covers all four instead.
+  - **Marking is add-only.** A file that becomes clean again keeps its marker until the
+    next full scan. All four full-scan sites were verified present before removing the
+    per-keypress one: `refresh_board` (manual `r`, view switches, auto-refresh tick),
+    `_on_detail_result`, and `_do_git_commit_tasks`.
+  - **The marking oracle uses three independent sources** — the observed set captured
+    *before* any scan, a real `git status` from a separately constructed
+    `TaskManager`, and a `bf.diff_snapshots` filesystem delta. `refresh_git_status()`
+    clears and repopulates the manager it is called on, so scanning the manager under
+    test would have compared the scan with itself.
+  - **11 negative controls, one mutation each**, re-validated after the deviation-2
+    rewrite. The two per-family ones are the load-bearing pair: restoring
+    `refresh_git_status()` in *only* the vertical (or only the extreme) family fails
+    exactly those cases while the lateral case still passes — which is what proves
+    parameterizing over all three action families is not decorative.
+
+- **Upstream defects identified:**
+  - `aitask_board.py:7079-7096 — _column_widgets() issues four separate full-DOM class
+    queries per call, so every _column_widget() lookup costs ~25 ms on a 200-card board
+    (measured). It is called on the post-move refocus path via _card_fully_visible
+    (:7118) and _focus_side_candidate (:7141), so a move pays it after the keypress.
+    Out of scope here (this task stopped using it), but it is real cost sitting in
+    t1243_5's territory — the residual 144.5 ms lateral keypress that remains once the
+    recompose is ablated.`
+
+- **Notes for sibling tasks:**
+  - **t1243_5:** `apply_filter(cols={src, dst})` exists and is callable in exactly the
+    shape your Step 3 specifies. Do **not** reintroduce per-column widget resolution
+    inside the filter pass — measured at 10x worse (deviation 2). Your remaining
+    lateral cost after ablating recompose is ~144.5 ms, and the `_column_widgets()`
+    defect above is part of it. `refresh_git_status()` is already gone from
+    `_move_task_lateral` / `_move_task_to_extreme`; the dirty marker now comes from
+    `TaskManager._mark_written` at the write site, so a transplant that bypasses the
+    manager's write helpers would silently lose the `*`.
+  - **t1243_10:** both seams you depend on are in place and unit-tested with **no
+    widget mounted**. `task_matches_filter(task, visible, search)` takes a `Task`, so
+    collapsed members with no card can be evaluated, and it is deliberately per-task so
+    you can *count* matching members rather than only ask a boolean. The accumulator
+    reads only `.column_id`, and `_filter_units` / `_filter_placeholders` are
+    single-query-plus-filter — add `GroupHeader` as a second query filtered the same
+    way and both the scoped and unscoped paths work unchanged. `set_unit_display` reads
+    `is_child` with `getattr`, so a header needs no branch. Note the search corpus is
+    memoized **on the Task**, which is what makes evaluating an unmounted member cheap.
+  - **t1243_14:** re-measure with `AITASK_BOARD_BENCH=1` and compare **within-run
+    ablation**, not cross-run absolutes — this box carries 4–5 ambient load from
+    concurrent agents and cross-run absolutes drift ~10%. Post-t1243_4 reference:
+    lateral 2395.2 ms / vertical 191.9 ms, `af` span 0.6% lateral, `git` span 0.00% on
+    both axes, `-recompose` lateral 144.5 ms.
+  - Anyone benchmarking in this repo: **do not run other tests while a bench is in
+    flight** (issue 2), and check for concurrent agents first — `ait_tmux list-panes`
+    showed eight during this task.
