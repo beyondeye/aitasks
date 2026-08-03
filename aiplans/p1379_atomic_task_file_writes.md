@@ -439,11 +439,11 @@ Step 9 archival then runs the `risk_evaluated` gate.
   hand-curated per-test `cp` lists. Those lists are a known-stale surface (t658
   found three already broken), and a missed entry fails with a bare
   `No such file or directory` far from its cause. · severity: medium ·
-  → mitigation: test_scaffold_lib_drift_guard
+  → mitigation: t1398 (test_scaffold_lib_drift_guard)
 - `ait_file_mode` depends on the `stat -c` / `stat -f` fallback and the BSD-safe
   `mktemp` template form. Both are the established repo idioms, but the helper
   will not be exercised on macOS in this session. · severity: low ·
-  → mitigation: atomic_write_macos_portability
+  → mitigation: t1397 (atomic_write_macos_portability)
 - `aitask_update.sh` and `aitask_issue_import.sh` run under `set -e` only (no
   `-u`, no `pipefail`). `ait_atomic_render` is chosen partly because it needs
   neither: it takes a function rather than a pipeline, and it owns the staging
@@ -466,7 +466,7 @@ Step 9 archival then runs the `risk_evaluated` gate.
 - `ait_atomic_resolve` is new bespoke code (`readlink -f` is GNU-only, so the
   chain is walked by hand) on the path of every task-file write. Bounded at 40
   hops with an explicit failure, and covered by symlink + cycle tests. ·
-  severity: low · → mitigation: atomic_write_macos_portability
+  severity: low · → mitigation: t1397 (atomic_write_macos_portability)
 
 ### Goal-achievement risk: low
 
@@ -490,8 +490,8 @@ Step 9 archival then runs the `risk_evaluated` gate.
   another. · severity: low · → mitigation: none needed
 
 ### Planned mitigations
-- timing: after | name: atomic_write_macos_portability | type: manual_verification | priority: medium | effort: low | addresses: code-health — BSD `stat -f` / `mktemp` template paths in `lib/atomic_write.sh` are untested | desc: Run tests/test_atomic_write_sh.sh, tests/test_atomic_task_file_writes.sh and the converted scripts' bash tests on macOS and record the results.
-- timing: after | name: test_scaffold_lib_drift_guard | type: test | priority: medium | effort: medium | addresses: code-health — hand-curated per-test `cp` lib lists rot silently | desc: Guard test that derives, for each bash test scaffolding a fake repo, the libs its copied scripts actually source, and fails when a curated cp list is missing one.
+- timing: after | created: t1397 | name: atomic_write_macos_portability | type: manual_verification | priority: medium | effort: low | addresses: code-health — BSD `stat -f` / `mktemp` template paths in `lib/atomic_write.sh` are untested | desc: Run tests/test_atomic_write_sh.sh, tests/test_atomic_task_file_writes.sh and the converted scripts' bash tests on macOS and record the results.
+- timing: after | created: t1398 | name: test_scaffold_lib_drift_guard | type: test | priority: medium | effort: medium | addresses: code-health — hand-curated per-test `cp` lib lists rot silently | desc: Guard test that derives, for each bash test scaffolding a fake repo, the libs its copied scripts actually source, and fails when a curated cp list is missing one.
 
 ## Final Implementation Notes
 
