@@ -431,9 +431,11 @@ Step 9's `ait gates run` covers `risk_evaluated` (the task's active gate set).
   binding lost on rename (unrecoverable from the name), so a renamed window
   stays degraded by design. This is the explicit decision, deferred to the
   step-6 follow-up · severity: low · → mitigation: TBD
-- `_other_card_text`'s column budget is asserted at width 40 only; t1351's
-  broader row-width audit is a separate task and this row is designed to fit
-  under its stated budget · severity: low · → mitigation: TBD
+- `_other_card_text`'s column budget is asserted at width 40 only, and only
+  for single-cell characters — the `len()`-based caps under-measure
+  double-width names, a flaw inherited from `_agent_card_text`. Confirmed in
+  review and deferred to t1351's row-width audit, which owns both rows
+  · severity: low · → mitigation: t1351
 
 ## Final Implementation Notes
 
@@ -494,6 +496,16 @@ Step 9's `ait gates run` covers `risk_evaluated` (the task's active gate set).
     so own-agent keys (`k`/`n`/`e`/`E`/`I`) keep refusing there. Only visibility
     and companion-hiding were fixed.
 - **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:_agent_card_text` — the
+    pre-existing agent row caps `window_name` with `len()`, which counts code
+    points rather than terminal cells, so a double-width (CJK / emoji) window
+    name occupies twice its measured width and Rich clips the row. Measured on
+    the new OTHER row, which inherits the same convention: 36 code points, **64
+    cells**, against a 38-cell budget. Both rows need cell-width-aware
+    truncation (`rich.cells.cell_len` / `set_cell_size`). Reviewed during this
+    task and dispositioned as a **follow-up**, routed to t1351 (the row-width
+    audit), because fixing only the OTHER row would leave the far more common
+    agent row wrong. Recorded in both docstrings and in the width test.
   - `.aitask-scripts/monitor/minimonitor_app.py:_find_sibling_pane_id` — the raw
     `list-panes` fallback ("first pane in the window that is not me") still has
     no shadow filter, so it can select a shadow pane. This change narrows the
