@@ -484,6 +484,68 @@ unknown and its child **begins with a spike**:
   after the move hides/shows the right cards; scroll is sane;
   `_get_focused_col_id` reports the destination.
 
+### RECORDED RESULT — t1243_5 spike outcome and post-implementation measurement
+
+**The spike PASSED and the documented fallback was NOT taken.** Read from the
+installed Textual 8.2.7 source: `Widget.move_child` hard-validates membership and
+raises `WidgetError` for a foreign child; **`mount()` on a live widget is a
+_silent no-op_**, because `App._register` / `_register_child` short-circuit on
+`widget in self._registry` — so code written assuming "mount moves it" looks like
+it works and moves nothing; `remove()` is irreversible (prune closes the message
+pump, and `_message_loop_exit` clears `_nodes` and detaches). Nothing named
+`reparent` exists.
+
+Shipped shape: `await src.remove_children(block)` then
+`await dst.mount_compose(dst.task_block(task), before=…)` with **freshly
+constructed** cards — what `Widget.recompose` itself does, scoped to the moved
+block. The private three-call NodeList reparent
+(`_nodes._remove` → `_nodes._insert` → `_attach`) was **rejected**: unsupported,
+no upstream contract, and it needs hand-rolled stylesheet / arrangement-cache /
+query-cache fixups. *Recorded here so t1243_11's block moves do not re-litigate it.*
+
+**Post-implementation measurement** (same pre-registered method: 200 cards /
+5 columns, 3 warm-up + 20 recorded pairs per axis, production branch-mode
+topology, event-closed timed region):
+
+| | t1243_1 baseline | post-t1243_4 | **post-t1243_5** |
+|---|---|---|---|
+| lateral median e2e | 2173.2 ms | 2395.2 ms | **1115.0 ms** |
+| lateral p90 | 2556.2 ms | — | 1805.9 ms |
+| vertical median | 184.1 ms | 191.9 ms | 193.7 ms |
+| harness floor | 104.5 ms | 94.3 ms | 91.6 ms |
+
+**Target rule: PASS.** −48.7 % against the 2173.2 ms baseline (−53.4 % against
+the most recent recorded value), versus a ≥ 30 % target. The harness floor moved
+*down*, so the gain is not ambient-load luck. Vertical was not touched and sits
++0.9 % from its last recorded value — within noise, no regression.
+
+**The three gate lines the bench prints as MISSED are degenerate, not new
+misses.** They are t1243_1's *pre-implementation opportunity* gates re-evaluated
+against post-change code: `R_rm5` asks "how much would removing the recompose
+save?" and there is no recompose left on the lateral path (`rc` span 0.0 %,
+`-recompose` ablation 1127.6 ms ≈ full 1115.0 ms). `R_pair` is degenerate for the
+same reason, and t1243_4's `R_rm4` miss was already adjudicated at the checkpoint
+above. **The post-implementation rule that governs this child passed.**
+
+**Residual, recorded honestly.** The ablation predicted 138.6 ms; the real
+transplant lands at 1115.0 ms with **99.1 % unattributed** — the pre-registered
+"ideal-removal upper bound" caveat behaving exactly as written (the ablation
+removed the recompose by never touching the DOM; a real transplant still mounts
+and pays board-wide layout). Every lever is now at or below the noise floor:
+`-filter-git` 1307.2 ms and `-filter-recompose` 1345.4 ms are both *slower* than
+full.
+
+**Checkpoint (user-confirmed).** The measurements, the degenerate-gate reading
+and the residual were presented with four options — keep as-is / keep plus a
+follow-up / revise this child's scope now / postpone. No task was edited and no
+code reverted before the choice. **The user chose: keep the implementation and
+file a follow-up.** Applied: **t1395 `board_residual_move_layout_cost`** (anchored
+to this topic) owns attributing the ~1.1 s residual — Textual's post-mount
+board-wide layout, `_refocus_card`'s full-tree query and focus-driven scroll, and
+t1243_4's still-unaddressed `_column_widgets()` four-full-DOM-queries defect are
+its named suspects. **t1243_14 should consume t1395's findings rather than
+rediscover them.**
+
 ---
 
 ## Workstream C — task groups (decided data model)
