@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:13
-updated_at: 2026-08-03 10:53
+updated_at: 2026-08-03 12:04
 ---
 
 ## Context
@@ -136,3 +137,8 @@ card-only assumption:
   method and valid-sample rule and record the delta; median keypress latency on
   either axis must **not regress** versus the t1243_1 baseline. Record the
   measured delta in the parent plan for t1243_14 either way.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T09:04:28Z status=pass attempt=1 type=human
