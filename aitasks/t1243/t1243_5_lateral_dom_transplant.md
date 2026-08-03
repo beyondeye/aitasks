@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1243_4]
 issue_type: performance
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:14
-updated_at: 2026-08-03 16:07
+updated_at: 2026-08-03 16:41
 ---
 
 ## Context
@@ -132,3 +135,8 @@ rules. Record the delta versus the baseline **whichever path was taken**
 (transplant or fallback), for t1243_14. If the target is missed, do **not**
 revise or discard anything automatically — run t1243_1's Performance-Gate
 Confirmation Checkpoint (parent plan) and let the user choose.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T13:41:48Z status=pass attempt=1 type=human
