@@ -1,91 +1,503 @@
 ---
 Task: t1243_5_lateral_dom_transplant.md
 Parent Task: aitasks/t1243_board_task_groups_and_fast_reordering.md
-Sibling Tasks: aitasks/t1243/t1243_*.md
+Sibling Tasks: aitasks/t1243/t1243_6_multiselect_marking.md, aitasks/t1243/t1243_7_move_to_column_command.md, aitasks/t1243/t1243_8_boardgroup_field_and_model.md, aitasks/t1243/t1243_9_group_focus_and_rendering.md, aitasks/t1243/t1243_10_group_collapse_and_filtering.md, aitasks/t1243/t1243_11_group_formation_and_block_moves.md, aitasks/t1243/t1243_12_group_membership_commands.md, aitasks/t1243/t1243_13_documentation.md, aitasks/t1243/t1243_14_retrospective_benchmark.md, aitasks/t1243/t1243_15_manual_verification_board_groups_and_reordering.md
+Archived Sibling Plans: aiplans/archived/p1243/p1243_1_movement_baseline_and_harness.md, aiplans/archived/p1243/p1243_2_board_field_persistence_seam.md, aiplans/archived/p1243/p1243_3_gap_indexing.md, aiplans/archived/p1243/p1243_4_render_filter_scoping.md
 Parent Plan: aiplans/p1243_board_task_groups_and_fast_reordering.md
 Worktree: (none — profile 'fast' works on the current branch)
 Branch: main
 Base branch: main
+Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-08-03 16:37
 ---
 
 # t1243_5 — Lateral DOM transplant
 
-> Read `aiplans/p1243_board_task_groups_and_fast_reordering.md` first — it holds
-> the verified current-state table, the design decisions and the rejected
-> alternatives. The task file `aitasks/t1243/t1243_5_lateral_dom_transplant.md` is the spec;
-> this file is the execution order.
+## Context
 
-## Step 0 — anchor re-verification (every child starts here)
+A lateral card move on `ait board` costs a **median 2173.2 ms** per keypress on a
+200-card board. t1243_1 measured by ablation that **93.6 % of that is the column
+recompose**: `_move_task_lateral` ends in `refresh_columns({src, dst})`, which
+runs `_recompose_column` on *both* columns — `remove_children()` + `compose()` +
+`mount_all()`, destroying and rebuilding every card widget of two columns to
+express a one-card move. `_move_task_to_extreme` does the same for one column.
 
-`aitask_board.py` grew 7378 → 9043 lines across six commits while t1243 was
-planned, and it keeps moving. Before editing, re-locate every symbol this plan
-names and confirm the behaviour still matches the parent plan's table. Anchor on
-symbol names; never on line numbers. If a premise has changed, stop and record
-it rather than working around it.
+t1243_4 removed the other two levers (`apply_filter` scoping, the per-keypress
+`git status`) and measured them at **0.4 %**; at the user-confirmed checkpoint
+the **entire ≥ 30 % Workstream-B latency target moved onto this child**. This is
+the certain and dominant win of Workstream B.
 
-## Step 0b — read the checkpoint
+Outcome: lateral and to-edge moves update only the DOM block that actually
+moved, and lateral median keypress latency drops from 2173.2 ms to the
+low-hundreds of ms.
 
-As t1243_4: read t1243_1's recorded decision before implementing. In short, from
-the measured baseline (ablation, 200 cards, production topology):
+---
 
-- lateral keypress median **2173.2 ms**; removing the recompose alone drops it to
-  **138.6 ms** — **93.6 %** of the cost, and ~94 % of the whole Workstream-B
-  opportunity;
-- t1243_4's levers (`apply_filter`, `refresh_git_status`) measured **0.4 %**, so
-  the user-confirmed checkpoint moved the **≥ 30 % latency target onto this
-  child**;
-- the fallback to `refresh_columns` therefore forfeits nearly the entire win and
-  must be **escalated as a finding**, not taken quietly.
+## Step 0 — Anchor re-verification: DONE (HEAD `b9987e189`, 9567 lines)
 
-## Step 1 — the spike (gate everything else on it)
+Re-checked at current HEAD so implementation need not repeat it. Anchors are
+symbol names; the line numbers below are informative.
 
-Textual 8.2.7 has no supported cross-parent widget move: `move_child` is
-same-parent only and `remove()`/`mount()` are awaitables. Establish which of
-these is viable and record it in this plan:
+| plan / task premise | current state |
+|---|---|
+| `_move_task_lateral` ends in `refresh_columns({src,dst})` | **holds** — `:8568-8599`, ends `refresh_columns({current_col_id, new_col}, refocus_filename=…, refocus_col_id=new_col)` |
+| `_move_task_to_extreme` ends in `refresh_column(col)` | **holds** — `:8695-8717` |
+| `_swap_adjacent_cards` defines a reusable "block" | **holds** — `:8607-8633`; the block logic is a **nested closure `_block`** at `:8615`, called only on `card_below` |
+| `_card_block` already exists | **no** — zero hits repo-wide |
+| movement actions are `async` | **no** — every one is a plain `def` |
+| `_focus_side_candidate` exists (named in the task file) | **no such symbol.** The real helpers are `_viewport_anchor` (`:7127`) and `_column_focus_target` (`:7186`). Task-file wording is stale; ignore it |
+| `column_id` read in "12 places" | **17 runtime read sites** (35 total occurrences). Writes: exactly **3** `self.column_id = …` (`:1785` collapsed placeholder, `:1801` empty placeholder, `:1953` `TaskCard`) plus 13 construction kwargs |
+| `apply_filter(cols={src,dst})` exists in the shape Step 4 needs | **holds** — `:6655`; `_filter_units` `:6628` filters ONE app-wide `query(TaskCard)` by `column_id` |
+| `refresh_git_status()` still in the movers | **gone** (t1243_4); the dirty marker comes from `TaskManager._mark_written` at the write site |
+| board Textual version | **8.2.7 in both** `~/.aitask/venv` (CPython 3.14) and `~/.aitask/pypy_venv`; `diff -rq` of the two `textual/` trees shows zero `.py` differences |
 
-- a true cross-parent move, or
-- `await old.remove()` + mount **freshly constructed** cards in the destination
-  (a scoped rebuild of the moved block only, not of two columns).
+### Two premises the task file and parent plan do NOT record — both load-bearing
 
-If neither is safe, take the documented fallback below and stop — that is a
-successful outcome, not a failure.
+1. **`ColumnHeader` bakes its task count in at construction** (`:1807`, rendered
+   `:1815-1825`). The recompose refreshes it for free today; a transplant that
+   skips the recompose leaves **both** headers showing stale counts. This is a
+   correctness item the plan must handle explicitly.
+2. **`TaskCard.compose` bakes the dirty `*`** at `:1970-1972` from
+   `manager.is_modified()`. A lateral move calls `_mark_written`, flipping that
+   file to modified — so today the recompose is what makes the `*` appear.
+   Constructing **fresh** cards preserves this; a widget-preserving move would
+   silently lose it. (The same latent staleness already exists on the vertical
+   `move_child` path — see "Upstream defects", out of scope here.)
 
-## Step 2 — `_card_block` extraction
+---
 
-Pull the block computation out of `_swap_adjacent_cards` (card + trailing
-`.child-wrapper` Horizontals) into a shared helper. Do not fork it.
+## Step 1 — The spike: DONE. Verdict recorded
 
-## Step 3 — `_transplant_block`
+**Textual 8.2.7 has no lifecycle-safe cross-parent move of a mounted widget.**
+Read from the installed source, not from docs:
 
-Async. **Identity is load-bearing**: `column_id` is read in 12 places including
-`apply_filter`, `_visible_column_cards`, `_get_focused_col_id` and
-`check_action`. Fresh cards get it right by construction; a true move must update
-it on every card in the block. Movement actions become async (or dispatch via
-`run_worker`) so awaitables are awaited.
+- `Widget.move_child` (`widget.py:1610`) hard-validates membership via
+  `self._nodes.index(child)` and raises
+  `WidgetError("… is not a child of …")` (`widget.py:1654`). Same-parent only.
+- **`dst.mount(live_widget)` is a silent no-op, not an error.** `App._register`
+  (`app.py:3665`) and `_register_child` (`app.py:3597`) both short-circuit on
+  `widget in self._registry`, so no `_attach`, no NodeList insert, no stylesheet
+  pass — and the returned `AwaitMount` resolves instantly because
+  `_mounted_event` is already set. Code written assuming "mount moves it" looks
+  like it works and moves nothing. **This is the trap this spike exists to find.**
+- `remove()` is **irreversible**: `Prune` → `_close_messages` →
+  `_message_loop_exit` (`widget.py:4514`) clears `_nodes`, detaches, discards
+  from `_registry` and leaves `_closed = True` on a `cached_property` queue. A
+  removed widget object cannot be re-mounted.
+- Nothing named `reparent` / `transplant` exists anywhere in the package.
 
-## Step 4 — wire lateral and to-edge, then scoped filter
+**Chosen shape — the second candidate in the task file:** `await
+src.remove_children(block)` then `await dst.mount_compose(dst.task_block(task),
+before=…)` with **freshly constructed** cards. This is precisely what Textual's
+own `Widget.recompose` does (`widget.py:1704-1716`), scoped to the moved block
+instead of two whole columns. Fresh cards get `column_id` right by construction
+across all 17 read sites, and repaint the dirty `*`.
 
-Replace `refresh_columns({src,dst})` / `refresh_column(col)` with the transplant,
-then call `apply_filter(cols={src,dst})`.
+**Rejected:** the private three-call NodeList reparent
+(`old._nodes._remove` → `new._nodes._insert` → `widget._attach(new)`). It
+preserves the widget instance, but it is unsupported private API with no
+upstream contract, and it needs hand-rolled fixups for the stylesheet
+(`app.stylesheet.update`), both parents' `_arrangement_cache`, `_query_one_cache`
+invalidation on chains `updated()` did not walk, and sibling `nth-child` styling.
+The cost it would save is one card's construction — not worth it. Recorded here
+so t1243_11's block moves do not re-litigate it.
 
-## Documented fallback — reweighted
+**The documented fallback is therefore NOT taken.** The spike passed; the
+escalation branch in the task file does not fire.
 
-Keep `refresh_columns` and ship t1243_4's scoped filter alone. Do not force an
-unsafe widget manipulation to match the plan's shape — but this is **no longer a
-neutral outcome**: it forfeits ~94 % of the measured opportunity (t1243_4's
-levers are worth 0.4 %). Record the spike result and the residual cost, and
-**escalate it as a finding**: the premise holds and the cost is real, so a failed
-spike means the remedy needs re-designing (e.g. an incremental recompose that
-does not remount unchanged cards), not that the child is done.
+---
+
+## Step 2 — Two extractions, no forked logic
+
+### 2a. `KanbanApp._card_block(col_widget, card) -> list` (new method)
+
+Hoist the nested `_block` closure out of `_swap_adjacent_cards` (`:8615-8624`)
+verbatim; `_swap_adjacent_cards` then calls `self._card_block(col_widget,
+card_below)`. Behaviour must be identical — `tests/test_board_movement.py`'s
+vertical scenarios are the regression net.
+
+```python
+def _card_block(self, col_widget, card) -> list:
+    """A parent card plus the `.child-wrapper` rows that belong to it.
+
+    An expanded parent's child rows are SIBLINGS that follow its card, so every
+    DOM operation on a card has to carry them along. `EmptyColumnPlaceholder`
+    only ever appears before the first card, so "stop at the first non-wrapper"
+    is a complete rule.
+    """
+```
+
+### 2b. `KanbanColumn.task_block(task) -> ComposeResult` (new method)
+
+Extract the per-task body of `KanbanColumn.compose` (`:2817-2827`) so **one**
+generator builds a task's block for both the full compose and the transplant.
+`compose` becomes `for task in tasks: yield from self.task_block(task)`; the
+`with Horizontal(classes="child-wrapper")` idiom is kept **verbatim**.
+
+The transplant consumes it through `Widget.mount_compose(compose_result,
+before=…)` (`widget.py:1546`), which is `mount_all(compose(self,
+compose_result), …)` — `textual.compose.compose(node, compose_result)` accepts a
+pre-made generator in 8.2.7 and drives the `with`-block stack exactly as
+`compose()` does. So there is **no second construction path** to drift.
+
+`KanbanColumn.expanded_tasks` is the app's own set passed by reference at
+`:6513`/`:6523`, so `task_block` sees live expansion state.
+
+---
+
+## Step 3 — `KanbanApp._transplant_block` (new, async)
+
+```python
+async def _transplant_block(self, task, src_col, dst_col, *, before=None,
+                            refocus_col_id="") -> bool:
+    """Move one task's DOM block between (or within) columns, no recompose.
+
+    Textual 8.2.7 offers no cross-parent widget move — `move_child` refuses a
+    foreign child and `mount()` on a live widget is a SILENT no-op — so the old
+    widgets are pruned and the block is rebuilt from `KanbanColumn.task_block`.
+    Rebuilding is not a workaround: it is what keeps `column_id` (17 read sites)
+    and the dirty `*` marker correct by construction.
+
+    **The caller has ALREADY committed the model write before calling this.** So
+    this helper owns its own recovery: on any failure it recomposes the affected
+    columns from the committed model and returns False. It never leaves the DOM
+    disagreeing with the model, and it never propagates — an exception escaping
+    an async action reaches Textual's pump and takes the app down.
+
+    Returns True only on a clean transplant. False means "recovered by
+    recompose" — the caller must NOT then run the scoped follow-ups, because
+    `refresh_columns` has already done the filter pass and the refocus.
+    """
+```
+
+Body:
+
+```python
+    affected = {src_col.col_id, dst_col.col_id}
+
+    def _recover():
+        self.refresh_columns(affected, refocus_filename=task.filename,
+                             refocus_col_id=refocus_col_id or dst_col.col_id)
+
+    card = self._find_parent_card(src_col, task.filename)
+    if card is None:
+        _recover()
+        return False
+    try:
+        block = self._card_block(src_col, card)
+        await src_col.remove_children(block)
+        await dst_col.mount_compose(dst_col.task_block(task), before=before)
+    except Exception as exc:
+        # Everything past the write is inside this guard, because the write is
+        # already on disk: `_card_block` can raise on a card that is not a
+        # direct child, and `mount_compose` can raise MountError / DuplicateIds
+        # or anything out of `task_block`. After `remove_children` the old
+        # widgets are gone, so the failure mode without this guard is a task the
+        # model says exists and the board renders NOWHERE.
+        self.log.error("board: block transplant failed; recomposing", exc)
+        self.notify(f"Board repaint failed ({type(exc).__name__}: {exc}) — "
+                    "affected columns were rebuilt.", severity="error")
+        _recover()
+        return False
+    return True
+```
+
+`_find_parent_card(col_widget, filename)` is a new one-line helper scanning
+`col_widget.children` for the non-child `TaskCard` with that filename —
+**direct children, never `query()`**, which walks the whole tree wherever it is
+rooted (see the measured pessimization in `_filter_units`' docstring at `:6635`).
+
+**Why `except Exception` is the right width here, and why it is not a swallow.**
+This is a convergence-of-last-resort on a UI path, not a gate: the remedy —
+rebuild from the committed model — is correct for *every* failure, and
+enumerating the raisable types would only let an unforeseen one leave the board
+inconsistent. `BaseException` (notably `CancelledError`) deliberately propagates
+— that is app teardown, where a repaint is meaningless.
+
+**It is not silent, and the surfacing was checked against the installed
+Textual.** There is **no `Logger.exception`** in 8.2.7 — `Logger` exposes
+`.error` as a *property* returning a logger (`textual/__init__.py:60-175`) — and
+`Logger.__call__` returns early unless devtools is connected or `TEXTUAL_LOG` is
+set, so a log line alone would be invisible in normal use. The user-visible
+surface is therefore `self.notify(..., severity="error")`, which is already this
+file's established error idiom (`:7399`, `:7571`, `:7672`, `:8078`); the
+`self.log.error(...)` line is the devtools-only diagnostic channel. `traceback`
+is not imported in this module and is not worth adding for one call site — the
+exception type and message in the toast, plus a reproducing test, are the
+diagnosis path.
+
+**Recovery is idempotent regardless of how far the mount got.** If it raised
+inside `compose()`, nothing was registered; if it raised after `_register`
+inserted the widgets, `_recover`'s `_recompose_column` calls `remove_children()`
+on the whole column first, so a half-mounted block cannot survive as a duplicate.
+`refresh_columns` with a single-element set is exactly `refresh_column` for a
+non-`unordered` column, so the to-edge path shares this recovery unchanged.
+
+**Awaiting is required, not stylistic.** `mount` inserts synchronously but
+`remove` does not: `App._prune` posts `Prune` messages and the NodeList removal
+happens in each widget's own task. Without the await, `apply_filter` and
+`query(TaskCard)` would still see the departed card. The awaits are safe from
+pump deadlock because the pruned/mounted widgets run on their **own** asyncio
+tasks, not the app's.
+
+### `_sync_header_count(col_widget)` (new)
+
+```python
+def _sync_header_count(self, col_widget) -> None:
+    """Repaint a column header's count after an in-place DOM change.
+
+    `ColumnHeader` bakes `task_count` in at construction, so a transplant that
+    skips the recompose would leave both headers stale. Reads the manager
+    (unfiltered), matching what `KanbanColumn.compose` puts there.
+    """
+```
+
+Resolve the header from `col_widget.children` (not `query_one`), compare
+`header.task_count`, and on a change assign it and call
+`header.refresh(recompose=True)` — 3 widgets, not a column.
+
+---
+
+## Step 4 — Wire the two movement actions
+
+Both actions and their `action_*` wrappers become `async def`. Textual awaits
+coroutine action results, and message processing is serialized, so no
+re-entrancy is introduced. `_move_task_vertical` is **deliberately untouched**:
+it already has the in-place fast path (184.1 ms), and changing it is pure risk
+with no latency to win.
+
+### `_move_task_lateral(direction)`
+
+Replace the terminal `refresh_columns({current_col_id, new_col}, …)` with:
+
+1. **Structural guard — keep the old path when `"unordered"` is involved.**
+   `refresh_columns` (`:6603-6609`) escalates to a full `refresh_board` when the
+   `unordered` column's widget-presence and task-presence disagree — which is
+   exactly what happens when the last unordered task leaves. A transplant cannot
+   express "the column disappears", so if `"unordered" in {current_col_id,
+   new_col}` the action keeps calling `refresh_columns` unchanged.
+2. Resolve **both** column widgets from a **single** `self.query(KanbanColumn)`
+   pass (never two `_column_widget()` calls — `_column_widgets()` is four
+   full-tree class queries, measured at ~25 ms). If either is missing, call
+   `refresh_columns(...)` and return — mirroring `_move_task_vertical`'s existing
+   unresolvable-widget fallback (`:8685-8687`).
+3. Run the transplant and gate the scoped follow-ups on its result. The False
+   branch is already fully recovered by the helper, so it must **not** re-run
+   them:
+
+   ```python
+   if await self._transplant_block(task, src, dst, refocus_col_id=new_col):
+       self._sync_header_count(src)
+       self._sync_header_count(dst)
+       # Synchronous: the awaits above settled the DOM, so the deferral
+       # `refresh_columns` needs (to avoid racing compose) is unnecessary.
+       # Same shape `_swap_adjacent_cards` already uses (:8633).
+       self.apply_filter({current_col_id, new_col})
+       # Identical to what `_queue_refocus` does today, so the benchmark's
+       # "keypress fully applied" signal is unchanged.
+       self.call_after_refresh(self._refocus_card, filename, new_col)
+   ```
+
+Destination position is **append** (`before=None`): `move_task_to_column` →
+`index_for_append`, so the moved task sorts last in the destination.
+
+### `_move_task_to_extreme(direction)`
+
+Same helper with `src_col is dst_col`, resolving the `before` anchor **before**
+the removal:
+
+- to top: `before` = the first parent `TaskCard` in the column (the action
+  already early-returns when the card is already first, so that anchor is always
+  a different widget, and it sits after the header/placeholder);
+- to bottom: `before=None`.
+
+Gated on the same `if await self._transplant_block(...)` result, then
+`apply_filter({col_id})` and the same refocus (no header sync — a same-column
+move does not change the count). **Deviation from the task
+file, deliberate:** it says "`move_child` to first/last". `move_child` is
+supported and cheaper, but it preserves the widget and would therefore leave the
+dirty `*` unpainted — a visible regression against today's `refresh_column`.
+Header counts do not change on this path, so a rebuild of one block is the
+cheapest correct option and keeps a single code path to test.
+
+---
+
+## Step 5 — Tests
+
+### 5a. Shared fixture: promote the pristine-tree mixin
+
+`FixtureBoardTestBase` builds **one tree per class**, so a movement test leaves
+the tree mutated and the next test's move can early-return and pass vacuously.
+`tests/test_board_render_scoping.py` already solved this with `_PristineTreeMixin`.
+Move it into `tests/lib/board_fixture.py` as `PristineTreeMixin` and leave
+`_PristineTreeMixin = bf.PristineTreeMixin` in the render-scoping module, so that
+file's classes are unchanged and the helper is not duplicated.
+
+### 5b. `tests/test_board_dom_transplant.py` (new)
+
+House style: 4-line `sys.path` preamble, `import board_fixture as bf`, one class
+per property with a `test_fixture_facts` precondition case, `unittest.main()`
+guard. Classes use `bf.wide_topology(15)` (3 parents per column, so every move is
+performable) and, for the child-row cases, `with_children=True`.
+
+Properties pinned (each paired with a discriminating negative control, **one
+mutation per control**):
+
+1. **No recompose.** A lateral keypress records **zero** `_recompose_column`
+   calls. *Control:* a direct `refresh_columns({c0,c1})` records calls — proves
+   the spy sees them.
+2. **DOM matches data.** After `shift+right` the moved filename is in
+   `_get_column_cards("c1")` and absent from `c0`, and DOM order equals
+   `manager.get_column_tasks` order (recomputed independently, not read back
+   from the board).
+3. **`column_id` is rewritten — via behaviour, not the attribute.** Apply a
+   search matching only the moved task *after* the move; it stays visible in the
+   destination and the source column's `EmptyColumnPlaceholder` decision is
+   right. This is the assertion the task file names as the stale-`column_id`
+   catcher. *Control:* force the moved card's `column_id` back to the source and
+   the case must fail.
+4. **Focus lands on the moved card in the destination** —
+   `app.screen.focused is moved_card` and `_get_focused_col_id() == "c1"`.
+5. **Scroll sanity** — the moved card's region lies inside the destination
+   column's `scrollable_content_region` (reuse `test_board_scroll_focus_jump.py`'s
+   `_visible_cards` idiom), and the column did not jump to `scroll_y == 0` when
+   the card is at the bottom.
+6. **`.child-wrapper` rows travel and stay adjacent** — expand a parent with
+   children, move it laterally, assert its wrapper rows are direct children of
+   the destination column, immediately after its card, and that the child cards
+   inside them carry the destination `column_id`.
+7. **Header counts** — source shows n−1, destination n+1, asserted at
+   **render level** (`header.query_one(…).render().plain`), not on the
+   `task_count` attribute. *Control:* skip `_sync_header_count` and it fails.
+8. **Dirty `*` renders on the moved card** — render-level, mirroring
+   `test_board_render_scoping.py::test_moved_card_renders_the_dirty_marker`.
+9. **Round trip** — `shift+right` then `shift+left` restores the exact
+   pre-state (`board_order` for both columns), the stationarity property the
+   benchmark depends on.
+10. **To-edge** — `ctrl+up` / `ctrl+down` each: zero recomposes, correct DOM
+    position, focus on the moved card, `*` painted, wrappers travel.
+11. **`unordered` keeps the recompose path** — with a fixture task in
+    `unordered`, moving it out must leave a consistent board (the column
+    disappears). Asserted behaviourally on the resulting board, not by spying on
+    which internal path ran.
+12. **Fault injection — a mid-transplant failure converges, it does not lose the
+    card.** The model write lands before the DOM work, so this is the case that
+    decides whether a partial transplant is recoverable. Patch
+    `KanbanColumn.mount_compose` on the class to raise `RuntimeError` once, then
+    press `shift+right` and assert the board **converged on the committed
+    model**:
+    - exactly **one** card exists for the moved filename anywhere in the DOM
+      (not zero — the failure mode — and not two);
+    - it is in the **destination** column, and `_get_column_cards(dst)` matches
+      `manager.get_column_tasks(dst)` recomputed independently;
+    - both header counts are right and focus is on a real widget;
+    - the app is still running (the exception did not reach Textual's pump);
+    - the failure was **surfaced**, not swallowed — spy `KanbanApp.notify` and
+      assert one `severity="error"` call naming the exception type.
+
+    `mount_compose` is the correct injection point precisely because the
+    recovery path does **not** use it — `_recompose_column` goes through
+    `mount_all` — so the injection breaks only the fast path and leaves the
+    recovery functional. Run the same case a second time injecting at
+    `remove_children` (nothing removed, write already committed) to cover the
+    pre-removal half of the window.
+
+    *Control:* delete the `try/except` in `_transplant_block` (one mutation) and
+    this case must fail with **zero** cards for the moved filename — the exact
+    "model says moved, board renders it nowhere" state.
+
+Per the repo convention, each "must not happen" assertion is additionally run
+once against a deliberately broken source and the suite must exit 1.
+
+### 5c. `tests/test_board_movement.py` — mechanics only, expectations frozen
+
+`_install_probe` stamps `sync_end` in a `finally` around `_move_task_lateral` /
+`_move_task_vertical` / `_move_task_to_extreme`. Two of those become coroutine
+functions, so the wrapper must gain an async variant that awaits the body before
+stamping — otherwise `sync_end` records coroutine *creation* and `defer` becomes
+meaningless.
+
+**`FLIP_TABLE` and `EXPECTED_CALL_SITES` must NOT be edited.** This change alters
+no manager call, so write counts, changed-path sets and final board state are all
+unchanged. If either goes red, that is a real finding, not a table to update —
+the same contract t1243_4 honoured.
+
+Note for the record: the `no_rc` ablation config becomes a no-op on the lateral
+axis after this change (there is no recompose left to ablate). That is expected;
+t1243_14 owns re-measuring.
+
+---
 
 ## Verification
 
-Real Pilot: destination focus, `.child-wrapper` travel, **post-move filter
-correctness** (the assertion that catches stale `column_id`), scroll sanity,
-`_get_focused_col_id` reports the destination, column reordering still resolves.
+- `python3 -m pytest tests/test_board_dom_transplant.py -v` — all pass.
+- `bash tests/run_all_python_tests.sh` — read **only** the last line
+  (`PYTHON SUITE: PASSED|FAILED`); use `set -o pipefail` if piping.
+- `tests/test_board_movement.py`, `test_board_render_scoping.py`,
+  `test_board_empty_column_focus.py`, `test_board_scroll_focus_jump.py`,
+  `test_board_manager_moves.py`, `test_board_persistence_seam.py` pass with
+  `FLIP_TABLE` and `EXPECTED_CALL_SITES` **unedited**.
+- Each new guard is proven able to fail (one mutation per control), including the
+  fault-injection control: with `_transplant_block`'s `try/except` deleted, the
+  §5b-12 cases must report **zero** cards for the moved filename.
+- **Latency is a pass condition.** Before touching the box, check for concurrent
+  agents (`ait_tmux list-panes`) and run nothing else alongside the bench:
+  ```bash
+  AITASK_BOARD_BENCH=1 ~/.aitask/venv/bin/python -m unittest \
+    tests.test_board_movement.BoardMovementBenchmarkTests.test_bench_baseline -v
+  ```
+  **Target: ≥ 30 % reduction in median lateral keypress latency versus the
+  t1243_1 baseline of 2173.2 ms — i.e. ≤ 1521.2 ms.** Report the harness floor
+  and the vertical axis alongside (vertical must not regress against 184.1 ms).
+  Record the delta and method parameters in the parent plan for t1243_14.
+  Cross-run absolutes on this box drift ~4-10 % under agent load; the expected
+  win here is an order of magnitude, so drift is immaterial — but say so with the
+  floor number rather than assuming it.
+- **On a miss, run t1243_1's Performance-Gate Confirmation Checkpoint**
+  (parent plan, "Decision checkpoint"): present the data, revise nothing, revert
+  nothing, and let the user choose. NON-SKIPPABLE — the `fast` profile and
+  `post_plan_action` do not bypass it.
+- Manual smoke in a real `ait board`: move a card laterally with and without an
+  active search, with a parent expanded, into and out of the last position of a
+  column; confirm the `*` marker, both header counts, focus and scroll.
 
-**Latency is a pass condition here:** ≥ 30 % reduction in median lateral
-keypress latency versus the t1243_1 baseline (2173.2 ms), using t1243_1's
-ping-pong method and per-sample validity rules. Record the delta whichever path
-was taken. On a miss, run t1243_1's Performance-Gate Confirmation Checkpoint —
-no automatic revision, no discarded code.
+## Risk
+
+### Code-health risk: medium
+
+- Widget-lifecycle manipulation on a hot UI path, in a file with no prior async action; a mis-sequenced await or a dropped awaitable leaves the DOM and the data model disagreeing · severity: medium · → mitigation: none (covered in-task by §5b properties 2/3/4 under a real Pilot, plus `_transplant_block`'s own recompose recovery)
+- **The model write is committed before the DOM work, so a failure between `remove_children` and `mount_compose` would leave a task the model says exists and the board renders nowhere — and an exception escaping an async action reaches Textual's pump and kills the app** · severity: **high** · → mitigation: none (structural: the recovery lives inside `_transplant_block`, not as a rule each caller must remember, and it is proven by the §5b-12 fault-injection cases at both injection points, whose negative control reproduces the zero-cards state)
+- Two invariants the recompose used to maintain for free — `ColumnHeader.task_count` and the dirty `*` — become explicit obligations of the movement path, and a future third one could be missed the same way · severity: medium · → mitigation: board_column_header_live_count, board_movement_dom_invariant_harness (in-task cover: the render-level header and `*` assertions, §5b 7/8, each with its own negative control)
+- Making `action_move_task_*` async is a first for this file and changes the dispatch contract the benchmark harness wraps · severity: low · → mitigation: none (the harness wrapper is updated in the same commit and `FLIP_TABLE` staying green is the regression net)
+- `KanbanColumn.task_block` adds a second entry point into card construction; if it ever forks from `compose`, transplanted cards diverge from composed ones · severity: low · → mitigation: none (`compose` is rewritten to `yield from task_block`, so there is exactly one generator and no copy to drift)
+
+### Goal-achievement risk: medium
+
+- The mechanism is unproven **in this app**: awaiting `remove`/`mount` inside an action body is new here, and an unforeseen pump interaction could stall or reorder the repaint · severity: medium · → mitigation: none (the real-Pilot suite is the proof; if awaiting inline misbehaves, the bounded alternative is to dispatch the body via `run_worker(..., exclusive=True)` and keep the same helper — recorded here so it is a planned branch, not an improvisation)
+- The ≥ 30 % target is a hard pass condition measured on a box that carries 4-5 ambient load from concurrent agents · severity: low · → mitigation: none (the predicted win is ~15×, far outside drift; the harness-floor control is reported alongside, and a miss routes to the user checkpoint rather than to an automatic decision)
+- The `unordered` structural case is handled by *declining* the fast path rather than by transplanting, so that column keeps the old latency · severity: low · → mitigation: none (`unordered` only exists when tasks lack a `boardcol`, it is empty on a normally-maintained board, and correctness beats latency there)
+
+### Planned mitigations
+
+No **before** mitigation. The one uncertainty that warranted pre-work — "does a
+lifecycle-safe cross-parent move exist" — was the spike, and it is resolved above
+before any code is written. t1243_14 (`retrospective_benchmark`) already exists as
+a sibling and re-measures this axis.
+
+- timing: after | name: board_column_header_live_count | type: refactor | priority: medium | effort: low | addresses: code-health — recompose-maintained invariants become explicit caller obligations | desc: Make ColumnHeader derive its task count from the manager at render time instead of baking it in at construction, so no movement path has to remember _sync_header_count
+- timing: after | name: board_movement_dom_invariant_harness | type: test | priority: medium | effort: medium | addresses: code-health — recompose-maintained invariants become explicit caller obligations | desc: Promote the post-move consistency checks (DOM order matches get_column_tasks, column_id correct across the whole block, header count, dirty marker) into a shared assertion helper in tests/lib/board_fixture.py and apply it to the lateral, vertical and to-edge paths so t1243_11's block moves inherit the net
+
+## Step 9 — Post-Implementation
+
+Merge to `main` (current-branch profile, no worktree), then archive per the
+shared workflow.
+
+## Upstream defects identified (pre-existing, out of scope)
+
+- `.aitask-scripts/board/aitask_board.py:8607-8633` — `_swap_adjacent_cards`
+  reorders cards with `move_child` and never repaints them, so the dirty `*`
+  that `_move_task_vertical`'s write turns on (`TaskManager._mark_written`) does
+  not appear on the moved card until the next full refresh. Pre-existing on the
+  vertical axis; this task fixes the lateral and to-edge paths only, because
+  touching the 184 ms vertical fast path buys no latency and adds risk.
