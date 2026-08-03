@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-08-03 17:45
-updated_at: 2026-08-03 22:53
+updated_at: 2026-08-03 23:15
 boardidx: 23552
 ---
 
@@ -131,3 +132,8 @@ Candidate suspects, none yet measured:
   values are noise.
 - Related unaddressed upstream defect from t1243_4: `_column_widgets()`
   four-full-DOM-queries-per-call.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T20:15:32Z status=pass attempt=1 type=human
