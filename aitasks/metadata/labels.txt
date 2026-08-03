@@ -49,6 +49,7 @@ custom_shortcuts
 development
 differ
 docs
+documentation
 execution_profiles
 framework
 gates
