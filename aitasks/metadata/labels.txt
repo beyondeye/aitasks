@@ -33,6 +33,7 @@ auto-update
 backend
 bash_scripts
 board
+board_columns
 brainstom_modules
 brainstorm_detailer
 brainstorm_explore
