@@ -680,11 +680,11 @@ worktree**. Two failure classes must be kept apart and **not** conflated:
 - The six script-style modules keep a tally-based `assert_eq` that never raises,
   so the *class* of defect (a module-level `def test_*` passing vacuously under
   pytest) can silently return the next time someone adds one · severity: low ·
-  → mitigation: `bare_module_test_fn_guard`
+  → mitigation: `bare_module_test_fn_guard` (**t1375**)
 - This adds a **third** opt-in `--with-*` tier while none of the existing two
   appears in any help output (correction 2), compounding a discoverability gap
   rather than introducing one · severity: low · → mitigation:
-  `setup_with_flags_usage`
+  `setup_with_flags_usage` (**t1376**)
 
 ### Goal-achievement risk: medium
 - The first real-pytest run has never happened in this checkout (t1320), so the
@@ -730,8 +730,8 @@ worktree**. Two failure classes must be kept apart and **not** conflated:
   regardless of what is installed locally
 
 ### Planned mitigations
-- timing: after | name: bare_module_test_fn_guard | type: test | priority: low | effort: low | addresses: code-health — the vacuous-pass class can silently return | desc: Structural guard asserting no `tests/test_*.py` defines a module-level `def test_*` (they pass vacuously under pytest because the script-style `assert_eq` tallies instead of raising), with a negative control proving the guard flags a synthetic offender
-- timing: after | name: setup_with_flags_usage | type: enhancement | priority: low | effort: low | addresses: code-health — install-flow discoverability | desc: Add a `usage()` to `aitask_setup.sh` enumerating the three opt-in tiers (`--with-pypy`, `--with-chat`, `--with-dev`) and surface it via `ait setup --help`; none of them appears in any help output today
+- timing: after | name: bare_module_test_fn_guard | created: t1375 | type: test | priority: low | effort: low | addresses: code-health — the vacuous-pass class can silently return | desc: Structural guard asserting no `tests/test_*.py` defines a module-level `def test_*` (they pass vacuously under pytest because the script-style `assert_eq` tallies instead of raising), with a negative control proving the guard flags a synthetic offender
+- timing: after | name: setup_with_flags_usage | created: t1376 | type: enhancement | priority: low | effort: low | addresses: code-health — install-flow discoverability | desc: Add a `usage()` to `aitask_setup.sh` enumerating the three opt-in tiers (`--with-pypy`, `--with-chat`, `--with-dev`) and surface it via `ait setup --help`; none of them appears in any help output today
 
 ## Measured results
 
