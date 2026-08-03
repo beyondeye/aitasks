@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1243_3]
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, python, script-performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-07-28 01:13
-updated_at: 2026-07-28 01:13
+updated_at: 2026-08-03 10:53
 ---
 
 ## Context
