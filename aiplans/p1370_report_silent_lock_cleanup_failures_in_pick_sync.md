@@ -539,7 +539,7 @@ the gate orchestrator (`./ait gates run 1370` — active set is
   path** (every pick), and exploration found two latent `set -euo pipefail`
   aborts inside the very function whose status we start trusting. A third,
   unfound one would turn into a warning on every pick. · severity: medium ·
-  → mitigation: `audit_pipefail_grep_assignment_aborts` (after). In-scope:
+  → mitigation: t1381 `audit_pipefail_grep_assignment_aborts` (after). In-scope:
   awk/parameter-expansion rewrites remove the whole class here rather than
   patching instances, and negative-control tests A/B/C/D assert **empty stderr**
   on all four quiet paths — any residual abort fails the suite
@@ -561,4 +561,8 @@ the gate orchestrator (`./ait gates run 1370` — active set is
   planning.
 
 ### Planned mitigations
-- timing: after | name: audit_pipefail_grep_assignment_aborts | type: chore | priority: medium | effort: medium | addresses: code-health — a third, unfound `set -euo pipefail` abort | desc: Audit `.aitask-scripts/` for `x=$(cmd | grep …)` assignments that abort the script when grep matches nothing under `set -euo pipefail`, fix them, and add a guard test; t1370 found two in `cleanup_locks()` alone.
+- timing: after | name: audit_pipefail_grep_assignment_aborts | created: t1381 | type: chore | priority: medium | effort: medium | addresses: code-health — a third, unfound `set -euo pipefail` abort | desc: Audit `.aitask-scripts/` for `x=$(cmd | grep …)` assignments that abort the script when grep matches nothing under `set -euo pipefail`, fix them, and add a guard test; t1370 found two in `cleanup_locks()` alone.
+
+Also spawned at Step 8b: **t1378** — `list_locks()` (`aitask_lock.sh:362`) carries
+the same pipefail abort, so `ait lock --list` exits 1 without output whenever
+nothing is locked. It is the one confirmed instance; t1381 covers the sweep.
