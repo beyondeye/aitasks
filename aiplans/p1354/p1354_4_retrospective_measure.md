@@ -484,7 +484,7 @@ machine is idle now (load 1.76); N=6/8 runs take 6–8 of 24 cores.
   assertions pinning `-n 2` fail by design until updated in the same commit
 - The duplicate-inheritance pattern can silently return the next time someone
   subclasses a test-defining class · severity: low · → mitigation:
-  `syncer_inherited_test_dup_guard` ("after", below)
+  `syncer_inherited_test_dup_guard` (**t1384**, "after")
 - Running the suite in the live checkout would collide with concurrent sessions
   over the real git index · severity: low · → mitigation: pinned snapshot
   worktrees; the one module touching the real index is already carved serial
@@ -514,7 +514,7 @@ machine is idle now (load 1.76); N=6/8 runs take 6–8 of 24 cores.
   per-class wall time, not by class count
 
 ### Planned mitigations
-- timing: after | name: syncer_inherited_test_dup_guard | type: test | priority: low | effort: low | addresses: code-health — the duplicate-inheritance pattern can silently return | desc: Structural guard asserting no `tests/test_*.py` class subclasses another class in the same module that defines its own `test_*` methods (the base's tests are then re-executed once per subclass — 75 wasted boots in test_syncer_rows.py before t1354_4). Reuse the AST scan written during t1354_4 planning, which found exactly one tree-wide instance; ship with a negative control proving the guard flags a synthetic offender.
+- timing: after | name: syncer_inherited_test_dup_guard | created: t1384 | type: test | priority: low | effort: low | addresses: code-health — the duplicate-inheritance pattern can silently return | desc: Structural guard asserting no `tests/test_*.py` class subclasses another class in the same module that defines its own `test_*` methods (the base's tests are then re-executed once per subclass — 75 wasted boots in test_syncer_rows.py before t1354_4). Reuse the AST scan written during t1354_4 planning, which found exactly one tree-wide instance; ship with a negative control proving the guard flags a synthetic offender.
 
 ## Measured results
 
