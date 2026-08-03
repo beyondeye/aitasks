@@ -321,3 +321,88 @@ merge-approval gate against `main` (from the `Output branch:` header above), the
   the board-parser behavior for every incomplete-record shape was measured rather
   than assumed. The acceptance criteria (structural fix + empty-branch test +
   discriminating negative controls) are directly executable.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, no scope changes.
+  - `.aitask-scripts/aitask_lock.sh` (+33/-5): added `_lock_field()` above
+    `list_locks()`; replaced the `git ls-tree | grep | awk` listing with
+    `git ls-tree | awk '$4 ~ /_lock\.yaml$/ {print $4}'`; rewrote the loop body
+    to require `task_id` (skip + `debug` when absent) and default
+    `locked_by`/`locked_at`/`hostname` to `unknown`.
+  - `tests/test_task_lock.sh` (+121): `plant_lock_blob()` helper plus Tests
+    13b (empty branch), 13c (stray non-lock file), 13d (five-row incomplete-record
+    matrix). Existing test numbering untouched.
+
+- **Deviations from plan:** None to the design. One mechanical adjustment during
+  the negative-control run: NC1's mutation anchor had to include the
+  `list_locks`-specific comment line, because t1370's `cleanup_locks` fix left a
+  **byte-identical** `awk` line in the same file. A bare anchor matched twice and
+  would have mutated both functions, confounding NC1 with the Test 12 cleanup
+  assertions. Caught by an explicit uniqueness assertion in the control driver,
+  not by inspection — worth keeping that assertion in any future control harness.
+
+- **Issues encountered:**
+  - While confirming the risk-gate preconditions I invoked
+    `aitask_gate_risk.sh 1378 1 dryrun-check` as a read-only probe. It is not a
+    dry-run verb: it appended a real `risk_evaluated pass` block to the ledger
+    with the synthetic run id `dryrun-check`, pre-empting the Step-9 orchestrator
+    record. Caught immediately; the entry was still uncommitted, so it was removed
+    by a targeted inverse edit (not `git checkout` — a concurrent session shares
+    this checkout) along with its `.aitask-gates/1378/` sidecar log, restoring
+    `archive-ready` to `BLOCKED:risk_evaluated`. **Lesson: gate verifiers are
+    ledger-mutating, never probes.** Use `aitask_gate.sh archive-ready` /
+    `status` for inspection.
+  - `Output branch:` in this plan's header reads `main` rather than being cleared
+    by `--no-worktree`, because the header was hand-written into the plan before
+    externalization. Harmless here: current-branch mode on `main` means base and
+    output agree, which is what the planning convention prescribes anyway.
+
+- **Key decisions:**
+  - **Scope widened by one instance, with user confirmation.** t1378 named only
+    line 362; `list_locks` held a second instance of the same class ten lines
+    below (the four `echo | grep | sed` field extractions). Both were reproduced
+    before asking. The repo-wide sweep of *other* scripts stays with t1370's audit.
+  - **Incomplete records get `unknown` placeholders, not empty fields.** Measured
+    against the board's real regex: every empty-field shape fails to match, so the
+    naive fix would have converted a loud whole-listing abort into a *silent
+    per-lock omission* — the same failure class, narrower. `unknown` reuses the
+    convention `lock_task()` already applies at line 166.
+  - **`task_id` is the only required field.** Without it there is no record to
+    report; mirrors `cleanup_locks()`:462-467 including the `debug` wording.
+  - **Test 13d reads the board's regex out of `aitask_board.py`** rather than
+    copying it, so it pins the real consumer contract and fails loudly (via a
+    `test -n` guard) if the board source moves.
+  - **Rows asserted by exact full-line equality, not `contains`** — a default
+    wired to the wrong variable would still contain the substring `unknown`.
+
+- **Verification results:**
+  - `bash tests/test_task_lock.sh` → 79 passed, 0 failed.
+  - `shellcheck .aitask-scripts/aitask_lock.sh` → no new findings (pre-existing
+    `SC1091` source-following and `SC2086` at line 493 in `cleanup_locks` remain).
+  - `./ait lock --list` on the live repo → exit 0, all 9 locks rendered.
+  - Negative controls (one mutation each, restored by inverse edit, suite back to
+    79/79 afterwards). The "stayed green" column is the discrimination evidence:
+
+    | # | mutation | failed | stayed green |
+    |---|---|---|---|
+    | NC1 | restore `grep` in the `ls-tree` listing | 13b (2 asserts) | 13c, 13d |
+    | NC2 | restore `grep` for `task_id` | 13c (2 asserts) | 13b, 13d |
+    | NC3 | restore `grep` for `hostname` | all of 13d (11 asserts — listing aborts) | 13b, 13c |
+    | NC4 | drop `lhost="${lhost:-unknown}"` | 13d t7, t10 | 13d t8, t9, **t11** |
+    | NC5 | drop `lby="${lby:-unknown}"` | 13d t8, t10 | 13d t7, t9, **t11** |
+    | NC6 | drop `lat="${lat:-unknown}"` | 13d t9, t10 | 13d t7, t8, **t11** |
+
+    NC4-NC6 each redden only their own row plus the compound `t10` row (which
+    omits all three fields), confirming the three defaults are pinned
+    independently. `t11` (complete record) stayed green under NC4-NC6 and failed
+    only under NC3, which kills the entire listing — exactly as predicted.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_lock.sh:162-165` — `lock_task()` extracts `locked_by`,
+    `locked_at` and `hostname` with unguarded `echo | grep | sed` inside its
+    "lock already exists" branch, so a corrupt or truncated lock file aborts the
+    lock attempt under `set -euo pipefail`. Same class as the two fixed here; the
+    omission looks accidental because the adjacent lines 172-173 already carry
+    `|| true` guards for the PID-anchor fields. Out of scope for t1378, which is
+    scoped to `list_locks`.
