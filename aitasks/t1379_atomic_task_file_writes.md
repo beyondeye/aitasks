@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [python, script-performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-08-03 11:10
-updated_at: 2026-08-03 11:10
+updated_at: 2026-08-03 11:27
 ---
 
 ## Origin
