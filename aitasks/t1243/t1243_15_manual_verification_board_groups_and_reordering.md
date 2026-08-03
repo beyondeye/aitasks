@@ -25,6 +25,10 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1243_3] Move a task to the top and bottom of a column (ctrl+up / ctrl+down); confirm ordering is correct and only that task file changed.
 - [ ] [t1243_3] On a column whose tasks still carry legacy 10/20/30 indices, insert repeatedly between the same two cards until a respace fires; confirm the board stays visually correct and the respace happens once, not on every move.
 - [ ] [t1243_4] With a search filter active on a large board, hold shift+up/shift+down; confirm the board feels responsive and cards do not visibly flicker or re-flow.
+- [ ] [t1243_4] Move a card laterally, vertically, and to a column extreme; confirm each moved card shows the `*` modified marker immediately. The marker now comes from the write itself, not from a `git status` scan per keypress.
+- [ ] [t1243_4] With the board open, commit a task file from another terminal, then move an *unrelated* card. Confirm the committed task keeps a stale `*` until you press `r`. This is the accepted add-only trade-off, not a bug — `r`, a view switch, a detail return, and a board commit all still run the full scan.
+- [ ] [t1243_4] With a search filter that hides the focused card's column, move a card; confirm focus is never left stranded on a hidden card.
+- [ ] [t1243_4] Filter one column empty, then move a card in a *different* column; confirm the empty column's `(empty)` placeholder does not flicker or change state.
 - [ ] [t1243_5] Move a task laterally while its children are expanded; confirm the child rows travel with it, focus stays on the moved card in the destination column, and a search typed afterwards filters correctly.
 - [ ] [t1243_5] After a lateral move, press ctrl+left / ctrl+right; confirm column reordering still acts on the correct column.
 - [ ] [t1243_6] Press space on several cards; confirm the checkbox glyph toggles, marked cards read as bold yellow, and the marks survive typing a search filter.
