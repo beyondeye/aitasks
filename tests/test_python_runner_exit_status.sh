@@ -152,18 +152,116 @@ PY
 CWD_PYTEST="$(new_dir cwd_pytest)"
 mkdir -p "$CWD_PYTEST/pytest"
 : > "$CWD_PYTEST/pytest/__init__.py"
-cat > "$CWD_PYTEST/pytest/__main__.py" <<'PY'
+
+# The stub pytest body, shared by the no-xdist and with-xdist shim dirs.
+#
+# STUB_ARGV_FILE is overwritten per invocation (last one wins), which is what
+# the single-phase tests below read. STUB_ARGV_LOG, when set, additionally
+# APPENDS one `===PHASE===` record per invocation, so the two-phase parallel
+# lane can be inspected phase by phase. The per-phase exit code is STUB_RC for
+# the first invocation and STUB_RC<n> for the nth — without which a test could
+# not tell "pool failed, carve-out clean" from the reverse.
+write_stub_pytest() {
+    cat > "$1/pytest/__main__.py" <<'PY'
 import os
 import sys
 
+args = sys.argv[1:]
+log = os.environ.get("STUB_ARGV_LOG")
+
+# Count BEFORE appending, so `n` is this invocation's 0-based index.
+n = 0
+if log and os.path.exists(log):
+    with open(log) as fh:
+        n = fh.read().count("===PHASE===")
+
 with open(os.environ["STUB_ARGV_FILE"], "w") as fh:
-    fh.write("\n".join(sys.argv[1:]))
+    fh.write("\n".join(args))
+if log:
+    with open(log, "a") as fh:
+        fh.write("===PHASE===\n" + "\n".join(args) + "\n")
+
 print("stub pytest ran")
-sys.exit(int(os.environ.get("STUB_RC", "0")))
+rc = os.environ.get("STUB_RC" if n == 0 else "STUB_RC%d" % (n + 1))
+if rc is None:
+    rc = os.environ.get("STUB_RC", "0")
+sys.exit(int(rc))
+PY
+}
+write_stub_pytest "$CWD_PYTEST"
+
+# xdist deliberately BLOCKED here, mirroring the pytest block in $CWD_UNITTEST,
+# so the "flags absent" assertions below rest on something WE control.
+#
+# Honest scope note (measured, not assumed): removing this shim does not
+# currently turn the tests red. Real `xdist/__init__.py` executes
+# `@pytest.hookimpl` at import time, which raises AttributeError against the
+# stub `pytest` package sitting in this same cwd — so the runner's
+# `import xdist` probe fails either way today, and the branch happens to be
+# taken for a reason that lives in xdist's import graph rather than here.
+# The shim is kept because that accident is not a contract: an xdist release
+# with a lazier __init__ would make `import xdist` succeed from this cwd, and
+# the "flags absent" assertions would silently become machine-dependent —
+# passing on a clean checkout, failing wherever `ait setup --with-dev` has run.
+mkdir -p "$CWD_PYTEST/xdist"
+cat > "$CWD_PYTEST/xdist/__init__.py" <<'PY'
+raise ImportError("xdist deliberately blocked by test fixture")
+PY
+
+# The parallel lane: stub pytest AND an importable xdist, so the runner takes
+# its `-n <workers> --dist loadfile` branch regardless of what is installed.
+CWD_PYTEST_XDIST="$(new_dir cwd_pytest_xdist)"
+mkdir -p "$CWD_PYTEST_XDIST/pytest" "$CWD_PYTEST_XDIST/xdist"
+: > "$CWD_PYTEST_XDIST/pytest/__init__.py"
+: > "$CWD_PYTEST_XDIST/xdist/__init__.py"
+write_stub_pytest "$CWD_PYTEST_XDIST"
+
+# Carve-out fixture: the serially-carved module plus one ordinary module, so the
+# partition has something to put in each phase.
+FIX_CARVE="$(new_dir fix_carve)"
+write_script_style "$FIX_CARVE"
+cat > "$FIX_CARVE/test_board_header_row_live.py" <<'PY'
+import unittest
+
+
+class CarvedTests(unittest.TestCase):
+    def test_ok(self):
+        self.assertEqual(1, 1)
 PY
 
 STUB_ARGV="$TMP/stub_argv.txt"
+STUB_LOG="$TMP/stub_argv_log.txt"
 ENV_PROBE="$TMP/env_probe.txt"
+
+# Read the nth (1-based) `===PHASE===` record from the stub log as a
+# newline-joined argv vector.
+phase_argv() {
+    "$PY" - "$STUB_LOG" "$1" <<'PY'
+import sys
+
+path, want = sys.argv[1], int(sys.argv[2])
+try:
+    with open(path) as fh:
+        blocks = fh.read().split("===PHASE===\n")[1:]
+except FileNotFoundError:
+    blocks = []
+print(blocks[want - 1].rstrip("\n") if len(blocks) >= want else "", end="")
+PY
+}
+
+phase_count() {
+    grep -c '===PHASE===' "$STUB_LOG" 2>/dev/null || echo 0
+}
+
+# The expected parallel-lane argv for a single-file fixture, as an EXACT vector.
+#
+# Compared with assert_eq, never assert_contains: `grep -F` splits a multi-line
+# pattern into one alternative PER LINE, so a needle like "-n\n4" matches any
+# haystack merely containing "-n" — it would pass against `-n 2` and prove
+# nothing. Exact comparison is the only form that actually pins the value.
+lane_vector() {  # lane_vector <test-file> <workers>
+    printf '%s\n-v\n-n\n%s\n--dist\nloadfile' "$1" "$2"
+}
 
 # --- helpers ---------------------------------------------------------------
 
@@ -302,6 +400,146 @@ test_pytest_receives_the_expected_argv() {
         "$expected" "$(cat "$STUB_ARGV" 2>/dev/null)"
 }
 
+# --- Tests: the pytest-xdist parallel lane (t1354_3) -----------------------
+
+# run_lane <cwd> <fixture-dir> [env assignments...] -- [extra args...]
+# Resets the phase log, runs the runner, leaves OUT/RC set.
+run_lane() {
+    local cwd="$1" fix="$2"
+    shift 2
+    rm -f "$STUB_ARGV" "$STUB_LOG"
+    OUT="$(cd "$cwd" && env STUB_ARGV_FILE="$STUB_ARGV" STUB_ARGV_LOG="$STUB_LOG" "$@" \
+        bash "$RUNNER" --test-dir "$fix" 2>&1)"
+    RC=$?
+}
+
+# The lane's flags, pinned as an EXACT vector. `--dist loadfile` is the
+# load-bearing half: the default `--dist load` splits one file's tests across
+# workers, which breaks the ~39 modules that chdir the process. `-n 2` is pinned
+# too, so a regression back to `-n auto` — which would hand the whole machine to
+# one suite run — fails here rather than in production.
+test_lane_argv_is_bounded_and_loadfile() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0
+    assert_exit_zero_rc "lane: green fixture exits 0" "$RC"
+    assert_eq "lane: argv is <globs> -v -n 2 --dist loadfile" \
+        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 2)" "$(phase_argv 1)"
+    assert_contains "lane: announces itself on stderr" \
+        "parallel lane: -n 2 --dist loadfile" "$OUT"
+    assert_contains "lane: banner still names runner=pytest (t1179 contract)" \
+        "PYTHON SUITE: PASSED (runner=pytest, exit=0)" "$OUT"
+}
+
+# The no-xdist branch must be flag-free — and deterministically so, which is
+# what the blocking xdist shim in $CWD_PYTEST buys.
+test_no_xdist_means_no_lane_flags() {
+    run_lane "$CWD_PYTEST" "$FIX_GREEN" STUB_RC=0
+    local argv
+    argv="$(phase_argv 1)"
+    assert_not_contains "no xdist: -n absent" "-n" "$argv"
+    assert_not_contains "no xdist: --dist absent" "--dist" "$argv"
+    assert_not_contains "no xdist: no lane announcement" "parallel lane:" "$OUT"
+}
+
+test_worker_count_is_overridable() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_WORKERS=4
+    assert_eq "AIT_TEST_WORKERS=4 yields -n 4" \
+        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 4)" "$(phase_argv 1)"
+}
+
+# A malformed override must not reach pytest as a bare token. Asserted as an
+# exact vector: it pins BOTH that the value is 2 and that `x` never appears.
+test_malformed_worker_count_falls_back() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_WORKERS=x
+    assert_eq "malformed AIT_TEST_WORKERS falls back to exactly -n 2" \
+        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 2)" "$(phase_argv 1)"
+    assert_contains "malformed AIT_TEST_WORKERS warns" \
+        "is not a positive integer" "$OUT"
+}
+
+test_parallel_opt_out_restores_serial_vector() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_PARALLEL=0
+    local argv
+    argv="$(phase_argv 1)"
+    assert_eq "AIT_TEST_PARALLEL=0 restores the plain serial vector" \
+        "$(printf '%s\n-v' "$FIX_GREEN/test_zz_script_style.py")" "$argv"
+    assert_eq "AIT_TEST_PARALLEL=0 runs exactly one phase" "1" "$(phase_count)"
+}
+
+# The carve-out: the real-board module leaves the pool and gets its own serial
+# invocation — without the lane flags, and exactly once.
+test_carve_out_splits_into_two_phases() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_CARVE" STUB_RC=0
+    assert_eq "carve-out: two phases ran" "2" "$(phase_count)"
+
+    local pool serial
+    pool="$(phase_argv 1)"
+    serial="$(phase_argv 2)"
+
+    assert_not_contains "carve-out: pool excludes the carved module" \
+        "test_board_header_row_live.py" "$pool"
+    assert_contains "carve-out: pool keeps the ordinary module" \
+        "test_zz_script_style.py" "$pool"
+    assert_contains "carve-out: pool is parallel" "--dist" "$pool"
+
+    assert_contains "carve-out: serial phase gets the carved module" \
+        "test_board_header_row_live.py" "$serial"
+    assert_not_contains "carve-out: serial phase carries no other module" \
+        "test_zz_script_style.py" "$serial"
+    assert_not_contains "carve-out: serial phase is NOT parallel" "--dist" "$serial"
+}
+
+# Both failure directions, because a two-phase run has two ways to hide a red.
+test_pool_failure_is_not_masked_by_clean_carve_out() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_CARVE" STUB_RC=1 STUB_RC2=0
+    assert_exit_nonzero_rc "pool failure propagates" "$RC"
+    assert_contains "pool failure reports FAILED" "PYTHON SUITE: FAILED" "$OUT"
+    assert_not_contains "pool failure never reports PASSED" \
+        "PYTHON SUITE: PASSED" "$OUT"
+}
+
+test_carve_out_failure_is_not_masked_by_clean_pool() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_CARVE" STUB_RC=0 STUB_RC2=1
+    assert_exit_nonzero_rc "carve-out failure propagates" "$RC"
+    assert_contains "carve-out failure reports FAILED" "PYTHON SUITE: FAILED" "$OUT"
+    assert_not_contains "carve-out failure never reports PASSED" \
+        "PYTHON SUITE: PASSED" "$OUT"
+}
+
+# A forwarded path selector would re-add the carved module to the pool AND run
+# it again serially, so the lane must switch itself off instead.
+test_forwarded_path_selector_disables_the_lane() {
+    rm -f "$STUB_ARGV" "$STUB_LOG"
+    OUT="$(cd "$CWD_PYTEST_XDIST" && STUB_ARGV_FILE="$STUB_ARGV" STUB_ARGV_LOG="$STUB_LOG" STUB_RC=0 \
+        bash "$RUNNER" --test-dir "$FIX_CARVE" "$FIX_CARVE/test_board_header_row_live.py" 2>&1)"
+    RC=$?
+    assert_eq "path selector: exactly one phase runs" "1" "$(phase_count)"
+    assert_not_contains "path selector: lane flags absent" "--dist" "$(phase_argv 1)"
+    assert_contains "path selector: the reason is reported" \
+        "parallel lane disabled" "$OUT"
+}
+
+# An empty partition must be SKIPPED, never invoked with no files — pytest with
+# no path argument collects the current directory instead.
+test_carve_out_only_subset_runs_one_phase() {
+    local only_carved
+    only_carved="$(new_dir fix_only_carved)"
+    cat > "$only_carved/test_board_header_row_live.py" <<'PY'
+import unittest
+
+
+class CarvedOnlyTests(unittest.TestCase):
+    def test_ok(self):
+        self.assertEqual(1, 1)
+PY
+    run_lane "$CWD_PYTEST_XDIST" "$only_carved" STUB_RC=0
+    assert_eq "carved-only subset: exactly one phase runs" "1" "$(phase_count)"
+    assert_contains "carved-only subset: it is the carved module" \
+        "test_board_header_row_live.py" "$(phase_argv 1)"
+    assert_not_contains "carved-only subset: no empty parallel phase" \
+        "--dist" "$(phase_argv 1)"
+    assert_exit_zero_rc "carved-only subset exits 0" "$RC"
+}
+
 # --- Test: the neighbouring t1236 contract still holds ---------------------
 
 test_caller_pythonpath_is_still_scrubbed() {
@@ -324,6 +562,16 @@ test_unittest_forwards_remaining_arguments
 test_pytest_backend_is_selected_and_zero_passes
 test_pytest_backend_failure_propagates
 test_pytest_receives_the_expected_argv
+test_lane_argv_is_bounded_and_loadfile
+test_no_xdist_means_no_lane_flags
+test_worker_count_is_overridable
+test_malformed_worker_count_falls_back
+test_parallel_opt_out_restores_serial_vector
+test_carve_out_splits_into_two_phases
+test_pool_failure_is_not_masked_by_clean_carve_out
+test_carve_out_failure_is_not_masked_by_clean_pool
+test_forwarded_path_selector_disables_the_lane
+test_carve_out_only_subset_runs_one_phase
 test_caller_pythonpath_is_still_scrubbed
 
 echo ""

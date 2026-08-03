@@ -27,6 +27,11 @@ ait setup
 5. **Draft directory** — Creates `aitasks/new/` for local draft tasks and adds it to `.gitignore` so drafts stay local-only
 6. **Task ID counter** — Initializes the `aitask-ids` counter branch on the remote for atomic task numbering. This prevents duplicate task IDs when multiple PCs create tasks against the same repo
 7. **Python venv** — Creates virtual environment at `~/.aitask/venv/` and installs `textual` (>=8.1), `pyyaml`, `linkify-it-py`, `tomli`, `plotext` (for `ait stats-tui` chart panes), and other dependencies with pinned versions. After installing, setup validates that every dependency imports and matches its pinned version range, repairing the venv if not. Recreates the venv if existing Python is too old. For an opt-in PyPy 3.11 venv that speeds up `ait board` (`ait setup --with-pypy`), see [PyPy Runtime]({{< relref "/docs/installation/pypy" >}}).
+
+   Setup also has two further **opt-in dependency tiers**, neither installed by default. Each is remembered after the first opt-in, so later plain `ait setup` runs revalidate and repair it:
+
+   - `ait setup --with-chat` — the chat adapter SDKs (`discord.py`, `slack-bolt`, `slack-sdk`)
+   - `ait setup --with-dev` — `pytest` and `pytest-xdist`, which give the Python test suite a parallel lane. Contributors only; the suite runs on the standard library's `unittest` without them
 8. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
 10. **Version check** — Compares local version against latest GitHub release and suggests update if newer

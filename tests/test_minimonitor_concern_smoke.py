@@ -29,6 +29,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -48,8 +49,16 @@ CLOSE = "===END-CONCERNS==="
 #: substring — the wording now interpolates counts (t1274).
 OFFER_RE = re.compile(r"Shadow raised \d+ concern", re.IGNORECASE)
 
-SOCKET = "ait_t1187_smoke"
-SESSION = "t1187_concern_smoke"
+# Per-PID socket AND session (t1354_3). Both used to be fixed names on the
+# shared `/tmp/tmux-$UID` server, with an unconditional `kill-session` /
+# `kill-server` — unsafe even against a second concurrent suite run today, and a
+# hard blocker for the parallel test lane, where each xdist worker is its own
+# process. The per-PID socket is the model used by
+# tests/test_board_header_row_live.py:40; the private TMUX_TMPDIR set up in
+# setUpClass is the one from tests/lib/tmux_isolation.sh (require_isolated_tmux)
+# and tests/lib/tmux_socket_containment.py.
+SOCKET = f"ait_t1187_smoke_{os.getpid()}"
+SESSION = f"t1187_concern_smoke_{os.getpid()}"
 PANE_WIDTH = 55      # the narrow width from the failing scenario
 PANE_HEIGHT = 10     # pinned so the capture-window arithmetic is deterministic
 
@@ -108,8 +117,24 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # Private tmux tmpdir, set in the ENVIRONMENT (not merely passed to one
+        # subprocess) because the production path under test —
+        # aitask_shadow_capture.sh -> lib/tmux_exec.sh — spawns its own tmux and
+        # inherits os.environ. Must be in place before the first _tmux() call.
+        # Cleanups run after tearDownClass, so the server is killed first.
+        tmpdir = tempfile.mkdtemp(prefix="ait_t1187_tmux_")
+        prev_tmpdir = os.environ.get("TMUX_TMPDIR")
+        os.environ["TMUX_TMPDIR"] = tmpdir
+        cls.addClassCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+        if prev_tmpdir is None:
+            cls.addClassCleanup(os.environ.pop, "TMUX_TMPDIR", None)
+        else:
+            cls.addClassCleanup(os.environ.__setitem__, "TMUX_TMPDIR", prev_tmpdir)
+
         payload = _pane_payload().replace("'", "")
-        _tmux("kill-session", "-t", SESSION)
+        # No pre-emptive kill-session: SESSION is per-PID, so there is nothing
+        # pre-existing to kill, and killing by a shared name is what made this
+        # module unsafe to run alongside anything else.
         res = _tmux(
             "new-session", "-d", "-s", SESSION,
             "-x", str(PANE_WIDTH), "-y", str(PANE_HEIGHT),

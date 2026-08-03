@@ -62,7 +62,7 @@ def _task(frontmatter: str, *ledger_markers: str) -> str:
 
 # --- D-1 resolver ---------------------------------------------------------
 
-def test_resolve_completion_date() -> None:
+def _check_resolve_completion_date() -> None:
     R = sd.resolve_completion_date
 
     # merge_approved present & pass -> dates by merge.
@@ -129,7 +129,7 @@ def _write(base: Path, relpath: str, content: str) -> None:
     p.write_text(content, encoding="utf-8")
 
 
-def test_collect_inflight(tmp: Path) -> None:
+def _check_collect_inflight(tmp: Path) -> None:
     # In-flight: review_approved pass + declared gate not yet pass -> BLOCKED.
     _write(tmp, "t100_inflight.md", _task(
         "status: Implementing\ngates: [docs_updated]",
@@ -161,7 +161,7 @@ def test_collect_inflight(tmp: Path) -> None:
 
 # --- D-3 phase timings (via collect_stats over archived) -------------------
 
-def test_phase_timings(tmp: Path) -> None:
+def _check_phase_timings(tmp: Path) -> None:
     arch = "archived"
     # Full pipeline: implement 2h, review->merge 24h.
     _write(tmp, f"{arch}/t1_full.md", _task(
@@ -201,7 +201,7 @@ def test_phase_timings(tmp: Path) -> None:
     assert_eq("inflight empty for archived-only fixture", 0, data.inflight.count)
 
 
-def test_format_duration() -> None:
+def _check_format_duration() -> None:
     assert_eq("minutes under 1h", "30m", sd.format_duration(0.5))
     assert_eq("hours under a day", "2.0h", sd.format_duration(2.0))
     assert_eq("days for >=24h", "1.5d", sd.format_duration(36.0))
@@ -209,12 +209,12 @@ def test_format_duration() -> None:
 
 def main() -> int:
     import tempfile
-    test_resolve_completion_date()
-    test_format_duration()
+    _check_resolve_completion_date()
+    _check_format_duration()
     with tempfile.TemporaryDirectory(prefix="stats_inflight_") as t:
-        test_collect_inflight(Path(t))
+        _check_collect_inflight(Path(t))
     with tempfile.TemporaryDirectory(prefix="stats_timing_") as t:
-        test_phase_timings(Path(t))
+        _check_phase_timings(Path(t))
 
     print("")
     print("==========================")

@@ -18,11 +18,50 @@ Bash tests are run individually — no runner. Each file is self-contained with
 bash tests/test_claim_id.sh
 ```
 
-Python tests do have one aggregate runner (~12 min for the full suite):
+Python tests do have one aggregate runner:
 ```bash
 bash tests/run_all_python_tests.sh                    # whole suite
 bash tests/run_all_python_tests.sh --test-dir <dir>   # a subset / fixture dir
 ```
+
+**Two backends, and which one you get depends on your machine.** The runner uses
+pytest when it is importable and falls back to `unittest discover` otherwise.
+pytest and pytest-xdist ship as an **opt-in dev tier**, not standard deps:
+
+```bash
+ait setup --with-dev      # installs pytest + pytest-xdist into the CPython venv
+```
+
+With the tier installed the runner runs a parallel lane —
+`-n <workers> --dist loadfile` — over every module except a small serial
+carve-out (currently `tests/test_board_header_row_live.py`, which boots the real
+board in a tmux pane against the real repo under a hard boot budget), then runs
+the carve-out by itself and combines both exit statuses. `--dist loadfile` is
+mandatory: ~39 modules chdir the process, and the default `--dist load` splits a
+single file's tests across workers.
+
+| knob | effect |
+|---|---|
+| `AIT_TEST_WORKERS=<n>` | worker count. **Default 2, not `auto`** — `auto` means `os.cpu_count()`, which hands the whole machine to one suite run and starves any agents running alongside it. |
+| `AIT_TEST_PARALLEL=0` | run serially (**execution** opt-out; works whether or not the tier is installed) |
+
+**Opting out is two separate things.** Deleting the tier marker stops `ait setup`
+reinstalling/repairing it, but does **not** stop the lane — the runner activates
+on `import xdist` and knows nothing about the marker:
+
+| intent | action |
+|---|---|
+| stop the parallel lane | `AIT_TEST_PARALLEL=0` |
+| stop setup reinstalling/repairing the tier | `rm ~/.aitask/dev_tier` |
+| fully remove the tier | both, plus `~/.aitask/venv/bin/pip uninstall pytest-xdist pytest` |
+
+Passing a positional test path (rather than `--test-dir`) disables the lane: the
+forwarded arguments go to every phase, so a path selector would defeat the serial
+carve-out. Use `--test-dir` to narrow a run.
+
+The verdict banner reads `runner=pytest` in **both** pytest lanes — parallel and
+serial alike (the t1179 contract below pins that string). The lane announces
+itself on a separate stderr line.
 **Read only the last line for the verdict** — `PYTHON SUITE: PASSED|FAILED
 (runner=…, exit=N)`, derived from the backend's real exit status. A
 `Results: N passed, 0 failed` line earlier in the output belongs to one

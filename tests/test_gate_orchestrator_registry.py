@@ -65,7 +65,7 @@ def state_of(*pairs):
 
 # --- registry parsing: absent vs [] + new keys -----------------------------
 
-def test_registry_keys():
+def _check_registry_keys():
     reg = _write(
         "gates:\n"
         "  a:\n"
@@ -104,7 +104,7 @@ def test_registry_keys():
 
 # --- compute_unlocked: linear vs DAG, skip-as-satisfied --------------------
 
-def test_compute_unlocked_linear():
+def _check_compute_unlocked_linear():
     declared = ["a", "b", "c"]
     reg = {g: gl._default_gate_meta() for g in declared}  # all unlocks absent
     # nothing run yet -> only first gate unlocked (pure linear)
@@ -118,7 +118,7 @@ def test_compute_unlocked_linear():
           go.compute_unlocked(declared, reg, state_of(("a", "skip")), {}))
 
 
-def test_compute_unlocked_dag():
+def _check_compute_unlocked_dag():
     declared = ["a", "b", "c"]
     reg = {g: gl._default_gate_meta() for g in declared}
     reg["a"]["unlocks"] = ["b", "c"]  # explicit fan-out -> DAG mode
@@ -129,7 +129,7 @@ def test_compute_unlocked_dag():
           go.compute_unlocked(declared, reg, state_of(("a", "pass")), {}))
 
 
-def test_compute_unlocked_budget():
+def _check_compute_unlocked_budget():
     declared = ["a"]
     reg = {"a": gl._default_gate_meta()}
     reg["a"]["max_retries"] = 1  # budget 2
@@ -143,7 +143,7 @@ def test_compute_unlocked_budget():
 
 # --- skip satisfies archive / dependents -----------------------------------
 
-def test_skip_satisfies_archive_and_deps():
+def _check_skip_satisfies_archive_and_deps():
     task = _write(
         "---\n"
         "status: Implementing\n"
@@ -177,7 +177,7 @@ def test_skip_satisfies_archive_and_deps():
 
 # --- is_stuck purity (current-digest comparison) ---------------------------
 
-def test_is_stuck():
+def _check_is_stuck():
     # two trailing fails on the SAME current digest -> stuck
     runs = [
         _Run("g", "running", run="r1", note="stuckhash:AAA"),
@@ -196,8 +196,8 @@ def test_is_stuck():
           go.is_stuck(one, "AAA"))
 
 
-_CHECKS = (test_registry_keys, test_compute_unlocked_linear, test_compute_unlocked_dag,
-           test_compute_unlocked_budget, test_skip_satisfies_archive_and_deps, test_is_stuck)
+_CHECKS = (_check_registry_keys, _check_compute_unlocked_linear, _check_compute_unlocked_dag,
+           _check_compute_unlocked_budget, _check_skip_satisfies_archive_and_deps, _check_is_stuck)
 
 
 def main() -> int:

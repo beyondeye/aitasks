@@ -79,7 +79,7 @@ def _fake_discover(*, include_registered: bool = False):
 
 # --- tests -----------------------------------------------------------------
 
-def test_discover_stats_sessions() -> None:
+def _check_discover_stats_sessions() -> None:
     _calls.clear()
     orig = stats_app.discover_aitasks_sessions
     stats_app.discover_aitasks_sessions = _fake_discover
@@ -99,7 +99,7 @@ def test_discover_stats_sessions() -> None:
 
 
 def main() -> int:
-    test_discover_stats_sessions()
+    _check_discover_stats_sessions()
     print(f"\n{PASS}/{TOTAL} passed"
           + (f", {FAIL} FAILED" if FAIL else ""))
     return 1 if FAIL else 0

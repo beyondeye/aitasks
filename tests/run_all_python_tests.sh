@@ -17,6 +17,30 @@
 # Use `set -o pipefail` or check `${PIPESTATUS[0]}` in the caller. The verdict
 # banner goes to stderr so the truth survives `2>&1 | tail` even when the exit
 # status does not.
+#
+# Parallel lane (t1354_3). When pytest AND pytest-xdist are both importable —
+# the opt-in dev tier, `ait setup --with-dev` — the pytest branch runs
+# `-n <workers> --dist loadfile` over every module except a small serial
+# carve-out, then runs the carve-out by itself, and combines the two exit
+# statuses. `--dist loadfile` is MANDATORY, not a preference: ~39 modules chdir
+# the process (directly or through tests/lib/board_fixture.py), and the default
+# `--dist load` splits one file's tests across workers, which would break them.
+#
+#   AIT_TEST_PARALLEL=0   force the serial pytest path (execution opt-out)
+#   AIT_TEST_WORKERS=<n>  worker count; default 2, NOT `auto`. `auto` means
+#                         os.cpu_count(), which hands the whole machine to one
+#                         suite run and starves anything else running on it.
+#
+# The unittest fallback is unchanged and remains the supported path for anyone
+# who has not opted in. The verdict banner still reads `runner=pytest` in both
+# pytest lanes — the t1179 contract above pins that string.
+#
+# INVOCATION POLICY, NOT A GUARANTEE: do not run this suite concurrently with
+# `tests/*.sh`, which owns the real git index. Nothing here enforces that —
+# there is no shared lock, so a second developer or a CI job can still collide.
+# This hazard is pre-existing and is neither created nor widened by the parallel
+# lane: the one module that touches the real index is carved into a serial phase
+# either way.
 
 set -euo pipefail
 
@@ -48,21 +72,111 @@ export PYTHONDONTWRITEBYTECODE=1
 # stderr verdict, making a failed run read as green from the tail.
 export PYTHONUNBUFFERED=1
 
+# Serial carve-out: modules that must NOT run inside the parallel pool.
+# test_board_header_row_live.py boots the real `ait board` in a tmux pane against
+# the real repo — taking .git/index.lock via `git status --porcelain -- aitasks/`
+# — under a 45s boot budget that FAILS rather than skips. Under a loaded worker
+# pool that budget becomes a flake, so it runs in its own serial phase.
+SERIAL_CARVE_OUT=(test_board_header_row_live.py)
+
+is_carved() {
+    local base="${1##*/}" c
+    for c in "${SERIAL_CARVE_OUT[@]}"; do
+        [[ "$base" == "$c" ]] && return 0
+    done
+    return 1
+}
+
+# A forwarded path selector makes the carve-out partition a lie: "$@" is
+# appended to EVERY phase, so a positional `.../test_board_header_row_live.py`
+# would re-enter the parallel pool AND run again serially, losing exactly the
+# protection the carve-out exists to give. The forwarded vector cannot be
+# partitioned reliably — nothing here can tell the value `smoke` in `-k smoke`
+# from a bare selector without re-implementing pytest's option grammar — so when
+# one is seen the lane turns itself OFF rather than silently voiding the
+# carve-out. Use --test-dir to narrow a run; it is consumed above and rebuilds
+# the file list, so both partitions stay derived from one set.
+has_path_selector() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            *.py|*.py::*) return 0 ;;
+        esac
+        [[ -e "$a" ]] && return 0
+    done
+    return 1
+}
+
 # Try pytest first, fall back to unittest. Choose the backend here but do not
 # run it: execution, the verdict and the exit are one shared path below, so the
 # result contract cannot drift between the two branches.
+serial_cmd=()
 if "$PY" -c "import pytest" 2>/dev/null; then
     backend=pytest
-    cmd=("$PY" -m pytest "$TEST_DIR"/test_*.py -v "$@")
+    # Expand the glob ONCE, so the parallel pool and the serial carve-out are
+    # provably derived from the same set.
+    files=("$TEST_DIR"/test_*.py)
+
+    parallel=1
+    # Glob matched nothing and bash left the literal: keep the pre-t1354_3
+    # behaviour (pytest reports the missing path and the run fails).
+    [[ ${#files[@]} -eq 1 && ! -e "${files[0]}" ]] && parallel=0
+    [[ "${AIT_TEST_PARALLEL:-1}" == "0" ]] && parallel=0
+    "$PY" -c "import xdist" 2>/dev/null || parallel=0
+    if [[ "$parallel" -eq 1 ]] && has_path_selector "$@"; then
+        echo "forwarded path selector detected — parallel lane disabled (the serial carve-out cannot be honoured for arbitrary path arguments)" >&2
+        parallel=0
+    fi
+
+    # Bounded by default, never `-n auto`: auto resolves to os.cpu_count(), which
+    # would hand the whole machine to one suite run and starve the other agents
+    # commonly running alongside it — and make every timing a measurement of
+    # contention rather than of the suite.
+    workers="${AIT_TEST_WORKERS:-2}"
+    if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]]; then
+        echo "AIT_TEST_WORKERS='$workers' is not a positive integer — using 2" >&2
+        workers=2
+    fi
+
+    if [[ "$parallel" -eq 1 ]]; then
+        pool=()
+        serial=()
+        for f in "${files[@]}"; do
+            if is_carved "$f"; then serial+=("$f"); else pool+=("$f"); fi
+        done
+        echo "parallel lane: -n $workers --dist loadfile (serial carve-out: ${SERIAL_CARVE_OUT[*]})" >&2
+        # Either partition may be empty (e.g. a --test-dir subset holding neither
+        # kind). An empty phase is SKIPPED, never invoked with no files: pytest
+        # with no path argument collects the current directory instead.
+        cmd=()
+        [[ ${#pool[@]} -gt 0 ]] && cmd=("$PY" -m pytest "${pool[@]}" -v -n "$workers" --dist loadfile "$@")
+        [[ ${#serial[@]} -gt 0 ]] && serial_cmd=("$PY" -m pytest "${serial[@]}" -v "$@")
+    else
+        cmd=("$PY" -m pytest "${files[@]}" -v "$@")
+    fi
 else
     backend=unittest
     echo "pytest not found, using unittest discovery"
     cmd=("$PY" -m unittest discover -s "$TEST_DIR" -p 'test_*.py' -v "$@")
 fi
 
+if [[ ${#cmd[@]} -eq 0 && ${#serial_cmd[@]} -eq 0 ]]; then
+    echo "no test files selected — refusing to report a verdict for an empty run" >&2
+    exit 2
+fi
+
 set +e
-"${cmd[@]}"
-rc=$?
+rc=0
+if [[ ${#cmd[@]} -gt 0 ]]; then
+    "${cmd[@]}"
+    rc=$?
+fi
+if [[ ${#serial_cmd[@]} -gt 0 ]]; then
+    "${serial_cmd[@]}"
+    serial_rc=$?
+    # A phase-1 failure is never masked by a clean phase 2.
+    [[ "$rc" -eq 0 ]] && rc=$serial_rc
+fi
 set -e
 
 if [ "$rc" -eq 0 ]; then

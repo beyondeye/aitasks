@@ -38,6 +38,27 @@ AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext websockets msgpack)
 AIT_PIP_SPECS_CHAT=('discord.py>=2,<3' 'slack-bolt>=1,<2' 'slack-sdk>=3,<4')
 AIT_IMPORTS_CHAT=(discord slack_bolt slack_sdk)
 
+# Dev/test dependency tier (opt-in via `ait setup --with-dev`): pytest and
+# pytest-xdist, which give `tests/run_all_python_tests.sh` its parallel lane.
+# Installed into the CPython venv only when the user opts in; the default
+# install never pulls these and the runner's unittest fallback stays the
+# supported path for everyone who does not (t1354_3).
+AIT_PIP_SPECS_DEV=('pytest>=8,<9' 'pytest-xdist>=3,<4')
+AIT_IMPORTS_DEV=(pytest xdist)
+
+# Marker recording that the user opted into the dev tier. Deliberately NOT an
+# import probe (which is how the chat tier detects itself): `discord` is never
+# in this venv by accident, but a developer may well have installed `pytest`
+# for unrelated reasons — reading that as consent would make a plain
+# `ait setup` install pytest-xdist for someone who never passed --with-dev,
+# silently turning an opt-in tier into an ambient dependency.
+#
+# It lives BESIDE the venv, not inside it: setup_python_venv recreates
+# $VENV_DIR when the interpreter is too old, and an in-venv marker would
+# vanish with it — silently opting the user back out of a tier they chose.
+# Outside, a venv recreation correctly triggers a reinstall on the next setup.
+AIT_DEV_TIER_MARKER="$HOME/.aitask/dev_tier"
+
 # verify_venv_imports <python> <module>... — populate global `missing_imports`
 # with the modules that fail to import under the given interpreter. Catches the
 # "package directory present but not importable" failure mode directly.
@@ -716,6 +737,73 @@ setup_chat_deps() {
     fi
 
     success "Chat SDK deps ready in $VENV_DIR."
+}
+
+# --- Dev/test dependency tier (opt-in via `ait setup --with-dev`) ---
+
+# True when the user previously opted into the dev tier. Unlike
+# chat_deps_present, this checks a persisted marker rather than importing a
+# module — see AIT_DEV_TIER_MARKER above for why an import probe would be wrong
+# here. Removing the marker stops setup reinstalling/repairing the tier; it does
+# NOT disable the runner's parallel lane (that is AIT_TEST_PARALLEL=0), because
+# the runner activates on `import xdist` and knows nothing about this marker.
+dev_deps_present() {
+    [[ -f "$AIT_DEV_TIER_MARKER" ]]
+}
+
+# Install/repair the dev/test tier into the CPython venv ($VENV_DIR). Never
+# fails the overall setup: on persistent failure it warns and returns 0 so a
+# transient network problem cannot brick an otherwise-working install.
+setup_dev_deps() {
+    if [[ ! -x "$VENV_DIR/bin/pip" ]]; then
+        warn "CPython venv missing at $VENV_DIR — cannot install dev deps. Re-run 'ait setup --with-dev' after the venv exists."
+        return 0
+    fi
+
+    info "Installing/upgrading dev/test deps (pytest, pytest-xdist) into CPython venv..."
+    # EVERY fallible command in this function is explicitly guarded. The script
+    # runs under `set -e`, so a bare `pip install` that fails — an offline
+    # machine, an unreachable index, a wheel that will not build — would abort
+    # the WHOLE of `ait setup` right here, never reaching the warn/return 0
+    # below and bricking an otherwise-working install over an optional tier.
+    # `if ! cmd` keeps the failure inside a condition, where `set -e` does not
+    # trigger, which is what makes the "never fails the overall setup" contract
+    # above actually true rather than merely stated.
+    if ! "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_DEV[@]}"; then
+        warn "Dev deps install failed (network or index unavailable?). Re-run 'ait setup --with-dev' to retry."
+        return 0
+    fi
+
+    # Validate importability + version ranges; retry once, then warn and
+    # continue (dev is an optional tier — never block the core setup).
+    verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_DEV[@]}"
+    verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_DEV[@]}"
+    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
+        warn "Dev deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
+        if ! "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_DEV[@]}"; then
+            warn "Dev deps repair failed. Re-run 'ait setup --with-dev' to retry."
+            return 0
+        fi
+        verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_DEV[@]}"
+        verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_DEV[@]}"
+    fi
+    if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
+        warn "Dev deps could not be installed (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Re-run 'ait setup --with-dev' to retry."
+        return 0
+    fi
+
+    # Record the opt-in only after a verified-good install, so a failed attempt
+    # does not make later plain setups think the tier is wanted. Guarded for the
+    # same reason as the installs: a read-only or full $HOME must degrade to a
+    # warning, not abort setup. The deps are installed and usable either way —
+    # only the revalidate-on-next-setup behaviour is lost.
+    if ! { mkdir -p "$(dirname "$AIT_DEV_TIER_MARKER")" &&
+           printf 'opted in via: ait setup --with-dev\n' > "$AIT_DEV_TIER_MARKER"; }; then
+        warn "Dev deps installed, but the opt-in marker $AIT_DEV_TIER_MARKER could not be written — later 'ait setup' runs will not revalidate this tier."
+        return 0
+    fi
+
+    success "Dev/test deps ready in $VENV_DIR (parallel test lane enabled; AIT_TEST_PARALLEL=0 disables it)."
 }
 
 # --- Python venv setup ---
@@ -3515,11 +3603,13 @@ setup_userconfig() {
 main() {
     INSTALL_PYPY=0
     INSTALL_CHAT=0
+    INSTALL_DEV=0
     local args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --with-pypy) INSTALL_PYPY=1; shift ;;
             --with-chat) INSTALL_CHAT=1; shift ;;
+            --with-dev)  INSTALL_DEV=1; shift ;;
             --) shift; args+=("$@"); break ;;
             *)  args+=("$1"); shift ;;
         esac
@@ -3607,6 +3697,14 @@ main() {
     # setup once previously installed (mirrors the PyPy revalidation clause).
     if [[ "$INSTALL_CHAT" == "1" ]] || chat_deps_present; then
         setup_chat_deps
+        echo ""
+    fi
+
+    # Opt-in dev/test tier: install on --with-dev; revalidate/repair on every
+    # setup once the opt-in marker exists (mirrors the chat clause, but keyed on
+    # a persisted marker rather than an import probe — see AIT_DEV_TIER_MARKER).
+    if [[ "$INSTALL_DEV" == "1" ]] || dev_deps_present; then
+        setup_dev_deps
         echo ""
     fi
 

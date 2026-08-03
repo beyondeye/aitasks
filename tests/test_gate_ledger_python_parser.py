@@ -100,7 +100,7 @@ def write_registry(path: Path) -> None:
     )
 
 
-def test_structured_parse() -> None:
+def _check_structured_parse() -> None:
     runs = gate_ledger.parse_gate_run_blocks(FIXTURE)
     assert_eq("four gate runs parsed", 4, len(runs))
     assert_eq("first gate name", "build_verified", runs[0].name)
@@ -114,7 +114,7 @@ def test_structured_parse() -> None:
     assert_true("raw body lines preserved", runs[0].raw_body_lines)
 
 
-def test_current_state_and_legacy_compat() -> None:
+def _check_current_state_and_legacy_compat() -> None:
     current = gate_ledger.derive_gate_runs(FIXTURE)
     assert_eq("last run wins for build_verified", "pass", current["build_verified"].status)
     assert_eq("latest build attempt retained", "2", current["build_verified"].attempt)
@@ -126,14 +126,14 @@ def test_current_state_and_legacy_compat() -> None:
     assert_eq("legacy marker dict has icon", "✅", marker_dicts[1]["icon"])
 
 
-def test_prefilter_and_empty() -> None:
+def _check_prefilter_and_empty() -> None:
     assert_true("marker prefilter detects ledger markers", gate_ledger.has_gate_markers(FIXTURE))
     assert_false("marker prefilter ignores ordinary task", gate_ledger.has_gate_markers("---\nstatus: Ready\n---\nbody\n"))
     assert_eq("empty format status", "", gate_ledger.format_status("no markers"))
     assert_eq("empty structured state", {}, gate_ledger.derive_gate_runs("no markers"))
 
 
-def test_task_gate_state() -> None:
+def _check_task_gate_state() -> None:
     with tempfile.TemporaryDirectory(prefix="gate_state_") as tmp:
         task = Path(tmp) / "t10_demo.md"
         registry = Path(tmp) / "gates.yaml"
@@ -159,7 +159,7 @@ def _summary_for(text: str) -> str:
         return gate_ledger.compact_gate_summary(state)
 
 
-def test_compact_gate_summary() -> None:
+def _check_compact_gate_summary() -> None:
     header = "---\nstatus: Implementing\n---\n\n## Gate Runs\n\n"
 
     # No recorded gate runs → empty (caller shows no column).
@@ -197,7 +197,7 @@ def test_compact_gate_summary() -> None:
     assert_eq("last run wins (fail then pass)", "1/1 pass", _summary_for(requalified))
 
 
-def test_archive_status_from_text() -> None:
+def _check_archive_status_from_text() -> None:
     # Content-level twin of archive_status (t635_20 D-2) — no filesystem open.
     no_gates = "---\nstatus: Done\n---\n\nbody\n"
     assert_eq("no declared gates -> NO_GATES", "NO_GATES",
@@ -226,7 +226,7 @@ def test_archive_status_from_text() -> None:
                   gate_ledger.archive_status_from_text(blocked))
 
 
-def test_bash_status_parity() -> None:
+def _check_bash_status_parity() -> None:
     with tempfile.TemporaryDirectory(prefix="gate_status_parity_") as tmp:
         task_dir = Path(tmp) / "aitasks"
         task_dir.mkdir()
@@ -239,13 +239,13 @@ def test_bash_status_parity() -> None:
 
 
 def main() -> int:
-    test_structured_parse()
-    test_current_state_and_legacy_compat()
-    test_prefilter_and_empty()
-    test_task_gate_state()
-    test_compact_gate_summary()
-    test_archive_status_from_text()
-    test_bash_status_parity()
+    _check_structured_parse()
+    _check_current_state_and_legacy_compat()
+    _check_prefilter_and_empty()
+    _check_task_gate_state()
+    _check_compact_gate_summary()
+    _check_archive_status_from_text()
+    _check_bash_status_parity()
 
     print("")
     print("==========================")

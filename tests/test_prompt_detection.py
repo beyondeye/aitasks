@@ -54,7 +54,7 @@ def make_pane(
     )
 
 
-def test_awaiting_input_detected_for_matching_prompt() -> None:
+def _check_awaiting_input_detected_for_matching_prompt() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane()
     content = (
@@ -72,7 +72,7 @@ def test_awaiting_input_detected_for_matching_prompt() -> None:
     )
 
 
-def test_awaiting_input_codex_pattern() -> None:
+def _check_awaiting_input_codex_pattern() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane(window_name="agent-pick-825-codex")
     content = (
@@ -93,7 +93,7 @@ def test_awaiting_input_codex_pattern() -> None:
     assert snap2.awaiting_input_kind == "codex_yes_proceed"
 
 
-def test_awaiting_input_only_for_agent_panes() -> None:
+def _check_awaiting_input_only_for_agent_panes() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     content = "Do you want to proceed?\n"
 
@@ -106,7 +106,7 @@ def test_awaiting_input_only_for_agent_panes() -> None:
     assert not snap_other.awaiting_input, "OTHER panes must not run prompt matching"
 
 
-def test_empty_patterns_means_no_awaiting_input() -> None:
+def _check_empty_patterns_means_no_awaiting_input() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05, prompt_patterns=[])
     pane = make_pane()
     snap = mon._finalize_capture(pane, "Do you want to proceed?\n")
@@ -116,7 +116,7 @@ def test_empty_patterns_means_no_awaiting_input() -> None:
     assert snap.awaiting_input_kind == ""
 
 
-def test_dot_toggle_alone_still_marks_active() -> None:
+def _check_dot_toggle_alone_still_marks_active() -> None:
     """Regression guard: a flashing ●↔space animation with no prompt text is
     NOT awaiting_input. The deliberate decision (t825 plan) is that we do NOT
     strip the activity-dot in general — that would mis-classify subagents
@@ -135,7 +135,7 @@ def test_dot_toggle_alone_still_marks_active() -> None:
     assert snap.awaiting_input_kind == ""
 
 
-def test_old_prompt_text_in_scrollback_is_not_awaiting() -> None:
+def _check_old_prompt_text_in_scrollback_is_not_awaiting() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane(window_name="agent-raw-1")
     content = "\n".join([
@@ -159,7 +159,7 @@ def test_old_prompt_text_in_scrollback_is_not_awaiting() -> None:
     assert snap.awaiting_input_kind == ""
 
 
-def test_all_patterns_flattens_per_agent_groups() -> None:
+def _check_all_patterns_flattens_per_agent_groups() -> None:
     expected = sum(len(v) for v in PROMPT_PATTERNS_BY_AGENT.values())
     flat = all_patterns()
     assert len(flat) == expected, (
@@ -173,20 +173,20 @@ def test_all_patterns_flattens_per_agent_groups() -> None:
 
 def main() -> int:
     tests = [
-        ("test_awaiting_input_detected_for_matching_prompt",
-         test_awaiting_input_detected_for_matching_prompt),
-        ("test_awaiting_input_codex_pattern",
-         test_awaiting_input_codex_pattern),
-        ("test_awaiting_input_only_for_agent_panes",
-         test_awaiting_input_only_for_agent_panes),
-        ("test_empty_patterns_means_no_awaiting_input",
-         test_empty_patterns_means_no_awaiting_input),
-        ("test_dot_toggle_alone_still_marks_active",
-         test_dot_toggle_alone_still_marks_active),
-        ("test_old_prompt_text_in_scrollback_is_not_awaiting",
-         test_old_prompt_text_in_scrollback_is_not_awaiting),
-        ("test_all_patterns_flattens_per_agent_groups",
-         test_all_patterns_flattens_per_agent_groups),
+        ("_check_awaiting_input_detected_for_matching_prompt",
+         _check_awaiting_input_detected_for_matching_prompt),
+        ("_check_awaiting_input_codex_pattern",
+         _check_awaiting_input_codex_pattern),
+        ("_check_awaiting_input_only_for_agent_panes",
+         _check_awaiting_input_only_for_agent_panes),
+        ("_check_empty_patterns_means_no_awaiting_input",
+         _check_empty_patterns_means_no_awaiting_input),
+        ("_check_dot_toggle_alone_still_marks_active",
+         _check_dot_toggle_alone_still_marks_active),
+        ("_check_old_prompt_text_in_scrollback_is_not_awaiting",
+         _check_old_prompt_text_in_scrollback_is_not_awaiting),
+        ("_check_all_patterns_flattens_per_agent_groups",
+         _check_all_patterns_flattens_per_agent_groups),
     ]
     failures = 0
     for name, fn in tests:

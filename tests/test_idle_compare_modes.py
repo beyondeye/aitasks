@@ -43,7 +43,7 @@ def make_pane(pane_id: str = "%test") -> TmuxPaneInfo:
     )
 
 
-def test_default_mode_ignores_animated_color() -> None:
+def _check_default_mode_ignores_animated_color() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane()
     a = "\x1b[38;2;156;164;198m• Running\x1b[0m\nWait...\n"
@@ -56,7 +56,7 @@ def test_default_mode_ignores_animated_color() -> None:
     )
 
 
-def test_raw_mode_preserves_legacy_behavior() -> None:
+def _check_raw_mode_preserves_legacy_behavior() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane()
     mon.set_compare_mode(pane.pane_id, COMPARE_MODE_RAW)
@@ -70,7 +70,7 @@ def test_raw_mode_preserves_legacy_behavior() -> None:
     )
 
 
-def test_visible_text_change_resets_idle() -> None:
+def _check_visible_text_change_resets_idle() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane()
     mon._finalize_capture(pane, "\x1b[31mLine A\x1b[0m\n")
@@ -79,7 +79,7 @@ def test_visible_text_change_resets_idle() -> None:
     assert not snap.is_idle, "visible text change must reset idle timer"
 
 
-def test_cycle_compare_mode_sequence() -> None:
+def _check_cycle_compare_mode_sequence() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane()
     # Seed last_content so we can verify it gets cleared on each cycle.
@@ -105,7 +105,7 @@ def test_cycle_compare_mode_sequence() -> None:
     assert pane.pane_id not in mon._last_content
 
 
-def test_set_compare_mode_clears_last_content() -> None:
+def _check_set_compare_mode_clears_last_content() -> None:
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
     pane = make_pane()
     mon._finalize_capture(pane, "anything")
@@ -115,11 +115,11 @@ def test_set_compare_mode_clears_last_content() -> None:
 
 
 def main() -> int:
-    test_default_mode_ignores_animated_color()
-    test_raw_mode_preserves_legacy_behavior()
-    test_visible_text_change_resets_idle()
-    test_cycle_compare_mode_sequence()
-    test_set_compare_mode_clears_last_content()
+    _check_default_mode_ignores_animated_color()
+    _check_raw_mode_preserves_legacy_behavior()
+    _check_visible_text_change_resets_idle()
+    _check_cycle_compare_mode_sequence()
+    _check_set_compare_mode_clears_last_content()
     print("PASS")
     return 0
 
