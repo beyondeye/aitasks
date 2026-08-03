@@ -278,9 +278,11 @@ creation (Cross-Repo Child Assignment Procedure, Step 7).
 - `monitor/concern_parser.py` — `parse_concerns`, `has_concern_block` (pure, tested).
 - `lib/agent_launch_utils.py` — `resolve_dry_run_command`, `launch_in_tmux`,
   `TmuxLaunchConfig`, `attach_shadow_cleanup_hook`.
-- `minimonitor_app.py` — `match_shadow_pane`, `_update_shadow_freshness` logic
-  (ported/extracted, not duplicated).
-- `monitor_core.py` — `get_pane_option`, `get_last_change_wall`,
+- `minimonitor_app.py` — `_update_shadow_freshness` logic (ported/extracted,
+  not duplicated).
+- `monitor_core.py` — `match_shadow_pane` (shared since t1216_1; the
+  `minimonitor_app` re-export was removed by t1289),
+  `get_pane_option`, `get_last_change_wall`,
   `SHADOW_TARGET_OPTION`, `SHADOW_ANALYZED_AT_OPTION`, `_pane_cache` roster checks,
   per-pane change tracking (`_last_change_time`) for the D3 change gate.
 - Router `_req_pane_id` / `_bad_field` / audit patterns; `spawn_tui` allowlist
