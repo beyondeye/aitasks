@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/opus5
 created_at: 2026-08-03 11:21
-updated_at: 2026-08-03 11:56
+updated_at: 2026-08-03 15:56
 ---
 
 ## Origin
@@ -180,3 +181,8 @@ Source-of-truth reminder: edit the Claude Code versions under
 `.claude/skills/` first, then suggest separate aitasks for the Codex CLI
 (`.agents/skills/`) and OpenCode (`.opencode/skills/`) ports if their surfaces
 actually change.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T12:56:48Z status=pass attempt=1 type=human
