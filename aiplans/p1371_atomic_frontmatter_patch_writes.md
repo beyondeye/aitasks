@@ -350,3 +350,96 @@ Step 9 archival then runs the `risk_evaluated` gate.
   `aitask_archive.sh` mutate a task file without taking the attach lock, so they
   can lost-update a concurrent `ait artifact` / `ait attach` frontmatter write
   (and vice versa). Atomic writes make the loss clean, not absent.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, no scope changes.
+  - New `.aitask-scripts/lib/atomic_write.py` (stdlib only): `atomic_write(path,
+    render)`, `atomic_write_text(path, text)`, the `prepare` / `commit` staging
+    split, `target_mode`, `discard`. `realpath` before choosing the temp dir,
+    `os.fchmod` to the target's existing mode, temp beside the target,
+    `discard` on `BaseException`, umask probed once at import, explicit
+    "no fsync — atomic visibility, not crash durability" in the docstring.
+  - `lib/frontmatter_patch.py`: added the `__file__`-derived lib bootstrap and
+    the import; both `open(path, "w")` sites (`cmd_append`, `cmd_remove`) now
+    call `atomic_write_text(path, "".join(lines))`. Docstring records that the
+    guarantee is reader-visible atomicity, not writer serialization.
+  - `board/aitask_board.py` `_iter_active_task_frontmatter`: corrected the guard
+    rationale, which asserted as present-tense fact that `frontmatter_patch`
+    truncates in place. The guard itself is unchanged — it now cites
+    `aitask_update.sh`'s `write_task_file` and `Task.save` as the writers that
+    keep both failure shapes reachable.
+  - `tests/test_atomic_write.py` (new, 12 tests) and a re-surveyed
+    `aitasks/t1281_unify_atomic_write_helpers.md`.
+
+- **Deviations from plan:** Two additions, both tightening verification rather
+  than changing the design.
+  - Added `test_new_file_mode_tracks_a_changed_umask`, which reloads the module
+    under `umask 0o077`. Without it the planned umask test could not discriminate
+    a hardcoded `0o644`: under the usual umask of 022, `0o666 & ~umask` *is*
+    0644, so the negative control would have passed and proved nothing.
+  - Added `test_prepare_commit_split_stages_before_visibility`,
+    `test_creates_missing_parent_directories` and
+    `test_patch_content_is_unchanged_by_the_atomic_write`. The plan named 8
+    tests; 12 shipped.
+
+- **Issues encountered:**
+  - **The negative-control driver reported the wrong failing test.** Mutations 1
+    (drop `discard` in `commit`) and 2 (drop `discard` in `prepare`) delete
+    byte-identical text, so both mutated files have the same size; written within
+    the same second, CPython's pyc invalidation — keyed on (source mtime in whole
+    seconds, source size) — treated run 1's cached bytecode as valid for run 2.
+    Run 2 therefore executed run 1's code and failed run 1's test. Fixed by
+    running each mutation with `PYTHONDONTWRITEBYTECODE=1`. Caught only because
+    the plan required checking that the failing test id was the *expected* one; a
+    bare "something failed, good" check would have accepted it.
+  - The concurrent session in this checkout had 9 unrelated modified files,
+    including `board/aitask_board.py` — the same file this task edits. Verified
+    with `git diff <path>` that the board diff contained only this task's single
+    docstring hunk before staging, and staged the four paths explicitly rather
+    than with `git add -A`.
+
+- **Key decisions:**
+  - **Created the shared module rather than a private copy or importing
+    `config_utils`.** `config_utils` imports `yaml` at module level and probes
+    the umask on import; `frontmatter_patch.py` is deliberately stdlib-only and
+    yaml-free (it is line-based precisely to avoid a YAML round-trip), so
+    importing it would have made pyyaml a hard runtime dependency of every `ait
+    artifact new` / `ait attach add`.
+  - **This is transitional duplication, stated as such.** Until t1281 runs,
+    `atomic_write.py` is an 8th independently maintained implementation, not a
+    replacement. The public API is pinned in the module docstring and in t1281 so
+    the migration is a re-pointing exercise rather than a redesign.
+  - **The hardlink probe is the discriminating test.** `os.link` before patching
+    gives a second name for the pre-patch inode; an atomic rewrite renames a
+    fresh inode over the path, so the probe still holds the original bytes.
+    Confirmed empirically that restoring `open(path, "w")` fails *only* the two
+    hardlink tests — the mode and residue tests pass under the old code, because
+    an in-place write preserves the mode and creates no temp file. Each of those
+    has its own mutation in the negative-control table instead.
+
+- **Verification performed:**
+  - `python3 tests/test_atomic_write.py` — 12/12 passed.
+  - `bash tests/test_attach_meta.sh` — 42/42; `bash tests/test_artifact_cli.sh` —
+    82/82; `bash tests/test_artifact_fold_transfer.sh` — 10/10.
+  - `python3 tests/test_cross_repo_settings.py` — 40/40 (the pre-existing
+    atomic-write contract, unchanged).
+  - Negative controls: 5 helper mutations + 2 `frontmatter_patch` mutations, each
+    failing exactly its expected test id, module restored byte-for-byte after.
+  - Live acceptance through the production entry point — `frontmatter_patch.py`
+    is invoked as a subprocess, not imported, so the new `sys.path` bootstrap was
+    exercised with the real interpreter (`/home/ddt/.aitask/venv/bin/python`) and
+    the exact argv shape from `aitask_artifact.sh:270`: correct patch, pre-patch
+    inode untouched, mode 0640 preserved, zero `.tmp` residue.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_update.sh:800` — `write_task_file` rebuilds an existing task file with `} > "$file_path"` (truncate-then-write); the framework's highest-traffic task-file writer, so the torn-read window this task closed for `frontmatter_patch` remains wide open here.
+  - `.aitask-scripts/board/aitask_board.py:252` — `Task.save` writes with a plain `open(self.filepath, "w")`, reachable from ~10 call sites.
+  - `.aitask-scripts/board/aitask_merge.py:467` — `filepath.write_text(...)` writes the merged task file during sync conflict resolution, non-atomically.
+  - `.aitask-scripts/diffviewer/merge_screen.py:113` — `open(path, "w")` writing merged plan content into `aiplans/`.
+  - `.aitask-scripts/brainstorm/brainstorm_session.py:1537` — `out_path.write_text(...)` rewrites a proposal markdown file in place.
+  - `.aitask-scripts/aitask_plan_verified.sh:187` and `.aitask-scripts/aitask_plan_externalize.sh:544,558` — `mv` a temp created under `$TMPDIR` onto the target; across filesystems `mv` degrades to copy+rename and is not atomic.
+  - `.aitask-scripts/aitask_issue_import.sh:103` — same `$TMPDIR` + `mv` pattern onto a task file.
+  - `.aitask-scripts/lib/gate_ledger.py:357` — `_atomic_write` builds its temp name from the PID without `O_EXCL`, so two threads in one process collide.
+  - `.aitask-scripts/lib/skill_template.py:258` — `_atomic_write` has no cleanup path, leaving a `.tmp` sibling behind whenever the write or rename fails.
+  - No task-file-scoped write lock: `aitask_update.sh`, `Task.save` and `aitask_archive.sh` mutate task files without taking the global attach lock, so they can lost-update a concurrent `ait artifact` / `ait attach` frontmatter write and vice versa. Atomic writes make such a loss clean rather than corrupt; they do not prevent it.
