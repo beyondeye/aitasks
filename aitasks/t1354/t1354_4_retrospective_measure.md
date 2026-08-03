@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1354_1, t1354_2, t1354_3]
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [test]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 created_at: 2026-07-31 07:56
-updated_at: 2026-07-31 07:57
+updated_at: 2026-08-03 09:48
 ---
 
 ## Context
