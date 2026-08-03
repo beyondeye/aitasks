@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [task_workflow, gates, claudeskills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-08-03 11:21
-updated_at: 2026-08-03 11:21
+updated_at: 2026-08-03 11:55
 ---
 
 ## Origin
