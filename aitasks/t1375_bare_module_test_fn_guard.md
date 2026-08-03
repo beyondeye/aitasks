@@ -8,7 +8,8 @@ labels: [test, bash_scripts]
 gates: [risk_evaluated]
 anchor: 1111
 created_at: 2026-08-03 09:42
-updated_at: 2026-08-03 09:42
+updated_at: 2026-08-03 17:02
+boardidx: 6144
 ---
 
 ## Origin
@@ -63,9 +64,17 @@ functions to `_check_*`; nothing currently prevents the 33rd.
   flagged **by name**; plus a clean module asserted **not** flagged, so the
   control cannot pass for the trivial reason that everything is flagged. Never
   mutate a real test file on disk to demonstrate the guard.
-- Consider whether the guard belongs alongside the existing structural sweep in
-  `tests/test_board_fixture_harness.py` (t1354_2) or in its own file — that file
-  already owns a fail-closed AST scanner with an expression-scoped allowlist and
-  is the closest prior art.
+- **Placement is settled: put the guard in `tests/test_collection_structure.py`**
+  (created by t1384, which lands the sibling "no class inherits tests from a base
+  in the same module" guard there). That module exists to host exactly this kind
+  of AST-only structural check over `tests/test_*.py`, and its docstring names
+  this task as the next intended occupant. Reuse its `_iter_test_modules()`
+  helper — it already globs, parses, and **fails closed** on an unparsable module
+  — and follow the "Adding a guard here" contract in the same docstring: one
+  allowlist `frozenset` with a policy comment, one live-tree `TestCase`, one
+  falsifiability `TestCase`. Do **not** start a third guard file.
+  (`tests/test_board_fixture_harness.py` remains useful prior art for the
+  fail-closed scanner shape, but its sweep is scoped to `tests/test_board_*.py`,
+  which is narrower than this guard needs.)
 - Allowlist, if any, must be empty by design with a written justification per
   entry (the policy used by `ZERO_COLLECTION_ALLOWLIST` and `PARITY_ALLOWLIST`).

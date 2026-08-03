@@ -288,3 +288,101 @@ merge-approval gate against `main` (per the plan header), dispatches
   planning (183 files, 166 edges, 0 findings), so the "ships green with an empty
   allowlist" acceptance criterion is verified rather than assumed · severity:
   low · → mitigation: none needed
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `tests/test_collection_structure.py` (483 lines)
+  — a shared home for AST-only structural guards over `tests/test_*.py`, holding
+  the first guard: no top-level class may subclass another top-level class in the
+  same module that defines its own `test_*` methods. Shipped with
+  `INHERITED_TEST_DUP_ALLOWLIST` empty by design, a live-tree `TestCase` (findings
+  + a non-vacuity floor), and a falsifiability `TestCase` with four controls.
+  Also settled t1375's placement into this module via a pointer in
+  `aitasks/t1375_bare_module_test_fn_guard.md`.
+
+- **Deviations from plan:** Two, both simplifications made during
+  implementation.
+  1. `_iter_test_modules()` yields `(stem, tree)` rather than the planned
+     `(stem, source, tree)`, and the `_Module` NamedTuple was dropped. Every
+     guard in this module is pure-AST (t1375's planned bare-module-`def test_*`
+     check included), so the raw `source` field had no reader — shipping it
+     would have been speculative generality in a shared helper.
+  2. The Step-6 checkpoint's approval AskUserQuestion was not re-issued:
+     `ExitPlanMode` had just collected the same approval, so re-prompting would
+     have been duplicate friction. The substantive half of that branch — the
+     Remote Drift Check — was still run (`main`: `UP_TO_DATE`).
+
+- **Issues encountered:**
+  - *Two review rounds before approval, both valid.* (a) The plan asserted
+    `_iter_test_modules` fails closed on a `SyntaxError`, but no control created
+    malformed Python — an unexercised fail-closed branch is one refactor away
+    from becoming `except SyntaxError: continue`. Added
+    `test_scan_fails_closed_on_an_unparsable_module`. The same reasoning was
+    then applied to the allowlist, which ships empty and would otherwise never
+    be exercised: `test_allowlist_entry_suppresses_exactly_the_pinned_pair` now
+    proves it waives on an exact key and *not* on a near-miss key. (b) The rule
+    is syntactic and does not model whether either class is actually collected,
+    so it can flag an uncollected hierarchy. Documented as scope limit 4 in the
+    docstring **and** in the failure text, which directs the reader to a
+    structural refactor rather than an allowlist entry, with fixture
+    `d_uncollected_hierarchy` pinning the known false positive as deliberate.
+  - *A third review round corrected a factual claim:* "an `ast.Attribute` base is
+    by definition not the same module" is false for a self-import. Reworded to
+    "attribute bases are intentionally out of scope", which is what the code
+    actually does.
+  - *Concurrent-session interference during verification.* The first full-suite
+    run failed with 2 errors in `tests/test_board_movement.py::HarnessDiscriminationTests`
+    (`NameError: name 'atomic_write_text' is not defined`), raised inside the
+    board during a Textual `run_test`. Another session was mid-flight on an
+    atomic-write migration touching `.aitask-scripts/board/aitask_board.py`
+    (255 uncommitted insertions) and had the import momentarily absent at the
+    instant the suite imported it. Re-running those tests directly a few minutes
+    later passed, and a full re-run of the suite passed outright — so it was a
+    transient snapshot of concurrent work, not a broken commit.
+  - *A detached `git worktree` at HEAD is NOT a valid surface for this suite.*
+    Used as a cross-check, it produced 4 unrelated failures
+    (`test_profile_editor_shadow_tier.py`, `test_settings_brainstorm_descriptions.py`,
+    `test_board_movement.py::IsolationNegativeControlTests`) purely because
+    `aitasks/` is a symlink into the `.aitask-data` worktree, which such a
+    checkout does not have — the link dangles and every metadata-reading test
+    fails. Evidence discarded; the worktree was removed. Worth remembering
+    before reaching for that technique again in this repo.
+
+- **Key decisions:**
+  - *Shared module over a narrow one.* t1375 is still `Ready` and unimplemented,
+    so its placement was genuinely open. `tests/test_collection_structure.py`
+    is named for the concern (structural properties of what the tests tree
+    collects) rather than this one defect, its docstring carries an "Adding a
+    guard here" contract (one allowlist + one live `TestCase` + one
+    falsifiability `TestCase`, sharing `_iter_test_modules()`), and t1375's task
+    file now points at it. No commented-out stub code was left behind.
+  - *Allowlist key excludes the method count.* The key is
+    `"<stem>: <Sub>(<Base>)"`; the count lives only in the message. Embedding it
+    would silently un-waive an entry the next time a test was added to the base.
+  - *Rich returns over booleans.* `_scan_dir` returns
+    `(findings, modules, edges)` so the live test can assert the sweep reached
+    its decision points — a scan that found no files reports "no violations",
+    which reads identically to a clean tree. Floors are loose
+    (`modules >= 50`, `edges >= 1`), deliberately not pinned counts.
+  - *Direct edges only.* Detection, not enumeration: any chain reaching a
+    test-defining base contains a direct edge into it, so the chain is always
+    flagged at that link and the structural fix resolves it wholesale. Fixture
+    `c_transitive` pins this.
+
+- **Upstream defects identified:** None.
+
+- **Verification evidence:**
+  - `python3 -m unittest tests.test_collection_structure` — 6 tests, OK (~0.5s).
+  - Live tree, empty allowlist: **0 findings** over 185 modules and 169
+    in-module inheritance edges (the guard is not vacuous — it reaches 169 real
+    decision points).
+  - **Negative control against the real defect**, no tracked file mutated: copied
+    `tests/*.py` to a tmpdir, appended `class Dup(TabbedShellTests): pass` to the
+    *copy* of `test_syncer_rows.py`, and re-scanned. Live `findings=0 edges=169`
+    → mutated `findings=1 edges=170`, reporting
+    `test_syncer_rows: Dup(TabbedShellTests) re-runs 25 inherited test_* method(s)
+    defined on TabbedShellTests` — 25 being exactly the figure t1354_4 measured.
+  - `python3 -m unittest tests.test_no_zero_collection tests.test_collection_parity`
+    — 7 tests, OK: the new file collects and both backends agree on its count.
+  - `bash tests/run_all_python_tests.sh --test-dir tests` —
+    `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, 3151 passed, 1 skipped.
