@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: low
 depends: [t1354_1, t1354_2, t1354_3]
 issue_type: performance
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-07-31 07:56
-updated_at: 2026-08-03 09:48
+updated_at: 2026-08-03 12:16
 ---
 
 ## Context
@@ -56,3 +59,8 @@ never silently re-scoped.
 - Full suite green under both backends; wall times recorded with one denominator.
 - If test_syncer_rows was split: all its tests still collected and green under both backends (`test_no_zero_collection.py` guards collection), and the measured makespan improvement is recorded.
 - The plan contains the complete before/after table and explicit dispositions for every projection.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T09:16:40Z status=pass attempt=1 type=human
