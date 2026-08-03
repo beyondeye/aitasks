@@ -1,11 +1,11 @@
 """Live-tmux smoke for minimonitor's shadow concern capture path (t1187).
 
-Every other concern test stubs ``_capture_shadow_text`` and feeds the parser a
+Every other concern test stubs ``capture_shadow_text`` and feeds the parser a
 synthetic string, so the whole suite can pass while the real pipeline still
 produces no auto-offer — which is exactly how the t1170 item-#2 live failure
 slipped through. This module exercises the real chain end-to-end:
 
-    real tmux pane -> aitask_shadow_capture.sh -> _capture_shadow_text
+    real tmux pane -> aitask_shadow_capture.sh -> capture_shadow_text
         -> has_concern_block -> notify
 
 Only the two tmux *lookups* are stubbed (which pane is the agent, which pane is
@@ -170,6 +170,11 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         else:
             os.environ["AITASKS_TMUX_SOCKET"] = self._prev_socket
 
+    def _patch(self, obj, name, value):
+        """Rebind a module attribute for one test, restoring it at teardown."""
+        self.addCleanup(setattr, obj, name, getattr(obj, name))
+        setattr(obj, name, value)
+
     def _app(self, lines: int):
         """A minimonitor whose capture is REAL, at a pinned scrollback depth."""
         app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
@@ -182,16 +187,21 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
             (msg, kw.get("severity", "information"))
         )
         app._find_own_agent_snapshot = lambda: _snap("%99")
-        app._find_shadow_pane_for = _async_pane(self.pane_id)
-        real_capture = app._capture_shadow_text
-        app._capture_shadow_text = (
-            lambda pane, *, _r=real_capture: _r(pane, lines=lines)
+        # The delegating seams are gone (t1289): `_maybe_offer_concerns` resolves
+        # both helpers from `minimonitor_app`'s globals, so the stubs are module
+        # attributes now. The capture wrapper still calls the REAL helper — only
+        # the scrollback depth is pinned, which is the whole point of this smoke.
+        self._patch(mm, "find_shadow_pane_async", _async_pane(self.pane_id))
+        real_capture = mm.capture_shadow_text
+        self._patch(
+            mm, "capture_shadow_text",
+            lambda pane, *, _r=real_capture: _r(pane, lines=lines),
         )
         return app
 
     def test_deep_window_reaches_the_block_and_notifies(self):
         app = self._app(DEEP_LINES)
-        text = asyncio.run(app._capture_shadow_text(self.pane_id))
+        text = asyncio.run(mm.capture_shadow_text(self.pane_id))
         self.assertIn(OPEN, text)
         self.assertIn(CLOSE, text)
 
@@ -206,7 +216,7 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         app = self._app(SHALLOW_LINES)
         # Assert the INTERMEDIATE shape first: if the row arithmetic ever drifts
         # this fails loudly here instead of the test passing for a wrong reason.
-        text = asyncio.run(app._capture_shadow_text(self.pane_id))
+        text = asyncio.run(mm.capture_shadow_text(self.pane_id))
         self.assertIn(CLOSE, text, "shallow window did not reach the closing fence")
         self.assertNotIn(OPEN, text, "shallow window was not shallow enough")
 

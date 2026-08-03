@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 from monitor import minimonitor_app as mm  # noqa: E402
 from monitor import monitor_core as mc  # noqa: E402
 from monitor.concern_parser import build_clipboard_payload  # noqa: E402
+from monitor.monitor_shared import format_stale_duration  # noqa: E402
 
 
 _CLOSED_BLOCK = (
@@ -70,6 +71,22 @@ def _async_return(value):
     async def _coro(*args, **kwargs):
         return value
     return _coro
+
+
+def _stub_capture(test, coro):
+    """Bind minimonitor's module-level capture seam for one test (t1289).
+
+    The delegating ``MiniMonitorApp`` method these tests used to stub is gone:
+    the call sites resolve the shared capture helper from ``minimonitor_app``'s
+    globals, so an instance attribute would intercept nothing. Replaces the
+    module attribute instead, restoring the original at teardown (registered at
+    first bind, so an early failure cannot leak it). Call again to re-stub
+    mid-test.
+    """
+    if not hasattr(test, "_orig_capture"):
+        test._orig_capture = mm.capture_shadow_text
+        test.addCleanup(setattr, mm, "capture_shadow_text", test._orig_capture)
+    mm.capture_shadow_text = coro
 
 
 class _FakeMon:
@@ -118,26 +135,26 @@ def _snap(pane_id="%1"):
 class MatchShadowPaneTests(unittest.TestCase):
     def test_returns_bound_shadow(self):
         out = "%1\t\n%5\t%1\n%6\t%2\n"
-        self.assertEqual(mm.match_shadow_pane(out, "%1"), "%5")
+        self.assertEqual(mc.match_shadow_pane(out, "%1"), "%5")
 
     def test_none_when_no_match(self):
         out = "%1\t\n%6\t%2\n"
-        self.assertIsNone(mm.match_shadow_pane(out, "%1"))
+        self.assertIsNone(mc.match_shadow_pane(out, "%1"))
 
     def test_empty_target_ignored(self):
         out = "%1\t\n%2\t   \n"
-        self.assertIsNone(mm.match_shadow_pane(out, "%1"))
+        self.assertIsNone(mc.match_shadow_pane(out, "%1"))
 
     def test_multiple_matches_returns_newest(self):
         out = "%5\t%1\n%8\t%1\n%3\t%1\n"
-        self.assertEqual(mm.match_shadow_pane(out, "%1"), "%8")
+        self.assertEqual(mc.match_shadow_pane(out, "%1"), "%8")
 
 
 class ActionPickConcernsTests(unittest.TestCase):
     def test_happy_path_modal_then_clipboard(self):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return(_CLOSED_BLOCK)
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
 
         asyncio.run(app.action_pick_concerns())
 
@@ -156,7 +173,7 @@ class ActionPickConcernsTests(unittest.TestCase):
     def test_cancel_writes_nothing(self):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return(_CLOSED_BLOCK)
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
         asyncio.run(app.action_pick_concerns())
         _, callback = app.spy_pushed[0]
         callback(None)
@@ -165,7 +182,7 @@ class ActionPickConcernsTests(unittest.TestCase):
     def test_no_shadow_pane_notifies_nothing_pushed(self):
         app = _mk_app(_FakeMon(async_list="%1\t\n%6\t%2"))  # no shadow for %1
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return(_CLOSED_BLOCK)
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
         asyncio.run(app.action_pick_concerns())
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(app.spy_clipboard, [])
@@ -174,7 +191,7 @@ class ActionPickConcernsTests(unittest.TestCase):
     def test_capture_failure_degrades(self):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return(None)  # timeout / nonzero exit
+        _stub_capture(self, _async_return(None))  # timeout / nonzero exit
         asyncio.run(app.action_pick_concerns())
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(app.spy_clipboard, [])
@@ -183,7 +200,7 @@ class ActionPickConcernsTests(unittest.TestCase):
     def test_empty_parse_no_modal(self):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return("no concern block here")
+        _stub_capture(self, _async_return("no concern block here"))
         asyncio.run(app.action_pick_concerns())
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(app.spy_clipboard, [])
@@ -201,7 +218,7 @@ class ActionPickConcernsTests(unittest.TestCase):
         """
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return(_MALFORMED_ONLY_BLOCK)
+        _stub_capture(self, _async_return(_MALFORMED_ONLY_BLOCK))
 
         asyncio.run(app.action_pick_concerns())
 
@@ -223,7 +240,7 @@ class ActionPickConcernsTests(unittest.TestCase):
             captures.append(lines)
             return _CLOSED_BLOCK if lines else _HEAD_TRUNCATED
 
-        app._capture_shadow_text = _capture
+        _stub_capture(self, _capture)
         asyncio.run(app.action_pick_concerns())
 
         # Second call asked for the deeper window; the block was recovered.
@@ -240,7 +257,7 @@ class ActionPickConcernsTests(unittest.TestCase):
             captures.append(lines)
             return _HEAD_TRUNCATED
 
-        app._capture_shadow_text = _capture
+        _stub_capture(self, _capture)
         asyncio.run(app.action_pick_concerns())
 
         self.assertEqual(captures, [None, mm._SHADOW_DEEP_RETRY_LINES])
@@ -259,7 +276,7 @@ class ActionPickConcernsTests(unittest.TestCase):
             captures.append(lines)
             return "just some agent output\n"
 
-        app._capture_shadow_text = _capture
+        _stub_capture(self, _capture)
         asyncio.run(app.action_pick_concerns())
 
         self.assertEqual(captures, [None])  # no pointless deeper re-capture
@@ -267,10 +284,12 @@ class ActionPickConcernsTests(unittest.TestCase):
 
 
 class CaptureArgvTests(unittest.TestCase):
-    """What ``_capture_shadow_text`` actually runs (t1187).
+    """What ``capture_shadow_text`` actually runs (t1187).
 
-    Every other test in this file stubs the method out, so nothing sees the real
-    CLI invocation — and the whole t1187 capture fix lives in that argv.
+    Every other test in this file stubs the helper out, so nothing sees the real
+    CLI invocation — and the whole t1187 capture fix lives in that argv. Driven
+    through ``mm.`` rather than ``mc.`` on purpose: that is the exact binding
+    minimonitor's own call sites resolve.
     """
 
     def _run_capture(self, **kwargs):
@@ -287,11 +306,10 @@ class CaptureArgvTests(unittest.TestCase):
             recorded["env"] = kw.get("env")
             return _FakeProc()
 
-        app = _mk_app()
         orig = asyncio.create_subprocess_exec
         asyncio.create_subprocess_exec = _fake_exec
         try:
-            out = asyncio.run(app._capture_shadow_text("%5", **kwargs))
+            out = asyncio.run(mm.capture_shadow_text("%5", **kwargs))
         finally:
             asyncio.create_subprocess_exec = orig
         return out, recorded
@@ -344,7 +362,7 @@ class AutoOfferTests(unittest.TestCase):
     def _app(self, capture_value, async_list="%5\t%1"):
         app = _mk_app(_FakeMon(async_list=async_list))
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return(capture_value)
+        _stub_capture(self, _async_return(capture_value))
         return app
 
     def test_unclosed_block_does_not_fire(self):
@@ -364,9 +382,9 @@ class AutoOfferTests(unittest.TestCase):
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(len(app.spy_notify), 1)
         # Same concern block, different surrounding pane text -> still one hint.
-        app._capture_shadow_text = _async_return(
+        _stub_capture(self, _async_return(
             "NEW PROMPT LINE\n" + _CLOSED_BLOCK + "\n$ "
-        )
+        ))
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(len(app.spy_notify), 1)
 
@@ -376,7 +394,7 @@ class AutoOfferTests(unittest.TestCase):
         changed = _CLOSED_BLOCK.replace(
             "double-commits the lock", "leaks a file handle"
         )
-        app._capture_shadow_text = _async_return(changed)
+        _stub_capture(self, _async_return(changed))
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(len(app.spy_notify), 2)
 
@@ -428,11 +446,11 @@ class AutoOfferTests(unittest.TestCase):
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(app._unparsed_warned, {"%5"})
         # A parseable block arrives: normal hint, and the pane is re-armed.
-        app._capture_shadow_text = _async_return(_CLOSED_BLOCK)
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(app._unparsed_warned, set())
         # Malformed again later -> warns again rather than staying silent.
-        app._capture_shadow_text = _async_return(_MALFORMED_ONLY_BLOCK)
+        _stub_capture(self, _async_return(_MALFORMED_ONLY_BLOCK))
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(app._unparsed_warned, {"%5"})
         self.assertEqual(
@@ -443,11 +461,11 @@ class AutoOfferTests(unittest.TestCase):
         app = self._app(_HEAD_TRUNCATED)
         asyncio.run(app._maybe_offer_concerns())
         # A complete block arrives: normal hint, and the pane is re-armed.
-        app._capture_shadow_text = _async_return(_CLOSED_BLOCK)
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(app._truncation_warned, set())
         # Truncated again later -> warns again rather than staying silent.
-        app._capture_shadow_text = _async_return(_HEAD_TRUNCATED)
+        _stub_capture(self, _async_return(_HEAD_TRUNCATED))
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(
             [m for m, _ in app.spy_notify].count(mm._SHADOW_TRUNCATED_MSG), 2
@@ -476,7 +494,7 @@ class ShadowFreshnessTests(unittest.TestCase):
                    async_list="%5\t%1"):
         app = _mk_app(_FakeMon(async_list=async_list))
         app._find_own_agent_snapshot = lambda: _snap("%1")
-        app._capture_shadow_text = _async_return(capture)
+        _stub_capture(self, _async_return(capture))
         app._refresh_seconds = 3
         stamp = "" if analyzed_at is None else str(analyzed_at)
         app._monitor.get_pane_option = _async_return(stamp)
@@ -548,7 +566,7 @@ class ShadowFreshnessTests(unittest.TestCase):
         self.assertIn("STALE", app.spy_notify[0][0])
 
     def test_format_stale_duration(self):
-        f = mm.MiniMonitorApp._format_stale_duration
+        f = format_stale_duration
         self.assertEqual(f(5), "5s")
         self.assertEqual(f(65), "1m05s")
         self.assertEqual(f(3720), "1h02m")

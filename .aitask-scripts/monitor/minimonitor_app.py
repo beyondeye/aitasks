@@ -30,10 +30,8 @@ from monitor.tmux_monitor import (  # noqa: E402
     TmuxMonitor,
     load_monitor_config,
     load_project_tmux_config,
-    # Shared shadow seam (t1216_1). `match_shadow_pane` is re-bound into this
-    # module's namespace on purpose — it was a module-level function here before
-    # the lift and is referenced as `minimonitor_app.match_shadow_pane`.
-    match_shadow_pane,  # noqa: F401  (re-export: `minimonitor_app.match_shadow_pane`)
+    # Shared shadow seam (t1216_1) — one implementation, shared with the full
+    # monitor, which imports it the same way (`monitor_app.py`).
     find_shadow_pane,
     find_shadow_pane_async,
     capture_shadow_text,
@@ -89,24 +87,11 @@ class MiniPaneCard(Static, can_focus=True):
         self.pane_id = pane_id
 
 
-# The shadow constants, `match_shadow_pane` and the lookup / capture / staleness
-# helpers now live in `monitor/monitor_core.py` and are imported above (t1216_1)
-# — one implementation, shared with the full monitor. `_pane_id_sort_key` is
-# gone: it was a byte-identical copy of `monitor_core._pane_id_num`.
-
-
 # Accepted shapes for a hand-typed task number (t1310): a parent id, or one
 # child level — the same shape `_TASK_ID_RE` extracts from agent window names.
 # Applied BEFORE any lookup, because the id is interpolated into a glob pattern
 # downstream and passed to the pick command.
 _PICK_TASK_ID_RE = re.compile(r"\d+(?:_\d+)?")
-
-
-# Delegating seam → :func:`monitor_shared.unparsed_concerns_msg`. The body moved
-# to the shared module when the full monitor grew the same message (t1216_3);
-# the private name stays so this file's call sites and the shadow test suite
-# bind unchanged. Removed by the shadow_seam_wrapper_removal follow-up (t1289).
-_unparsed_msg = unparsed_concerns_msg
 
 
 # -- Main app -----------------------------------------------------------------
@@ -1299,7 +1284,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         # lifecycle binding). Refuse a duplicate so the concern picker's reverse
         # lookup stays unambiguous by construction (t1037_4). Sync lookup — this
         # action is sync and already issues sync tmux_run calls.
-        if self._find_shadow_pane_for_sync(followed_pane):
+        if find_shadow_pane(self._monitor, followed_pane):
             self.notify(
                 "A shadow is already running for this agent", severity="warning"
             )
@@ -1342,7 +1327,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             return
         # Duplicate guard runs BEFORE opening the dialog (don't pop a picker just
         # to fail). Same sync reverse-lookup as action_launch_shadow.
-        if self._find_shadow_pane_for_sync(followed_pane):
+        if find_shadow_pane(self._monitor, followed_pane):
             self.notify(
                 "A shadow is already running for this agent", severity="warning"
             )
@@ -1423,25 +1408,6 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
 
     # -- Shadow concern picker (t1037_4) ---------------------------------------
 
-    # The three helpers below are delegating seams, not implementations: the
-    # shared bodies live in `monitor_core` (t1216_1) so the full monitor gets the
-    # same behaviour. They are kept as methods because minimonitor's own call
-    # sites — and the shadow test suite — bind to these private names.
-
-    def _find_shadow_pane_for_sync(self, followed_pane_id: str) -> str | None:
-        """Delegating seam → :func:`monitor_core.find_shadow_pane` (sync)."""
-        return find_shadow_pane(self._monitor, followed_pane_id)
-
-    async def _find_shadow_pane_for(self, followed_pane_id: str) -> str | None:
-        """Delegating seam → :func:`monitor_core.find_shadow_pane_async`."""
-        return await find_shadow_pane_async(self._monitor, followed_pane_id)
-
-    async def _capture_shadow_text(
-        self, shadow_pane: str, *, lines: int | None = None
-    ) -> str | None:
-        """Delegating seam → :func:`monitor_core.capture_shadow_text`."""
-        return await capture_shadow_text(shadow_pane, lines=lines)
-
     def _set_shadow_stale_banner(self, text: str) -> None:
         """Update the live staleness warning line; no-op if unmounted (t1104).
 
@@ -1486,9 +1452,6 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             self._shadow_feedback_stale = False
             self._set_shadow_stale_banner("")
 
-    # Delegating seam → :func:`monitor_shared.format_stale_duration`.
-    _format_stale_duration = staticmethod(format_stale_duration)
-
     async def action_pick_concerns(self) -> None:
         """Forward the shadow agent's concerns to the followed agent (via clipboard).
 
@@ -1502,14 +1465,14 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         if snap is None:
             self.notify("No followed agent in this window", severity="warning")
             return
-        shadow_pane = await self._find_shadow_pane_for(snap.pane.pane_id)
+        shadow_pane = await find_shadow_pane_async(self._monitor, snap.pane.pane_id)
         if not shadow_pane:
             self.notify(
                 "No shadow agent running — press 'e' to launch one",
                 severity="warning",
             )
             return
-        text = await self._capture_shadow_text(shadow_pane)
+        text = await capture_shadow_text(shadow_pane)
         if text is None:
             self.notify("Could not read the shadow pane", severity="warning")
             return
@@ -1518,7 +1481,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             # The block is there but the window started inside it. This is the
             # explicit user action, so pay for ONE much deeper re-capture rather
             # than reporting a false "no concerns" (t1187).
-            deeper = await self._capture_shadow_text(
+            deeper = await capture_shadow_text(
                 shadow_pane, lines=_SHADOW_DEEP_RETRY_LINES
             )
             if deeper is not None:
@@ -1533,7 +1496,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             # block, none of it survived. Say that instead (t1274).
             lost = len(unrecovered_markers(text))
             if lost:
-                self.notify(_unparsed_msg(lost), severity="warning")
+                self.notify(unparsed_concerns_msg(lost), severity="warning")
             else:
                 self.notify("No concerns detected on the shadow pane")
             return
@@ -1580,7 +1543,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         snap = self._find_own_agent_snapshot()
         if snap is None or not snap.pane.pane_id:
             return
-        shadow_pane = await self._find_shadow_pane_for(snap.pane.pane_id)
+        shadow_pane = await find_shadow_pane_async(self._monitor, snap.pane.pane_id)
         if not shadow_pane:
             # No shadow: nothing can be stale — clear any standing warning.
             self._shadow_feedback_stale = None
@@ -1596,7 +1559,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         ) + 1
         if self._shadow_freshness_tick % 2 == 1:
             await self._update_shadow_freshness(shadow_pane, snap.pane.pane_id)
-        text = await self._capture_shadow_text(shadow_pane)
+        text = await capture_shadow_text(shadow_pane)
         if text is None:
             return
         if not has_concern_block(text):
@@ -1616,7 +1579,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             lost = unrecovered_markers(text)
             if lost and shadow_pane not in self._unparsed_warned:
                 self._unparsed_warned.add(shadow_pane)
-                self.notify(_unparsed_msg(len(lost)), severity="warning")
+                self.notify(unparsed_concerns_msg(len(lost)), severity="warning")
             return
         # A complete block arrived: re-arm the warnings for this pane.
         self._truncation_warned.discard(shadow_pane)
