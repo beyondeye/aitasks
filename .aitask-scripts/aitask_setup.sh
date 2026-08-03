@@ -28,7 +28,11 @@ AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 # differs from the distribution name for some: pyyaml->yaml, linkify-it-py->linkify_it).
 AIT_PIP_SPECS_COMMON=('textual>=8.2.7,<9' 'pyyaml==6.0.3' 'linkify-it-py==2.1.0' 'tomli>=2.4.0,<3')
 AIT_PIP_SPECS_CPYTHON_EXTRA=('minijinja>=2.0,<3' 'segno>=1.5,<2' 'plotext==5.3.2' 'websockets>=12,<17' 'msgpack>=1,<2')
-AIT_IMPORTS_COMMON=(textual yaml linkify_it tomli)
+# Derived, not duplicated: lib/python_resolve.sh (sourced above) owns this list
+# because resolve_pypy_python() must import exactly the same set before it will
+# hand the board a PyPy. Add a module in that one place and both the post-install
+# verification here and the fast-path probe there pick it up.
+AIT_IMPORTS_COMMON=("${AIT_PYPY_RUNTIME_IMPORTS[@]}")
 AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext websockets msgpack)
 
 # Chat dependency tier (opt-in via `ait setup --with-chat`): SDKs for the
@@ -100,6 +104,32 @@ PY
 )" || out=""
     [[ -n "$out" ]] && while IFS= read -r line; do bad_specs+=("$line"); done <<< "$out"
     return 0  # never fail the caller (set -e); result is in $bad_specs
+}
+
+# pip_install_guarded <label> <pip-binary> <pip-arg>... — run a `pip install`
+# that must never abort `ait setup`.
+#
+# ALWAYS returns 0 — deliberately, and this is load-bearing. The script runs
+# under `set -euo pipefail`, so a bare `pip install` that fails (offline machine,
+# unreachable index, a wheel that will not build) aborts the WHOLE run at that
+# line, never reaching the validate / warn / degrade path its caller wrote below
+# it. Keeping the call inside an `if !` condition is what makes that contract
+# true rather than merely stated; returning pip's real status here would just
+# move the same abort out to every call site.
+#
+# The helper does NOT decide what a failure means — each caller keeps its own
+# policy, decided by the verify_venv_* check that follows: an optional tier warns
+# (or removes itself), the core CPython venv still dies. That split matters
+# because a failed pip does not imply a broken venv: on an offline machine whose
+# deps are already installed and in range, verification passes and setup
+# continues instead of falsely reporting a broken tier.
+pip_install_guarded() {
+    local label="$1" pip_bin="$2"
+    shift 2
+    if ! "$pip_bin" install "$@"; then
+        warn "$label: pip install failed (network or index unavailable?). Continuing — the dependency check below decides whether this is fatal."
+    fi
+    return 0
 }
 
 # --- Color helpers ---
@@ -660,8 +690,10 @@ setup_pypy_venv() {
     fi
 
     info "Installing/upgrading Python deps into PyPy venv..."
-    "$PYPY_VENV_DIR/bin/pip" install --quiet --upgrade pip
-    "$PYPY_VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}"
+    pip_install_guarded "PyPy venv pip self-upgrade" "$PYPY_VENV_DIR/bin/pip" \
+        --quiet --upgrade pip
+    pip_install_guarded "PyPy venv deps" "$PYPY_VENV_DIR/bin/pip" \
+        --quiet "${AIT_PIP_SPECS_COMMON[@]}"
 
     # Validate importability + version ranges; retry once, then give up on PyPy
     # by removing the venv so the fast-path resolver falls back to the CPython
@@ -670,13 +702,29 @@ setup_pypy_venv() {
     verify_venv_specs   "$PYPY_VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}"
     if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
         warn "PyPy venv deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
-        "$PYPY_VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}"
+        pip_install_guarded "PyPy venv dep repair" "$PYPY_VENV_DIR/bin/pip" \
+            --quiet "${AIT_PIP_SPECS_COMMON[@]}"
         verify_venv_imports "$PYPY_VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}"
         verify_venv_specs   "$PYPY_VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}"
     fi
     if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
         warn "PyPy venv deps could not be installed (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Removing $PYPY_VENV_DIR so the board uses the CPython venv. Re-run 'ait setup --with-pypy' to retry."
-        rm -rf "$PYPY_VENV_DIR"
+        # Removal is not cleanup — it IS half of the fallback mechanism, so a
+        # removal that silently failed would report a fallback that did not
+        # happen. (The other half lives in resolve_pypy_python(), which rejects
+        # any PyPy that cannot see `textual`. Removal alone is NOT sufficient:
+        # resolution continues to `pypy<ver>` / `pypy3` on PATH, which is very
+        # often the same system interpreter this venv was built from.)
+        if ! rm -rf "$PYPY_VENV_DIR" 2>/dev/null; then
+            # Full removal failed (permissions / busy mount). Selection keys only
+            # on the interpreter, so dropping that alone still disables the fast
+            # path.
+            rm -f "$PYPY_VENV_DIR/bin/python" "$PYPY_VENV_DIR/bin/python3" 2>/dev/null || true
+            if [[ -x "$PYPY_VENV_DIR/bin/python" ]]; then
+                die "PyPy venv at $PYPY_VENV_DIR has unusable dependencies and could not be removed (check permissions). It would still be selected ahead of the CPython venv and fail at import. Remove it manually and re-run 'ait setup'."
+            fi
+            warn "PyPy venv at $PYPY_VENV_DIR could not be fully removed, but its interpreter was — the board will fall back to the CPython venv. Delete the leftover directory at your convenience."
+        fi
         return 0
     fi
 
@@ -719,7 +767,8 @@ setup_chat_deps() {
     fi
 
     info "Installing/upgrading chat SDK deps into CPython venv..."
-    "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_CHAT[@]}"
+    pip_install_guarded "Chat deps" "$VENV_DIR/bin/pip" \
+        --quiet "${AIT_PIP_SPECS_CHAT[@]}"
 
     # Validate importability + version ranges; retry once, then warn and
     # continue (chat is an optional tier — never block the core setup).
@@ -727,7 +776,8 @@ setup_chat_deps() {
     verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_CHAT[@]}"
     if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
         warn "Chat deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
-        "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_CHAT[@]}"
+        pip_install_guarded "Chat deps repair" "$VENV_DIR/bin/pip" \
+            --quiet "${AIT_PIP_SPECS_CHAT[@]}"
         verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_CHAT[@]}"
         verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_CHAT[@]}"
     fi
@@ -769,6 +819,13 @@ setup_dev_deps() {
     # `if ! cmd` keeps the failure inside a condition, where `set -e` does not
     # trigger, which is what makes the "never fails the overall setup" contract
     # above actually true rather than merely stated.
+    #
+    # This function deliberately does NOT use pip_install_guarded(), which warns
+    # and lets the verify block below decide. Here an install failure must
+    # short-circuit, because the opt-in marker is written at the END of a
+    # verified-good run: falling through would let a failed attempt record the
+    # tier as wanted. Do not "harmonize" these two shapes — the difference is the
+    # marker, not an oversight.
     if ! "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_DEV[@]}"; then
         warn "Dev deps install failed (network or index unavailable?). Re-run 'ait setup --with-dev' to retry."
         return 0
@@ -849,7 +906,16 @@ setup_python_venv() {
     fi
 
     info "Installing/upgrading Python dependencies..."
-    "$VENV_DIR/bin/pip" install --quiet --upgrade pip
+    # Guarded like the optional tiers, but the policy differs: this function
+    # still DIES when the venv is genuinely bad (see the verify block below).
+    # What the guard buys is the MESSAGE. pip short-circuits requirements that
+    # are already satisfied without reaching the index, so an offline setup on a
+    # healthy machine is fine either way; the failure window is offline/broken-
+    # index AND a dependency that is not yet satisfied (a spec bump above, a
+    # fresh venv). Unguarded, that aborted here with only pip's own error;
+    # guarded, it falls through to the verify block and dies saying what to do.
+    pip_install_guarded "CPython venv pip self-upgrade" "$VENV_DIR/bin/pip" \
+        --quiet --upgrade pip
 
     # `pip show` exits 1 when textual isn't installed yet (fresh-install path);
     # `|| true` keeps the assignment safe under `set -euo pipefail`.
@@ -857,7 +923,8 @@ setup_python_venv() {
     textual_before=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \
         | awk '/^Version:/ {print $2}') || true
 
-    "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
+    pip_install_guarded "CPython venv deps" "$VENV_DIR/bin/pip" \
+        --quiet "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
 
     local textual_after=""
     textual_after=$("$VENV_DIR/bin/pip" show textual 2>/dev/null \
@@ -872,7 +939,8 @@ setup_python_venv() {
     verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
     if [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]]; then
         warn "CPython venv deps need repair (missing: ${missing_imports[*]:-none}; version: ${bad_specs[*]:-none}). Retrying..."
-        "$VENV_DIR/bin/pip" install --quiet "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
+        pip_install_guarded "CPython venv dep repair" "$VENV_DIR/bin/pip" \
+            --quiet "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
         verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_COMMON[@]}" "${AIT_IMPORTS_CPYTHON_EXTRA[@]}"
         verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_COMMON[@]}" "${AIT_PIP_SPECS_CPYTHON_EXTRA[@]}"
         [[ ${#missing_imports[@]} -gt 0 || ${#bad_specs[@]} -gt 0 ]] && \

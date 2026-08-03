@@ -37,6 +37,15 @@ AIT_VENV_PYTHON_MIN="${AIT_VENV_PYTHON_MIN:-3.11}"
 AIT_PYPY_PREFERRED="${AIT_PYPY_PREFERRED:-3.11}"
 PYPY_VENV_DIR="${PYPY_VENV_DIR:-$HOME/.aitask/pypy_venv}"
 
+# Import names a PyPy interpreter must actually provide before the fast path
+# will use it — the framework's shared runtime set. Declared HERE, not in
+# aitask_setup.sh, because resolve_pypy_python() below needs it and setup
+# sources this file (never the reverse); aitask_setup.sh derives its
+# AIT_IMPORTS_COMMON from this array so the list has exactly one home.
+# Keep in step with AIT_PIP_SPECS_COMMON in aitask_setup.sh (the distribution
+# names that install these: pyyaml->yaml, linkify-it-py->linkify_it).
+AIT_PYPY_RUNTIME_IMPORTS=(textual yaml linkify_it tomli)
+
 # shellcheck source=terminal_compat.sh
 source "$(dirname "${BASH_SOURCE[0]}")/terminal_compat.sh"
 
@@ -94,12 +103,48 @@ require_ait_python() {
     require_modern_python "$AIT_VENV_PYTHON_MIN"
 }
 
+# Resolve a PyPy interpreter that can actually RUN the framework's TUIs, or
+# print nothing so the caller falls back to the CPython venv.
+#
+# A candidate must satisfy BOTH conditions: it is PyPy, AND it can see the
+# framework's Python dependencies. Identity alone is not enough, and testing
+# only identity was a real defect on two paths:
+#
+#   * `pypy3` / `pypy<ver>` on PATH is a candidate, so a system PyPy installed
+#     for unrelated reasons was selected for `ait board` even on a machine that
+#     never ran `ait setup --with-pypy` — the board then died at `import textual`.
+#   * `setup_pypy_venv` degrades by REMOVING $PYPY_VENV_DIR so the board falls
+#     back to CPython. With an identity-only probe that fallback did not hold
+#     whenever a system PyPy was on PATH: resolution simply moved on to it, and
+#     the removal bought nothing.
+#
+# The probe IMPORTS the whole $AIT_PYPY_RUNTIME_IMPORTS set rather than merely
+# locating one module. Both halves of that matter:
+#
+#   * One module is not enough — aitask_board.py imports `yaml` directly as well
+#     as Textual, so a PyPy carrying textual but missing pyyaml still crashes.
+#   * Locating is not importing — importlib.util.find_spec() answers "present"
+#     for a package whose __init__ raises (a broken install, or a missing
+#     transitive dependency of Textual itself). Only the import proves usable.
+#
+# The identity check runs FIRST so a non-PyPy candidate is rejected without
+# paying for any imports. Cost when the candidate IS PyPy: ~186ms vs ~16ms,
+# once per launch and memoized in _AIT_RESOLVED_PYPY — it is the same import
+# work the board is about to do anyway, and a board settles in ~3s. Fail-closed:
+# any error exits non-zero and the candidate is rejected.
+#
+# NOTE: aitask_setup.sh's find_pypy() deliberately keeps an identity-only probe.
+# It looks for a bare interpreter to CREATE the venv from, which by definition
+# has no deps yet. The asymmetry is intentional — do not "harmonize" them.
 resolve_pypy_python() {
     if [[ -n "${_AIT_RESOLVED_PYPY:-}" ]]; then
         echo "$_AIT_RESOLVED_PYPY"
         return 0
     fi
-    local cand resolved
+    local cand resolved mods
+    # printf -v, not "${arr[*]}": builds the comma list without depending on IFS.
+    printf -v mods '%s, ' "${AIT_PYPY_RUNTIME_IMPORTS[@]}"
+    mods="${mods%, }"
     local candidates=(
         "${AIT_PYPY:-}"
         "$PYPY_VENV_DIR/bin/python"
@@ -114,7 +159,16 @@ resolve_pypy_python() {
             resolved="$(command -v "$cand" 2>/dev/null || true)"
         fi
         [[ -z "$resolved" || ! -x "$resolved" ]] && continue
-        if "$resolved" -c "import sys; sys.exit(0 if sys.implementation.name == 'pypy' else 1)" 2>/dev/null; then
+        # BOTH streams are discarded, not just stderr. This function's contract
+        # is "echo the interpreter path", and importing the runtime set really
+        # does write to stdout: `import yaml` under PyPy emits Cython diagnostic
+        # lines, which would otherwise be captured by the caller's $(...) and
+        # handed to exec as part of the interpreter path.
+        if "$resolved" -c "import sys
+if sys.implementation.name != 'pypy':
+    sys.exit(1)
+import $mods
+sys.exit(0)" >/dev/null 2>&1; then
             _AIT_RESOLVED_PYPY="$resolved"
             echo "$resolved"
             return 0
