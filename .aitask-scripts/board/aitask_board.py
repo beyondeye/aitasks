@@ -207,6 +207,7 @@ class Task:
         self.metadata = {}
         self._original_key_order: list = []
         self.archived = False
+        self._search_haystack = None        # memo; see `search_haystack`
         self.load()
 
     @classmethod
@@ -218,6 +219,9 @@ class Task:
         task.metadata = {}
         task._original_key_order = []
         task.archived = archived
+        # `__new__` bypasses __init__, so the memo slot must be seeded here too —
+        # without it `search_haystack` raises AttributeError on archived tasks.
+        task._search_haystack = None
         result = parse_frontmatter(raw)
         if result:
             task.metadata, task.content, task._original_key_order = result
@@ -225,8 +229,40 @@ class Task:
             task.content = raw
         return task
 
+    def _invalidate_search_haystack(self):
+        self._search_haystack = None
+
+    @property
+    def search_haystack(self) -> str:
+        """Lowercased ``"<filename> <metadata>"`` — the board search corpus (t1243_4).
+
+        `apply_filter` used to rebuild this string per card per pass. It is memoized
+        on the **Task**, not on the card, for two reasons: t1243_10 evaluates
+        collapsed-group members that mount no widget at all, and
+        `_move_task_vertical` mutates `board_idx` and then reorders the DOM *without*
+        a recompose — a card-lifetime memo would serve a stale string there, because
+        the corpus stringifies the whole metadata dict, board keys included.
+
+        The memo is invalidated at the full set of sites that can change its inputs,
+        enumerated rather than assumed:
+
+        * `load()` — metadata replaced wholesale. Also covers `TaskManager.reload_task`,
+          which calls `load()` on the SAME object rather than building a new one.
+        * `save()` — the tail of every persisted metadata mutation (`save_with_timestamp`,
+          the detail-screen edits, the dependency-cleanup helpers).
+        * the `board_col` / `board_idx` setters — in-memory board-key mutation with no
+          save in between (the gap-indexing movers).
+
+        A metadata mutation that is neither saved nor a board-key write would go stale;
+        there is none today.
+        """
+        if self._search_haystack is None:
+            self._search_haystack = f"{self.filename} {self.metadata}".lower()
+        return self._search_haystack
+
     def load(self):
         """Load task from disk. Returns True on success, False on failure."""
+        self._invalidate_search_haystack()
         if self.archived and not self.filepath.exists():
             return True
         try:
@@ -248,6 +284,7 @@ class Task:
             return False
 
     def save(self):
+        self._invalidate_search_haystack()
         content = serialize_frontmatter(self.metadata, self.content, self._original_key_order)
         with open(self.filepath, "w", encoding="utf-8") as f:
             f.write(content)
@@ -318,6 +355,7 @@ class Task:
     @board_col.setter
     def board_col(self, value):
         self.metadata["boardcol"] = value
+        self._invalidate_search_haystack()
 
     @property
     def board_idx(self):
@@ -326,6 +364,54 @@ class Task:
     @board_idx.setter
     def board_idx(self, value):
         self.metadata["boardidx"] = value
+        self._invalidate_search_haystack()
+
+
+# --- Filter primitives (t1243_4) ---
+# The match decision is separated from the widget that displays it, because
+# t1243_10 has to evaluate collapsed-group members that mount NO widget at all.
+# Both helpers are module-level and app-free so they are unit-testable without
+# booting a KanbanApp (tests/test_board_render_scoping.py).
+
+
+def task_matches_filter(task, visible, search: str) -> bool:
+    """Whether one task passes the active filter — decided from DATA, not a widget.
+
+    `visible` is the board's precomputed eligible-filename set, or `None` for the
+    "all cards eligible" sentinel. `search` must already be lowercased (the board
+    lowercases at input time, `on_search`).
+
+    Kept callable per individual task so a caller can *count* how many members of a
+    group match, not merely ask whether a mounted card should be shown.
+    """
+    if visible is not None and task.filename not in visible:
+        return False
+    if search and search not in task.search_haystack:
+        return False
+    return True
+
+
+def set_unit_display(unit, is_visible: bool) -> None:
+    """Show or hide one filter unit, skipping no-op assignments.
+
+    Assigning `styles.display` schedules a Textual refresh even when the value is
+    unchanged, and on a typical pass most units do not change — so the equality
+    guard, not the assignment, is the point of this helper.
+
+    `is_child` is read with `getattr` so a future unit that is not a `TaskCard`
+    (t1243_10's collapsed-group header) needs no branch added here.
+    """
+    display = "block" if is_visible else "none"
+    if unit.styles.display != display:
+        unit.styles.display = display
+    # An expanded child card lives inside a `.child-wrapper` Horizontal that also
+    # holds the "↳" connector Static; hiding only the card would leave a bare
+    # connector row behind.
+    wrapper = unit.parent
+    if (getattr(unit, "is_child", False) and isinstance(wrapper, Horizontal)
+            and wrapper.has_class("child-wrapper")
+            and wrapper.styles.display != display):
+        wrapper.styles.display = display
 
 
 # --- Topic grouping (group-by-anchor) ---
@@ -1395,6 +1481,26 @@ class TaskManager:
         self.xdep_status_cache[key] = status
         return status
 
+    def _mark_written(self, task: Task) -> None:
+        """Record a file this session just wrote as modified, without a `git status`.
+
+        Movement used to re-run `refresh_git_status()` — a blocking subprocess — on
+        every keypress just to learn something it already knew: a move writes exactly
+        the files it produced. Marking happens at the WRITE SITE rather than in the
+        movement action so a caller cannot forget it, and so compaction is covered:
+        `reposition_task` may respace a whole column, writing N files that its
+        `MoveResult.moved` does not name.
+
+        Add-only by construction. A file that becomes clean again (committed from
+        another terminal, or an exact round-trip back to its indexed content) keeps
+        its marker until the next full scan — which still runs on `refresh_board`
+        (manual `r`, view switches, the auto-refresh tick), on the detail-screen
+        return, and after the board's own commit.
+
+        The key must match `is_modified`, i.e. `str(task.filepath)`.
+        """
+        self.modified_files.add(str(task.filepath))
+
     def is_modified(self, task: Task) -> bool:
         """Check if a task file is modified vs git."""
         return str(task.filepath) in self.modified_files
@@ -1477,6 +1583,7 @@ class TaskManager:
             task.board_idx = board_ordering.index_for_append(indices)
             indices.append(task.board_idx)
             task.reload_and_save_board_fields(("boardcol", "boardidx"))
+            self._mark_written(task)
             moved.append(task.filename)
         return MoveResult(moved=tuple(moved))
 
@@ -1496,6 +1603,7 @@ class TaskManager:
         task.board_idx = (board_ordering.index_for_prepend(indices) if to_top
                           else board_ordering.index_for_append(indices))
         task.reload_and_save_board_fields(("boardidx",))
+        self._mark_written(task)
         return MoveResult(moved=(task.filename,))
 
     def reposition_task(self, task_name: str, before, after) -> MoveResult:
@@ -1537,6 +1645,7 @@ class TaskManager:
 
         task.board_idx = idx
         task.reload_and_save_board_fields(("boardidx",))
+        self._mark_written(task)
         return MoveResult(moved=(task.filename,), compacted=compacted)
 
     def _index_for_slot(self, task, col_id, before, after):
@@ -1566,6 +1675,7 @@ class TaskManager:
             if normalize_board_idx(task.board_idx) != new_idx:
                 task.board_idx = new_idx
                 task.reload_and_save_board_fields(("boardidx",))
+                self._mark_written(task)
 
     def add_column(self, col_id: str, title: str, color: str):
         """Add a new column to the board configuration."""
@@ -6480,7 +6590,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         # Defer (see refresh_board for rationale): _recompose_column remounts
         # cards, so applying the filter synchronously here would race compose.
-        self.call_after_refresh(self.apply_filter)
+        # Scoped: only this column was recomposed, so only its units need deciding.
+        self.call_after_refresh(self.apply_filter, {col_id})
         self._queue_refocus(refocus_filename, refocus_col_id)
 
     def refresh_columns(self, col_ids: set, refocus_filename: str = "",
@@ -6505,7 +6616,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         # Defer (see refresh_board for rationale): _recompose_column remounts
         # cards, so applying the filter synchronously here would race compose.
-        self.call_after_refresh(self.apply_filter)
+        # Scoped: only these columns were recomposed.
+        self.call_after_refresh(self.apply_filter, set(col_ids))
         self._queue_refocus(refocus_filename, refocus_col_id)
 
     @on(Input.Changed, "#search_box")
@@ -6513,8 +6625,45 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.search_filter = event.value.lower()
         self.apply_filter()
 
-    def apply_filter(self):
-        """Apply base filter ∩ active add-ons ∩ search to all cards."""
+    def _filter_units(self, cols):
+        """The widgets whose visibility a filter pass decides (t1243_4).
+
+        Yields `TaskCard`s today. t1243_10 adds its collapsed-group header HERE, as a
+        second query filtered the same way — `apply_filter`'s accumulator reads only
+        `.column_id`, so neither the loop nor the scoping needs rewriting.
+
+        **Scoping filters one whole-DOM query rather than resolving column widgets.**
+        The obvious implementation — `self._column_widget(col_id).query(TaskCard)` per
+        column — is a pessimization on Textual 8.2.7, because `query()` walks the whole
+        tree whatever it is rooted at. Measured on a 200-card board: `_column_widgets()`
+        is four full-tree class queries at ~25 ms, against ~7 ms for the single
+        `query(TaskCard)` used here and ~13 ms for the entire unscoped pass. Resolving
+        columns made a "scoped" pass cost 128 ms — an order of magnitude MORE than the
+        whole-board pass it replaced. The saving that is actually available is the
+        per-unit work (predicate + display write), not the traversal.
+        """
+        for card in self.query(TaskCard):
+            if cols is None or card.column_id in cols:
+                yield card
+
+    def _filter_placeholders(self, cols):
+        """`EmptyColumnPlaceholder`s a filter pass may flip, scoped like `_filter_units`."""
+        for placeholder in self.query(EmptyColumnPlaceholder):
+            if cols is None or placeholder.column_id in cols:
+                yield placeholder
+
+    def apply_filter(self, cols: set | None = None):
+        """Apply base filter ∩ active add-ons ∩ search.
+
+        `cols is None` is the whole-board pass every view / filter toggle needs: a
+        filter-state change is global, so every card must be re-decided.
+
+        A `cols` set restricts the pass to those columns — their units, their
+        placeholders and their focus rescue (t1243_4). Movement paths use it, because
+        a move can only change what the columns it touched display. A scoped pass must
+        never flip a placeholder in an untouched column: the cards backing that
+        decision were not re-evaluated, so `cols_with_visible` says nothing about it.
+        """
         if self.base_filter in ("inflight", "bytopic", "bytrail"):
             visible = None
         elif self.base_filter == "locked":
@@ -6533,37 +6682,25 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             visible = type_set if visible is None else visible & type_set
 
         cols_with_visible = set()
-        for card in self.query(TaskCard):
-            v = True
-            if visible is not None and card.task_data.filename not in visible:
-                v = False
-            if v and self.search_filter:
-                search_content = f"{card.task_data.filename} {card.task_data.metadata}".lower()
-                if self.search_filter not in search_content:
-                    v = False
-            display = "block" if v else "none"
-            card.styles.display = display
-            # An expanded child card lives inside a `.child-wrapper` Horizontal
-            # that also holds the "↳" connector Static; hiding only the card
-            # would leave a bare connector row behind.
-            wrapper = card.parent
-            if (card.is_child and isinstance(wrapper, Horizontal)
-                    and wrapper.has_class("child-wrapper")):
-                wrapper.styles.display = display
+        for unit in self._filter_units(cols):
+            v = task_matches_filter(unit.task_data, visible, self.search_filter)
+            set_unit_display(unit, v)
             if v:
-                cols_with_visible.add(card.column_id)
+                cols_with_visible.add(unit.column_id)
 
-        # A column showing no cards falls back to its focusable placeholder.
-        for placeholder in self.query(EmptyColumnPlaceholder):
-            placeholder.styles.display = (
-                "none" if placeholder.column_id in cols_with_visible else "block"
-            )
+        # A column showing no content falls back to its focusable placeholder.
+        for placeholder in self._filter_placeholders(cols):
+            set_unit_display(placeholder,
+                             placeholder.column_id not in cols_with_visible)
 
         # Focus must never rest on a widget this pass just hid. Textual does not
         # move it for us: Screen.set_focus gates on `visible` (the visibility
-        # rule), not on `display`.
+        # rule), not on `display`. A scoped pass can only have hidden something in
+        # `cols`; anything already hidden elsewhere was rescued by the pass that
+        # hid it.
         focused = self.screen.focused if self.screen else None
         if (isinstance(focused, (TaskCard, EmptyColumnPlaceholder))
+                and (cols is None or focused.column_id in cols)
                 and focused.styles.display == "none"):
             self._refocus_column(focused.column_id)
 
@@ -8454,9 +8591,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if 0 <= new_idx < len(cols):
             new_col = cols[new_idx]
             # One write, in the destination only. The source column still needs
-            # a repaint below, but no longer a rewrite (t1243_3).
+            # a repaint below, but no longer a rewrite (t1243_3). The dirty marker
+            # comes from the write itself (`_mark_written`) rather than from a
+            # `git status` subprocess per keypress (t1243_4).
             self.manager.move_task_to_column(filename, new_col)
-            self.manager.refresh_git_status()
             self.refresh_columns({current_col_id, new_col}, refocus_filename=filename,
                                  refocus_col_id=new_col)
 
@@ -8490,7 +8628,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         for widget in below_block:
             col_widget.move_child(widget, before=anchor)
 
-        self.apply_filter()
+        # Scoped: a DOM reorder inside one column cannot change what any other
+        # column displays.
+        self.apply_filter({col_widget.col_id})
 
     def _move_task_vertical(self, direction):
         focused = self._focused_card()
@@ -8521,7 +8661,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 before = tasks[current_idx - 2] if current_idx >= 2 else None
                 after = target_task
             self.manager.reposition_task(filename, before, after)
-            self.manager.refresh_git_status()
 
             # DOM swap: reorder widgets in-place instead of rebuilding column
             col_widget = None
@@ -8575,7 +8714,6 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # bypassed normalize_board_idx and raised TypeError on a quoted
         # boardidx sitting next to ints (t1243_3).
         self.manager.move_task_to_edge(filename, col_id, to_top=(direction == -1))
-        self.manager.refresh_git_status()
         self.refresh_column(col_id, refocus_filename=filename, refocus_col_id=col_id)
 
     # --- Column Reordering ---
