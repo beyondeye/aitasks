@@ -162,6 +162,15 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         color: $text-muted;
     }
 
+    /* Section header inside the pane list (currently only "other"). Bold, so it
+       reads as a section boundary rather than as another session divider. */
+    .mini-section-header {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+        text-style: bold;
+    }
+
     #mini-key-hints {
         dock: bottom;
         height: auto;
@@ -524,6 +533,46 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                 return snap
         return None
 
+    def _find_own_window_snapshot(self) -> PaneSnapshot | None:
+        """The pane this minimonitor sits beside, agent or not (t1382).
+
+        The **identity / presentation** seam, deliberately NOT the action seam.
+        ``_find_own_agent_snapshot`` stays strictly AGENT-scoped so ``k`` / ``n``
+        / ``e`` / ``E`` / ``I`` keep refusing in a window renamed off the
+        ``agent-`` prefix — that rename is how a user takes a window out of the
+        agent rotation, and honouring it is the point. But the docked panel and
+        the "don't list the followed pane twice" exclusion are about *which pane
+        we are next to*, not about whether it is an agent, so they resolve here.
+
+        Prefers the AGENT match, so a window holding both an agent and a stray
+        shell still resolves to the agent; otherwise falls back to the
+        lowest-``pane_index`` pane of the same window and session, which is
+        deterministic across ticks. The fallback cannot pick a helper: shadow and
+        companion panes never reach ``_snapshots``, and this minimonitor's own
+        pane is dropped by ``TmuxMonitor.exclude_pane``.
+        """
+        agent = self._find_own_agent_snapshot()
+        if agent is not None:
+            return agent
+        if not self._own_window_index:
+            return None
+        candidates = [
+            snap for snap in self._snapshots.values()
+            if snap.pane.window_index == self._own_window_index
+            and snap.pane.session_name in ("", self._session)
+        ]
+        if not candidates:
+            return None
+        # Numeric where possible: pane_index is a string, so a plain min() would
+        # order "10" before "2".
+        return min(
+            candidates,
+            key=lambda s: (
+                int(s.pane.pane_index) if s.pane.pane_index.isdigit() else 1 << 30,
+                s.pane.pane_index,
+            ),
+        )
+
     def _root_for_snap(self, snap: PaneSnapshot) -> Path:
         """Project root that owns the given pane's tmux session, falling back to
         this minimonitor's project root. Mirrors MonitorApp._root_for_snap."""
@@ -699,6 +748,46 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                     line1 += f"\n  [dim]gates: {gates}[/]"
         return line1
 
+    def _other_card_text(self, snap: PaneSnapshot) -> str:
+        """One-line card for an uncategorized (``PaneCategory.OTHER``) pane.
+
+        The narrow analogue of ``MonitorApp._format_other_card_text``: no mark,
+        state dot, shadow glyph, compare-mode glyph, status, task title or gate
+        line — none of those mean anything for a pane that is not an agent, and
+        the row has no columns to spare for them.
+
+        Column budget, against the ~38 usable columns of this pane (the 40-wide
+        ``target_width`` minus ``MiniPaneCard``'s ``padding: 0 1``):
+
+            2  leading blanks (aligns under the agent rows' always-on mark glyph)
+          + 1  ``○``
+          + 1  space
+          + 20 window name (same cap as ``_agent_card_text``)
+          + 2  spaces
+          + 10 current command
+          = 36
+
+        The window name is what gives way first, exactly as on the agent row.
+
+        **The budget above assumes single-cell characters.** The caps are applied
+        with ``len()``, which counts code points, so a name of 20 double-width
+        characters occupies 40 cells and the row overflows (measured: 36 code
+        points, 64 cells) and Rich clips it. This is inherited from
+        ``_agent_card_text``, which caps its name the same way — so the fix is
+        cell-width-aware truncation (``rich.cells.cell_len`` /
+        ``set_cell_size``) applied to **both** rows, and it belongs with the
+        row-width audit in t1351 rather than to this row alone.
+        """
+        name = snap.pane.window_name
+        max_name = 20
+        if len(name) > max_name:
+            name = name[:max_name - 1] + "…"
+        cmd = snap.pane.current_command
+        max_cmd = 10
+        if len(cmd) > max_cmd:
+            cmd = cmd[:max_cmd - 1] + "…"
+        return f"  [dim]○[/] {name}  [dim]{cmd}[/]"
+
     def _own_agent_identity_text(self, snap: PaneSnapshot) -> str:
         """Static identity line for the followed agent: window name + optional
         task title. Deliberately omits live status (idle/prompt/active) and the
@@ -734,18 +823,31 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         identity panel is static: it is not rebuilt on each refresh cycle and
         carries no live status badge (per the followed-agent UX).
 
-        Retries each cycle only until the own-agent snapshot first resolves
+        Retries each cycle only until the own-window snapshot first resolves
         (tmux window-index detection can lag the first data refresh).
+
+        Resolves through ``_find_own_window_snapshot`` (t1382), so a minimonitor
+        started in a window renamed off the ``agent-`` prefix builds its panel at
+        all — previously the AGENT-only lookup returned ``None`` on every cycle
+        and the panel was never built. The header then reads "this window"
+        instead of "this agent", so the uncategorized state is legible rather
+        than looking like a missing agent. A window renamed *after* the panel
+        built keeps the old header and name: the panel is one-shot by design and
+        is not re-read.
         """
         if self._own_panel_built:
             return
-        own_snap = self._find_own_agent_snapshot()
+        own_snap = self._find_own_window_snapshot()
         if own_snap is None:
             return  # not resolved yet — try again next cycle
+        label = (
+            "this agent" if own_snap.pane.category == PaneCategory.AGENT
+            else "this window"
+        )
         panel = self.query_one("#mini-own-agent", VerticalScroll)
         await panel.remove_children()
         await panel.mount_all([
-            Static("[dim]── this agent ──[/]", classes="mini-own-header"),
+            Static(f"[dim]── {label} ──[/]", classes="mini-own-header"),
             Static(self._own_agent_identity_text(own_snap), classes="mini-own-card"),
         ])
         self._own_panel_built = True
@@ -756,38 +858,70 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         # mounting new cards — otherwise focus restoration can race removal.
         await container.remove_children()
 
-        # Show AGENT panes EXCEPT the followed agent (it lives in the docked
-        # #mini-own-agent panel). Sort by (session_name, window_index,
-        # pane_index) so session grouping is stable across refreshes;
-        # single-session mode degrades to the legacy (window_index,
-        # pane_index) order because every snapshot shares the same session.
-        own_snap = self._find_own_agent_snapshot()
+        # Two sections, mirroring MonitorApp._rebuild_pane_list: AGENT panes
+        # first, then uncategorized (OTHER) ones under their own header (t1382).
+        # Without the second section a window renamed off the `agent-` prefix
+        # vanished from minimonitor entirely. PaneCategory.TUI is rendered by
+        # neither, same as in the full monitor.
+        #
+        # Both sections exclude the followed pane \u2014 it lives in the docked
+        # #mini-own-agent panel \u2014 and both resolve it through
+        # `_find_own_window_snapshot`, so a renamed own window is excluded from
+        # the OTHER section rather than being shown twice.
+        #
+        # Sort by (session_name, window_index, pane_index) so session grouping is
+        # stable across refreshes; single-session mode degrades to the legacy
+        # (window_index, pane_index) order because every snapshot shares the same
+        # session.
+        own_snap = self._find_own_window_snapshot()
         own_pane_id = own_snap.pane.pane_id if own_snap else None
-        agents = [
-            s for s in self._snapshots.values()
-            if s.pane.category == PaneCategory.AGENT
-            and s.pane.pane_id != own_pane_id
-        ]
-        agents.sort(
-            key=lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
+        agents: list[PaneSnapshot] = []
+        others: list[PaneSnapshot] = []
+        for s in self._snapshots.values():
+            if s.pane.pane_id == own_pane_id:
+                continue
+            if s.pane.category == PaneCategory.AGENT:
+                agents.append(s)
+            elif s.pane.category == PaneCategory.OTHER:
+                others.append(s)
+
+        sort_key = (
+            lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
         )
+        agents.sort(key=sort_key)
+        others.sort(key=sort_key)
 
         multi_mode = bool(self._monitor and self._monitor.multi_session)
         widgets: list = []
-        current_session: str | None = None
 
-        for snap in agents:
-            if multi_mode and snap.pane.session_name != current_session:
-                current_session = snap.pane.session_name
-                label = current_session or "?"
-                widgets.append(Static(
-                    f"[dim]\u2500\u2500 {label} \u2500\u2500[/]",
-                    classes="mini-session-divider",
-                ))
+        def append_group(snaps: list[PaneSnapshot], text_fn) -> None:
+            """Mount one section's cards, with a session divider per group.
 
-            widgets.append(
-                MiniPaneCard(snap.pane.pane_id, self._agent_card_text(snap))
-            )
+            Shared by both sections rather than copied: the divider rule (multi
+            mode only, emitted when the session changes) has to stay identical
+            for the two, and each section restarts its own grouping.
+            """
+            current_session: str | None = None
+            for snap in snaps:
+                if multi_mode and snap.pane.session_name != current_session:
+                    current_session = snap.pane.session_name
+                    label = current_session or "?"
+                    widgets.append(Static(
+                        f"[dim]\u2500\u2500 {label} \u2500\u2500[/]",
+                        classes="mini-session-divider",
+                    ))
+                widgets.append(MiniPaneCard(snap.pane.pane_id, text_fn(snap)))
+
+        append_group(agents, self._agent_card_text)
+        if others:
+            # Only the OTHER section is headed. The agent section deliberately
+            # has none \u2014 minimonitor never had one, and the session bar already
+            # carries the agent count.
+            widgets.append(Static(
+                f"[dim]\u2500\u2500 other ({len(others)}) \u2500\u2500[/]",
+                classes="mini-section-header",
+            ))
+            append_group(others, self._other_card_text)
 
         if widgets:
             await container.mount_all(widgets)
@@ -840,14 +974,21 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
     def _find_sibling_pane_id(self) -> str | None:
         """Return the pane_id of the agent this minimonitor follows.
 
-        Prefers the resolved followed-agent snapshot (pane-id exact) so that a
+        Prefers the resolved followed-pane snapshot (pane-id exact) so that a
         shadow or other helper pane sharing the window is never mistaken for the
         agent (t986). Falls back to the first non-minimonitor pane in the window
-        when no agent snapshot is available. Notifies and returns None on
+        when no snapshot is available. Notifies and returns None on
         failure (not in tmux, tmux error, no sibling). Shared by the Tab focus
         handler and the Enter send handler.
+
+        Resolves through ``_find_own_window_snapshot`` (t1382), not the
+        AGENT-only lookup: in a window renamed off the ``agent-`` prefix the
+        strict resolver returns ``None`` and control fell through to the raw
+        ``list-panes`` fallback, whose "first pane that is not me" rule can
+        select the **shadow** pane — the exact hazard this docstring warns about.
+        The snapshot path excludes shadows by construction.
         """
-        own_snap = self._find_own_agent_snapshot()
+        own_snap = self._find_own_window_snapshot()
         if own_snap is not None:
             return own_snap.pane.pane_id
         own_pane = os.environ.get("TMUX_PANE", "")
@@ -1630,6 +1771,16 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         if not pane_id:
             self.notify("Focus an agent pane first", severity="warning")
             return
+        # The pane list has held non-agent cards since t1382, so "focused card ⇒
+        # agent" is no longer an invariant. Idle detection only runs for AGENT
+        # panes (`_apply_bookkeeping`), so an override set here for anything else
+        # would be written and never read.
+        snap = self._snapshots.get(pane_id)
+        if snap is not None and snap.pane.category != PaneCategory.AGENT:
+            self.notify(
+                "Idle detection applies to agent panes only", severity="warning"
+            )
+            return
         new_mode, is_default = self._monitor.cycle_compare_mode(pane_id)
         suffix = " (default)" if is_default else " (override)"
         self.notify(f"Idle detect: {new_mode}{suffix}", timeout=3)
@@ -1677,6 +1828,12 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             return
         snap = self._snapshots.get(pane_id)
         if not snap:
+            return
+        # Since t1382 the list can hold non-agent cards. Without this the call
+        # would degrade incidentally to "No task ID in window name", which reads
+        # like a broken agent rather than a pane that has no task by nature.
+        if snap.pane.category != PaneCategory.AGENT:
+            self.notify("Not an agent pane", severity="warning")
             return
         self._show_task_info_for(snap)
 

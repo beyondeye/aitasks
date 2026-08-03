@@ -241,6 +241,12 @@ def _classify_batch(
 
 _COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
 
+# TTL for a memoized *positive* companion verdict (see
+# `TmuxMonitor._is_companion_pane`). Negative verdicts are never memoized, so
+# this bounds nothing user-visible — it exists purely so no verdict can be
+# cached for the lifetime of the process.
+_COMPANION_MEMO_TTL = 300.0
+
 
 def _is_companion_process(pid: int) -> bool:
     """Check if a process is a companion pane (minimonitor/monitor) via cmdline."""
@@ -1175,6 +1181,21 @@ class TmuxMonitor:
         self._enumerated_sessions: frozenset[str] = frozenset()
         self._discovered_agents: frozenset = frozenset()
         self._pane_cache: dict[str, TmuxPaneInfo] = {}
+        # Companion-verdict memo (t1382): pane_id → (pane_pid, session, cached_at)
+        # for panes CONFIRMED to be a monitor/minimonitor companion. Only
+        # *positive* verdicts are stored, and that asymmetry is the whole point:
+        # the launch chain execs in place (`ait` → `aitask_monitor.sh` →
+        # `exec python monitor/monitor_app.py`), so a companion's cmdline flips
+        # from a non-matching one to a matching one under an UNCHANGED pid. A
+        # cached negative would therefore keep listing a companion pane as an
+        # agent-facing pane — the exact symptom `_parse_list_panes` filters out.
+        # Negatives are re-probed every discovery pass, so that transition is
+        # picked up on the next refresh. See `_is_companion_pane`.
+        self._companion_memo: dict[str, tuple[int, str, float]] = {}
+        # Clock seam for the memo's TTL. An instance attribute (not a bound
+        # method) so tests can drive the TTL deterministically instead of
+        # sleeping — see aidocs/framework/testing_conventions.md.
+        self._monotonic = time.monotonic
         # Shadow-status map (t1133): followed pane id → the bound shadow pane's
         # latest PaneSnapshot. Rebuilt wholesale by every `commit_snapshots`
         # (loop-side, generation-guarded — invariant B) and cleared by the sync
@@ -1473,6 +1494,52 @@ class TmuxMonitor:
             return PaneCategory.TUI
         return PaneCategory.OTHER
 
+    def _is_companion_pane(self, pane_id: str, pane_pid: int, session: str) -> bool:
+        """Memoized companion check for the discovery hot path.
+
+        Wraps :func:`_is_companion_process` (which reads ``/proc`` on Linux and
+        shells out to ``ps`` everywhere else) so the per-refresh cost of the
+        now-unconditional filter in :meth:`_parse_list_panes` is bounded.
+
+        **Only positive verdicts are cached, deliberately.** A launcher pane
+        ``exec``s into ``monitor_app`` under an unchanged pid, so ``False`` can
+        become ``True`` for the same ``(pane_id, pane_pid)`` pair; caching that
+        negative would leave a companion pane listed until the pane died. The
+        reverse transition has no trigger — a running Textual companion does not
+        exec away, and once its process exits the pane either disappears (evicted
+        by the sweep in ``_parse_list_panes``) or lingers under
+        ``remain-on-exit``, where staying hidden is what we want anyway. The TTL
+        is a self-healing backstop, not a correctness mechanism.
+
+        ``session`` is stored so the eviction sweep can stay session-scoped:
+        ``_parse_list_panes`` runs once per session per tick, and an unscoped
+        sweep would evict the other sessions' live entries in multi-session mode.
+        """
+        now = self._monotonic()
+        hit = self._companion_memo.get(pane_id)
+        if (
+            hit is not None
+            and hit[0] == pane_pid
+            and now - hit[2] < _COMPANION_MEMO_TTL
+        ):
+            return True
+        if _is_companion_process(pane_pid):
+            self._companion_memo[pane_id] = (pane_pid, session, now)
+            return True
+        self._companion_memo.pop(pane_id, None)
+        return False
+
+    def _evict_companion_memo(self, session_name: str, seen: set[str]) -> None:
+        """Drop this session's memo entries for panes absent from ``seen``.
+
+        Session-scoped on purpose (see :meth:`_is_companion_pane`). Keeps the
+        memo bounded by the live pane set rather than growing for the lifetime
+        of the monitor.
+        """
+        for pane_id, (_pid, sess, _at) in list(self._companion_memo.items()):
+            if sess == session_name and pane_id not in seen:
+                del self._companion_memo[pane_id]
+
     _LIST_PANES_FORMAT = "\t".join([
         "#{window_index}", "#{window_name}", "#{pane_index}",
         "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
@@ -1498,6 +1565,7 @@ class TmuxMonitor:
         """
         panes: list[TmuxPaneInfo] = []
         shadows: list[TmuxPaneInfo] = []
+        seen: set[str] = set()   # pane ids observed this pass, for the memo sweep
         # Preserve an empty final @aitask_shadow_target field on non-shadow panes.
         for line in stdout.splitlines():
             parts = line.split("\t")
@@ -1513,6 +1581,7 @@ class TmuxMonitor:
             except ValueError:
                 continue
             window_name = parts[1]
+            seen.add(pane_id)
             if is_shadow_target(parts[8]):
                 # Category forced to AGENT: a shadow IS a coding-agent CLI, so
                 # the prompt scan + idle bookkeeping must apply regardless of
@@ -1532,8 +1601,14 @@ class TmuxMonitor:
                 ))
                 continue
             category = self.classify_pane(window_name)
-            # Filter companion panes (minimonitor/monitor) in agent windows
-            if category == PaneCategory.AGENT and _is_companion_process(pane_pid):
+            # Filter companion panes (minimonitor/monitor). UNCONDITIONAL by
+            # process identity (t1382), like the shadow-helper filter above and
+            # unlike the former `category == AGENT and …` form: renaming a window
+            # off the `agent-` prefix flips its panes to OTHER, and gating on the
+            # category meant the companion stopped being consulted and surfaced
+            # as a second card for the renamed window. A companion is a helper
+            # regardless of what its window is called.
+            if self._is_companion_pane(pane_id, pane_pid, session_name):
                 continue
             pane = TmuxPaneInfo(
                 window_index=parts[0],
@@ -1549,6 +1624,7 @@ class TmuxMonitor:
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
+        self._evict_companion_memo(session_name, seen)
         return panes, shadows
 
     def _target_sessions(self) -> list[str]:

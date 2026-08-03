@@ -345,6 +345,16 @@ class AgentMarksMixin:
         if snap is None:
             return
 
+        # Both TUIs render non-agent panes as focusable cards (monitor's OTHER
+        # section, and minimonitor's since t1382), so "the focused card is an
+        # agent" is no longer an invariant either app can assume. A mark is keyed
+        # by window name and only ever consumed by the agent lists, so marking a
+        # shell / lazygit / renamed window would write an entry nothing reads.
+        # Guarded here, in the shared sink, rather than in each app.
+        if snap.pane.category != PaneCategory.AGENT:
+            self.notify("Marks apply to agent panes only", severity="warning")
+            return
+
         root = self._strict_root_for_snap(snap)
         if root is None:
             self.notify(
