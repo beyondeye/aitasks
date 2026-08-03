@@ -108,6 +108,17 @@ When a profile records gate checkpoints (the `record_gates` execution-profile ke
 
 The reclaim prompt's survey shows the recorded checkpoints and the resume target, so reclaiming is an informed choice. Resume is conservative by design: if a checkpoint was recorded but the plan file is missing, the workflow falls back to planning from scratch.
 
+### A resumed task is checked against the remote first
+
+A resumed task has been sitting still while everyone else pushed, so its local branches are the most likely in the repository to be out of date. Before any work restarts, the workflow re-reads the base and merge-target branch names **from the saved plan file** — not from whichever execution profile you happen to be running now — and checks them against the remote. A branch name that is not a valid, safe git ref stops the resume rather than being guessed at.
+
+What happens next depends on how far the task had got:
+
+- **Resuming at implementation** — you get the same remote-drift warning you would have seen at planning time, with extra emphasis on remote changes to files your plan targets. Choosing to stop reverts the task to `Ready` so you can pull and re-pick; that re-pick goes through normal planning, so the check cannot bounce you in a loop.
+- **Resuming at post-implementation** — the merge target is checked instead. This matters because the merge itself is purely local: if the remote has moved ahead, the merge succeeds quietly and the problem only appears later as a rejected push. You are offered a fast-forward sync of the merge target, continuing anyway, or stopping. Stopping here leaves the task in flight (it is *not* reverted — the code is already committed and reviewed) so re-picking resumes at the same place.
+
+The sync only ever fast-forwards. If your local merge target has commits the remote does not, that is a real divergence, and the workflow stops and asks rather than rebasing or resetting anything.
+
 ## Tips
 
 - **Backfill once after upgrading past t723.** Pre-existing `Implementing` locks written before the PID-anchor change lack `pid:` / `pid_starttime:`. Running `./.aitask-scripts/aitask_backfill_pid_anchor.sh` once tags them with the `pid: 0` sentinel so future re-picks of those tasks route through `RECLAIM_CRASH:` rather than the legacy `RECLAIM_STATUS:` fallback.

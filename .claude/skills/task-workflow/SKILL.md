@@ -233,13 +233,43 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 
 - **Plan-existence guard:** Run `./.aitask-scripts/aitask_query_files.sh plan-file <taskid>`. If `NOT_FOUND` (a checkpoint was recorded but no plan was externalized — e.g. a failed externalization), discard the resume: clear `resume_point` and fall back to the normal flow (Step 5 → Step 6, re-plan). If `PLAN_FILE:<path>`, read the plan and continue below.
 
+- **Resolve the plan's branches:** A resumed session carries none of the Step 5 branch variables, and its profile may differ from the original's. Resolve both branches **from the plan header only** — never from `profile.base_branch` / `profile.output_branch` (the same rule Step 9 states, for exactly this reason). Bind to variables; do not substitute the literals into any command:
+
+  ```bash
+  base_branch=$(sed -n 's/^Base branch: //p' "<plan_file>" | head -n1)
+  provenance_base="plan header"
+  [ -n "$base_branch" ] || { base_branch=main; provenance_base="legacy plan, no Base branch field"; }
+  output_branch=$(sed -n 's/^Output branch: //p' "<plan_file>" | head -n1)
+  provenance_output="plan header"
+  [ -n "$output_branch" ] || { output_branch=main; provenance_output="legacy plan, no Output branch field"; }
+  for b in "$base_branch" "$output_branch"; do
+    printf '%s' "$b" | grep -qE '^[A-Za-z0-9._/-]+$' &&
+      git check-ref-format --branch "$b" >/dev/null 2>&1 ||
+      echo "UNSAFE_BRANCH:$b"
+  done
+  ```
+
+  `UNSAFE_BRANCH:<b>` → **stop**: report the offending value and resume nothing (fail closed). Do **not** fall back to a default — an unsafe header value means the plan is untrustworthy about where work lands.
+
+  Never fall back to `Base branch:` for the output branch: a plan written before that field existed merged to `main`, and reading its base would retroactively change where in-flight work lands. Carry both provenance strings and name them in any prompt, exactly as Step 9 does.
+
 - **Environment setup (Step 5) with reuse:** If a worktree for `<task_name>` already exists — `git worktree list --porcelain` shows a `branch refs/heads/aitask/<task_name>` line — reuse it (work in that directory); do **NOT** recreate the branch/worktree. Otherwise run Step 5 as normal. For current-branch profiles (no worktree), Step 5 is a no-op and you work on the current branch.
 
 - **Route by `resume_point`:**
-  - **`IMPLEMENT`** → resume at Step 7's **"Follow the approved plan"** implementation body. Re-run **only** the **Pre-implementation ownership guard** and the **Agent Attribution Procedure** (both idempotent; attribution re-records the *resuming* agent), then go straight to implementation. **Skip** Step 7's post-approval one-time gates:
+  - **`IMPLEMENT`** → **first run the remote drift check, then** resume at Step 7's **"Follow the approved plan"** implementation body.
+
+    **Remote drift check (re-entry).** Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch` (from the branch-resolution step above), `plan_file`, `task_id`, `task_num` and `active_profile`. Pass **no** `output_branch` value of your own — the procedure re-derives it from the same plan header, which is what keeps the base and output passes on one rule. A resumed task's plan is by construction the *oldest* relative to `origin/<base>` and `origin/<output>`, so this is the path that most needs the check, and it was previously the only path that never got it (t1380 Defect 2). If the procedure ends the workflow ("Stop and re-verify plan" or "Abort task"), **stop** — do not resume implementation.
+
+    **The loop terminates.** "Stop and re-verify plan" reverts the task to `Ready`; the re-pick therefore fails Step 3 Check 5's `Implementing` status gate, never reaches Re-entry Routing, and runs the normal planning path — whose Checkpoint runs the check once more, now against the pulled branches. The check that sent the user away is not the one they land back on.
+
+    Then re-run **only** the **Pre-implementation ownership guard** and the **Agent Attribution Procedure** (both idempotent; attribution re-records the *resuming* agent), and go straight to implementation. **Skip** Step 7's post-approval one-time gates:
     - Cross-Repo Child Assignment and the risk-mitigation pre-task creation (the post-approval "before" follow-ups) — these are **non-idempotent task creators** that *end the workflow* when they fire, so a task that is still a normal `Implementing` single task is necessarily past them; re-running would double-create.
     - The `plan_approved` / `risk_evaluated` gate re-recordings and the risk-level field write — already done in the original session; re-running only adds redundant commits.
-  - **`POSTIMPL`** → resume at **Step 9** (Post-Implementation), skipping Steps 6–8 (the code is already committed and `review_approved` was recorded after the Step 8 commit). Step 9 is safe to re-enter: its merge approval is NON-SKIPPABLE (re-asked), a re-merge of an already-merged branch is a git no-op, and archival just moves and commits the task file. For child tasks, the "verify plan completeness before archival" sub-step backstops the Final Implementation Notes.
+  - **`POSTIMPL`** → **first run the merge-target sync pre-flight, then** resume at **Step 9** (Post-Implementation), skipping Steps 6–8 (the code is already committed and `review_approved` was recorded after the Step 8 commit). Step 9 is safe to re-enter: its merge approval is NON-SKIPPABLE (re-asked), a re-merge of an already-merged branch is a git no-op, and archival just moves and commits the task file. For child tasks, the "verify plan completeness before archival" sub-step backstops the Final Implementation Notes.
+
+    **Merge-target sync pre-flight.** Step 9 **never fetches** — its pre-flight only checks local ref existence and foreign-worktree conflicts, and `git merge` is purely local. So a stale local output branch merges *cleanly* and the divergence surfaces only when the user later pushes and git rejects it as non-fast-forward. Execute the **Merge-Target Sync Pre-flight Procedure** (see `merge-target-sync.md`) with `output_branch` (from the branch-resolution step above), `plan_file` and `task_id`. If it ends the session ("Stop here"), do **not** proceed to Step 9.
+
+    The full pre-implementation Remote Drift Check is deliberately **not** run on this route: at `POSTIMPL` the base branch is irrelevant (the plan is no longer being followed), and that procedure's only actionable branch reverts the task to `Ready` — the wrong move for work that is already reviewed and committed. `merge-target-sync.md` documents the split.
 
 ### Step 5: Environment and Branch Setup
 
@@ -847,7 +877,9 @@ The following procedures are in individual files — read on demand when referen
 - **Auto-Verification Procedure** (`auto-verification.md`) — Automated verification for `manual_verification` tasks. Supports two strategies: autonomous (execute inline, document at end) and pre-built (design plan, optionally approve, then execute). Persists to `aiplans/p<id>_manual_verification_auto.md`. Referenced from `manual-verification.md` Step 1.5 (whole checklist) and Step 2 (per-item `auto` verb).
 - **Manual Verification Follow-up Procedure** (`manual-verification-followup.md`) — Post-implementation prompt offering to create a standalone manual-verification task, with multi-source candidate discovery. Referenced from Step 8c.
 - **Upstream Defect Follow-up Procedure** (`upstream-followup.md`) — Post-implementation prompt offering to spawn a standalone bug aitask for an upstream defect surfaced during diagnosis. Reads the plan file's "Upstream defects identified" subsection. Referenced from Step 8b.
-- **Remote Drift Check Procedure** (`remote-drift-check.md`) — Warn before implementation if `origin/<base-branch>` is ahead of local, with strong emphasis on files the plan touches. Referenced from planning.md Checkpoint.
+- **Remote Drift Check Procedure** (`remote-drift-check.md`) — Warn before implementation if `origin/<base-branch>` is ahead of local, with strong emphasis on files the plan touches. Referenced from planning.md Checkpoint and from **Re-entry Routing**'s `IMPLEMENT` route.
+- **Approved-Plan Stop Sequence** (`plan-approved-stop.md`) — The one release-and-revert sequence for a session that ends on an approved-but-not-implemented plan: record the approval (once, `record_gates`-gated), commit the plan, release the lock, revert to `Ready`, push. Referenced from planning.md's "Approve and stop here" and remote-drift-check.md's "Stop and re-verify plan" — a shared reference so neither branch can drop a step by partial copy.
+- **Merge-Target Sync Pre-flight Procedure** (`merge-target-sync.md`) — Refresh the merge target before a resumed task reaches Step 9, which never fetches. Fast-forward-only recovery; never reverts the task. Referenced from **Re-entry Routing**'s `POSTIMPL` route.
 - **Execution Profile Selection Procedure** (`execution-profile-selection.md`) — Interactive profile scan and selection. Referenced from Step 0a in calling skills.
 - **Execution Profile Selection Procedure — Auto-Select** (`execution-profile-selection-auto.md`) — Non-interactive auto-select for remote/web skills. Referenced from Step 1 in aitask-pickrem/aitask-pickweb.
 - **Batch Task Creation Procedure** (`task-creation-batch.md`) — Canonical command templates for creating tasks via `aitask_create.sh --batch`. Referenced from planning.md and multiple skills (explore, review, qa, wrap, pr-import, revert).

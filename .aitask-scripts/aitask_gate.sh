@@ -305,21 +305,28 @@ cmd_append() {
     return 0
 }
 
-# --- status ----------------------------------------------------------------
+# --- derived ledger state (shared by `status` and `recorded-pass`) ----------
 
-cmd_status() {
-    local task_id="${1:-}"
-    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh status <task-id>"
-    local file
-    file="$(resolve_task_file "$task_id")"
-
-    if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
-        delegate_python status "$file"
-        return $?
-    fi
-
-    local out
-    if out="$(awk '
+# _derive_gate_runs_table <file>
+#
+# The single bash-side derivation of the ledger's CURRENT state: one row per
+# gate, `<gate>US<status>US<attempt>US<run>` (US = \037), in first-seen order,
+# applying the same last-marker-wins rule as gate_ledger.derive_gate_runs().
+# Both `status` (which formats every row) and `recorded-pass` (which tests one
+# row) consume this, so the two can never derive a different current status for
+# the same ledger.
+#
+# The separator must NOT be a tab: bash treats IFS whitespace (space/tab/
+# newline) runs as a single delimiter, so `read` would silently collapse the
+# empty `attempt` field of a skip/pending run and shift `run` into its place.
+# \037 is non-whitespace, so empty fields survive — and it cannot occur in a
+# gate name, status, attempt or run id.
+#
+# Exit: 0 on success (empty output = empty ledger), nonzero if awk failed —
+# callers then fall back to the python backend.
+_derive_gate_runs_table() {
+    local file="$1"
+    awk '
         /^>[[:space:]]*\*\*/ && /gate:/ {
             line = $0
             if (!match(line, /gate:[A-Za-z0-9_]+/)) next
@@ -342,21 +349,82 @@ cmd_status() {
         END {
             for (i = 1; i <= n; i++) {
                 g = order[i]
-                extra = ""
-                if (attempt_of[g] != "") extra = "attempt " attempt_of[g]
-                if (run_of[g] != "") extra = (extra == "" ? "" : extra ", ") "run " run_of[g]
-                line = g ": " status_of[g]
-                if (extra != "") line = line " (" extra ")"
-                print line
+                printf "%s\037%s\037%s\037%s\n", g, status_of[g], attempt_of[g], run_of[g]
             }
         }
-    ' "$file" 2>/dev/null)"; then
-        [[ -n "$out" ]] && printf '%s\n' "$out"
+    ' "$file" 2>/dev/null
+}
+
+# --- status ----------------------------------------------------------------
+
+cmd_status() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh status <task-id>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+
+    if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
+        delegate_python status "$file"
+        return $?
+    fi
+
+    local table
+    if table="$(_derive_gate_runs_table "$file")"; then
+        local g st at rn extra line
+        while IFS=$'\037' read -r g st at rn; do
+            if [[ -z "$g" ]]; then continue; fi
+            extra=""
+            if [[ -n "$at" ]]; then extra="attempt $at"; fi
+            if [[ -n "$rn" ]]; then extra="${extra:+$extra, }run $rn"; fi
+            line="$g: $st"
+            if [[ -n "$extra" ]]; then line="$line ($extra)"; fi
+            printf '%s\n' "$line"
+        done <<< "$table"
         return 0
     fi
 
     # awk failed — fall back to python.
     delegate_python status "$file"
+}
+
+# --- recorded-pass ---------------------------------------------------------
+
+# recorded-pass: decision verb (t1380). Exit 0 iff <gate>'s CURRENT derived run
+# (last-marker-wins) has status `pass`; exit 1 otherwise — absent, fail, skip,
+# pending, running or error.
+#
+# The strict `== pass` predicate deliberately mirrors gate_ledger.resume_point()
+# and NOT the module-wide SATISFIED_STATUSES = {pass, skip} that archive-ready /
+# deps-unblock use: a `skip` is "not applicable", which is not an approval.
+#
+# Degrades to exit 1 ("not recorded") when neither backend can derive the state.
+# Both consumers are safe under that degrade: the Approved-Plan Stop Sequence
+# then records a harmless duplicate, and the Task Abort Procedure skips a
+# demotion that cannot matter because resume-point degrades to PLAN too.
+cmd_recorded_pass() {
+    local task_id="${1:-}" gate="${2:-}"
+    [[ -z "$task_id" || -z "$gate" ]] && die "Usage: aitask_gate.sh recorded-pass <task-id> <gate>"
+    local file
+    file="$(resolve_task_file "$task_id")"
+
+    if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
+        delegate_python recorded-pass "$file" "$gate"
+        return $?
+    fi
+
+    local table
+    table="$(_derive_gate_runs_table "$file")" || {
+        delegate_python recorded-pass "$file" "$gate"
+        return $?
+    }
+
+    local g st rest
+    while IFS=$'\037' read -r g st rest; do
+        if [[ "$g" == "$gate" && "$st" == "pass" ]]; then
+            return 0
+        fi
+    done <<< "$table"
+    return 1
 }
 
 # --- list ------------------------------------------------------------------
@@ -1044,6 +1112,15 @@ Commands:
         exit 1 = skip (enforced → the orchestrator records it; avoids a
         double-record). Pure bash.
 
+  recorded-pass <task-id> <gate>
+        Decision verb (t1380): exit 0 iff <gate>'s CURRENT recorded run
+        (last-marker-wins) has status `pass`; exit 1 otherwise (absent, fail,
+        skip, pending, running, error). Reads the RECORDED ledger, not the
+        declared/active gate set. The strict `== pass` test mirrors
+        resume-point, not archive-ready's {pass, skip}. Degrades to exit 1.
+        Used by the Approved-Plan Stop Sequence (record the approval once) and
+        the Task Abort Procedure (re-open a stale plan_approved).
+
   active <task-id> <gate>
         Decision verb (t635_33): exit 0 iff <gate> is in the task's ENFORCED
         active set — the validated active_gates tuple when present/intact, else
@@ -1141,6 +1218,7 @@ main() {
         effective-gates) shift; cmd_effective_gates "$@" ;;
         has-gates-field) shift; cmd_has_gates_field "$@" ;;
         should-self-record) shift; cmd_should_self_record "$@" ;;
+        recorded-pass) shift; cmd_recorded_pass "$@" ;;
         active) shift; cmd_active "$@" ;;
         materialize-active) shift; cmd_materialize_active "$@" ;;
         active-gates-status) shift; cmd_active_gates_status "$@" ;;

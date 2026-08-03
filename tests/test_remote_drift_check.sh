@@ -367,6 +367,111 @@ result=$(cd "$root/local" && "$HELPER" --unsynced "$default_branch" "$plan_path"
 assert_eq "--unsynced on an up-to-date branch still emits UP_TO_DATE" "UP_TO_DATE" "$result"
 
 # ============================================================
+# Test 12: merge-target staleness — the gap Step 9 cannot see (t1380)
+# ============================================================
+#
+# Re-entry Routing's POSTIMPL route runs the Merge-Target Sync Pre-flight
+# (.claude/skills/task-workflow/merge-target-sync.md) instead of the full drift
+# check. That procedure's whole justification is that **Step 9 never fetches**:
+# its pre-flight only checks local ref existence and worktree conflicts, and
+# `git merge` is purely local. This pins all four legs of that argument against
+# real git, so the justification cannot rot into folklore.
+#
+# Each leg uses its OWN fixture. That is not tidiness: 12b's merge leaves `dev`
+# genuinely diverged, so running 12c on the same repo would (correctly) hit the
+# refusal path instead of the fast-forward path. The separation mirrors the
+# procedure's own ordering — the pre-flight syncs BEFORE Step 9 merges.
+#
+# `set -e` is active, so every deliberately-failing command is run through an
+# if/else rather than `cmd; rc=$?`, which would abort before the capture.
+
+echo "--- Test 12a/b: stale local output branch, origin ahead ---"
+mpair=$(make_legacy_mode_pair_with_stale_dev)
+mroot="${mpair%|*}"
+register_cleanup "$mroot"
+plan_path="$mroot/local/plan.md"
+write_plan_file "$plan_path"
+mlocal="$mroot/local"
+
+# 12a. DETECTION — the helper sees the drift the pre-flight acts on.
+result=$(cd "$mlocal" && "$HELPER" --unsynced dev "$plan_path" 2>&1)
+assert_contains "12a: stale merge target reports AHEAD" "AHEAD:1" "$result"
+
+# 12b. THE GAP — a purely local merge into the stale branch SUCCEEDS, and the
+#      divergence survives it untouched. This is what makes "Step 9's own merge
+#      surfaces the divergence" false: nothing fetched, so nothing was seen.
+if (
+    cd "$mlocal"
+    git checkout --quiet -b aitask/t_demo dev
+    echo "task work" > task_file.txt
+    git add task_file.txt
+    git commit --quiet -m "task work"
+    git checkout --quiet dev
+    git merge --quiet --no-edit aitask/t_demo
+) >/dev/null 2>&1; then merge_rc=0; else merge_rc=1; fi
+assert_exit_zero_rc "12b: local merge into a stale branch succeeds" "$merge_rc"
+behind=$(cd "$mlocal" && git rev-list --count dev..origin/dev)
+assert_eq "12b: divergence still present after the local merge" "1" "$behind"
+
+# 12c. THE RECOVERY — on a stale-but-unmerged branch (the state the pre-flight
+#      actually runs in), the fast-forward-only sync closes the gap.
+echo "--- Test 12c: --ff-only syncs a stale merge target ---"
+cpair=$(make_legacy_mode_pair_with_stale_dev)
+croot="${cpair%|*}"
+register_cleanup "$croot"
+clocal="$croot/local"
+# Run the procedure's documented sequence verbatim, checkout included. The
+# checkout is not ceremony: the fixture leaves HEAD on the default branch, and
+# a bare `git merge --ff-only origin/dev` would fast-forward THAT branch
+# instead — succeeding while leaving `dev` exactly as stale as before. The
+# `symbolic-ref` assertion in merge-target-sync.md exists for this.
+if (
+    cd "$clocal"
+    git checkout --quiet dev --
+    [ "$(git symbolic-ref --short HEAD)" = "dev" ]
+    git merge --ff-only origin/dev
+) >/dev/null 2>&1; then ff_rc=0; else ff_rc=1; fi
+assert_exit_zero_rc "12c: --ff-only fast-forwards the stale branch" "$ff_rc"
+behind=$(cd "$clocal" && git rev-list --count dev..origin/dev)
+assert_eq "12c: no divergence after the sync" "0" "$behind"
+
+# Negative control for the checkout: without it, the "sync" reports success
+# while `dev` stays stale — the failure mode the symbolic-ref assertion pins.
+npair=$(make_legacy_mode_pair_with_stale_dev)
+nroot="${npair%|*}"
+register_cleanup "$nroot"
+nlocal="$nroot/local"
+if (cd "$nlocal" && git merge --ff-only origin/dev) >/dev/null 2>&1; then nff_rc=0; else nff_rc=1; fi
+assert_exit_zero_rc "12c-negctrl: merge without checkout still 'succeeds'" "$nff_rc"
+behind=$(cd "$nlocal" && git rev-list --count dev..origin/dev)
+assert_eq "12c-negctrl: but dev is still stale" "1" "$behind"
+
+# 12d. THE REFUSAL — once the branches have genuinely diverged (local commits
+#      origin lacks), --ff-only must FAIL and leave dev exactly where it was.
+#      This pins "never rebase, reset, or force".
+echo "--- Test 12d: --ff-only refuses a real divergence ---"
+dpair=$(make_legacy_mode_pair_with_stale_dev)
+droot="${dpair%|*}"
+register_cleanup "$droot"
+dlocal="$droot/local"
+(
+    cd "$dlocal"
+    git checkout --quiet dev
+    echo "local only" > local_only.txt
+    git add local_only.txt
+    git commit --quiet -m "local-only commit on dev"
+) >/dev/null 2>&1
+before_sha=$(cd "$dlocal" && git rev-parse dev)
+if (cd "$dlocal" && git merge --ff-only origin/dev) >/dev/null 2>&1; then
+    diverge_rc=0
+else
+    diverge_rc=1
+fi
+assert_exit_nonzero_rc "12d: --ff-only refuses to move a diverged branch" "$diverge_rc"
+after_sha=$(cd "$dlocal" && git rev-parse dev)
+assert_eq "12d: dev is left exactly where it was" "$before_sha" "$after_sha"
+
+# ============================================================
 # Test 7: missing-arg behavior
 # ============================================================
 

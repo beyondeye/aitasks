@@ -378,23 +378,9 @@ Do NOT return to the beginning of Step 6 — that re-triggers the 6.0 existing-p
 
 If "Approve and stop here":
 
-1. Ensure the plan file is committed (idempotent — may be a no-op if the Plan Externalization Procedure already committed it):
-   ```bash
-   ./ait git add aiplans/<plan_file>
-   ./ait git commit -m "ait: Add plan for t<task_id>" 2>/dev/null || true
-   ```
-2. Release the task lock via the **Lock Release Procedure** (see `lock-release.md`).
-3. Revert the task status to `Ready` and clear `assigned_to`:
-   ```bash
-   ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
-   ```
-4. Commit the status revert and push:
-   ```bash
-   ./ait git add aitasks/
-   ./ait git commit -m "ait: Revert t<task_num> to Ready after plan approval" 2>/dev/null || true
-   ./ait git push
-   ```
-5. Display: "Plan approved and committed. Task t\<task_num\> reverted to Ready — pick it up later with `/aitask-pick <task_num>` in a fresh context." End the workflow (do **NOT** proceed to Step 7). The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
+Execute the **Approved-Plan Stop Sequence** (see `plan-approved-stop.md`) with `task_id`, `task_num`, `plan_file`, `stop_reason=deferred`, `revert_commit_message="ait: Revert t<task_num> to Ready after plan approval"`, and `closing_message="Plan approved and committed. Task t<task_num> reverted to Ready — pick it up later with /aitask-pick <task_num> in a fresh context."`
+
+That procedure records the approval (audit only — it is **not** a resume signal; the task becomes `Ready`, so §6.0's existing-plan preference is what resumes it, not Step 3 Check 5), commits the plan, releases the lock, reverts the status, and ends the workflow. Do **NOT** proceed to Step 7. The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
 
 If "Abort": Execute the **Task Abort Procedure** (see `task-abort.md`).
 

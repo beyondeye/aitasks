@@ -1369,6 +1369,24 @@ def _resume_point_from_state(state: dict[str, GateRun]) -> str:
     return "POSTIMPL"
 
 
+def recorded_pass(task_file: str, gate: str) -> bool:
+    """True iff ``gate``'s CURRENT recorded run has status ``pass`` (t1380).
+
+    Reads the *recorded* ``## Gate Runs`` ledger with the same last-marker-wins
+    rule as :func:`resume_point`, and applies the same **strict** ``== "pass"``
+    predicate — deliberately NOT :data:`SATISFIED_STATUSES` (``{pass, skip}``),
+    which :func:`archive_status` / :func:`dependents_status` use. A ``skip``
+    means "not applicable", which is not an approval.
+
+    Independent of the declared ``gates:`` / ``active_gates`` fields: the
+    question is what the workflow *recorded*, not what the task enforces.
+    """
+    with open(task_file, encoding="utf-8") as fh:
+        state = derive_gate_runs(fh.read())
+    run = state.get(gate)
+    return run is not None and run.status == "pass"
+
+
 def read_task_gate_state(task_file: str, registry_file: str | None = None) -> TaskGateState:
     """Read a task file once and derive all gate state needed by TUIs."""
     with open(task_file, encoding="utf-8") as fh:
@@ -1502,6 +1520,12 @@ def main(argv: list[str]) -> int:
             return 2
         sys.stdout.write(resume_point(argv[1]) + "\n")
         return 0
+
+    if cmd == "recorded-pass":
+        if len(argv) < 3:
+            sys.stderr.write("Usage: gate_ledger.py recorded-pass <file> <gate>\n")
+            return 2
+        return 0 if recorded_pass(argv[1], argv[2]) else 1
 
     if cmd == "effective-gates":
         if len(argv) < 2:

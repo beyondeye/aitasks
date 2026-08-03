@@ -1,6 +1,6 @@
 # Remote Drift Check Procedure
 
-Detects whether `origin/<branch>` has commits the local `<branch>` is missing, with stronger emphasis when the missing commits touch files referenced in the plan. Runs for the **base branch**, and — when the merge target differs from it — for the **output branch** too, since a base that has not moved does not imply the merge target has not. Invoked from `planning.md` Checkpoint after the user (or profile) chooses to start implementation, before control returns to `SKILL.md` Step 7.
+Detects whether `origin/<branch>` has commits the local `<branch>` is missing, with stronger emphasis when the missing commits touch files referenced in the plan. Runs for the **base branch**, and — when the merge target differs from it — for the **output branch** too, since a base that has not moved does not imply the merge target has not. Invoked from two places, both immediately before implementation starts: `planning.md`'s Checkpoint, after the user (or profile) chooses to start implementation; and `SKILL.md`'s **Re-entry Routing** on the `IMPLEMENT` route, where a resumed task's plan is by construction the oldest relative to the remotes. (A `POSTIMPL` resume runs `merge-target-sync.md` instead — see that file for why.) Control returns to `SKILL.md` Step 7 in both cases.
 
 ## Input
 
@@ -67,27 +67,13 @@ Detects whether `origin/<branch>` has commits the local `<branch>` is missing, w
 
 5. **Branches:**
 
-   - **"Stop and re-verify plan":** Run the same release-and-revert sequence as the planning-checkpoint "Approve and stop here" branch (see `planning.md` Checkpoint, "Approve and stop here"):
+   - **"Stop and re-verify plan":** Execute the **Approved-Plan Stop Sequence** (see `plan-approved-stop.md`) with `task_id`, `task_num`, `plan_file`, `stop_reason=drift`, `revert_commit_message="ait: Revert t<task_num> to Ready (remote drift)"`, and `closing_message="Plan saved. Task t<task_id> reverted to Ready due to remote drift on <the branch(es) that drifted — name each one>. Pull them, then re-pick with /aitask-pick <task_id> in a fresh context."`
 
-     1. Ensure the plan file is committed (idempotent):
-        ```bash
-        ./ait git add aiplans/<plan_file>
-        ./ait git commit -m "ait: Add plan for t<task_id>" 2>/dev/null || true
-        ```
-     2. Release the task lock via the **Lock Release Procedure** (`lock-release.md`).
-     3. Revert the task status to `Ready` and clear `assigned_to`:
-        ```bash
-        ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
-        ```
-     4. Commit and push the status revert:
-        ```bash
-        ./ait git add aitasks/
-        ./ait git commit -m "ait: Revert t<task_num> to Ready (remote drift)" 2>/dev/null || true
-        ./ait git push
-        ```
-     5. Display: "Plan saved. Task t\<task_id\> reverted to Ready due to remote drift on \<the branch(es) that drifted — name each one\>. Pull them, then re-pick with `/aitask-pick <task_id>` in a fresh context." If the output pass reported `LOCAL_BRANCH_MISSING`, say instead that the output branch must be created or fetched before the task can be merged.
+     If the output pass reported `LOCAL_BRANCH_MISSING`, build the `closing_message` to say instead that the output branch must be created or fetched before the task can be merged.
 
-     End the workflow. Do NOT proceed to Step 7.
+     Reaching this branch means the user chose to **start implementation** — the plan *was* approved — so the shared sequence records `plan_approved` before releasing anything. That recording is why this is a reference and not a copy of the "Approve and stop here" steps: the earlier inline copy reproduced only that branch's numbered steps and silently dropped the unnumbered gate recording above them (t1380 Defect 1).
+
+     The shared sequence ends the workflow. Do NOT proceed to Step 7.
 
    - **"Continue anyway":** Return so the caller can proceed to Step 7.
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 12 wrapped .md files (6 profile-varying + 6 profile-invariant)
-#   - 24 golden files under tests/golden/procs/task-workflow/
+#   - 13 wrapped .md files (7 profile-varying + 6 profile-invariant)
+#   - 27 golden files under tests/golden/procs/task-workflow/
 # Coverage:
-#   1.  Per-(file, profile) golden diff for the 4 profile-varying wrapped
+#   1.  Per-(file, profile) golden diff for the 7 profile-varying wrapped
 #       files × 3 profiles.
 #   1b. remote-drift-check is profile-invariant — a single canonical golden
 #       plus a byte-equality assertion across all 3 profile renders.
@@ -55,6 +55,7 @@ PROFILES_DIR="aitasks/metadata/profiles"
 WRAPPED_FILES_VARYING=(
     "SKILL.md"
     "planning.md"
+    "plan-approved-stop.md"
     "manual-verification.md"
     "manual-verification-followup.md"
     "auto-verification.md"
@@ -73,7 +74,7 @@ AGENTS=(claude codex opencode)
 
 # === Test 1: Per-(file, profile) golden diff (profile-varying files) ===
 
-echo "=== Test 1: golden diffs for 6 profile-varying wrapped files × 3 profiles ==="
+echo "=== Test 1: golden diffs for 7 profile-varying wrapped files × 3 profiles ==="
 for file in "${WRAPPED_FILES_VARYING[@]}"; do
     stem="${file%.md}"
     for profile in "${PROFILES[@]}"; do
@@ -459,17 +460,42 @@ assert_contains "record_gates true: SKILL.md emits merge_approved recording" \
     'gate_name=merge_approved' "$REC_SKILL"
 assert_contains "record_gates true: SKILL.md lists the Gate Recording Procedure" \
     'Gate Recording Procedure' "$REC_SKILL"
-assert_contains "record_gates true: planning.md emits deferred plan_approved recording" \
+# The deferred plan_approved recording moved OUT of planning.md and into the
+# shared Approved-Plan Stop Sequence (t1380): planning.md and remote-drift-check.md
+# now both REFERENCE it, so neither can drop a step by partial copy. The
+# record_gates guard therefore lives in plan-approved-stop.md, and that is where
+# the recording assertion belongs.
+REC_STOP="$($RENDER "$WORKFLOW_DIR/plan-approved-stop.md" "$TMP_REC" claude 2>&1)"
+assert_contains "record_gates true: plan-approved-stop.md emits the plan_approved recording" \
+    'gate_name=plan_approved' "$REC_STOP"
+assert_contains "record_gates true: the recording is guarded by recorded-pass (record once)" \
+    'recorded-pass <task_id> plan_approved' "$REC_STOP"
+assert_contains "planning.md references the shared stop sequence" \
+    'plan-approved-stop.md' "$REC_PLAN"
+REC_DRIFT="$($RENDER "$WORKFLOW_DIR/remote-drift-check.md" "$TMP_REC" claude 2>&1)"
+assert_contains "remote-drift-check.md references the same shared stop sequence" \
+    'plan-approved-stop.md' "$REC_DRIFT"
+assert_not_contains "planning.md no longer inlines its own plan_approved recording" \
     'gate_name=plan_approved' "$REC_PLAN"
+
 # Default profile (key absent) shows none — guards the zero-footprint claim.
 DEFAULT_REC_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 DEFAULT_REC_PLAN="$($RENDER "$WORKFLOW_DIR/planning.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
+DEFAULT_REC_STOP="$($RENDER "$WORKFLOW_DIR/plan-approved-stop.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_not_contains "default profile: no SKILL.md gate recording references" \
     'Gate Recording Procedure' "$DEFAULT_REC_SKILL"
 assert_not_contains "default profile: no SKILL.md gate-record script mention" \
     'aitask_gate_record.sh' "$DEFAULT_REC_SKILL"
 assert_not_contains "default profile: no planning.md gate recording" \
     'gate_name=plan_approved' "$DEFAULT_REC_PLAN"
+assert_not_contains "default profile: no plan-approved-stop.md gate recording" \
+    'gate_name=plan_approved' "$DEFAULT_REC_STOP"
+assert_not_contains "default profile: no plan-approved-stop.md Gate Recording Procedure" \
+    'Gate Recording Procedure' "$DEFAULT_REC_STOP"
+# ...but the release-and-revert body must still render: the guard removes the
+# recording, not the sequence.
+assert_contains "default profile: plan-approved-stop.md still reverts to Ready" \
+    '--status Ready --assigned-to ""' "$DEFAULT_REC_STOP"
 
 # === Summary ===
 

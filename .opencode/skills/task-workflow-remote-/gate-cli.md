@@ -10,9 +10,18 @@ call-site needs per-call parsing instructions. Two verb shapes exist:
 | `active <task-id> <gate>` | gate is in the task's **enforced active set** | not active |
 | `has-gates-field <task-id>` | the `gates:` key is present (even `[]`) | absent |
 | `should-self-record <task-id> <gate>` | workflow should self-record the gate | orchestrator records it — skip |
+| `recorded-pass <task-id> <gate>` | the gate's **current recorded run** is `pass` | anything else — absent, `fail`, `skip`, `pending`, `running`, `error` |
 
-All three are pure bash (always available — no python-availability ambiguity).
+All four are pure bash (always available — no python-availability ambiguity).
 Usage errors `die` with a nonzero exit and a message on stderr.
+
+`recorded-pass` is the odd one out on *what it reads*: the other three ask about
+the task's declared / enforced gate **set**; `recorded-pass` asks about the
+**recorded ledger** — what the workflow actually witnessed. Its strict `== pass`
+predicate mirrors `resume-point`, **not** the `{pass, skip}` satisfaction rule
+`archive-ready` uses: a `skip` means "not applicable", which is not an approval.
+It degrades to exit 1 ("not recorded"), which is the safe direction for both of
+its consumers — see `plan-approved-stop.md` and `task-abort.md`.
 
 The **enforced active set** is the validated `active_gates` tuple when present
 and intact, else the raw `gates:` field (declared intent). Validation covers

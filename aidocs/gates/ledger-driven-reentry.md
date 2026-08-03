@@ -5,7 +5,7 @@ tags: [aitasks, gates, re-entry, resume, task-workflow, crash-recovery, ledger, 
 sources: [aitask-gate-framework.md, integration-roadmap.md, gate-guarded-archival.md]
 confidence: high
 created: 2026-06-15
-updated: 2026-06-15
+updated: 2026-08-03
 ---
 
 # Ledger-Driven Re-entry
@@ -63,8 +63,11 @@ to `PLAN` if Python is absent — safe: plan from scratch as today).
    before any work resumes.
 2. **Step 4** claims/reclaims ownership exactly as today (the crash-recovery
    reclaim prompt, now ledger-enriched, is the confirmation).
-3. **Re-entry Routing** (end of Step 4) routes by `resume_point`: `IMPLEMENT` →
-   Step 7's implementation body; `POSTIMPL` → Step 9.
+3. **Re-entry Routing** (end of Step 4) resolves the plan's branches from the
+   plan header, then routes by `resume_point`: `IMPLEMENT` → Remote Drift Check
+   → Step 7's implementation body; `POSTIMPL` → Merge-Target Sync Pre-flight →
+   Step 9. See "Branch resolution on re-entry" and "Remote checks on re-entry"
+   below.
 
 ### Routing is gated on `resume_point`, not on the reclaim branch
 
@@ -85,6 +88,119 @@ which *ends the workflow* when it fires. A task that is still a normal
 7 from the top would double-create. So `IMPLEMENT` resumes at the "Follow the
 approved plan" body, re-running only the idempotent ownership guard and Agent
 Attribution (which re-records the resuming agent).
+
+## Branch resolution on re-entry
+
+A resumed session carries none of the Step 5 branch variables, and may run under
+a **different profile** than the one that planned the task. Re-entry Routing
+therefore resolves both branches **from the plan header only**, never from
+`profile.base_branch` / `profile.output_branch` — the same rule Step 9 already
+states for the merge target, and for the same reason.
+
+The rule is two-rung and validated: `Base branch:` / `Output branch:` when
+present, else `main`; the output branch **never** falls back to `Base branch:`
+(a plan written before that field existed merged to `main`, so reading its base
+would retroactively move in-flight work). Each value is bound to a shell
+variable rather than substituted, and screened with
+`grep -qE '^[A-Za-z0-9._/-]+$'` plus `git check-ref-format --branch`; an
+`UNSAFE_BRANCH:` result **stops the resume** rather than defaulting, because an
+unsafe header value means the plan is untrustworthy about where work lands.
+
+## Remote checks on re-entry
+
+Re-entry originally ran **no** remote check at all: the Remote Drift Check was
+dispatched from `planning.md`'s Checkpoint, and Re-entry Routing bypasses Step 6
+entirely. That inverted the risk — a resumed task is by construction the one
+whose plan is *oldest* relative to `origin/<base>` and `origin/<output>`, and it
+was the only one that got no check.
+
+The two routes need different checks, because they are in different states:
+
+| Route | Check | Why |
+|---|---|---|
+| `IMPLEMENT` | **Remote Drift Check Procedure** (`remote-drift-check.md`) | The plan is about to be followed, so drift in the files it targets is exactly what matters. Its "Stop and re-verify plan" branch — release, revert to `Ready`, pull and re-pick — is the right recovery before any code exists. |
+| `POSTIMPL` | **Merge-Target Sync Pre-flight** (`merge-target-sync.md`) | The code is committed and reviewed; only the merge remains. |
+
+**Why `POSTIMPL` is not just given the drift check.** Two reasons, one of which
+also corrects a tempting-but-false exemption argument:
+
+- *The base branch is irrelevant* at `POSTIMPL` — the plan is no longer being
+  followed — and the drift check's only actionable branch reverts the task to
+  `Ready`, which is wrong for work that is already reviewed and committed.
+- *"Step 9's own merge surfaces the divergence" is false.* **Step 9 never
+  fetches.** Its pre-flight checks only that `refs/heads/<output_branch>` exists
+  locally and is not held by another worktree, and `git merge` is purely local.
+  When `origin/<output_branch>` has advanced, the merge **succeeds cleanly**,
+  the local branch quietly diverges, and the problem appears only at push time
+  as a non-fast-forward rejection. So an exemption cannot rest on the merge; the
+  pre-flight has to actually fetch.
+
+The pre-flight reuses the same detector (`aitask_remote_drift_check.sh
+--unsynced`) and swaps in post-implementation-appropriate recovery:
+fast-forward-only sync (`git merge --ff-only`, refusing on real divergence —
+never rebase, reset or force), continue-anyway with an explicit
+push-will-be-rejected warning, or stop **without reverting** (the task stays
+`Implementing` at `POSTIMPL` and re-picking resumes here).
+
+**The stop→pull→re-pick loop terminates.** "Stop and re-verify plan" reverts the
+task to `Ready`, so the re-pick fails Check 5's `Implementing` status gate,
+never reaches Re-entry Routing, and runs the normal planning path — whose
+Checkpoint runs the check once more against the now-pulled branches. The check
+that sent the user away is not the one they land back on.
+
+The same staleness affects the **non-resumed** Step 9 path. Wiring the pre-flight
+in there unconditionally would add a network fetch and a possible prompt to every
+task's merge — a behaviour change for every user, tracked separately rather than
+folded in.
+
+## "Approved and stopped" is not a routing signal
+
+`planning.md`'s "Approve and stop here" and `remote-drift-check.md`'s "Stop and
+re-verify plan" both record `plan_approved` `pass` — and both then revert the
+task to `Ready`. Since Check 5 only consults the ledger for a task whose status
+is `Implementing`, that recorded entry **cannot** drive routing, and prose
+calling it "the resume signal" was simply wrong.
+
+It is kept as an **audit record of the approval**, and the claim is corrected.
+There are deliberately two different resume mechanisms:
+
+| Task state on re-pick | What resumes it |
+|---|---|
+| `Implementing` (crashed / session lost / deferred archival) | Check 5 → `resume_point` → Re-entry Routing |
+| `Ready` (approved and stopped) | §6.0's existing-plan preference (`plan_preference` / `plan_preference_child`) |
+
+The second is the better path for an approved-and-stopped task, not a
+consolation prize: it reaches the Checkpoint, so it re-runs the Remote Drift
+Check — which is precisely what a task that stopped *because of* drift needs.
+
+Both branches share one implementation, `plan-approved-stop.md`. That extraction
+is the structural fix for the original defect: the sequence lived inline in
+`planning.md` with the gate recording *above* its numbered list, and
+`remote-drift-check.md` copied only the numbered steps — silently dropping the
+recording. A reference cannot drop a step the way a copy can, and the shared
+file uses bullets rather than a numbered list so nothing reads as optional
+preamble.
+
+## Abort demotes a recorded `plan_approved`
+
+An abort rejects the plan, so `task-abort.md` re-opens any recorded approval by
+appending `plan_approved` `fail` (`note=aborted`). Because the ledger derives
+last-marker-wins, that demotes `resume_point` back to `PLAN`.
+
+Previously nothing did this, and the safety was **incidental**: abort reverts
+the status, so Check 5's status gate skipped the stale entry. That made the
+protection an accident of the revert rather than an invariant — and it would
+have evaporated the moment anyone relaxed Check 5's status condition, letting a
+task aborted at Step 8 resume straight into implementation on the very plan the
+abort rejected. (The plan-existence guard would not catch it either: abort
+offers "Keep for future reference" for the plan file.)
+
+The demotion is conditional on **ledger content** (`aitask_gate.sh
+recorded-pass`), **not** on `record_gates`. A task recorded under `fast` can be
+aborted under `default`, and a Jinja guard would render the demotion away in
+exactly the case where a stale entry exists. Conditioning on the entry makes it
+a no-op wherever nothing was ever recorded, so `record_gates: false` behaviour
+is unchanged.
 
 ## Folds into the existing reclaim confirmation
 
@@ -131,6 +247,14 @@ surveys and displays; it does not route.
   the plain-`OWNED` takeover path (see above).
 - **Re-running Step 7 from the top on `IMPLEMENT`.** Double-creates the
   non-idempotent post-approval tasks (see above).
+- **Relaxing Check 5's `Implementing` status gate** so a `Ready` task carrying a
+  recorded `plan_approved` routes to `IMPLEMENT`. It would make the recorded
+  entry genuinely load-bearing, but it routes *around* the Step 6 Checkpoint and
+  therefore around the Remote Drift Check — on exactly the path that needs it,
+  since an approved-and-stopped task typically stopped *because of* drift. It
+  would also make the abort demotion the sole barrier between an aborted task
+  and resuming into a rejected plan. §6.0's existing-plan preference already
+  resumes these tasks, and does so through the Checkpoint.
 
 ## See also
 

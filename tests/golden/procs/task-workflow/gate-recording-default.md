@@ -7,8 +7,41 @@ the existing interactive approval (ExitPlanMode / AskUserQuestion) is unchanged
 — its outcome IS the gate signal, and this procedure just *witnesses* it.
 
 Invoked only when the active profile sets `record_gates: true` — every call-site
-in `SKILL.md` / `planning.md` is wrapped in that Jinja guard, so this procedure
-never runs for profiles that have not opted in.
+of **this procedure** is wrapped in that Jinja guard, so it never runs for
+profiles that have not opted in. There are exactly two files with such call
+sites:
+
+- `SKILL.md` — Step 7 (`plan_approved`, and the conditional `risk_evaluated`),
+  Step 8 (`review_approved`), Step 9 (`build_verified`, `merge_approved`).
+- `plan-approved-stop.md` — the deferred `plan_approved` shared by both
+  approved-plan stop branches.
+
+**`planning.md` and `remote-drift-check.md` do NOT call this procedure and must
+not carry a guard.** Their "Approve and stop here" / "Stop and re-verify plan"
+branches delegate, unguarded, to the **Approved-Plan Stop Sequence**
+(`plan-approved-stop.md`), which owns the guard once on their behalf. That
+delegation is the whole point of the extraction (t1380): the recording lives in
+exactly one place, so neither branch can drop it or double-guard it. Do not add
+a `record_gates` conditional at either reference.
+
+> **Recording is gated on `record_gates` ALONE.** It is *not* gated on the gate
+> name appearing in the task's `gates:` / `active_gates` set. A task that
+> declares no gates at all still gets `plan_approved` / `review_approved` /
+> `merge_approved` recorded under a recording profile — the ledger is a record
+> of what the workflow witnessed, which is why `resume_point()` can key off it
+> without consulting the declared set. (The one exception is the conditional
+> `risk_evaluated` self-record described below, which is about avoiding a
+> *double*-record, not about eligibility.)
+
+> **One deliberate non-guarded path (t1380).** `task-abort.md` re-opens a
+> previously recorded `plan_approved` by calling `aitask_gate_record.sh`
+> **directly**, conditioned on `aitask_gate.sh recorded-pass` rather than on
+> `record_gates`. Do **not** "fix" that by routing it through this procedure or
+> wrapping it in the Jinja guard: a task recorded under `fast` can be aborted
+> under `default`, and the guard would render the demotion away in exactly the
+> case where a stale approval exists. It invalidates an existing entry rather
+> than recording a new checkpoint, and being conditional on that entry existing
+> already makes it a no-op wherever nothing was ever recorded.
 
 > **`risk_evaluated` is conditional (t635_14).** The Step-7 `risk_evaluated`
 > self-record additionally fires **only when the task does not literally declare
