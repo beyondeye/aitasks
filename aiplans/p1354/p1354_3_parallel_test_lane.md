@@ -733,6 +733,230 @@ worktree**. Two failure classes must be kept apart and **not** conflated:
 - timing: after | name: bare_module_test_fn_guard | type: test | priority: low | effort: low | addresses: code-health — the vacuous-pass class can silently return | desc: Structural guard asserting no `tests/test_*.py` defines a module-level `def test_*` (they pass vacuously under pytest because the script-style `assert_eq` tallies instead of raising), with a negative control proving the guard flags a synthetic offender
 - timing: after | name: setup_with_flags_usage | type: enhancement | priority: low | effort: low | addresses: code-health — install-flow discoverability | desc: Add a `usage()` to `aitask_setup.sh` enumerating the three opt-in tiers (`--with-pypy`, `--with-chat`, `--with-dev`) and surface it via `ait setup --help`; none of them appears in any help output today
 
+## Measured results
+
+Same machine, one denominator, all three runs inside the **Step 7 snapshot
+worktree** with both halves pinned:
+
+- code `afa1eaa051149241fdf6616d7620ffe356540b1a` + this task's 13 files
+- data `eb2fda87da0e45fbbadd810705f491f4e8cd22ac`
+- `git status --porcelain` in the snapshot listed only this task's files (plus
+  the `.aitask-data` symlink scaffolding); the only untracked `tests/test_*.py`
+  was this task's own `test_collection_parity.py`.
+
+| lane | real | tests | verdict |
+|---|---|---|---|
+| `unittest` serial — today's default, no dev tier | **419.8s** (6m59.8) | 3124 | OK |
+| `pytest` serial — `AIT_TEST_PARALLEL=0` | **431.1s** (7m11.1) | 3124 | `PASSED (runner=pytest, exit=0)` |
+| `pytest` + xdist `-n 2 --dist loadfile` — the new lane | **222.4s** (3m42.4) | 3124 | `PASSED (runner=pytest, exit=0)` |
+
+**Decomposed rather than reported as one flattering number:**
+
+- switching backend alone (unittest → pytest serial) is **11.3s SLOWER**
+  (+2.7%) — pytest's own collection/reporting overhead;
+- parallelism is where all of the gain is: 431.1s → 222.4s, **1.94x**;
+- net against what a user actually has today: 419.8s → 222.4s, **1.89x**
+  (−197.4s).
+
+**No target was claimed in advance (correction 10), and none is retrofitted.**
+For context only: 1.94x on 2 workers is ~97% parallel efficiency, and 222.4s sits
+just above the 2-worker floor of ~215s (431.1 ÷ 2). That confirms correction
+10(b) empirically — at `-n 2` the binding constraint is **total work ÷ workers**,
+not the slowest single file: `test_syncer_rows.py` (~124s) is far below 222s and
+is *not* the constraint at this worker count. **t1354_4 should therefore make its
+`test_syncer_rows.py` split decision against the configured worker count**, since
+splitting it buys nothing at N=2 and only begins to matter as N grows past ~3.
+
+**Collection parity, corroborated independently of the parity test:** unittest
+reported `Ran 3124 tests ... OK (skipped=1)`; the pytest lane reported
+`3121 passed, 1 skipped` in the pool plus `2 passed` in the carve-out = 3124 with
+1 skipped. The two backends agree exactly on the live tree — which is the same
+claim `test_collection_parity.py` makes, arrived at by a different route.
+
+**First-real-pytest triage (Step 7b): nothing to triage.** The plan budgeted for
+latent failures surfaced by a different import order; the first real-pytest run
+in this checkout was green on the first attempt — 0 failures, 0 errors, 1
+pre-existing skip. t1320's "machine WITH real pytest" checklist items are now
+physically testable, and pass.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-03 09:40)
+
+- **Requested by user:** Two blocking review findings, both verified CONFIRMED.
+
+  1. **`setup_dev_deps()` could brick `ait setup` (high).** The function ran
+     `"$VENV_DIR/bin/pip" install` bare under the script's `set -euo pipefail`.
+     A pip failure — offline machine, unreachable index, unbuildable wheel —
+     aborts the entire script at that line, never reaching the validate/warn/
+     `return 0` path. The function's own comment promised "Never fails the
+     overall setup"; it was false as written. Marker `mkdir`/write had the same
+     exposure.
+  2. **The mandated install-flow verification was skipped (medium).**
+     `aidocs/framework/aitasks_extension_points.md:132-136` requires that ANY
+     setup-flow change be exercised via `bash install.sh --dir /tmp/scratchXY`
+     → run the new flow → confirm the output, precisely because `install.sh`
+     deletes `seed/` at the end and a helper can pass in-checkout while failing
+     on a fresh install. CLAUDE.md points at that doc for exactly this kind of
+     edit, and it was not read before editing.
+
+- **Changes made:**
+
+  1. Every fallible command in `setup_dev_deps()` is now guarded with
+     `if ! cmd; then warn; return 0; fi` — both pip invocations (initial and
+     repair-retry) and the marker `mkdir`+write, the last degrading to a warning
+     that says what is lost (later setups will not revalidate the tier) while
+     leaving the installed deps usable. A comment records *why* the guard form
+     is load-bearing, so it is not "simplified" back to a bare call.
+
+     Proven, not reasoned: a stub `pip` that always exits 1 was driven through
+     the real extracted function — guarded, setup warns, returns 0 and continues
+     (`exit=0`, no marker written, so a failed attempt cannot masquerade as
+     opt-in). **Negative control:** the same driver against an un-guarded copy
+     reproduces the abort (`exit=1`, continuation line never printed). The
+     read-only-marker path was exercised separately and also degrades to a
+     warning.
+
+  2. Ran the full mandated flow with the **working tree** packaged as a tarball
+     (`install.sh --local-tarball`), so the installed tree carried these edits
+     rather than a published release:
+
+     - `install.sh --dir /tmp/scratch1354` → exit 0; **`seed/` confirmed deleted**
+       by the installer, reproducing the hazard the doc warns about. This tier
+       reads no seed file (verified at plan time — `aitask_setup.sh` is the sole
+       source of the dep list), so seed deletion is a non-issue *for it* — now
+       demonstrated rather than assumed.
+     - Tier removed first (`rm ~/.aitask/dev_tier` + `pip uninstall pytest
+       pytest-xdist`) so the run was a genuine from-scratch install, not a no-op
+       revalidation → `./ait setup --with-dev` exit 0, pytest 8.4.2 + xdist 3.8.0
+       installed, marker written.
+     - **Plain `ait setup`** (no flag) then revalidated the tier via the marker.
+     - **Marker removed** → plain `ait setup` skipped the tier entirely, no
+       ambient install. This is the concrete proof of the opt-in design decision
+       in Step 1 (a marker, not an `import pytest` probe).
+     - The installed tree ships `tests/` (179 files), so the lane itself was
+       exercised there: `--test-dir` run announced
+       `parallel lane: -n 2 --dist loadfile`, skipped the empty carve-out phase,
+       and ended `PYTHON SUITE: PASSED (runner=pytest, exit=0)`;
+       `AIT_TEST_PARALLEL=0` produced the serial path.
+     - Scratch install removed; the repo working tree was unaffected.
+
+- **Files affected:** `.aitask-scripts/aitask_setup.sh` (guards), this plan.
+  No test or runner changes were needed — the contract tests, parity test and
+  measured results above all still stand.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six plan steps landed as designed.
+  1. `aitask_setup.sh` — `AIT_PIP_SPECS_DEV` / `AIT_IMPORTS_DEV`,
+     `dev_deps_present()` + `setup_dev_deps()`, `--with-dev`, CPython venv only,
+     opt-in recorded by the persisted marker `~/.aitask/dev_tier`.
+  2. `tests/run_all_python_tests.sh` — `-n "${AIT_TEST_WORKERS:-2}" --dist loadfile`
+     over a pool partitioned against `SERIAL_CARVE_OUT`, a serial second phase,
+     combined exit statuses, empty-phase guard, path-selector fail-safe, and an
+     explicit refusal to emit a verdict for an empty run. Unittest branch
+     untouched; the t1179 `runner=pytest` banner preserved verbatim.
+  3. `tests/test_minimonitor_concern_smoke.py` — per-PID socket **and** session,
+     private mkdtemp `TMUX_TMPDIR`, pre-emptive `kill-session` dropped.
+  4. Six script-style modules — **32** module-level `test_*` → `_check_*`.
+  5. New `tests/test_collection_parity.py` (345 lines) — cross-backend per-file
+     count comparison over the whole tree + three falsifiability controls.
+     `tests/test_python_runner_exit_status.sh` — blocking `xdist` shim,
+     `CWD_PYTEST_XDIST`, per-phase argv log and per-phase `STUB_RC<n>`, and ten
+     new lane tests (24 → 56 assertions).
+  6. Docs — `CLAUDE.md` Testing section (lane, both knobs, the
+     provisioning-vs-execution opt-out table), `setup-install.md` (both opt-in
+     tiers), runner header comment.
+
+- **Deviations from plan:** Five, all recorded in place above.
+  1. **The "collection ERROR" premise was wrong.** Measured on pytest 8.4.2:
+     `def test_x(tmp)` is collected *fine* (`--collect-only` exits 0 listing it)
+     and errors only at **run** time on fixture lookup. Both the task text and
+     correction 4 called it a collection error. The parity guard therefore
+     catches that shape as a **count mismatch**, and the `errored` channel is
+     exercised by a real import-time failure instead. Both mechanisms have their
+     own control so neither branch is unfalsifiable.
+  2. **"30 vacuous passes" was too broad.** Only **four** of the six modules are
+     tally-style (`assert_eq` increments a counter — those really did pass
+     vacuously). `test_prompt_detection.py` and `test_idle_compare_modes.py` use
+     raising asserts, so their bare functions would have *double-run and failed
+     loudly*, not silently. The fix and the parity claim are unchanged.
+  3. **The blocking `xdist` shim is defensive, not presently load-bearing.** Its
+     negative control **passes**: real `xdist/__init__.py` executes
+     `@pytest.hookimpl` at import, which already fails against the stub `pytest`
+     in the same cwd, so the runner's probe fails either way today. Kept anyway —
+     that is an accident of xdist's import graph, not a contract — and the test
+     now states this rather than claiming the control proved it.
+  4. **Guarded every fallible command in `setup_dev_deps()`** after review found
+     the bare `pip install` would abort all of `ait setup` under `set -e`. See
+     Post-Review Changes above.
+  5. **Ran the mandated `install.sh` scratch flow** after review found it
+     skipped. See Post-Review Changes above.
+
+- **Issues encountered:**
+  - **My own new assertions were broken, and two passed vacuously.**
+    `assert_not_contains` uses `grep -qF`, and `grep -F` splits a **multi-line**
+    pattern into one alternative per line — so the needle `-n\n4` matched any
+    output merely containing `-n`. The `AIT_TEST_WORKERS=4` and malformed-value
+    assertions would have passed against `-n 2`. Replaced with exact full-vector
+    `assert_eq` comparisons via a `lane_vector()` helper, and the reason is
+    recorded there so the multi-line form is not reintroduced.
+  - **A negative control initially failed to discriminate for the wrong reason.**
+    Mutating `workers=auto` did not break the argv assertions, because the
+    runner's own positive-integer validation neutralised the mutation before it
+    reached pytest. Re-aimed at the argv construction (`-n "$workers"` →
+    `-n auto`), which is the regression the assertion actually guards.
+  - **Main advanced five commits mid-task** (`16a17c65d` → `afa1eaa05`), which
+    also resolved the dirty-checkout problem the Step 7 snapshot was designed
+    around. Tree-wide counts were re-derived against the new HEAD (179 test
+    files; the chdir/board_fixture count held at 39) and no new bare
+    module-level `def test_*` arrived.
+
+- **Key decisions:**
+  - **Worker count bounded at 2, never `auto`** (USER DECISION). `auto` is
+    `os.cpu_count()` (24 here) and would starve the ~10 agents this machine runs.
+    Pinned by an exact-argv assertion so it cannot regress.
+  - **Path selectors disable the lane rather than being partitioned.** Nothing
+    can distinguish the value `smoke` in `-k smoke` from a bare selector without
+    re-implementing pytest's option grammar, so the lane fails safe instead of
+    silently voiding the carve-out.
+  - **Banner left byte-identical** (`runner=pytest` in both pytest lanes) to
+    preserve the t1179 contract; lane visibility comes from a separate stderr
+    line.
+  - **Opt-in is a persisted marker, not an import probe** — `pytest` is commonly
+    installed for unrelated reasons, and an import probe would silently convert
+    an opt-in tier into an ambient dependency. Placed outside `$VENV_DIR` so a
+    venv recreation cannot silently opt the user back out. Proven on the scratch
+    install: marker removed ⇒ plain `ait setup` skips the tier entirely.
+  - **No timing target claimed in advance and none retrofitted.** Results are
+    reported decomposed (backend change vs parallelism) rather than as one
+    flattering number.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:722,730 — setup_chat_deps() runs `pip install` unguarded under `set -e`, so a failed chat-tier install aborts all of `ait setup`, contradicting its own "never fails the overall setup" comment (same defect class as the one fixed here in setup_dev_deps)`
+  - `.aitask-scripts/aitask_setup.sh:663,664,673 — setup_pypy_venv() has the same unguarded `pip install` calls under `set -e`; a PyPy dep failure aborts setup instead of degrading to the documented warn-and-remove path`
+
+- **Notes for sibling tasks:**
+  - **t1354_4 (retrospective):** measured here — unittest serial **419.8s**,
+    pytest serial **431.1s**, pytest + xdist `-n 2` **222.4s** (3124 tests, code
+    `afa1eaa05` / data `eb2fda87d`). Two things matter for its scope:
+    (a) the pytest backend *alone* is **2.7% slower** than unittest, so all the
+    gain is parallelism — do not attribute any of it to the backend switch;
+    (b) **at `-n 2` the binding constraint is total work ÷ workers, not the
+    slowest file.** 222.4s sits just above the 2-worker floor of ~215s, and
+    `test_syncer_rows.py` (~124s) is far below it. t1354_2's "makespan floor"
+    hand-off note describes `-n auto`, not this configuration — **make the
+    split decision against the configured worker count**, since splitting buys
+    nothing at N=2 and only matters past ~N=3. Raising `AIT_TEST_WORKERS` is the
+    cheaper experiment to run first.
+  - **Adding a `tests/test_*.py` now has two guards, not one:**
+    `test_no_zero_collection.py` (unittest branch) and `test_collection_parity.py`
+    (both backends). A module-level `def test_*` will fail the latter — name it
+    `_check_*` and call it from the module's `main()`.
+  - **A test that must not run in the parallel pool** goes in `SERIAL_CARVE_OUT`
+    in `tests/run_all_python_tests.sh`, with a comment saying why; the contract
+    test's carve-out cases will then cover it.
+
 ## Step 9 (Post-Implementation)
 
 Current-branch mode (profile `fast`): no worktree to remove; output branch `main`
