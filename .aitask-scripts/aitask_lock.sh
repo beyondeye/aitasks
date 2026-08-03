@@ -341,6 +341,15 @@ check_lock() {
 
 # --- List: show all active locks ---
 
+# Extract a `key: value` field from lock-file YAML. Prints the value (empty when
+# the key is absent) and always exits 0. A `grep '^key:'` pipeline would exit 1
+# on a missing key and, under `set -euo pipefail`, abort the whole listing — the
+# same class t1370 removed from cleanup_locks().
+#   $1 = key, $2 = lock file content
+_lock_field() {
+    printf '%s\n' "$2" | awk -v k="^$1:" '$0 ~ k { sub(/^[^:]*: */, ""); print; exit }'
+}
+
 list_locks() {
     if ! has_remote; then
         info "No locks (no remote configured)"
@@ -359,7 +368,9 @@ list_locks() {
     }
 
     local lock_files
-    lock_files=$(git ls-tree "$current_tree_hash" | grep '_lock\.yaml' | awk '{print $4}')
+    # awk, not grep: an empty lock branch makes `grep` exit 1, which under
+    # `set -euo pipefail` kills --list before the emptiness guard below.
+    lock_files=$(git ls-tree "$current_tree_hash" | awk '$4 ~ /_lock\.yaml$/ {print $4}')
 
     if [[ -z "$lock_files" ]]; then
         info "No active locks"
@@ -369,10 +380,22 @@ list_locks() {
     while IFS= read -r lf; do
         local content tid lby lat lhost
         content=$(git show "origin/$BRANCH:$lf" 2>/dev/null)
-        tid=$(echo "$content" | grep '^task_id:' | sed 's/task_id: *//')
-        lby=$(echo "$content" | grep '^locked_by:' | sed 's/locked_by: *//')
-        lat=$(echo "$content" | grep '^locked_at:' | sed 's/locked_at: *//')
-        lhost=$(echo "$content" | grep '^hostname:' | sed 's/hostname: *//')
+
+        # task_id identifies the record — without it there is no lock to report.
+        tid=$(_lock_field task_id "$content")
+        if [[ -z "$tid" ]]; then
+            debug "Skipping unrecognized lock file: $lf"
+            continue
+        fi
+
+        # A corrupt lock file must still be REPORTED, not silently dropped: the
+        # board's parser (aitask_board.py refresh_lock_map) requires non-empty
+        # fields, so an empty value would make it discard this lock entirely.
+        # "unknown" matches the placeholder lock_task() already uses (line 166).
+        lby=$(_lock_field locked_by "$content");  lby="${lby:-unknown}"
+        lat=$(_lock_field locked_at "$content");  lat="${lat:-unknown}"
+        lhost=$(_lock_field hostname "$content"); lhost="${lhost:-unknown}"
+
         echo "t${tid}: locked by $lby on $lhost since $lat"
     done <<< "$lock_files"
 }

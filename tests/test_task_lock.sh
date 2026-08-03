@@ -473,6 +473,127 @@ assert_contains_ci "List shows task 2" "t2:" "$list_output"
 
 rm -rf "$TMPDIR_13"
 
+# --- Test 13b-13d: --list robustness (t1378) ---
+#
+# Same `set -euo pipefail` class as Tests 12b/12i, but on the `--list` path:
+# list_locks() piped `git ls-tree` through `grep`, so an empty lock branch made
+# grep exit 1 and killed the listing before its emptiness guard; and it extracted
+# each YAML field with `echo | grep | sed`, so one lock file missing any key
+# aborted the WHOLE listing. Both paths matter beyond the CLI — the board's
+# refresh_lock_map() only reads stdout when `--list` exits 0, so a nonzero exit
+# silently empties its entire lock map.
+#
+# 13d additionally pins the incomplete-record policy: task_id is required (the
+# record is skipped without it), while locked_by/locked_at/hostname each fall
+# back to "unknown". The placeholder is load-bearing, not cosmetic — the board's
+# parser requires non-empty fields, so emitting an empty one would trade the
+# loud abort for a silent per-lock omission.
+
+# Push $3 as lock file $2 onto the lock branch in repo $1 (tree surgery, as 12i).
+plant_lock_blob() {
+    local dir="$1" name="$2" body="$3"
+    (
+        cd "$dir"
+        git fetch origin aitask-locks --quiet 2>/dev/null
+        blob=$(printf '%s\n' "$body" | git hash-object -w --stdin)
+        tree=$( { git ls-tree "$(git rev-parse origin/aitask-locks^{tree})"
+                  printf '100644 blob %s\t%s\n' "$blob" "$name"; } | git mktree )
+        commit=$(echo "plant $name" | git commit-tree "$tree" -p "$(git rev-parse origin/aitask-locks)")
+        git push --quiet origin "$commit:refs/heads/aitask-locks" 2>/dev/null
+    )
+}
+
+# --- Test 13b: --list on an initialized-but-empty lock branch ---
+# Test 13 above always locks two tasks first, so the empty branch — the ordinary
+# state of any project where nothing is currently locked — was never covered.
+echo "--- Test 13b: --list on an empty lock branch reports no locks ---"
+
+TMPDIR_13B="$(setup_paired_repos)"
+(cd "$TMPDIR_13B/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+
+assert_exit_zero "--list on empty lock branch exits 0" \
+    bash -c "cd '$TMPDIR_13B/local' && ./.aitask-scripts/aitask_lock.sh --list"
+list_output_13b=$(cd "$TMPDIR_13B/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
+assert_contains_ci "--list on empty lock branch says no active locks" "No active locks" "$list_output_13b"
+
+rm -rf "$TMPDIR_13B"
+
+# --- Test 13c: a stray non-lock file does not abort --list ---
+echo "--- Test 13c: an unrecognized lock file is skipped, not fatal ---"
+
+TMPDIR_13C="$(setup_paired_repos)"
+(cd "$TMPDIR_13C/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(cd "$TMPDIR_13C/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "alice@test.com" >/dev/null 2>&1)
+plant_lock_blob "$TMPDIR_13C/local" "notalock_lock.yaml" "junk"
+
+assert_exit_zero "stray lock file does not abort --list" \
+    bash -c "cd '$TMPDIR_13C/local' && ./.aitask-scripts/aitask_lock.sh --list"
+list_output_13c=$(cd "$TMPDIR_13C/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
+assert_contains "stray lock file does not hide the real lock" "t1:" "$list_output_13c"
+
+rm -rf "$TMPDIR_13C"
+
+# --- Test 13d: incomplete lock records render "unknown", not empty fields ---
+# The three secondary-field defaults are independent assignments, so each gets
+# its own row: covering only one would let the other two be deleted with the
+# suite still green. t11 is the positive control (a complete record, including
+# the pid/pid_starttime trailer lock_task writes) and must stay green under every
+# negative-control mutation.
+echo "--- Test 13d: incomplete lock records stay visible and parseable ---"
+
+TMPDIR_13D="$(setup_paired_repos)"
+(cd "$TMPDIR_13D/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+plant_lock_blob "$TMPDIR_13D/local" "t7_lock.yaml" \
+    "task_id: 7
+locked_by: alice@test.com
+locked_at: 2026-08-03 10:59"
+plant_lock_blob "$TMPDIR_13D/local" "t8_lock.yaml" \
+    "task_id: 8
+locked_at: 2026-08-03 10:59
+hostname: box8"
+plant_lock_blob "$TMPDIR_13D/local" "t9_lock.yaml" \
+    "task_id: 9
+locked_by: carol@test.com
+hostname: box9"
+plant_lock_blob "$TMPDIR_13D/local" "t10_lock.yaml" "task_id: 10"
+plant_lock_blob "$TMPDIR_13D/local" "t11_lock.yaml" \
+    "task_id: 11
+locked_by: dave@test.com
+locked_at: 2026-08-03 11:00
+hostname: box11
+pid: 42
+pid_starttime: 99"
+
+assert_exit_zero "--list with incomplete lock records exits 0" \
+    bash -c "cd '$TMPDIR_13D/local' && ./.aitask-scripts/aitask_lock.sh --list"
+list_output_13d=$(cd "$TMPDIR_13D/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
+
+# Assert against the board's OWN parser, read out of the board source rather than
+# copied here, so this pins the real consumer contract and fails loudly if the
+# board's regex moves.
+board_re=$(sed -n "s/^ *r'\(\^t(.*\)',\$/\1/p" "$PROJECT_DIR/.aitask-scripts/board/aitask_board.py")
+assert_exit_zero "board lock regex located in aitask_board.py" test -n "$board_re"
+
+# Exact full-line equality, not `contains`: a default wired to the wrong variable
+# would still contain "unknown". The fixture authors its own timestamps, so the
+# expected output is deterministic.
+while IFS='|' read -r id expected; do
+    [[ -z "$id" ]] && continue
+    line_13d=$(printf '%s\n' "$list_output_13d" | grep "^${id}:")
+    assert_eq "13d $id renders its missing field(s) as unknown" "$expected" "$line_13d"
+    assert_exit_zero "13d $id still matches the board parser" \
+        python3 -c 'import re,sys; sys.exit(0 if re.match(sys.argv[1], sys.argv[2].strip()) else 1)' \
+        "$board_re" "$line_13d"
+done <<'ROWS'
+t7|t7: locked by alice@test.com on unknown since 2026-08-03 10:59
+t8|t8: locked by unknown on box8 since 2026-08-03 10:59
+t9|t9: locked by carol@test.com on box9 since unknown
+t10|t10: locked by unknown on unknown since unknown
+t11|t11: locked by dave@test.com on box11 since 2026-08-03 11:00
+ROWS
+
+rm -rf "$TMPDIR_13D"
+
 # --- Test 14: Syntax check ---
 echo "--- Test 14: Syntax check ---"
 
