@@ -22,6 +22,7 @@ from .merge_engine import (
     compute_hunk_preview_range,
     suggest_directory,
     suggest_filename,
+    write_merged_plan,
 )
 from .plan_loader import load_plan
 
@@ -107,18 +108,11 @@ class SaveMergeDialog(ModalScreen):
         meta = dict(self._main_metadata)
         meta["merged_from"] = merged_from
 
-        # Write file with frontmatter + merged body
+        # Write file with frontmatter + merged body. The write itself lives in
+        # merge_engine.write_merged_plan — it is atomic (t1379) and unit-testable
+        # without a Textual Pilot.
         try:
-            os.makedirs(directory, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                f.write("---\n")
-                for key, value in meta.items():
-                    if isinstance(value, list):
-                        f.write(f"{key}: [{', '.join(str(v) for v in value)}]\n")
-                    else:
-                        f.write(f"{key}: {value}\n")
-                f.write("---\n\n")
-                f.writelines(self._merged_lines)
+            write_merged_plan(path, meta, self._merged_lines)
             self.dismiss(path)
         except OSError as e:
             self.notify(f"Error saving: {e}", severity="error")

@@ -703,6 +703,42 @@ class InferModeNodeIdTests(unittest.TestCase):
                 )
                 self.assertEqual(first, second)
 
+    def test_assign_replaces_the_output_file_instead_of_truncating_it(self):
+        """The rewrite is atomic (t1379), not a truncate-in-place write.
+
+        `os.link` names the output file's inode before the assignment. An atomic
+        replacement renames a fresh inode over the path, so the probe still
+        holds the ORIGINAL bytes; the `out_path.write_text(...)` this replaced
+        mutated the shared inode, so the probe would show the assigned ids.
+        This is the assertion that fails if the old write is restored.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            wt = Path(td)
+            _seed_base(wt)
+            _write_decomposer_output(
+                wt, _infer_block("parser") + _infer_block("cache")
+            )
+            out = wt / "module_decomposer_001_output.md"
+            original = out.read_text(encoding="utf-8")
+            probe = wt / "output.probe"
+            os.link(out, probe)
+
+            with patch(
+                "brainstorm.brainstorm_session.crew_worktree", return_value=wt
+            ):
+                _record_decompose([])  # infer mode
+                assign_inferred_module_node_ids(TASK, "module_decomposer_001")
+
+            self.assertIn("node_id:", out.read_text(encoding="utf-8"),
+                          "sanity: ids were actually assigned")
+            self.assertEqual(
+                probe.read_text(encoding="utf-8"), original,
+                "the pre-assignment inode must be untouched")
+            self.assertNotEqual(os.stat(out).st_ino, os.stat(probe).st_ino)
+            self.assertEqual(
+                [p.name for p in wt.iterdir() if p.name.endswith(".tmp")], [],
+                "no staging residue")
+
     def test_names_given_dropped_id_is_left_untouched(self):
         """In names-given mode a missing node_id is an agent error, NOT infer —
         normalization is gated out so the strict parser still rejects it."""

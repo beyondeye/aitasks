@@ -9,6 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 
 TASK_DIR="aitasks"
 # Consumed by labels_file_path() in lib/task_utils.sh; also staged by variable
@@ -644,8 +646,10 @@ write_task_file() {
 
     # Preserve the `attachments:` (t1030) and `artifacts:` (t1076_2) blocks
     # verbatim: write_task_file rebuilds frontmatter from a fixed field set and
-    # would otherwise drop them. Capture them from the still-intact file BEFORE
-    # the truncating redirect below runs.
+    # would otherwise drop them. Capture them from the file BEFORE the rewrite
+    # below replaces it. (The rewrite is atomic since t1379, so this no longer
+    # races a truncation window — but the read must still come first, because
+    # the rewrite renames a freshly rendered file over the original.)
     local preserved_attachments preserved_artifacts
     preserved_attachments="$(extract_frontmatter_block "$file_path" attachments)"
     preserved_artifacts="$(extract_frontmatter_block "$file_path" artifacts)"
@@ -659,8 +663,16 @@ write_task_file() {
     local labels_yaml
     labels_yaml=$(format_yaml_list "$labels")
 
-    # Write the file with YAML front matter
-    {
+    # Write the file with YAML front matter.
+    #
+    # The body is a renderer for ait_atomic_render (lib/atomic_write.sh), which
+    # stages it beside the target and renames it into place, so a concurrent
+    # reader never sees a truncated task file. Renderer contract: it must NOT
+    # rely on `set -e` — the calling context disables errexit inside it. Every
+    # command below is an `echo` or a `[[ ]]` test, and the only way an `echo`
+    # fails is a broken output fd, which fails the trailing one too. Any command
+    # added here that can fail on its own needs an explicit `|| return 1`.
+    _ait_write_task_file_body() {
         echo "---"
         echo "priority: $priority"
         # Only write risk fields if present (planning output; omitted by
@@ -797,7 +809,9 @@ write_task_file() {
         echo "---"
         echo ""
         echo "$description"
-    } > "$file_path"
+    }
+    ait_atomic_render "$file_path" _ait_write_task_file_body \
+        || die "could not write task file: $file_path"
 }
 
 # --- Label Management ---

@@ -28,6 +28,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 usage() {
     cat <<'EOF'
 Usage:
@@ -100,6 +102,82 @@ cmd_read() {
     done < "$plan_file"
 }
 
+# Renderer for cmd_append: re-emits the plan file with a new plan_verified
+# entry spliced into its YAML header. Reads cmd_append's locals (plan_file,
+# new_entry) via bash dynamic scoping; ait_atomic_render redirects its stdout
+# to a temp staged beside the plan and renames it into place.
+_ait_plan_verified_body() {
+    local in_header=0
+    local header_count=0
+    local state="none"
+    local pv_seen=0
+    local inserted=0
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == "---" ]]; then
+            header_count=$((header_count + 1))
+            if [[ $header_count -eq 1 ]]; then
+                in_header=1
+                printf '%s\n' "$line"
+                continue
+            fi
+            if [[ $header_count -eq 2 ]]; then
+                if [[ $pv_seen -eq 0 ]]; then
+                    printf '%s\n' "plan_verified:"
+                    printf '%s\n' "$new_entry"
+                    inserted=1
+                elif [[ "$state" == "found_pv" || "$state" == "in_pv_list" ]]; then
+                    printf '%s\n' "$new_entry"
+                    inserted=1
+                    state="done"
+                fi
+                in_header=0
+                printf '%s\n' "$line"
+                continue
+            fi
+        fi
+
+        if [[ $in_header -eq 1 ]]; then
+            if [[ "$line" == "plan_verified: []" ]]; then
+                pv_seen=1
+                printf '%s\n' "plan_verified:"
+                printf '%s\n' "$new_entry"
+                inserted=1
+                state="done"
+                continue
+            fi
+            if [[ "$line" == "plan_verified:" ]]; then
+                pv_seen=1
+                state="found_pv"
+                printf '%s\n' "$line"
+                continue
+            fi
+            if [[ "$state" == "found_pv" || "$state" == "in_pv_list" ]]; then
+                if [[ "$line" =~ ^[[:space:]]+- ]]; then
+                    state="in_pv_list"
+                    printf '%s\n' "$line"
+                    continue
+                elif [[ -z "$line" ]] || [[ ! "$line" =~ ^[[:space:]] ]]; then
+                    printf '%s\n' "$new_entry"
+                    inserted=1
+                    state="done"
+                    printf '%s\n' "$line"
+                    continue
+                fi
+            fi
+        fi
+
+        printf '%s\n' "$line"
+    done < "$plan_file"
+
+    # Renderer contract (lib/atomic_write.sh): this must NOT rely on `set -e`,
+    # which ait_atomic_render's calling context disables. The "no insertion
+    # point found" case is therefore reported by an explicit non-zero return —
+    # without it the trailing loop would exit 0 and a plan file with no
+    # plan_verified entry would be committed over the original.
+    [[ $inserted -eq 1 ]] || return 1
+}
+
 # --- append <plan_file> <agent> ---
 # Insert a new verification entry into the plan's YAML header.
 cmd_append() {
@@ -113,78 +191,8 @@ cmd_append() {
     ts=$(date '+%Y-%m-%d %H:%M')
     local new_entry="  - $agent @ $ts"
 
-    local tmp
-    tmp=$(mktemp "${TMPDIR:-/tmp}/ait_plan_verified_XXXXXX.md")
-
-    local in_header=0
-    local header_count=0
-    local state="none"
-    local pv_seen=0
-    local inserted=0
-    local line
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$line" == "---" ]]; then
-            header_count=$((header_count + 1))
-            if [[ $header_count -eq 1 ]]; then
-                in_header=1
-                printf '%s\n' "$line" >> "$tmp"
-                continue
-            fi
-            if [[ $header_count -eq 2 ]]; then
-                if [[ $pv_seen -eq 0 ]]; then
-                    printf '%s\n' "plan_verified:" >> "$tmp"
-                    printf '%s\n' "$new_entry" >> "$tmp"
-                    inserted=1
-                elif [[ "$state" == "found_pv" || "$state" == "in_pv_list" ]]; then
-                    printf '%s\n' "$new_entry" >> "$tmp"
-                    inserted=1
-                    state="done"
-                fi
-                in_header=0
-                printf '%s\n' "$line" >> "$tmp"
-                continue
-            fi
-        fi
-
-        if [[ $in_header -eq 1 ]]; then
-            if [[ "$line" == "plan_verified: []" ]]; then
-                pv_seen=1
-                printf '%s\n' "plan_verified:" >> "$tmp"
-                printf '%s\n' "$new_entry" >> "$tmp"
-                inserted=1
-                state="done"
-                continue
-            fi
-            if [[ "$line" == "plan_verified:" ]]; then
-                pv_seen=1
-                state="found_pv"
-                printf '%s\n' "$line" >> "$tmp"
-                continue
-            fi
-            if [[ "$state" == "found_pv" || "$state" == "in_pv_list" ]]; then
-                if [[ "$line" =~ ^[[:space:]]+- ]]; then
-                    state="in_pv_list"
-                    printf '%s\n' "$line" >> "$tmp"
-                    continue
-                elif [[ -z "$line" ]] || [[ ! "$line" =~ ^[[:space:]] ]]; then
-                    printf '%s\n' "$new_entry" >> "$tmp"
-                    inserted=1
-                    state="done"
-                    printf '%s\n' "$line" >> "$tmp"
-                    continue
-                fi
-            fi
-        fi
-
-        printf '%s\n' "$line" >> "$tmp"
-    done < "$plan_file"
-
-    if [[ $inserted -eq 0 ]]; then
-        rm -f "$tmp"
-        die "failed to insert plan_verified entry into: $plan_file"
-    fi
-
-    mv "$tmp" "$plan_file"
+    ait_atomic_render "$plan_file" _ait_plan_verified_body \
+        || die "failed to insert plan_verified entry into: $plan_file"
 }
 
 # --- decide <plan_file> <required> <stale_after_hours> ---

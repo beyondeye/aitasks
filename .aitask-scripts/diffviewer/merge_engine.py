@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
-from .diff_engine import DiffHunk, MultiDiffResult
+# lib/ import idiom used across this package (see plan_loader.py) — do not rely
+# on a sibling module's insert having run first.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+from atomic_write import atomic_write  # noqa: E402
+
+from .diff_engine import DiffHunk, MultiDiffResult  # noqa: E402
 
 
 class MergeSession:
@@ -296,3 +302,27 @@ def suggest_filename(main_path: str, accepted_plans: list[str]) -> str:
 def suggest_directory(main_path: str) -> str:
     """Return the directory of the main plan as the default save location."""
     return os.path.dirname(main_path) or "."
+
+
+def write_merged_plan(path: str, meta: dict, merged_lines: list[str]) -> None:
+    """Write a merged plan (frontmatter + body) to ``path`` atomically.
+
+    Lives here rather than in ``merge_screen.SaveMergeDialog.on_save`` for two
+    reasons: it is the only part of that handler that is not Textual, so it can
+    be unit-tested without a ``Pilot``; and the write it replaced was a plain
+    ``open(path, "w")``, which truncates a plan file before any bytes land
+    (t1379). ``atomic_write`` takes a render callback because the body is a
+    sequence of writes rather than one prepared string, and it also creates
+    ``path``'s directory, so callers need no ``makedirs``.
+    """
+    def render(fh):
+        fh.write("---\n")
+        for key, value in meta.items():
+            if isinstance(value, list):
+                fh.write(f"{key}: [{', '.join(str(v) for v in value)}]\n")
+            else:
+                fh.write(f"{key}: {value}\n")
+        fh.write("---\n\n")
+        fh.writelines(merged_lines)
+
+    atomic_write(path, render)

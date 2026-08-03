@@ -21,7 +21,9 @@ from typing import Callable
 import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 from agentcrew.agentcrew_utils import AGENTCREW_DIR, read_yaml, write_yaml  # noqa: E402
+from atomic_write import atomic_write_text  # noqa: E402
 
 from .brainstorm_dag import (  # noqa: E402
     GRAPH_STATE_FILE,
@@ -1534,7 +1536,10 @@ def assign_inferred_module_node_ids(
 
     new_text = _MODULE_NODE_BLOCK_RE.sub(_assign, text)
     if new_text != text:
-        out_path.write_text(new_text, encoding="utf-8")
+        # Atomic replace, not `write_text` (t1379): the decomposer output is
+        # rewritten in place while the review preview and the pure parser read
+        # it, and `write_text` truncates before writing.
+        atomic_write_text(str(out_path), new_text)
 
 
 def apply_module_decomposer_output(

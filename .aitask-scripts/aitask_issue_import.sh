@@ -17,6 +17,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
 
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 # Batch mode variables
 BATCH_MODE=false
 SOURCE=""  # Auto-detected from git remote if not set via --source
@@ -89,18 +91,28 @@ inject_merge_frontmatter() {
         insert_text="${insert_text}"$'\n'"$contributors_yaml"
     fi
 
-    # Use a temp file approach for portable multi-line insertion
-    local tmpfile
-    tmpfile=$(mktemp "${TMPDIR:-/tmp}/ait_merge_XXXXXX.md")
-    local injected=false
-    while IFS= read -r line; do
-        printf '%s\n' "$line" >> "$tmpfile"
-        if [[ "$injected" == false ]] && echo "$line" | grep -qE "$anchor_pattern"; then
-            printf '%s\n' "$insert_text" >> "$tmpfile"
-            injected=true
-        fi
-    done < "$filepath"
-    mv "$tmpfile" "$filepath"
+    # Rendered through ait_atomic_render (lib/atomic_write.sh): the rewritten
+    # task file is staged beside the original and renamed into place, so a
+    # concurrent frontmatter reader never sees it truncated.
+    #
+    # Renderer contract: must NOT rely on `set -e`, which the calling context
+    # disables. The `grep -qE` inside returns 1 on a normal non-match, so the
+    # renderer's status cannot be left to fall out of the loop — it ends with an
+    # explicit check of `injected` instead.
+    _ait_inject_merge_frontmatter_body() {
+        local injected=false
+        local line
+        while IFS= read -r line; do
+            printf '%s\n' "$line"
+            if [[ "$injected" == false ]] && echo "$line" | grep -qE "$anchor_pattern"; then
+                printf '%s\n' "$insert_text"
+                injected=true
+            fi
+        done < "$filepath"
+        [[ "$injected" == true ]] || return 1
+    }
+    ait_atomic_render "$filepath" _ait_inject_merge_frontmatter_body \
+        || die "could not inject merge frontmatter into: $filepath"
 }
 
 # ============================================================

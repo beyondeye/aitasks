@@ -38,6 +38,7 @@ from task_yaml import (  # noqa: E402
     parse_frontmatter, serialize_frontmatter, BOARD_LAYOUT_KEYS,
 )
 import gate_ledger  # noqa: E402  -- stdlib-only; sys.path set up just above
+from atomic_write import atomic_write_text  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Conflict marker parser
@@ -463,8 +464,12 @@ def main() -> int:
     merged_keys = list(dict.fromkeys(local_keys + remote_keys))
 
     # 6. Write result
+    #
+    # Atomic replace, not `write_text` (t1379): this rewrites a live task file
+    # during sync conflict resolution, and `write_text` truncates it to zero
+    # before writing — a board scan racing the merge would read it empty.
     merged_content = serialize_frontmatter(merged_meta, merged_body, merged_keys)
-    filepath.write_text(merged_content, encoding="utf-8")
+    atomic_write_text(str(filepath), merged_content)
 
     # 7. Output status
     if unresolved:

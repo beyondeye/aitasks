@@ -31,6 +31,18 @@ atomic writers -- t1281 tracks re-pointing them here. Until that lands this is a
 ADDITIONAL implementation rather than a replacement, so treat the public API
 (``atomic_write``, ``atomic_write_text``, ``prepare``, ``commit``,
 ``target_mode``, ``discard``) as stable.
+
+Callers (t1379 routed the remaining task/plan-file writers here): ``board``'s
+``Task.save`` and ``aitask_merge``, ``diffviewer.merge_engine.write_merged_plan``,
+``brainstorm_session``, and ``frontmatter_patch``.
+
+``lib/atomic_write.sh`` is the shell sibling, with the same contract and the
+same ``resolve once -> stage beside the target -> rename`` shape; every shell
+script that replaces a task or plan file routes through it. Its one extra
+concern has no Python analogue: because bash disables ``errexit`` inside a
+function whose status is being tested, its renderers must guard each fallible
+command explicitly -- see the note at the top of that file. Keep the two in
+step when changing the semantics here.
 """
 
 import os

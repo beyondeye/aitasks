@@ -30,6 +30,27 @@ portability quirks (BSD vs GNU tooling) live in
   scripts. `SKILL.md` must call a script subcommand — never raw archive
   tooling. Format migrations then happen in one place.
 - Use `sed_inplace()` from `terminal_compat.sh` — never `sed -i`.
+- **Replacing a file in place: use `lib/atomic_write.sh`, never `> "$file"` or a
+  `mv` from `$TMPDIR`.** `> "$file"` truncates before any bytes are written, so
+  a concurrent reader sees the file empty or half-written; a `mv` whose temp
+  lives in `$TMPDIR` degrades into a non-atomic copy whenever `$TMPDIR` is on a
+  different filesystem. The helper stages a dot-prefixed temp beside the
+  *resolved* target and renames it in:
+  ```bash
+  source "$SCRIPT_DIR/lib/atomic_write.sh"
+
+  _my_body() { build_header || return 1; cat "$src" || return 1; }
+  ait_atomic_render "$dest" _my_body || die "could not write $dest"
+
+  ait_atomic_write_text "$dest" "$content"   # when you already hold the text
+  ```
+  **Renderers must not rely on `set -e`.** Bash disables errexit inside a
+  function whose exit status is being tested, so a mid-renderer failure followed
+  by a successful command commits a partial file — guard every fallible command
+  with `|| return 1`. A pure `echo`/`printf` sequence needs no guards; anything
+  that can fail on its own (`awk`, a helper function, a `[[ … ]] && echo` as the
+  *last* line) does. The full contract is documented at the top of
+  `lib/atomic_write.sh`; `lib/atomic_write.py` is the Python sibling.
 - **System libs added to `./ait`'s source-on-startup chain must also be added
   to `tests/lib/test_scaffold.sh::setup_fake_aitask_repo()` in the same PR.**
   43 tests scaffold a fake `.aitask-scripts/lib/` via that helper; a missing

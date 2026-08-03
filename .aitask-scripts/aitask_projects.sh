@@ -41,6 +41,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/registry_lock.sh
 source "$SCRIPT_DIR/lib/registry_lock.sh"
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 
 REGISTRY_FILE="${AITASKS_PROJECTS_INDEX:-$HOME/.config/aitasks/projects.yaml}"
 # Mutex dir for serializing registry read-modify-write (t1073). Derived from
@@ -53,7 +55,7 @@ REGISTRY_LOCK_DIR="${REGISTRY_FILE}.lockd"
 # refresh instead of clobbering a concurrent writer's groups.
 registry_lock_or_die() {
     # The lock dir lives beside the registry; its parent may not exist yet on a
-    # first-ever write (atomic_write would otherwise create it). mkdir the parent
+    # first-ever write (ait_atomic_write_text would otherwise create it). mkdir the parent
     # so `mkdir "$lockdir"` can succeed.
     mkdir -p "$(dirname "$REGISTRY_LOCK_DIR")" 2>/dev/null || true
     registry_lock_acquire "$REGISTRY_LOCK_DIR" \
@@ -189,18 +191,6 @@ project_name_for_root() {
     name=$(read_project_field "$root" "name")
     [[ -n "$name" ]] && { printf '%s\n' "$name"; return 0; }
     basename "$root"
-}
-
-# Atomic write — writes <content> to <target> via mktemp+mv.
-atomic_write() {
-    local target="$1"
-    local content="$2"
-    mkdir -p "$(dirname "$target")"
-    local tmp
-    tmp=$(mktemp "${target}.XXXXXX")
-    # Force exactly one trailing newline (command substitution stripped any).
-    printf '%s\n' "$content" > "$tmp"
-    mv -f "$tmp" "$target"
 }
 
 # Iterate the registry and emit one pipe-separated line per entry:
@@ -391,7 +381,7 @@ cmd_add() {
     # today — eliding an identical write shrinks the lock-contention window during
     # a restart burst. Safe: an identical write is a pure no-op.
     if [[ ! -f "$REGISTRY_FILE" || "$body" != "$(cat "$REGISTRY_FILE")" ]]; then
-        atomic_write "$REGISTRY_FILE" "$body"
+        ait_atomic_write_text "$REGISTRY_FILE" "$body"
     fi
     registry_lock_release "$REGISTRY_LOCK_DIR"
 
@@ -456,7 +446,7 @@ cmd_remove() {
 
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
-    atomic_write "$REGISTRY_FILE" "$body"
+    ait_atomic_write_text "$REGISTRY_FILE" "$body"
     registry_lock_release "$REGISTRY_LOCK_DIR"
 
     info "Removed $name"
@@ -505,7 +495,7 @@ cmd_update() {
 
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
-    atomic_write "$REGISTRY_FILE" "$body"
+    ait_atomic_write_text "$REGISTRY_FILE" "$body"
     registry_lock_release "$REGISTRY_LOCK_DIR"
 
     info "Updated $name → $new_path"
@@ -783,7 +773,7 @@ set_registry_group() {
         <<< "$tsv")
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
-    atomic_write "$REGISTRY_FILE" "$body"
+    ait_atomic_write_text "$REGISTRY_FILE" "$body"
     registry_lock_release "$REGISTRY_LOCK_DIR"
 }
 
@@ -807,7 +797,7 @@ rename_registry_group() {
         <<< "$tsv")
     local body
     body=$(printf '%s\n' "$tsv_out" | build_registry_yaml)
-    atomic_write "$REGISTRY_FILE" "$body"
+    ait_atomic_write_text "$REGISTRY_FILE" "$body"
     registry_lock_release "$REGISTRY_LOCK_DIR"
 }
 
@@ -916,7 +906,7 @@ cmd_group() {
             done <<< "$tsv"
             local body
             body=$(printf '%s' "$tsv_out" | build_registry_yaml)
-            atomic_write "$REGISTRY_FILE" "$body"
+            ait_atomic_write_text "$REGISTRY_FILE" "$body"
             registry_lock_release "$REGISTRY_LOCK_DIR"
             info "Synced project groups from repo configs ($changed updated)."
             ;;

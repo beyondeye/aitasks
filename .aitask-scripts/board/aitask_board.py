@@ -44,6 +44,7 @@ from task_levels import LEVELS_ASCENDING
 from archive_iter import find_archived_markdown_by_id, iter_archived_frontmatter
 import gate_ledger
 import trail_schema
+from atomic_write import atomic_write_text
 from task_yaml import (
     _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
     FRONTMATTER_RE, BOARD_KEYS, BOARD_LAYOUT_KEYS,
@@ -286,8 +287,10 @@ class Task:
     def save(self):
         self._invalidate_search_haystack()
         content = serialize_frontmatter(self.metadata, self.content, self._original_key_order)
-        with open(self.filepath, "w", encoding="utf-8") as f:
-            f.write(content)
+        # Atomic replace, not `open(..., "w")` (t1379): a plain write truncates
+        # the task file before any bytes land, and `_iter_active_task_frontmatter`
+        # below reads live task frontmatter from disk while the board is running.
+        atomic_write_text(str(self.filepath), content)
 
     def _update_timestamp(self):
         """Update the updated_at metadata field to current time."""
@@ -823,14 +826,23 @@ def _iter_active_task_frontmatter(unreadable=None):
     makes it return ``None``. Treating only the raise as a failure would leave
     the *more likely* window silent.
 
-    ``frontmatter_patch`` is no longer such a window — it writes through
-    ``lib/atomic_write.py`` (temp file + ``os.replace``) since t1371, so a scan
-    racing ``ait artifact new`` now sees the whole old file or the whole new one.
-    The guard stays because the rest of the writers have not been converted:
-    ``aitask_update.sh``'s ``write_task_file`` still rebuilds a task file with
-    ``> "$file_path"``, and ``Task.save`` above still uses a plain
-    ``open(path, "w")`` — both truncate to zero before writing, so both failure
-    shapes remain reachable here.
+    **No in-tree writer produces either shape any more.** t1371 converted
+    ``frontmatter_patch``; t1379 converted the rest — ``Task.save`` above and
+    ``aitask_merge`` through ``lib/atomic_write.py``, and every shell writer of a
+    task or plan file (``aitask_update.sh``'s ``write_task_file``,
+    ``aitask_create.sh``, ``aitask_issue_import.sh``, ``aitask_plan_verified.sh``,
+    ``aitask_plan_externalize.sh``) through ``lib/atomic_write.sh``. All of them
+    now render into a temp staged beside the target and rename it into place, so
+    a scan racing any of them sees the whole old file or the whole new one.
+
+    The guard nevertheless stays, for what atomicity does not cover: a file
+    hand-edited into malformed YAML, one written by tooling outside this repo, a
+    truncated checkout, and any writer added later that forgets the helper.
+    ``parse_frontmatter`` RAISES on malformed YAML whatever produced it, and this
+    is a ``@work(thread=True)`` worker under ``exit_on_error=True`` — so the
+    guard is load-bearing regardless of how the bad bytes got there. What changed
+    is the *likelihood*, not the necessity: a report here used to mean "you raced
+    a writer" and now means "this file is genuinely broken".
 
     The task-named qualifier is what keeps that honest without crying wolf: a
     ``.md`` file under the task dir whose name is not ``t<N>_…`` is a document,

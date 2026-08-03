@@ -75,6 +75,8 @@ source "$SCRIPT_DIR/lib/git_utils.sh"
 # shellcheck source=lib/python_resolve.sh
 source "$SCRIPT_DIR/lib/python_resolve.sh"
 
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 TASK_DIR="${TASK_DIR:-aitasks}"
 PLAN_DIR="${PLAN_DIR:-aiplans}"
 ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
@@ -529,33 +531,44 @@ build_header() {
 # Replaces an existing field, else inserts before the closing `---`, keeping the
 # `---` count at 2. No-op when the file does not open with `---`.
 splice_output_branch() {
-    local file="$1" branch="$2" tmp
+    local file="$1" branch="$2"
     [[ "$(head -n 1 "$file" 2>/dev/null || true)" == "---" ]] || return 0
-    tmp=$(mktemp "${TMPDIR:-/tmp}/ait_externalize_splice_XXXXXX.md")
-    awk -v br="$branch" '
-        NR == 1                             { print; next }
-        done_fm                             { print; next }
-        /^Output branch:/                   { print "Output branch: " br; seen = 1; next }
-        $0 == "---" {
-            if (!seen) print "Output branch: " br
-            done_fm = 1; print; next
-        }
-                                            { print }
-    ' "$file" > "$tmp" && mv "$tmp" "$file"
+    # Renderer contract (lib/atomic_write.sh): a single `awk`, so the renderer's
+    # exit status IS awk's — no extra guard needed. Routing it through
+    # ait_atomic_render also fixes the old `awk … > "$tmp" && mv …` form, which
+    # left the temp behind whenever awk failed.
+    _ait_splice_output_branch_body() {
+        awk -v br="$branch" '
+            NR == 1                             { print; next }
+            done_fm                             { print; next }
+            /^Output branch:/                   { print "Output branch: " br; seen = 1; next }
+            $0 == "---" {
+                if (!seen) print "Output branch: " br
+                done_fm = 1; print; next
+            }
+                                                { print }
+        ' "$file"
+    }
+    ait_atomic_render "$file" _ait_splice_output_branch_body \
+        || die "could not splice Output branch into: $file"
 }
 
-tmp_target=$(mktemp "${TMPDIR:-/tmp}/ait_externalize_XXXXXX.md")
-
-if [[ "$has_frontmatter" == true ]]; then
-    cat "$SOURCE" > "$tmp_target"
-else
-    {
-        build_header
-        cat "$SOURCE"
-    } > "$tmp_target"
-fi
-
-mv "$tmp_target" "$EXTERNAL_PLAN"
+# Renderer contract (lib/atomic_write.sh): `cat` and `build_header` can both
+# fail on their own, so each carries an explicit `|| return 1` — the calling
+# context has errexit disabled, and without the guards a failed build_header
+# followed by a successful `cat` would commit a plan with no metadata header.
+_ait_externalize_body() {
+    if [[ "$has_frontmatter" == true ]]; then
+        cat "$SOURCE" || return 1
+    else
+        build_header || return 1
+        cat "$SOURCE" || return 1
+    fi
+}
+# ait_atomic_tmp mkdir -p's the destination directory, which matters here: this
+# is also the path that CREATES aiplans/p<N>_*.md on a first externalize.
+ait_atomic_render "$EXTERNAL_PLAN" _ait_externalize_body \
+    || die "could not write external plan: $EXTERNAL_PLAN"
 
 # Sources that already had frontmatter bypassed build_header(), so the
 # `Output branch:` field has to be spliced into their existing block. Only when

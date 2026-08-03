@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/archive_utils.sh
 source "$SCRIPT_DIR/lib/archive_utils.sh"
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 
 TASK_DIR="aitasks"
 ARCHIVED_DIR="aitasks/archived"
@@ -499,7 +501,14 @@ create_child_task_file() {
     labels_yaml=$(format_yaml_list "$labels")
 
     # Create the file with YAML front matter (same format as regular tasks)
-    {
+    # The body is a renderer for ait_atomic_render (lib/atomic_write.sh):
+    # it is staged beside the target and renamed into place, so a scan of
+    # aitasks/*.md never catches the new file at zero bytes. Renderer
+    # contract: must NOT rely on `set -e` (the calling context disables it).
+    # Every command here is an `echo` or a `[[ ]]` test, whose only failure
+    # mode is a broken output fd -- which fails the trailing `echo` too. Any
+    # command added here that can fail on its own needs `|| return 1`.
+    _ait_create_child_task_file_body() {
         echo "---"
         echo "priority: $priority"
         echo "effort: $effort"
@@ -566,7 +575,9 @@ create_child_task_file() {
         echo "---"
         echo ""
         echo "$description"
-    } > "$filepath"
+    }
+    ait_atomic_render "$filepath" _ait_create_child_task_file_body \
+        || die "could not write task file: $filepath"
 
     echo "$filepath"
 }
@@ -627,7 +638,14 @@ create_draft_file() {
     local eff_xdeps="${BATCH_XDEPS:-}"
     local eff_xdeprepo="${xdeprepo_arg:-${BATCH_XDEPREPO:-}}"
 
-    {
+    # The body is a renderer for ait_atomic_render (lib/atomic_write.sh):
+    # it is staged beside the target and renamed into place, so a scan of
+    # aitasks/*.md never catches the new file at zero bytes. Renderer
+    # contract: must NOT rely on `set -e` (the calling context disables it).
+    # Every command here is an `echo` or a `[[ ]]` test, whose only failure
+    # mode is a broken output fd -- which fails the trailing `echo` too. Any
+    # command added here that can fail on its own needs `|| return 1`.
+    _ait_create_draft_file_body() {
         echo "---"
         echo "priority: $priority"
         echo "effort: $effort"
@@ -696,7 +714,9 @@ create_draft_file() {
         echo "---"
         echo ""
         echo "$description"
-    } > "$filepath"
+    }
+    ait_atomic_render "$filepath" _ait_create_draft_file_body \
+        || die "could not write task file: $filepath"
 
     echo "$filepath"
 }
@@ -1813,7 +1833,14 @@ create_task_file() {
     labels_yaml=$(format_yaml_list "$labels")
 
     # Create the file with YAML front matter
-    {
+    # The body is a renderer for ait_atomic_render (lib/atomic_write.sh):
+    # it is staged beside the target and renamed into place, so a scan of
+    # aitasks/*.md never catches the new file at zero bytes. Renderer
+    # contract: must NOT rely on `set -e` (the calling context disables it).
+    # Every command here is an `echo` or a `[[ ]]` test, whose only failure
+    # mode is a broken output fd -- which fails the trailing `echo` too. Any
+    # command added here that can fail on its own needs `|| return 1`.
+    _ait_create_task_file_body() {
         echo "---"
         echo "priority: $priority"
         echo "effort: $effort"
@@ -1884,7 +1911,9 @@ create_task_file() {
         echo "---"
         echo ""
         echo "$description"
-    } > "$filepath"
+    }
+    ait_atomic_render "$filepath" _ait_create_task_file_body \
+        || die "could not write task file: $filepath"
 
     echo "$filepath"
 }

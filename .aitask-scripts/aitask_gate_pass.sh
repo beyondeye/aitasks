@@ -27,6 +27,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 
 TASK_DIR="${TASK_DIR:-aitasks}"
 REGISTRY="${TASK_DIR}/metadata/gates.yaml"
@@ -86,12 +88,24 @@ else:
     mkdir -p "$(dirname "$target")"
     local existed=0
     [[ -f "$target" ]] && existed=1
-    {
+    # Renderer for ait_atomic_render (lib/atomic_write.sh) — the witness is
+    # staged beside the target and renamed in, so the orchestrator reading it
+    # concurrently with a re-sign never sees it truncated.
+    #
+    # The digest line is an `if` rather than the `[[ … ]] && echo` it replaced:
+    # as the block's LAST command, that form returns 1 whenever the digest is
+    # empty (git unavailable), which the renderer contract would read as a
+    # failed render and discard a perfectly good witness.
+    _ait_gate_witness_body() {
         echo "signer=$signer"
         echo "signed_at=$stamp"
         echo "hostname=$host"
-        [[ -n "$digest" ]] && echo "code_digest=$digest"
-    } > "$target"
+        if [[ -n "$digest" ]]; then
+            echo "code_digest=$digest"
+        fi
+    }
+    ait_atomic_render "$target" _ait_gate_witness_body \
+        || die "could not write gate witness: $target"
 
     if [[ "$existed" -eq 1 ]]; then
         echo "Re-signed gate '$gate' for t${task_id} (witness refreshed): $target"

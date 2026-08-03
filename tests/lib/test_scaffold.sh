@@ -23,6 +23,17 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # yaml_utils.sh is a base leaf lib sourced unconditionally by both
         # task_utils.sh and agentcrew_utils.sh — the two most-copied add-on libs.
         cp "$PROJECT_DIR/.aitask-scripts/lib/yaml_utils.sh"      "$repo_dir/.aitask-scripts/lib/"
+        # atomic_write.sh is sourced at startup by every script that replaces a
+        # task/plan file in place (aitask_update.sh, aitask_create.sh,
+        # aitask_issue_import.sh, aitask_plan_verified.sh,
+        # aitask_plan_externalize.sh, aitask_gate_pass.sh, aitask_projects.sh);
+        # it is a stdlib-only leaf with no deps of its own (t1379).
+        cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh"    "$repo_dir/.aitask-scripts/lib/"
+        # …and its Python sibling, for the same reason on the Python side: any
+        # scaffolded test that copies board/, brainstorm/ or diffviewer/ modules
+        # imports it transitively. Both are stdlib-only leaves, so copying them
+        # unconditionally costs nothing.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.py"    "$repo_dir/.aitask-scripts/lib/"
         # cross_repo_reexec.sh is sourced at startup by aitask_ls.sh,
         # aitask_query_files.sh, and aitask_find_by_file.sh; its only dep
         # (terminal_compat.sh) is already copied above.
