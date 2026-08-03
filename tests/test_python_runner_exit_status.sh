@@ -415,18 +415,35 @@ run_lane() {
 
 # The lane's flags, pinned as an EXACT vector. `--dist loadfile` is the
 # load-bearing half: the default `--dist load` splits one file's tests across
-# workers, which breaks the ~39 modules that chdir the process. `-n 2` is pinned
-# too, so a regression back to `-n auto` — which would hand the whole machine to
-# one suite run — fails here rather than in production.
-test_lane_argv_is_bounded_and_loadfile() {
-    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0
+# workers, which breaks the ~39 modules that chdir the process. The worker count
+# is pinned too, so a regression to `-n auto` — which would hand the whole
+# machine to one suite run — fails here rather than in production.
+#
+# The default is load-aware (t1354_4): 4 on a machine with headroom, 2 under
+# load. That would make this assertion machine- and moment-dependent, so BOTH
+# branches are driven through the AIT_TEST_LOADAVG / AIT_TEST_NCPU seams. Both
+# inputs are injected — a real `os.cpu_count()` below 4 would otherwise silently
+# turn the quiet-box case into the loaded-box case on small machines.
+test_lane_argv_default_is_load_aware() {
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_NCPU=24 AIT_TEST_LOADAVG=0.5
     assert_exit_zero_rc "lane: green fixture exits 0" "$RC"
-    assert_eq "lane: argv is <globs> -v -n 2 --dist loadfile" \
+    assert_eq "quiet box: default argv is <globs> -v -n 4 --dist loadfile" \
+        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 4)" "$(phase_argv 1)"
+    assert_contains "quiet box: announces the auto-selected count" \
+        "worker count: auto-selected -n 4 from machine load" "$OUT"
+
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_NCPU=24 AIT_TEST_LOADAVG=99
+    assert_eq "loaded box: default argv is <globs> -v -n 2 --dist loadfile" \
         "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 2)" "$(phase_argv 1)"
     assert_contains "lane: announces itself on stderr" \
         "parallel lane: -n 2 --dist loadfile" "$OUT"
     assert_contains "lane: banner still names runner=pytest (t1179 contract)" \
         "PYTHON SUITE: PASSED (runner=pytest, exit=0)" "$OUT"
+
+    # A tiny box never grabs 4 workers, however idle it is.
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_NCPU=2 AIT_TEST_LOADAVG=0
+    assert_eq "2-cpu box: idle still yields -n 2, never 4" \
+        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 2)" "$(phase_argv 1)"
 }
 
 # The no-xdist branch must be flag-free — and deterministically so, which is
@@ -440,20 +457,34 @@ test_no_xdist_means_no_lane_flags() {
     assert_not_contains "no xdist: no lane announcement" "parallel lane:" "$OUT"
 }
 
+# The override beats the auto-selection, not merely the old constant: the seams
+# are set so the default WOULD be 2, and 6 is asked for and received. A value the
+# auto-selector can also produce would leave that ambiguous.
 test_worker_count_is_overridable() {
-    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_WORKERS=4
-    assert_eq "AIT_TEST_WORKERS=4 yields -n 4" \
-        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 4)" "$(phase_argv 1)"
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 \
+        AIT_TEST_NCPU=24 AIT_TEST_LOADAVG=99 AIT_TEST_WORKERS=6
+    assert_eq "AIT_TEST_WORKERS=6 beats the load-aware default" \
+        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 6)" "$(phase_argv 1)"
+    assert_not_contains "explicit override is not announced as auto-selected" \
+        "auto-selected" "$OUT"
 }
 
 # A malformed override must not reach pytest as a bare token. Asserted as an
-# exact vector: it pins BOTH that the value is 2 and that `x` never appears.
+# exact vector: it pins BOTH the fallback value and that `x` never appears. The
+# fallback is the load-aware default, not a second hard-coded constant, so the
+# seams pin which branch it lands in.
 test_malformed_worker_count_falls_back() {
-    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 AIT_TEST_WORKERS=x
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 \
+        AIT_TEST_NCPU=24 AIT_TEST_LOADAVG=99 AIT_TEST_WORKERS=x
     assert_eq "malformed AIT_TEST_WORKERS falls back to exactly -n 2" \
         "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 2)" "$(phase_argv 1)"
     assert_contains "malformed AIT_TEST_WORKERS warns" \
         "is not a positive integer" "$OUT"
+
+    run_lane "$CWD_PYTEST_XDIST" "$FIX_GREEN" STUB_RC=0 \
+        AIT_TEST_NCPU=24 AIT_TEST_LOADAVG=0.5 AIT_TEST_WORKERS=x
+    assert_eq "malformed override falls back to the default's OTHER branch too" \
+        "$(lane_vector "$FIX_GREEN/test_zz_script_style.py" 4)" "$(phase_argv 1)"
 }
 
 test_parallel_opt_out_restores_serial_vector() {
@@ -562,7 +593,7 @@ test_unittest_forwards_remaining_arguments
 test_pytest_backend_is_selected_and_zero_passes
 test_pytest_backend_failure_propagates
 test_pytest_receives_the_expected_argv
-test_lane_argv_is_bounded_and_loadfile
+test_lane_argv_default_is_load_aware
 test_no_xdist_means_no_lane_flags
 test_worker_count_is_overridable
 test_malformed_worker_count_falls_back

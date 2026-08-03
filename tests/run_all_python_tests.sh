@@ -107,6 +107,41 @@ has_path_selector() {
     return 1
 }
 
+# Default worker count: 4 when the machine has headroom, 2 when it does not.
+# Never `-n auto` — auto is os.cpu_count(), which hands the whole machine to one
+# suite run, starves the other agents commonly running alongside it, and makes
+# every timing a measurement of contention rather than of the suite.
+#
+# Measured on a 24-core box (t1354_4, one denominator, same pinned tree):
+#   -n 2 → 200.1s   -n 4 → 111.3s   -n 6 → 101.0s
+# N=4 is 1.80x faster than N=2 for ~10% more CPU and sits on the makespan
+# crossover (total work ÷ 4 = 91.6s vs the slowest single file at 87.1s), so
+# extra workers buy almost nothing past it. Taking 4 cores while the box is
+# already busy would starve co-running agents, so the default steps back to 2
+# under load.
+#
+# AIT_TEST_LOADAVG / AIT_TEST_NCPU are TEST SEAMS, not user knobs. A
+# load-dependent argv would otherwise make tests/test_python_runner_exit_status.sh
+# machine- and moment-dependent — the exact defect class the blocking xdist shim
+# was added to remove — so the contract test injects both and drives each branch
+# deterministically. Users override the result with AIT_TEST_WORKERS.
+default_workers() {
+    local n
+    n="$("$PY" -c '
+import os
+try:
+    raw_cpu = os.environ.get("AIT_TEST_NCPU")
+    ncpu = int(raw_cpu) if raw_cpu else (os.cpu_count() or 1)
+    raw = os.environ.get("AIT_TEST_LOADAVG")
+    load = float(raw) if raw else os.getloadavg()[0]
+except (OSError, ValueError):
+    print(2)
+else:
+    print(4 if ncpu >= 4 and load <= ncpu / 2 else 2)
+' 2>/dev/null)"
+    if [[ "$n" =~ ^[1-9][0-9]*$ ]]; then printf '%s' "$n"; else printf '2'; fi
+}
+
 # Try pytest first, fall back to unittest. Choose the backend here but do not
 # run it: execution, the verdict and the exit are one shared path below, so the
 # result contract cannot drift between the two branches.
@@ -128,14 +163,19 @@ if "$PY" -c "import pytest" 2>/dev/null; then
         parallel=0
     fi
 
-    # Bounded by default, never `-n auto`: auto resolves to os.cpu_count(), which
-    # would hand the whole machine to one suite run and starve the other agents
-    # commonly running alongside it — and make every timing a measurement of
-    # contention rather than of the suite.
-    workers="${AIT_TEST_WORKERS:-2}"
-    if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]]; then
-        echo "AIT_TEST_WORKERS='$workers' is not a positive integer — using 2" >&2
-        workers=2
+    # An explicit AIT_TEST_WORKERS always wins; otherwise the bounded, load-aware
+    # default above decides. A malformed override falls back to that same default
+    # rather than a second hard-coded constant, so "the default" has one meaning.
+    workers_auto=0
+    if [[ -n "${AIT_TEST_WORKERS:-}" ]]; then
+        workers="$AIT_TEST_WORKERS"
+        if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]]; then
+            workers="$(default_workers)"
+            echo "AIT_TEST_WORKERS='${AIT_TEST_WORKERS}' is not a positive integer — using $workers" >&2
+        fi
+    else
+        workers="$(default_workers)"
+        workers_auto=1
     fi
 
     if [[ "$parallel" -eq 1 ]]; then
@@ -145,6 +185,9 @@ if "$PY" -c "import pytest" 2>/dev/null; then
             if is_carved "$f"; then serial+=("$f"); else pool+=("$f"); fi
         done
         echo "parallel lane: -n $workers --dist loadfile (serial carve-out: ${SERIAL_CARVE_OUT[*]})" >&2
+        if [[ "$workers_auto" -eq 1 ]]; then
+            echo "worker count: auto-selected -n $workers from machine load (override with AIT_TEST_WORKERS)" >&2
+        fi
         # Either partition may be empty (e.g. a --test-dir subset holding neither
         # kind). An empty phase is SKIPPED, never invoked with no files: pytest
         # with no path argument collects the current directory instead.

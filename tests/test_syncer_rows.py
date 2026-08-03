@@ -857,10 +857,17 @@ def version_cells(app, row_key: str) -> dict[str, str]:
     }
 
 
-class TabbedShellTests(unittest.TestCase):
-    """Boots the real SyncerApp with every impure seam mocked: discovery (to pin
+class _TabbedShellBase(unittest.TestCase):
+    """Boot helpers only — deliberately test-free, so the subclasses below
+    inherit the fixture without inheriting anybody's tests.
+
+    Boots the real SyncerApp with every impure seam mocked: discovery (to pin
     ``multi_repo``), ``snapshot`` (so the threaded refresh worker never shells
-    out to git), and the version/upgrade seams (network, tmux, spawn)."""
+    out to git), and the version/upgrade seams (network, tmux, spawn).
+
+    The leading underscore is load-bearing: it keeps this class out of
+    collection, matching the ``GitRepoTestBase`` / ``BrainstormCrewTestBase``
+    pattern used elsewhere in this tree."""
 
     def _run(self, coro):
         return asyncio.run(coro)
@@ -919,6 +926,21 @@ class TabbedShellTests(unittest.TestCase):
         await pilot.pause()
         await app.workers.wait_for_complete()
         await pilot.pause()
+
+    async def _focus_bar(self, app, pilot):
+        bar = app.query_one(TabbedContent).query_one(Tabs)
+        bar.focus()
+        await pilot.pause()
+        return bar
+
+
+class TabbedShellTests(_TabbedShellBase):
+    """The tabbed-shell behaviour itself.
+
+    Split out of ``_TabbedShellBase`` (t1354_4): while these tests lived on the
+    shared base, every subclass below re-ran all of them verbatim — 75 duplicate
+    ``SyncerApp`` boots, about half this file's runtime, testing nothing the
+    base run did not already cover."""
 
     # ------------------------------------------------------------ tab shape
 
@@ -984,12 +1006,6 @@ class TabbedShellTests(unittest.TestCase):
         self._run(runner())
 
     # ----------------------------------------- tab bar <-> content nav (t1266)
-
-    async def _focus_bar(self, app, pilot):
-        bar = app.query_one(TabbedContent).query_one(Tabs)
-        bar.focus()
-        await pilot.pause()
-        return bar
 
     def test_down_from_tab_bar_enters_the_active_list(self):
         """Requirement 1: ↓ on the bar lands on the active pane's first row."""
@@ -1425,7 +1441,7 @@ def live(root: str, name: str, session: str, **kwargs) -> AitasksSession:
     )
 
 
-class VersionsTabTests(TabbedShellTests):
+class VersionsTabTests(_TabbedShellBase):
     """Versions-tab loading, gating and rendering."""
 
     def test_versions_load_lazily_and_share_one_latest_lookup(self):
@@ -1517,7 +1533,7 @@ class VersionsTabTests(TabbedShellTests):
         self.assertIs(app.check_action("recheck_version", ()), False)
 
 
-class UpgradeActionTests(TabbedShellTests):
+class UpgradeActionTests(_TabbedShellBase):
     """The upgrade flow: capture, gate, refuse, force, spawn, hand off.
 
     Repo roots are real directories: ``_capture_target`` refuses a target whose
@@ -1946,7 +1962,7 @@ class UpgradeActionTests(TabbedShellTests):
         self._run(runner())
 
 
-class SettingsTabTests(TabbedShellTests):
+class SettingsTabTests(_TabbedShellBase):
     """The Settings tab and its push action (t1223_5), against a booted app."""
 
     def repos(self, n: int = 2) -> list[AitasksSession]:

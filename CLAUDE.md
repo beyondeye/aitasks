@@ -42,7 +42,7 @@ single file's tests across workers.
 
 | knob | effect |
 |---|---|
-| `AIT_TEST_WORKERS=<n>` | worker count. **Default 2, not `auto`** — `auto` means `os.cpu_count()`, which hands the whole machine to one suite run and starves any agents running alongside it. |
+| `AIT_TEST_WORKERS=<n>` | worker count. **The default is load-aware: 4 when the box has headroom (≥4 cpus and 1-min load ≤ cpus/2), 2 otherwise** — never `auto`, which means `os.cpu_count()` and would hand the whole machine to one suite run, starving any agents running alongside it. The runner prints the count it auto-selected; an explicit value here always wins. Measured on a 24-core box: `-n 2` 200s, `-n 4` 111s, `-n 6` 101s — 4 is the efficiency knee and sits on the makespan crossover, so more workers buy almost nothing (t1354_4). |
 | `AIT_TEST_PARALLEL=0` | run serially (**execution** opt-out; works whether or not the tier is installed) |
 
 **Opting out is two separate things.** Deleting the tier marker stops `ait setup`
