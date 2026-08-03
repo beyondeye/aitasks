@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
@@ -43,7 +45,29 @@ the followed agent resolve instead via `_find_own_agent_snapshot()` —
 `action_kill_own_agent` (`k`), `action_pick_next_for_own` (`n`),
 `action_show_own_task_info` (`I`).
 
-## Key choice — do NOT use `shift+space` (measured)
+## Key choice — SETTLED during planning: no new key
+
+**Decision (confirmed with the user at planning time): do not add a second key.
+`space` in the minimonitor is *retargeted* to the followed agent, independent of
+list focus.** One key, one target. The minimonitor is a companion pane bound to
+exactly one agent, so "mark" there can only sensibly mean "the agent I am
+watching".
+
+Consequences, all confirmed:
+
+- Minimonitor list cards are **no longer togglable**. They keep rendering
+  `★`/`☆` read-only, so marks set elsewhere stay visible (the name budget stays
+  at 20 — t1326's width trade is unchanged).
+- `ait monitor` is **unchanged**: it follows nothing, so focus is its only
+  sensible target, and it remains the place to mark any *other* agent.
+- The uppercase-sibling convention (`i`→`I`, `e`→`E`) is deliberately **not**
+  applied here — it exists to add a followed-agent action *beside* a focus-scoped
+  one, and this task removes the focus-scoped one instead.
+
+The `shift+space` measurement below is retained as evidence (it is also the
+reason no alias was added, and it stays relevant to **t1309**).
+
+### Original evidence — do NOT use `shift+space` (measured)
 
 Probed on this machine (tmux 3.7 with `extended-keys on` /
 `extended-keys-format csi-u`, outer terminal ghostty, Textual 8.2.7, agent
@@ -69,17 +93,11 @@ settings). So the probe proves "not dependable", not "impossible". Any
 `shift+space` binding must be validated by a **real keypress in a real tmux
 pane**, never by `send-keys`.
 
-**Established convention in this TUI is a dedicated uppercase key** resolving
-via `_find_own_agent_snapshot()`: `i` → `I` (t1282), `e` → `E`. `space` has no
-uppercase form, so decide during planning between:
-
-- an uppercase letter (free today: `S`, `O`, `F`, `P` is taken by pick, …), or
-- `*` — mirrors the `★` mark glyph and is unambiguous through tmux (verified:
-  Textual reports `asterisk`).
-
-Optionally add `shift+space` as an *extra* alias for terminals that do deliver
-it — acceptable only if the primary key stands alone and the alias cannot
-degrade into the list-agent toggle.
+The candidates weighed at planning time — an uppercase letter (`S`, `O`, `F`)
+or `*` (unambiguous through tmux: Textual reports `asterisk`) — are recorded
+here for **t1309**, which still needs a key. No `shift+space` alias was added:
+where the modifier collapses, the keypress would silently hit the wrong target,
+and an alias cannot prevent that.
 
 ## Rendering the mark in the docked panel
 
@@ -123,9 +141,10 @@ that this agent is the one that matters.
    `action_toggle_mark` a thin focus-resolving caller. Keep the existing
    `MARKED:`/`UNMARKED:`/`LOCK_BUSY` handling and the focus-vs-cached-pane-id
    comment intact.
-2. Add the new action in `minimonitor_app.py` resolving via
+2. **Override** `action_toggle_mark` in `minimonitor_app.py` resolving via
    `_find_own_agent_snapshot()`, warning `"No followed agent in this window"`
-   when unresolvable (mirrors `action_show_own_task_info`).
+   when unresolvable (mirrors `action_show_own_task_info`). No new binding —
+   the existing `space` row is relabelled.
 3. Render `★`/`☆` in the docked panel and update it when the bit flips.
 4. Update the hard-coded `#mini-key-hints` panel in `compose()`
    (`minimonitor_app.py:266-277`).
@@ -134,18 +153,23 @@ that this agent is the one that matters.
 
 ## Acceptance criteria
 
-- Pressing the new key in minimonitor toggles the prioritized mark on the
-  followed agent; the docked panel shows `★` when marked and `☆` when not.
+- Pressing `space` in minimonitor toggles the prioritized mark on the followed
+  agent **regardless of which list card is focused**; the docked panel shows
+  `★` when marked and `☆` when not.
 - A mark set on the followed agent is visible from `ait monitor` and from
   another repo's minimonitor within one refresh cycle, keyed by
   *(project root, tmux window name)*.
 - A mark set (or expired / swept) **elsewhere** is reflected in the docked
   panel within one refresh cycle — not only on local toggle.
-- The list-agent `space` behaviour is unchanged; the new key never toggles a
-  list agent, and `space` never toggles the followed agent.
-- With no followed agent resolvable, the new key warns and does not write.
+- Minimonitor list cards are no longer togglable and render marks read-only;
+  `ait monitor`'s focus-scoped `space` is unchanged and remains the way to mark
+  any *other* agent.
+- With no followed agent resolvable — including a window renamed off the
+  `agent-` prefix — `space` warns and does not write, and the docked panel
+  shows **no** mark glyph at all (not a read-only `☆`).
 - The docked panel still shows no live status (no state dot, no compare-mode
-  or shadow glyph, no COMPLETED badge).
+  or shadow glyph, no COMPLETED badge), and its identity text stays frozen
+  across a mark flip.
 - The `how-to.md:176` note is rewritten, not contradicted by neighbouring
   prose.
 
@@ -159,17 +183,25 @@ that this agent is the one that matters.
 - Render-level: assert the docked card's `render().plain` contains `★` after a
   toggle and `☆` before it, and that it flips when the marks file changes
   without a local keypress.
+- Wiring: the repaint must be proven through a **real refresh cycle** on a
+  mounted app — a direct `_refresh_own_mark()` call cannot catch a production
+  call that is missing from `_refresh_data` or ordered before the mark/root
+  refreshes.
 - Negative control: revert the action to focus resolution and confirm the new
-  tests fail.
+  tests fail. Two more, one per remaining failure direction (stale glyph after
+  a rename; missing `_refresh_data` wiring).
 - Live acceptance (manual, in a real tmux pane with a real keypress — not
-  `send-keys`): confirm the chosen key reaches the app and that `space` still
-  targets the list.
+  `send-keys`): confirm `space` reaches the app and targets the followed agent
+  while a different list card is highlighted.
 
 ## Related
 
 - **t1309** — `d` (detect) has the identical reachability gap; kept separate
-  by explicit user decision during exploration. Whatever key convention this
-  task settles on should be the one t1309 follows.
+  by explicit user decision during exploration. This task settled on
+  *retargeting* rather than adding a key, which does **not** transfer to
+  `d`: `d` must keep its focused-card meaning for the list, so t1309 still
+  needs a dedicated key. The candidates weighed here (`D`, `*`) and the
+  `shift+space` measurement above are the inputs for that choice.
 - **t1326** — added the prioritized-mark feature and the `space` binding.
 - **t1282** — established the `_find_own_agent_snapshot()` pattern for `I`.
 - **t1350** — pins that App-level bindings do not dispatch inside a
