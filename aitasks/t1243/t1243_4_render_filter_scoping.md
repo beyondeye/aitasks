@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1243_3]
 issue_type: performance
@@ -142,3 +144,5 @@ card-only assumption:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-03T09:04:28Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-03T09:56:19Z status=pass attempt=1 type=human
