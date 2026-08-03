@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-08-03 09:41
-updated_at: 2026-08-03 09:48
+updated_at: 2026-08-03 12:07
 ---
 
 ## Origin
@@ -65,3 +66,8 @@ Worth auditing the rest of `aitask_setup.sh` for the same shape in any other
 function that documents a best-effort / never-block contract — the two found
 here were not sought out, they surfaced while modelling a new tier on the chat
 one, so the enumeration is not known to be complete.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T09:07:46Z status=pass attempt=1 type=human
