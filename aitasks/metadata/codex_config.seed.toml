@@ -1,0 +1,30 @@
+# aitask framework — Codex CLI configuration seed
+# This file is merged into .codex/config.toml during `ait setup`
+# Only aitask-specific settings are included here
+
+# Sandbox: allow writes to workspace + network access (needed for git push, web search)
+sandbox_mode = "workspace-write"
+
+[features]
+default_mode_request_user_input = true
+
+[sandbox_workspace_write]
+network_access = true
+
+# Protective rules for destructive commands.
+# Aitasks helper allow rules live in .codex/rules/default.rules.
+
+[[rules.prefix_rules]]
+pattern = [{ token = "rm" }, { any_of = ["-rf", "-r", "-fr"] }]
+decision = "prompt"
+justification = "Recursive deletion requires approval"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "git" }, { token = "push" }, { token = "--force" }]
+decision = "prompt"
+justification = "Force push requires approval"
+
+[[rules.prefix_rules]]
+pattern = [{ token = "git" }, { token = "reset" }, { token = "--hard" }]
+decision = "prompt"
+justification = "Hard reset requires approval"
