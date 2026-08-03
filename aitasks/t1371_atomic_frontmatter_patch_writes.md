@@ -64,3 +64,5 @@ shared `atomic_write_text()` helper is the right home for it.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-03T07:40:27Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-03T08:07:12Z status=pass attempt=1 type=human
