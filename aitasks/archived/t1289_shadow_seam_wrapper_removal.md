@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: refactor
-status: Implementing
+status: Done
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1111
 implemented_with: claudecode/opus5
 created_at: 2026-07-28 11:53
-updated_at: 2026-08-03 10:33
+updated_at: 2026-08-03 11:19
+completed_at: 2026-08-03 11:19
 boardidx: 360
 ---
 
@@ -90,3 +91,14 @@ the lift changed no behaviour. That proof has now served its purpose.
 > **✅ gate:plan_approved** run=2026-08-03T07:33:28Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-03T08:12:24Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-03T08:19:29Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:799fbfbe0426be79
+
+> **✅ gate:risk_evaluated** run=2026-08-03T08:19:29Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1289/risk_evaluated_2026-08-03T08:19:29Z-risk_evaluated-a1.log`
