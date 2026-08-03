@@ -569,9 +569,9 @@ script means **no permission-allowlist edits** in the four seed/settings files.
   `test_parallel_cross_repo_planning_procedure` green;
   `aitask_skill_verify.sh` OK; shellcheck unchanged from baseline (SC1091 only);
   Python suite `PASSED (runner=pytest, exit=0)`.
-- **Follow-ups filed at Step 8b/8d:** (1) Step 5's missing worktree-reuse rule;
-  (2) wiring `merge-target-sync.md` into the non-resumed Step 9 path;
-  (3) `verify_reentry_drift_loop_terminates` (the confirmed risk mitigation).
+- **Follow-ups filed at Step 8b/8d:** (1) t1392 Step 5's missing worktree-reuse
+  rule; (2) t1393 wiring `merge-target-sync.md` into the non-resumed Step 9 path;
+  (3) t1394 `verify_reentry_drift_loop_terminates` (the confirmed risk mitigation).
 
 ## Post-Review Changes
 
@@ -646,9 +646,9 @@ script means **no permission-allowlist edits** in the four seed/settings files.
 - The Defect-2 loop-termination argument depends on the stop branch continuing
   to revert to `Ready`, and is argued in prose — grep guards over skill markdown
   cannot prove the live loop terminates. · severity: low ·
-  → mitigation: `verify_reentry_drift_loop_terminates` (the revert also now
+  → mitigation: t1394 (`verify_reentry_drift_loop_terminates`) (the revert also now
   lives in exactly one shared file, with a structural guard asserting the
   reference from both call sites).
 
 ### Planned mitigations
-- timing: after | name: verify_reentry_drift_loop_terminates | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — loop termination is argued in prose only | desc: In a scratch repo, crash a fast-profile task after plan approval, push a drifting commit to origin, re-pick and confirm the re-entry drift check fires; then confirm "Stop and re-verify plan" → pull → re-pick lands in the planning path and terminates
+- timing: after | name: verify_reentry_drift_loop_terminates | created: t1394 | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — loop termination is argued in prose only | desc: In a scratch repo, crash a fast-profile task after plan approval, push a drifting commit to origin, re-pick and confirm the re-entry drift check fires; then confirm "Stop and re-verify plan" → pull → re-pick lands in the planning path and terminates
