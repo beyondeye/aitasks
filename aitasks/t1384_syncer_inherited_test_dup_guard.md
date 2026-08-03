@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1111
+implemented_with: claudecode/opus5
 created_at: 2026-08-03 15:25
-updated_at: 2026-08-03 15:31
+updated_at: 2026-08-03 16:59
 ---
 
 ## Origin
@@ -62,3 +63,8 @@ is what keeps the base out of collection (same pattern as `GitRepoTestBase` /
 - Note the related-but-distinct t1375 guard (`bare_module_test_fn_guard`) covers
   module-level `def test_*`; this one covers inherited class tests. Consider
   whether they belong in one module.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-03T13:59:44Z status=pass attempt=1 type=human
