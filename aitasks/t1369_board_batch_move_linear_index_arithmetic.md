@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [aitask_board, python, script-performance]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-02 13:08
-updated_at: 2026-08-02 13:08
+updated_at: 2026-08-04 12:19
 boardidx: 12288
 ---
 
