@@ -19,3 +19,12 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1319
+
+## Verification Checklist
+
+- [ ] Spawn a real shadow from minimonitor (`e`) against a live agent; confirm its first argument-free `aitask_shadow_capture.sh` call resolves the bound followed pane with no error (the launch->stamp race at the real agent-CLI layer)
+- [ ] With that shadow running, open the concern picker; confirm concerns still appear — `capture_shadow_text` now passes `--any-pane`, and a regression here surfaces as a silent "no concerns" rather than an error
+- [ ] Run `ait monitor` from a personal tmux session on a different socket than `-L ait`; confirm the shadow preview column and the concern picker still work (the cross-server case the `--any-pane` opt-out exists for)
+- [ ] From inside a live shadow pane, run `./.aitask-scripts/aitask_shadow_capture.sh <a-wrong-pane-id>`; confirm it exits 2, names both the requested and the bound pane, and captures nothing
+- [ ] Invoke `/aitask-shadow %<id>` manually from OUTSIDE the framework's tmux server; confirm the agent follows the split recovery (ask the user to confirm the pane, then re-run with `--any-pane`) and does NOT livelock between the no-arg and explicit forms
+- [ ] TODO: verify .aitask-scripts/monitor/monitor_core.py end-to-end in tmux (interactive surface touched by this task)
