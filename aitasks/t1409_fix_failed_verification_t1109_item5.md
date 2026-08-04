@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [635_15]
+depends: [t635_15]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-08-04 13:08
-updated_at: 2026-08-04 13:08
+updated_at: 2026-08-04 13:36
 ---
 
 ## Failed verification item from t635_15
