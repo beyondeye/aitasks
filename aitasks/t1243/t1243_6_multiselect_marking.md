@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:14
-updated_at: 2026-08-04 09:28
+updated_at: 2026-08-04 11:12
 ---
 
 ## Context
@@ -109,3 +110,8 @@ repo (`:focus` -> `$accent`, `:hover` -> `$surface-lighten-1`, `:focus:hover` ->
   marked set unchanged and emits the notify.
 - `check_action` hides the binding in `inflight` / `bytopic` / `bytrail`
   (extend `tests/test_board_footer_visibility.py`'s style of assertion).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-04T08:12:39Z status=pass attempt=1 type=human
