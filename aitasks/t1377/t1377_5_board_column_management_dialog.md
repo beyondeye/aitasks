@@ -8,8 +8,9 @@ labels: [aitask_board, board_columns, tui, custom_shortcuts]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-04 09:56
-updated_at: 2026-08-04 09:56
+updated_at: 2026-08-04 10:57
 ---
+
 
 ## Context
 
@@ -50,20 +51,28 @@ it behind one dialog on one key, and wires in the merge engine from t1377_4.
 
 ## Implementation Plan
 
-### Step 1 — de-duplicate first (NON-OPTIONAL, do it before adding anything)
+### Step 1 — `_COMMANDS`: check first, consume if present
 
-`KanbanCommandProvider` duplicates its seven-command list **verbatim** between
+`KanbanCommandProvider` duplicates its command list **verbatim** between
 `discover()` and `search()`. Adding a command to one and not the other silently
-breaks discovery or search. Collapse both onto a single `_COMMANDS` tuple of
-`(display, action_attr, help)` **first**, plus a guard test asserting the two
-methods expose the same command set.
+breaks discovery or search, so it must be collapsed onto a single `_COMMANDS` tuple
+of `(display, action_attr, help)` **before** any new command is added
+(`aidocs/framework/planning_conventions.md`, "Refactor duplicates before adding to
+them").
 
-This is `t1243_7`'s §1 mandate, cited to `aidocs/framework/planning_conventions.md`
-("Refactor duplicates before adding to them"). t1243_7 is `Ready` behind
-`t1243_4 -> 5 -> 6`, so it has not landed and this child does the refactor.
-**Drop a reverse note into `aitasks/t1243/t1243_7_move_to_column_command.md` under
-`## Notes for sibling tasks`** recording that the de-dup landed here and that
-t1243_7 should consume `_COMMANDS` rather than redo it.
+**`t1243_7_move_to_column_command` is expected to have landed that refactor** — it
+is its §1 mandate, and it sits far ahead of this child in the queue. So:
+
+- **Grep for `_COMMANDS` first.** If it exists, **consume it**: add the
+  "Manage Columns" / "Merge Columns" entries to the single tuple, and **extend**
+  t1243_7's existing parity guard rather than writing a second one. Do not redo the
+  refactor.
+- **Only if it is still absent** (t1243_7 slipped), do the de-dup here first,
+  exactly as t1243_7 §1 specifies, and record it in that task's
+  `## Notes for sibling tasks`.
+
+Either way, exactly one `_COMMANDS` tuple and one parity guard must exist when this
+child is done.
 
 ### Step 2 — one dialog behind one key
 

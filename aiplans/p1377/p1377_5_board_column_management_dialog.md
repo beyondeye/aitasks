@@ -20,20 +20,32 @@ The gap this closes is **discoverability plus merge**: add / edit / delete alrea
 exist but **no key is bound to any of them** — they are reachable only via the
 Ctrl+P palette or the header ✎ button.
 
-## Step 1 — de-duplicate first (NON-OPTIONAL, before adding anything)
+## Step 1 — `_COMMANDS`: check first, consume if present
 
-`KanbanCommandProvider` duplicates its seven-command list **verbatim** between
-`discover()` and `search()`. Adding a command to one and not the other silently
-breaks discovery or search. Collapse both onto a single `_COMMANDS` tuple of
-`(display, action_attr, help)` **first**, then add commands.
+`KanbanCommandProvider` duplicates its command list **verbatim** between
+`discover()` and `search()`; adding a command to one and not the other silently
+breaks discovery or search. Exactly one `_COMMANDS` tuple of
+`(display, action_attr, help)` plus one parity guard must exist before any new
+command is added (`aidocs/framework/planning_conventions.md`, "Refactor duplicates
+before adding to them").
 
-This is `t1243_7`'s §1 mandate, cited to `aidocs/framework/planning_conventions.md`
-("Refactor duplicates before adding to them"). t1243_7 is `Ready` behind
-`t1243_4 → 5 → 6`, so it has not landed and this child does the refactor.
+**Sequencing correction (2026-08-04).** The original plan assigned this refactor to
+this child, because at t1377 planning time `t1243_7` sat behind `t1243_4 -> 5 -> 6`
+and looked far off. `t1243_4` and `t1243_5` have since landed, `t1243_6` is in
+flight and `t1243_7` is next — while this child is blocked behind
+`t1377_1 -> 2 -> 3 -> 4`. **t1243_7 lands the de-dup first.**
 
-**Drop a reverse note** into `aitasks/t1243/t1243_7_move_to_column_command.md`
-under `## Notes for sibling tasks`: the de-dup landed here; t1243_7 should consume
-`_COMMANDS` rather than redo it.
+So:
+
+- **Grep for `_COMMANDS` first.** If present, **consume it** — add "Manage Columns"
+  / "Merge Columns" to the single tuple and **extend** t1243_7's parity guard.
+  Do not redo the refactor and do not add a second guard.
+- **Only if absent** (t1243_7 slipped), perform the de-dup here as t1243_7 §1
+  specifies, and record it in that task's `## Notes for sibling tasks`.
+
+`t1243_7` also binds **`m`** for move-tasks-to-column. This child uses **`e`** —
+no conflict — but match its UX conventions (per-view semantics gated in
+`check_action`) and read its landed `## Notes for sibling tasks` before starting.
 
 ## Step 2 — `ColumnManageScreen`, bound to `e`
 

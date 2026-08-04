@@ -8,8 +8,9 @@ labels: [aitask_board, tui, python, custom_shortcuts]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-07-28 01:15
-updated_at: 2026-08-04 10:03
+updated_at: 2026-08-04 10:57
 ---
+
 
 
 ## Context
@@ -110,23 +111,23 @@ when there is nothing movable in focus.
 
 ## Notes for sibling tasks
 
-**The §1 `KanbanCommandProvider` de-dup is being done by `t1377_5`, not here.**
+**`t1377_5` consumes your `_COMMANDS` de-dup — do it here, as §1 already says.**
 
-`t1377_5_board_column_management_dialog` adds palette entries for a new column
-management dialog, so it hits the same verbatim-duplicated `discover()` /
-`search()` lists this task's §1 mandates collapsing. Since t1243_7 sits behind the
-serial chain `t1243_4 -> 5 -> 6` and t1377 carries no `depends` on it, t1377_5 does
-the refactor first (per `aidocs/framework/planning_conventions.md`, "Refactor
-duplicates before adding to them").
+At t1377 planning time t1243_4/_5 had not landed and this task sat behind three
+children, so the de-dup was provisionally assigned to
+`t1377_5_board_column_management_dialog`. That assumption is now void: t1243_4 and
+t1243_5 have landed, and t1377_5 is blocked behind `t1377_1 -> 2 -> 3 -> 4`, so
+**this task lands first**. Keep §1 exactly as written and do the refactor here.
 
-When picking this task:
+What t1377_5 will do when it arrives:
 
-- **Check whether `_COMMANDS` already exists** in `KanbanCommandProvider`. If it
-  does, **consume it** — add your entries to the single tuple. Do not redo the
-  refactor, and do not re-add duplicated lists.
-- The parity guard test (`discover()` and `search()` expose the same set) will also
-  already exist; extend it rather than writing a second one.
-- Everything else here is unaffected: t1377 deliberately built its own picker in
-  `monitor/` (the board's `ColumnSelectScreen` is not importable from there) and
-  introduced **no** second picker inside the board, so this task's shared-picker
-  chain with `t1210_5` is intact.
+- **Consume `_COMMANDS`** — add its "Manage Columns" / "Merge Columns" entries to
+  your single tuple. It will not re-add duplicated lists.
+- **Extend your parity guard** (`discover()` and `search()` expose the same set)
+  rather than writing a second one.
+- Bind its column-management dialog to **`e`**, not `m` — no keybinding conflict
+  with this task.
+
+No second picker is introduced inside the board by t1377: it deliberately built its
+own picker in `monitor/` (the board's `ColumnSelectScreen` is not importable from
+there), so this task's shared-picker chain with `t1210_5` is intact.
