@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1307
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 10:16
-updated_at: 2026-08-04 11:17
+updated_at: 2026-08-04 12:39
 boardidx: 81920
 ---
 
@@ -94,3 +95,8 @@ If the skill's Step 1 command changes, update
 `.claude/skills/aitask-shadow/SKILL.md` (the source of truth) in the same
 commit — the `.agents/` and `.opencode/` shadow wrappers are pure redirects and
 need no port.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-04T09:39:28Z status=pass attempt=1 type=human
