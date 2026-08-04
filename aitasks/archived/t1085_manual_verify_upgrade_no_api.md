@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: [1075]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 active_gates: []
 active_gates_filtered: []
@@ -13,7 +13,8 @@ verifies: [1075]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1075
 created_at: 2026-06-28 10:09
-updated_at: 2026-08-04 17:30
+updated_at: 2026-08-04 17:34
+completed_at: 2026-08-04 17:34
 boardidx: 162816
 ---
 
