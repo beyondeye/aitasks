@@ -146,3 +146,8 @@ Every memory gets exactly one, recorded in a triage table:
   `feedback_docs_over_narrow_source_scan_guard`,
   `feedback_doc_current_source_not_stale_plan`,
   `feedback_documentation_conventions` via `aidocs/framework/documentation_conventions.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-04T10:43:20Z status=pass attempt=1 type=human
