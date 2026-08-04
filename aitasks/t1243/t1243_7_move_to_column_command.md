@@ -8,8 +8,9 @@ labels: [aitask_board, tui, python, custom_shortcuts]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-07-28 01:15
-updated_at: 2026-07-28 01:15
+updated_at: 2026-08-04 10:03
 ---
+
 
 ## Context
 
@@ -106,3 +107,26 @@ when there is nothing movable in focus.
   absent when it does not.
 - A guard test asserting `discover()` and `search()` expose the **same** command
   set — the regression the de-dup prevents.
+
+## Notes for sibling tasks
+
+**The §1 `KanbanCommandProvider` de-dup is being done by `t1377_5`, not here.**
+
+`t1377_5_board_column_management_dialog` adds palette entries for a new column
+management dialog, so it hits the same verbatim-duplicated `discover()` /
+`search()` lists this task's §1 mandates collapsing. Since t1243_7 sits behind the
+serial chain `t1243_4 -> 5 -> 6` and t1377 carries no `depends` on it, t1377_5 does
+the refactor first (per `aidocs/framework/planning_conventions.md`, "Refactor
+duplicates before adding to them").
+
+When picking this task:
+
+- **Check whether `_COMMANDS` already exists** in `KanbanCommandProvider`. If it
+  does, **consume it** — add your entries to the single tuple. Do not redo the
+  refactor, and do not re-add duplicated lists.
+- The parity guard test (`discover()` and `search()` expose the same set) will also
+  already exist; extend it rather than writing a second one.
+- Everything else here is unaffected: t1377 deliberately built its own picker in
+  `monitor/` (the board's `ColumnSelectScreen` is not importable from there) and
+  introduced **no** second picker inside the board, so this task's shared-picker
+  chain with `t1210_5` is intact.
