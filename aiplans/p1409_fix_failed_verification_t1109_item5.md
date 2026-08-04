@@ -264,3 +264,93 @@ Step 9 (Post-Implementation) handles merge, `ait gates run`, and archival.
 ### Planned mitigations
 - timing: after | name: gate_stale_witness_surface_parity | type: enhancement | priority: medium | effort: medium | addresses: goal-achievement — ledger-only surfaces disagree with the enforcing decision | desc: Thread a once-per-refresh code digest through archive_status_from_text / read_task_gate_state / deps-unblock / gates unlocked, or ratify them as deliberately ledger-only with a drift guard.
 - timing: after | name: gate_stale_signature_archive_message | type: enhancement | priority: low | effort: low | addresses: code-health — bare BLOCKED:<gate> for a ledger-pass gate | desc: Give aitask_archive.sh a distinct GATE_STALE_SIGNATURE:<csv> signal so the user is told to re-sign with 'ait gate pass' instead of to wait for a pending gate.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-04 14:45)
+
+- **Requested by user:** The Test 9d `archive-ready` assertion did not
+  discriminate. It ran *after* `orch "$d" 93`, and that re-pend moves the ledger
+  to `pending` — so `archive-ready` returns `BLOCKED` from the ledger alone,
+  even with the new stale-witness overlay in `gate_ledger.archive_status()`
+  removed or broken. Assert `BLOCKED:review` immediately after the code
+  mutation and *before* the `orch` call, then keep the post-re-pend assertion.
+- **Changes made:** Verified the concern — CONFIRMED. Test 9d step 3 now asserts
+  the read-side guard first, with `assert_contains "pre-run: the ledger still
+  reads pass"` pinning the precondition that makes it discriminating (only the
+  overlay can produce `BLOCKED` while the ledger says `pass`). The write-side
+  re-pend assertions moved to step 4, followed by a second `archive-ready`
+  check on the re-pended ledger. Two single-mutation negative controls were then
+  run to prove each fix has its own discriminator (see below).
+- **Files affected:** `tests/test_gate_orchestrator.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in three parts.
+  1. `lib/gate_ledger.py` gained a shared "code-state digest + human-gate signal
+     witness" section: `code_digest` / `_git` / `_DIGEST_EXCLUDES`,
+     `read_witness_digest` and `task_id_from_file` moved here from
+     `gate_orchestrator.py`; `resolve_signal_target`, `witness_state` (the
+     `absent`/`fresh`/`stale`/`unstamped` classifier extracted from
+     `Engine._signal_state`), `_has_stamped_witness` and `stale_signed_gates`
+     are new. `archive_status()` now takes an optional `registry_file` and adds
+     stale-signed gates to the blocked list; the CLI forwards `argv[2]`.
+  2. `lib/gate_orchestrator.py` re-exports the moved names, `_signal_state`
+     delegates to `gl.witness_state`, and `Engine._read_state()` deletes
+     stale-signed gates from the derived state map.
+  3. `aitask_gate.sh cmd_archive_ready` passes `"$REGISTRY"`.
+- **Deviations from plan:** One addition not in the plan — while consolidating,
+  the three inline copies of the satisfied-predicate
+  (`(state.get(g).status if state.get(g) else None) in SATISFIED_STATUSES`) in
+  `_dependents_status_from_state`, `_archive_status_from_state` and
+  `unmet_procedure_gates` were folded into the new shared `_gate_satisfied()`
+  that `stale_signed_gates` needed anyway. Behaviour-identical; it just stops a
+  fourth copy from being added. No other deviation.
+- **Issues encountered:**
+  - *The regression test initially did not discriminate* (found in review, see
+    Change Request 1). The original negative control reverted BOTH fixes at
+    once, which masked it: with the orchestrator fix alone, the re-pend supplies
+    the `BLOCKED` that the read-side assertion was crediting to the overlay. The
+    lesson generalizes — when one change has two enforcement points, the
+    negative control must disable them **one at a time**.
+  - Final negative controls (each a single mutation, then restored):
+    | mutation | failures |
+    |---|---|
+    | `aitask_gate.sh` drops `"$REGISTRY"` (read-side off, engine intact) | exactly 1 — `stale witness alone blocks archival (ledger untouched)`, got `ALL_PASS` |
+    | `_read_state` demotion replaced with `pass` (engine off, read-side intact) | exactly 3 — the re-pend assertions, got `All gates satisfied` |
+  - Test 9c constrained the design: it has a `signal_target` but no witness file,
+    so re-pending on anything other than `stale` (e.g. on `absent`) would break
+    the attended lane, which records `review_approved` from the interactive
+    approval and never writes a witness.
+- **Key decisions:**
+  - **Demote in `_read_state()` rather than guard the short-circuit.** The
+    alternative (an explicit re-validation pass before `all(_satisfied(...))`)
+    is an invariant every future entry point must remember; demoting at the one
+    place state is read makes `run()`, `compute_unlocked`, `blocked_reason`,
+    `_handle_human` and `_force_one` correct without any of them knowing. The
+    re-pend then reuses `_handle_human`'s existing `stale` branch, so there is
+    no second append site and no second copy of the note text.
+  - **Move the primitives into `gate_ledger` instead of adding an orchestrator
+    CLI verb the shell could call.** Two enforcement points must not own two
+    classifiers. Re-export aliases keep `gate_orchestrator.py code-digest` and
+    every importer working.
+  - **`archive-ready` reports; it does not write.** It is a read-only decision
+    verb, and `ait gates run` stays the single writer of observed human-gate
+    blocks. The transient "status says pass / archive-ready says BLOCKED" window
+    is documented as the contract in both the docstring and
+    `aidocs/gates/gate-guarded-archival.md`.
+  - **Unverifiable ≠ stale.** A `None` digest (no git / no commits) resolves to
+    `unstamped` (accept), the same as a witness with no recorded digest — never
+    a guessed `stale`. `witness_state` decides this explicitly rather than
+    leaving it to callers.
+  - **Lazy digest.** `stale_signed_gates` applies a no-git pre-filter
+    (satisfied + `type: human` + a stamped witness on disk) and only shells out
+    to git if something survives, so `archive-ready` — which runs on every
+    archival and in `aitask_query_files.sh inflight` — costs nothing in the
+    common no-witness case.
+  - **Four surfaces left deliberately ledger-only** (`archive_status_from_text`
+    → stats/trail, `read_task_gate_state` → board badge, `deps-unblock`,
+    `gates unlocked`): per-task git subprocesses across a refresh are not
+    affordable. Written into each docstring and into the archival doc as a
+    stated split, with `gate_stale_witness_surface_parity` as the follow-up.
+- **Upstream defects identified:** None
