@@ -13,7 +13,7 @@ verifies: [t635_15]
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-01 14:54
-updated_at: 2026-08-04 13:03
+updated_at: 2026-08-04 13:09
 boardidx: 121856
 ---
 
@@ -90,18 +90,18 @@ through the wrong transport and verify nothing.
   materializes `[]`, stop — the ceiling is wrong and every step below is
   unreachable.** This is the precondition the pre-t635_33 checklist silently
   assumed.
-- [ ] **Stop-clean at pending-human.** Drive the headless lane
+- [x] **Stop-clean at pending-human.** Drive the headless lane — PASS 2026-08-04 13:05 auto: drove pickrem lane (rendered under local/gatetest_async_human) for t1408. Step 9.5 'ait gates run 1408' -> '  review_approved: pending - awaiting human signal', rc=0. Stop-clean confirmed: status Implementing, task file still in aitasks/ (not archived), plan commit local-only (unpushed), NO witness at .aitask-gates/t1408/ (never self-signalled), ledger 'review_approved: pending', archive-ready -> BLOCKED:review_approved. DEVIATIONS: (a) code commit skipped - t1408 was deliberately a no-op implementation so the MV leaves no junk commit in main (user-approved); the durable artifact is the plan commit. (b) EnterPlanMode/ExitPlanMode round trip skipped - nested plan mode would block the verification's own tool calls; plan file written directly.
   (`/aitask-pickrem <id>`) through implementation + auto-commit. Confirm Step 9.5
   runs `ait gates run`, reports `review_approved: pending`, and **stops cleanly**:
   task left in-flight (`Implementing`), code committed, **not** archived and
   **not** pushed, and **no** witness file at
   `.aitask-gates/t<id>/review_approved.signed` — the agent must never self-signal.
-- [ ] **Sign and record.** Run `ait gate pass <id> review_approved`. Confirm the
+- [x] **Sign and record.** Run `ait gate pass <id> review_approved`. Confirm the — PASS 2026-08-04 13:06 auto: 'ait gate pass 1408 review_approved' created .aitask-gates/t1408/review_approved.signed with code_digest=ade0da54f016ff4c, matching the live code_digest() at signing time; orchestrator recorded ledger pass with Note: signed_digest:ade0da54f016ff4c (gate_orchestrator.py:432 contract held).
   witness is created at `.aitask-gates/t<id>/review_approved.signed` carrying a
   `code_digest=` line matching the current code state, and that the orchestrator
   records a ledger `pass` with a `signed_digest:<digest>` note
   (`gate_orchestrator.py:432`).
-- [ ] **Stale signature re-pends.** Change a **code** file — not anything under
+- [fail] **Stale signature re-pends.** Change a **code** file — not anything under — FAIL 2026-08-04 13:08 follow-up t1409
   `aitasks/` or `aiplans/`, which are excluded from the digest so ledger appends
   do not flip it (`gate_orchestrator.py:79`). Then rewrite the witness so its
   `code_digest=` line holds a **wrong (old) value**, and run `ait gates run <id>`.
@@ -111,10 +111,10 @@ through the wrong transport and verify nothing.
   as a pass for backward compatibility (`gate_orchestrator.py:406-408,419`), so a
   merely touched/empty file would pass and this check would silently fail to
   discriminate.
-- [ ] **Re-sign and archive.** Run `ait gate pass <id> review_approved` against
+- [x] **Re-sign and archive.** Run `ait gate pass <id> review_approved` against — PASS 2026-08-04 13:09 auto: 'ait gate pass 1408 review_approved' re-signed (witness refreshed to code_digest=81c0bebb7d96cc4e, matching current state) and orchestrator recorded pass; archive-ready -> ALL_PASS; aitask_archive.sh 1408 exit 0 with ARCHIVED_TASK/ARCHIVED_PLAN/COMMITTED:0bb19f70f and no GATE_PENDING.
   the current state, confirm `aitask_gate.sh archive-ready <id>` → `ALL_PASS`,
   and confirm the task archives cleanly (exit 0, no `GATE_PENDING`).
-- [ ] **Cleanup.** Remove the throwaway profile
+- [x] **Cleanup.** Remove the throwaway profile — PASS 2026-08-04 13:09 auto: removed local/gatetest_async_human.yaml (+ empty local/ dir), .aitask-gates/t1408/, scratch_t1109_digest_probe.sh, and the two rendered *-gatetest_async_human- skill variants. Scanner back to 3 shipped profiles; git status shows no residue from this run (t1408 removed by its own archival in item 6).
   (`aitasks/metadata/profiles/local/gatetest_async_human.yaml`), the
   `.aitask-gates/t<id>/` witness directory, and any scratch code file touched in
   the stale-signature step. The throwaway task is removed by its own archival in
