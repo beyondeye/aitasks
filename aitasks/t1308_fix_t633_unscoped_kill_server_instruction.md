@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 633
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 19:15
-updated_at: 2026-08-04 13:30
+updated_at: 2026-08-04 17:25
 boardidx: 76800
 ---
 
@@ -76,3 +77,8 @@ Task-data only — this edits a markdown checklist, no code. Commit with
 
 Performing this fix is a markdown edit and destroys nothing. The *task being
 fixed* (t633) carries the label; this one does not.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-04T14:25:10Z status=pass attempt=1 type=human
