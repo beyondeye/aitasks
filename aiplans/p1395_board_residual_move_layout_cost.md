@@ -371,6 +371,136 @@ Commit code (`tests/test_board_movement.py`) with `performance: … (t1395)`, pl
 and parent-plan edits via `./ait git` with an `ait:` prefix, merge to `main`,
 archive.
 
+## Final Implementation Notes
+
+- **Actual work done:** one production-adjacent file — `tests/test_board_movement.py`
+  (+350/−7, 12 hunks). **No production code was edited**; this task is an
+  investigation and it changed nothing on the board's hot path.
+  - `Probe.TREE` + self-time accounting in `Probe._enter`/`_exit`: a tier-2 span
+    layer that nests properly (`bindings_sweep` → `check_action` → `focus_query`
+    → `dom_query`) and charges each child's *total* to its parent, so tier-2
+    self times are disjoint by construction. The pre-registered
+    LEAVES-inside-LEAVES non-overlap check is preserved verbatim, now explicitly
+    scoped so a tier-2 span nesting inside a leaf is not a false violation.
+  - `_install_attribution()`: opt-in wrappers on `KanbanApp.check_action`,
+    `_column_widgets`, `_refocus_card`, `_scroll_into_view_after_layout`,
+    `_focused_card`, and on Textual's `Screen.active_bindings` /
+    `_refresh_layout` / `_compositor_refresh`, `Compositor.reflow(_visible)`,
+    `Footer.compose`, `DOMQuery.nodes`. Installed **last**, hence outermost, so
+    the t1243_5 close wrappers keep their exact `scroll_pending` sequencing.
+    Every Textual symbol goes through `_require()`, which raises with the
+    Textual version rather than silently measuring nothing.
+  - Two substitute-based ablations: `bindings` (no-op `Screen.refresh_bindings`)
+    and `focus_query` (memoize `_focused_card` on focus identity).
+  - New gated `test_bench_attribution`; new ungated
+    `test_attribution_tier_localises_an_injected_cost` and
+    `test_column_widgets_is_unreachable_from_the_move_path`.
+  - `_sample` / `_validate` / `summarise` / `_bench` / `_child_main` thread the
+    tier through; `_validate` gained one attribution-only invariant.
+
+- **Deviations from plan:**
+  1. **`no_refocus_query` ablation dropped.** The plan listed it as a config;
+     the tier measured `_refocus_card` at **0.1 ms self / 1 call**, i.e. already
+     three orders of magnitude below the target. Spending a whole 200-card child
+     run to ablate it would have bought nothing. Reported as measured-and-ruled-out
+     instead — which is what the acceptance criteria actually ask for.
+  2. **A negative control and a reachability pin were added as real tests**, not
+     as throwaway checks. The plan called for a one-off injected-sleep check; a
+     test that runs in every suite run is what stops the tier rotting into a wall
+     of zeros that reads as "attributed nothing".
+  3. **Step 0.3's throwaway premise probe ran first and was load-bearing.** It
+     confirmed `App.app_focus` is `True` under headless `run_test` — had it been
+     `False`, `Footer.bindings_changed` would early-return and the strongest
+     suspect would have been invisible to the harness. Building the tier before
+     checking that would have risked a day's work on a dead premise.
+
+- **Issues encountered:**
+  1. **The task file's third named suspect was wrong.** `_column_widgets()` is
+     unreachable from the move path — its callers trace to `_reanchor_to_viewport`
+     / `_nav_lateral`, i.e. plain-arrow navigation, and the bench presses only
+     `shift+`/`ctrl+` keys. Caught by call-site grep during planning, then
+     confirmed by measurement (**0 calls, both axes**) rather than by argument.
+  2. **The strongest suspect was named by nobody** — not t1243_1, t1243_4,
+     t1243_5, nor this task's own file. It surfaced only from reading Textual's
+     `set_focus` → `refresh_bindings` → `Footer.compose` → `active_bindings`
+     chain against the board's 99 bindings and `check_action`'s 8
+     `_focused_card()` sites.
+  3. **Ambient load moved mid-campaign** (1.5 → 4.85 across the 5 runs). Run 4 is
+     the low outlier on both ablations. Recorded rather than dropped, per this
+     box's own rule, and the reason the campaign was 5 runs.
+  4. **A concurrent session was editing `monitor/` and `website/` files in the
+     same checkout.** The code commit was scoped to the single path this task
+     owns; nothing of theirs was staged.
+
+- **Key decisions:**
+  - **The attribution tier is opt-in and lives in a separate gated test.**
+    `test_bench_baseline` is what t1243_14 compares against 2173.2 / 1162.4 ms;
+    instrumenting it would have moved the number silently and destroyed the
+    comparison. Verified rather than assumed: a full baseline re-run printed a
+    structurally identical banner (same five configs, same span list,
+    `other=99.1 %` lateral, same three degenerate verdicts).
+  - **Self time, not flat exclusive spans.** The suspects genuinely nest, so a
+    flat tier would have had to choose between a false nesting violation and an
+    unproved partition. Charging each child's total to its parent keeps
+    non-overlap structural, which is what the task's method constraint demands.
+  - **Ablations are substitutes, never no-ops, where behaviour matters.**
+    `_focused_card` is memoized rather than stubbed; `check_action` is never
+    ablated at all (it gates `move_task_right`, so a stub would change which
+    actions dispatch). The stationarity and `writes > 0` invariants are the
+    negative control that would have caught a semantic change, and they held.
+  - **No optimisation was implemented here.** The task asserts no target up
+    front; the fix carries its own target set from these numbers (t1402).
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:7124-7127 — _focused_card() resolves the focused card with a full-tree query("TaskCard:focus"), and check_action (:6025) calls it from 8 sites. Via Screen.set_focus -> refresh_bindings -> Footer.compose -> active_bindings, one focus change costs 201 check_action invocations / 107 _focused_card calls / 123 cold full-tree walks = 587 ms (53.6%) of a 1129 ms lateral keypress on a 200-card board. Owned by t1402.`
+  - `.aitask-scripts/board/aitask_board.py:7138-7147 — _column_widgets() issues four full-DOM class queries per call (~25 ms at 200 cards), three of which return empty in the normal kanban view. Reported by t1243_4, restated by t1243_5, and now proved to be a PLAIN-ARROW NAVIGATION cost, not a move-path one (0 calls on both move axes). Still unaddressed; no task filed because no nav-path measurement exists to set a target.`
+  - `tests/test_board_movement.py:532 — _validate's docstring says "four per-sample validity invariants" while the body implements six (seven after this task). Cosmetic, but the docstring is cited as the method of record by three archived plans.`
+
+- **Notes for sibling tasks:**
+  - **t1243_14:** consume `### RECORDED RESULT — t1395 …` in the parent plan
+    rather than rediscovering it; its Step 4 "which span dominates" is answered
+    (`dom_query`, 53.6 %). Two things change how its table must be read: the
+    **axis-asymmetric close** (vertical records 0 bindings sweeps because its
+    window shuts before the deferred work — it is not "the cheap path"), and the
+    confirmed degeneracy of `R_pair` / `R_rm4` / `R_rm5`. **t1402 is blocked on
+    t1243_14** and that ordering is recorded in both task files.
+  - **Anyone adding a span to this harness:** put it in `TREE`, not `LEAVES`,
+    unless it provably cannot nest. `LEAVES` is a pre-registered flat partition
+    four archived plans depend on.
+  - **Anyone measuring on this box:** a single run adjudicates nothing. The
+    lateral median ranged 1079.5-1505.0 ms across 5 runs of identical code.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-04 07:58)
+
+- **Requested by user:** create the measured follow-up now and explicitly
+  coordinate its timing with t1243_14 — otherwise t1243_14 can report the
+  finding, but the performance fix may drift into a later, unrelated task.
+- **Changes made:**
+  - Created **t1402 `board_focus_query_storm_on_move`** (`performance`,
+    `priority: high`, `anchor: 1243` via `--followup-of 1395`,
+    `gates: [risk_evaluated]`) carrying a **≥ 45 %** lateral target derived from
+    this task's ablation figures, with the two candidate approaches, the
+    strong-reference memo-key trap, and the `app.focused` ≠
+    `query("TaskCard:focus")` modal caveat written down so the fix cannot be
+    started from the wrong premise.
+  - Wired the ordering **both ways** rather than only forward: t1402 declares
+    `depends: [t1243_14]`, and t1243_14's task file gained a
+    `## Coordination — t1395 (done) and t1402 (blocked on this task)` section
+    stating why (a 45-76 % win from outside the workstream would make t1243_14's
+    comparison table incomparable with the recorded baselines and would
+    retroactively flatter t1243_5), plus the two measurement facts that change
+    how its table must be read (the axis-asymmetric close; the degenerate gates).
+  - Named t1402 in the parent plan's recommendation, and recorded why the
+    `_column_widgets()` nav-path defect was deliberately **not** filed as a
+    second follow-up: no nav-path measurement exists to set its target, and this
+    workstream's rule is that a follow-up cites a number.
+- **Files affected:** `aitasks/t1402_board_focus_query_storm_on_move.md` (new),
+  `aitasks/t1243/t1243_14_retrospective_benchmark.md`,
+  `aiplans/p1243_board_task_groups_and_fast_reordering.md`,
+  `aiplans/p1395_board_residual_move_layout_cost.md`.
+
 ## Risk
 
 ### Code-health risk: low
