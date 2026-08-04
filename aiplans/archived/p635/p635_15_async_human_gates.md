@@ -350,3 +350,4 @@ run `./.aitask-scripts/aitask_skill_verify.sh`.
   headless run-gates + stop-clean path is validated against a fixture; the proposed
   after-mitigation MV (`t635_async_human_gate_live_verify`) drives it live —
   coordinate with t635_17 to avoid overlap.
+- **Manual-verification failure:** item "**Stale signature re-pends.** Change a **code** file — not anything under" failed; follow-up task t1409.
