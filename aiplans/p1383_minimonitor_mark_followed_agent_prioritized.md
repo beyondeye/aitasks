@@ -444,6 +444,99 @@ the suite exit 1 on the *named* tests, then restored with `Edit` only — never
   the user; list rows keep rendering marks so nothing becomes invisible. ·
   severity: low · → mitigation: none needed
 
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned.
+  `monitor_shared.py` gained `AgentMarksMixin._toggle_mark_for(snap)` — the
+  category guard, strict-root resolution, the four outcome branches and the
+  `invalidate → _refresh_marks → call_later(_refresh_data)` tail, all moved
+  verbatim — leaving `action_toggle_mark` a thin focus-resolving caller.
+  `minimonitor_app.py` overrides `action_toggle_mark` to resolve through
+  `_find_own_agent_snapshot()`, relabels the `space` binding
+  ("Mark" → "Mark followed agent", which is what the `?` shortcut editor
+  shows), and renders the mark in the docked panel via a frozen
+  `_own_identity_text`, a tri-state `_own_mark_state`, `_own_card_text(marked)`
+  and a new `_refresh_own_mark()` called from `_refresh_data` right after the
+  panel build. Hint line: `space:mark ★ (followed agent)`.
+  New `tests/test_minimonitor_own_mark.py` (25 tests in four classes);
+  `test_monitor_agent_marks_action.py`, `test_minimonitor_other_section.py` and
+  `test_monitor_modal_space_dispatch.py` updated;
+  `website/content/docs/tuis/minimonitor/how-to.md` rewritten in five places and
+  one clarifying sentence added to the monitor's how-to.
+
+- **Deviations from plan:** Two, both additive.
+  1. **A composited-width test pair was added** (`CompositedWidthTests`) that
+     the plan did not call for. Writing the plan's manual step as a headless
+     40-column composite surfaced a real regression (below), and a comment
+     recording the bound would not have been falsifiable.
+  2. **`test_monitor_modal_space_dispatch.py` needed a second snapshot.** The
+     plan only foresaw inverting one test. In fact every minimonitor case in
+     that file needed a *followed* agent (window 1) **and** a list card
+     (window 2): with a single snapshot the followed agent is excluded from the
+     list, so no card mounts and the positive control cannot run. The shared
+     `_instrument` now installs both plus `_session` / `_own_window_index`.
+
+- **Issues encountered:**
+  - **A visible layout regression, found by rendering rather than by test.**
+    The glyph costs 2 columns on a line the docked panel — unlike the list rows
+    — never truncates. Composited at 40 columns, a 38-character name folds *and*
+    strands the glyph alone on line 1 (3 lines where there were 2).
+    A non-breaking separator does **not** fix it: Rich splits words on `\s`,
+    and Python's `\s` matches U+00A0, so ` ` is still a break opportunity.
+    Measured the actual bound instead — names ≤36 are unaffected — and checked
+    real window names on the live tmux socket: `agent-pick-1383`,
+    `agent-pick-1243_5`, `agent-raw-1`, i.e. 11-17 characters. The case is
+    unreachable in practice, so the fold is accepted, documented in
+    `_own_card_text`'s docstring with the U+00A0 finding, and pointed at
+    **t1351** (minimonitor row-width audit). `CompositedWidthTests` pins the 36
+    bound and was shown to fail at 37.
+  - `Static.update()` works on an *unmounted* widget in this Textual version
+    (verified before relying on it), which is what lets the layer-2 render
+    matrix stay mock-based.
+  - `_FakeMonitor` doubles in the cycle-driven tests need `control_state()`:
+    `_rebuild_session_bar` reads it on every real tick.
+
+- **Key decisions:**
+  - **`space` retargeted, not duplicated.** The task proposed a *second* key
+    (`*` or an uppercase letter) beside the focus-scoped `space`. The user
+    rejected that during planning: a minimonitor is a companion pane bound to
+    one agent, so `space` there can only sensibly mean "the agent I am
+    watching". The task file's "Key choice" and "Acceptance criteria" sections
+    were rewritten *before* implementing rather than deviating silently.
+    Consequence, confirmed: minimonitor list cards are no longer togglable
+    (they still render marks read-only); `ait monitor` is unchanged and remains
+    the way to mark any other agent.
+  - **Tri-state `_own_mark_state`, not a build-time "is agent" flag.** The
+    panel's identity is frozen at build, so freezing markability too would
+    strand a `★` on a window later renamed off the `agent-` prefix. `None`
+    means "nothing markable" and renders no glyph, making the invariant *the
+    glyph is present exactly when `space` would act* — and making the rename an
+    ordinary state change rather than a special case.
+  - **Three test layers, three single-mutation negative controls.** Resolution
+    / render-matrix / wiring are separated precisely so each control breaks one
+    layer and leaves the others green — which is itself asserted (control 3
+    requires 13-15 to fail *while* 8-11 pass). Without the cycle-driven layer,
+    a `_refresh_own_mark()` call missing from `_refresh_data`, or ordered before
+    `_refresh_marks()`, would have passed the whole suite.
+  - The AGENT-only guard stayed in the shared sink rather than moving to the
+    monitor: the monitor's list holds `OTHER` cards, and the minimonitor's own
+    resolver is AGENT-only, so the guard is unreachable there but still correct
+    to keep centralized.
+
+- **Upstream defects identified:** None.
+
+- **Build verification:** `bash tests/run_all_python_tests.sh` →
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, 3188 passed / 2 skipped plus
+  the serial carve-out. `bash tests/test_multi_session_minimonitor.sh` → 43/43.
+  `bash tests/test_shortcuts_registry_coverage.sh` → PASS.
+  `bash tests/test_no_raw_tmux.sh` → PASS.
+  Live acceptance in a real tmux pane with a real keypress is **not** covered by
+  the above and remains outstanding.
+
+- **Concurrency note:** `tests/test_board_movement.py` was modified in the
+  worktree by a concurrent session (t1243_5 area) throughout this task and was
+  deliberately left unstaged.
+
 ## Post-implementation
 
 Step 9 of the shared workflow handles cleanup, merge, and archival.
