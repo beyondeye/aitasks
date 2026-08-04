@@ -84,6 +84,7 @@ remote
 remove_support
 reporting
 reviewguides
+robustness
 sanboxing
 script-performance
 shadow
