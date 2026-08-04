@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [install, shell]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1075
 implemented_with: claudecode/opus5
 created_at: 2026-08-04 17:33
-updated_at: 2026-08-04 18:59
+updated_at: 2026-08-04 19:18
+completed_at: 2026-08-04 19:18
 ---
 
 ## Problem
@@ -136,3 +137,14 @@ drop `--force`; t1085 itself passed 8/8 after that adaptation. See
 > **✅ gate:plan_approved** run=2026-08-04T15:59:16Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-04T16:08:41Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-04T16:18:18Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1a708bad76e29ff9
+
+> **✅ gate:risk_evaluated** run=2026-08-04T16:18:18Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1414/risk_evaluated_2026-08-04T16:18:18Z-risk_evaluated-a1.log`
