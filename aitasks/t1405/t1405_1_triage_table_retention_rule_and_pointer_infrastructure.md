@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, agents_md, docs]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1405
 created_at: 2026-08-04 13:45
-updated_at: 2026-08-04 13:45
+updated_at: 2026-08-04 16:55
 ---
 
 ## Context
