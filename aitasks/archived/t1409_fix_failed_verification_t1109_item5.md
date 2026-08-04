@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t635_15]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/opus5
 created_at: 2026-08-04 13:08
-updated_at: 2026-08-04 18:35
+updated_at: 2026-08-04 18:36
+completed_at: 2026-08-04 18:36
 ---
 
 ## Failed verification item from t635_15
@@ -126,3 +127,14 @@ the assertion failing against today's code (it currently reports `ALL_PASS`).
 > **✅ gate:plan_approved** run=2026-08-04T14:26:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-04T15:32:26Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-04T15:36:01Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:977511d6c9b0efb2
+
+> **✅ gate:risk_evaluated** run=2026-08-04T15:36:01Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1409/risk_evaluated_2026-08-04T15:36:01Z-risk_evaluated-a1.log`
