@@ -8,8 +8,9 @@ labels: [aitask_board, script-performance, testing]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-07-28 01:18
-updated_at: 2026-07-28 01:18
+updated_at: 2026-08-04 07:59
 ---
+
 
 ## Context
 
@@ -99,3 +100,40 @@ re-architect.
 - Any follow-up task created cites the specific measurement that justifies it.
 - If no follow-ups are warranted, that conclusion is stated explicitly with the
   supporting numbers.
+
+## Coordination — t1395 (done) and t1402 (blocked on this task)
+
+**t1395 already answered this task's "which span now dominates" question.** Read
+`### RECORDED RESULT — t1395 residual move/layout cost attribution` in
+`aiplans/p1243_board_task_groups_and_fast_reordering.md` **before** Step 4 —
+consume it, do not rediscover it. Headline: `dom_query` (cold full-tree
+`DOMQuery.nodes`) is **53.6 %** of a lateral keypress at 587.3 ms / 123 calls;
+Textual's own `layout + reflow + render` is 23.6 %; `_column_widgets()` is
+**0 calls** (nav-path only, never the move path).
+
+t1395 also added `test_bench_attribution` — a **separate** gated test carrying an
+opt-in self-time span tier. `test_bench_baseline` is deliberately unperturbed by
+it (verified: same five configs, same span list, `other=99.1 %` lateral), so this
+task's comparison against 2173.2 / 1162.4 ms remains valid. Run
+`test_bench_attribution` alongside the baseline if you want per-span detail.
+
+**Two measurement facts from t1395 that change how this table must be read:**
+
+1. **The two axes do not measure the same window.** Vertical records **0**
+   `bindings_sweep` and **0** `footer_compose`: its card is already laid out, no
+   scroll chain starts, and the timed region closes at `_refocus_card` *before*
+   the deferred bindings sweep runs. The lateral region stays open through the
+   layout hops and therefore contains it. So the ~6x lateral/vertical gap is
+   substantially a **measurement-window artifact**. Do not report vertical as
+   "the cheap path" without this caveat.
+2. **`R_pair` / `R_rm4` / `R_rm5` are confirmed degenerate**, exactly as this
+   task already anticipated — retire or re-scope them.
+
+**Ordering constraint — `t1402` is blocked on this task.**
+`t1402_board_focus_query_storm_on_move` declares `depends: [t1243_14]`. It
+implements the fix t1395 recommends and is measured at **45-76 % removable** on
+the lateral axis. It must land **after** this retrospective: a win of that size
+arriving from outside the t1243 workstream would make this table incomparable
+with the recorded baselines and would retroactively flatter t1243_5. If this
+task is postponed or descoped, that dependency must be re-decided explicitly
+rather than silently unblocking.

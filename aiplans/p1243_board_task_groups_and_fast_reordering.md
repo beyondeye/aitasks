@@ -578,6 +578,115 @@ t1243_4's still-unaddressed `_column_widgets()` four-full-DOM-queries defect are
 its named suspects. **t1243_14 should consume t1395's findings rather than
 rediscover them.**
 
+### RECORDED RESULT — t1395 residual move/layout cost attribution
+
+**The residual is not layout. It is DOM queries — 123 cold full-tree walks per
+lateral keypress, 54 % of the wall — and 76 % of the keypress is removable.**
+
+Method: t1243_1's harness, unchanged, plus a **tier-2 self-time span layer**
+(`Probe.TREE`) that nests properly (`bindings_sweep` → `check_action` →
+`focus_query` → `dom_query`) and charges each child's total to its parent, so the
+self times are disjoint by construction rather than by assumption. The tier is
+**opt-in per child run** and lives in a separate gated test
+(`test_bench_attribution`); `test_bench_baseline` is byte-for-byte unperturbed so
+t1243_14's comparison against 2173.2 / 1162.4 ms stays valid. 5 repeats, 200
+cards / 5 columns, 3 warm-up pairs discarded, 20 recorded pairs per axis per
+config, branch-mode topology, all validity invariants active.
+
+| lateral span (self) | median | share | calls | range across 5 runs |
+|---|---|---|---|---|
+| `dom_query` (cold `DOMQuery.nodes`) | **587.3 ms** | **53.6 %** | **123** | 477.2–828.5 ms |
+| `render` (`Screen._compositor_refresh`) | 163.5 ms | 13.0 % | 6 | 130.3–216.9 ms |
+| `reflow` (`Compositor.reflow`) | 83.8 ms | 6.6 % | 4 | 68.7–93.5 ms |
+| `layout` (`Screen._refresh_layout`) | 53.6 ms | 4.0 % | 4 | 44.1–60.9 ms |
+| `footer_compose` | 3.6 ms | 0.3 % | 4 | 3.0–4.1 ms |
+| `focus_query` / `check_action` / `bindings_sweep` | ~1 ms each | 0.1 % | 107 / 201 / 4 | — |
+| `refocus` / `scroll_hop` | 0.1 / 0.3 ms | 0.0 % | 1 / 4 | — |
+| `col_widgets` | 0.0 ms | — | **0** | — |
+| **attributed** | | **77.8 %** | | (was 0.9 %) |
+
+Lateral `full` median-of-run-medians **1129.3 ms** (range 1079.5–1505.0), p90
+1577.1 ms, harness floor **73.4 ms** (69.5–79.4). The instrumented `full` sits
+*below* the uninstrumented 1162.4 ms on record, so the tier's own overhead is
+inside the run-to-run spread and the shares above are not an artifact of
+measuring.
+
+**Ablation — the load-bearing method** (within-run delta vs that run's `full`):
+
+| config | median | removable (median of 5) | per-run |
+|---|---|---|---|
+| `-bindings` (`Screen.refresh_bindings` no-op) | 328.2 ms | **76.2 %** | 76.2 / 72.6 / 77.4 / 62.0 / 77.5 % |
+| `-focus_query` (`_focused_card` memoized on focus identity) | 597.5 ms | **55.5 %** | 55.5 / 47.0 / 59.0 / 29.8 / 60.3 % |
+
+Run 4 is the low outlier on both (62.0 / 29.8 %); its `LOAD_AFTER` was 4.85 —
+ambient load rose mid-run. Recorded rather than dropped, per the box's own rule.
+The ablations are memoize/no-op **substitutes, not behaviour changes**: every
+sample still satisfied `writes > 0` and every pair still passed the stationarity
+check, which is the negative control that would have caught a semantic change.
+
+**Where the queries come from.** `card.focus()` in `_refocus_card` reaches
+`Screen.set_focus`, whose last statement is
+`call_after_refresh(self.refresh_bindings)` → `bindings_updated_signal` →
+`Footer.bindings_changed` → `call_after_refresh(self.recompose)` →
+`Footer.compose` → `Screen.active_bindings` → `app._check_action_state(...)`, i.e.
+`KanbanApp.check_action` **once per binding**. The board declares 99 bindings and
+`check_action` holds **8** `self._focused_card()` call sites, each a full-screen
+`walk_children` + CSS match over ~1250 widgets. Measured per lateral keypress:
+**4** bindings sweeps → **201** `check_action` → **107** `_focused_card` → 123
+cold `DOMQuery.nodes`. None of t1243_1, t1243_4, t1243_5 or t1395's own task file
+named this chain.
+
+**Per-suspect verdict** (each ruled in or out by a number, per t1395's AC):
+
+| suspect | verdict |
+|---|---|
+| Textual board-wide layout after `AwaitMount` → `refresh(layout=True)` | **Real but minor.** 4 reflows / keypress, `layout`+`reflow`+`render` = 23.6 % combined. Not ablatable — removing them removes the board. |
+| `_refocus_card`'s full-tree `query(TaskCard)` | **Ruled out.** 0.1 ms self, one call. The refocus is not the query storm; the *focus it triggers* is. |
+| focus-driven `scroll_visible` + up to 5 refresh hops | **Ruled out as cost.** 4 hops, 0.3 ms total. Both scroll sites already pass `animate=False, immediate=True`, so no animation is involved. |
+| `_column_widgets()` four full-DOM queries | **Unreachable on the move path — 0 calls, both axes.** Its only callers reach it from `_reanchor_to_viewport` / `_nav_lateral`, i.e. **plain-arrow navigation**. Still a real ~25 ms defect *there*; it was never part of this residual. Pinned by `test_column_widgets_is_unreachable_from_the_move_path`. |
+| harness floor | 73.4 ms, 6.3 % of lateral e2e. Subtracted before every conclusion above. |
+| **the bindings/Footer sweep (new)** | **The wall.** 76.2 % removable. |
+
+**The two axes do not measure the same thing.** Vertical (median 191.0 ms) records
+**0** `bindings_sweep`, **0** `footer_compose`, 1 `check_action` and 8
+`dom_query` — because its card is already laid out, no scroll chain starts, and
+the timed region closes at `_refocus_card` *before* the deferred sweep runs. The
+lateral region stays open through the layout hops and therefore contains it. So
+the ~6x lateral/vertical gap is substantially a **measurement-window** artifact,
+not purely a path-cost difference, and the vertical axis is under-counting a real
+production cost that a user pays on every focus change. **t1243_14 must not read
+the vertical number as "the cheap path".**
+
+**Recommendation: reducible, and cheaply.** The 587 ms is not inherent to Textual
+layout at this card count — layout proper is 23.6 %. It is `_focused_card()`
+re-deriving the focused card by full-tree query 107 times per keypress for an
+answer that changes at most once. A memo keyed on focus identity — the exact
+substitute the `-focus_query` ablation used, which held every validity invariant
+— buys **55.5 %** on its own; not re-running the whole bindings sweep on every
+focus change buys **76.2 %**. Both are follow-up work: t1395 is an investigation
+and asserts no target, so the fix gets its own task with a target set from these
+numbers.
+
+**Applied: t1402 `board_focus_query_storm_on_move`** (anchored to this topic,
+`priority: high`), carrying a **≥ 45 %** lateral target — deliberately under both
+ablation figures, which are ideal-removal upper bounds. It declares
+`depends: [t1243_14]`: the retrospective must measure the *un-fixed* board first,
+or a 45-76 % win arriving from outside this workstream makes t1243_14's table
+incomparable with the recorded baselines and retroactively flatters t1243_5.
+t1243_14's task file carries the reverse pointer, so the ordering cannot be
+silently unblocked by descoping either side.
+
+A **second** follow-up is warranted but deliberately not filed by t1395:
+`_column_widgets()`'s four full-DOM class queries (~25 ms) are now proved to cost
+nothing on the move path and everything on the **plain-arrow navigation** path,
+which no benchmark in this workstream measures. Filing it would require a target
+derived from a nav-path measurement that does not exist yet.
+
+**Also for t1243_14:** its Step 4 question "which span now dominates" is answered
+above — `dom_query`, 53.6 %. Its instruction to retire or re-scope `R_pair` /
+`R_rm4` / `R_rm5` stands; those levers now measure 0–6 % and their gate lines are
+degenerate.
+
 ---
 
 ## Workstream C — task groups (decided data model)
