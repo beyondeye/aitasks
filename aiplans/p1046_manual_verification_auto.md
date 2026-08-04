@@ -147,7 +147,10 @@ control above.
 
 ## Upstream defects identified
 
-- `.aitask-scripts/agentcrew/agentcrew_runner_control.py:59` — `get_runner_info`
+Both were confirmed with the user and filed as independent follow-up bug tasks
+(**t1413** and **t1412** respectively); neither failed a checklist item.
+
+- `.aitask-scripts/agentcrew/agentcrew_runner_control.py:59` — **t1413** — `get_runner_info`
   derives `stale` **only** from heartbeat age (`RUNNER_STALE_SECONDS = 120`) and
   ignores the file's own `status:` field. A runner that wrote `status: stopped`
   with a fresh heartbeat is therefore rendered as `Runner active (<host>, 5s ago)`
@@ -159,7 +162,7 @@ control above.
   two predicates, two thresholds, one concept. Pre-existing (t1041 added
   `runner_is_live`; it did not touch `get_runner_info`), display-only, and it does
   **not** affect the crew status rollup, so it did not fail any item.
-- `.aitask-scripts/agentcrew/agentcrew_dashboard.py:984` — `_refresh_data` calls
+- `.aitask-scripts/agentcrew/agentcrew_dashboard.py:984` — **t1412** — `_refresh_data` calls
   `remove_children()` and remounts every `CrewCard` on the 5 s interval, discarding
   keyboard focus. `Enter` / `r` / `k` / `d` all resolve their target through
   `_get_focused_crew_id()`, so any of them pressed more than ~5 s after the last
