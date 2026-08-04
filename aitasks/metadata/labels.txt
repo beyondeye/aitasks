@@ -60,6 +60,7 @@ git
 git-integration
 gitremote
 html_plans
+install
 install_scripts
 installation
 legal
@@ -88,6 +89,7 @@ robustness
 sanboxing
 script-performance
 shadow
+shell
 skill_optiomizations
 skills
 statistics
