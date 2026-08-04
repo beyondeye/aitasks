@@ -246,7 +246,7 @@ Step 9 (Post-Implementation) handles merge, `ait gates run`, and archival.
 - `archive-ready` returns a bare `BLOCKED:<gate>` for a gate whose ledger still
   reads `pass`, so `aitask_archive.sh`'s `GATE_PENDING:<csv>` tells the user to
   wait for a gate rather than to re-sign a stale signature · severity: low ·
-  → mitigation: gate_stale_signature_archive_message
+  → mitigation: t1417 (gate_stale_signature_archive_message)
 - `archive-ready` gains a conditional git shell-out; a non-lazy implementation
   would slow `ait ls`-adjacent paths · severity: low · → mitigation: candidate
   filter before the digest call, so the no-witness case does zero extra work
@@ -259,11 +259,11 @@ Step 9 (Post-Implementation) handles merge, `ait gates run`, and archival.
 - Four agreeing-but-unfixed surfaces (`archive_status_from_text`,
   `read_task_gate_state`, `deps-unblock`, `unlocked`) remain ledger-only, so a
   board badge or `ait ls` row can disagree with the enforcing decision ·
-  severity: low · → mitigation: gate_stale_witness_surface_parity
+  severity: low · → mitigation: t1416 (gate_stale_witness_surface_parity)
 
 ### Planned mitigations
-- timing: after | name: gate_stale_witness_surface_parity | type: enhancement | priority: medium | effort: medium | addresses: goal-achievement — ledger-only surfaces disagree with the enforcing decision | desc: Thread a once-per-refresh code digest through archive_status_from_text / read_task_gate_state / deps-unblock / gates unlocked, or ratify them as deliberately ledger-only with a drift guard.
-- timing: after | name: gate_stale_signature_archive_message | type: enhancement | priority: low | effort: low | addresses: code-health — bare BLOCKED:<gate> for a ledger-pass gate | desc: Give aitask_archive.sh a distinct GATE_STALE_SIGNATURE:<csv> signal so the user is told to re-sign with 'ait gate pass' instead of to wait for a pending gate.
+- timing: after | name: gate_stale_witness_surface_parity | created: t1416 | type: enhancement | priority: medium | effort: medium | addresses: goal-achievement — ledger-only surfaces disagree with the enforcing decision | desc: Thread a once-per-refresh code digest through archive_status_from_text / read_task_gate_state / deps-unblock / gates unlocked, or ratify them as deliberately ledger-only with a drift guard.
+- timing: after | name: gate_stale_signature_archive_message | created: t1417 | type: enhancement | priority: low | effort: low | addresses: code-health — bare BLOCKED:<gate> for a ledger-pass gate | desc: Give aitask_archive.sh a distinct GATE_STALE_SIGNATURE:<csv> signal so the user is told to re-sign with 'ait gate pass' instead of to wait for a pending gate.
 
 ## Post-Review Changes
 
