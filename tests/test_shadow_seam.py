@@ -233,15 +233,38 @@ class CaptureShadowTextTests(unittest.TestCase):
     def test_uses_plan_review_depth_and_the_capture_script(self):
         out, rec = self._run_capture()
         self.assertEqual(out, "captured text")
-        self.assertEqual(rec["argv"][1:], ["--deep", "%5"])
+        self.assertEqual(rec["argv"][1:], ["--deep", "--any-pane", "%5"])
         self.assertTrue(rec["argv"][0].endswith("aitask_shadow_capture.sh"))
         self.assertIsNone(rec["env"])  # no override => inherit the environment
 
     def test_lines_override_sets_plan_capture_lines(self):
         _, rec = self._run_capture(lines=1500)
-        self.assertEqual(rec["argv"][1:], ["--deep", "%5"])
+        self.assertEqual(rec["argv"][1:], ["--deep", "--any-pane", "%5"])
         self.assertEqual(rec["env"]["SHADOW_PLAN_CAPTURE_LINES"], "1500")
         self.assertIn("PATH", rec["env"])  # inherited, not replaced
+
+    def test_opts_out_of_the_wrong_pane_refusal(self):
+        """This reader must NOT inherit the helper's wrong-pane guard (t1319).
+
+        `aitask_shadow_capture.sh` refuses an explicit pane id that its own
+        pane's `@aitask_shadow_target` contradicts, or that it cannot vouch for
+        because the caller sits on a different tmux server. Both are wrong here,
+        for two independent reasons:
+
+        1. The guard exists to catch a pane id a *model* transcribed and may
+           have truncated. `shadow_pane` comes from `find_shadow_pane`, so there
+           is no transcription to protect against.
+        2. A TUI run from the user's personal tmux while the framework lives on
+           `-L ait` IS a cross-server caller. Since this call sends stderr to
+           DEVNULL and maps a non-zero exit to None, that refusal would reach
+           the user as a silent "no concerns" rather than as an error.
+
+        `--any-pane` is the single sanctioned opt-out; asserting it here keeps
+        it from being dropped, and this docstring keeps it from being copied to
+        a caller whose pane id IS model-supplied.
+        """
+        _, rec = self._run_capture()
+        self.assertIn("--any-pane", rec["argv"])
 
     def test_capture_never_stamps_analyzed_at_from_a_non_shadow_caller(self):
         """The freshness stamp is the SHADOW's own act, not the reader's.

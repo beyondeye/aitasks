@@ -69,8 +69,10 @@ governs the *followed pane*, not your own repo reads.)
    the angle catalog's notes-absent modes for S1/S2 apply.
 
 When you (re)capture the followed pane to read long content, use the deep
-plan-review capture — `./.aitask-scripts/aitask_shadow_capture.sh --deep <followed_pane_id>` —
-so a long diff or notes section isn't truncated to the default window's tail.
+plan-review capture — `./.aitask-scripts/aitask_shadow_capture.sh --deep` — so a
+long diff or notes section isn't truncated to the default window's tail. Pass no
+pane id: the helper resolves your bound followed pane itself (add
+`<followed_pane_id>` only if Step 1 also had to).
 
 ## Review-state assessment (required — run first, every tier)
 

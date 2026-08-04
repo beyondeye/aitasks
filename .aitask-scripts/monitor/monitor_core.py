@@ -463,7 +463,17 @@ async def capture_shadow_text(
         env = dict(os.environ, SHADOW_PLAN_CAPTURE_LINES=str(lines))
     try:
         proc = await asyncio.create_subprocess_exec(
-            str(script), "--deep", shadow_pane,
+            # ``--any-pane`` is the ONE sanctioned opt-out of the helper's
+            # wrong-pane refusal (t1319), for two independent reasons. (1) That
+            # guard exists to catch a pane id a *model* transcribed and may have
+            # truncated; ``shadow_pane`` here comes from ``find_shadow_pane``, so
+            # there is nothing for it to protect. (2) A TUI run from the user's
+            # personal tmux while the framework lives on ``-L ait`` is a
+            # cross-server caller, which the helper refuses — and because this
+            # call sends stderr to DEVNULL and returns None on a non-zero exit,
+            # that refusal would surface as a silent "no concerns" in the picker.
+            # Do not copy this flag to callers whose pane id is model-supplied.
+            str(script), "--deep", "--any-pane", shadow_pane,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
             env=env,

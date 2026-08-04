@@ -8,9 +8,10 @@ right". Here you lead with questions, not verdicts.
 **Inputs:** the captured screen (shadow Step 1) and/or the fetched plan file
 (shadow Step 2). Fetch the full plan first if only a fragment is on screen. When
 you (re)capture the followed pane to read the plan, use the deeper plan-review
-capture — `./.aitask-scripts/aitask_shadow_capture.sh --deep <followed_pane_id>` —
-because plans are long and the default 200-line window can truncate earlier
-constraints, decisions, or risk notes.
+capture — `./.aitask-scripts/aitask_shadow_capture.sh --deep` — because plans
+are long and the default 200-line window can truncate earlier constraints,
+decisions, or risk notes. Pass no pane id: the helper resolves your bound
+followed pane itself (add `<followed_pane_id>` only if Step 1 also had to).
 
 **Advisory-only:** present the questions to the user; never drive the followed
 agent's pane.

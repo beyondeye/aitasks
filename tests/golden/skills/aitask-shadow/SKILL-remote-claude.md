@@ -24,9 +24,12 @@ answer a prompt, or pressure-test a plan).
 ```
 
 - `<followed_pane_id>` (required) — the tmux pane id (e.g. `%237`) of the agent
-  you are shadowing. You capture this pane to see its current screen. **Use it
-  exactly as given** — pane ids are commonly two or three digits, and dropping
-  digits (`%237` → `%7`) can silently resolve to a *different live pane*.
+  you are shadowing. **Step 1 does not need it**: the capture helper reads the
+  same id from your pane's `@aitask_shadow_target` binding, which is why that
+  form is preferred. Keep it for `spawn-learn-skill.md` and as the fallback when
+  the helper reports no verifiable binding. **Use it exactly as given** — pane
+  ids are commonly two or three digits, and dropping digits (`%237` → `%7`) can
+  silently resolve to a *different live pane*.
 - `<source_task_id>` (optional) — the task the followed agent is working
   (e.g. `635_3`). When provided, use it directly for context fetch. When absent,
   see **Resolve the source task** below.
@@ -66,54 +69,71 @@ Then make the user aware of two things:
 
 ## Step 1 — Read the followed agent's screen
 
-Capture the followed agent's current output (escape-free, cleaned):
+Capture the followed agent's current output (escape-free, cleaned). **Take no
+argument** — the helper resolves the followed pane itself:
 
 ```bash
-# Pass <followed_pane_id> EXACTLY as you received it — copy every character.
-# Pane ids are often 2-3 digits (e.g. %237). Never abbreviate, reformat, or
-# re-derive it: a shortened id can match a DIFFERENT live pane and you would
-# silently shadow the wrong agent.
-./.aitask-scripts/aitask_shadow_capture.sh <followed_pane_id>
+./.aitask-scripts/aitask_shadow_capture.sh
 ```
+
+The launcher stamps the followed pane id onto your own pane
+(`@aitask_shadow_target`), and the helper reads it from there. Because the id
+never passes through you, it cannot be mistyped or truncated — which is the
+whole point of the argument-free form. Do **not** "helpfully" add
+`<followed_pane_id>` back.
 
 This is your primary input. Re-run it any time you need fresh state — the
 followed agent keeps producing output after you launch, so a later capture may
 differ. If the user pasted output directly, you can also pipe it through
 `aitask_shadow_capture.sh -` to clean it.
 
-**If the capture fails with `can't find pane: <id>`** — do not guess, and do not
-retry a shortened or lengthened id. Re-resolve in this order:
+**If the capture fails,** match the error and act; do not guess a pane id.
 
-1. Read your own pane's binding. The launcher stamps the followed pane id on the
-   shadow's pane, so this is ground truth. Only run it when you actually have a
-   pane — with `TMUX_PANE` unset, `-t ""` is an error, not an empty answer:
-   ```bash
-   [ -n "${TMUX_PANE:-}" ] && tmux show-options -pqv -t "$TMUX_PANE" @aitask_shadow_target
-   ```
-   Non-empty output **is** the pane to capture — use it verbatim. This is the
-   only step that can *recover* a mangled id.
-2. If there is no binding (invoked manually, not running in a pane, or the stamp
-   had not landed yet), list the live panes:
-   ```bash
-   tmux list-panes -a -F '#{pane_id} #{window_name} #{pane_current_command}'
-   ```
-   Accept **only an exact match** for the id you were given.
-3. **If nothing matches exactly, stop and ask the user which pane to shadow.**
-   This is the deliberate safe fallback, not a gap in the procedure: once an id
-   has been mangled (`%237` → `%7`) the pane list cannot invert it — a truncation
-   is not a relation you can reverse, and every "closest match" heuristic is
-   exactly the wrong-pane hazard this rule exists to prevent. Never expand,
-   contract, or fuzzy-match a pane id.
+- **`pane id required: … no verifiable @aitask_shadow_target binding …`** — you
+  are not running in a bound shadow pane (typically a manual `/aitask-shadow`
+  invocation, or a shell outside the framework's tmux server). Re-run **once**
+  with the id you were given, copied character for character:
+  ```bash
+  ./.aitask-scripts/aitask_shadow_capture.sh <followed_pane_id>
+  ```
+  Pane ids are often 2–3 digits (e.g. `%237`). Never abbreviate, reformat, or
+  re-derive one.
+- **`refusing to capture …: this pane is bound to <other> …`** (exit 2) — you
+  passed an id that is not your bound target, so it may be a mistyped or
+  truncated one. Do **not** retry with a different id and do **not** reach for
+  `--any-pane`: **drop the argument and re-run with none.** Your binding is
+  readable, so the no-argument form gives the right pane.
+- **`refusing to capture …: this pane … is on a different tmux server …`**
+  (exit 2) — different situation, different remedy. Your own binding lives on
+  another tmux server and cannot be read from here, so re-running with **no**
+  argument will fail too — it is the same missing information. Do not bounce
+  between the two forms. Instead, **ask the user to confirm that
+  `<followed_pane_id>` is the pane they want shadowed**, and only after they
+  confirm, re-run with the override:
+  ```bash
+  ./.aitask-scripts/aitask_shadow_capture.sh --any-pane <followed_pane_id>
+  ```
+  This is the one case `--any-pane` exists for: the helper cannot verify the id,
+  so the user does it instead. Never use it to silence the *bound-to* refusal
+  above.
+- **`can't find pane: <id>`** on the explicit form — the id names nothing. List
+  the live panes and accept **only an exact match**:
+  ```bash
+  tmux list-panes -a -F '#{pane_id} #{window_name} #{pane_current_command}'
+  ```
+  **If nothing matches exactly, stop and ask the user which pane to shadow.**
+  This is the deliberate safe fallback, not a gap: once an id has been mangled
+  (`%237` → `%7`) the pane list cannot invert it — a truncation is not a relation
+  you can reverse, and every "closest match" heuristic is exactly the wrong-pane
+  hazard this rule exists to prevent. Never expand, contract, or fuzzy-match a
+  pane id.
 
-Re-run the capture with the resolved id and tell the user you corrected it. Note
-the limit of the exact-match rule: it rejects *near* misses, but a mangled id
-that happens to name a live pane captures the wrong agent successfully and never
-reaches this recovery at all — which is why passing the id verbatim in the first
-place, not this recovery, is the real safeguard.
+Whenever you had to fall back to an explicit id, say so to the user.
 
 For **plan analysis**, the `plan-*.md` sub-procedures recapture with a deeper
-window — `aitask_shadow_capture.sh --deep <followed_pane_id>` — so a long plan on
-screen isn't truncated to its tail. Ordinary reads here stay at the default depth.
+window — `aitask_shadow_capture.sh --deep`, argument-free for the same reason —
+so a long plan on screen isn't truncated to its tail. Ordinary reads here stay at
+the default depth.
 
 **Proactively surface a relevant capability (after every capture).** Each time
 you read the followed agent's screen — the first capture *and every later

@@ -64,6 +64,12 @@ depth:
    SHADOW_CAPTURE_LINES=1000 ./.aitask-scripts/aitask_shadow_capture.sh <pane_id>
    ```
    This is read-only — `aitask_shadow_capture.sh` never sends input to the pane.
+
+   If it exits **2** with `refusing to capture …`, you are running on a different
+   tmux server than the one that owns `<pane_id>`, so the helper cannot verify
+   which pane is really yours and declines rather than risk learning from the
+   wrong agent. Confirm with the user that `<pane_id>` is the pane they meant,
+   then add `--any-pane` to capture it deliberately.
 2. Judge whether the **start** of the workflow to be learned is present, or the
    earliest captured lines begin mid-action (truncated at the top).
 3. If it looks truncated, tell the user and confirm before pulling more

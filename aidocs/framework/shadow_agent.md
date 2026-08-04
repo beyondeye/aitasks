@@ -23,9 +23,14 @@ their own dimmed section and are skipped by bulk-select.
 The shadow is built from three composable pieces. There is no workflow-phase
 detection stage (that idea is deferred — see "Phase detection" below).
 
-1. **Capture** — `.aitask-scripts/aitask_shadow_capture.sh <pane_id>` reads the
+1. **Capture** — `.aitask-scripts/aitask_shadow_capture.sh` reads the
    followed agent's current screen through the tmux gateway and emits cleaned,
-   escape-free text on stdout. It is re-run on demand, so the shadow always reads
+   escape-free text on stdout. **It takes no pane argument in the normal flow**:
+   it resolves the followed pane from the shadow's own `@aitask_shadow_target`
+   binding, so the id never has to be transcribed by the model (see "Rule: the
+   validated pane binding, not the argument, is the source of truth" below). An
+   explicit `<pane_id>` remains supported for manual invocations and for callers
+   that are not shadows. It is re-run on demand, so the shadow always reads
    the followed agent's *current* state rather than a frozen launch-time
    snapshot. A `-` argument cleans pre-captured text from stdin (also the test
    seam). All tmux access goes through `lib/tmux_exec.sh`
@@ -160,6 +165,54 @@ failure is retried once and then the just-created pane is **killed**; no cleanup
 hook is installed and the caller reports an error. See `tui_conventions.md`
 (companion-pane section) and `tmux_gateway.md` (multi-agent per window).
 
+### Rule: the validated pane binding, not the argument, is the source of truth
+
+A pane id that travels through a model can be mangled — a Codex shadow was
+observed transcribing `%237` as `%7`. The dangerous case is not a mistyped id
+that fails: it is a mangled id that happens to name a **live** pane, because the
+capture then *succeeds*, raises nothing, and the shadow advises on another
+agent's work. `aitask_shadow_capture.sh` closes that structurally (t1319).
+
+- **No argument ⇒ resolve from the binding.** The helper reads
+  `@aitask_shadow_target` off its own `$TMUX_PANE` and captures that. The
+  skill's Step 1 and every `--deep` sub-procedure use this form, so in the
+  spawned flow the id never enters the model's token stream at all.
+- **The binding counts only if it is on the gateway server.** `ait_tmux`
+  addresses the dedicated `ait` socket while `$TMUX_PANE` names a pane on
+  whatever server the *caller* is attached to, and **pane ids collide across
+  servers**. One `display-message` fetches `#{socket_path}` and the option
+  together and compares the socket against `$TMUX`'s; a mismatch yields
+  `cross-server`, never a binding. Without this the helper could read an
+  unrelated gateway pane's binding and capture *its* followed agent.
+- **Four states, deliberately not three.** `shadow_self_target` returns `""`
+  (no `TMUX_PANE`), `unbound`, `bound:<id>`, or `cross-server`. "Verified
+  unbound" and "could not verify" must stay distinct — collapsing them is what
+  reopens the hole on the explicit-argument path.
+- **An explicit `<pane_id>` is checked against that state.** Allowed with no
+  tmux context, or same-server-unbound, or same-server-and-matching; **refused
+  with exit 2** when the binding names a different pane, and when the caller is
+  `cross-server`. `--any-pane` overrides.
+- **A bounded wait bridges the stamp race.** `spawn_shadow` stamps the option
+  only *after* `launch_in_tmux` returns, so a shadow's first capture can outrun
+  its own binding. The no-argument path polls for `SHADOW_BIND_WAIT_MS`
+  (default 2000) and then **fails closed** — it never falls back to a guess.
+  Only `unbound` is waited on; `""` and `cross-server` are properties of where
+  the process runs and cannot change. The explicit path never waits, so the
+  per-tick TUI capture is not slowed.
+
+**One sanctioned opt-out.** `capture_shadow_text` (`monitor/monitor_core.py`)
+passes `--any-pane`, for two independent reasons: its pane id comes from
+`find_shadow_pane`, so there is no transcription to guard; and a TUI run from the
+user's personal tmux while the framework is on `-L ait` is a cross-server caller,
+whose refusal would reach the user as a silent "no concerns" (the call sends
+stderr to `DEVNULL` and maps a non-zero exit to `None`). Do not copy the flag to
+any caller whose pane id is model-supplied — the learner spawned by
+`spawn-learn-skill.md` deliberately does **not** use it.
+
+`tests/test_shadow_capture.sh` proves each guard against live tmux, including a
+two-server fixture with **colliding pane ids** and a launch-order fixture that
+stamps only after the capturing pane has started.
+
 ### Rule: `companion_pane` is per-app policy, never `TMUX_PANE`
 
 `spawn_shadow` takes `companion_pane` as an explicit keyword parameter and
@@ -249,8 +302,9 @@ snapshot hash of a live terminal is too brittle (a render settling by a single
 character reads as "stale" even when the agent is idle).
 
 - **Stamp (in `aitask_shadow_capture.sh`).** On every capture, when the helper detects
-  it is running *inside a shadow pane* (its own `$TMUX_PANE` carries
-  `@aitask_shadow_target`) and is capturing that bound followed agent, it stamps the
+  it is running *inside a shadow pane* (its own `$TMUX_PANE` carries a
+  gateway-validated `@aitask_shadow_target` — the same `shadow_self_target`
+  lookup the resolution rule above uses) and is capturing that bound followed agent, it stamps the
   current wall-clock epoch onto its own pane:
   `@aitask_shadow_analyzed_at = <epoch>` (`SHADOW_ANALYZED_AT_OPTION` in
   `monitor/monitor_core.py`). Automatic (no flag, no skill-markdown change) and

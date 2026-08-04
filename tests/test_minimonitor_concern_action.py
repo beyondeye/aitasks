@@ -317,15 +317,18 @@ class CaptureArgvTests(unittest.TestCase):
     def test_uses_plan_review_depth(self):
         out, rec = self._run_capture()
         self.assertEqual(out, "captured text")
-        self.assertEqual(rec["argv"][1:], ["--deep", "%5"])
+        # `--any-pane` opts this reader out of the helper's wrong-pane refusal
+        # (t1319) — see the rationale docstring on the matching test in
+        # tests/test_shadow_seam.py. Do not copy it to a model-supplied caller.
+        self.assertEqual(rec["argv"][1:], ["--deep", "--any-pane", "%5"])
         self.assertTrue(rec["argv"][0].endswith("aitask_shadow_capture.sh"))
         # No override => inherit the ambient environment.
         self.assertIsNone(rec["env"])
 
     def test_lines_override_sets_plan_capture_lines(self):
         _, rec = self._run_capture(lines=mm._SHADOW_DEEP_RETRY_LINES)
-        # The deeper retry changes the depth, never the target or the flag.
-        self.assertEqual(rec["argv"][1:], ["--deep", "%5"])
+        # The deeper retry changes the depth, never the target or the flags.
+        self.assertEqual(rec["argv"][1:], ["--deep", "--any-pane", "%5"])
         self.assertEqual(
             rec["env"]["SHADOW_PLAN_CAPTURE_LINES"],
             str(mm._SHADOW_DEEP_RETRY_LINES),
