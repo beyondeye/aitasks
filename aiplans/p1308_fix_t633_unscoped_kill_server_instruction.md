@@ -208,3 +208,75 @@ executable tmux step reads `ait_tmux <verb>`.
 Current-branch mode (profile `fast`, `create_worktree: false`) — no worktree or
 branch cleanup. Gate orchestrator runs `risk_evaluated`; then archive t1308 via
 `./.aitask-scripts/aitask_archive.sh 1308` and `./ait git push`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned edit to
+  `aitasks/t633_manual_verification_force_exact_tmux_targeting_followup.md`
+  (+45/-3): a new `## Socket setup (do this first)` section placed *before* the
+  parsed `## Verification Checklist`; the old destructive item 1 split into a
+  preflight item + a gated kill item; the `list-sessions` item switched to
+  `ait_tmux`; `updated_at` bumped to 2026-08-04 17:25. No code changed.
+
+- **Deviations from plan:** None.
+
+- **Issues encountered:** None during implementation. The plan itself went
+  through two review rounds before approval, which is where the real content
+  came from — the first draft hard-coded `-L ait` in the items and only warned
+  about blast radius in prose. Three concrete hazards were found by re-reading
+  the source rather than trusting the task description:
+  1. `aitask_ide.sh:72` resolves its server via `ait_tmux_socket_name()`, so any
+     hard-coded flag *diverges from the server `ait ide` actually uses* whenever
+     `AITASKS_TMUX_SOCKET` is set. Fixed by deriving the socket from the same
+     gateway (`source lib/tmux_exec.sh` → `ait_tmux <verb>`).
+  2. The set-but-empty escape hatch resolves to **no flag at all**, so tmux
+     follows `$TMUX` — running the kill step from inside a pane would destroy
+     that pane's server, possibly the user's personal one. Fixed with a printed
+     `socket=/flags=/TMUX=` line and a hard STOP condition.
+  3. `kill-server` and `list-sessions` both exit **1** with `error connecting to
+     …` when no server exists (probed on a throwaway socket) — a clean slate that
+     would otherwise read as a checklist failure. Now given a defined outcome
+     (Pass the preflight / Skip the kill).
+
+- **Key decisions:**
+  - **Derive, don't hard-code.** Reusing `lib/tmux_exec.sh` (the sanctioned shell
+    seam `tests/test_no_raw_tmux.sh` enforces) is what keeps the checklist correct
+    for all three `AITASKS_TMUX_SOCKET` cases; hard-coding a flag is the exact
+    failure mode being fixed here.
+  - **Setup section sits outside `## Verification Checklist`.** Keeps the parsed
+    section pure items — the section holds `- ` bullets and a fenced block that
+    `aitask_verification_parse.py`'s `PLAIN_ITEM_RE` would otherwise be able to
+    convert into checklist items.
+  - **No line reproduces a bare `tmux <verb>` as an instruction.** Warnings say
+    "a plain `tmux` invocation", so a literal audit cannot mistake warning prose
+    for a command. Verified with a word-boundary grep that excludes `ait_tmux`
+    and, as a negative control, *does* flag both pre-edit offenders.
+  - **Archived `t632` left untouched** (`aitasks/archived/t632_*.md:104,108` has
+    the same stale instruction) — archived files are a record of what was true
+    when written.
+  - **No source-scan guard added:** t633 was the only active file with the
+    defect, so a guard would be enforcement without a population.
+
+- **Upstream defects identified:** None. (The rot in
+  `aitasks/archived/t632_force_exact_tmux_session_targeting.md:104,108` is the
+  same instruction in an *archived* task file, deliberately left as a historical
+  record — not a live defect in a script, helper, or module.)
+
+- **Verification performed:** All six plan steps pass — 9 items parse
+  (`TOTAL:9 PENDING:9`), the bare-tmux grep is silent post-edit and flags both
+  offenders pre-edit, the setup snippet runs verbatim
+  (`socket=[ait] flags=[-L ait] TMUX=[/tmp/tmux-1000/ait,…]`, `rc=0`), the STOP
+  negative control prints `socket=[] flags=[]`, intent is preserved, and
+  `aitask_ls.sh` still lists t633. Live run of the preflight command showed
+  three ait sessions on this box (`aitasks`, `thinking_back`, `thinkingapp`) —
+  the cross-project blast radius the new preflight exists to surface.
+
+- **Commit traceability (note):** the t633 edit and t1308's risk/agent
+  frontmatter were swept into a **concurrent session's** commit `0576d54f1`
+  ("ait: Record verification state for t1085") by a broad `git add` in that
+  session, before this workflow reached its own Step-8 commit. The content in
+  `HEAD` is exactly this task's change (verified: `git diff HEAD` clean for both
+  files; `0576d54f1` introduces all 8 `ait_tmux` lines), but **no `(t1308)`-tagged
+  commit exists**, so `aitask_issue_update.sh`-style commit lookup by task tag
+  will not find it. t1308 has no `issue:` field, so nothing downstream breaks;
+  cite `0576d54f1` when tracing this change.
