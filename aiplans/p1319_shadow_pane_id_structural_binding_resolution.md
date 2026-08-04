@@ -402,3 +402,142 @@ Then **Step 9 (Post-Implementation)** for cleanup, gate verification, and archiv
 ### Planned mitigations
 - timing: after | name: shadow_learner_pane_id_binding_resolution | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — the learner-spawn path still transcribes `<followed_pane_id>` through the model | desc: Teach `aitask_shadow_spawn_learner.py` to resolve the followed pane from its own pane's validated `@aitask_shadow_target` when invoked with no pane argument (reusing t1319's gateway-server-checked lookup), and make `spawn-learn-skill.md` Step 2 argument-free.
 - timing: after | name: shadow_no_arg_capture_live_verification | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — the launch↔stamp race, at the real agent-CLI layer | desc: Spawn a real shadow from minimonitor (`e`) against a live agent and confirm its first argument-free `aitask_shadow_capture.sh` call resolves the bound followed pane with no error. t1319's case 8 proves the tmux-level ordering on a throwaway socket; this covers the real code-agent boot path, which no automated test in this repo can run inside tmux.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-04 13:14)
+
+- **Requested by user:** The shadow skill's exit-2 recovery was written as one
+  generic rule ("never use `--any-pane`; drop the argument and re-run with
+  none"). For a manual invocation from a different tmux server that livelocks:
+  no-arg reports no verifiable binding → the instruction says pass the explicit
+  id → the explicit id is correctly refused as cross-server → the instruction
+  sends the agent back to no-arg. `--any-pane` exists precisely for that
+  confirmed cross-server case, and `aitask-learn-skill` already documents it
+  that way. Split the recovery by error reason. (Verified: CONFIRMED, blocking.)
+
+- **Changes made:** Replaced the single exit-2 bullet in
+  `.claude/skills/aitask-shadow/SKILL.md.j2` Step 1 with two, keyed on the
+  helper's own (already distinct) message text:
+  - `…: this pane is bound to <other> …` → your binding IS readable, so the
+    argument was simply wrong: drop it and re-run with none. `--any-pane` stays
+    forbidden here.
+  - `…: this pane … is on a different tmux server …` → re-running with no
+    argument fails for the *same* missing information, so it is not a remedy.
+    Ask the user to confirm `<followed_pane_id>` is the pane they want, and only
+    then re-run `--any-pane <followed_pane_id>`. Names this as the one case the
+    override exists for.
+
+  This also brings the shadow skill in line with the confirm-then-override
+  wording already added to `.claude/skills/aitask-learn-skill/SKILL.md`.
+
+  No script change was needed: `aitask_shadow_capture.sh` already emits the two
+  reasons as separately-worded messages (`this pane is bound to …` vs `is on a
+  different tmux server …`), and both already name their own correct remedy.
+  The defect was confined to the skill prose that generalized over them.
+
+- **Files affected:** `.claude/skills/aitask-shadow/SKILL.md.j2`,
+  `tests/golden/skills/aitask-shadow/SKILL-{default,fast,remote}-claude.md`
+  (regenerated).
+
+- **Re-verified:** `tests/test_skill_render_aitask_shadow.sh` 475/475,
+  `aitask_skill_verify.sh` OK. The two discriminating substrings the skill now
+  keys on are the ones the helper actually prints, and
+  `tests/test_shadow_capture.sh` already asserts the cross-server wording
+  ("different tmux server").
+
+## Final Implementation Notes
+
+- **Actual work done:** Both planned mitigations landed as designed, plus the
+  cross-server hardening the plan reviews added.
+  - `.aitask-scripts/aitask_shadow_capture.sh`: new `shadow_self_target()`
+    returning the four-state classification (`""` / `unbound` / `bound:<id>` /
+    `cross-server`) from a **single** `display-message` that fetches
+    `#{socket_path}` and `#{@aitask_shadow_target}` together; new
+    `shadow_wait_self_target()` (bounded poll, `SHADOW_BIND_WAIT_MS`, default
+    2000); `shadow_stamp_analyzed_at()` reworked to consume the pre-resolved
+    state; `main()` gained the no-argument resolution path, the `--any-pane`
+    flag, and the two exit-2 refusals.
+  - `.aitask-scripts/monitor/monitor_core.py`: `capture_shadow_text` passes
+    `--any-pane` (the single sanctioned opt-out).
+  - `.claude/skills/aitask-shadow/`: `SKILL.md.j2` Step 1 is argument-free with a
+    per-error recovery ladder; all five `--deep` sub-procedures argument-free.
+  - `.claude/skills/aitask-learn-skill/SKILL.md`: documents the cross-server
+    refusal and its confirm-then-`--any-pane` remedy.
+  - `aidocs/framework/shadow_agent.md`: new "Rule: the validated pane binding,
+    not the argument, is the source of truth"; capture-pipeline and
+    freshness-stamp bullets updated.
+  - Tests: 16 new assertions in `tests/test_shadow_capture.sh`; two argv pins
+    updated; three pre-existing fixtures corrected (see below).
+
+- **Deviations from plan:** Two refinements decided during implementation, both
+  strictly narrowing behaviour the plan had left broader:
+  1. `shadow_wait_self_target` polls **only** the `unbound` state. `""` and
+     `cross-server` describe where the process runs and cannot change, so
+     waiting on them would burn the full 2 s budget on a verdict that is already
+     final — and would have added 2 s to every no-context invocation, including
+     the argument-validation tests.
+  2. The plan said the no-arg path "fails closed on an unverifiable server" and
+     the explicit path treats it as `cross-server`. Implemented exactly that,
+     but the `""` (no `TMUX_PANE` at all) case is kept distinct from
+     `cross-server` so a genuine non-tmux caller is still allowed through with
+     an explicit id.
+
+- **Issues encountered:**
+  - **Two pre-existing tests began failing** the moment the guard landed — the
+    `-J` wrap-join and `--deep` depth fixtures inherit the developer's ambient
+    `TMUX`/`TMUX_PANE` and so became cross-server callers. They are about
+    capture mechanics, not bindings, so both now run under
+    `env -u TMUX_PANE -u TMUX`. The t1104 analyzed-at fixture had the opposite
+    problem (it set `TMUX_PANE` with no `TMUX`) and now derives `TMUX` from the
+    fixture server. This is the blast radius the plan's survey predicted,
+    surfacing exactly where predicted.
+  - The first cross-server fixture **did not discriminate**: it bound a pane on
+    server B, but the lookup addresses the *gateway*, so it read server A's
+    same-numbered pane — which carried no binding, making the test pass for the
+    wrong reason. Rebuilt so the ids **collide** with a *bound* gateway pane
+    (`b_shadow`), which is what makes the negative control meaningful.
+  - The first race fixture's `SHADOW_BIND_WAIT_MS=0` control passed vacuously —
+    the stamp reliably won the race. A deliberate 1 s delay before stamping makes
+    the ordering deterministic; the comment records that production's gap is
+    smaller but unbounded.
+  - Panes identified positionally from `list-panes` were silently swapped (a
+    `-d` split leaves the original pane active, so both splits divide the same
+    pane and index order does not follow creation order). Now captured from
+    `split-window -P -F '#{pane_id}'`.
+
+- **Key decisions:**
+  - **Refuse rather than warn** on a conflicting binding: a warning still
+    performs the wrong-pane capture, and the failure mode being closed is the
+    entire point of the task.
+  - **`cross-server` is its own state, never folded into `unbound`.** Collapsing
+    them reopens the hole on the explicit-argument path — proven by negative
+    control NC3.
+  - **Validate the server rather than avoid the problem.** Comparing
+    `${TMUX%%,*}` to the queried server's `#{socket_path}` is exact and needs no
+    assumption about `TMUX_TMPDIR` or socket-name basenames, and folding it into
+    the existing lookup keeps the call count unchanged.
+  - **Exactly one `--any-pane` opt-out**, at `capture_shadow_text`, with the
+    rationale recorded in the code, in the argv-pin docstring, and in
+    `shadow_agent.md`. NC5 proved it is load-bearing rather than cargo-culted.
+
+- **Verification performed:** `tests/test_shadow_capture.sh` 40/40;
+  `tests/test_no_raw_tmux.sh` 5/5; `tests/test_skill_render_aitask_shadow.sh`
+  475/475; `aitask_skill_verify.sh` OK; `shellcheck` clean (only the two
+  pre-existing SC1091 `source` infos, byte-identical to the HEAD baseline);
+  `run_all_python_tests.sh` PASSED (`runner=pytest, exit=0`).
+
+  Five negative controls, one mutation at a time, each restored by undoing that
+  edit only (never `git checkout`, which would have swept in a concurrent
+  session's `aitask_board.py` work):
+  - NC1 conflict branch disabled → the wrong pane really is captured.
+  - NC2 socket comparison disabled → the cross-server no-arg call resolves the
+    *collided* gateway binding and captures its followed agent.
+  - NC3 `cross-server` folded into `unbound` → the explicit cross-server capture
+    goes through.
+  - NC4 wait made single-shot → the race fixture fails closed.
+  - NC5 `--any-pane` removed from `capture_shadow_text` → the real-chain
+    `test_minimonitor_concern_smoke.py` returns `None`, i.e. the predicted
+    silent "no concerns".
+
+- **Upstream defects identified:** None.
