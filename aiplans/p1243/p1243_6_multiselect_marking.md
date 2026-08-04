@@ -506,16 +506,17 @@ the `☑` actually paints and the title row does not reflow.
   scoped by class, prune reports what it dropped).
 
 - **Issues encountered:**
-  1. **`run_all_python_tests.sh <path>` does not narrow the run.** Passing a
-     positional module path appends it to the full enumerated module list rather
-     than selecting it, so the "single module" invocation in this plan's
-     Verification section actually ran the whole suite *plus* the module and blew
-     the 120 s tool budget. Iterate with
-     `~/.aitask/venv/bin/python -m pytest tests/test_board_marking.py` instead
-     (13.9 s), and keep `run_all_python_tests.sh` with **no arguments** for the
-     full-suite gate. This is a pre-existing runner behaviour, not a defect
-     introduced here — but it invalidates the command as written in several
-     plans, so it is recorded rather than silently worked around.
+  1. **This plan's "single module" verification command was wrong.**
+     `bash tests/run_all_python_tests.sh tests/test_board_marking.py` does not
+     narrow the run — a positional path is forwarded to every phase *in addition
+     to* the enumerated module list, so it ran the whole suite plus the module
+     and blew the tool budget. **This is documented, intended runner behaviour**
+     (`CLAUDE.md:58-60`: "Passing a positional test path (rather than
+     `--test-dir`) disables the lane… Use `--test-dir` to narrow a run"), so it
+     is a defect in the plan, not in the runner. Correct forms:
+     `~/.aitask/venv/bin/python -m pytest tests/test_board_marking.py` for fast
+     iteration (13.9 s), and `bash tests/run_all_python_tests.sh` with **no
+     arguments** for the full-suite gate.
   2. **`tmux send-keys <session> Space` did not reach the app**; `send-keys -l ' '`
      did. Anything driving a Textual `space` binding from tmux must send the
      literal character.
@@ -544,12 +545,7 @@ the `☑` actually paints and the title row does not reflow.
     task does not touch. No `:focus` background was added: focus keeps its
     existing imperative double-cyan border.
 
-- **Upstream defects identified:** None.
-
-  (Issue 1 above is a *documentation/usage* problem with an existing runner's
-  argument handling, not a defect in another module — the runner behaves as
-  CLAUDE.md describes. It is recorded under "Issues encountered" so sibling
-  plans stop copying the wrong command.)
+- **Upstream defects identified:** None
 
 - **Notes for sibling tasks:** see the section below — `effective()` and
   `cardinality` are deliberately **unused by production code in this child**;
