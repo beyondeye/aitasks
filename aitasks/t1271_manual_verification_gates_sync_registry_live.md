@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: [t635_34]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: ['635_34']
+verifies: [t635_34]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-27 23:28
-updated_at: 2026-07-27 23:28
+updated_at: 2026-08-04 11:18
 boardidx: 45056
 ---
 
