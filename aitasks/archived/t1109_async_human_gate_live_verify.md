@@ -3,7 +3,7 @@ priority: low
 effort: low
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [gates, task_workflow]
 active_gates: []
 active_gates_filtered: []
@@ -13,7 +13,8 @@ verifies: [t635_15]
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-01 14:54
-updated_at: 2026-08-04 13:09
+updated_at: 2026-08-04 13:10
+completed_at: 2026-08-04 13:10
 boardidx: 121856
 ---
 
