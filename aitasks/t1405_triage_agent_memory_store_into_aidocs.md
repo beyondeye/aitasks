@@ -66,12 +66,25 @@ memory store itself.
 
 ## Goal
 
-Triage all 148 memories into exactly one disposition each, then execute the
-dispositions. Produce a repeatable rule, not just a one-off cleanup.
+Triage every memory in the **frozen manifest** into exactly one disposition
+each, then execute the dispositions. Produce a repeatable rule, not just a
+one-off cleanup.
+
+**Scope is the frozen manifest, not a fixed count.** The store is live and has a
+concurrent writer: it went from 148 to 149 files during planning. So the first
+child snapshots the inventory (`name` / bytes / content hash) and *that* list
+defines the work. The 148 baseline is pinned by digest — the sorted names,
+minus the one known post-start arrival `project_t1224_done_unblocks_t1109`,
+give `sha256 84db208094ef3b8997b79efc39c0288d3324475dbe8539ede7bfcc5f2c66207d`.
+Any file that arrived after that baseline is **named explicitly and excluded
+from triage**, so "every memory classified" stays provable rather than a count
+that drifted.
 
 ## Dispositions
 
-Every memory gets exactly one, recorded in a triage table:
+Every memory in the frozen manifest gets exactly one, recorded in a triage
+table. The disposition is the **user's ruling**, taken per memory after its
+claim has been re-verified — not the agent's own judgement:
 
 | Disposition | Criterion |
 |---|---|
@@ -108,18 +121,30 @@ Every memory gets exactly one, recorded in a triage table:
 
 ## Acceptance criteria
 
-- A triage table covering **all 148** memories, one disposition + one-line
-  reason each. No memory unclassified.
+- A triage table covering **every memory in the frozen manifest** (count recorded
+  at freeze), one disposition + one-line reason each, with each disposition
+  carrying the user's explicit ruling. No manifest memory unclassified, and any
+  post-baseline arrival named and listed as out of scope.
 - PROMOTE items are merged into `aidocs/framework/*.md`, with each claim
   re-verified against current source; unverifiable claims are dropped and listed
-  as such.
+  as such. **UNVERIFIABLE claims are structurally ineligible for promotion** —
+  changing that requires amending this criterion first.
 - `CLAUDE.md` and `AGENTS.md` both link every promoted doc. The
-  `aidocs/framework` reference count in `AGENTS.md` is no longer zero.
+  `aidocs/framework` reference count in `AGENTS.md` is no longer zero. Because
+  `AGENTS.md` is regenerated from `seed/aitasks_agent_instructions.seed.md`
+  between `>>>aitasks`/`<<<aitasks` markers, the pointers live in an appendix
+  **after** the closing marker — never inside it, and never in the seed (which
+  ships to projects that have no `aidocs/`).
 - DISCARD and MERGE items are removed/collapsed on disk, and `MEMORY.md` is
   regenerated so every remaining file has exactly one index line and every index
-  line points at an existing file (no orphans, no dangling links).
+  line points at an existing file (no orphans, no dangling links). MERGE items
+  additionally record the source → merged `doc#heading` mapping, and surviving
+  `[[wikilinks]]` are rewritten to the exact absorbing section.
 - `MEMORY.md` ends materially below the compaction ceiling — target **≤ 10 KB** —
   with headroom for future sessions rather than sitting just under the limit.
+  If user KEEP rulings push it over, resolve by hook-compaction first, then by an
+  explicit user choice between amending this ceiling and re-ruling. A KEEP ruling
+  is never overridden to hit the number, and the task does not end silently over.
 - A short **retention rule** is written down (in the promoted doc or
   `documentation_conventions.md`) answering: what earns a memory vs. an
   `aidocs/` entry, and when a `project_*` memory should be deleted. Without this
