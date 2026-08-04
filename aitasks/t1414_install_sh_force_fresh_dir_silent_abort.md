@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1075
 implemented_with: claudecode/opus5
 created_at: 2026-08-04 17:33
-updated_at: 2026-08-04 18:58
+updated_at: 2026-08-04 18:59
 ---
 
 ## Problem
@@ -132,3 +134,5 @@ drop `--force`; t1085 itself passed 8/8 after that adaptation. See
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-04T15:59:16Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-04T16:08:41Z status=pass attempt=1 type=human
