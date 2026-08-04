@@ -335,6 +335,9 @@ currently safe only by accident of what precedes them).
   test, silently aborting any 'install.sh --force' into a directory with no
   existing VERSION file (set -e); needs 'return 0'`
 
+Tracked as **t1414** (`aitasks/t1414_install_sh_force_fresh_dir_silent_abort.md`),
+anchored to this topic via `--followup-of 1085`.
+
 ## Cleanup
 
 - `rm -rf ${TMPDIR:-/tmp}/auto_verify_1085/` — removes the shims, the four
