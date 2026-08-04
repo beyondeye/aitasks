@@ -117,3 +117,5 @@ repo (`:focus` -> `$accent`, `:hover` -> `$surface-lighten-1`, `:focus:hover` ->
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-04T08:12:39Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-04T08:48:29Z status=pass attempt=1 type=human
