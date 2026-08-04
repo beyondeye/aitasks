@@ -50,6 +50,40 @@ def index_for_append(indices):
     return (max(values) + STEP) if values else STEP
 
 
+def indices_for_append_run(indices, k):
+    """``k`` ascending indices appending a run past every value in ``indices``.
+
+    Equivalent to calling :func:`index_for_append` once per placement while
+    feeding each result back in, but O(N + k) instead of O(k x (N + k)): the
+    value appended each round is by construction the new maximum, so after the
+    first index ``M`` every subsequent one is exactly ``M + i * STEP``.
+
+    ``indices`` is consumed once and **no exclusion is applied** -- pass the
+    destination column's indices exactly as the caller wants them counted (see
+    ``TaskManager._column_indices``'s ``exclude``). Returns exactly ``k`` values
+    (``[]`` for ``k <= 0``), so a caller may zip it against its task list.
+
+    Reuse
+    -----
+    This is the append-side counterpart of :func:`indices_between`, and the two
+    cover the whole K-wide placement surface: ``indices_between`` for a block
+    landing INSIDE a bounded interval, ``indices_for_append_run`` for a block
+    landing PAST a column's maximum. Both exist so a K-wide placement is ONE
+    arithmetic call rather than a per-item loop.
+
+    ``TaskManager.move_tasks_to_column`` is the first caller. **t1243_11's block
+    moves should call this** (lateral block move: exactly N writes, relative
+    order preserved) instead of re-deriving the stride at the call site -- that
+    re-derivation is exactly the O(k x (N + k)) shape t1369 removed here.
+    t1243_7's move-marked-tasks command reaches it through
+    ``move_tasks_to_column`` and needs no direct call.
+    """
+    if k <= 0:
+        return []
+    start = index_for_append(indices)
+    return [start + i * STEP for i in range(k)]
+
+
 def index_for_prepend(indices):
     """Index that sorts before every value in ``indices`` (``STEP`` when empty).
 

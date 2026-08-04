@@ -74,6 +74,71 @@ class AppendPrependTests(unittest.TestCase):
         self.assertEqual(BO.index_for_prepend([-30, -20]), -30 - BO.STEP)
 
 
+class IndicesForAppendRunTests(unittest.TestCase):
+    """The K-wide append run (t1369) -- `index_for_append`'s batch sibling.
+
+    `TaskManager.move_tasks_to_column` used to call `index_for_append` once per
+    moved task, feeding each result back in, which made a K-task batch
+    O(K x (N + K)). `indices_for_append_run` computes the same run from one
+    scan; `test_matches_iterated_index_for_append` is the oracle that pins
+    "same run", independently of the manager-level state assertions in
+    tests/test_board_manager_moves.py.
+    """
+
+    def test_zero_and_negative_k_return_empty(self):
+        self.assertEqual(BO.indices_for_append_run([10, 20], 0), [])
+        self.assertEqual(BO.indices_for_append_run([10, 20], -1), [])
+
+    def test_returns_exactly_k_values(self):
+        """`move_tasks_to_column` zips this against its task list, and zip
+        truncates silently -- a short return would skip writes, not fail."""
+        for k in range(1, 6):
+            with self.subTest(k=k):
+                self.assertEqual(len(BO.indices_for_append_run([10, 20], k)), k)
+
+    def test_run_starts_past_the_maximum(self):
+        self.assertEqual(BO.indices_for_append_run([10, 20, 30], 3),
+                         [30 + BO.STEP, 30 + 2 * BO.STEP, 30 + 3 * BO.STEP])
+
+    def test_empty_column_run_starts_at_step(self):
+        self.assertEqual(BO.indices_for_append_run([], 3),
+                         [BO.STEP, 2 * BO.STEP, 3 * BO.STEP])
+
+    def test_run_is_strictly_ascending_and_past_every_input(self):
+        run = BO.indices_for_append_run([30, 10, 20], 4)
+        self.assertEqual(run, sorted(run))
+        self.assertEqual(len(set(run)), len(run))
+        self.assertGreater(min(run), 30)
+
+    def test_negative_column_appends(self):
+        self.assertEqual(BO.indices_for_append_run([-30, -20], 2),
+                         [-20 + BO.STEP, -20 + 2 * BO.STEP])
+
+    def test_matches_iterated_index_for_append(self):
+        """The equivalence claim itself, against an independent oracle.
+
+        The reference is the superseded formulation -- call `index_for_append`,
+        append the result, repeat -- so this fails if the closed form ever
+        diverges from it for any input shape the caller can produce.
+        """
+        for indices in ([], [10], [10, 20, 30], [30, 10, 20], [-30, -20],
+                        [10, 10, 10]):
+            for k in range(1, 6):
+                with self.subTest(indices=indices, k=k):
+                    expected, acc = [], list(indices)
+                    for _ in range(k):
+                        nxt = BO.index_for_append(acc)
+                        expected.append(nxt)
+                        acc.append(nxt)
+                    self.assertEqual(BO.indices_for_append_run(indices, k),
+                                     expected)
+
+    def test_accepts_any_iterable(self):
+        """Consumed exactly once, so a one-shot iterator is a valid argument."""
+        self.assertEqual(BO.indices_for_append_run(iter([10, 20]), 2),
+                         [20 + BO.STEP, 20 + 2 * BO.STEP])
+
+
 class IndexBetweenTests(unittest.TestCase):
     def test_wide_gap(self):
         self.assertEqual(BO.index_between(0, 1024), 512)

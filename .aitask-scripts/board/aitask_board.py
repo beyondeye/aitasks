@@ -1581,6 +1581,11 @@ class TaskManager:
 
         Appends past the destination maximum, an unbounded region, so this can
         never exhaust an interval and never compacts.
+
+        The whole run is computed from ONE scan of the destination (t1369), so
+        the batch costs O(N + K) rather than the O(K x (N + K)) a re-scan per
+        task would: each appended value is by construction the new maximum, so
+        the run is plain `start + i * STEP` arithmetic.
         """
         tasks, refused = self._resolve_parents(task_names)
         if refused:
@@ -1588,12 +1593,12 @@ class TaskManager:
         if not tasks:
             return MoveResult()
 
-        indices = self._column_indices(new_col)
+        run = board_ordering.indices_for_append_run(
+            self._column_indices(new_col), len(tasks))
         moved = []
-        for task in tasks:
+        for task, idx in zip(tasks, run):
             task.board_col = new_col
-            task.board_idx = board_ordering.index_for_append(indices)
-            indices.append(task.board_idx)
+            task.board_idx = idx
             task.reload_and_save_board_fields(("boardcol", "boardidx"))
             self._mark_written(task)
             moved.append(task.filename)

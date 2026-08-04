@@ -261,6 +261,71 @@ class MoveTasksToColumnRefusalTests(_ManagerBase):
         self.assert_untouched()
 
 
+class MoveTasksToColumnScalingTests(_ManagerBase):
+    """The batch scans its destination ONCE, whatever K is (t1369).
+
+    The superseded implementation called `index_for_append` per moved task,
+    feeding each result back in, so a K-task batch cost O(K x (N + K)). The
+    happy-path tests above pin the resulting indices and would pass under
+    either implementation -- only a call count distinguishes them, and a count
+    is stable where a wall-clock assertion would be flaky in the shared
+    parallel suite.
+
+    `aitask_board` does `import board_ordering` and calls through the module
+    attribute, so patching `BO.index_for_append` intercepts both the manager's
+    own call and the one inside `indices_for_append_run`.
+    """
+
+    def _spy_index_for_append(self) -> list[list[int]]:
+        """Record the argument of every `index_for_append` call; returns the log.
+
+        The wrapper materializes `indices` before delegating so the spy itself
+        cannot consume a one-shot iterable out from under the real function.
+        """
+        calls: list[list[int]] = []
+        original = BO.index_for_append
+
+        def wrapper(indices):
+            values = list(indices)
+            calls.append(values)
+            return original(values)
+
+        p = mock.patch.object(BO, "index_for_append", wrapper)
+        p.start()
+        self.addCleanup(p.stop)
+        return calls
+
+    def test_batch_scans_the_destination_once(self):
+        calls = self._spy_index_for_append()
+        names = [ALPHA, BETA, GAMMA, DELTA, EPSILON]
+
+        result = self.manager.move_tasks_to_column(names, "c2")
+
+        self.assertTrue(result.ok)
+        self.assertEqual(len(calls), 1,
+                         "K=5 must scan the destination once, not K times")
+        self.assertEqual(calls[0], [10], "the one scan sees c2's indices")
+        # The count means nothing unless the run it produced is still right.
+        self.assertEqual([self.idx(n) for n in names],
+                         [10 + i * STEP for i in range(1, 6)])
+
+    def test_single_move_scans_once_too(self):
+        """K=1 costs one scan under both implementations -- asserting it is what
+        makes "once per call" a constant rather than a coincidence of K=5."""
+        calls = self._spy_index_for_append()
+        self.assertTrue(self.manager.move_tasks_to_column([ALPHA], "c1").ok)
+        self.assertEqual(len(calls), 1)
+
+    def test_refused_batch_never_scans(self):
+        """All-or-nothing resolves before any arithmetic, so a doomed batch does
+        not even price the destination."""
+        calls = self._spy_index_for_append()
+        result = self.manager.move_tasks_to_column([ALPHA, BETA, CHILD], "c1")
+        self.assertFalse(result.ok)
+        self.assertEqual(calls, [])
+        self.assert_untouched()
+
+
 class MoveTaskToColumnTests(_ManagerBase):
     def test_single_move_writes_one_file(self):
         result = self.manager.move_task_to_column(GAMMA, "c1")
