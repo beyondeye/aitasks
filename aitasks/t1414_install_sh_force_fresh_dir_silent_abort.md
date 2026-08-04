@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1075
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 17:33
-updated_at: 2026-08-04 17:38
+updated_at: 2026-08-04 18:58
 ---
 
 ## Problem
@@ -126,3 +127,8 @@ Found while running the t1085 manual-verification checklist (auto-execution
 mode). It blocked items 2/4/5/6/7 until the sandbox installs were adapted to
 drop `--force`; t1085 itself passed 8/8 after that adaptation. See
 `aiplans/archived/p1085_manual_verification_auto.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-04T15:59:16Z status=pass attempt=1 type=human
