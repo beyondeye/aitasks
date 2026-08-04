@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: [t635_34]
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [verification, manual]
 active_gates: []
 active_gates_filtered: []
@@ -12,7 +12,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t635_34]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-07-27 23:28
-updated_at: 2026-08-04 11:49
+updated_at: 2026-08-04 11:51
+completed_at: 2026-08-04 11:51
 boardidx: 45056
 ---
 
