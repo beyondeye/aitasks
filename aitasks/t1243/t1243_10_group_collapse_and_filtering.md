@@ -8,8 +8,9 @@ labels: [aitask_board, tui, python]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-07-28 01:16
-updated_at: 2026-08-04 10:02
+updated_at: 2026-08-04 19:20
 ---
+
 
 
 ## Context
@@ -124,34 +125,35 @@ Collapse state:
 
 ## Notes for sibling tasks
 
-**Two additional owners of the collapsed-key lifecycle land before this task, via
-`t1377_4` / `t1377_5`.**
+**`t1377_4` / `t1377_5` add two more owners of the collapsed-key lifecycle. The
+order between this task and those is UNDECIDED — whichever lands second owns the
+integration.**
 
-`t1377_4_column_merge_engine` ships against the pre-`boardgroup` model (this task's
-Workstream C had not landed), and the parent's user-confirmed sequencing was
-"land before, with a documented migration". Two new call sites now mutate column
-config and `settings.collapsed_columns`:
+`t1377_4_column_merge_engine` introduces two call sites that mutate column config
+and `settings.collapsed_columns`:
 
 1. **`TaskManager.merge_columns(source_ids, dest_id)`** — N->1 merge. Moves every
    member to the destination with fresh appended indices, removes each source from
    `columns` + `column_order`, and prunes each source's `collapsed_columns` entry.
    `unordered` is allowed as source (config-removal skipped) and as destination.
-2. **`TaskManager.update_column`'s rename path** — t1377_4 fixed a latent bug there:
+2. **`TaskManager.update_column`'s rename path** — t1377_4 fixes a latent bug there:
    it migrated `column_order` and every member's `boardcol` but **not** the
-   `collapsed_columns` entry, orphaning it. It now migrates that too. The path was
-   dead in the UI before t1377_5 made it reachable.
+   `collapsed_columns` entry, orphaning it.
 
-**What this task must extend when it introduces composite `"<col>/<slug>"` keys in
-`settings.collapsed_groups`:**
+**Check which exists before you start:**
 
-- `merge_columns` must re-point the **column half** of every affected group key to
-  the destination, applying this task's coalesce rule ("destination key wins if it
-  already exists; otherwise the arriving key's state is adopted under the
-  destination name"). Merging two columns can collide two same-slug groups into one
-  `(column, slug)` identity — that is exactly the coalesce case.
-- `update_column`'s rename must rewrite the column half of those keys as well.
+- **If `merge_columns` is already in `board/aitask_board.py`** (t1377_4 landed
+  first), then **this task owns the integration**: extend `merge_columns` and the
+  fixed `update_column` to re-point the **column half** of every composite
+  `"<col>/<slug>"` key in `settings.collapsed_groups`, applying this task's coalesce
+  rule ("destination key wins if it already exists; otherwise the arriving key's
+  state is adopted under the destination name"). Merging two columns can collide two
+  same-slug groups into one `(column, slug)` identity — exactly the coalesce case.
+  Add both to the collapse-key lifecycle table.
+- **If it does not exist yet** (this task landed first), do nothing here — t1377_4 /
+  t1377_5 are instructed to check for `collapsed_groups` and handle the composite
+  keys themselves, reading this task's archived plan for the coalesce rule.
 
-Add both to this task's five-owner collapse-key lifecycle table. `merge_columns`
-lives in `board/aitask_board.py` alongside `move_tasks_to_column`; see
-`aiplans/archived/p1377/p1377_4_column_merge_engine.md` for its final contract,
-including the non-transactional partial-merge / convergent-retry semantics.
+See `aiplans/p1377/p1377_4_column_merge_engine.md` (or its archived form) for
+`merge_columns`'s full contract, including the non-transactional partial-merge and
+convergent-retry semantics.

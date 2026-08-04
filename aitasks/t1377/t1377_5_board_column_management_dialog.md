@@ -8,8 +8,9 @@ labels: [aitask_board, board_columns, tui, custom_shortcuts]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-04 09:56
-updated_at: 2026-08-04 10:57
+updated_at: 2026-08-04 19:21
 ---
+
 
 
 ## Context
@@ -101,17 +102,28 @@ naming the counts and the retry, e.g.
 `"Merged 7 of 9 into Backlog — 2 failed, re-run to finish"`. A bare "Merged" toast
 on a partial merge is the specific failure this clause exists to prevent.
 
-### Step 3 — Workstream C migration note
+### Step 3 — Workstream C (`boardgroup`) — check, don't assume
 
-`boardgroup` does not exist yet — `BOARD_KEYS == BOARD_LAYOUT_KEYS ==
-("boardcol","boardidx")` today. When `t1243_10` lands,
-`settings.collapsed_groups` holds composite `"<col>/<slug>"` keys whose column half
-must be rewritten on rename and re-pointed on delete/merge; t1243_10 already owns
-that multi-owner lifecycle. **Drop a reverse note into
-`aitasks/t1243/t1243_10_group_collapse_and_filtering.md`** naming `merge_columns`
-and the fixed `update_column` as two additional owners of the collapsed-key
-lifecycle. **Do not pre-build group handling here** — the user confirmed this
-deliverable lands before Workstream C with a documented migration.
+**The order between t1377 and t1243's Workstream C is undecided** — `t1243_8` is
+`Ready` and both chains are live. Do not hard-code either assumption.
+
+Grep for `collapsed_groups` in `.aitask-scripts/board/aitask_board.py` and `lib/`:
+
+- **Absent** (Workstream C has not landed): build the dialog against the current
+  model. `BOARD_KEYS == BOARD_LAYOUT_KEYS == ("boardcol", "boardidx")`, there are no
+  group headers, and no composite keys exist. `t1243_10` already carries a sibling
+  note telling it to extend `merge_columns` / `update_column` when it lands after
+  t1377.
+- **Present** (Workstream C landed first): the dialog must reckon with groups — a
+  collapsed group mounts a `GroupHeader` and zero member cards, and
+  `settings.collapsed_groups` holds composite `"<col>/<slug>"` keys. t1377_4's
+  "Composite group collapse keys" section owns the engine half; this child's half is
+  making the delete / merge confirmations report **group** counts as well as task
+  counts, and keeping the column list unit-aware. Read
+  `aiplans/archived/p1243/p1243_10_*.md` for the coalesce rule.
+
+Either way, do **not** pre-build group handling speculatively, and do not leave a
+note claiming an order that did not happen.
 
 ## Verification Steps
 

@@ -47,7 +47,7 @@ dialog in the board that adds merge.
 | Headless seam shape | New `lib/board_columns.py` + thin `aitask_board_column.sh` wrapper; minimonitor calls it via subprocess, mirroring `_run_marks_cmd` |
 | Merge arity | **N→1** multi-select (`SelectionList`, `WorkReportColumnSelectScreen:4278` precedent) |
 | Create-new-column from minimonitor | **In scope**, as its own child sequenced after move-to-existing |
-| Deliverable 2 vs t1243 Workstream C (`boardgroup`) | **Land before it**, with a documented migration + a reverse note into `t1243_10` |
+| Deliverable 2 vs t1243 Workstream C (`boardgroup`) | Originally **land before it**. **Superseded 2026-08-04:** t1243_6/_7/_1369 landed and `t1243_8` is now `Ready`, so the order is genuinely undecided. t1377_4/_5 and `t1243_10` each now carry an order-independent check-for-the-other clause. |
 
 ## Decomposition — 7 children, serial
 
@@ -612,10 +612,11 @@ Live acceptance (child 7): run `ait board` and `ait minimonitor` in a real tmux 
   propagation test are named deliverables of t1377_4.
 
 ### Goal-achievement risk: medium
-- Deliverable 2 lands before the `boardgroup` model, so a later Workstream C child
+- Deliverable 2 and the `boardgroup` model may land in either order, so one side
   must extend merge/delete for composite collapse keys · severity: medium ·
-  → mitigation: user-confirmed sequencing; migration recorded plus a reverse note
-  into `t1243_10`.
+  → mitigation: order-independent "grep for `collapsed_groups` first" clauses in
+  t1377_4, t1377_5 **and** `t1243_10` — whichever lands second owns the
+  integration.
 - Creating columns headlessly softens the deliberate "columns are board-TUI-only"
   stance that `ait settings` advertises · severity: medium · → mitigation:
   **t1404** `settings_columns_editable`

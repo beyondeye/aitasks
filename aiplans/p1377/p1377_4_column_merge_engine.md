@@ -108,6 +108,26 @@ It migrates `column_order` and every member's `boardcol` but **not**
 `settings.collapsed_columns` — a rename orphans the collapsed entry. Dead in the UI
 today (`_handle_column_edit_result` passes `col_id` twice); t1377_5 makes it live.
 
+## Composite group collapse keys — check, don't assume
+
+`t1243_10_group_collapse_and_filtering` introduces `settings.collapsed_groups`
+holding composite `"<col>/<slug>"` keys, whose **column half** must be re-pointed
+on a merge and rewritten on a column rename. **The order between that task and this
+one is undecided** — both are live.
+
+Before implementing, grep for `collapsed_groups` in
+`.aitask-scripts/board/aitask_board.py` and `lib/`:
+
+- **Present** (t1243_10 landed first) -> this task owns the integration. Re-point
+  the column half of every affected key in both `merge_columns` and the fixed
+  `update_column`, applying t1243_10's coalesce rule ("destination key wins if it
+  already exists; otherwise the arriving key's state is adopted under the
+  destination name"). Merging two columns can collide two same-slug groups into one
+  `(column, slug)` identity — that is the coalesce case. Read
+  `aiplans/archived/p1243/p1243_10_*.md` for the exact rule, and add tests.
+- **Absent** -> do nothing extra; t1243_10 carries a sibling note instructing it to
+  extend `merge_columns` / `update_column` when it lands after this task.
+
 ## Tests — `tests/test_board_column_manage.py`
 
 Patch `B.TASKS_DIR` / `B.METADATA_FILE`, no Pilot (per
