@@ -8,8 +8,9 @@ labels: [aitask_board, board_columns, python, bash_scripts]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-04 09:54
-updated_at: 2026-08-04 09:54
+updated_at: 2026-08-04 10:58
 ---
+
 
 ## Context
 
@@ -175,8 +176,20 @@ moves none out of the board.
 
 ## Coordination — read before starting
 
-`t1379_atomic_task_file_writes` is `Implementing` and touches `aitask_update.sh`,
-`Task.save`, and adds `lib/atomic_write.sh`. **Re-read both files before editing**
-and consume t1379's helpers rather than reinventing them. This checkout is shared
-with in-flight sessions: stage explicit paths, check `git diff --cached` before
+**`t1379_atomic_task_file_writes` has LANDED** (Done/archived, commit
+`a75127829`). Its helpers are committed and clean — there is no coordination left,
+only consumption:
+
+- `.aitask-scripts/lib/atomic_write.sh` exists — **source it** from
+  `aitask_board_column.sh`; do not open-code a `$TMPDIR`+`mv` dance.
+- `.aitask-scripts/lib/atomic_write.py` `atomic_write_text` is the Python writer.
+- `Task.save` and `aitask_update.sh`'s `write_task_file` are already atomic, so the
+  `--boardcol` validation lands on a clean file.
+
+**The live conflict is `aitask_board.py`.** This child's only edit there is
+replacing the `DEFAULT_COLUMNS` / `DEFAULT_ORDER` literals with an import. That
+file is being edited concurrently by the t1243 chain (`t1243_6` in flight,
+`t1243_7` next) in *different* regions (marking, command provider), so git should
+auto-merge — but it is the same shared checkout. Grep for the symbols rather than
+trusting line numbers, stage explicit paths, check `git diff --cached` before
 committing, and never `git stash` / `git add -A` here.

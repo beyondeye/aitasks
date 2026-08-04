@@ -170,11 +170,16 @@ bash tests/run_all_python_tests.sh    # read ONLY the last line
 
 ## Coordination
 
-`t1379_atomic_task_file_writes` is `Implementing` and owns `aitask_update.sh`,
-`Task.save` and the new `lib/atomic_write.sh`. **Re-read those files first** and
-consume its helpers rather than reinventing them. Shared checkout: grep for symbols
-instead of trusting line numbers, stage explicit paths, check `git diff --cached`,
-never `git stash` / `git add -A`.
+**`t1379` has landed** (Done, `a75127829`): `lib/atomic_write.sh`,
+`lib/atomic_write.py`, an atomic `Task.save` and an atomic `write_task_file` are all
+committed. Consume them — source `atomic_write.sh` in the wrapper; do not
+open-code a temp-file dance.
+
+The live conflict is `aitask_board.py` (this child touches only the
+`DEFAULT_COLUMNS` / `DEFAULT_ORDER` constants). The t1243 chain is editing that file
+concurrently — `t1243_6` in flight, `t1243_7` next — in different regions. Shared
+checkout: grep for symbols instead of trusting line numbers, stage explicit paths,
+check `git diff --cached`, never `git stash` / `git add -A`.
 
 ## Notes for sibling tasks
 

@@ -125,10 +125,11 @@ footer/visibility claim is only proven by an actual capture.
 
 ## Coordination — read before starting
 
-`t1243_4` was `Implementing` in `aitask_board.py` during parent planning
-(`apply_filter`, `refresh_git_status`), and `t1243_5` will later rewrite movement
-actions to async. Different regions from column management, but this child edits
-`BINDINGS`, `CSS` and `KanbanCommandProvider`.
+`t1243_4` and `t1243_5` have **landed** (`05ea7b7e5` transplants the moved card
+block instead of recomposing columns; `t1395` followed up on DOM-query cost). The
+render layer this child sits above is therefore settled. `t1243_6` / `t1243_7` are
+the live editors of `aitask_board.py`, and this child edits `BINDINGS`, `CSS` and
+`KanbanCommandProvider` — the same regions `t1243_7` touches.
 
 **Re-read `aitask_board.py` immediately before implementing**, grep for symbols
 rather than trusting line numbers, and keep the new UI **strictly above the render
