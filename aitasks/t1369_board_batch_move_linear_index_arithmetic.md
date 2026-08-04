@@ -5,6 +5,10 @@ depends: []
 issue_type: performance
 status: Implementing
 labels: [aitask_board, python, script-performance]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-02 13:08
