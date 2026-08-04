@@ -18,6 +18,15 @@ portability quirks (BSD vs GNU tooling) live in
   (`|| return 0` / `|| true`) so a recoverable failure degrades to a no-op
   instead of killing the run. (This was the root cause of a silent `ait setup`
   abort; see `aidocs/framework/sed_macos_issues.md` "Files Fixed in t931".)
+- **A bare `return` inherits the previous command's status.** In an `else`
+  branch that status is the just-failed condition's `1`, so an "early return,
+  nothing to do" reads as a failure and — under `set -euo pipefail` — kills any
+  unguarded caller with no message at all. Write `return 0` whenever the branch
+  means *success* or *a non-fatal no-op*, especially when the preceding command
+  is a conditional that can fail. A bare `return` is correct only where you
+  **intend** to forward the previous command's status to the caller; say so in a
+  comment when you do. (`install.sh:895` aborted the whole installer this way
+  after a successful download, leaving the target directory empty; see t1414.)
 - Error helpers: `die()` (fatal), `warn()`, `info()` from `terminal_compat.sh`.
 - Guard against double-sourcing with `_AIT_*_LOADED` variables.
 - Platform detection: `detect_platform()` returns `github|gitlab|bitbucket`

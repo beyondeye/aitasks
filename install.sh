@@ -883,7 +883,7 @@ show_upgrade_changelog() {
 
     # Only relevant during upgrade (existing install + --force)
     if [[ "$FORCE" != true ]]; then
-        return
+        return 0
     fi
 
     local current_version=""
@@ -892,7 +892,10 @@ show_upgrade_changelog() {
     elif [[ -f "$install_dir/.aitask-scripts/VERSION" ]]; then
         current_version="$(cat "$install_dir/.aitask-scripts/VERSION")"
     else
-        return  # Can't determine current version, skip
+        # Explicit 0: a bare `return` here would inherit the failed `[[ -f ]]`
+        # test's status 1 and, under `set -euo pipefail`, abort the whole
+        # installer silently right after the download (t1414).
+        return 0  # Can't determine current version, skip
     fi
 
     # Extract VERSION and CHANGELOG.md from tarball into temp dir
@@ -909,7 +912,7 @@ show_upgrade_changelog() {
 
     if [[ -z "$new_version" || "$current_version" == "$new_version" ]]; then
         rm -rf "$tmpextract"
-        return
+        return 0
     fi
 
     info "Upgrading: v${current_version} → v${new_version}"
