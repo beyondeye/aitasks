@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [install, shell]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1075
 created_at: 2026-08-04 17:33
-updated_at: 2026-08-04 17:33
+updated_at: 2026-08-04 17:38
 ---
 
 ## Problem
