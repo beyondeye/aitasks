@@ -1954,19 +1954,119 @@ class ViewSelector(Static):
                 return
 
 
+# --- Multi-select marking (t1243_6) ---
+# The t1004 checkbox convention — ☑/☐, never a dot, marked = bold yellow — which
+# monitor/monitor_shared.py records as meaning "selected for this action",
+# exactly the sense here. Rendered as a CSS-classed Label rather than Rich markup
+# because that is how .task-number / .task-modified already work in the same
+# title row.
+MARK_CHECKED = "☑"
+MARK_UNCHECKED = "☐"
+
+
+class MarkedSelection:
+    """Board multi-select state: the set of marked task filenames.
+
+    Mirrors ``brainstorm/utils.py::NodeSelection``'s documented rule —
+    SINGLE-item operations act on the cursor, MULTI-item operations act on the
+    marked set. The board already *has* a cursor (the focused ``TaskCard``), so
+    this holds only the marked set and :meth:`effective` takes the cursor as an
+    argument.
+
+    Keyed by ``Task.filename``, the board's durable card identity — the same key
+    ``expanded_tasks`` and ``_refocus_card`` already use. A filename key is what
+    survives the widget churn that ``_transplant_block``, ``_recompose_column``
+    and ``refresh_board`` inflict on card objects: a transplanted card is a NEW
+    widget, so per-widget mark state would be destroyed.
+    """
+
+    def __init__(self, marked=None):
+        self.marked: set = set(marked) if marked else set()
+
+    def __contains__(self, filename) -> bool:
+        return filename in self.marked
+
+    def __len__(self) -> int:
+        return len(self.marked)
+
+    def toggle(self, filename) -> bool:
+        """Flip ``filename``; return its NEW marked state."""
+        if filename in self.marked:
+            self.marked.discard(filename)
+            return False
+        self.marked.add(filename)
+        return True
+
+    def clear(self) -> None:
+        self.marked.clear()
+
+    def retain(self, filenames) -> set:
+        """Drop every mark not in ``filenames``; return the dropped set.
+
+        Returns *which* marks were dropped rather than a bare count so the
+        caller can report them. ``refresh_board`` uses it to survive a task
+        archived by another session without discarding the rest of the
+        selection — and to tell the user it happened, since an unattended
+        auto-refresh must never silently shrink a selection.
+        """
+        keep = set(filenames)
+        dropped = self.marked - keep
+        self.marked &= keep
+        return dropped
+
+    @property
+    def cardinality(self) -> int:
+        return len(self.marked)
+
+    def effective(self, focused_filename=None) -> list:
+        """Targets an operation runs on: the marked set, else the focused card.
+
+        Sorted for determinism. Callers needing *board* order (t1243_7's
+        ``move_tasks_to_column`` preserves input order) must re-sort by
+        ``(board_col, board_idx)`` themselves — this class knows nothing about
+        board geometry.
+        """
+        if self.marked:
+            return sorted(self.marked)
+        return [focused_filename] if focused_filename else []
+
+
 class TaskCard(Static):
     """A widget representing a single task."""
 
-    def __init__(self, task: Task, manager: "TaskManager" = None, is_child: bool = False, column_id: str = ""):
+    def __init__(self, task: Task, manager: "TaskManager" = None, is_child: bool = False,
+                 column_id: str = "", markable: bool = False):
         super().__init__()
         self.task_data = task
         self.manager = manager
         self.is_child = is_child
         self.column_id = column_id
         self.can_focus = True
+        # Whether `space` can mark this card (t1243_6). A constructor flag, not a
+        # runtime lookup, so the exclusions are structural: only
+        # KanbanColumn.task_block passes True, and only for the parent card.
+        # `markable` is last with a default precisely so InFlightTaskCard,
+        # TrailTaskCard and TrailGhostCard stay non-markable without edits.
+        self.markable = markable
+        if markable:
+            # The hover rules in KanbanApp.CSS select `.markable-card`, not the
+            # `TaskCard` type — a Textual type selector matches the whole MRO and
+            # would restyle the In-Flight / By-Trail cards too. Set only when
+            # True so every other card kind stays class-free.
+            self.add_class("markable-card")
 
     # Shared with lib/topic_semantics.py (t1210_2) — same parser everywhere.
     _parse_filename = staticmethod(parse_task_filename)
+
+    def _is_marked(self) -> bool:
+        """Live read of the app's marked set — never a build-time freeze.
+
+        `compose` derives the glyph from app state on every (re)build, so a card
+        remounted by `_transplant_block` / `_recompose_column` / `refresh_board`
+        paints the correct glyph for free. `KanbanApp._repaint_card_mark` handles
+        the other direction: a toggle on an already-mounted card.
+        """
+        return self.markable and self.task_data.filename in self.app.marked
 
     def compose(self):
         meta = self.task_data.metadata
@@ -1978,6 +2078,10 @@ class TaskCard(Static):
         task_num, task_name = self._parse_filename(self.task_data.filename)
         is_modified = self.manager.is_modified(self.task_data) if self.manager else False
         with Horizontal(classes="task-title-row"):
+            if self.markable:
+                marked = self._is_marked()
+                yield Label(MARK_CHECKED if marked else MARK_UNCHECKED,
+                            classes="task-mark task-marked" if marked else "task-mark")
             if task_num:
                 display_num = f"{task_num} *" if is_modified else task_num
                 num_classes = "task-number task-modified" if is_modified else "task-number"
@@ -2842,7 +2946,10 @@ class KanbanColumn(VerticalScroll):
         composed it in the first place. Keeping ONE generator is what stops a
         transplanted card from drifting from a composed one.
         """
-        yield TaskCard(task, self.manager, column_id=self.col_id)
+        # The ONE markable construction site in the file (t1243_6): a parent card
+        # in a persistent kanban column. TopicColumn's cards, the child card
+        # below, and the Trail/In-Flight subclasses all leave markable=False.
+        yield TaskCard(task, self.manager, column_id=self.col_id, markable=True)
         # Render children if parent is expanded
         if task.filename in self.expanded_tasks:
             task_num, _ = TaskCard._parse_filename(task.filename)
@@ -5715,9 +5822,24 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     #view_indicator.viewing-plan { background: #FFB86C; color: $background; }
     #md_view { margin: 1 0; border: solid $secondary-background; }
     .task-title-row { height: auto; }
+    .task-mark { color: #6272A4; width: auto; margin: 0 1 0 0; }
+    .task-marked { color: yellow; text-style: bold; }
     .task-number { color: $accent; text-style: bold; width: auto; margin: 0 1 0 0; }
     .task-modified { color: #FFB86C; }
     .task-title { text-style: bold; width: 1fr; }
+
+    /* `.markable-card` is set in TaskCard.__init__ — without that assignment
+       these two rules match nothing. Scoped to the class, NOT to the bare
+       `TaskCard` type: a Textual type selector matches the whole MRO, so
+       `TaskCard:hover` would also restyle InFlightTaskCard, TrailTaskCard and
+       the read-only TrailGhostCard — a hover affordance in three views this
+       change does not touch. Focus keeps its imperative double-cyan border
+       (on_focus), so no :focus background rule is added here. */
+    TaskCard.markable-card:hover { background: $surface-lighten-1; }
+    /* Focused + hovered stays in the focus family, never the gray hover
+       (:hover would otherwise override :focus at equal specificity).
+       $primary 30% is the board's own idiom — .collapsed-placeholder:focus. */
+    TaskCard.markable-card:focus:hover { background: $primary 30%; }
     .task-info { color: $text-muted; }
     .trail-drift { color: #FFB86C; }
     .inflight-action { color: $text; }
@@ -5960,6 +6082,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("#", "open_cross_repo", "Cross-repo"),
         # Expand/Collapse children (shown conditionally via check_action)
         Binding("x", "toggle_children", "Toggle Children"),
+        # Multi-select marking (t1243_6; hidden in the derived views by check_action)
+        Binding("space", "toggle_mark", "Mark"),
         # Column Movement
         Binding("ctrl+right", "move_col_right", "Move Col >"),
         Binding("ctrl+left", "move_col_left", "< Move Col"),
@@ -5988,6 +6112,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.type_filter_active = False
         self._view_auto_expanded: set = set()
         self.expanded_tasks: set = set()
+        # Multi-select marks (t1243_6), keyed by task filename like the two sets
+        # above. Session-only; cleared on view switch, pruned on refresh.
+        self.marked = MarkedSelection()
         self._auto_refresh_timer = None
         # --- By-Trail view state (session-only, never persisted; t1210_4) ---
         self.active_trail_handle: str | None = None
@@ -6180,6 +6307,23 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             focused = self._focused_card()
             if focused and focused.is_child:
                 return False  # Hide movement actions for child cards
+        elif action == "toggle_mark":
+            # Marking feeds bulk column moves (t1243_7) and group membership
+            # (t1243_12) — both parent-level column operations. In-Flight,
+            # By-Topic and By-Trail render derived, non-reorderable lanes, so
+            # there is nothing there to mark. False (not None) so the footer
+            # HIDES it, matching the movement gate above.
+            #
+            # Deliberately NOT gated on focused.is_child, unlike movement: a
+            # child card keeps the binding so action_toggle_mark can EXPLAIN the
+            # refusal instead of the key silently doing nothing.
+            #
+            # Also deliberately absent from the ghost pre-gate above: ghosts are
+            # mounted only by TrailColumn, which only the By-Trail path mounts,
+            # so is_ghost implies base_filter == "bytrail" and this branch
+            # already covers them. Adding it there would be unreachable code.
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
+                return False
         elif action in ("move_col_right", "move_col_left", "toggle_column_collapsed"):
             if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
@@ -6501,6 +6645,22 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # New refresh cycle: drop cached cross-repo dep statuses so cards
         # re-probe live status (cards repopulate the cache on render).
         self.manager.xdep_status_cache.clear()
+
+        # Prune marks to tasks still on the board — never clear (t1243_6). This
+        # runs on the auto-refresh tick too, so wholesale clearing would let an
+        # unattended timer silently discard the user's selection. Report what was
+        # dropped for the same reason: a mark vanishing because another session
+        # archived the task must not be invisible. Fires only when something was
+        # actually removed, so a stable board stays quiet; a view switch clears
+        # first, so it never fires for that.
+        dropped = self.marked.retain(self.manager.task_datas.keys())
+        if dropped:
+            shown = ", ".join(sorted(dropped)[:3])
+            self.notify(
+                f"Unmarked {len(dropped)} task(s) no longer on the board: "
+                f"{shown}" + ("…" if len(dropped) > 3 else ""),
+                severity="warning")
+
         container = self.query_one("#board_container")
         container.remove_children()
 
@@ -6953,6 +7113,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         old = self.base_filter
         self.base_filter = name
 
+        # A view switch discards the selection (t1243_6). Cleared BEFORE the
+        # refresh_board below so re-mounted cards paint unmarked — and so that
+        # refresh's prune sees an empty set and never notifies for a view change.
+        self.marked.clear()
+
         # Manage auto-expansion for the locked context-view.
         if old == "locked":
             self.expanded_tasks -= self._view_auto_expanded
@@ -7271,6 +7436,52 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _modal_is_active(self):
         return isinstance(self.screen, ModalScreen)
+
+    def _repaint_card_mark(self, card) -> None:
+        """Repaint ONE card's ☑/☐ in place — no recompose, no board-wide query.
+
+        Scoped to the card's own subtree deliberately: t1243_4 measured a
+        whole-board `query(TaskCard)` at ~6.8 ms, and exactly one card changes
+        per keypress. The other direction (a card rebuilt by a transplant or a
+        refresh) is handled at construction by `TaskCard._is_marked`.
+        """
+        labels = card.query(".task-mark")
+        if not labels:
+            return
+        marked = card.task_data.filename in self.marked
+        label = labels.first()
+        label.update(MARK_CHECKED if marked else MARK_UNCHECKED)
+        label.set_class(marked, "task-marked")
+
+    def action_toggle_mark(self) -> None:
+        """`space`: toggle the focused parent card's mark (t1243_6)."""
+        # Textual does not dispatch App BINDINGS while a ModalScreen is active
+        # (see monitor/monitor_shared.py), and the SelectionList modals own
+        # `space` for their own toggling — but this is the house idiom and a
+        # test pins it.
+        if self._modal_is_active():
+            return
+        # Re-check the view gate inside the action, not only in check_action:
+        # a binding gate is not an action guard.
+        if self.base_filter in ("inflight", "bytopic", "bytrail"):
+            return
+        card = self._focused_card()
+        if card is None:
+            return
+        if card.is_child:
+            # Refuse with a reason — never a silent nothing. This is the ONE
+            # reachable non-markable card in the kanban views.
+            self.notify("Child tasks move with their parent — mark the parent instead.",
+                        severity="warning")
+            return
+        if not getattr(card, "markable", False):
+            # Unreachable today: every non-child card KanbanColumn mounts is
+            # markable, and the derived views (the only source of In-Flight /
+            # Trail / ghost cards) returned above. Fail closed rather than
+            # marking something the parent-only persistence API would refuse.
+            return
+        self.marked.toggle(card.task_data.filename)
+        self._repaint_card_mark(card)
 
     def action_nav_up(self):
         if self._modal_is_active():
