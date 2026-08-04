@@ -203,6 +203,8 @@ If the selected agent has no shadow bound, monitor tells you so — and points y
 
 With the pane list focused, press **Space** to toggle a **prioritized mark** on the focused agent. Marked agents show a bright **★**; unmarked agents show a dim **☆**, so the column is always present and rows never shift when you toggle one.
 
+This is the place to mark *any* agent. [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-mark-an-agent-as-prioritized) binds the same key, but — being a companion pane tied to one agent — it always marks the agent it follows, whatever its list highlights.
+
 Marks are stored **per user, outside every repository**, in `~/.config/aitasks/agent_marks.json` (override the path with `AITASKS_AGENT_MARKS_FILE`). A mark you set here is therefore visible from every other project's `monitor` and [`minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}), usually within one refresh cycle, and survives restarting the TUI. Each mark is keyed by the pair *(project root, tmux window name)*, so two projects running identically-named agent windows never share a mark.
 
 Marks are purely visual — they do not reorder the list or change the session-bar counters.

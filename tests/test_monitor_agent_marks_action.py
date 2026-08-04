@@ -7,6 +7,15 @@ the exact argv handed to the locked writer, and each of the four outcomes.
 
 Both apps are covered. They have independent root-resolution and refresh paths,
 so covering one does not cover the other.
+
+**Target resolution split (t1383).** The shared write path is
+`AgentMarksMixin._toggle_mark_for`, and everything below the target — argv,
+strict root, the four outcomes — is asserted against *it*, for both apps.
+Above it the two diverge: the full monitor resolves through live focus
+(`FocusResolutionTests` here), while the minimonitor overrides
+`action_toggle_mark` to target the agent it follows
+(`test_minimonitor_own_mark.py`). Driving `action_toggle_mark` for both apps
+here would silently test two different things.
 """
 from __future__ import annotations
 
@@ -119,18 +128,37 @@ class _ActionFixture(unittest.TestCase):
 
     @staticmethod
     def run_toggle(app):
+        """Drive the focus-resolved action.
+
+        MonitorApp only since t1383: the minimonitor overrides
+        `action_toggle_mark` to target the agent it follows, so driving it here
+        would exercise a different resolution. Its version lives in
+        `test_minimonitor_own_mark.py`.
+        """
         asyncio.run(app.action_toggle_mark())
+
+    @staticmethod
+    def run_sink(app, snap):
+        """Drive the shared write path with an explicit target.
+
+        Everything below the target resolution — the argv shape, strict root
+        resolution, and the four outcome branches — lives in
+        `_toggle_mark_for`, which both apps reach. Asserting it here keeps the
+        coverage genuinely shared instead of silently becoming
+        monitor-only (t1383).
+        """
+        asyncio.run(app._toggle_mark_for(snap))
 
 
 class ArgvContractTests(_ActionFixture):
     """The rendered command shape is the contract — assert it token by token,
     never by substring, so a quoting or ordering change cannot slip through."""
 
-    def test_exact_argv_for_the_focused_agent(self):
+    def test_exact_argv_for_the_target_agent(self):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, reply=(0, "MARKED:x|y"))
-                self.run_toggle(app)
+                self.run_sink(app, app._snapshots["%1"])
                 self.assertEqual(len(app.calls), 1)
                 self.assertEqual(
                     app.calls[0],
@@ -146,7 +174,7 @@ class ArgvContractTests(_ActionFixture):
                                         pane_id="%9")}
                 app = self.app(cls, focused="%9", snaps=snaps,
                                reply=(0, "MARKED:x|y"))
-                self.run_toggle(app)
+                self.run_sink(app, snaps["%9"])
                 self.assertEqual(
                     app.calls[0],
                     ["toggle", os.path.realpath(self.there), "agent-far"],
@@ -161,33 +189,46 @@ class ArgvContractTests(_ActionFixture):
             self.skipTest("symlinks unavailable")
         app = self.app(MiniMonitorApp, mapping={SESSION: link},
                        reply=(0, "MARKED:x|y"))
-        self.run_toggle(app)
+        self.run_sink(app, app._snapshots["%1"])
         self.assertEqual(app.calls[0][1], os.path.realpath(self.here))
 
 
-class GuardTests(_ActionFixture):
+class FocusResolutionTests(_ActionFixture):
+    """`action_toggle_mark`'s own resolution — the full monitor only.
+
+    The minimonitor deliberately no longer consults focus (t1383); its
+    resolution and *its* guards are pinned in `test_minimonitor_own_mark.py`.
+    """
+
     def test_no_focused_card_is_a_silent_no_op(self):
         """Silent, not a warning: with a modal up this fires on every `space`,
         and a toast behind the dialog would be noise."""
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                app = self.app(cls, focused=None)
-                self.run_toggle(app)
-                self.assertEqual(app.calls, [])
-                self.assertEqual(app.notes, [])
+        app = self.app(MonitorApp, focused=None)
+        self.run_toggle(app)
+        self.assertEqual(app.calls, [])
+        self.assertEqual(app.notes, [])
 
     def test_focused_pane_absent_from_snapshots_is_a_no_op(self):
-        for cls in BOTH_APPS:
-            with self.subTest(app=cls.__name__):
-                app = self.app(cls, focused="%missing")
-                self.run_toggle(app)
-                self.assertEqual(app.calls, [])
+        app = self.app(MonitorApp, focused="%missing")
+        self.run_toggle(app)
+        self.assertEqual(app.calls, [])
 
+    def test_focused_card_is_the_target(self):
+        """Positive control: focus still selects the target in the monitor."""
+        snaps = {"%1": snapshot("agent-t1"),
+                 "%9": snapshot("agent-far", session=OTHER_SESSION, pane_id="%9")}
+        app = self.app(MonitorApp, focused="%9", snaps=snaps,
+                       reply=(0, "MARKED:x|y"))
+        self.run_toggle(app)
+        self.assertEqual(app.calls[0][2], "agent-far")
+
+
+class GuardTests(_ActionFixture):
     def test_unresolvable_session_warns_and_never_invokes_the_writer(self):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, mapping={})
-                self.run_toggle(app)
+                self.run_sink(app, app._snapshots["%1"])
                 self.assertEqual(app.calls, [], "must not write under a guessed root")
                 self.assertEqual(len(app.notes), 1)
                 self.assertEqual(app.notes[0][1], "warning")
@@ -199,7 +240,7 @@ class OutcomeTests(_ActionFixture):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, reply=(0, "MARKED:/r|agent-t1"))
-                self.run_toggle(app)
+                self.run_sink(app, app._snapshots["%1"])
                 self.assertEqual(app.notes[0][1], "information")
                 self.assertIn("agent-t1", app.notes[0][0])
                 self.assertEqual(len(app.later), 1, "must schedule a repaint")
@@ -208,7 +249,7 @@ class OutcomeTests(_ActionFixture):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, reply=(0, "UNMARKED:/r|agent-t1"))
-                self.run_toggle(app)
+                self.run_sink(app, app._snapshots["%1"])
                 self.assertIn("Unmarked", app.notes[0][0])
                 self.assertEqual(len(app.later), 1)
 
@@ -216,7 +257,7 @@ class OutcomeTests(_ActionFixture):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, reply=(3, "LOCK_BUSY"))
-                self.run_toggle(app)
+                self.run_sink(app, app._snapshots["%1"])
                 self.assertEqual(app.notes[0][1], "warning")
                 self.assertIn("busy", app.notes[0][0].lower())
                 self.assertEqual(app.later, [], "must not repaint on a failed write")
@@ -225,7 +266,7 @@ class OutcomeTests(_ActionFixture):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, reply=(4, "ERROR:store is corrupt"))
-                self.run_toggle(app)
+                self.run_sink(app, app._snapshots["%1"])
                 self.assertEqual(app.notes[0][1], "error")
                 self.assertEqual(app.later, [])
 
@@ -233,7 +274,7 @@ class OutcomeTests(_ActionFixture):
         for cls in BOTH_APPS:
             with self.subTest(app=cls.__name__):
                 app = self.app(cls, reply=(0, "surprise"))
-                self.run_toggle(app)
+                self.run_sink(app, app._snapshots["%1"])
                 self.assertEqual(app.notes[0][1], "error")
                 self.assertEqual(app.later, [])
 

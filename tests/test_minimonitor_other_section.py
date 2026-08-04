@@ -10,12 +10,14 @@ consequences of adding it:
   "this agent" panel builds at all in a renamed window (the AGENT-only lookup
   returned ``None`` every cycle and the panel was never mounted). Its
   counterpart ``_find_own_agent_snapshot`` stays AGENT-only, which is what keeps
-  ``k`` / ``n`` / ``e`` / ``E`` / ``I`` refusing there — the deliberate half of
-  the decision, pinned here so a later change cannot loosen it silently.
+  ``k`` / ``n`` / ``e`` / ``E`` / ``space`` refusing there — the deliberate half
+  of the decision, pinned here so a later change cannot loosen it silently.
 * Action guards — "the focused card is an agent" stops being an invariant once
-  the list can hold OTHER cards, so ``d`` / ``i`` / ``space`` re-check inside the
-  action. ``space`` lives in the shared ``AgentMarksMixin``, so it is asserted
-  for **both** apps.
+  the list can hold OTHER cards, so ``d`` / ``i`` re-check inside the action.
+  The mark guard lives in ``AgentMarksMixin._toggle_mark_for``, the write path
+  both apps share, so it is asserted for **both** — through the sink, because
+  since t1383 the two apps no longer resolve their target the same way
+  (monitor: live focus; minimonitor: the followed agent).
 
 Mock-based: no live tmux, no real ``TmuxMonitor``. The ``_rebuild_pane_list``
 cases use the capture-``mount_all`` container harness from
@@ -383,11 +385,19 @@ class OwnAgentPanelTests(unittest.TestCase):
         app._session = "s1"
         app._own_window_index = own_window_index
         app._own_panel_built = False
+        app._own_card = None
+        app._own_identity_text = ""
+        app._own_mark_state = None
         app._target_width = 40
         app._task_cache = SimpleNamespace(
             get_task_id_for_pane=lambda p: None,
             get_task_info=lambda t, s=None: None,
         )
+        # The docked card carries the prioritized-mark glyph since t1383, so
+        # the panel build reads the marks view. The empty session→root map
+        # `_init_agent_marks` installs makes `_is_marked` deterministically
+        # False here without touching the real store.
+        app._init_agent_marks()
         return app, panel
 
     def test_panel_builds_in_a_renamed_window(self):
@@ -501,7 +511,15 @@ class ActionGuardTests(unittest.TestCase):
 
 
 class SharedMarkGuardTests(unittest.TestCase):
-    """`space` lives in AgentMarksMixin — assert it for BOTH apps."""
+    """The AGENT-only guard lives in `AgentMarksMixin._toggle_mark_for` — the
+    shared write path both apps reach — so it is asserted for BOTH apps.
+
+    Driven through the sink rather than `action_toggle_mark`, because since
+    t1383 the two apps resolve their target differently: the monitor through
+    live focus, the minimonitor through the agent it follows. Only the sink is
+    common, and the guard is what this class pins. The minimonitor's own
+    resolution is covered in `test_minimonitor_own_mark.py`.
+    """
 
     def _stub(self, cls, snap):
         app = cls.__new__(cls)
@@ -528,9 +546,9 @@ class SharedMarkGuardTests(unittest.TestCase):
         return _Notifier.attach(app)
 
     def _assert_refuses(self, cls):
-        app = self._stub(cls, _snap("%2", window_name="noam_bugs",
-                                    category=PaneCategory.OTHER))
-        asyncio.run(app.action_toggle_mark())
+        snap = _snap("%2", window_name="noam_bugs", category=PaneCategory.OTHER)
+        app = self._stub(cls, snap)
+        asyncio.run(app._toggle_mark_for(snap))
         self.assertEqual(app.marks_argv, [],
                          f"{cls.__name__} wrote a mark for a non-agent pane")
         self.assertEqual(app.root_calls, [],
@@ -549,11 +567,36 @@ class SharedMarkGuardTests(unittest.TestCase):
 
     def test_agent_pane_still_reaches_the_marks_writer(self):
         """Positive control: the guard fires on category, not on everything."""
-        app = self._stub(mm.MiniMonitorApp,
-                         _snap("%1", window_name="agent-pick-42"))
-        asyncio.run(app.action_toggle_mark())
+        snap = _snap("%1", window_name="agent-pick-42")
+        app = self._stub(mm.MiniMonitorApp, snap)
+        asyncio.run(app._toggle_mark_for(snap))
         self.assertEqual(len(app.root_calls), 1)
         self.assertEqual([argv[0] for argv in app.marks_argv], ["toggle"])
+
+    def test_minimonitor_space_ignores_a_focused_other_card(self):
+        """The t1383 inversion, stated where the old contract used to live.
+
+        A focused OTHER card used to make `space` refuse with "agent panes
+        only". It now does not reach the guard at all: the minimonitor resolves
+        the *followed* agent instead, and the focused card — whatever it is —
+        is irrelevant.
+        """
+        other = _snap("%2", window_index="9", window_name="noam_bugs",
+                      category=PaneCategory.OTHER)
+        followed = _snap("%1", window_index="7", window_name="agent-pick-42")
+        app = self._stub(mm.MiniMonitorApp, other)
+        app._snapshots = {"%1": followed, "%2": other}
+        app._session = "s1"
+        app._own_window_index = "7"
+
+        asyncio.run(app.action_toggle_mark())
+
+        self.assertEqual(len(app.marks_argv), 1)
+        self.assertEqual(app.marks_argv[0][2], "agent-pick-42")
+        self.assertFalse(
+            any("agent panes only" in m for m, _ in app.notifications),
+            f"the focused OTHER card was consulted: {app.notifications}",
+        )
 
 
 if __name__ == "__main__":

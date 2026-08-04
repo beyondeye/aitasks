@@ -20,6 +20,14 @@ dispatch, guarding against a version change or a key-forwarding modal
 reintroducing the hazard — not a test of our own guard. Stating it the other way
 round would misattribute the protection and invite someone to delete the real
 one.
+
+THE TWO APPS ARE NO LONGER SYMMETRIC (t1383). The minimonitor retargeted
+`space` at the agent it *follows*, so it does not consult focus at all: the
+live-focus guard — and the focus-off test that justifies it — now belong to the
+full monitor alone, and the minimonitor's counterpart asserts the opposite
+(no focus, still toggles). That also makes the modal pin *more* load-bearing on
+the minimonitor side: there is no focus guard left behind it, so Textual's
+screen-scoped dispatch is the only thing keeping `space` out of a dialog.
 """
 from __future__ import annotations
 
@@ -85,10 +93,10 @@ class _FakeMonitor:
     def discover_window_panes(self, window_id): return []
 
 
-def snapshot(window="agent-t1", pane_id="%1") -> PaneSnapshot:
+def snapshot(window="agent-t1", pane_id="%1", window_index="1") -> PaneSnapshot:
     return PaneSnapshot(
         pane=TmuxPaneInfo(
-            window_index="1", window_name=window, pane_index="0",
+            window_index=window_index, window_name=window, pane_index="0",
             pane_id=pane_id, pane_pid=4242, current_command="node",
             width=80, height=24, category=PaneCategory.AGENT,
             session_name=SESSION,
@@ -126,12 +134,24 @@ class SpaceDispatchTests(unittest.TestCase):
         app._marks_purge_inflight = False
         app._run_marks_cmd = fake_cmd
         app._set_session_root_map(app._monitor.get_session_to_project_mapping())
-        app._snapshots = {"%1": snapshot()}
+        # Two agents: `%1` in window 1 (the minimonitor's own window, so it is
+        # the FOLLOWED agent and is excluded from the list) and `%2` in window 2
+        # (a selectable list card). The minimonitor needs both since t1383 —
+        # `space` targets the followed agent while a *different* card holds
+        # focus, so a single snapshot could not tell the two resolutions apart.
+        app._snapshots = {"%1": snapshot(), "%2": snapshot(
+            window="agent-t2", pane_id="%2", window_index="2")}
+        app._session = SESSION
+        app._own_window_index = "1"
 
     # -- minimonitor -------------------------------------------------------
 
-    def test_minimonitor_space_toggles_when_a_card_is_focused(self):
-        """POSITIVE CONTROL. If this fails, the negative test below is vacuous."""
+    def test_minimonitor_space_toggles_the_followed_agent(self):
+        """POSITIVE CONTROL. If this fails, the negative test below is vacuous.
+
+        Also pins the t1383 routing at the real key level: a *different* card
+        holds focus, and the write still targets the followed agent.
+        """
         calls: list[list[str]] = []
 
         async def runner():
@@ -150,6 +170,10 @@ class SpaceDispatchTests(unittest.TestCase):
         asyncio.run(runner())
         self.assertEqual(len(calls), 1, "space must reach the toggle action")
         self.assertEqual(calls[0][0], "toggle")
+        self.assertEqual(
+            calls[0][2], "agent-t1",
+            "space must target the followed agent, not the focused card",
+        )
 
     def test_minimonitor_space_inside_a_modal_does_not_toggle(self):
         calls: list[list[str]] = []
@@ -221,8 +245,8 @@ class SpaceDispatchTests(unittest.TestCase):
             "space leaked through a pushed modal and toggled a mark invisibly",
         )
 
-    def test_space_with_focus_off_the_card_does_not_toggle(self):
-        """THIS is what the live-focus guard buys.
+    def test_monitor_space_with_focus_off_the_card_does_not_toggle(self):
+        """THIS is what the live-focus guard buys — in the full monitor.
 
         No modal — focus has simply moved to another widget. The cached
         `_focused_pane_id` still holds the last card (it is only updated by
@@ -230,17 +254,21 @@ class SpaceDispatchTests(unittest.TestCase):
         implementation reading the cached field would toggle a mark the user is
         no longer pointing at. Swapping `_get_focused_pane_id()` for
         `self._focused_pane_id` makes this test fail — unlike the modal tests.
+
+        Asserted against the monitor since t1383: the minimonitor no longer
+        consults focus at all, so it cannot exhibit this failure (and the
+        opposite is now correct there — see the next test).
         """
         calls: list[list[str]] = []
 
         async def runner():
-            app = MiniMonitorApp(session=SESSION, project_root=self.root)
-            async with app.run_test(size=(40, 30)) as pilot:
+            app = MonitorApp(session=SESSION, project_root=self.root)
+            async with app.run_test(size=(100, 30)) as pilot:
                 self._instrument(app, calls)
-                await app._rebuild_pane_list()
+                app._rebuild_pane_list()
                 await pilot.pause()
-                cards = list(app.query("#mini-pane-list MiniPaneCard"))
-                self.assertTrue(cards, "no MiniPaneCard mounted")
+                cards = list(app.query("#pane-list PaneCard"))
+                self.assertTrue(cards, "no PaneCard mounted")
                 cards[0].focus()
                 await pilot.pause()
                 self.assertEqual(app._focused_pane_id, "%1")
@@ -258,6 +286,31 @@ class SpaceDispatchTests(unittest.TestCase):
         self.assertEqual(
             calls, [], "toggled a mark for a card that no longer has focus"
         )
+
+    def test_minimonitor_space_with_no_focus_still_toggles_the_followed_agent(self):
+        """The t1383 inversion, at the real key level.
+
+        Focus is irrelevant in the minimonitor, so "nothing focused" is not a
+        reason to do nothing — it still marks the agent this pane follows.
+        Together with the modal test above this also shows the modal pin is now
+        MORE load-bearing here: there is no focus guard left behind it.
+        """
+        calls: list[list[str]] = []
+
+        async def runner():
+            app = MiniMonitorApp(session=SESSION, project_root=self.root)
+            async with app.run_test(size=(40, 30)) as pilot:
+                self._instrument(app, calls)
+                await app._rebuild_pane_list()
+                await pilot.pause()
+                app.set_focus(None)
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+
+        asyncio.run(runner())
+        self.assertEqual(len(calls), 1, "space must reach the toggle action")
+        self.assertEqual(calls[0][2], "agent-t1")
 
     def test_monitor_space_outside_the_pane_list_zone_does_not_toggle(self):
         """check_action gates pane-list bindings by zone, so `space` keeps being

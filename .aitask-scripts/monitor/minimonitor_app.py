@@ -198,7 +198,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("m", "switch_to_monitor", "Full Monitor", show=False),
         Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("d", "cycle_compare_mode", "Detect", show=False),
-        Binding("space", "toggle_mark", "Mark", show=False),
+        Binding("space", "toggle_mark", "Mark followed agent", show=False),
     ]
 
     def __init__(
@@ -244,6 +244,18 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         # The followed-agent docked panel is built once (static identity, no
         # per-cycle status refresh) — see _maybe_build_own_agent_panel.
         self._own_panel_built: bool = False
+        # The docked card widget and the identity string frozen at build time,
+        # so the per-tick mark repaint (t1383, _refresh_own_mark) never needs a
+        # snapshot it may no longer have.
+        self._own_card: Static | None = None
+        self._own_identity_text: str = ""
+        # Tri-state, deliberately: True/False are the two mark glyphs, None means
+        # "nothing markable here" (never an agent, or renamed off the `agent-`
+        # prefix after the panel was built) and renders NO glyph. It is both the
+        # current state and the repaint's change-detector, so the
+        # agent → renamed transition is an ordinary state change rather than a
+        # case the repaint has to special-case.
+        self._own_mark_state: bool | None = None
         # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
         # pane id, so a re-detected *unchanged* block does not re-fire the hint.
         self._last_concern_block_payload: dict[str, str] = {}
@@ -281,7 +293,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             "j:tui switcher  m:full monitor\n"
             "k:kill  n:next  e/E:shadow\n"
             "c:concerns  p:pick task\n"
-            "space:mark (★ prioritized)",
+            "space:mark ★ (followed agent)",
             id="mini-key-hints",
         )
 
@@ -468,6 +480,10 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         # before focus restoration — Textual's remove/mount/focus are deferred,
         # so a direct call into _restore_focus would race the DOM updates.
         await self._maybe_build_own_agent_panel()
+        # The one live element of that otherwise-static panel (t1383). Must run
+        # after `_set_session_root_map` and `_refresh_marks` above, which
+        # `_is_marked` reads, and after the build so there is a card to update.
+        self._refresh_own_mark()
         await self._rebuild_pane_list()
 
         self._restore_focus(saved_pane_id)
@@ -817,6 +833,64 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                     line += f"\n  [dim]{wline}[/]"
         return line
 
+    def _own_card_text(self, marked: bool | None) -> str:
+        """Docked-panel card text: the frozen identity line, plus the mark glyph.
+
+        The mark is the ONE thing this panel refreshes (t1383). That is not a
+        breach of the static-panel contract (t944 / t1133 / t1322), which
+        excludes live *agent status* — the state dot, the compare-mode and
+        shadow glyphs, the COMPLETED badge. A mark is a durable **user
+        annotation**, not status: ``format_mark_glyph``'s docstring already
+        places it outside the live-state cluster, and it can change without the
+        agent changing at all (set from ``ait monitor`` or another repo, or
+        expired by TTL).
+
+        ``marked is None`` ⇒ there is nothing markable here (the window was
+        never an agent, or was renamed off the ``agent-`` prefix after the panel
+        was built) ⇒ **no glyph**, matching ``_other_card_text``. The glyph is
+        present exactly when ``space`` would act, which is what keeps a
+        read-only ☆ from appearing on a pane whose ``space`` refuses.
+
+        **Width.** The glyph costs 2 columns on the name line, against ~38
+        usable in the default 40-column pane; unlike the list rows, the docked
+        panel does not truncate the name. Measured at 40 columns: names up to
+        36 characters are unaffected, and real agent windows are far shorter
+        (``agent-pick-1383``, ``agent-explore-2`` — 11-17 chars). Above 36 the
+        name folds and the glyph is left on a line of its own. A non-breaking
+        separator does NOT avoid that (Rich splits on ``\\s``, which matches
+        U+00A0), and truncating here would drop the tail of the identity this
+        panel exists to show — so the fold is accepted. Row-width tuning for
+        this pane belongs to t1351.
+        """
+        if marked is None:
+            return self._own_identity_text
+        return f"{format_mark_glyph(marked)} {self._own_identity_text}"
+
+    def _refresh_own_mark(self) -> None:
+        """Repaint the docked panel's ★/☆ when the mark state changes.
+
+        One set lookup per tick when nothing changed, and a single
+        ``Static.update`` when something did. Four sources converge on this one
+        code path: a local ``space``, a mark set from ``ait monitor`` or another
+        repo, TTL expiry, and the followed window being **renamed out of the
+        agent category** — which drops the state to ``None`` and removes the
+        glyph, rather than stranding the last-rendered ★ on a pane that
+        ``space`` now refuses.
+
+        Only the glyph tracks reality: the identity text stays frozen through a
+        rename, per ``_maybe_build_own_agent_panel``'s one-shot contract.
+        """
+        if self._own_card is None:
+            return
+        snap = self._find_own_agent_snapshot()
+        marked = self._is_marked(snap) if snap is not None else None
+        # Tri-state compare: False (unmarked agent) and None (nothing markable)
+        # are distinct, so the transition between them repaints.
+        if marked == self._own_mark_state:
+            return
+        self._own_mark_state = marked
+        self._own_card.update(self._own_card_text(marked))
+
     async def _maybe_build_own_agent_panel(self) -> None:
         """Populate the docked panel for the agent this minimonitor follows —
         ONCE. The followed agent is fixed for the minimonitor's lifetime, so its
@@ -833,23 +907,29 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         instead of "this agent", so the uncategorized state is legible rather
         than looking like a missing agent. A window renamed *after* the panel
         built keeps the old header and name: the panel is one-shot by design and
-        is not re-read.
+        is not re-read. The prioritized-mark glyph is the sole exception — it is
+        repainted per tick by ``_refresh_own_mark`` (t1383).
         """
         if self._own_panel_built:
             return
         own_snap = self._find_own_window_snapshot()
         if own_snap is None:
             return  # not resolved yet — try again next cycle
-        label = (
-            "this agent" if own_snap.pane.category == PaneCategory.AGENT
-            else "this window"
+        is_agent = own_snap.pane.category == PaneCategory.AGENT
+        label = "this agent" if is_agent else "this window"
+        # Freeze the identity here; only the mark glyph tracks reality after.
+        self._own_identity_text = self._own_agent_identity_text(own_snap)
+        self._own_mark_state = self._is_marked(own_snap) if is_agent else None
+        card = Static(
+            self._own_card_text(self._own_mark_state), classes="mini-own-card"
         )
         panel = self.query_one("#mini-own-agent", VerticalScroll)
         await panel.remove_children()
         await panel.mount_all([
             Static(f"[dim]── {label} ──[/]", classes="mini-own-header"),
-            Static(self._own_agent_identity_text(own_snap), classes="mini-own-card"),
+            card,
         ])
+        self._own_card = card
         self._own_panel_built = True
 
     async def _rebuild_pane_list(self) -> None:
@@ -1854,6 +1934,31 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify("No followed agent in this window", severity="warning")
             return
         self._show_task_info_for(snap)
+
+    async def action_toggle_mark(self) -> None:
+        """Toggle the prioritized mark on the agent this minimonitor follows.
+
+        Overrides ``AgentMarksMixin.action_toggle_mark``, which resolves through
+        live focus. Deliberately NOT the focused list card, and deliberately not
+        a *second* key beside the inherited one (t1383): a minimonitor is a
+        companion pane bound to exactly one agent, so ``space`` here means "the
+        agent I am watching" — one key, one target, whatever the list
+        highlights. The full monitor keeps the inherited focus-resolved action;
+        it follows nothing, so focus is its only target and it stays the way to
+        mark any *other* agent.
+
+        List rows still render ★/☆ so marks set from ``ait monitor`` or another
+        repo remain visible here; they are simply read-only.
+
+        Same resolution as ``action_kill_own_agent`` / ``action_pick_next_for_own``
+        / ``action_show_own_task_info``, including the AGENT-only refusal in a
+        window renamed off the ``agent-`` prefix.
+        """
+        snap = self._find_own_agent_snapshot()
+        if snap is None:
+            self.notify("No followed agent in this window", severity="warning")
+            return
+        await self._toggle_mark_for(snap)
 
     def action_switch_to_monitor(self) -> None:
         """Switch to the full monitor window with the companion agent focused.

@@ -318,33 +318,15 @@ class AgentMarksMixin:
             return 1, f"ERROR:cannot run {_MARKS_SH.name}: {exc}"
         return proc.returncode or 0, out.decode("utf-8", "replace").strip()
 
-    async def action_toggle_mark(self) -> None:
-        """Toggle the prioritized mark on the selected agent."""
-        # Live focus, NOT the cached `_focused_pane_id`: the toggle must act on
-        # what is selected *now*, and the cached field survives focus moving off
-        # the card entirely (it is only updated by `on_descendant_focus`, which
-        # never fires for a non-card widget). Acting on it would toggle a mark
-        # the user is no longer pointing at. Returns silently — "nothing
-        # selected" is not an error worth a toast.
-        #
-        # This deliberately diverges from `_current_shadow_pane_id`
-        # (monitor_app.py), which documents preferring the *cached* field
-        # because it must survive focus being in a preview zone. Opposite needs,
-        # opposite choice.
-        #
-        # NOTE: modal safety does NOT rest on this guard. Textual does not
-        # dispatch App-level BINDINGS while a ModalScreen is active, so `space`
-        # never reaches this action from inside a dialog — verified by a
-        # negative control in tests/test_monitor_modal_space_dispatch.py, which
-        # pins that behaviour so a future Textual change or a key-forwarding
-        # modal cannot silently reintroduce the hazard.
-        pane_id = self._get_focused_pane_id()
-        if not pane_id:
-            return
-        snap = self._snapshots.get(pane_id)
-        if snap is None:
-            return
+    async def _toggle_mark_for(self, snap: PaneSnapshot) -> None:
+        """Toggle the prioritized mark on ``snap``. The shared write path.
 
+        Target resolution belongs to the caller: the full monitor resolves
+        through live focus (:meth:`action_toggle_mark`); the minimonitor
+        resolves through the agent it follows
+        (``MiniMonitorApp.action_toggle_mark``, t1383). Both reach this one
+        sink, so the guards and the four outcome branches are written once.
+        """
         # Both TUIs render non-agent panes as focusable cards (monitor's OTHER
         # section, and minimonitor's since t1382), so "the focused card is an
         # agent" is no longer an invariant either app can assume. A mark is keyed
@@ -383,6 +365,40 @@ class AgentMarksMixin:
         self._marks_view.invalidate()
         self._refresh_marks()
         self.call_later(self._refresh_data)
+
+    async def action_toggle_mark(self) -> None:
+        """Toggle the prioritized mark on the *focused* agent card.
+
+        The minimonitor overrides this to target the agent it follows instead
+        (t1383) — it is a companion pane bound to exactly one agent, so focus
+        is the wrong target there. The full monitor follows nothing, so focus
+        is its only target, and it stays the way to mark any *other* agent.
+        """
+        # Live focus, NOT the cached `_focused_pane_id`: the toggle must act on
+        # what is selected *now*, and the cached field survives focus moving off
+        # the card entirely (it is only updated by `on_descendant_focus`, which
+        # never fires for a non-card widget). Acting on it would toggle a mark
+        # the user is no longer pointing at. Returns silently — "nothing
+        # selected" is not an error worth a toast.
+        #
+        # This deliberately diverges from `_current_shadow_pane_id`
+        # (monitor_app.py), which documents preferring the *cached* field
+        # because it must survive focus being in a preview zone. Opposite needs,
+        # opposite choice.
+        #
+        # NOTE: modal safety does NOT rest on this guard. Textual does not
+        # dispatch App-level BINDINGS while a ModalScreen is active, so `space`
+        # never reaches this action from inside a dialog — verified by a
+        # negative control in tests/test_monitor_modal_space_dispatch.py, which
+        # pins that behaviour so a future Textual change or a key-forwarding
+        # modal cannot silently reintroduce the hazard.
+        pane_id = self._get_focused_pane_id()
+        if not pane_id:
+            return
+        snap = self._snapshots.get(pane_id)
+        if snap is None:
+            return
+        await self._toggle_mark_for(snap)
 
     # -- purge -------------------------------------------------------------
 
