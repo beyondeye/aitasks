@@ -7,7 +7,7 @@ status: Ready
 labels: [applink, applink_control, tmux_destructive]
 created_at: 2026-06-16 16:56
 updated_at: 2026-07-28 18:38
-boardidx: 160768
+boardidx: 164864
 ---
 
 ## Origin

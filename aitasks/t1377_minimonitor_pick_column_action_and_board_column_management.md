@@ -15,7 +15,7 @@ children_to_implement: [t1377_1, t1377_2, t1377_3, t1377_4, t1377_5, t1377_6, t1
 anchor: 1243
 created_at: 2026-08-03 10:37
 updated_at: 2026-08-04 10:03
-boardidx: 8192
+boardidx: 17408
 ---
 
 Umbrella task with two related deliverables that share the same underlying seams

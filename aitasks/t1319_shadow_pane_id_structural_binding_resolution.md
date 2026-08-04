@@ -14,7 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1307
 created_at: 2026-07-29 10:16
 updated_at: 2026-08-04 11:17
-boardidx: 77824
+boardidx: 81920
 ---
 
 Close the residual wrong-pane hazard that **t1307** documented but, being

@@ -8,7 +8,7 @@ labels: [bash_scripts]
 anchor: 1111
 created_at: 2026-08-03 16:07
 updated_at: 2026-08-03 16:07
-boardidx: 13312
+boardidx: 19456
 ---
 
 ## Origin

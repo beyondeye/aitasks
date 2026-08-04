@@ -7,6 +7,7 @@ status: Ready
 labels: [script-performance]
 created_at: 2026-08-03 22:36
 updated_at: 2026-08-03 22:36
+boardidx: 1024
 ---
 
 ## Origin

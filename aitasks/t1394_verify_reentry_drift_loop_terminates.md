@@ -8,7 +8,7 @@ labels: [task_workflow, gates, claudeskills]
 anchor: 635
 created_at: 2026-08-03 16:53
 updated_at: 2026-08-03 16:53
-boardidx: 22528
+boardidx: 28672
 ---
 
 ## Origin

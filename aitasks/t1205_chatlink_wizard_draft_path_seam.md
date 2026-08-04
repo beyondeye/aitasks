@@ -8,7 +8,7 @@ labels: [chatlink, tui]
 anchor: 1190
 created_at: 2026-07-21 17:30
 updated_at: 2026-07-21 17:30
-boardidx: 119808
+boardidx: 123904
 ---
 
 ## Problem

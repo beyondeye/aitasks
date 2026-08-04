@@ -8,7 +8,7 @@ labels: [task_workflow, aitask_pick, claudeskills]
 folded_into: 1343
 created_at: 2026-04-27 11:41
 updated_at: 2026-07-29 22:01
-boardidx: 177152
+boardidx: 181248
 ---
 
 Add a step to the planning workflow that requires the agent to search for

@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, agents_md, docs]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-04 12:09
-updated_at: 2026-08-04 12:09
+updated_at: 2026-08-04 12:13
 ---
 
 ## Problem
