@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-08-02 13:08
-updated_at: 2026-08-04 12:19
+updated_at: 2026-08-04 18:20
 boardidx: 12288
 ---
 
@@ -92,3 +93,8 @@ family, and t1243_11's block moves will want the same run.
   `move_tasks_to_column` call regardless of K (a call-count guard is stable,
   whereas a wall-clock timing assertion would be flaky in the shared suite).
 - `bash tests/run_all_python_tests.sh` — read only the last line for the verdict.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-04T15:20:42Z status=pass attempt=1 type=human
