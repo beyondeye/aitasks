@@ -4452,54 +4452,85 @@ class WorkReportColumnSelectScreen(ModalScreen):
             event.stop()
 
 
-class WorkReportTaskSelectScreen(ModalScreen):
-    """Modal dialog to review/exclude the tasks feeding a work report.
+class TaskSelectScreenBase(ModalScreen):
+    """Review a list of tasks in a SelectionList; confirm in DISPLAYED order.
 
-    ``tasks``: ordered (col_id, task_id, label) triples grouped by column in
-    board order. The displayed sequence IS the reviewed order the launch must
-    preserve — confirm dismisses the still-selected (col_id, task_id) pairs in
-    exactly that order.
+    ``space`` toggles (SelectionList owns and consumes it), ``Enter`` confirms
+    via ``on_key``, Esc / Cancel dismiss ``None``. The ``None`` (cancelled
+    cleanly) vs ``[]`` (confirmed with nothing checked) distinction is
+    load-bearing for every caller — they mean different things and neither
+    writes.
+
+    Subclasses supply ``TITLE_TEXT`` / ``LIST_ID`` and the three row adapters.
+    Extracted in t1243_7: the move-to-column command needs this exact widget
+    with a different row shape, and a third hand-copied
+    SelectionList-in-``#dep_picker_dialog`` screen in one file is the
+    duplication that task exists to stop adding to.
     """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
-    def __init__(self, tasks: list):
+    #: Dialog heading (the keybinding hint is appended by `compose`).
+    TITLE_TEXT = ""
+    #: DOM id of the SelectionList — distinct per subclass so a test can query
+    #: the concrete screen it means.
+    LIST_ID = ""
+
+    def __init__(self, rows: list):
         super().__init__()
-        self.tasks = list(tasks)
+        self.rows = list(rows)
+
+    # --- row adapters ---------------------------------------------------
+
+    def _row_key(self, row):
+        """The SelectionList `value` for `row` (must be hashable + unique)."""
+        raise NotImplementedError
+
+    def _row_label(self, row):
+        """What the user reads for `row`."""
+        raise NotImplementedError
+
+    def _row_value(self, row):
+        """What `dismiss` hands back for `row`."""
+        raise NotImplementedError
+
+    # --- widget ---------------------------------------------------------
 
     def compose(self):
         with Container(id="dep_picker_dialog"):
             yield Label(
-                "Work report tasks — [dim]space to toggle, Enter to confirm, Esc to cancel[/]",
+                f"{self.TITLE_TEXT} — [dim]space to toggle, Enter to confirm, "
+                f"Esc to cancel[/]",
                 id="dep_picker_title",
             )
             yield SelectionList[str](
                 *(
-                    Selection(label, value=task_id, initial_state=True)
-                    for _, task_id, label in self.tasks
+                    Selection(self._row_label(row), value=self._row_key(row),
+                              initial_state=True)
+                    for row in self.rows
                 ),
-                id="work_report_task_list",
+                id=self.LIST_ID,
             )
             with Horizontal(id="detail_buttons"):
-                yield Button("Confirm", variant="primary", id="btn_wr_tasks_save")
-                yield Button("Cancel", variant="default", id="btn_wr_tasks_cancel")
+                yield Button("Confirm", variant="primary", id="btn_task_select_save")
+                yield Button("Cancel", variant="default", id="btn_task_select_cancel")
 
     def on_mount(self):
-        self.query_one("#work_report_task_list", SelectionList).focus()
+        self.query_one(f"#{self.LIST_ID}", SelectionList).focus()
 
     def _selected(self) -> list:
-        sl = self.query_one("#work_report_task_list", SelectionList)
+        sl = self.query_one(f"#{self.LIST_ID}", SelectionList)
         checked = set(sl.selected)
-        return [(col_id, task_id) for col_id, task_id, _ in self.tasks
-                if task_id in checked]
+        return [self._row_value(row) for row in self.rows
+                if self._row_key(row) in checked]
 
-    @on(Button.Pressed, "#btn_wr_tasks_save")
+    @on(Button.Pressed, "#btn_task_select_save")
     def _btn_save(self):
         self.dismiss(self._selected())
 
-    @on(Button.Pressed, "#btn_wr_tasks_cancel")
+    @on(Button.Pressed, "#btn_task_select_cancel")
     def _btn_cancel(self):
         self.dismiss(None)
 
@@ -4512,6 +4543,56 @@ class WorkReportTaskSelectScreen(ModalScreen):
         if event.key == "enter":
             self.dismiss(self._selected())
             event.stop()
+
+
+class WorkReportTaskSelectScreen(TaskSelectScreenBase):
+    """Modal dialog to review/exclude the tasks feeding a work report.
+
+    ``rows``: ordered (col_id, task_id, label) triples grouped by column in
+    board order. The displayed sequence IS the reviewed order the launch must
+    preserve — confirm dismisses the still-selected (col_id, task_id) pairs in
+    exactly that order.
+    """
+
+    TITLE_TEXT = "Work report tasks"
+    LIST_ID = "work_report_task_list"
+
+    @property
+    def tasks(self):
+        """Historic alias for `rows`, kept so existing callers/tests read the
+        same attribute they did before the base class was extracted."""
+        return self.rows
+
+    def _row_key(self, row):
+        return row[1]                    # task_id
+
+    def _row_label(self, row):
+        return row[2]
+
+    def _row_value(self, row):
+        return (row[0], row[1])          # (col_id, task_id)
+
+
+class MoveTaskSelectScreen(TaskSelectScreenBase):
+    """Review which tasks a bulk column move will act on (t1243_7).
+
+    ``rows``: ordered (filename, label) pairs in board order. Confirm dismisses
+    the still-checked FILENAMES in that same order, which is what
+    ``move_tasks_to_column`` consumes — it preserves input order, so the
+    destination sequence matches the sequence the user reviewed.
+    """
+
+    TITLE_TEXT = "Move tasks to column"
+    LIST_ID = "move_task_list"
+
+    def _row_key(self, row):
+        return row[0]                    # filename
+
+    def _row_label(self, row):
+        return row[1]
+
+    def _row_value(self, row):
+        return row[0]
 
 
 class LockEmailScreen(ModalScreen):
@@ -5694,65 +5775,57 @@ class ColumnSelectScreen(ModalScreen):
 # --- Command Palette Provider ---
 
 class KanbanCommandProvider(Provider):
-    """Provide column management commands to the Textual command palette."""
+    """Provide board commands to the Textual command palette."""
+
+    #: Single source for the palette: (display, action attribute, help).
+    #: `discover()` and `search()` used to repeat this list verbatim, so a
+    #: command added to one and not the other went missing from either
+    #: discovery or search with nothing failing (t1243_7). t1377_5 adds its
+    #: column-management entries HERE rather than re-splitting the list.
+    _COMMANDS = (
+        ("Add Column", "action_add_column",
+         "Add a new column to the board"),
+        ("Edit Column", "action_edit_column",
+         "Edit a column's title and color"),
+        ("Delete Column", "action_delete_column",
+         "Delete a column (tasks move to Unsorted)"),
+        ("Collapse Column", "action_collapse_column",
+         "Collapse a column to minimize its width"),
+        ("Expand Column", "action_expand_column",
+         "Expand a collapsed column to full width"),
+        ("Move Tasks to Column", "action_move_to_column",
+         "Move the marked task(s) — or the focused card — to a column"),
+        ("Clear Selection", "action_clear_marks",
+         "Unmark every marked task"),
+        ("Settings", "action_open_settings",
+         "Configure board settings (auto-refresh interval)"),
+        ("Sync with Remote", "action_sync_remote",
+         "Push local changes and pull remote changes"),
+    )
+
+    def _resolved(self):
+        """(display, bound callback, help) for every command.
+
+        The ONE place `_COMMANDS` is turned into callables — both surfaces go
+        through it, which is what keeps them from drifting apart.
+        """
+        app = self.app
+        return [(display, getattr(app, attr), help_text)
+                for display, attr, help_text in self._COMMANDS]
 
     async def discover(self) -> Hits:
-        app = self.app
-        yield DiscoveryHit(
-            display="Add Column",
-            command=app.action_add_column,
-            help="Add a new column to the board",
-        )
-        yield DiscoveryHit(
-            display="Edit Column",
-            command=app.action_edit_column,
-            help="Edit a column's title and color",
-        )
-        yield DiscoveryHit(
-            display="Delete Column",
-            command=app.action_delete_column,
-            help="Delete a column (tasks move to Unsorted)",
-        )
-        yield DiscoveryHit(
-            display="Collapse Column",
-            command=app.action_collapse_column,
-            help="Collapse a column to minimize its width",
-        )
-        yield DiscoveryHit(
-            display="Expand Column",
-            command=app.action_expand_column,
-            help="Expand a collapsed column to full width",
-        )
-        yield DiscoveryHit(
-            display="Settings",
-            command=app.action_open_settings,
-            help="Configure board settings (auto-refresh interval)",
-        )
-        yield DiscoveryHit(
-            display="Sync with Remote",
-            command=app.action_sync_remote,
-            help="Push local changes and pull remote changes",
-        )
+        for display, command, help_text in self._resolved():
+            yield DiscoveryHit(display=display, command=command, help=help_text)
 
     async def search(self, query: str) -> Hits:
         matcher = self.matcher(query)
-        app = self.app
-        commands = [
-            ("Add Column", app.action_add_column, "Add a new column to the board"),
-            ("Edit Column", app.action_edit_column, "Edit a column's title and color"),
-            ("Delete Column", app.action_delete_column, "Delete a column (tasks move to Unsorted)"),
-            ("Collapse Column", app.action_collapse_column, "Collapse a column to minimize its width"),
-            ("Expand Column", app.action_expand_column, "Expand a collapsed column to full width"),
-            ("Settings", app.action_open_settings, "Configure board settings (auto-refresh interval)"),
-            ("Sync with Remote", app.action_sync_remote, "Push local changes and pull remote changes"),
-        ]
-        for display, callback, help_text in commands:
+        for display, command, help_text in self._resolved():
             score = matcher.match(display)
             if score > 0:
                 yield Hit(
                     score=score,
                     match_display=matcher.highlight(display),
-                    command=callback,
+                    command=command,
                     help=help_text,
                 )
 
@@ -6084,6 +6157,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("x", "toggle_children", "Toggle Children"),
         # Multi-select marking (t1243_6; hidden in the derived views by check_action)
         Binding("space", "toggle_mark", "Mark"),
+        # Bulk move to a column (t1243_7). show=False is a MEASURED decision,
+        # not an oversight: the footer is already full at 200 columns —
+        # `space Mark` (t1243_6) took the last slot — so a shown `m` renders as
+        # a bare key with its label clipped off, whether the label is
+        # "Move to Col" or "Move". A key with no label is worse than no key.
+        # Discovery is via the `?` shortcuts editor (ShortcutsMixin registers
+        # this binding automatically) and the command palette's
+        # "Move Tasks to Column". Same call as ctrl+up/ctrl+down and X.
+        # check_action still gates it — hidden actions must not dispatch in the
+        # derived views either.
+        Binding("m", "move_to_column", "Move to Col", show=False),
         # Column Movement
         Binding("ctrl+right", "move_col_right", "Move Col >"),
         Binding("ctrl+left", "move_col_left", "< Move Col"),
@@ -6324,6 +6408,34 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # already covers them. Adding it there would be unreachable code.
             if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
+        elif action == "move_to_column":
+            # Hidden wherever movement is hidden — the derived views render
+            # non-reorderable lanes. (By-Trail move-to-column is t1210_5, which
+            # consumes this chain rather than duplicating it.)
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
+                return False
+            # Deliberately returns True EARLY on a non-empty marked set, unlike
+            # every other gate here (which only ever return False): `m` acts on
+            # the marked set regardless of what currently holds focus, so the
+            # focus checks below must not veto it. Do not "normalize" this away
+            # — MoveGatingTests pins the focused-child-with-marks case. It is
+            # also the cheap path: it returns before any DOM query runs.
+            if self.marked:
+                return True
+            # ONE `_focused_card()` call, deliberately not `_get_focused_col_id()`
+            # followed by `_focused_card()`: that pair issues the whole-board
+            # `query("TaskCard:focus")` TWICE, and check_action runs once per
+            # binding on every refresh_bindings() — i.e. on every focus change
+            # during a move. `_focused_placeholder()` reads `screen.focused`
+            # and costs nothing, so the fallback stays free.
+            focused = self._focused_card()
+            if focused is not None:
+                # Matches the movement gate: a child is not movable, and with
+                # no marks there is nothing else for `m` to act on.
+                return not focused.is_child
+            # No card, but a collapsed/empty column placeholder still names a
+            # source column to scope the review to.
+            return self._focused_placeholder() is not None
         elif action in ("move_col_right", "move_col_left", "toggle_column_collapsed"):
             if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
@@ -7287,9 +7399,25 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return
 
     def _focused_card(self):
-        """Return the currently focused TaskCard, or None."""
-        results = self.query("TaskCard:focus")
-        return results.first() if results else None
+        """Return the currently focused TaskCard, or None.
+
+        An attribute read, not a query: the `:focus` pseudo-class matches
+        exactly one widget — the screen's focused one — so
+        `query("TaskCard:focus")` walked the whole board to find something
+        `screen.focused` already names. Same idiom `_focused_placeholder`
+        has always used.
+
+        This is a hot path, not a micro-optimisation: `check_action` runs once
+        per binding on every `refresh_bindings()` — i.e. on every focus change
+        during a move — and roughly ten of its gates call this helper, most of
+        them twice (once in the ghost pre-gate, once in their own branch).
+        Measured on a 60-card fixture board: **27 whole-board walks per footer
+        sweep**, 59 ms, now zero. t1243_7 added the 28th and tipped
+        `test_board_movement`'s attribution benchmark over its 25 ms
+        cross-run threshold, which is what surfaced this.
+        """
+        focused = self.screen.focused if self.screen else None
+        return focused if isinstance(focused, TaskCard) else None
 
     def _get_column_cards(self, col_id: str) -> list:
         """Return TaskCard widgets belonging to a column, in DOM order."""
@@ -7482,6 +7610,170 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self.marked.toggle(card.task_data.filename)
         self._repaint_card_mark(card)
+
+    def action_clear_marks(self) -> None:
+        """Palette 'Clear Selection': unmark everything and repaint (t1243_7)."""
+        if self._modal_is_active():
+            return
+        if not self.marked:
+            self.notify("Nothing marked")
+            return
+        cleared = set(self.marked.marked)
+        self.marked.clear()
+        # Scoped to the cards that actually changed: only these need a repaint,
+        # and t1243_4 measured a whole-board TaskCard query at ~6.8 ms.
+        for card in self.query(TaskCard):
+            if card.task_data.filename in cleared:
+                self._repaint_card_mark(card)
+        self.notify(f"Cleared {len(cleared)} mark(s)")
+
+    def _reject_stale(self, filenames) -> bool:
+        """True (and notifies) when a name no longer resolves to a parent task.
+
+        **Fail closed — never drop the dead names and proceed.** Silently
+        omitting them would move the surviving subset of what the user
+        selected: exactly the partial application `move_tasks_to_column`'s
+        all-or-nothing contract exists to prevent, and the review dialog would
+        not even show what went missing.
+
+        Marks are deliberately **retained**: `r` (`refresh_board`) prunes them
+        and reports which ones went, which is what t1243_6 gave
+        `MarkedSelection.retain()` a return value for. Clearing here would
+        destroy a selection the user may still want after a refresh.
+        """
+        stale = [n for n in filenames if n not in self.manager.task_datas]
+        if not stale:
+            return False
+        if all(n in self.manager.child_task_datas for n in stale):
+            # Structurally unreachable today (every source is parent-only — see
+            # `_review_then`), but if a child ever arrives, say the true reason.
+            self.notify("Child tasks move with their parent — move the parent instead.",
+                        severity="warning")
+            return True
+        self.notify("Selection is stale — no longer on the board: "
+                    + ", ".join(stale[:3]) + ("…" if len(stale) > 3 else "")
+                    + ". Press r to refresh, then retry.", severity="error")
+        return True
+
+    def _review_then(self, filenames, on_confirm) -> None:
+        """Show `filenames` in MoveTaskSelectScreen, then hand the kept ones on.
+
+        Every name is resolvable past `_reject_stale`, so no row is silently
+        dropped — what the dialog lists IS the selection. Child rows are
+        excluded **structurally**, by the three sources rather than by a filter
+        here: `action_toggle_mark` refuses to mark a child, the focused-card
+        path gates on `is_child`, and `get_column_tasks` reads `task_datas`
+        (parents only).
+        """
+        if self._reject_stale(filenames):
+            return
+        rows = []
+        for name in filenames:
+            task = self.manager.task_datas[name]
+            task_num, task_name = TaskCard._parse_filename(name)
+            label = (f"[{self._column_title(task.board_col)}] "
+                     f"{task_num or name} {task_name}").rstrip()
+            rows.append((name, label))
+        # No `if not rows` guard: past `_reject_stale` the row count EQUALS the
+        # input count, and every caller already rejects an empty selection. A
+        # guard here could never fire, and one that reads like a live check is
+        # worse than none.
+
+        def on_tasks(selected):
+            if selected is None:
+                return                              # Esc — cancelled cleanly
+            if not selected:
+                self.notify("No tasks selected")    # confirmed with none checked
+                return
+            on_confirm(selected)
+
+        self.push_screen(MoveTaskSelectScreen(rows), on_tasks)
+
+    def action_move_to_column(self) -> None:
+        """`m`: move the marked task(s) — or the focused card — to a column."""
+        if self._modal_is_active():
+            return
+        # Re-check the view gate INSIDE the action, not only in check_action:
+        # the command palette invokes action_* directly and never consults it.
+        if self.base_filter in ("inflight", "bytopic", "bytrail"):
+            return
+
+        def to_destination(filenames):
+            # Built AFTER the review: the redundant-column filter depends on
+            # the confirmed target set, not on the pre-review one.
+            dests = self._move_destination_columns(filenames)
+            if not dests:
+                self.notify("Nowhere to move to — every other column is "
+                            "collapsed, and the selection already sits where "
+                            "it is.", severity="warning")
+                return
+            self.push_screen(
+                ColumnSelectScreen(self.manager, "Move to", columns=dests),
+                lambda col_id: self._apply_move_to_column(filenames, col_id),
+            )
+
+        focused = self._focused_card()
+        if focused is not None and focused.is_child and not self.marked:
+            # Refuse with a reason — never a silent nothing (t1243_6 idiom).
+            self.notify("Child tasks move with their parent — move the parent instead.",
+                        severity="warning")
+            return
+        focused_name = (focused.task_data.filename
+                        if focused is not None and not focused.is_child else None)
+        targets = self.marked.effective(focused_name)
+
+        if self.marked:
+            # Marks survive a filter pass (t1243_6), so a marked card may be
+            # hidden right now. REVIEW before acting — never move what the user
+            # cannot see. This is the hidden-but-marked risk t1243_6 left here.
+            self._review_then(self._board_order(targets), to_destination)
+        elif targets:
+            # One focused card: unambiguous, and visible by construction.
+            if self._reject_stale(targets):
+                return
+            to_destination(targets)
+        else:
+            # A column placeholder is focused (collapsed, or every card hidden
+            # by the filter). Scope the review to that column, read straight
+            # from task_datas so filtered-away tasks are exactly what becomes
+            # visible again.
+            col_id = self._get_focused_col_id()
+            if col_id is None:
+                return
+            names = [t.filename for t in self.manager.get_column_tasks(col_id)]
+            if not names:
+                self.notify(f"No tasks in {self._column_title(col_id)}",
+                            severity="warning")
+                return
+            self._review_then(names, to_destination)
+
+    def _apply_move_to_column(self, filenames, col_id) -> None:
+        """Run the batch move and repaint. K writes, input order, K files."""
+        if not col_id:
+            return                              # Esc at the column picker
+        # Snapshot the SOURCE columns before the move mutates board_col.
+        src_cols = {t.board_col for t in
+                    (self.manager.task_datas.get(n) for n in filenames) if t}
+        result = self.manager.move_tasks_to_column(filenames, col_id)
+        if result.refused:
+            # All-or-nothing: NOTHING was written. `_reject_stale` already
+            # screened the selection, so this is the POST-REVIEW window: the
+            # user sits in the two modals while the auto-refresh timer (or
+            # another session) removes a task, and the confirmed filename list
+            # was captured in the closure before that happened.
+            names = ", ".join(name for name, _ in result.refused)
+            self.notify(f"Move refused, nothing written — no longer on the "
+                        f"board: {names}. Press r to refresh.", severity="error")
+            return
+        # Clear BEFORE the refresh: refresh_board prunes-and-notifies, and an
+        # already-empty set drops nothing, so no spurious warning fires. Same
+        # ordering rationale as _set_base_filter in t1243_6.
+        self.marked.clear()
+        self.refresh_columns(src_cols | {col_id},
+                             refocus_filename=result.moved[-1],
+                             refocus_col_id=col_id)
+        self.notify(f"Moved {len(result.moved)} task(s) to "
+                    f"{self._column_title(col_id)}")
 
     def action_nav_up(self):
         if self._modal_is_active():
@@ -7862,6 +8154,82 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if conf:
                 cols.append((conf["id"], conf["title"]))
         return cols
+
+    # --- Move to column (t1243_7) ---
+
+    def _move_destination_columns(self, filenames=()) -> list:
+        """Col-conf dicts offered as a move destination for `filenames`.
+
+        `ColumnSelectScreen` renders `id`/`title`/`color` dicts, so this returns
+        confs — not the `(id, title)` pairs `_work_report_columns` builds for a
+        SelectionList. Three filters, each matching an existing board contract:
+
+        * `unordered` is hand-injected (it is not in `manager.columns`) and only
+          while it holds tasks, exactly as `_move_task_lateral` and
+          `action_collapse_column` build it. The column exists only while some
+          task has no `boardcol`.
+        * **Collapsed columns are excluded**, matching `_move_task_lateral`,
+          which steps OVER a collapsed column and never lands in one. A
+          collapsed destination would also swallow the cards on arrival,
+          leaving `refresh_columns` a refocus target that is not rendered.
+        * A column **every** target already sits in is excluded — picking it
+          would be a pure "send to bottom" reorder, not a move. A column only
+          SOME targets sit in stays: that is a real consolidation.
+        """
+        current = {self.manager.task_datas[n].board_col
+                   for n in filenames if n in self.manager.task_datas}
+        redundant = current if len(current) == 1 else set()
+
+        cols = []
+        if (self.manager.get_column_tasks("unordered")
+                and not self.manager.is_column_collapsed("unordered")):
+            cols.append({"id": "unordered", "title": "Unsorted / Inbox",
+                         "color": "gray"})
+        for col_id in self.manager.column_order:
+            conf = self.manager.get_column_conf(col_id)  # None = stale entry
+            if conf and not self.manager.is_column_collapsed(col_id):
+                cols.append(conf)
+        return [c for c in cols if c["id"] not in redundant]
+
+    def _column_title(self, col_id: str) -> str:
+        """Display title for a column, including the synthetic `unordered`."""
+        if col_id == "unordered":
+            return "Unsorted / Inbox"
+        conf = self.manager.get_column_conf(col_id)
+        return conf["title"] if conf else col_id
+
+    def _board_order(self, filenames) -> list:
+        """Sort filenames into rendered board order: column, then board index.
+
+        `MarkedSelection.effective()` returns a FILENAME-sorted list precisely
+        because it knows nothing about board geometry (t1243_6) — this is the
+        re-sort its docstring instructs callers to do. Ordering is part of the
+        contract: the destination sequence must match the presented sequence,
+        and `move_tasks_to_column` preserves input order.
+
+        The within-column key is `(normalize_board_idx, filename)` — the SAME
+        key `get_column_tasks` sorts by, so a reviewed sequence cannot disagree
+        with the rendered one.
+
+        Ranks EVERY column, deliberately not `_move_destination_columns()`: a
+        target can sit in a collapsed column, or in the one column that list
+        filters out as redundant, and it must still sort where it renders.
+        """
+        rank = {"unordered": 0}
+        rank.update({col_id: i + 1
+                     for i, col_id in enumerate(self.manager.column_order)})
+        last = len(rank)
+
+        def key(name):
+            task = self.manager.task_datas.get(name)
+            if task is None:
+                # Unresolvable sorts last; `_reject_stale` stops the flow
+                # before such a name can reach a move.
+                return (last, 0, name)
+            return (rank.get(task.board_col, last),
+                    normalize_board_idx(task.board_idx), name)
+
+        return sorted(filenames, key=key)
 
     def action_work_report(self):
         """Open the work-report flow: columns → tasks → agent command dialog."""
