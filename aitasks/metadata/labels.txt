@@ -39,6 +39,7 @@ brainstorm_detailer
 brainstorm_explore
 brainstorm_synthetize
 brainstorming
+bug
 child_tasks
 claudecode
 claudeskills
