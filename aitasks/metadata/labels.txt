@@ -90,6 +90,7 @@ sanboxing
 script-performance
 shadow
 shell
+shortcuts
 skill_optiomizations
 skills
 statistics
@@ -102,6 +103,7 @@ test
 test_marker
 testing
 tests
+textual
 tmux
 tmux_destructive
 tmux_disruptive
