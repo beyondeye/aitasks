@@ -389,19 +389,19 @@ Then **Step 9 (Post-Implementation)** for cleanup, gate verification, and archiv
 ### Goal-achievement risk: low
 - The launch↔stamp race could leave the no-arg path unresolved, silently pushing
   the flow back to the explicit-id path this task exists to remove · severity:
-  medium · → mitigation: shadow_no_arg_capture_live_verification (in-plan: the
+  medium · → mitigation: t1410 (in-plan: the
   bounded wait of §1b, proven by the ordering test case 8 and its
   `SHADOW_BIND_WAIT_MS=0` negative control).
 - Argument-free markdown may still be ignored by a model that transcribes the id
   anyway — and the **learner-spawn path** (`spawn-learn-skill.md` →
   `aitask_shadow_spawn_learner.py`) has no argument-free form at all, so it keeps
-  the full mangle hazard · severity: low · → mitigation:
-  shadow_learner_pane_id_binding_resolution (in-plan, capture path only:
+  the full mangle hazard · severity: low · → mitigation: t1411
+  (in-plan, capture path only:
   mitigation 2 refuses a mangled id instead of capturing).
 
 ### Planned mitigations
-- timing: after | name: shadow_learner_pane_id_binding_resolution | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — the learner-spawn path still transcribes `<followed_pane_id>` through the model | desc: Teach `aitask_shadow_spawn_learner.py` to resolve the followed pane from its own pane's validated `@aitask_shadow_target` when invoked with no pane argument (reusing t1319's gateway-server-checked lookup), and make `spawn-learn-skill.md` Step 2 argument-free.
-- timing: after | name: shadow_no_arg_capture_live_verification | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — the launch↔stamp race, at the real agent-CLI layer | desc: Spawn a real shadow from minimonitor (`e`) against a live agent and confirm its first argument-free `aitask_shadow_capture.sh` call resolves the bound followed pane with no error. t1319's case 8 proves the tmux-level ordering on a throwaway socket; this covers the real code-agent boot path, which no automated test in this repo can run inside tmux.
+- timing: after | created: t1411 | name: shadow_learner_pane_id_binding_resolution | type: enhancement | priority: medium | effort: low | addresses: goal-achievement — the learner-spawn path still transcribes `<followed_pane_id>` through the model | desc: Teach `aitask_shadow_spawn_learner.py` to resolve the followed pane from its own pane's validated `@aitask_shadow_target` when invoked with no pane argument (reusing t1319's gateway-server-checked lookup), and make `spawn-learn-skill.md` Step 2 argument-free.
+- timing: after | created: t1410 (fulfilled by the Step-8c manual-verification follow-up, which covers this check as its candidate 1 plus four more; no duplicate task created) | name: shadow_no_arg_capture_live_verification | type: manual_verification | priority: medium | effort: low | addresses: goal-achievement — the launch↔stamp race, at the real agent-CLI layer | desc: Spawn a real shadow from minimonitor (`e`) against a live agent and confirm its first argument-free `aitask_shadow_capture.sh` call resolves the bound followed pane with no error. t1319's case 8 proves the tmux-level ordering on a throwaway socket; this covers the real code-agent boot path, which no automated test in this repo can run inside tmux.
 
 ## Post-Review Changes
 
