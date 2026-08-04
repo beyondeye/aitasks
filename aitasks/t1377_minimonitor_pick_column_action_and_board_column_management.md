@@ -3,7 +3,7 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [aitask_monitormini, aitask_board, tui, board_columns]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -12,10 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 risk_mitigation_tasks: [1404]
 children_to_implement: [t1377_1, t1377_2, t1377_3, t1377_4, t1377_5, t1377_6, t1377_7]
-assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-03 10:37
-updated_at: 2026-08-04 10:02
+updated_at: 2026-08-04 10:03
 boardidx: 8192
 ---
 

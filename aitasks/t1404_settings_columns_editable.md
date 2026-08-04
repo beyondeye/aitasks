@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1377_3]
 issue_type: enhancement
 status: Ready
 labels: [ait_settings, board_columns, tui]
