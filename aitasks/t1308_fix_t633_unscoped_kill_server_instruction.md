@@ -3,11 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tmux, manual_verification]
+assigned_to: dario-e@beyond-eye.com
 anchor: 633
 created_at: 2026-07-28 19:15
-updated_at: 2026-07-28 19:15
+updated_at: 2026-08-04 13:29
 boardidx: 76800
 ---
 
