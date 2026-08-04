@@ -5,10 +5,14 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [tmux, manual_verification]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 633
 created_at: 2026-07-28 19:15
-updated_at: 2026-08-04 13:29
+updated_at: 2026-08-04 13:30
 boardidx: 76800
 ---
 
