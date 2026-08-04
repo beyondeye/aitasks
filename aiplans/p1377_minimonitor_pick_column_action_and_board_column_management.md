@@ -618,20 +618,21 @@ Live acceptance (child 7): run `ait board` and `ait minimonitor` in a real tmux 
   into `t1243_10`.
 - Creating columns headlessly softens the deliberate "columns are board-TUI-only"
   stance that `ait settings` advertises · severity: medium · → mitigation:
-  `settings_columns_editable`
+  **t1404** `settings_columns_editable`
 - `p`'s pick path must be byte-for-byte unchanged (AC1) while its dialog's
   dismissal shape changes · severity: low · → mitigation: the existing
   `SharedLaunchImplementationTests` equality anchors it.
 
 ### Planned mitigations
-- timing: after | name: settings_columns_editable | type: enhancement | priority: medium | effort: medium | addresses: goal-achievement — `ait settings` advertises a columns-are-read-only stance the framework no longer holds once t1377_3 lands a headless `board_config.json` writer | desc: Flip the settings TUI's Columns section (`settings_app.py:2375`) from read-only to editable on top of `lib/board_columns.create_column`, so board, minimonitor and settings agree on one stance.
+- timing: after | name: settings_columns_editable | created: t1404 | type: enhancement | priority: medium | effort: medium | addresses: goal-achievement — `ait settings` advertises a columns-are-read-only stance the framework no longer holds once t1377_3 lands a headless `board_config.json` writer | desc: Flip the settings TUI's Columns section (`settings_app.py:2375`) from read-only to editable on top of `lib/board_columns.create_column`, so board, minimonitor and settings agree on one stance.
 
 **Creation timing — this parent decomposes, so Step 8d never runs here.** The
-`after` mitigation above must be created during the post-approval decomposition
+`after` mitigation was therefore created during the post-approval decomposition
 step, alongside the children, as an **independent follow-up task** (not a child —
-it targets a different TUI and is not bounded by this parent's goal). It carries
-`depends: [1377_3]`, and its id is back-filled into the `→ mitigation:` bullet and
-into `risk_mitigation_tasks` at creation.
+it targets a different TUI and is not bounded by this parent's goal).
+
+**Created: `t1404_settings_columns_editable`** — `depends: [t1377_3]`, recorded in
+this parent's `risk_mitigation_tasks: [1404]`.
 
 ### How the remaining mitigations are discharged
 
