@@ -487,6 +487,76 @@ the `☑` actually paints and the title row does not reflow.
 
 ---
 
+## Final Implementation Notes
+
+- **Actual work done:** two files, exactly as planned.
+  - `.aitask-scripts/board/aitask_board.py` (+213/−2):
+    `MARK_CHECKED` / `MARK_UNCHECKED` constants and the `MarkedSelection` class;
+    `TaskCard.__init__` gains `markable` (last, defaulted) plus the
+    `markable-card` class and `_is_marked()`; the glyph `Label` in
+    `.task-title-row`; `markable=True` at the single `KanbanColumn.task_block`
+    construction site; four CSS rules; `Binding("space", "toggle_mark", "Mark")`;
+    the `toggle_mark` branch in `check_action`; `action_toggle_mark` and
+    `_repaint_card_mark`; `self.marked = MarkedSelection()`; `marked.clear()` in
+    `_set_base_filter` and the prune-with-notify in `refresh_board`.
+  - `tests/test_board_marking.py` — **new**, 583 lines, 28 tests in 8 classes.
+
+- **Deviations from plan:** none. Every step landed as written, including the
+  three post-review corrections folded in during planning (no ghost arm, hover
+  scoped by class, prune reports what it dropped).
+
+- **Issues encountered:**
+  1. **`run_all_python_tests.sh <path>` does not narrow the run.** Passing a
+     positional module path appends it to the full enumerated module list rather
+     than selecting it, so the "single module" invocation in this plan's
+     Verification section actually ran the whole suite *plus* the module and blew
+     the 120 s tool budget. Iterate with
+     `~/.aitask/venv/bin/python -m pytest tests/test_board_marking.py` instead
+     (13.9 s), and keep `run_all_python_tests.sh` with **no arguments** for the
+     full-suite gate. This is a pre-existing runner behaviour, not a defect
+     introduced here — but it invalidates the command as written in several
+     plans, so it is recorded rather than silently worked around.
+  2. **`tmux send-keys <session> Space` did not reach the app**; `send-keys -l ' '`
+     did. Anything driving a Textual `space` binding from tmux must send the
+     literal character.
+
+- **Key decisions:**
+  - **`markable` is a constructor flag, not a runtime `self.app.base_filter`
+    lookup.** By-Topic mounts *base* `TaskCard`s, so a compose-time view query
+    was the obvious implementation — but it makes every future card-construction
+    site a place where the exclusion can be forgotten. The flag makes the
+    exclusion structural: exactly one site in 9 900 lines produces a markable
+    card, and `MarkScopeTests` pins that.
+  - **No ghost arm in `action_toggle_mark`, and `toggle_mark` is absent from the
+    `check_action` ghost pre-gate.** `TrailGhostCard` is mounted only by
+    `TrailColumn`, which only the By-Trail path mounts, so `is_ghost` implies
+    `base_filter == "bytrail"` and the view gate returns first. Rather than write
+    a guard that can never fire, the reachability premise itself is pinned by a
+    test that fails if a second `TrailGhostCard` construction site appears.
+  - **Refresh prunes and *reports*; it never clears.** `refresh_board` is reached
+    by the unattended auto-refresh timer, so a clear there would silently discard
+    a selection. `retain()` returns the dropped set specifically so the notify can
+    name what vanished; a no-drop control test keeps the warning off the common
+    path.
+  - **Hover scoped to `.markable-card`, not the `TaskCard` type.** A Textual type
+    selector matches the whole MRO, so a bare `TaskCard:hover` would have
+    restyled In-Flight, By-Topic and read-only ghost cards — three views this
+    task does not touch. No `:focus` background was added: focus keeps its
+    existing imperative double-cyan border.
+
+- **Upstream defects identified:** None.
+
+  (Issue 1 above is a *documentation/usage* problem with an existing runner's
+  argument handling, not a defect in another module — the runner behaves as
+  CLAUDE.md describes. It is recorded under "Issues encountered" so sibling
+  plans stop copying the wrong command.)
+
+- **Notes for sibling tasks:** see the section below — `effective()` and
+  `cardinality` are deliberately **unused by production code in this child**;
+  they exist and are unit-tested as the API t1243_7 and t1243_12 consume.
+
+---
+
 ## Notes for sibling tasks
 
 - **t1243_7 / t1243_12:** the marked set is `app.marked` (`MarkedSelection`), keyed
