@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 13:08
-updated_at: 2026-08-04 13:36
+updated_at: 2026-08-04 17:26
 ---
 
 ## Failed verification item from t635_15
@@ -115,3 +116,8 @@ here — fixing only `gates run` would leave the archival guard permissive.
 case for the post-pass one: sign → mutate the digest → assert `gates run`
 re-pends **and** `archive-ready` reports `BLOCKED`. A negative control must show
 the assertion failing against today's code (it currently reports `ALL_PASS`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-04T14:26:39Z status=pass attempt=1 type=human
