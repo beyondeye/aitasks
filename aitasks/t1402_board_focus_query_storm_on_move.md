@@ -8,8 +8,9 @@ labels: [aitask_board, tui, python, script-performance]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-04 07:58
-updated_at: 2026-08-04 07:58
+updated_at: 2026-08-04 09:45
 ---
+
 
 ## Context
 
@@ -120,7 +121,8 @@ t1243_14's task file carries the reverse pointer.
 
 - `_column_widgets()`'s four full-DOM class queries (~25 ms/keypress). t1395
   proved it is **unreachable from the move path** (0 calls, both axes) — it is a
-  *plain-arrow navigation* cost. It remains an unaddressed defect first reported
-  by t1243_4 and deserves its own task; fixing it here would not move this
-  target.
+  *plain-arrow navigation* cost, first reported by t1243_4. **Now owned by
+  t1403** (`board_nav_column_widgets_query_cost`). Fixing it here would not move
+  this target. Note t1403 touches the **same harness file**, so do not run the
+  two concurrently.
 - Textual's own `layout` / `reflow` / `render` (23.6 % combined). Not ablatable.

@@ -676,11 +676,17 @@ incomparable with the recorded baselines and retroactively flatters t1243_5.
 t1243_14's task file carries the reverse pointer, so the ordering cannot be
 silently unblocked by descoping either side.
 
-A **second** follow-up is warranted but deliberately not filed by t1395:
+**Also applied: t1403 `board_nav_column_widgets_query_cost`.**
 `_column_widgets()`'s four full-DOM class queries (~25 ms) are now proved to cost
 nothing on the move path and everything on the **plain-arrow navigation** path,
-which no benchmark in this workstream measures. Filing it would require a target
-derived from a nav-path measurement that does not exist yet.
+which no benchmark in this workstream measures. t1395 initially declined to file
+it on the grounds that no nav-path measurement exists to set a target — but that
+is an argument for an **investigation** task, which is exactly what t1395 itself
+was. So t1403 is investigation-first and asserts no target up front. It carries
+the reachability trace, and a warning that `_bench_axes` is consumed with
+`axes=None` by `test_bench_baseline`, so a third axis added naively would
+silently enter the pre-registered baseline. It has **no** dependency on
+t1243_14 — it changes navigation cost, not move cost.
 
 **Also for t1243_14:** its Step 4 question "which span now dominates" is answered
 above — `dom_query`, 53.6 %. Its instruction to retire or re-scope `R_pair` /
