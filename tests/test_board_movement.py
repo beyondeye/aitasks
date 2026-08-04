@@ -169,14 +169,46 @@ class Probe:
 
     LEAVES = ("apply_filter", "recompose", "git_status", "save_fields")
 
+    #: Attribution tier (t1395). Opt-in: installed only when the child run asks
+    #: for it, so `test_bench_baseline` keeps measuring exactly what it measured
+    #: before and t1243_14's comparison against 2173.2 / 1162.4 ms stays valid.
+    #:
+    #: Unlike LEAVES these spans DO nest (`bindings_sweep` -> `check_action` ->
+    #: `focus_query` -> `dom_query`), so they are accounted by SELF time: a
+    #: child's total is subtracted from its parent's. Self times are therefore
+    #: disjoint intervals by construction, which is what makes their sum a
+    #: partition rather than a double count.
+    TREE = (
+        "refocus",          # KanbanApp._refocus_card
+        "scroll_hop",       # KanbanApp._scroll_into_view_after_layout (one hop)
+        "check_action",     # KanbanApp.check_action
+        "focus_query",      # KanbanApp._focused_card -> query("TaskCard:focus")
+        "col_widgets",      # KanbanApp._column_widgets (expected: 0 calls)
+        "bindings_sweep",   # Screen.active_bindings
+        "footer_compose",   # Footer.compose (the recompose body)
+        "layout",           # Screen._refresh_layout
+        "reflow",           # Compositor.reflow / reflow_visible
+        "render",           # Screen._compositor_refresh
+        "dom_query",        # DOMQuery.nodes -- every cold full-tree walk
+    )
+
     def __init__(self):
         self.nesting: list[list[str]] = []
         self._stack: dict[int, list[str]] = {}
+        # Per-INVOCATION child-time accumulators, pushed/popped alongside
+        # `_stack`. Keyed per invocation, not per name: `check_action` calls
+        # `_focused_card` up to eight times within one invocation.
+        self._child: dict[int, list[float]] = {}
+        self.focus_memo: dict = {}
         self.reset()
 
     def reset(self):
         self.spans = {k: 0.0 for k in self.LEAVES}
         self.counts = {k: 0 for k in self.LEAVES}
+        self.tree_self = {k: 0.0 for k in self.TREE}
+        self.tree_total = {k: 0.0 for k in self.TREE}
+        self.tree_calls = {k: 0 for k in self.TREE}
+        self.focus_memo.clear()
         self.inclusive_refresh = 0.0
         self.writes: dict[str, int] = {}
         # Compaction spy (t1243_3). "Exactly one respace" must be asserted
@@ -197,12 +229,19 @@ class Probe:
     def _enter(self, name: str) -> float:
         tid = threading.get_ident()
         stack = self._stack.setdefault(tid, [])
-        if stack:
+        if stack and name in self.LEAVES and stack[-1] in self.LEAVES:
             # Non-overlap is PROVEN here, not inferred from a non-negative
             # residual: uninstrumented time can absorb a double count and still
             # leave the residual positive.
+            #
+            # Scoped to LEAVES-inside-LEAVES (t1395). Without the attribution
+            # tier installed the stack only ever holds leaves, so this is the
+            # pre-registered rule verbatim; with it installed, a tier-2 span
+            # nesting inside a leaf is expected and is handled by self-time
+            # accounting rather than being a violation.
             self.nesting.append([stack[-1], name])
         stack.append(name)
+        self._child.setdefault(tid, []).append(0.0)
         t0 = time.perf_counter()
         if self.sync_end is not None and self.first_deferred_start is None and t0 >= self.sync_end:
             self.first_deferred_start = t0
@@ -210,9 +249,23 @@ class Probe:
 
     def _exit(self, name: str, t0: float):
         dt = time.perf_counter() - t0
-        self._stack[threading.get_ident()].pop()
-        self.spans[name] += dt
-        self.counts[name] += 1
+        tid = threading.get_ident()
+        self._stack[tid].pop()
+        child = self._child[tid].pop()
+        if self._child[tid]:
+            # Charge this span's TOTAL to the enclosing invocation, so the
+            # parent's self time excludes it.
+            self._child[tid][-1] += dt
+        if name in self.LEAVES:
+            # Leaves stay INCLUSIVE, exactly as pre-registered: `spans[]` is the
+            # full wall-clock duration, unchanged by whatever tier-2 spans now
+            # fire inside it.
+            self.spans[name] += dt
+            self.counts[name] += 1
+        else:
+            self.tree_total[name] += dt
+            self.tree_self[name] += max(0.0, dt - child)
+            self.tree_calls[name] += 1
 
     def mark_deferred(self):
         t = time.perf_counter()
@@ -226,13 +279,17 @@ class Probe:
         return max(0.0, self.first_deferred_start - self.sync_end)
 
 
-def _install_probe(B, probe: Probe, ablate=()):
+def _install_probe(B, probe: Probe, ablate=(), attribution=False, negctrl=None):
     """Wrap the four leaves, the two inclusive reporters, the action bodies and
     the refocus callbacks. Patched on the CLASS so every instance is covered.
 
     `ablate` names leaves whose body is skipped (the wrapper still runs, so the
     call still counts). See `BoardMovementBenchmarkTests` for why removable cost
     is measured by ablation rather than by span share.
+
+    `attribution` additionally installs the tier-2 self-time spans and the two
+    substitute-based ablations (t1395). It is OFF for `test_bench_baseline` so
+    that test's numbers stay comparable with t1243_1's and t1243_5's.
     """
     ablate = set(ablate)
 
@@ -373,6 +430,140 @@ def _install_probe(B, probe: Probe, ablate=()):
             return wrapper
         setattr(B.KanbanApp, attr, make(orig))
 
+    if attribution:
+        _install_attribution(B, probe, ablate, negctrl)
+
+
+#: Seconds of synthetic cost the attribution negative control injects. Well
+#: above the per-sample noise at smoke scale, so "it landed in the right span"
+#: is decidable rather than a judgement call.
+NEGCTRL_SLEEP = 0.050
+
+
+def _install_attribution(B, probe: Probe, ablate: set, negctrl: str | None = None):
+    """Tier-2 self-time spans + the substitute-based ablations (t1395).
+
+    Installed LAST and therefore OUTERMOST, so the t1243_5 close wrappers keep
+    their exact sequencing: `probe.scroll_pending` must still be set by the
+    scroll wrapper before the refocus wrapper's `finally` reads it.
+
+    Every Textual symbol is resolved with `getattr` and asserted present, so a
+    Textual upgrade that renames one fails loudly with the version rather than
+    silently measuring nothing — the same discipline as
+    `test_pause_floor_assumption_still_holds`.
+    """
+    import textual
+    from textual.css.query import DOMQuery
+    from textual.screen import Screen
+    from textual.widgets import Footer
+    from textual._compositor import Compositor
+
+    def _require(owner, attr, label):
+        target = getattr(owner, attr, None)
+        if target is None:
+            raise RuntimeError(
+                f"t1395 attribution probe: {label} is missing on Textual "
+                f"{textual.__version__}; re-anchor the probe before trusting "
+                "any number it prints.")
+        return target
+
+    def span(owner, attr, name, *, is_property=False, drain=False):
+        orig = _require(owner, attr, f"{owner.__name__}.{attr}")
+        if is_property:
+            orig = orig.fget
+
+        def wrapper(self_, *a, **kw):
+            t0 = probe._enter(name)
+            try:
+                if drain:
+                    # A generator's cost is in the DRAIN, not the call.
+                    return iter(list(orig(self_, *a, **kw)))
+                return orig(self_, *a, **kw)
+            finally:
+                probe._exit(name, t0)
+
+        setattr(owner, attr, property(wrapper) if is_property else wrapper)
+
+    if negctrl == "slow_refocus":
+        # Negative control. Injected BENEATH the span wrapper installed below —
+        # a mutation applied on top (as `_apply_mutation` does) would sit
+        # outside the span and prove nothing. A tier that cannot localise a
+        # KNOWN cost cannot be trusted to localise an unknown one.
+        _slow_orig = B.KanbanApp._refocus_card
+
+        def _slow(self_, *a, **kw):
+            time.sleep(NEGCTRL_SLEEP)
+            return _slow_orig(self_, *a, **kw)
+        B.KanbanApp._refocus_card = _slow
+    elif negctrl is not None:  # pragma: no cover - guarded by the caller
+        raise ValueError(f"unknown attribution negctrl: {negctrl}")
+
+    span(B.KanbanApp, "check_action", "check_action")
+    span(B.KanbanApp, "_column_widgets", "col_widgets")
+    span(B.KanbanApp, "_refocus_card", "refocus")
+    span(B.KanbanApp, "_scroll_into_view_after_layout", "scroll_hop")
+    span(Screen, "active_bindings", "bindings_sweep", is_property=True)
+    span(Screen, "_refresh_layout", "layout")
+    span(Screen, "_compositor_refresh", "render")
+    span(Compositor, "reflow", "reflow")
+    span(Compositor, "reflow_visible", "reflow")
+    span(Footer, "compose", "footer_compose", drain=True)
+
+    # `DOMQuery.nodes` caches into `_nodes`; only the COLD computation is a
+    # full-tree walk, and only that is worth attributing.
+    orig_nodes = _require(DOMQuery, "nodes", "DOMQuery.nodes").fget
+
+    def nodes(self_):
+        if getattr(self_, "_nodes", None) is not None:
+            return orig_nodes(self_)
+        t0 = probe._enter("dom_query")
+        try:
+            return orig_nodes(self_)
+        finally:
+            probe._exit("dom_query", t0)
+    DOMQuery.nodes = property(nodes)
+
+    # --- `_focused_card`: measured, and optionally memoized ------------------
+    #
+    # 107 calls per lateral keypress, each a full-tree `query("TaskCard:focus")`
+    # (t1395 premise probe). The `no_focus_query` ablation memoizes it rather
+    # than no-oping it: an ablation must remove COST, never BEHAVIOUR, or the
+    # stationarity and `writes > 0` invariants would fail the run — which is
+    # exactly the negative control working.
+    #
+    # The memo key holds a STRONG reference to the focused widget alongside its
+    # id, so a garbage-collected widget cannot have its id reused and produce a
+    # stale hit. Focus identity is the only input the answer depends on.
+    memoize = "focus_query" in ablate
+    orig_focused = B.KanbanApp._focused_card
+
+    def _focused_card(self_):
+        t0 = probe._enter("focus_query")
+        try:
+            if not memoize:
+                return orig_focused(self_)
+            screen = self_.screen if self_.screen else None
+            focused = getattr(screen, "focused", None)
+            key = (id(screen), id(focused))
+            hit = probe.focus_memo.get(key)
+            if hit is not None and hit[0] is focused:
+                return hit[1]
+            value = orig_focused(self_)
+            probe.focus_memo[key] = (focused, value)
+            return value
+        finally:
+            probe._exit("focus_query", t0)
+    B.KanbanApp._focused_card = _focused_card
+
+    # --- `refresh_bindings`: the whole focus -> Footer sweep ------------------
+    #
+    # Ablating it removes `Screen.active_bindings`, hence `check_action` once
+    # per binding, hence the `_focused_card` storm. Key dispatch does NOT go
+    # through here (it calls `check_action` directly), so the move still
+    # happens and the validity invariants still hold.
+    if "bindings" in ablate:
+        Screen.refresh_bindings = lambda self_: None
+
 
 def _apply_mutation(B, mutate: str | None):
     """Injected defect used to prove the flip table discriminates.
@@ -437,7 +628,9 @@ def _child_main(params_path: str, result_path: str) -> int:
         import aitask_board as B
 
         probe = Probe()
-        _install_probe(B, probe, ablate=params.get("ablate", ()))
+        _install_probe(B, probe, ablate=params.get("ablate", ()),
+                       attribution=bool(params.get("attribution")),
+                       negctrl=params.get("negctrl"))
         _apply_mutation(B, params.get("mutate"))
 
         out = asyncio.run(_run_in_app(B, probe, params))
@@ -526,12 +719,23 @@ async def _sample(pilot, probe: Probe, key: str) -> dict:
         "writes": sum(probe.writes.values()),
         "filter_calls": probe.counts["apply_filter"],
         "press_covered": press_covered,
+        # Attribution tier (t1395). All zeros when it is not installed.
+        "tree_self": dict(probe.tree_self),
+        "tree_total": dict(probe.tree_total),
+        "tree_calls": dict(probe.tree_calls),
     }
 
 
 def _validate(sample: dict, nesting: list) -> list[str]:
     """The four per-sample validity invariants. Any failure fails the RUN."""
     bad = []
+    # Tier-2 self times are disjoint intervals inside the timed region, so their
+    # sum can never exceed it. A breach means the self-time accounting
+    # double-counted and no attribution built on it is trustworthy (t1395).
+    tree_sum = sum(sample.get("tree_self", {}).values())
+    if tree_sum > sample["e2e"] + 1e-9:
+        bad.append(f"attribution self-time sum {tree_sum:.6f} exceeds e2e "
+                   f"{sample['e2e']:.6f}")
     if sample["writes"] <= 0:
         bad.append("zero-write sample (action was rejected, not performed)")
     if sample["filter_calls"] <= 0:
@@ -640,6 +844,17 @@ def summarise(samples: list[dict]) -> dict:
         "R_rm5": ratio(lambda s: s["rc"]),
         "other_share": ratio(lambda s: s["e2e"] - (s["af"] + s["rc"] + s["git"] + s["save"])),
         "press_covered_all": all(s["press_covered"] for s in samples),
+        # Attribution tier (t1395): per-sample share, THEN medianed, same rule
+        # as every other ratio here. Absent tier -> all zeros.
+        "tree_self_share": {
+            k: ratio(lambda s, k=k: s.get("tree_self", {}).get(k, 0.0))
+            for k in Probe.TREE},
+        "tree_self_ms": {
+            k: _median([s.get("tree_self", {}).get(k, 0.0) for s in samples]) * 1000
+            for k in Probe.TREE},
+        "tree_calls": {
+            k: _median([s.get("tree_calls", {}).get(k, 0) for s in samples])
+            for k in Probe.TREE},
     }
 
 
@@ -1150,7 +1365,7 @@ class BoardMovementBenchmarkTests(_TreeMixin):
     """
 
     def _bench(self, n_cards, pairs, warmup, *, branch_mode=True, tag="bench",
-               ablate=(), axes=None):
+               ablate=(), axes=None, attribution=False, negctrl=None):
         cards = _bench_cards(n_cards)
         tree, ipc = self.make_tree(cards, branch_mode=branch_mode)
         all_axes = _bench_axes(cards)
@@ -1162,6 +1377,8 @@ class BoardMovementBenchmarkTests(_TreeMixin):
             "pairs": pairs,
             "axes": chosen,
             "ablate": list(ablate),
+            "attribution": attribution,
+            "negctrl": negctrl,
         }, tag=tag)
         self.assertEqual(result["nesting_violations"], [])
         self.assertEqual(len(result["loaded"]), n_cards)
@@ -1176,6 +1393,61 @@ class BoardMovementBenchmarkTests(_TreeMixin):
             self.assertEqual(report[axis]["n"], SMOKE_PAIRS * 2)
             self.assertGreater(report[axis]["e2e_median"], 0.0)
             self.assertGreaterEqual(report[axis]["other_share"], 0.0)
+
+    def test_attribution_tier_localises_an_injected_cost(self):
+        """Ungated: the t1395 tier keeps working AND is proved to discriminate.
+
+        Two runs at smoke scale. The control run pins that `refocus` self time
+        is small; the negative-control run injects a known 50 ms inside
+        `_refocus_card` and requires it to surface in THAT span and not to be
+        absorbed by its neighbours. Without the second run a tier that timed
+        everything at zero would pass just as happily as a correct one.
+        """
+        clean = self._bench(SMOKE_CARDS, SMOKE_PAIRS, 1, tag="attr_smoke",
+                            axes=["lateral"], attribution=True)["lateral"]
+        # The tier is actually installed (a wall of zeros must not read as
+        # "attributed nothing").
+        self.assertGreater(clean["tree_calls"]["check_action"], 0)
+        self.assertGreater(clean["tree_calls"]["focus_query"], 0)
+        self.assertEqual(clean["tree_calls"]["refocus"], 1)
+        self.assertLess(clean["tree_self_ms"]["refocus"], NEGCTRL_SLEEP * 1000,
+                        "control run already exceeds the injected cost -- the "
+                        "negative control below could not discriminate")
+        # Self times are a partition of the timed region, never a double count.
+        self.assertLessEqual(
+            sum(clean["tree_self_share"][k] for k in Probe.TREE), 1.0 + 1e-9)
+
+        slow = self._bench(SMOKE_CARDS, SMOKE_PAIRS, 1, tag="attr_smoke_negctrl",
+                           axes=["lateral"], attribution=True,
+                           negctrl="slow_refocus")["lateral"]
+        delta = slow["tree_self_ms"]["refocus"] - clean["tree_self_ms"]["refocus"]
+        self.assertGreaterEqual(
+            delta, NEGCTRL_SLEEP * 1000 * 0.8,
+            f"injected {NEGCTRL_SLEEP*1000:.0f} ms did not land in `refocus` "
+            f"self time (delta {delta:.1f} ms)")
+        # ...and it landed THERE, not in a neighbour that merely encloses it.
+        for neighbour in ("check_action", "layout", "render", "dom_query"):
+            n_delta = (slow["tree_self_ms"][neighbour]
+                       - clean["tree_self_ms"][neighbour])
+            self.assertLess(
+                n_delta, NEGCTRL_SLEEP * 1000 * 0.5,
+                f"`{neighbour}` absorbed {n_delta:.1f} ms of a cost injected "
+                "into `refocus` -- self-time accounting is not localising")
+
+    def test_column_widgets_is_unreachable_from_the_move_path(self):
+        """Ungated: pins t1395's reachability correction as executable fact.
+
+        The task file named `_column_widgets()` (four full-DOM class queries,
+        ~25 ms at 200 cards) as a residual-move suspect. Its only callers reach
+        it from `_reanchor_to_viewport` / `_nav_lateral`, i.e. PLAIN-arrow
+        navigation. A shift-arrow move must therefore never touch it, and this
+        pins that so the correction cannot silently rot back.
+        """
+        report = self._bench(SMOKE_CARDS, SMOKE_PAIRS, 1, tag="attr_colwidgets",
+                             attribution=True)
+        for axis in ("lateral", "vertical"):
+            self.assertEqual(report[axis]["tree_calls"]["col_widgets"], 0,
+                             f"{axis}: _column_widgets() is back on the move path")
 
     @unittest.skipUnless(os.environ.get(BENCH_ENV) == "1",
                          f"set {BENCH_ENV}=1 to run the full pre-registered baseline")
@@ -1274,6 +1546,77 @@ class BoardMovementBenchmarkTests(_TreeMixin):
             self.assertGreater(full[axis]["e2e_median"], 0.0, f"{axis}: median latency")
         self.assertLess(full["_floor"], 0.5 * lat_e2e,
                         "harness floor must not dominate the measurement")
+
+    @unittest.skipUnless(os.environ.get(BENCH_ENV) == "1",
+                         f"set {BENCH_ENV}=1 to run the residual attribution")
+    def test_bench_attribution(self):
+        """t1395: attribute the residual `other` that survived t1243_5.
+
+        Deliberately a SEPARATE test from `test_bench_baseline`. The tier-2
+        spans it installs would perturb the pre-registered numbers t1243_14
+        compares against (2173.2 -> 1162.4 ms lateral), so the baseline runs
+        without them and this test carries the whole attribution.
+
+        Reports, never gates: no threshold is asserted, because t1395 is an
+        investigation whose target — if it becomes an optimisation at all — is
+        set from its own measurement.
+        """
+        P, W = BENCH_PAIRS, BENCH_WARMUP_PAIRS
+        # `full` measures BOTH axes: the lateral/vertical asymmetry is itself a
+        # question here (the lateral timed region stays open through the scroll
+        # hops, the vertical one closes at the refocus).
+        full = self._bench(BENCH_CARDS, P, W, tag="attr_full", attribution=True)
+        abl = {
+            "no_bindings": self._bench(BENCH_CARDS, P, W, tag="attr_no_bindings",
+                                       ablate=["bindings"], axes=["lateral"],
+                                       attribution=True),
+            "no_focus_query": self._bench(BENCH_CARDS, P, W, tag="attr_no_focus_query",
+                                          ablate=["focus_query"], axes=["lateral"],
+                                          attribution=True),
+        }
+
+        def removed(cfg):
+            base = full["lateral"]["e2e_median"]
+            return max(0.0, base - abl[cfg]["lateral"]["e2e_median"]) / base
+
+        lat = full["lateral"]
+        lat_e2e = lat["e2e_median"]
+        print(f"\n=== t1395 residual attribution ({BENCH_CARDS} cards / "
+              f"{len(COLUMN_ORDER)} columns, {W} warm-up pairs discarded, "
+              f"{P} recorded pairs/axis/config) ===")
+        print(f"harness floor (no-op keypress): {full['_floor']*1000:.1f} ms "
+              f"-- {full['_floor']/lat_e2e*100:.1f}% of lateral e2e")
+        for axis in ("lateral", "vertical"):
+            a = full[axis]
+            print(f"\n[{axis}] e2e median={a['e2e_median']*1000:.1f} ms  "
+                  f"p90={a['e2e_p90']*1000:.1f} ms  "
+                  f"other(leaf-residual)={a['other_share']*100:.1f}%")
+            print(f"{'  span':<20}{'self ms':>10}{'share':>9}{'calls':>8}")
+            for name in Probe.TREE:
+                calls = a["tree_calls"][name]
+                if not calls and not a["tree_self_ms"][name]:
+                    print(f"  {name:<18}{0.0:>10.1f}{0.0:>8.1f}%{0:>8.0f}"
+                          "   (never reached)")
+                    continue
+                print(f"  {name:<18}{a['tree_self_ms'][name]:>10.1f}"
+                      f"{a['tree_self_share'][name]*100:>8.1f}%{calls:>8.0f}")
+            attributed = sum(a["tree_self_share"][k] for k in Probe.TREE)
+            print(f"  {'== attributed':<18}{'':>10}{attributed*100:>8.1f}%")
+
+        print("\n[ablation] lateral removable cost (delta vs full, within-run):")
+        print(f"  full                    = {lat_e2e*1000:8.1f} ms")
+        for cfg in ("no_bindings", "no_focus_query"):
+            print(f"  -{cfg:<22}= {abl[cfg]['lateral']['e2e_median']*1000:8.1f} ms"
+                  f"   removable {removed(cfg)*100:5.1f}%")
+
+        # Soundness only -- no performance threshold is asserted (see docstring).
+        for axis in ("lateral", "vertical"):
+            self.assertEqual(full[axis]["n"], P * 2, f"{axis}: sample count")
+            self.assertGreater(full[axis]["e2e_median"], 0.0, f"{axis}: median latency")
+        # The tier must actually be installed, or every share above is a zero
+        # that would read as "attributed nothing" rather than "measured nothing".
+        self.assertGreater(lat["tree_calls"]["check_action"], 0,
+                           "attribution tier not installed on the lateral axis")
 
 
 if __name__ == "__main__":
