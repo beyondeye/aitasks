@@ -22,6 +22,11 @@ Design notes:
     mismatch the engine appends an ``error`` malformed-correction (last-wins).
   * **Appends go through ``aitask_gate.sh``** so the per-task lock + atomic
     write are reused; the engine never writes the task file directly.
+  * **Human-gate signatures are re-validated on every observation** (t1409),
+    including after a ``pass`` is already recorded: a witness signed against a
+    different code state is demoted in ``_read_state`` and re-pends. Otherwise a
+    recorded pass would freeze the code-binding and code changed after sign-off
+    could archive unreviewed.
   * **Stopping heuristic** keys off the *code* change surface (HEAD + staged +
     unstaged + untracked, excluding the task/plan data dirs), recorded as
     ``note=stuckhash:`` on the engine-authored ``running`` block — NOT the task
@@ -36,7 +41,6 @@ CLI:
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import subprocess
@@ -51,69 +55,17 @@ GATE_SH = os.path.join(SCRIPTS_DIR, "aitask_gate.sh")
 DEFAULT_REGISTRY = os.path.join("aitasks", "metadata", "gates.yaml")
 
 SATISFIED = gl.SATISFIED_STATUSES  # {"pass", "skip"}
-# Paths whose churn must NOT flip the code digest (the ledger lives here).
-_DIGEST_EXCLUDES = [":(exclude)aitasks/**", ":(exclude)aiplans/**",
-                    ":(exclude).aitask-data/**"]
 _STUCKHASH_RE = re.compile(r"stuckhash:(\S+)")
 
-
-# --- code change surface (stopping heuristic) -----------------------------
-
-def _git(args: list[str], cwd: str) -> str | None:
-    """Run a git command, returning stdout or ``None`` on any failure."""
-    try:
-        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
-                           text=True, timeout=30)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return r.stdout if r.returncode == 0 else None
-
-
-def code_digest(cwd: str | None = None) -> str | None:
-    """Digest of the repo's CODE state — HEAD + staged/unstaged + untracked.
-
-    Returns a short hex digest, or ``None`` when git is unavailable / the repo
-    has no commits (in which case the stopping heuristic stays inert and the
-    plain retry budget governs). ``git diff HEAD`` captures BOTH staged and
-    unstaged tracked changes; ``ls-files --others`` adds untracked content. The
-    task/plan data paths are excluded so ledger appends do not flip the digest.
-    """
-    cwd = cwd or os.getcwd()
-    head = _git(["rev-parse", "HEAD"], cwd)
-    if head is None:
-        return None
-    h = hashlib.sha256()
-    h.update(head.encode())
-    diff = _git(["diff", "HEAD", "--", ".", *_DIGEST_EXCLUDES], cwd) or ""
-    h.update(diff.encode())
-    others = _git(["ls-files", "--others", "--exclude-standard", "--", ".",
-                   *_DIGEST_EXCLUDES], cwd) or ""
-    for rel in sorted(others.splitlines()):
-        rel = rel.strip()
-        if not rel:
-            continue
-        h.update(rel.encode())
-        try:
-            with open(os.path.join(cwd, rel), "rb") as fh:
-                h.update(fh.read())
-        except OSError:
-            pass
-    return h.hexdigest()[:16]
-
-
-def _read_witness_digest(path: str) -> str | None:
-    """Read the ``code_digest=`` field from a human-gate signal witness file
-    (t635_15), or ``None`` if absent/unreadable. The witness is a small
-    ``key=value`` text file written by ``ait gate pass``."""
-    try:
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line.startswith("code_digest="):
-                    return line.split("=", 1)[1].strip() or None
-    except OSError:
-        return None
-    return None
+# --- code change surface + signal witness (re-exported from gate_ledger) ---
+#
+# These moved into ``gate_ledger`` (t1409) so the read-side archival guard can
+# run the SAME freshness classification the engine does, instead of a second
+# copy free to drift. They are re-exported under their original names because
+# both this module's ``code-digest`` CLI verb and its importers/tests use them.
+code_digest = gl.code_digest
+_read_witness_digest = gl.read_witness_digest
+_task_id_from_file = gl.task_id_from_file
 
 
 # --- pure decision logic (unit-testable, no subprocess) -------------------
@@ -376,6 +328,18 @@ class Engine:
         state = {}
         for r in runs:
             state[r.name] = r
+        # A recorded pass must NOT freeze the code-binding (t1409). A human gate
+        # whose signal witness was signed against a DIFFERENT code state is
+        # dropped from the derived view here, at the ONE place state is read, so
+        # every consumer — the all-satisfied short-circuit in `run()`,
+        # `compute_unlocked`, `blocked_reason`, `_handle_human` and `_force_one`
+        # — sees it as unsatisfied without any of them special-casing it. The
+        # re-pend itself is then done by `_handle_human`'s existing `stale`
+        # branch, so there is no second append site. `runs_by_gate` is left
+        # intact: retry budgets and the stopping heuristic are unaffected.
+        for g in gl.stale_signed_gates(active, self.registry, state,
+                                       self.task_id, self.digest):
+            del state[g]
         return active, state, _runs_by_gate(runs)
 
     def _run_machine_gate(self, gate: str, runs_by_gate: dict) -> None:
@@ -395,33 +359,10 @@ class Engine:
         self.reports.append(f"  {gate}: {status} (attempt {attempt})")
 
     def _signal_state(self, gate: str) -> tuple[str, str | None]:
-        """Classify a human-gate signal witness (t635_15). Returns ``(kind,
-        recorded_digest)`` where ``kind`` is one of:
-
-          * ``absent``    — no ``signal_target`` configured, or the file is missing.
-          * ``fresh``     — witness present and its ``code_digest`` matches the
-                            current code state (the human signed THIS code).
-          * ``stale``     — witness present but its ``code_digest`` differs from
-                            the current code (signed against a different state).
-          * ``unstamped`` — witness present with no ``code_digest`` (hand-created,
-                            or the current digest is unavailable → cannot validate);
-                            accepted as a pass for backward compatibility.
-        """
-        meta = self.registry.get(gate, {})
-        target = meta.get("signal_target", "")
-        if not target:
-            return ("absent", None)
-        target = target.replace("<task-id>", f"t{self.task_id}").replace("<gate>", gate)
-        if not os.path.exists(target):
-            return ("absent", None)
-        recorded = _read_witness_digest(target)
-        if recorded is None:
-            return ("unstamped", None)          # hand-created / no digest → accept
-        if self.digest is None:
-            return ("unstamped", recorded)      # git unavailable → cannot validate → accept
-        if recorded == self.digest:
-            return ("fresh", recorded)
-        return ("stale", recorded)
+        """Classify this gate's signal witness — see :func:`gate_ledger.witness_state`,
+        which owns the ``absent`` / ``fresh`` / ``stale`` / ``unstamped`` rule for
+        both this engine and the read-side archival guard."""
+        return gl.witness_state(gate, self.registry, self.task_id, self.digest)
 
     def _handle_human(self, gate: str, state: dict) -> bool:
         """Read-side only: pass if a CURRENT signal is present, else pending.
@@ -542,6 +483,10 @@ def run(task_file: str, task_id: str, *, gate=None, dry_run=False,
 
 
 def unlocked(task_file: str, registry_file=DEFAULT_REGISTRY) -> list[str]:
+    """The unlocked set, LEDGER-ONLY: unlike :meth:`Engine._read_state` this does
+    not re-validate code-bound signatures (t1409), so a gate whose signature has
+    gone stale is still reported satisfied here. This verb is introspection
+    (``ait gates unlocked``); the enforcing path is ``Engine.run``."""
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
     active = gl.read_active_gates_from_text(text)  # enforced set (t635_33)
@@ -552,12 +497,6 @@ def unlocked(task_file: str, registry_file=DEFAULT_REGISTRY) -> list[str]:
 
 
 # --- CLI ------------------------------------------------------------------
-
-def _task_id_from_file(path: str) -> str:
-    """Best-effort task id from a task filename (fallback when --task-id absent)."""
-    m = re.match(r"^t(\d+(?:_\d+)?)_", os.path.basename(path))
-    return m.group(1) if m else os.path.basename(path)
-
 
 def _pop_opt(argv: list[str], name: str, default=None):
     if name in argv:

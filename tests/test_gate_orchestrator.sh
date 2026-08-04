@@ -6,7 +6,9 @@
 # absent-vs-[] distinction), exit-code interpretation (incl. machine exit-4 ->
 # error), skip-as-satisfied, retry budget, the stopping heuristic over the code
 # change surface (staged/unstaged/untracked), parallel dispatch, dry-run,
-# idempotent no-op, human read-side detection, status/exit mismatch, and --gate.
+# idempotent no-op, human read-side detection (incl. the code-bound signature's
+# re-validation BOTH before and after a pass is recorded — t1409), status/exit
+# mismatch, and --gate.
 #
 # Heuristic-inert tests run in a NON-git dir (code_digest -> None -> never
 # stuck, so the retry budget governs); the stopping-heuristic test runs in a git
@@ -441,6 +443,82 @@ EOF
     orch "$d" 92 >/dev/null
     assert_contains "already passed -> stays pass" "review: pass" "$(status_of "$d" 92)"
     assert_eq "no spurious pending appended" "0" "$(count_status "$d" 92 pending)"
+    # The discriminating negative for t1409's re-validation: only a STALE
+    # witness may demote a recorded pass. An ABSENT one (this case — the
+    # attended lane records `review_approved` from the interactive approval and
+    # never writes a witness) must leave archival open.
+    assert_eq "no witness -> archival stays open" "ALL_PASS" \
+        "$(TASK_DIR="$d/aitasks" "$GATE" archive-ready 92)"
+}
+
+# ============================================================
+# Test 9d: a signature stays code-bound AFTER the pass is recorded — t1409
+#   Regression for the t1109 item-5 failure: a recorded `pass` used to freeze
+#   the code-binding. `run()` short-circuited on all-satisfied and
+#   compute_unlocked() skipped satisfied gates, so the witness was never
+#   re-read; `archive-ready` was ledger-only for the same reason. Code changed
+#   after sign-off therefore archived unreviewed. BOTH surfaces are asserted:
+#   `gates run` must re-pend, and `archive-ready` must report BLOCKED.
+# ============================================================
+test_human_gate_post_pass_stale() {
+    echo "=== Test 9d: recorded pass does not freeze the code-binding (t1409) ==="
+    local d; d="$(new_fixture)"
+    ( cd "$d" && git init -q && git config user.email t@t && git config user.name t \
+        && echo seed > code.txt && echo 'sig/' > .gitignore \
+        && git add -A && git commit -qm init )
+    mkdir -p "$d/sig"
+    cat > "$d/aitasks/metadata/gates.yaml" <<EOF
+gates:
+  review:
+    type: human
+    signal_target: "$d/sig/<task-id>-review.signed"
+EOF
+    write_task "$d" 93 "review"
+    local sig="$d/sig/t93-review.signed"
+    local cur; cur="$( cd "$d" && "$PY" "$ORCH" code-digest )"
+
+    # 1. Sign against the CURRENT code -> the gate passes and archival is open.
+    #    (Seeding this state matters: asserting BLOCKED on an empty ledger would
+    #    pass vacuously, without ever exercising the satisfied-gate path.)
+    printf 'signer=tester\ncode_digest=%s\n' "$cur" > "$sig"
+    orch "$d" 93 >/dev/null
+    assert_contains "signed witness -> pass" "review: pass" "$(status_of "$d" 93)"
+    assert_eq "signed witness -> archival open" "ALL_PASS" \
+        "$( cd "$d" && TASK_DIR="$d/aitasks" "$GATE" archive-ready 93 )"
+
+    # 2. Change a CODE file after the pass was recorded -> the digest moves and
+    #    the witness is now stamped-but-wrong (not unstamped).
+    ( cd "$d" && echo after-signoff >> code.txt )
+
+    # 3. The READ-SIDE guard, asserted BEFORE any `gates run`. This ordering is
+    #    load-bearing: the ledger still reads `pass` here, so the ONLY thing that
+    #    can produce BLOCKED is archive_status()'s witness overlay. Asserting it
+    #    after the re-pend would not discriminate — a re-pended ledger blocks
+    #    archival on its own, so the assertion would survive the overlay being
+    #    removed. This is the surface aitask_archive.sh's gate_guard() enforces.
+    assert_contains "pre-run: the ledger still reads pass" "review: pass" \
+        "$(status_of "$d" 93)"
+    assert_eq "stale witness alone blocks archival (ledger untouched)" "BLOCKED:review" \
+        "$( cd "$d" && TASK_DIR="$d/aitasks" "$GATE" archive-ready 93 )"
+
+    # 4. The WRITE-SIDE engine: a plain re-run must re-pend, NOT report
+    #    "All gates satisfied".
+    local out; out="$(orch "$d" 93)"
+    assert_contains "post-pass stale witness -> re-pends" "review: pending" "$out"
+    assert_contains "post-pass stale witness -> stale-signature note" \
+        "stale signature" "$out"
+    assert_eq "post-pass stale witness -> ledger now pending" "1" \
+        "$(count_status "$d" 93 pending)"
+    assert_eq "re-pended ledger keeps archival blocked" "BLOCKED:review" \
+        "$( cd "$d" && TASK_DIR="$d/aitasks" "$GATE" archive-ready 93 )"
+
+    # 5. Re-signing the NEW code state re-opens both surfaces (the loop closes).
+    cur="$( cd "$d" && "$PY" "$ORCH" code-digest )"
+    printf 'signer=tester\ncode_digest=%s\n' "$cur" > "$sig"
+    orch "$d" 93 >/dev/null
+    assert_contains "re-signed witness -> pass again" "review: pass" "$(status_of "$d" 93)"
+    assert_eq "re-signed witness -> archival open again" "ALL_PASS" \
+        "$( cd "$d" && TASK_DIR="$d/aitasks" "$GATE" archive-ready 93 )"
 }
 
 # ============================================================
@@ -510,6 +588,7 @@ test_idempotent
 test_human_gate
 test_human_gate_freshness
 test_human_gate_no_repend
+test_human_gate_post_pass_stale
 test_gate_force
 test_unlocked_cli
 

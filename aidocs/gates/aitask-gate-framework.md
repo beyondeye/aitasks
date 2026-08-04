@@ -205,7 +205,7 @@ gates:
 | `max_retries` | yes | Budget for re-attempts after a failure. `0` means "single shot". |
 | `unlocks` | no | Explicit list of gate names this gate unlocks on pass. If omitted, default is *the next gate in the task's own `gates` list*. Enables parallel fan-out. |
 | `signal` | human only | How the human signals pass: `file-touch`, `label`, or `command`. |
-| `signal_target` | human only | Path / label name / command template. `<task-id>` is substituted. |
+| `signal_target` | human only | Path / label name / command template. `<task-id>` is substituted. A `file-touch` witness is **code-bound** and re-validated on every observation, including after the gate's `pass` is recorded — see the human-review walkthrough. |
 | `description` | yes | Human-readable purpose, shown in `ait gates list`. |
 | `timeout_seconds` | no | Max wall-clock for a single machine-gate run. |
 
@@ -304,10 +304,14 @@ Read task file + gate registry
   │   → Invoke verifier skill via Task tool
   │   → Verifier appends final pass/fail block on return
   │
+  ├─ Demote any PASSED human gate whose code-bound witness is stale
+  │   → (so the "already satisfied" checks below cannot freeze the binding)
+  │
   ├─ For each unlocked human gate:
   │   → Append `status=pending` block if one does not already exist for this run
-  │   → Check signal target: exists/set?
+  │   → Check signal target: exists/set, and signed against the CURRENT code?
   │       ├─ Yes → append `status=pass` block (the *observation* of the signal is the gate's action)
+  │       ├─ Stale → append `status=pending` with a `stale signature` note
   │       └─ No  → leave pending block in place
   │
   └─ Re-enter from top if any machine gate just completed
@@ -319,7 +323,7 @@ Read task file + gate registry
 The orchestrator guarantees:
 
 1. **Idempotent on no-op.** Running `aitask-run-gates t42` twice in a row with no state change produces the same reports and appends nothing.
-2. **Skip-already-passed.** Gates currently in `pass` state are not re-run unless explicitly forced with `--gate <name>`.
+2. **Skip-already-passed.** Gates currently in `pass` state are not re-run unless explicitly forced with `--gate <name>`. **One carve-out (t1409):** a human gate whose code-bound `file-touch` witness was signed against a *different* code state is demoted out of the derived state before this rule is applied, so it is re-observed and re-pends. Nothing else re-opens a pass — an absent or unstamped witness, and an unverifiable digest, all leave the pass intact.
 3. **Retry within budget.** Failed gates are re-run up to `max_retries + 1` total attempts; the (attempt) counter increments per append.
 4. **Stop at pending-human.** The orchestrator never self-signals a human gate. If a pending-human block has no signal, it stays pending and execution stops for that branch.
 5. **No partial frontmatter writes.** The orchestrator never touches `gates:` in frontmatter. It only appends to `## Gate Runs`.
@@ -366,9 +370,11 @@ Shipping a template is essential: the point of the contract is that a plugin or 
 
 For gates with `type: human`, the verifier skill is a thin wrapper:
 
-1. Check whether the signal exists (per `signal:` and `signal_target:` in the registry).
-2. If yes → append `status=pass` block, exit 0.
-3. If no → append `status=pending` block (if one does not already exist for this run), exit with a special code `4 = pending`.
+1. Check whether the signal exists (per `signal:` and `signal_target:` in the registry) **and still binds the current code** (its `code_digest`).
+2. If a current signal exists → append `status=pass` block, exit 0.
+3. If none exists, or it is stale → append `status=pending` block (if one does not already exist for this run), exit with a special code `4 = pending`.
+
+Step 1 is not skipped for a gate that already passed: a stale signature demotes a recorded `pass` back to `pending` (t1409 — see the human-review walkthrough).
 
 The rule is repeated verbatim in every human-gate verifier and in the registry description:
 
@@ -474,6 +480,8 @@ Declared gates: `[lint, tests_pass, docs_updated, review]`. Registry says `lint`
 23. Orchestrator re-parses. Current state: `lint=pass, tests_pass=pass, docs_updated=pass, review=pending (pending block is the current one)`.
 24. Observes the signal file. **Freshness check:** its `code_digest` still matches the current code, so the signature is valid — appends `> **✅ gate:review** run=... status=pass type=human` with `note=signed_digest:<hash>`. (Had the code changed since signing, the digest would mismatch and the orchestrator would **re-pend** with a `stale signature` note instead of passing — the reviewer must re-sign the new state. The witness under gitignored `.aitask-gates/` is local; the durable, cross-PC record is the ledger `pass`, union-merge-safe.)
 25. All gates pass. Reports: "All gates passed. Suggest `status: Done`."
+
+**The freshness check runs on EVERY observation — including after the pass is recorded (t1409).** A recorded `pass` does not freeze the code-binding. Change a code file at step 25½ and the next `ait gates run t42` re-pends `review` with the same `stale signature` note, and `aitask_gate.sh archive-ready t42` reports `BLOCKED:review` so the archival guard refuses. This matters most on the documented headless completion sequence — *stop at pending → human signs → re-run to archive* — where any code change during that resumed run (e.g. fixing a machine gate surfaced in the same pass) would otherwise archive code the reviewer never approved. Only a **stale** witness demotes a pass: an **absent** one must stay accepted (an attended session records the approval directly and writes no witness), and an **unstamped** one, or an unverifiable digest (no git), is accepted rather than guessed stale. `ait gates run` records the re-pend; `archive-ready` only reports it. See [[gate-guarded-archival]] for the archival half.
 
 ### What the Gate Runs section looks like at end-of-task
 

@@ -502,12 +502,18 @@ cmd_deps_unblock() {
 # Prints one of: ALL_PASS (every declared gate passed), BLOCKED:<csv> (declared
 # gates not all pass), or NO_GATES (no declared gates → archive as today). If
 # python is unavailable, degrades to NO_GATES so archival proceeds as today.
+#
+# The registry is passed so the decision also RE-VALIDATES code-bound human-gate
+# signatures (t1409): a gate whose ledger says `pass` still blocks when its
+# `ait gate pass` witness was signed against a different code state. This verb
+# only REPORTS that — recording the resulting `pending` is `ait gates run`'s job
+# (the single writer of observed human-gate blocks).
 cmd_archive_ready() {
     local task_id="${1:-}"
     [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh archive-ready <task-id>"
     local file
     file="$(resolve_task_file "$task_id")"
-    delegate_python archive-ready "$file" || echo "NO_GATES"
+    delegate_python archive-ready "$file" "$REGISTRY" || echo "NO_GATES"
 }
 
 # procedure-gates: list the task's declared PROCEDURE-BACKED gates (kind:

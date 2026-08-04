@@ -1,11 +1,11 @@
 ---
 title: Gate-Guarded Archival
 category: design
-tags: [aitasks, gates, archival, task-workflow, re-entry, deferred-archival, ledger]
+tags: [aitasks, gates, archival, task-workflow, re-entry, deferred-archival, ledger, code-binding]
 sources: [aitask-gate-framework.md, integration-roadmap.md, dependency-unblock-semantics.md]
 confidence: high
 created: 2026-06-14
-updated: 2026-06-14
+updated: 2026-08-04
 ---
 
 # Gate-Guarded Archival
@@ -28,24 +28,27 @@ archive).
 ## Criterion (D5 + D6)
 
 A task that declares gates (the `gates:` frontmatter field) may archive **iff
-every declared gate has derived status `pass`**. State is derived from the
-`## Gate Runs` ledger only (decision **D6** — no new coarse `status` value, no
-denormalized `gates_summary` field). A declared gate with **no recorded run**
-counts as not-pass (pending).
+every declared gate has derived status `pass`** — and, for a human gate signed
+asynchronously, iff that signature still binds the *current* code (see
+"signature re-validation" below). Status is derived from the `## Gate Runs`
+ledger (decision **D6** — no new coarse `status` value, no denormalized
+`gates_summary` field). A declared gate with **no recorded run** counts as
+not-pass (pending).
 
 This differs from the dependency-unblock criterion: unblocking dependents
 filters to the registry's `blocks_dependents` gates (integration gates only);
 **archival requires *all* declared gates**, including post-integration sign-off
-gates (async human review, `docs_updated`, manual verification). So no registry
-lookup is needed — just the declared list and the ledger.
+gates (async human review, `docs_updated`, manual verification). So the declared
+list and the ledger settle *which* gates and *whether they passed*; the registry
+is consulted only to re-validate an async human gate's signature.
 
-`archive_status(task_file)` in `lib/gate_ledger.py` returns one of:
+`archive_status(task_file, registry_file)` in `lib/gate_ledger.py` returns one of:
 
 | Result | Meaning |
 |--------|---------|
 | `NO_GATES` | No declared gates → archive exactly as today (the dormant case). |
 | `ALL_PASS` | Every declared gate is `pass` → archival may proceed. |
-| `BLOCKED:<csv>` | One or more declared gates are not `pass`. |
+| `BLOCKED:<csv>` | One or more declared gates are not `pass`, **or** carry a code-stale signature (below). |
 
 Surfaced as `aitask_gate.sh archive-ready <task-id>` (python-delegated,
 degrades to `NO_GATES` if Python is absent), and enforced in
@@ -53,6 +56,48 @@ degrades to `NO_GATES` if Python is absent), and enforced in
 `verification_gate_and_carryover()`): on `BLOCKED` it prints `GATE_PENDING:<csv>`
 and exits 2, refusing to archive — defense-in-depth for **any** caller, not just
 task-workflow.
+
+### The ledger is not the last word: signature re-validation (t1409)
+
+A gate whose *ledger* reads `pass` can still block. Human gates signed via
+`ait gate pass` carry a **code-bound witness** (`code_digest=` — see the async
+human-gate section of [[aitask-gate-framework]]), and a signature against a
+different code state is not an approval of the current code. So `archive_status`
+takes the registry, and adds any **ledger-satisfied human gate whose witness is
+code-stale** to the blocked list, via the shared
+`gate_ledger.stale_signed_gates()` that the orchestrator's `_read_state` also
+uses — one classifier, two enforcement points.
+
+Without this the code-binding held only until the first `pass`: the orchestrator
+short-circuits on all-satisfied and `archive_status` was ledger-only, so a code
+change made *after* sign-off (e.g. while resuming a headless task to fix a
+machine-gate failure) archived unreviewed.
+
+Three properties are load-bearing:
+
+- **Only `stale` blocks.** An **absent** witness must stay accepted — an attended
+  session records `review_approved` directly from the interactive review and
+  never writes one — and an **unstamped** witness stays accepted for backward
+  compatibility. Unverifiable freshness (no git / no commits) resolves to
+  *accept*, never to a guessed `stale`.
+- **This guard reports; it does not write.** `archive-ready` is a read-only
+  decision verb. Recording the resulting `pending` belongs to `ait gates run`,
+  the single writer of observed human-gate blocks. Between the code change and
+  the next `gates run`, `ait gate status` reads `pass` while `archive-ready`
+  reads `BLOCKED` — that window is the contract.
+- **The digest is computed lazily.** `stale_signed_gates()` applies a no-git
+  pre-filter (satisfied + `type: human` + a stamped witness on disk) and only
+  shells out to git if something survives it, so the common no-witness case
+  costs archival nothing.
+
+**Deliberately ledger-only surfaces.** `archive_status_from_text()` (the
+content-level twin used by `stats_data.py`'s active-task scan and
+`trail_gather.py`), `read_task_gate_state()` (the board / monitor badge),
+`deps-unblock` and `gates unlocked` all skip the re-validation: they run per-task
+across many tasks per refresh, where a git subprocess each is not affordable. A
+task whose only unmet gate is a stale signature therefore reads archivable on
+those surfaces and blocked at the enforcing one. Closing that gap with a
+once-per-refresh digest is tracked separately.
 
 ## Deferred-archival state contract
 

@@ -24,8 +24,11 @@ CLI:
     gate_ledger.py list         <task-file> [registry.yaml]
     gate_ledger.py deps-unblock <task-file> [registry.yaml]
                                  -> SATISFIED | BLOCKED:<csv> | NO_GATES (t635_3)
-    gate_ledger.py archive-ready <task-file>
-                                 -> ALL_PASS | BLOCKED:<csv> | NO_GATES (t635_4)
+    gate_ledger.py archive-ready <task-file> [registry.yaml]
+                                 -> ALL_PASS | BLOCKED:<csv> | NO_GATES (t635_4).
+                                    With a registry, a ledger-satisfied human gate
+                                    whose signal witness is code-STALE also blocks
+                                    (t1409).
     gate_ledger.py resume-point  <task-file>
                                  -> PLAN | IMPLEMENT | POSTIMPL (t635_5)
     gate_ledger.py active        <task-file> <gate>
@@ -44,8 +47,10 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass, field
+import hashlib
 import os
 import re
+import subprocess
 import sys
 
 SECTION_HEADER = "## Gate Runs"
@@ -1225,14 +1230,21 @@ def required_unblock_gates(declared: list[str], also: list[str],
     return req
 
 
+def _gate_satisfied(state: dict[str, GateRun], gate: str) -> bool:
+    """Shared satisfied-predicate over a derived ``gate -> GateRun`` map: is the
+    gate's current run terminal-satisfied (``pass``/``skip``)? An absent run is
+    not satisfied."""
+    run = state.get(gate)
+    return (run.status if run else None) in SATISFIED_STATUSES
+
+
 def _dependents_status_from_state(declared: list[str], also: list[str],
                                   registry: dict[str, dict],
                                   state: dict[str, GateRun]) -> tuple[str, list[str]]:
     required = required_unblock_gates(declared, also, registry)
     if not required:
         return ("NO_GATES", [])
-    pending = [g for g in required
-               if (state.get(g).status if state.get(g) else None) not in SATISFIED_STATUSES]
+    pending = [g for g in required if not _gate_satisfied(state, g)]
     return ("BLOCKED", pending) if pending else ("SATISFIED", [])
 
 
@@ -1267,14 +1279,180 @@ def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, l
                                          derive_gate_runs(text))
 
 
+# --- Code-state digest + human-gate signal witness (t635_15, t1409) -------
+#
+# These live here, not in ``gate_orchestrator.py``, because BOTH the write-side
+# engine (``ait gates run``) and the read-side archival guard
+# (``aitask_gate.sh archive-ready``) must classify a signature's freshness, and
+# two agreeing copies would be free to drift. ``gate_orchestrator`` re-exports
+# the public names so its own CLI / importers are unaffected.
+
+# Paths whose churn must NOT flip the code digest (the ledger lives here).
+_DIGEST_EXCLUDES = [":(exclude)aitasks/**", ":(exclude)aiplans/**",
+                    ":(exclude).aitask-data/**"]
+
+_TASK_ID_RE = re.compile(r"^t(\d+(?:_\d+)?)_")
+
+# Sentinel distinguishing "no digest supplied — compute one lazily" from an
+# explicitly supplied ``None`` (which means "unverifiable", a real answer).
+_COMPUTE_DIGEST = object()
+
+
+def _git(args: list[str], cwd: str) -> str | None:
+    """Run a git command, returning stdout or ``None`` on any failure."""
+    try:
+        r = subprocess.run(["git", *args], cwd=cwd, capture_output=True,
+                           text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def code_digest(cwd: str | None = None) -> str | None:
+    """Digest of the repo's CODE state — HEAD + staged/unstaged + untracked.
+
+    Returns a short hex digest, or ``None`` when git is unavailable / the repo
+    has no commits (in which case the stopping heuristic stays inert and the
+    plain retry budget governs). ``git diff HEAD`` captures BOTH staged and
+    unstaged tracked changes; ``ls-files --others`` adds untracked content. The
+    task/plan data paths are excluded so ledger appends do not flip the digest.
+    """
+    cwd = cwd or os.getcwd()
+    head = _git(["rev-parse", "HEAD"], cwd)
+    if head is None:
+        return None
+    h = hashlib.sha256()
+    h.update(head.encode())
+    diff = _git(["diff", "HEAD", "--", ".", *_DIGEST_EXCLUDES], cwd) or ""
+    h.update(diff.encode())
+    others = _git(["ls-files", "--others", "--exclude-standard", "--", ".",
+                   *_DIGEST_EXCLUDES], cwd) or ""
+    for rel in sorted(others.splitlines()):
+        rel = rel.strip()
+        if not rel:
+            continue
+        h.update(rel.encode())
+        try:
+            with open(os.path.join(cwd, rel), "rb") as fh:
+                h.update(fh.read())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
+
+
+def task_id_from_file(path: str) -> str:
+    """Best-effort task id from a task filename (fallback when none is given)."""
+    m = _TASK_ID_RE.match(os.path.basename(path))
+    return m.group(1) if m else os.path.basename(path)
+
+
+def read_witness_digest(path: str) -> str | None:
+    """Read the ``code_digest=`` field from a human-gate signal witness file
+    (t635_15), or ``None`` if absent/unreadable. The witness is a small
+    ``key=value`` text file written by ``ait gate pass``."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("code_digest="):
+                    return line.split("=", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
+
+
+def resolve_signal_target(template: str, task_id: str, gate: str) -> str:
+    """Expand a registry ``signal_target`` template (``<task-id>`` → ``t<id>``,
+    ``<gate>`` → the gate name). Empty template → empty string."""
+    if not template:
+        return ""
+    return template.replace("<task-id>", f"t{task_id}").replace("<gate>", gate)
+
+
+def witness_state(gate: str, registry: dict[str, dict], task_id: str,
+                  current_digest: str | None) -> tuple[str, str | None]:
+    """Classify a human-gate signal witness (t635_15). Returns ``(kind,
+    recorded_digest)`` where ``kind`` is one of:
+
+      * ``absent``    — no ``signal_target`` configured, or the file is missing.
+      * ``fresh``     — witness present and its ``code_digest`` matches the
+                        current code state (the human signed THIS code).
+      * ``stale``     — witness present but its ``code_digest`` differs from
+                        the current code (signed against a different state).
+      * ``unstamped`` — witness present with no ``code_digest`` (hand-created,
+                        or the current digest is unavailable → cannot validate);
+                        accepted as a pass for backward compatibility.
+
+    ``current_digest is None`` means the freshness is **unverifiable**, which is
+    a decision this function makes explicitly rather than leaving to callers: it
+    resolves to ``unstamped`` (accept), the same way a witness with no recorded
+    digest does. Nothing here is ever classified ``stale`` on a guess.
+    """
+    meta = registry.get(gate, {})
+    target = resolve_signal_target(meta.get("signal_target", ""), task_id, gate)
+    if not target or not os.path.exists(target):
+        return ("absent", None)
+    recorded = read_witness_digest(target)
+    if recorded is None:
+        return ("unstamped", None)          # hand-created / no digest → accept
+    if current_digest is None:
+        return ("unstamped", recorded)      # cannot validate → accept
+    if recorded == current_digest:
+        return ("fresh", recorded)
+    return ("stale", recorded)
+
+
+def _has_stamped_witness(gate: str, registry: dict[str, dict], task_id: str) -> bool:
+    """Cheap (no-git) pre-filter: does this gate have a witness file carrying a
+    ``code_digest``? Only such a gate can ever be classified ``stale``."""
+    target = resolve_signal_target(
+        registry.get(gate, {}).get("signal_target", ""), task_id, gate)
+    if not target or not os.path.exists(target):
+        return False
+    return read_witness_digest(target) is not None
+
+
+def stale_signed_gates(active: list[str], registry: dict[str, dict],
+                       state: dict[str, GateRun], task_id: str,
+                       current_digest=_COMPUTE_DIGEST) -> list[str]:
+    """Ledger-SATISFIED human gates whose signature is code-stale (t1409).
+
+    The code-binding contract ("a signature against a different code state
+    re-pends") used to hold only while a gate's ledger status was non-terminal:
+    once a ``pass`` was recorded, both the orchestrator's satisfied-gate
+    short-circuit and the archival guard stopped consulting the witness, so code
+    changed after sign-off could archive unreviewed. This is the shared
+    re-validation both paths run instead.
+
+    Only ``stale`` counts. ``absent`` must stay accepted — an **attended**
+    session records ``review_approved`` directly from the interactive approval
+    and never writes a witness — and ``unstamped`` stays accepted for backward
+    compatibility. Returns the offending gates in ``active`` order.
+
+    ``current_digest`` defaults to computing :func:`code_digest` **lazily**, and
+    only when the no-git pre-filter finds at least one stamped witness: this
+    function runs on every archival readiness check, and the overwhelmingly
+    common case (no witness files at all) must cost no subprocesses.
+    """
+    candidates = [g for g in active
+                  if _gate_satisfied(state, g)
+                  and registry.get(g, {}).get("type") == "human"
+                  and _has_stamped_witness(g, registry, task_id)]
+    if not candidates:
+        return []
+    if current_digest is _COMPUTE_DIGEST:
+        current_digest = code_digest()
+    return [g for g in candidates
+            if witness_state(g, registry, task_id, current_digest)[0] == "stale"]
+
+
 # --- Gate-guarded archival decision (t635_4) ------------------------------
 
 def _archive_status_from_state(declared: list[str],
                                state: dict[str, GateRun]) -> tuple[str, list[str]]:
     if not declared:
         return ("NO_GATES", [])
-    nonpass = [g for g in declared
-               if (state.get(g).status if state.get(g) else None) not in SATISFIED_STATUSES]
+    nonpass = [g for g in declared if not _gate_satisfied(state, g)]
     return ("BLOCKED", nonpass) if nonpass else ("ALL_PASS", [])
 
 
@@ -1294,32 +1472,57 @@ def unmet_procedure_gates(task_file: str, registry_file: str | None) -> list[str
     for g in active:
         if registry.get(g, {}).get("kind") != "procedure":
             continue
-        st = state.get(g).status if state.get(g) else None
-        if st not in SATISFIED_STATUSES:
+        if not _gate_satisfied(state, g):
             out.append(g)
     return out
 
 
-def archive_status(task_file: str) -> tuple[str, list[str]]:
+def archive_status(task_file: str,
+                   registry_file: str | None = None) -> tuple[str, list[str]]:
     """Decide whether ``task_file`` may archive (D5: every declared gate pass).
 
     Unlike :func:`dependents_status` (which filters to ``blocks_dependents``
-    gates), archival requires **every** declared gate to pass — so no registry
-    lookup is needed. A declared gate with no recorded run counts as not-pass.
+    gates), archival requires **every** declared gate to pass. A declared gate
+    with no recorded run counts as not-pass.
 
     Returns one of:
       - ``("NO_GATES", [])``   — no declared gates → archive as today (the
         dormant case until t635_14 populates ``gates:``).
       - ``("ALL_PASS", [])``   — every declared gate has derived status ``pass``.
       - ``("BLOCKED", nonpass)`` — one or more declared gates are not ``pass``.
+
+    **Witness re-validation (t1409).** When ``registry_file`` is given, a gate
+    whose *ledger* says ``pass`` can still block: a human gate signed via
+    ``ait gate pass`` carries a code-bound witness, and a signature against a
+    different code state is not an approval of the current code. Such gates are
+    added to the blocked list (in declared order) via :func:`stale_signed_gates`.
+    This guard **reports, it does not write** — it is a read-only decision verb,
+    and ``ait gates run`` (the single writer of observed human-gate blocks) is
+    what records the resulting ``pending``. So between a code change and the next
+    ``gates run``, ``ait gate status`` reads ``pass`` while this reads
+    ``BLOCKED``; that window is the contract, not a bug.
+
+    ``registry_file`` defaults to ``None`` (ledger-only), so pre-t1409 callers
+    keep their exact behavior; the shipped path passes it from
+    ``aitask_gate.sh``.
     """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
-    return archive_status_from_text(text)
+    decision, nonpass = archive_status_from_text(text)
+    if decision == "NO_GATES" or not registry_file:
+        return decision, nonpass
+    active = read_active_gates_from_text(text)
+    stale = stale_signed_gates(active, read_registry(registry_file),
+                               derive_gate_runs(text),
+                               task_id_from_file(task_file))
+    if not stale:
+        return decision, nonpass
+    return ("BLOCKED", [g for g in active if g in nonpass or g in stale])
 
 
 def archive_status_from_text(text: str) -> tuple[str, list[str]]:
-    """Content-level twin of :func:`archive_status` — no filesystem open.
+    """Content-level, LEDGER-ONLY twin of :func:`archive_status` — no filesystem
+    open, no registry, and therefore **no witness re-validation**.
 
     Lets callers that already hold the task body (e.g. the stats active-task
     scan, which iterates ``(filename, content)`` pairs) classify archival
@@ -1327,6 +1530,13 @@ def archive_status_from_text(text: str) -> tuple[str, list[str]]:
     under a rebased project root. Composes the shared primitives — no parsing
     fork (D6). Reads the ENFORCED active set (t635_33): a profile-filtered
     gate can never block archival.
+
+    The ledger-only scope is deliberate (t1409). Its consumers —
+    ``stats_data.py``'s active-task scan and ``trail_gather.py`` — are analytics
+    passes over many tasks at once, and the freshness check needs a git
+    subprocess; the ENFORCING decision is :func:`archive_status` with a registry,
+    which every archival path goes through. A task whose only unmet gate is a
+    stale signature therefore reads as archivable *here* and blocked *there*.
     """
     return _archive_status_from_state(
         read_active_gates_from_text(text), derive_gate_runs(text))
@@ -1388,7 +1598,15 @@ def recorded_pass(task_file: str, gate: str) -> bool:
 
 
 def read_task_gate_state(task_file: str, registry_file: str | None = None) -> TaskGateState:
-    """Read a task file once and derive all gate state needed by TUIs."""
+    """Read a task file once and derive all gate state needed by TUIs.
+
+    ``archive_decision`` here is the LEDGER-ONLY one (``_archive_status_from_state``),
+    not :func:`archive_status`'s witness-re-validated verdict (t1409): TUIs call
+    this per task on every refresh, and the freshness check costs a git
+    subprocess. A board badge can therefore read "ready to archive" for a task
+    whose signature has gone stale; the enforcing decision at archival time
+    (``aitask_gate.sh archive-ready``) still blocks it.
+    """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
     runs = parse_gate_run_blocks(text)
@@ -1496,9 +1714,12 @@ def main(argv: list[str]) -> int:
 
     if cmd == "archive-ready":
         if len(argv) < 2:
-            sys.stderr.write("Usage: gate_ledger.py archive-ready <file>\n")
+            sys.stderr.write("Usage: gate_ledger.py archive-ready <file> [registry]\n")
             return 2
-        decision, nonpass = archive_status(argv[1])
+        # The registry is what enables the t1409 stale-signature re-validation;
+        # without it the decision stays ledger-only (pre-t1409 behavior).
+        decision, nonpass = archive_status(argv[1],
+                                           argv[2] if len(argv) > 2 else None)
         if decision == "BLOCKED":
             sys.stdout.write("BLOCKED:" + ",".join(nonpass) + "\n")
         else:
