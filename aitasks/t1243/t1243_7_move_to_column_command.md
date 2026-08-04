@@ -72,21 +72,43 @@ them".)
 
 `m` is **free** in `KanbanApp.BINDINGS` (verified).
 
-- **Focus on a card** → operate on the marked set from t1243_6 if non-empty, else
-  the focused card alone.
-- **Focus on a column** (empty/collapsed placeholder) → first open a
-  `SelectionList` **task-select subdialog** scoped to that column, seeded with
-  the current marks, then chain to the destination picker.
+**Review whenever marks exist** (confirmed with the user 2026-08-04, amending
+this section's original rule). t1243_6 shipped marks that deliberately survive a
+filter pass, and its "Notes for sibling tasks" assign the consequence here: a
+marked card the filter has hidden is an invisible participant, so `m` must never
+act on `effective()` without showing it. The chain is therefore:
+
+| marks | focus | chain |
+|---|---|---|
+| none | card | destination picker only — one target, focused, visible by construction |
+| any | card | **task-select → destination picker** |
+| none | column placeholder | **task-select (scoped to that column) → destination picker** |
+| any | column placeholder | **task-select (the marked set) → destination picker** |
+
 - Then `push_screen(ColumnSelectScreen(...), callback)` for the destination, with
   the synthetic `unordered` entry injected.
 - Then `manager.move_tasks_to_column(tasks, col)` from t1243_3 — **K contiguous
   indices, K writes, input order preserved**.
 
-### 3. Child rows are excluded
+The destination list applies three filters, each matching an existing board
+contract: `unordered` only while it holds tasks, **collapsed columns excluded**
+(parity with `_move_task_lateral`, which steps over them and never lands in one),
+and the targets' own column excluded when **every** target already sits in it
+(picking it would be a "send to bottom" reorder, not a move).
 
-The subdialog **omits** child rows, and `move_tasks_to_column` **fails closed**
-on a child id, returning a which-items report rather than skipping silently
-(`TaskManager.move_task_col` resolves parents only). See t1243_6 for the rationale.
+### 3. Child rows are excluded, and a stale selection fails closed
+
+Child rows are excluded **structurally**, by the sources rather than by a filter:
+`action_toggle_mark` refuses to mark a child, the focused-card path gates on
+`is_child`, and `get_column_tasks` reads `task_datas` (parents only —
+`move_tasks_to_column` / `_resolve_parents` resolve parents only; the
+`move_task_col` this section originally named was replaced by t1243_3).
+
+A marked filename that no longer resolves **stops the whole operation** before
+the picker opens, with the marks **retained** (`r` prunes and reports them).
+Dropping the dead names and moving the rest would apply a subset of what the
+user selected — the partial application `move_tasks_to_column`'s all-or-nothing
+contract exists to prevent.
 
 ### 4. Palette entries
 
@@ -96,7 +118,11 @@ tuple, so they appear in both `discover()` and `search()`.
 ### 5. `check_action` gating
 
 Hide `m` where movement is already hidden (`inflight`, `bytopic`, `bytrail`) and
-when there is nothing movable in focus.
+when there is nothing movable in focus — except that a **non-empty marked set
+wins over focus**, since `m` then acts on the marks regardless of what is
+focused (including a focused child). `m` is `show=False`: the footer is already
+full at 200 columns, so a shown binding renders with its label clipped off;
+discovery is the `?` editor and the palette's "Move Tasks to Column".
 
 ## Verification
 
@@ -108,12 +134,25 @@ when there is nothing movable in focus.
   match the presented sequence).
 - `None` (Esc) and `[]` (nothing selected) are distinguished and produce
   different messages; neither writes anything.
-- A child id passed to `move_tasks_to_column` **fails closed** with a
-  which-items report naming the offending ids.
+- A **stale** marked filename stops the flow before the picker, names the
+  offender, writes nothing, and **leaves the marks in place** — with the valid
+  member explicitly asserted *not* to have moved.
+- A task removed **between** the two dialogs (the post-review TOCTOU window)
+  reaches `move_tasks_to_column`, which **fails closed** with a which-items
+  report naming the offending ids. This is that branch's reachable trigger; the
+  child-id case is covered at the model level by `test_board_manager_moves.py`.
 - The synthetic `unordered` destination works when that column has tasks and is
-  absent when it does not.
+  absent when it does not — plus the other two filters, each with its negative
+  half: a collapsed column is absent (and present once expanded), and the
+  targets' shared column is absent when all of them sit in it but **present**
+  when they span two columns.
 - A guard test asserting `discover()` and `search()` expose the **same** command
-  set — the regression the de-dup prevents.
+  set — the regression the de-dup prevents — with a sentinel control proving
+  both surfaces really derive from `_COMMANDS`.
+- `_focused_card()` stays **O(1)**: zero whole-board `TaskCard:focus` queries in
+  a full footer sweep. `check_action` runs it ~10x per `refresh_bindings()`, and
+  adding one more caller is what tipped `test_board_movement`'s attribution
+  benchmark (see the plan's Final Implementation Notes).
 
 ## Notes for sibling tasks
 

@@ -746,3 +746,109 @@ already mitigated inside this task, and the Unsorted-parity risk is a deliberate
 contract match pinned in both directions by `MoveDestinationTests`. No
 `### Planned mitigations` subsection is written, so Step 7 and Step 8d both
 no-op.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** three files.
+  - `.aitask-scripts/board/aitask_board.py` (+440/−72): `KanbanCommandProvider`
+    de-duped onto `_COMMANDS` + `_resolved()`, with the two new palette entries;
+    `TaskSelectScreenBase` extracted and `WorkReportTaskSelectScreen` re-parented
+    onto it (keeping its `tasks` alias); `MoveTaskSelectScreen`;
+    `_move_destination_columns` / `_column_title` / `_board_order`;
+    `_reject_stale` / `_review_then` / `action_move_to_column` /
+    `_apply_move_to_column` / `action_clear_marks`; `Binding("m", …,
+    show=False)`; the `move_to_column` branch in `check_action`; and
+    `_focused_card()` reduced to an O(1) attribute read.
+  - `tests/test_board_move_command.py` — **new**, 944 lines, 69 tests in 11
+    classes.
+  - `aitasks/t1243/t1243_7_move_to_column_command.md` — §2/§3/§5 and
+    Verification amended so the AC matches the implemented behaviour.
+
+- **Deviations from plan:**
+  1. **`m` is `show=False`.** The plan said shown, "the feature is otherwise
+     undiscoverable". Live tmux capture disproved the premise's cost: the board
+     footer is already full at 200 columns — `space Mark` (t1243_6) took the
+     last slot — so a shown `m` renders as a bare key with its label clipped,
+     whether the label is "Move to Col" or "Move". A key with no label is worse
+     than no key. Discovery is the `?` shortcuts editor (ShortcutsMixin
+     registers the binding automatically) and the palette's "Move Tasks to
+     Column". Same call as `ctrl+up`/`ctrl+down` and `X`.
+  2. **`_focused_card()` was made O(1)** — scope beyond this task, confirmed
+     with the user mid-implementation. See "Issues encountered" #1.
+
+- **Issues encountered:**
+  1. **This task's `check_action` gate regressed
+     `test_board_movement::test_attribution_tier_localises_an_injected_cost`.**
+     The full suite went red 3 of 4 runs with the change and passed on a clean
+     tree. Diagnosis: `check_action` runs once per binding on every
+     `refresh_bindings()` — i.e. on every focus change during a move — and ~10
+     of its gates call `_focused_card()`, most of them twice (ghost pre-gate +
+     their own branch). Measured on a 60-card fixture board: **27 whole-board
+     `query("TaskCard:focus")` walks and 59.08 ms per footer sweep**, all
+     pre-existing. This task added the 28th, ~4%, which tipped a benchmark
+     already sitting at its fixed 25 ms cross-run threshold — the giveaway that
+     it was noise crossing a bar rather than a localisation bug was that a
+     *different* neighbour failed each time (`render` 46.2 ms, then `dom_query`
+     31.6 ms).
+     Two fixes, in order: the gate was collapsed to **one** `_focused_card()`
+     call (the first draft called `_get_focused_col_id()` — which queries
+     internally — *and* `_focused_card()`), and then, with the user's
+     agreement, `_focused_card()` itself became an attribute read. `:focus`
+     matches exactly one widget, the screen's focused one, so the whole-board
+     query was always redundant; `_focused_placeholder()` has used the O(1)
+     idiom all along. Equivalence was verified live in both directions (a
+     focused `TaskCard` → the card; a focused `Input` → `None`).
+     **Result: 59.08 ms → 0.05 ms per footer sweep, 27 queries → 0**, and the
+     suite is 3/3 green (was 1/4). The board is now faster on its hottest path
+     than before this task.
+  2. **A negative control caught a vacuous test of mine.** The "source columns
+     snapshot before the move" mutation passed the suite, because
+     `MoveRefusalTests`' success-path stub returned a `MoveResult` without
+     mutating `board_col` — so before/after snapshots were indistinguishable.
+     The stub now mutates like the real API, and the control discriminates.
+     A passing negative control means the test is wrong, not the code.
+  3. **Two mock-fidelity bugs** surfaced the same way: `_get_focused_col_id`
+     returning `None` regardless of the focused card made the gate look
+     stricter than it is, and an unconfigured `_focused_placeholder` MagicMock
+     is truthy, which silently disabled the "nothing in focus" case. Both now
+     mirror production.
+
+- **Key decisions:**
+  - **Review whenever marks exist** (user-confirmed), overriding the task
+    file's §2. Marks survive a filter pass by t1243_6's design, so the marked
+    set can contain cards the user cannot see; a bare focused card needs no
+    review because it is one visible, unambiguous target.
+  - **Fail closed on a stale mark**, rather than showing it as a review row.
+    Dropping dead names and moving the rest is the partial application
+    `move_tasks_to_column`'s all-or-nothing contract exists to prevent, and a
+    row that can only ever be unchecked is a dead-end control. Marks are
+    **retained** so `r` can prune-and-report them — which is what t1243_6 gave
+    `MarkedSelection.retain()` a return value for. This left the
+    `_apply_move_to_column` refusal branch reachable only through the
+    post-review TOCTOU window, which is exactly how it is now tested (mutate
+    `task_datas` between the two callbacks — deterministic, no timer).
+  - **Three destination filters, not one.** The plan's first draft claimed
+    parity with `_move_task_lateral` while offering every configured column;
+    that helper also *skips collapsed columns*. Added, along with excluding a
+    column every target already occupies (a "send to bottom" reorder, not a
+    move) while keeping it when targets span two columns (real consolidation).
+    Consequence caught in the same pass: `_board_order` must rank **every**
+    column, not the filtered destination list, or a target in a collapsed or
+    redundant column sorts last instead of where it renders.
+  - **A shared modal base rather than a third hand-copy** — the same "refactor
+    duplicates before adding to them" rule §1 obeys.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:6216-6223` — `check_action`'s ghost
+    pre-gate calls `_focused_card()` for six movement actions and then each
+    action's own branch calls it again, so every gated action paid for two
+    whole-board DOM walks. Pre-existing and independent of this task (it dates
+    from the ghost pre-gate, not from `m`); fixed here only because this task's
+    28th call is what made it visible, and the fix was a strict improvement.
+    No separate task needed — it is resolved.
+
+- **Notes for sibling tasks:** see the section above. `_focused_card()` is now
+  cheap enough to call freely in `check_action`; `FocusedCardCostTests` fails if
+  the whole-board query ever returns.
