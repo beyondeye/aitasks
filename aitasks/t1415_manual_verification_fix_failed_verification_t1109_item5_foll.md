@@ -19,3 +19,11 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1409
+
+## Verification Checklist
+
+- [ ] Sign a gate with `ait gate pass <id> review_approved`, change a code file, then confirm `ait gates run <id>` re-pends with the `stale signature` note and `ait gate status <id>` shows pending — the live headless-lane flow end to end.
+- [ ] Confirm `aitask_archive.sh` actually refuses in that state (`GATE_PENDING:review_approved`, exit 2) — the guard's real caller, which the unit tests exercise only via `archive-ready`.
+- [ ] Confirm re-signing with `ait gate pass` after the code change re-opens archival, and the task then archives normally.
+- [ ] Confirm the attended lane is unaffected: run a normal `fast`-profile task through Step 8 review and Step 9 archival with no `.aitask-gates/` witness present, and verify nothing re-pends.
+- [ ] Confirm the board's gate badge / `ait ls` behavior for a task with a stale signature matches the documented ledger-only split (badge may read ready; archival still blocks).
