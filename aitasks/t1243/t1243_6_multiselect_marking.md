@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1243_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, python, custom_shortcuts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-07-28 01:14
-updated_at: 2026-07-28 01:14
+updated_at: 2026-08-04 09:28
 ---
 
 ## Context
