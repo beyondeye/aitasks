@@ -5,16 +5,15 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: documentation
-status: Implementing
+status: Ready
 labels: [documentation, agents_md, docs]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1405_1, t1405_2, t1405_3, t1405_4, t1405_5, t1405_6, t1405_7]
-assigned_to: dario-e@beyond-eye.com
+children_to_implement: [t1405_1, t1405_2, t1405_3, t1405_4, t1405_5, t1405_6, t1405_7, t1405_8]
 created_at: 2026-08-04 12:09
-updated_at: 2026-08-04 13:47
+updated_at: 2026-08-04 16:49
 ---
 
 ## Problem
