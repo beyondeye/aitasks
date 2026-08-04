@@ -279,3 +279,97 @@ verification is skipped; `risk_evaluated` is the task's only active gate.
   `main()` after line 1250 also fails this test, not just the t1414 site ·
   severity: low · → mitigation: none — this is a feature, but it means a failure
   here needs reading before being attributed to this task
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, all three changes.
+  1. `install.sh` — `return` → `return 0` at the three sites in
+     `show_upgrade_changelog()` (now lines 886, 898, 915 after the added
+     comment). Site 895 (pre-edit numbering) carries a three-line comment
+     recording *why* the explicit 0 is load-bearing, so a future edit cannot
+     "tidy" it away.
+  2. `tests/test_install_upgrade_changelog.sh` — new, 14 assertions across the
+     5 planned cases (1 hermetic full-installer run + 4 helper-level cases).
+  3. `aidocs/framework/shell_conventions.md` — one bullet on the class, placed
+     directly after the existing "silent `set -e` aborts via `"$(...)"` capture"
+     bullet.
+
+- **Deviations from plan:** None in substance. Two small additions made during
+  implementation:
+  - Test 1 also asserts the global shim landed in the redirected `SHIM_DIR`
+    (`$scratch/bin/ait`). This doubles as a hermeticity self-check: if a future
+    change stopped honouring the `SHIM_DIR` override, this assertion fails
+    rather than the test silently writing into the developer's `~/.local/bin`.
+  - Test 1 dumps the last 20 lines of the installer log when the run exits
+    nonzero. This is what made the negative control legible — it showed the
+    installer stopping right after its banner, confirming the failure was the
+    t1414 abort and not some unrelated fixture problem.
+  - A `# shellcheck disable=SC2034` was needed for `FORCE` in `run_case()`
+    (shellcheck cannot see that the sourced helper reads it) — the same class of
+    disable `tests/test_install_tarball_download.sh:110-115` already uses.
+
+- **Issues encountered:**
+  - **The `[[ -t 0 ]]` prompt hazard.** `show_upgrade_changelog`'s tail runs
+    `read -r answer` behind `[[ -t 0 ]]`. Command substitution redirects stdout
+    only, so stdin stays the caller's terminal: without `</dev/null`, test 5
+    would have hung for anyone running the suite interactively (it did not hang
+    in the agent sandbox, where stdin is already not a TTY — a bug that would
+    only have surfaced on a developer's machine). Every helper case now passes
+    `</dev/null`, matching how the existing e2e installer tests invoke
+    `bash install.sh`.
+  - **An over-attributed safety guard, caught in review.** An earlier draft
+    gated the e2e case on `$scratch` not being inside a git work tree, and
+    *skipped* the case otherwise — which would have let the suite go green
+    without ever running the only assertion proving the task's observable
+    outcome. Investigating showed the guard was unnecessary anyway: the
+    load-bearing protection is `commit_installed_files`' *second* check, which
+    requires `.aitask-scripts/VERSION` to be git-tracked **at the target path**.
+    Verified directly: `git -C <fresh subdir of this repo> ls-files
+    --error-unmatch .aitask-scripts/VERSION` → rc=1, versus rc=0 at the repo
+    root. A freshly created target can never satisfy it, so no commit is
+    possible regardless of `TMPDIR`. The precondition and the skip were both
+    removed; case 1 is unconditional and fails loudly if its fixture cannot be
+    built.
+
+- **Key decisions:**
+  - **New test file rather than extending `test_install_tarball_download.sh`**
+    (the task's suggested location). That file is scoped to `download_tarball()`
+    by its header and banner, its curl/wget/git stubs are irrelevant here, and
+    it sets `set +euo pipefail` globally at line 29 — which would defeat the
+    live-errexit reproduction. Repo convention is one self-contained file per
+    concern. The task's actual assertion (`bash install.sh --force --dir
+    <empty-dir>` exits 0 and installs) *is* implemented, as test 1.
+  - **Two test surfaces, honestly labelled.** Only tests 1 and 2 discriminate;
+    3-5 pass before and after the fix and exist to pin the sibling `return 0`
+    hardening and the changelog display path. The file's header comment says so
+    explicitly, so a future reader does not mistake the pins for proof.
+  - **Hermeticity via `HOME` + `SHIM_DIR` env overrides**, each traced to source
+    before being relied on (`aitask_setup.sh:9` for `SHIM_DIR`;
+    `ensure_path_in_profile` at `aitask_setup.sh:983-1019` writes only under
+    `$HOME`). Confirmed empirically after the run: the real `~/.local/bin/ait`
+    mtime predated the test, `.bashrc` was untouched, and no
+    "Added by aitasks installer" line appeared in any rc file.
+  - **Convention bullet scoped narrowly.** Deliberately *not* "always write
+    `return 0`" — forwarding a failure status to the caller is a legitimate
+    bash idiom, so the bullet restricts the rule to branches meaning success or
+    a non-fatal no-op and asks for a comment when forwarding is intended.
+
+- **Verification performed:**
+  - `tests/test_install_upgrade_changelog.sh` — 14 passed, 0 failed.
+  - **Negative control** (site 895 reverted to a bare `return`, restored by
+    re-applying the edit, not `git checkout`): test 1 failed all 4 assertions
+    (exit 1, no `ait`, no `.aitask-scripts/VERSION`, no shim) and test 2 failed
+    both (rc=1, no MARKER), while tests 3-5 passed unchanged; suite exit 1.
+    The harness discriminates, and fails for the right reason.
+  - `tests/test_install_tarball_download.sh` — 28 passed, 0 failed.
+  - `tests/test_install_create_data_dirs.sh` — 40 passed, 0 failed (the other
+    `--source-only` consumer, and itself an e2e `--local-tarball` runner).
+  - `shellcheck install.sh` — 3 findings, all pre-existing (lines 611, 742,
+    1344); **zero** new, none inside `show_upgrade_changelog`.
+  - `shellcheck tests/test_install_upgrade_changelog.sh` — SC1091 infos only,
+    matching the sibling test file's accepted baseline.
+  - The task's own minimal repro against the patched function prints `REACHED`
+    and exits 0.
+
+- **Upstream defects identified:** None
+
