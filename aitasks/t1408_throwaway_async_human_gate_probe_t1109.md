@@ -3,15 +3,16 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: []
 gates: [review_approved]
 active_gates: [review_approved]
 active_gates_filtered: []
 active_gates_profile: local/gatetest_async_human
 active_gates_digest: 841b6478bb88.30b132f20e86.9f6677c6c52c
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-04 13:03
-updated_at: 2026-08-04 13:03
+updated_at: 2026-08-04 13:04
 ---
 
 ## Purpose

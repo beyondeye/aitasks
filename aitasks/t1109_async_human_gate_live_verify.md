@@ -13,7 +13,7 @@ verifies: [t635_15]
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-01 14:54
-updated_at: 2026-08-04 12:53
+updated_at: 2026-08-04 13:03
 boardidx: 121856
 ---
 
@@ -72,14 +72,14 @@ through the wrong transport and verify nothing.
 
 ## Verification Checklist
 
-- [ ] **Setup — throwaway headless profile with a non-empty ceiling.** Create
+- [x] **Setup — throwaway headless profile with a non-empty ceiling.** Create — PASS 2026-08-04 13:03 auto: profile created; aitask_scan_profiles.sh lists PROFILE|local/gatetest_async_human.yaml; git status on aitasks/metadata/profiles/ empty (gitignored)
   `aitasks/metadata/profiles/local/gatetest_async_human.yaml` as a copy of
   `remote.yaml` with `name: gatetest_async_human` and `rendered_gates:
   [review_approved]` (keep `headless: true`). Confirm
   `./.aitask-scripts/aitask_scan_profiles.sh` lists it as
   `local/gatetest_async_human.yaml`. Both `profiles/local/` and
   `.aitask-gates/` are gitignored, so this run leaves no repo trace.
-- [ ] **Precondition — the gate actually enters the active set.** Create a
+- [x] **Precondition — the gate actually enters the active set.** Create a — PASS 2026-08-04 13:03 auto: t1408 created with gates: [review_approved]; pre-claim archive-ready -> BLOCKED:review_approved (negative control held); materialize-active --profile local/gatetest_async_human.yaml -> MATERIALIZED:review_approved; frontmatter active_gates: [review_approved], active_gates_filtered: []. NOTE: active_gates_profile records 'local/gatetest_async_human' (dir-qualified scanner name), not the bare 'gatetest_async_human' the checklist text predicted - checklist wording imprecision, not a defect.
   throwaway task declaring `gates: [review_approved]`
   (`aitask_create.sh --batch … --gates review_approved --commit`). Before
   claiming, confirm the negative control `aitask_gate.sh archive-ready <id>` →
