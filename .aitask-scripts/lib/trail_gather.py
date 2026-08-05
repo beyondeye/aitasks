@@ -72,9 +72,15 @@ matching entry; scans are digest-independent):
                         attribution
     input_missing       non-task stored input unreadable/absent
     new_related_task    unreferenced task in a scoped project whose
-                        qualified topic key matches scope.topics or whose
-                        depends intersects the persisted member set
-                        (stored task inputs + entry tasks)
+                        qualified topic key matches scope.topics, or whose
+                        depends or verifies intersects the persisted member
+                        set (stored task inputs + entry tasks), or which a
+                        member's own risk_mitigation_tasks names. That last
+                        edge is member-side and INVERTED -- the follow-up
+                        carries no back-reference and the member is usually
+                        archived by then, so it is read from the member's
+                        frontmatter (active tree or archive) and only live
+                        active targets are reported
     other               residual attribution: substitution digest proves an
                         unattributed content change with >=2 candidates,
                         reconstruction is incomplete, or an attributed
@@ -380,11 +386,15 @@ def _plan_ref(tree: ProjectTree, plan_path: Path) -> str:
 
 # --- Record building --------------------------------------------------------
 
-def _canonical_depends(metadata: dict, project: str) -> list[str]:
-    """Normalize a task's depends entries to canonical refs in the OWNING
+def _canonical_refs(metadata: dict, project: str, key: str) -> list[str]:
+    """Normalize a list-valued relation field to canonical refs in the OWNING
     project's namespace; unparseable entries stay verbatim (deterministic).
-    Deduplicated: identical membership must never hash differently."""
-    raw = metadata.get("depends")
+    Deduplicated: identical membership must never hash differently.
+
+    Shared by every relation the module reads (`depends`, `verifies`,
+    `risk_mitigation_tasks`) so owning-project semantics are defined once.
+    """
+    raw = metadata.get(key)
     if not isinstance(raw, list):
         return []
     out = set()
@@ -395,6 +405,12 @@ def _canonical_depends(metadata: dict, project: str) -> list[str]:
         else:
             out.add(str(entry))
     return sorted(out)
+
+
+def _canonical_depends(metadata: dict, project: str) -> list[str]:
+    """The digest-bearing relation (see task_record) -- kept under its own name
+    because the digest contract is pinned to it."""
+    return _canonical_refs(metadata, project, "depends")
 
 
 def _gates_pending(text: str) -> list[str]:
@@ -715,6 +731,28 @@ def _doc_task_refs(doc: dict) -> tuple[set[str], set[str], dict[str, dict]]:
     return baseline, entry_refs, snapshots
 
 
+def _archived_metadata(bare_id: str, archived_dir: Path) -> dict | None:
+    """Frontmatter of an archived task, or None when it is NOT in the archive.
+
+    `{}` (archived but unparseable) is NOT the same as None: collapsing the two
+    would reclassify every malformed archived task from `task_archived` to
+    `task_deleted`. Callers MUST branch on `is not None`, never on truthiness.
+
+    Deliberately does not apply _load_row's phantom-stub rule -- the archived
+    path never had that guard, and adding it would flip archived stubs to
+    `task_deleted` too.
+    """
+    archived = find_archived_markdown_by_id(bare_id, archived_dir)
+    if archived is None:
+        return None
+    _, text = archived
+    try:
+        parsed = parse_frontmatter(text)
+    except Exception:
+        parsed = None
+    return parsed[0] if parsed else {}
+
+
 def _existence_reason(inp: StoredInput, tree: ProjectTree) -> tuple[str, str] | None:
     """Existence-class code for a task input, or None when active+non-terminal.
     Mutually exclusive, first match in the pinned matrix order wins."""
@@ -727,14 +765,8 @@ def _existence_reason(inp: StoredInput, tree: ProjectTree) -> tuple[str, str] | 
         if meta.get("status") == "Done":
             return ("task_completed", f"{ref} is Done (still active)")
         return None
-    archived = find_archived_markdown_by_id(inp.bare_id, tree.archived_dir)
-    if archived is not None:
-        _, text = archived
-        try:
-            parsed = parse_frontmatter(text)
-        except Exception:
-            parsed = None
-        meta = parsed[0] if parsed else {}
+    meta = _archived_metadata(inp.bare_id, tree.archived_dir)
+    if meta is not None:  # `{}` means archived-but-unparseable, NOT absent
         if meta.get("folded_into") is not None or meta.get("status") == "Folded":
             return ("task_folded", f"{ref} was folded and archived")
         if meta.get("status") == "Done":
@@ -935,12 +967,74 @@ def cmd_drift(args, out=None) -> int:
                 continue
             qualified_topic = f"{proj}#{topic_key(row, tree.by_own_id)}"
             depends = set(_canonical_depends(row.metadata, proj))
+            verifies = set(_canonical_refs(row.metadata, proj, "verifies"))
             if qualified_topic in scope_topics:
                 add("new_related_task", row.ref,
                     f"new task in topic {qualified_topic}")
             elif depends & member_refs:
                 add("new_related_task", row.ref,
                     f"new task depends on {sorted(depends & member_refs)}")
+            elif verifies & member_refs:
+                # Manual-verification back-reference. Not always masked by a
+                # depends edge: the archive carry-over and aggregate-sibling
+                # producers both write `verifies` without a matching `depends`.
+                add("new_related_task", row.ref,
+                    f"new task verifies {sorted(verifies & member_refs)}")
+
+    # Member-side edge (INVERTED): risk_mitigation_tasks is written on the
+    # MEMBER at task-workflow Step 8d and names the follow-up. The follow-up
+    # carries no back-reference, and the member is usually archived by the time
+    # it matters (real case: archived aitasks#1293 -> live aitasks#1426), so
+    # neither the live-row scan above nor a depends edge can ever reach it.
+    #
+    # Invariant: member_refs is a subset of (baseline | input_refs) -- entry_refs
+    # feed baseline via _doc_task_refs, and task_inputs' canonicals are half of
+    # input_refs. That containment alone makes self-reference, member-targets
+    # and cycles structurally unreportable, so none needs its own guard.
+    archived_meta: dict[tuple[str, str], dict | None] = {}
+    for member_ref in sorted(member_refs):
+        parsed = parse_ref(member_ref)
+        if parsed is None:
+            continue  # the schema tolerates a bare `1234` entry ref
+        member_proj, member_bare = parsed
+        member_tree = fresh.get(member_proj)
+        if member_tree is None:
+            continue
+        member_row = member_tree.by_own_id.get(member_bare)
+        if member_row is not None:
+            member_meta = member_row.metadata
+        else:
+            cache_key = (member_proj, member_bare)
+            if cache_key not in archived_meta:
+                archived_meta[cache_key] = _archived_metadata(
+                    member_bare, member_tree.archived_dir)
+            member_meta = archived_meta[cache_key]
+        if not member_meta:  # absent, or archived-but-unparseable
+            continue
+        for ref in _canonical_refs(member_meta, member_proj,
+                                   "risk_mitigation_tasks"):
+            target_parsed = parse_ref(ref)
+            if target_parsed is None:
+                continue
+            # .get(): a cross-repo target's project may not be scanned at all.
+            # Never widen the `projects` set for it -- that could stage an
+            # unresolved_project error and turn a working drift run into an
+            # ERROR-only one, and would widen the live-row scan to a new tree.
+            target_tree = fresh.get(target_parsed[0])
+            target = (target_tree.by_own_id.get(target_parsed[1])
+                      if target_tree is not None else None)
+            if target is None:
+                continue  # archived / deleted / unscoped: not a candidate
+            if target.ref in baseline or target.ref in input_refs:
+                continue
+            # This detail MUST keep sorting after every "new task ..." detail
+            # ('n' < 'r'): dedup_reasons keeps the lexicographically smallest
+            # detail per (code, task_ref), so a doubly-reachable target retains
+            # its topic/depends wording byte-for-byte. Renaming this prefix
+            # would silently rewrite existing drift output --
+            # test_doubly_reachable_target_keeps_depends_detail pins it.
+            add("new_related_task", target.ref,
+                f"risk-mitigation follow-up of {member_ref}")
 
     # Plan identity by member: appeared / renamed (path change).
     for inp in task_inputs:

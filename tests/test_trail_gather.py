@@ -241,14 +241,18 @@ class TrailGatherCase(unittest.TestCase):
                           "ref": "board", "observed_at": TS,
                           "summary": "test evidence"}],
         }
+        # Both builders below were schema-invalid until t1429 (wrong key names,
+        # and `out_of_scope` is not in the reason_code enum). They had never
+        # been exercised: no test passed `exclusions=` or `observations=`, so
+        # the make_trail schema assertion never saw them.
         if exclusions:
             doc["exclusions"] = [
-                {"task": t, "reason": "out_of_scope", "note": "n"}
+                {"task": t, "reason_code": "non_blocking", "reason": "n"}
                 for t in exclusions]
         if observations:
             doc["observations"] = [
-                {"observation_id": f"o{i}", "category": "baseline_risk",
-                 "summary": "s", "affects": list(affects),
+                {"observation_id": f"o{i}", "kind": "baseline_risk",
+                 "statement": "s", "affects": list(affects),
                  "evidence_refs": ["ev1"]}
                 for i, affects in enumerate(observations, start=1)]
         issues = trail_schema.validate_trail(doc)
@@ -544,6 +548,182 @@ class DriftCodeTests(TrailGatherCase):
         plan.write_text("edited\n")
         result = self.drift(trail)
         self.assertIn("other", result["codes"])
+
+    def test_existence_reason_archived_classification(self):
+        """Characterization: the archived branch of _existence_reason is a
+        THREE-way decision (absent / found-unparseable / found-parsed), not a
+        truthiness test. Extracting the archived read into a helper that
+        collapses "not in the archive" with "in the archive but unparseable"
+        would silently reclassify every malformed archived task from
+        `task_archived` to `task_deleted`. Pinned here so that refactor cannot
+        land unnoticed."""
+        active = self.repo.task_path("101", "member")
+        malformed = self.repo.root / "aitasks" / "archived" / "t101_member.md"
+
+        def archived_code(write) -> list[str]:
+            _, trail = self.base_trail()
+            active.unlink()
+            archived = write()
+            codes = self.drift(trail)["codes"]
+            if archived is not None:
+                archived.unlink()
+            self.repo.write_task("101", "member", anchor=100)  # next sub-case
+            return codes
+
+        def write_malformed():
+            malformed.write_text("---\nstatus: Done\ndepends: [1, 2\n---\nb\n",
+                                 encoding="utf-8")
+            return malformed
+
+        cases = {
+            "archived Done": (
+                lambda: self.repo.archive_task("101", "member", status="Done"),
+                "task_completed"),
+            "archived non-Done": (
+                lambda: self.repo.archive_task("101", "member",
+                                               status="Postponed"),
+                "task_archived"),
+            "archived folded": (
+                lambda: self.repo.archive_task("101", "member",
+                                               status="Folded",
+                                               folded_into=100),
+                "task_folded"),
+            # The load-bearing case: found in the archive but with unparseable
+            # frontmatter -> still `task_archived`, never `task_deleted`.
+            "archived unparseable": (write_malformed, "task_archived"),
+            "not archived at all": (lambda: None, "task_deleted"),
+        }
+        for label, (write, expected) in cases.items():
+            with self.subTest(label):
+                self.assertIn(expected, archived_code(write), label)
+
+
+# --- D1b. Post-landing relation edges (risk_mitigation_tasks / verifies) -----
+
+
+class RelationEdgeDriftTests(TrailGatherCase):
+    """`new_related_task` from the two structured post-landing relations.
+
+    The two run in OPPOSITE directions, which is the whole difficulty:
+
+    * `verifies` is written on the NEW task and points at the member (same
+      direction as `depends`), so the live-row scan can see it.
+    * `risk_mitigation_tasks` is written on the MEMBER at task-workflow
+      Step 8d and points at the follow-up. The follow-up carries no
+      back-reference, and the member is typically archived by then -- and
+      `load_tree` never loads archived tasks. Only a member-side (inverted)
+      scan that reaches the archive can find it.
+
+    Real shape these mirror: archived aitasks#1293 -> live aitasks#1426, and
+    archived aitasks#1319 -> live aitasks#1411 (+ archived aitasks#1410).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.repo.write_task("100", "root")
+        self.repo.write_task("101", "member", anchor=100)
+
+    def entry_only_member_trail(self, **kwargs) -> tuple[dict, Path]:
+        """A trail whose member `mainproj#300` appears ONLY as a wave entry,
+        never in `generation.inputs` -- the shape every archived member has,
+        because the gatherer refuses to snapshot an archived id
+        (`art:trail-shadow-review-loop` carries four such members)."""
+        snap = self.snapshot("--scope", "topic", "100")
+        entries = [
+            ("mainproj#100", self.entry_snapshot(snap, "mainproj#100")),
+            ("mainproj#101", self.entry_snapshot(snap, "mainproj#101")),
+            ("mainproj#300", {"status": "Done"}),
+        ]
+        return snap, self.make_trail(snap, entries=entries, **kwargs)
+
+    @staticmethod
+    def fired(result) -> list[str]:
+        return [t for c, t, _ in result["reasons"] if c == "new_related_task"]
+
+    # -- risk_mitigation_tasks (member-side, inverted) ----------------------
+
+    def test_risk_mitigation_edge_from_archived_member(self):
+        """The real case: an ARCHIVED member names a live follow-up that has no
+        back-reference of its own. Must be reported without moving the digest
+        (a new task adds no input record)."""
+        snap, trail = self.entry_only_member_trail()
+        self.repo.archive_task("300", "member", risk_mitigation_tasks=[500])
+        self.repo.write_task("500", "followup")  # no depends, no anchor
+        result = self.drift(trail)
+        self.assertEqual(result["verdict"], "STALE")
+        self.assertIn("mainproj#500", self.fired(result))
+        self.assertEqual(result["digest"], snap["digest"])
+
+    def test_risk_mitigation_archived_non_member_not_scanned(self):
+        """Negative control for the member-set intersection. An archived
+        NON-member carrying the field must contribute no candidates -- otherwise
+        the scan walks the archive at large rather than the persisted member
+        set."""
+        _, trail = self.entry_only_member_trail()
+        self.repo.archive_task("300", "member")          # member, no field
+        self.repo.archive_task("400", "stranger", risk_mitigation_tasks=[501])
+        self.repo.write_task("501", "other")
+        self.assertNotIn("mainproj#501", self.fired(self.drift(trail)))
+
+    def test_risk_mitigation_target_in_baseline_suppressed(self):
+        """An already-evaluated follow-up (recorded in `exclusions`) must never
+        re-fire. This is the live t1293 -> t1426 shape, where t1426 sits in the
+        trail's exclusions."""
+        _, trail = self.entry_only_member_trail(exclusions=["mainproj#500"])
+        self.repo.archive_task("300", "member", risk_mitigation_tasks=[500])
+        self.repo.write_task("500", "followup")
+        result = self.drift(trail)
+        self.assertNotIn("mainproj#500", self.fired(result))
+        self.assertEqual(result["verdict"], "CURRENT")
+
+    def test_risk_mitigation_archived_target_skipped(self):
+        """A named follow-up that is itself archived is not a membership
+        candidate (the real t1319 -> t1410 shape). Matches the live-row scan,
+        which only ever iterates active rows."""
+        _, trail = self.entry_only_member_trail()
+        self.repo.archive_task("300", "member", risk_mitigation_tasks=[502])
+        self.repo.archive_task("502", "landed")
+        self.assertNotIn("mainproj#502", self.fired(self.drift(trail)))
+
+    def test_doubly_reachable_target_keeps_depends_detail(self):
+        """`dedup_reasons` keeps the lexicographically smallest detail per
+        (code, task_ref). A target reachable by BOTH `depends` and a member's
+        `risk_mitigation_tasks` must therefore keep its existing `depends`
+        wording byte-for-byte -- which holds only while the new detail prefix
+        sorts after "new task ". Renaming that prefix would silently rewrite
+        drift output for every such row; this is what makes it fail loudly."""
+        _, trail = self.entry_only_member_trail()
+        self.repo.archive_task("300", "member", risk_mitigation_tasks=[504])
+        self.repo.write_task("504", "followup", depends=[100])
+        details = [d for c, t, d in self.drift(trail)["reasons"]
+                   if c == "new_related_task" and t == "mainproj#504"]
+        self.assertEqual(details, ["new task depends on ['mainproj#100']"])
+
+    # -- verifies (new-task side) ------------------------------------------
+
+    def test_verifies_edge_without_depends(self):
+        """A manual-verification task whose ONLY edge is `verifies`. Real
+        producers create exactly this: the archive carry-over path and the
+        aggregate-sibling path both pass --verifies without a matching --deps,
+        so t1425's incidental `depends` edge is not something to rely on."""
+        snap, trail = self.entry_only_member_trail()
+        for label, value in {
+                "bare int": [101],
+                "t-prefixed": ["t101"],
+                "quoted string": ["'101'"],
+        }.items():
+            with self.subTest(label):
+                path = self.repo.write_task("503", "manualver", verifies=value)
+                result = self.drift(trail)
+                self.assertEqual(result["verdict"], "STALE", label)
+                self.assertIn("mainproj#503", self.fired(result), label)
+                self.assertEqual(result["digest"], snap["digest"], label)
+                path.unlink()
+
+    def test_verifies_non_member_not_reported(self):
+        _, trail = self.entry_only_member_trail()
+        self.repo.write_task("503", "manualver", verifies=[999])
+        self.assertNotIn("mainproj#503", self.fired(self.drift(trail)))
 
 
 # --- D2. Driftable-input rule ------------------------------------------------

@@ -258,14 +258,28 @@ not semantic drift. The canonical JSON is hashed (sha256, truncated hex) into
 schema so digests are only compared within a schema version.
 
 **8.2 Drift detection.** A cheap `trail-drift` check (same gatherer lib)
-recomputes the digest and, when it differs, produces *named* reasons from the
-per-input comparison: `task_completed`, `task_archived`, `task_deleted`,
-`task_folded`, `status_changed`, `dependency_changed`, `gate_state_changed`,
-`plan_changed`, `new_related_task` (a new task anchored into a member topic or
-depending on a member), `premise_invalidated`, `input_missing`. Consumers (the
-board, the skill) run it on demand — opening the By-Trail view, or explicitly
-— and update only the trail's *rendered* badge; polling never rewrites the
-artifact (passive observation must not refresh state stamps).
+recomputes the digest and produces *named* reasons. Most come from the
+per-input comparison and only when the digest differs: `task_completed`,
+`task_archived`, `task_deleted`, `task_folded`, `status_changed`,
+`dependency_changed`, `gate_state_changed`, `plan_changed`,
+`premise_invalidated`, `input_missing`. `new_related_task` is deliberately
+**digest-independent**: a task that is not a member contributes no input
+record, so it can never move the digest and must be *scanned* for rather than
+digested. It fires on three relations —
+
+- the candidate is anchored into a member topic (`scope.topics`);
+- the candidate's `depends` **or** `verifies` intersects the member set
+  (`verifies` is the manual-verification back-reference, written on the
+  verifying task);
+- a member's own `risk_mitigation_tasks` names the candidate. This edge runs
+  the *other* way: the Step 8d follow-up carries no back-reference, and the
+  member that names it is usually archived by then, so it is read from the
+  member's own frontmatter — active tree or archive — and only targets that
+  are still live and active are reported.
+
+Consumers (the board, the skill) run it on demand — opening the By-Trail view,
+or explicitly — and update only the trail's *rendered* badge; polling never
+rewrites the artifact (passive observation must not refresh state stamps).
 
 **8.3 Targeted refresh (subskill).** `/aitask-trail --refresh <handle>` (or
 `r` in the By-Trail view) loads the current version, consumes the drift
@@ -273,6 +287,12 @@ reasons, and re-analyzes **only what changed**: completed entries are moved to
 an honored/landed presentation (their wave records the completion via the
 refreshed snapshot), newly created follow-up tasks are evaluated for
 membership, invalidated premises re-open the affected wave's reasoning.
+Follow-up membership is not left to the scan alone: for every member that
+landed since the loaded version the skill also sweeps both post-landing
+relations by hand — the member's own `risk_mitigation_tasks` (outgoing) and any
+active task whose `verifies` names it (incoming, so unreachable by re-reading
+the member). That backstop covers what §8.2's scan deliberately skips: a
+follow-up that is itself already archived, or one in an unscoped project.
 The result is a new artifact version after user confirmation — never an
 in-place mutation — so `ait artifact versions` is the trail's history and
 "compare versions" (J7) is a projection diff of two immutable blobs.

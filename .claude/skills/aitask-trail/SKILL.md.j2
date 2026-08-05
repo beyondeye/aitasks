@@ -285,6 +285,63 @@ this step) / "Discard" (stop; nothing was written).
    - New related tasks (from `new_related_task` reasons) are evaluated for
      membership — adding one that widens the scope is propose-and-confirm,
      as in Step 2c.
+   - **Belt-and-braces follow-up sweep.** For every member that completed or
+     was archived since the loaded version, run BOTH halves — the two
+     post-landing relations point in opposite directions, so one re-read
+     cannot find both:
+     - *Outgoing* (`risk_mitigation_tasks`) — read that member's own task
+       file (active tree or `aitasks/archived/`) and take the ids its
+       `risk_mitigation_tasks:` list names.
+     - *Incoming* (`verifies`) — the member does NOT record who verifies it,
+       so re-reading the member can never surface this edge. Look on the
+       other side, with an over-inclusive prefilter confirmed by reading:
+       ```bash
+       { grep -rl --include='t*.md' '^verifies:' aitasks || [ "$?" = 1 ]; } |
+         { rc=0
+           while IFS= read -r f; do
+             grep -q -- '<member bare id>' "$f"
+             case $? in
+               0) printf '%s\n' "$f" ;;                            # candidate
+               1) ;;                                  # no match: expected, ok
+               *) printf 'sweep: cannot read %s\n' "$f" >&2; rc=2 ;;
+             esac
+           done
+           exit "$rc"; }
+       ```
+       A nonzero exit means the sweep is INCOMPLETE — re-run it before
+       trusting the candidate list, and never treat that run as "no
+       candidates found".
+
+       Three exit-status properties, all load-bearing — do not "simplify"
+       them back:
+       - **No `xargs -r`.** BSD/macOS `xargs` has no `-r` and exits with an
+         error, aborting the whole sweep and silently dropping every
+         candidate. It also already skips empty input, so the loop is the
+         portable form of both behaviours.
+       - **`grep`'s no-match exit 1 is normalized to success.** Finding no
+         verifier is the common, expected outcome; left as-is it returns 1 and
+         (under `pipefail`, or any runner that treats nonzero as failure)
+         looks like a broken command and invites a spurious retry.
+       - **A per-file read failure propagates.** If a file vanishes or turns
+         unreadable between the prefilter and the confirmation scan, that
+         candidate is silently omitted — the exact loss this sweep exists to
+         prevent. Reporting it on stderr is not enough, because the loop's
+         own status would still be 0; `rc=2` plus the trailing `exit "$rc"`
+         is what makes the omission visible to the caller.
+       Then open each hit and keep only those whose `verifies:` list really
+       names the member. Confirming by reading is required, not optional:
+       the field is spelled `[1039]`, `['1074_2']` and `[t1018_1, t1018_2]`
+       in practice, so no single regex decides membership, and the id can
+       also occur in body prose.
+
+     Feed whatever survives into the same propose-and-confirm path as the
+     `new_related_task` reasons. This does not reopen the PINNED "don't scan
+     task files to build membership" rule: the sweep is a bounded lookup of
+     two named relations against an already-fixed member list, and nothing it
+     finds joins the trail without the user's confirmation. The gatherer
+     reports both edges too — this is the backstop for what its scan
+     deliberately skips (a follow-up that is itself archived, a target in an
+     unscoped project), not a replacement for it.
    - A premise you can show is no longer true re-opens ONLY the affected
      wave's reasoning; record it as a `premise_invalidated` entry in
      `freshness.drift_reasons` with the evidence that shows it (you author
