@@ -305,3 +305,58 @@ gate is the task's only active gate; the Step-9 orchestrator records it.
    unexpected, stop, and report.
 4. [allowlist_containment_gate] Only then run the commit in step 5. If the gate
    was re-run after a fix, it must print `GATE_OK` again first.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added the stderr warn-and-continue bullet to **two**
+  agreeing parse contracts — `.claude/skills/task-workflow/SKILL.md` Step 4
+  (single-line bullet, matching that list's style) and
+  `.claude/skills/aitask-pickrem/materialize-active.md` (wrapped, matching that
+  file's style, and worded for the non-interactive lane: *display* rather than
+  *surface to the user*). Both cover **both** `unverifiable_reason` variants
+  (`no verifier configured`, `no registry entry`). Regenerated the 3
+  `tests/golden/procs/task-workflow/SKILL-*.md` goldens and refreshed the 6
+  committed remote prerenders via one `aitask_skill_rerender.sh remote` call.
+  Final: 11 files, 51 insertions, 0 deletions, one commit.
+
+- **Deviations from plan:** None in execution. The plan itself deviated from the
+  task's written Scope in two user-approved ways, both recorded in the task file
+  before implementation (scope items 1b and 3b): (1) the `aitask-pickrem` mirror
+  was added to scope after planning found the parse contract duplicated;
+  (2) staging was hardened into a fail-closed gate script after the user
+  rejected the first two plan revisions.
+
+- **Issues encountered:**
+  - *Two plan rejections, both correct.* The first draft named only
+    `task-workflow/SKILL.md`; verifying the user's containment concern is what
+    surfaced the duplicated contract in `aitask-pickrem/materialize-active.md`.
+    The second draft's "gate" was `... || echo SENTINEL`, which returns 0 — a
+    detection, not a gate. Replaced with a single `set -euo pipefail` script
+    that **performs the staging itself** so no check can be stepped past.
+  - *The gate was not theoretical.* At staging time a concurrent session had 8
+    worktree-modified `aitask-trail` files (`SKILL.md.j2`, 3 goldens, 4 source
+    files). A broad `git add`/`git status` review would plausibly have swept
+    them in. The path-explicit staging left all 8 unstaged, and check (c)
+    confirmed the staged set equalled the 11-path allowlist exactly.
+  - *Check (c) is a positive assertion, not just a negative one.* Because
+    staging is path-explicit, (c) can only fail if an allowlisted path did **not**
+    change — so its passing proves all 11 files were actually modified, catching
+    a rerender that silently missed a target.
+  - *`pipefail` interaction.* The deletion check (d) was written as a captured
+    variable rather than a pipeline in an `if` condition: with `set -o pipefail`,
+    a SIGPIPE from an early-exiting `grep -q` would itself trip the condition and
+    produce a false abort.
+
+- **Key decisions:**
+  - Bullet placed **last** in the stdout-parse list and lead with "Also on
+    stderr" — the list is introduced as "Parse the single stdout line", so the
+    stream distinction has to be the first thing read.
+  - Kept the exit-code contract untouched (task Scope item 2): advisory warning
+    → continue; nonzero exit → still abort. Stated explicitly in both bullets so
+    a future editor cannot read the addition as a new abort condition.
+  - Each surface got prose in **its own voice** rather than a copy-paste: the
+    attended lane surfaces to a user, the remote lane displays into run output,
+    and their archival steps differ (Step 9 vs Step 10).
+
+- **Upstream defects identified:**
+  `.claude/skills/aitask-pickrem/materialize-active.md:12-46 — the materialize-active stdout-parse contract is duplicated verbatim-in-substance from .claude/skills/task-workflow/SKILL.md Step 4 (now 6 bullets each), hand-maintained in both files with no drift guard. This task's own planning only found the second copy incidentally, while verifying an unrelated concern; t635_34 shipped its warning into neither. A canonical-site + drift-guard follow-up (shared include, or a test asserting bullet-set parity) would prevent the next contract change from landing in one lane only.`
