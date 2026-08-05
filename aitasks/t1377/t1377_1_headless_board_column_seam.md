@@ -3,15 +3,14 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, board_columns, python, bash_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-04 09:54
-updated_at: 2026-08-05 09:03
+updated_at: 2026-08-05 09:57
 ---
-
-
 
 ## Context
 
