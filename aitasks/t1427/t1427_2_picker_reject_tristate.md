@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1427_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, aitask_monitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-05 17:18
-updated_at: 2026-08-05 17:18
+updated_at: 2026-08-05 23:52
 ---
 
 Picker-side reject action for t1427. Depends on t1427_1 (the store helper
