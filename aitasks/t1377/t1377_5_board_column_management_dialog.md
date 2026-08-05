@@ -8,8 +8,9 @@ labels: [aitask_board, board_columns, tui, custom_shortcuts]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-04 09:56
-updated_at: 2026-08-04 19:21
+updated_at: 2026-08-05 09:03
 ---
+
 
 
 
@@ -124,6 +125,22 @@ Grep for `collapsed_groups` in `.aitask-scripts/board/aitask_board.py` and `lib/
 
 Either way, do **not** pre-build group handling speculatively, and do not leave a
 note claiming an order that did not happen.
+
+### Shared `BINDINGS` / `check_action` region
+
+Three other tasks edit the same region; none blocks this one, but re-read before
+adding the `e` binding:
+
+- **`t1210_5_trail_move_to_column_commands`** (Ready) adds `m` / `M` to the
+  By-Trail view and touches the same `check_action` `bytrail` branches this child
+  gates `e` **hidden** in. No key conflict. It sits ahead of this child in the
+  queue, so expect its gating to be in place — rebase onto it.
+- **`t1268`** reworks By-Trail footer labels and the per-card hint line; t1210_5
+  already coordinates with it.
+- **`t1418_multirow_adaptive_footer_for_shortcut_discoverability`**
+  (`Implementing`) is reshaping the footer itself. This child adds a
+  footer-visible binding, so verify the label renders correctly under whatever
+  t1418 lands rather than against today's single-row footer.
 
 ## Verification Steps
 

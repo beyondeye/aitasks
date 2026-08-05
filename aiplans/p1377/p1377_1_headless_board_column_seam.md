@@ -121,6 +121,12 @@ move --root R --task N --column C
 `#!/usr/bin/env bash`, `set -euo pipefail`, per
 `aidocs/framework/shell_conventions.md`.
 
+**The wrapper writes nothing itself** — it is a thin CLI that execs the Python
+module, which owns every file write via `atomic_write_text`. So it needs no
+`lib/atomic_write.sh` sourcing and is out of scope for
+`t1396_fix_remaining_shell_temp_write_defects`'s truncate-then-write sweep. Keep it
+that way: if a shell-side write is ever added here, it becomes a t1396 surface.
+
 Per `aidocs/framework/aitasks_extension_points.md`: **no `ait` dispatcher entry**
 (the dispatcher is user-facing only; this is shelled out from a TUI) and **no
 code-agent allowlist entries** in `.claude/settings.local.json` / `.codex/rules/` /
@@ -158,6 +164,15 @@ Plus an `aitask_update.sh --boardcol` rejection test.
 `tests/test_board_persistence_seam.py`'s AST-parsed `EXPECTED_CALL_SITES` must stay
 green **unedited** — this child adds no `reload_and_save_board_fields` call site and
 moves none out of the board.
+
+## Shared file: `lib/work_report_gather.py`
+
+`t1243_8_boardgroup_field_and_model` (Ready) appends `"boardgroup"` to
+`BOARD_KEYS`, which flows into that file's empty-metadata probe. This child edits
+`load_columns()` and the `DEFAULT_COLUMNS` / `DEFAULT_ORDER` constants — different
+functions, no semantic conflict, and the writer here names
+`("boardcol", "boardidx")` explicitly so `BOARD_KEYS` growth cannot reach it.
+Same-file rebase only.
 
 ## Verification
 

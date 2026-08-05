@@ -8,8 +8,9 @@ labels: [aitask_board, tui]
 gates: [risk_evaluated]
 anchor: 1210
 created_at: 2026-07-22 16:17
-updated_at: 2026-07-28 01:18
+updated_at: 2026-08-05 09:03
 ---
+
 
 ## Context
 
@@ -70,6 +71,13 @@ task adds `m` / `M` to, and reworks the By-Trail footer labels and the
 per-card hint line at `TrailTaskCard.compose`. Whichever lands second must
 rebase onto the other's gating and label changes. Neither blocks the other,
 but do not develop them in parallel on that region without checking.
+
+`t1377_5_board_column_management_dialog` also edits `KanbanApp.BINDINGS` and the
+`check_action` gating this task touches: it adds **`e`** (column-management
+dialog) and gates it **hidden in `bytrail`** — the same branch this task adds
+`m` / `M` to. **No key conflict** (`e` vs `m` / `M`), and neither blocks the
+other, but whichever lands second rebases onto the other's gating. t1377_5 sits
+behind `t1377_1 -> 2 -> 3 -> 4`, so this task will normally land first.
 
 Note also that step 4 of the implementation plan above ("refresh the
 underlying task set so a subsequent view switch shows the moves") overlaps

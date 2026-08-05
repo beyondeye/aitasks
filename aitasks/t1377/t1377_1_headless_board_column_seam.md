@@ -8,8 +8,9 @@ labels: [aitask_board, board_columns, python, bash_scripts]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-04 09:54
-updated_at: 2026-08-04 10:58
+updated_at: 2026-08-05 09:03
 ---
+
 
 
 ## Context
@@ -145,6 +146,15 @@ helpers). Follow `aidocs/framework/shell_conventions.md`: `#!/usr/bin/env bash`,
 Today an unknown id yields a task in no column at all. Validate after `parse_args`,
 exactly as `--anchor` already does via `normalize_anchor_id`, and fail with a clear
 message naming the valid ids.
+
+### Shared file: `lib/work_report_gather.py`
+
+`t1243_8_boardgroup_field_and_model` (Ready) also edits this file — it appends
+`"boardgroup"` to `BOARD_KEYS`, which flows into the **empty-metadata probe**.
+This child edits `load_columns()` and the `DEFAULT_COLUMNS` / `DEFAULT_ORDER`
+constants. **Different functions, so no semantic conflict** — and this child's
+writer names `("boardcol", "boardidx")` explicitly, so a growing `BOARD_KEYS`
+cannot reach it. Purely a same-file rebase; re-read before editing.
 
 ## Verification Steps
 

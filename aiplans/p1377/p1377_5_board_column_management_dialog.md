@@ -112,6 +112,16 @@ Grep for `collapsed_groups` in `.aitask-scripts/board/aitask_board.py` and `lib/
 Either way, do **not** pre-build group handling speculatively, and do not leave a
 note claiming an order that did not happen.
 
+## Shared `BINDINGS` / `check_action` region
+
+- **`t1210_5`** (Ready) adds `m` / `M` to By-Trail and touches the same
+  `check_action` `bytrail` branches this child gates `e` hidden in. No key
+  conflict; it sits ahead in the queue, so rebase onto its gating.
+- **`t1268`** reworks By-Trail footer labels / per-card hints (t1210_5 already
+  coordinates with it).
+- **`t1418`** (`Implementing`) is reshaping the footer itself — verify the new
+  binding's label under whatever it lands, not against today's single-row footer.
+
 ## Tests
 
 | Case | Assertion |
