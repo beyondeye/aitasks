@@ -769,3 +769,168 @@ feature no longer depends on a follow-up task landing to be correct in the
 presence of a running board. The other two inline phases add no new risk — the
 consumer sweep is read-only, and the split controls are tests whose mutations are
 in-process patches that restore themselves.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three inline phases ran, in order.
+  `sweep_column_picker_dismissal_consumers` enumerated the dismissal consumers
+  and gated the contract change. `reconcile_external_columns_at_save` closed the
+  stale-board overwrite **before** any UI shipped. Then: `generate_col_id`,
+  `next_palette_color`, `PALETTE_COLORS`, `PROJECT_KEYS` / `USER_KEYS`,
+  `_COLOR_RE`, `CreateOutcome`, `create_column`, `project_columns_at` and
+  `_read_project_config` in `lib/board_columns.py`; a `create` verb in the CLI
+  and its wrapper header; the de-dup across `aitask_board.py` and
+  `settings_app.py`; the tagged-tuple dismissal, `_NewColumnRow` and
+  `NewColumnTitleModal` in `monitor_shared.py`; and `_on_new_column_title` /
+  `_create_and_move` in `minimonitor_app.py`. `prove_layer_split_isolation`
+  closed with two one-mutation controls. New module
+  `tests/test_board_columns_reconcile.py` (19 tests); the seam module went
+  47 -> 75 tests, the pick module 87 -> 111, the CLI suite 72 -> 102.
+
+- **`sweep_column_picker_dismissal_consumers` result (pre-phase 1, required
+  record):** **16 real sites.** Six dismissal sites in `monitor_shared.py` — of
+  which only three carry a payload (`_ColumnRow.on_key`, and the OK button's
+  focused-row and row-0 arms); the other three are cancel-shaped and stay
+  `None`. Two production consumers in `minimonitor_app.py` (the callback lambda
+  and `_on_column_chosen`, the latter being the silent-failure site). Eight test
+  call sites in `tests/test_minimonitor_pick_by_number.py`.
+  **Four look-alike groups were deliberately EXCLUDED**, and that discrimination
+  is the whole point of the phase:
+  1. `ConfirmDialogDismissalTests`' `results` lists — they belong to
+     `TaskPickConfirmDialog` (`[None]`, `[("pick", True)]`), a different dialog;
+  2. `callback(("column", None))` — the **confirm** dialog's t1377_2 tuple,
+     already a tuple and easiest of all to conflate with the new picker one;
+  3. `_drive(app, results, ...)`'s `results` parameter — the
+     `column_cmd_results` subprocess queue, same word, unrelated;
+  4. the `_ColumnRow(...)._color` constructions and the `render` patch — colour
+     guard, not dismissal.
+  A blind find-and-replace on `("now")` or `results ==` would have corrupted the
+  first two groups.
+
+- **`reconcile_external_columns_at_save` measurement (required record):**
+  `project_columns_at` on the real 815-byte `board_config.json` costs
+  **0.0081 ms/call** — 123x under the 1 ms per-`save_metadata()` budget, and ~7x
+  cheaper than the layered load it deliberately avoids. Containment is asserted
+  two ways: per-edge (`_reconcile_external_columns` <- `save_metadata` only;
+  `project_columns_at` <- `_reconcile_external_columns` only) and transitively
+  (the union of everything that can reach the reload), plus a negative control
+  that injects a `refresh_board`-side call and asserts the scan catches it.
+
+- **Deviations from plan:**
+  - **`create_column` does not use `split_config` at all.** The plan said to
+    split the merged dict and write the project layer. Implementing that and then
+    writing its negative control showed the approach is *wrong*: `split_config`
+    routes a key in neither set to the **project** dict, so any top-level local
+    key other than `settings` would be copied into the tracked file. The writer
+    now reads the project layer raw, mutates it and writes it back — the merged
+    view is used only to *decide* the slug and palette colour. That makes the
+    leak structurally impossible instead of allowlist-dependent, and it also
+    preserves unrelated project keys for free.
+  - **`--color` validation was added** (plan review, user-raised). The plan had
+    no refusal policy for a direct-CLI colour. Added `_COLOR_RE` +
+    `InvalidColorError`, with the three-way `None` / `""` / value handling that
+    mirrors `--task`. Deliberately regex-based, not `rich.Color.parse`.
+  - The reconciliation was moved **into this task** as pre-phase 2 (user
+    decision) rather than spawned as an `after` mitigation, so the hole is closed
+    before the feature that opens it ships.
+  - `_read_project_config` added (not in the plan's sketch) so
+    `project_columns_at` and `create_column` share one raw reader.
+  - `_apply_column_move` now returns `bool` so `_create_and_move` can tell the
+    user the column exists when only the move failed.
+
+- **Issues encountered:**
+  - **The layered-write negative control found a real defect in my own code**
+    (the `split_config` leak above). The happy-path round-trip test passed
+    throughout; only the control — seeded with an *unclassified* local key —
+    exposed it. The plan's claim that "a happy-path creation test passes even
+    when the split is wrong" was correct, and more broadly than it stated.
+  - **A `settings`-only local layer re-serializes byte-identically**, so the
+    mirror control's `assertNotEqual(bytes)` passed vacuously at first. Byte
+    comparison cannot distinguish "never written" from "rewritten identically";
+    the fix was to seed a key a mirroring write actually drops, and to assert
+    that specific loss.
+  - **My first CSS comment named `_drop_narrow_rules`** — which contains the
+    substring that helper strips on, so it would have orphaned the comment's
+    opener and eaten the following real rule. Caught before it shipped by
+    running the stripper and asserting balanced `/*` `*/`. The plan warned about
+    this exact trap and I still walked into it; the test now asserts the
+    stripped CSS keeps a non-narrow rule *and* balanced comments, so a future
+    edit cannot reintroduce it silently.
+  - **`minimonitor_app` never imported `NewColumnTitleModal`** initially — the
+    same class of miss as t1377_2's missing `asyncio`.
+  - **A negative control was restored with `git checkout <file>`, which reverted
+    every change to `aitask_board.py`, not just the mutation.** All nine edits
+    had to be reapplied. Restore a control by undoing *only* the mutation.
+  - A later `git stash` (to check whether a shellcheck info predated this task)
+    swept a **concurrent session's** gate work along with mine. It popped
+    cleanly, but this checkout is worked on concurrently and `git stash` must not
+    be used here — `git show HEAD:<path>` answers the same question safely.
+
+- **Key decisions:**
+  - **Tagged tuple over a sentinel `col_id`.** A sentinel would flow into the
+    caller's `titles` lookup and could reach the seam as a real column id. Both
+    tuples are truthy, so consumers branch on the tag — which is precisely why
+    the pre-phase sweep gated the change.
+  - **`_NewColumnRow` subclasses `_ColumnRow`** so `_focus_neighbor`'s
+    `isinstance` scan and the focus loop keep working unchanged, and
+    `pick_result()` is the single place that knows each row's payload shape.
+  - **Writers refuse, readers degrade.** `create_column` refuses a malformed
+    colour; `column_records_at` still returns a hand-edited one and
+    `_safe_column_color` degrades it at render time. Pinned in one test so
+    neither stance can absorb the other.
+  - **`gray` must stay accepted.** It is this module's own `UNORDERED_COLOR` and
+    rich cannot parse it, so it is the row that fails if the validator is ever
+    "improved" into `Color.parse`.
+  - **Collision policy: keep the board's version and warn loudly**, naming both
+    titles. Aborting the save was rejected — it would discard the user's live
+    edit and re-fire on every later save with no way forward.
+  - The board keeps its own in-process `TaskManager.add_column`; only the
+    *vocabulary* is shared. Unifying the writers would mean reshaping
+    `save_metadata`, which is out of scope.
+  - **`ait settings` stays read-only about columns** (plan step 6, user scope).
+    A headless writer now exists, so that label is a stale claim rather than a
+    real limit — the change is filed as **t1404** (`depends: [t1377_3]`), which
+    imports the key sets from `lib/board_columns.py` as `PROJECT_KEYS` /
+    `USER_KEYS`.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:5748 — ColumnSelectItem.render() interpolates an unescaped column title AND an unvalidated colour into rich markup; a title containing '[/]' raises MarkupError inside the board. Recorded by t1377_2 and still open; this task narrows the exposure by refusing malformed colours at the new write site but does not fix the renderer.`
+  - `.aitask-scripts/board/aitask_board.py:5517 — ColorSwatch.render() interpolates an unvalidated colour into a rich markup tag, the same defect as ColumnSelectItem.`
+  - `.aitask-scripts/monitor/monitor_shared.py:1088 — _SiblingRow.render() interpolates an unescaped sibling task title into rich markup. Recorded by t1377_2, still open.`
+  - `.aitask-scripts/lib/config_utils.py:244 — save_project_config's docstring claims "Creates parent directories if they don't exist", which is true only because _prepare_atomic does the mkdir; the claim belongs to the helper, not this wrapper. Harmless today, misleading if the two ever diverge.`
+
+- **Notes for sibling tasks:**
+  - **Where the shared vocabulary now lives** (`.aitask-scripts/lib/board_columns.py`,
+    import flat from `lib/`): `PALETTE_COLORS` (8 `(hex, label)` pairs),
+    `PROJECT_KEYS` / `USER_KEYS` (the `board_config.json` layer split),
+    `generate_col_id(title, existing_ids)`, `next_palette_color(existing_colors)`,
+    `create_column(root, title, color=None, *, task_dir) -> CreateOutcome(col_id,
+    title, color, refused)`, `project_columns_at(config_path) -> (columns,
+    column_order)` reading the **project layer only**. New refusal reasons:
+    `empty_title`, `invalid_color`.
+    **For t1404:** `from board_columns import PROJECT_KEYS, USER_KEYS` — that is
+    exactly what `settings_app.py` now does, aliased to
+    `_BOARD_PROJECT_KEYS` / `_BOARD_USER_KEYS` so `save_board` is untouched.
+  - **Do NOT unify `stats/stats_config.py`'s `_USER_KEYS`.** It is a *different*
+    key set (`("active", "days", "week_start", "custom")`) for a different config
+    file that merely shares the name. A test pins that it is left alone and that
+    the two are not interchangeable — the de-dup here covered **two** sites, not
+    three.
+  - **For t1377_5 (board column management dialog):** every add/edit/delete/merge
+    path calls `save_metadata()` and therefore runs
+    `TaskManager._reconcile_external_columns` first. `_known_col_ids` is the
+    discriminator that stops a deletion being resurrected — a merge that removes
+    a column must leave it in `self._known_col_ids` until after the save (the
+    existing `delete_column` flow already does, since `_refresh_known_col_ids`
+    runs at the END of `save_metadata`). **Keep the reload off every continuous
+    path**: `tests/test_board_columns_reconcile.py` AST-scans for it, per-edge and
+    transitively, and holds a sub-1 ms per-save budget.
+  - **Concurrent simultaneous writers are NOT solved** and the reconciliation
+    must not be read as solving them. It narrows the *stale-reader* window only;
+    no lock is taken, so two interleaved read-modify-write cycles still lose one
+    update. That is the accepted policy, stated in the module docstring.
+  - **`markup=False` remains mandatory** for anything carrying a column title.
+    The create/move toasts are the fourth sink t1377_2 predicted.
+  - `_run_board_column_cmd` is still the single injectable subprocess seam;
+    `_mk_app`'s `column_cmd_results` queue and `run_worker` stub now drive the
+    create path too. Reuse them rather than building a parallel harness.
