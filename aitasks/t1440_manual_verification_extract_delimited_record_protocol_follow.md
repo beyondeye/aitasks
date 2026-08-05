@@ -19,3 +19,10 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1433
+
+## Verification Checklist
+
+- [ ] [t1433] `ait board` boots and renders its columns — t1433 put lib/record_protocol.py on the board's module-scope startup path via board_columns.py. Automated tests prove the import resolves and returns the stock three columns; they never launch the TUI.
+- [ ] [t1433] Column titles and colours render correctly on the board, including any title containing a `|`.
+- [ ] [t1433] `ait work-report` end-to-end, including the board's `w` flow — work_report_gather.py had 10 call sites renamed; its protocol bytes are pinned but the rendered report is not.
+- [ ] [t1433] `ait minimonitor` column move via the headless seam (aitask_board_column.sh move) — shares the edited module; only list-columns output changed, so this is a regression check.
