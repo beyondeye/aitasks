@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [docs, web_site]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-05 16:06
-updated_at: 2026-08-05 17:21
+updated_at: 2026-08-05 17:56
+completed_at: 2026-08-05 17:56
 ---
 
 Documentation gaps found by /aitask-docs-gap for the release window v0.30.0..HEAD.
@@ -67,3 +68,14 @@ decomposition time.
 > **✅ gate:plan_approved** run=2026-08-05T14:21:47Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-05T14:35:17Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-05T14:56:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4b1040f1f60a2b21
+
+> **✅ gate:risk_evaluated** run=2026-08-05T14:56:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1432/risk_evaluated_2026-08-05T14:56:43Z-risk_evaluated-a1.log`
