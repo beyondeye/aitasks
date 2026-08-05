@@ -137,7 +137,9 @@ clearly safe.
   creates only the spawned one, Step 8d creates nothing, inline entries appear
   as plan phases, and `aitask_gate_risk.sh` still passes the plan.
 - Confirm a plan with only inline mitigations does NOT trigger the Step 7
-  session-stop branch (`risk_before_created` stays false).
+  session-stop branch (`risk_before_blocking` — renamed from
+  `risk_before_created` during implementation review, since witnessed/adopted
+  unfinished mitigations must also stop the session — stays false).
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
