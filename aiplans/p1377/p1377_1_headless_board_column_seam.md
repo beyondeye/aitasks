@@ -524,7 +524,7 @@ stage explicit paths, check `git diff --cached` before committing, and never
 - The same unvalidated-column hole remains in the board's own
   `TaskManager.move_tasks_to_column`, so the framework would be left with two
   different validation stances for one field · severity: low ·
-  → mitigation: board_move_column_validation
+  → mitigation: t1431
 
 ### Goal-achievement risk: low
 
