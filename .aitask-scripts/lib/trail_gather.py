@@ -136,6 +136,9 @@ import trail_schema  # noqa: E402
 from archive_iter import find_archived_markdown_by_id  # noqa: E402
 from cross_repo_notation import parse_ref  # noqa: E402
 from gate_ledger import archive_status_from_text  # noqa: E402
+from record_protocol import (  # noqa: E402
+    INVALID_ENUM, enum_field, has_record_breaking, sanitize_last_field,
+)
 from task_yaml import BOARD_KEYS, parse_frontmatter  # noqa: E402
 from topic_semantics import topic_key  # noqa: E402
 
@@ -163,35 +166,28 @@ GATHERER_DRIFT_CODES = frozenset({
 TASK_FILE_RE = re.compile(r"^t(\d+(?:_\d+)?)_")
 PLAN_REF_RE = re.compile(r"^([a-z0-9_-]+):([^:].*)$")
 
-_RECORD_BREAKING = ("|", "\r", "\n")
-INVALID_ENUM = "invalid"
-UNKNOWN_ENUM = "unknown"
-
-
-# --- Delimiter safety (parity with work_report_gather's pinned policy) ------
-
-def _has_record_breaking(value: str) -> bool:
-    return any(ch in value for ch in _RECORD_BREAKING)
-
-
-def _free_text(value: str) -> str:
-    """Sanitize a free-text LAST field: '|' survives (maxsplit), CR/LF cannot."""
-    return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
-
-
-def _enum_field(value) -> str:
-    """A fixed-position enum-ish field: absent -> `unknown`, unsafe -> `invalid`."""
-    if value is None or value == "":
-        return UNKNOWN_ENUM
-    text = str(value)
-    return INVALID_ENUM if _has_record_breaking(text) else text
+# --- Delimiter safety -------------------------------------------------------
+#
+# The protocol has no escaping engine, so a value that can contain '|', CR or LF
+# would make the record boundary undecidable. Refs, task metadata and drift
+# details all come from user-editable task YAML, so none of them is pipe-free by
+# construction -- each field class gets an explicit, tested policy instead of an
+# assumption.
+#
+# That policy lives in lib/record_protocol.py (t1433), which this module used to
+# carry a private copy of -- byte-identical to work_report_gather's. `_csv_entry`
+# stays HERE because it adds a fourth reserved character (',') that only this
+# module's csv-encoded list fields need. `_die` and the `trail_gather: ` prefix
+# stay HERE too: a library path must not sys.exit, and the prefix is pinned (with
+# a negative control) by the InfraExitCharacterizationTests section of
+# tests/test_trail_gather.py.
 
 
 def _csv_entry(value) -> str:
     """One member of a csv-encoded list field: ','/'|'/CR/LF -> `invalid`.
     Line transport only -- the digest always hashes the raw value."""
     text = str(value)
-    if "," in text or _has_record_breaking(text):
+    if "," in text or has_record_breaking(text):
         return INVALID_ENUM
     return text
 
@@ -203,7 +199,7 @@ def _die(msg: str, code: int) -> None:
 
 def emit_errors(out, errors: list[str]) -> None:
     for error in errors:
-        print(f"ERROR:{_free_text(error)}", file=out)
+        print(f"ERROR:{sanitize_last_field(error)}", file=out)
 
 
 # --- Ref layer --------------------------------------------------------------
@@ -477,7 +473,7 @@ def stable_records(scan_fn, max_scans: int = STABLE_READ_MAX_SCANS):
 # --- Line emission ----------------------------------------------------------
 
 def _validated_ref_field(ref: str) -> str:
-    if _has_record_breaking(ref):
+    if has_record_breaking(ref):
         _die(f"ref {ref!r} contains '|', CR or LF and cannot round-trip "
              "through the protocol", EXIT_INFRA)
     return ref
@@ -489,10 +485,10 @@ def input_line(record: dict) -> str:
     if record["kind"] == "task_file":
         depends = ",".join(_csv_entry(d) for d in record.get("depends", []))
         gates = ",".join(_csv_entry(g) for g in record.get("gates_pending", []))
-        status = _enum_field(record.get("status"))
+        status = enum_field(record.get("status"))
         return f"INPUT:task_file|{exists}|{status}|{depends}|{gates}|{ref}"
     content_hash = record.get("content_hash") or "-"
-    return f"INPUT:{record['kind']}|{exists}|{_enum_field(content_hash)}|{ref}"
+    return f"INPUT:{record['kind']}|{exists}|{enum_field(content_hash)}|{ref}"
 
 
 def member_line(row: TaskRow) -> str:
@@ -502,12 +498,12 @@ def member_line(row: TaskRow) -> str:
     labels_csv = ",".join(
         _csv_entry(l) for l in labels) if isinstance(labels, list) else ""
     return ("MEMBER:" + ref
-            + f"|{_enum_field(meta.get('status'))}"
-            + f"|{_enum_field(meta.get('priority'))}"
-            + f"|{_enum_field(meta.get('effort'))}"
-            + f"|{_enum_field(meta.get('boardcol'))}"
+            + f"|{enum_field(meta.get('status'))}"
+            + f"|{enum_field(meta.get('priority'))}"
+            + f"|{enum_field(meta.get('effort'))}"
+            + f"|{enum_field(meta.get('boardcol'))}"
             + f"|{labels_csv}"
-            + f"|{_free_text(str(row.path))}")
+            + f"|{sanitize_last_field(str(row.path))}")
 
 
 # --- snapshot verb ----------------------------------------------------------
@@ -923,7 +919,7 @@ def cmd_drift(args, out=None) -> int:
 
     def add(code: str, task: str, detail: str) -> None:
         assert code in GATHERER_DRIFT_CODES
-        reasons.append((code, task, _free_text(detail)))
+        reasons.append((code, task, sanitize_last_field(detail)))
 
     # -- Per-input reasons: only meaningful when the digest moved (an equal
     #    digest proves the recomputed records are identical to generation).

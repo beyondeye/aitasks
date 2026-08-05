@@ -8,9 +8,10 @@ set with every code producible (D), the driftable-input rule (D2),
 plan-identity fixtures (E), presence tracking (F), protocol determinism +
 delimiter safety (G), the read-only guarantee (H), cross-repo resolution and
 qualified-key collisions (I), the real .sh entry point including mandatory
-positive artifact-handle resolution (J), the board-seam extraction guard (K),
-the stable-read policy (L), and the schema/normalization version-lock
-tripwire (M).
+positive artifact-handle resolution (J), the fail-closed EXIT_INFRA path and
+its `trail_gather: ` message ownership on both verbs (J2), the board-seam
+extraction guard (K), the stable-read policy (L), and the
+schema/normalization version-lock tripwire (M).
 
 Run: python3 -m unittest tests.test_trail_gather -v
   or: bash tests/run_all_python_tests.sh
@@ -145,6 +146,15 @@ class TrailGatherCase(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = trail_gather.main(list(argv))
         return out.getvalue(), rc
+
+    def run_wrapper(self, *argv: str) -> subprocess.CompletedProcess:
+        """The real .sh entry point. Lives on the base case rather than on
+        WrapperIntegrationTests because the exit status and the stderr prefix
+        are only observable at this boundary, and section J2 pins them too."""
+        return subprocess.run(
+            [str(WRAPPER), *argv], capture_output=True, text=True,
+            cwd=self.repo.root, env=os.environ.copy(), timeout=120,
+        )
 
     def snapshot(self, *argv: str) -> dict:
         out, rc = self.run_cli("snapshot", *argv)
@@ -952,7 +962,7 @@ class DeterminismTests(TrailGatherCase):
                          [(("plan_changed", "a#1"), "aaa detail")])
 
     def test_drift_detail_crlf_collapsed(self):
-        self.assertEqual(trail_gather._free_text("a\r\nb\nc"), "a b c")
+        self.assertEqual(trail_gather.sanitize_last_field("a\r\nb\nc"), "a b c")
 
 
 # --- H. Read-only guarantee --------------------------------------------------
@@ -1053,12 +1063,6 @@ class CrossRepoTests(TrailGatherCase):
 
 
 class WrapperIntegrationTests(TrailGatherCase):
-    def run_wrapper(self, *argv: str) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [str(WRAPPER), *argv], capture_output=True, text=True,
-            cwd=self.repo.root, env=os.environ.copy(), timeout=120,
-        )
-
     def test_snapshot_and_drift_roundtrip(self):
         self.repo.write_task("100", "root")
         proc = self.run_wrapper("snapshot", "--scope", "task", "100")
@@ -1133,6 +1137,132 @@ class WrapperIntegrationTests(TrailGatherCase):
         self.assertEqual(proc2.returncode, 0)
         self.assertTrue(proc2.stdout.startswith("ERROR:invalid_trail:"),
                         proc2.stdout)
+
+
+# --- J2. Fail-closed infra path (characterization) ---------------------------
+
+
+#: `EXIT_INFRA` in lib/trail_gather.py -- the fail-closed status the trail
+#: protocol distinguishes from a usage error (2) and success (0). Kept as an
+#: independent literal on purpose: importing `trail_gather.EXIT_INFRA` would
+#: make this suite agree with whatever the module does rather than with the
+#: protocol contract.
+EXIT_INFRA = 3
+
+#: The complete stderr of the fatal path below, observed by probing the real
+#: wrapper (t1436 pre-phase). The config path is relative because
+#: `_local_dirs()` defaults to `aitasks/` and TrailGatherCase clears TASK_DIR,
+#: so the whole stream is deterministic -- no `require_ait_python` preamble, no
+#: second line. Pinning the WHOLE stream rather than a prefix is what keeps the
+#: message-ownership contract unambiguous: any future wrapper output fails this
+#: loudly instead of silently widening what "the prefix is ours" means.
+EXPECTED_INFRA_STDERR = (
+    "trail_gather: aitasks/metadata/project_config.yaml: "
+    "missing project.name\n"
+)
+
+
+class InfraExitCharacterizationTests(TrailGatherCase):
+    """`EXIT_INFRA` (3) and the `trail_gather: ` stderr prefix, both verbs.
+
+    **Why this file needs it.** t1436 rewired this module's delimiter-safety
+    block onto the shared lib/record_protocol.py. `_die` and the
+    `trail_gather: ` prefix stay in trail_gather on purpose -- a library path
+    must not sys.exit inside a TUI -- and until t1436 *nothing anywhere* pinned
+    either the status or the prefix. This drives the real
+    aitask_trail_gather.sh, the only boundary where both are observable.
+
+    Deliberately a **sibling** of `WrapperIntegrationTests`, not a subclass:
+    subclassing would silently re-run that class's tests under a second name
+    (the point tests/test_work_report_columns_characterization.py spells out at
+    its `UnorderedPopulatedTests`).
+    """
+
+    CONFIG = ("aitasks", "metadata", "project_config.yaml")
+
+    def _break_project_config(self) -> None:
+        """Remove `project.name` -- the one mutation these tests make.
+
+        Reaches `trail_gather.local_project_name` -> `_die(..., EXIT_INFRA)`
+        deterministically, and it is the *only* difference between a passing
+        and a failing run in every test below.
+        """
+        (self.repo.root.joinpath(*self.CONFIG)
+         ).write_text("project:\n  other: x\n", encoding="utf-8")
+
+    # -- snapshot verb --------------------------------------------------------
+
+    def _run_snapshot(self) -> subprocess.CompletedProcess:
+        self.repo.write_task("100", "root")
+        self._break_project_config()
+        return self.run_wrapper("snapshot", "--scope", "task", "100")
+
+    def test_missing_project_name_exits_infra(self):
+        self.assertEqual(self._run_snapshot().returncode, EXIT_INFRA)
+
+    def test_fatal_path_emits_no_protocol_lines(self):
+        """A fatal path must not emit a partial stream."""
+        self.assertEqual(self._run_snapshot().stdout, "")
+
+    def test_message_carries_the_trail_gather_prefix(self):
+        """Whole-stream pin: the prefix AND the message body.
+
+        Asserting the body too is what names *this* `_die` call site rather
+        than accepting any EXIT_INFRA -- `cmd_drift` has a second `_die` (the
+        version lock) that a prefix-only assertion would happily accept.
+        """
+        self.assertEqual(self._run_snapshot().stderr, EXPECTED_INFRA_STDERR)
+
+    def test_prefix_assertion_discriminates(self):
+        """Negative control for the assertion above.
+
+        If the t1433 rewiring let the shared module's name own this message,
+        the prefix would change. Asserting only that the message is ours cannot
+        by itself prove the check is live -- so pin the *absence* of the
+        plausible replacement too. A run in which BOTH hold is the only passing
+        state.
+        """
+        proc = self._run_snapshot()
+        self.assertNotIn("record_protocol:", proc.stderr)
+        self.assertNotEqual(proc.stderr.strip(), "")
+
+    def test_a_valid_config_is_not_rejected(self):
+        """Positive control: the fatal path is reached by the bad config only."""
+        self.repo.write_task("100", "root")
+        proc = self.run_wrapper("snapshot", "--scope", "task", "100")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    # -- drift verb -----------------------------------------------------------
+
+    def test_drift_verb_shares_the_infra_contract(self):
+        """The same three pins on the OTHER entry path into `local_project_name`.
+
+        **The ordering here is load-bearing.** `cmd_drift` calls
+        `local_project_name()` BEFORE it checks that `--trail` exists and before
+        `trail_schema.load_trail()`. So a missing, unreadable or schema-invalid
+        trail exits 3 with the *identical* message, and a carelessly-built test
+        would pass while proving nothing about the valid-trail path. Hence: the
+        trail is built and proven live while the config is still valid, and
+        breaking the config is the single mutation between the two runs.
+        """
+        self.repo.write_task("100", "root")
+        snap = self.snapshot("--scope", "task", "100")
+        trail = self.make_trail(snap)
+
+        # Positive control BEFORE any mutation: this exact trail is schema-valid
+        # and this exact path yields a verdict. Without it the exit-3 below
+        # would be unattributable -- invalid_trail looks the same from outside.
+        ok = self.run_wrapper("drift", "--trail", str(trail))
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(ok.stdout.splitlines()[0], "CURRENT")
+
+        self._break_project_config()
+
+        proc = self.run_wrapper("drift", "--trail", str(trail))
+        self.assertEqual(proc.returncode, EXIT_INFRA)
+        self.assertEqual(proc.stdout, "")
+        self.assertEqual(proc.stderr, EXPECTED_INFRA_STDERR)
+        self.assertNotIn("record_protocol:", proc.stderr)
 
 
 # --- K. Board seam guard -----------------------------------------------------
