@@ -30,18 +30,22 @@ specific coding agents.
 
 ### A. Board feature docs (`website/content/docs/tuis/`)
 
-The board page(s) — groups, marking, bulk move, and the new keys. Cover:
+The board page(s) — groups and the new keys. Cover:
 
 - **Task groups**: what a group is (a named, ordered collection inside one
   column), that membership lives in the task file as `boardgroup`, that a group
   expands/collapses and moves as a block, and that collapse state is per-user.
-- **Marking**: `space` toggles `☑` / `☐`; marks feed the bulk commands; child
-  tasks move with their parent and cannot be marked.
-- **Bulk move**: `m` moves the marked set (or the focused card) to a column, via
-  the task-select subdialog when a column is focused.
 - **Group commands**: `G`, and the command-palette entries.
 - **`x`** now expands/collapses "the thing under focus" — children on a card,
   the group on a header.
+
+> **Scope narrowed.** Marking (`space`, `☑`/`☐`) and bulk move-to-column (`m`)
+> were documented by **t1432**, which covered the shipped board surfaces while
+> this child was still blocked behind `t1243_12`. This child now covers only
+> task groups, `G`, the group palette entries, `x`-on-header, and the
+> `boardgroup` frontmatter surfaces in section B. Build on the marking and
+> bulk-move prose already on the board how-to / reference pages rather than
+> re-introducing it.
 
 Do **not** document `diffviewer` or add it to any list of TUIs (project note in
 `CLAUDE.md`).

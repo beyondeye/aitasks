@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: documentation
@@ -29,8 +31,9 @@ decomposition time.
 ## Gap: Board bulk move-to-column command (t1243_7)
 
 - **Target doc page(s):** `website/content/docs/tuis/board/reference.md` (keybinding table + command palette), `website/content/docs/tuis/board/how-to.md`
-- **What shipped:** `m` (`Binding("m", "move_to_column", "Move to Col", show=False)`) moves the marked task(s) — or, with nothing marked, the focused card — to a column chosen from a picker. The binding is deliberately hidden from the footer (the footer is already full at 200 columns); discovery is the `?` shortcuts editor and two new command-palette entries: **"Move Tasks to Column"** and **"Clear Selection"** (`action_clear_marks`, unmark everything). Because marks survive a filter pass, a marked-but-hidden selection triggers a **review step first** — the board lists what will move, in board order, before offering the destination picker. The destination list excludes collapsed columns and the column the whole selection already sits in; when nothing is left it says so instead of opening an empty picker. Child cards refuse with the same explanatory notification as marking. Disabled in the `inflight` / `bytopic` / `bytrail` views, re-checked inside the action because the palette invokes `action_*` directly.
-- **What to write:** Document `m` in the keybinding reference (noting it is not shown in the footer and why discovery is via `?` / the palette), add the two palette entries to whatever palette listing the reference carries, and add a how-to section for the bulk-move flow: mark cards → `m` → review list → pick destination. Cover the parent-only restriction, the review-before-move step for hidden marked cards, and the "nowhere to move to" case.
+- **What shipped:** `m` (`Binding("m", "move_to_column", "Move to Col")`) moves the marked task(s) — or, with nothing marked, the focused card — to a column chosen from a picker. The binding is footer-visible: t1418's multi-row adaptive footer removed the `show=False` this binding originally carried, so the board now shows it down to ~160 columns. `check_action` still hides it in the `inflight` / `bytopic` / `bytrail` views. Two command-palette entries accompany it: **"Move Tasks to Column"** and **"Clear Selection"** (`action_clear_marks`, unmark everything). Because marks survive a filter pass, a marked-but-hidden selection triggers a **review step first** — the board lists what will move, in board order, before offering the destination picker. The destination list excludes collapsed columns and the column the whole selection already sits in; when nothing is left it says so instead of opening an empty picker. Child cards refuse with the same explanatory notification as marking. The view gate is re-checked inside the action because the palette invokes `action_*` directly.
+- **What to write:** Document `m` in the keybinding reference with its view scoping, add the two palette entries to whatever palette listing the reference carries, and add a how-to section for the bulk-move flow: mark cards → `m` → review list → pick destination. Cover the parent-only restriction, the review-before-move step for hidden marked cards, and the "nowhere to move to" case.
+- **Scope:** this task documents board marking and bulk move; the remaining board documentation (task groups, `G`, `x`-on-header, and the `boardgroup` frontmatter surfaces) stays with **t1243_13**, which was narrowed to match.
 - **Sources:** `aiplans/archived/p1243/p1243_7_move_to_column_command.md`; commits: 8b0e63a3e
 
 ## Gap: Concern-picker unparsed view and narrow-width adaptation missing from the monitor docs (t1293)
