@@ -152,3 +152,8 @@ Then refresh live rendered variants: `./.aitask-scripts/aitask_skill_rerender.sh
 - **Requested by user:** A drop-only stale-witness recovery left both creation partitions empty and returned before step 3 could unwire the vanished ID (Parts 2 and 3), and the replacement expressions did not show the subtraction.
 - **Changes made:** `dropped_stale_ids` is now a third work partition in both Parts; the early return fires only when all three partitions are empty; the drop-only case explicitly routes through the step-3 subtraction; both bash replacement expressions now show `- dropped_stale_ids`.
 - **Files affected:** `.claude/skills/task-workflow/risk-mitigation-followup.md`, regenerated golden, tracked `-remote-` rendered variants.
+
+### Change Request 8 (2026-08-05 09:52)
+- **Requested by user:** The Drop branch committed `created: dropped` (erasing t<old>) before the step-3 unwiring; a crash at that boundary permanently lost the ID and left the task spuriously blocked.
+- **Changes made:** The terminal marker now retains the ID — `created: dropped(t<old>)` — and both Parts re-collect embedded IDs into `dropped_stale_ids` on every run, making the step-3 subtraction idempotent and self-healing across interruptions. The Drop branch documents why the plan-commit-first ordering is safe under the new marker. Schema, prompt option text, and Part 3 references updated.
+- **Files affected:** `.claude/skills/task-workflow/risk-mitigation-followup.md`, regenerated golden, tracked `-remote-` rendered variants.
