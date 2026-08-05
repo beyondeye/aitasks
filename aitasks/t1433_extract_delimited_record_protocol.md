@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-05 16:07
-updated_at: 2026-08-05 16:07
+updated_at: 2026-08-05 16:09
 ---
 
 ## Origin
