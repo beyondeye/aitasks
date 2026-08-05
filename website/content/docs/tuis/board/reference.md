@@ -49,8 +49,10 @@ depth: [advanced]
 | `Shift+Down` | Swap task with one below | Board (parent cards only) |
 | `Ctrl+Up` | Move task to top of column | Board (parent cards only) |
 | `Ctrl+Down` | Move task to bottom of column | Board (parent cards only) |
+| `m` | Move the marked task(s) — or the focused card — to a column | Board (parent cards only; hidden in In-Flight, By-Topic and By-Trail views) |
 | `n` | Create a new task | Board |
 | `x` | Toggle expand/collapse child tasks | Board (parent or child card) |
+| `Space` | Mark / unmark the focused task (`☑` / `☐`) | Board (parent cards only; hidden in In-Flight, By-Topic and By-Trail views) |
 | `c` | Commit focused modified task | Board (shown when task is modified) |
 | `C` | Commit all modified tasks | Board (shown when any task is modified; hidden in By-Trail view) |
 | `p` | Pick the focused task (start implementation) | Board (context-dependent — shown when task is pickable) |
@@ -87,7 +89,7 @@ depth: [advanced]
 
 ```
 ┌─────────────────────────────────┐  ← Border color = priority
-│ t47 *  playlists support        │  ← Task number (cyan), * if modified (orange), title (bold)
+│ ☐ t47 *  playlists support      │  ← Mark (☑ marked / ☐ unmarked), task number (cyan), * if modified (orange), title (bold)
 │ 💪 medium | 🏷️ ui,api | GH | PR:GH | @alice │  ← Effort, labels, issue/PR indicator, contributor
 │ 🔒 alice@example.com            │  ← Lock indicator (if locked)
 │ 🚫 blocked | 👤 alice           │  ← Status/blocked, assigned to
@@ -367,6 +369,8 @@ For details on the underlying lock mechanism, see the [`ait lock` command refere
 | **Task Detail** | `Enter` on card / double-click | View/edit task metadata, lock status, pull request link, contributor info, and content; access Pick, Lock, Unlock, Save, Revert, Edit, Delete, Close buttons |
 | **Column Edit** | Command palette "Add/Edit Column" / click `✎` in column header | Set column title and color |
 | **Column Select** | Command palette "Edit/Delete/Collapse/Expand Column" | Pick which column to act on |
+| **Move Tasks to Column** | `m` with tasks marked / command palette "Move Tasks to Column" | Review which marked tasks will move, in board order, before a destination is chosen |
+| **Column Select (Move to)** | Confirming the review, or `m` on a single focused card | Pick the destination column (collapsed columns and the column the whole selection already occupies are omitted) |
 | **Delete Column Confirm** | After selecting column to delete | Confirm column deletion; warns about task count |
 | **Commit Message** | `c` or `C` key | Enter commit message for modified task(s) |
 | **Delete Confirm** | "Delete" button in task detail | Confirm task deletion; lists all files to be removed |

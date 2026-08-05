@@ -29,11 +29,12 @@ Run this from within a tmux session you already have open. Monitor attaches to t
 
 ### How to Read the Pane List
 
-The pane list zone groups the tmux session's windows into three categories:
+The pane list zone renders two sections:
 
-- **Agents** — windows whose names start with a configured agent prefix (default `agent-`). These are running code agents started via `ait codeagent`. When the window name contains a task ID (e.g., `agent-t42-<...>`), the card shows the task number.
-- **TUIs** — windows whose names are in the configured TUI list (board, codebrowser, settings, monitor, minimonitor, brainstorm), or whose names start with `brainstorm-`.
-- **Others** — shells, logs, and anything else.
+- **`CODE AGENTS (N)`** — windows whose names start with a configured agent prefix (default `agent-`). These are running code agents started via `ait codeagent`. When the window name contains a task ID (e.g., `agent-t42-<...>`), the card shows the task number.
+- **`OTHER (N)`** — shells, logs, and any other window that is not an agent.
+
+Each section appears only when it has something in it. Windows classified as TUIs — those in the configured TUI list (board, codebrowser, settings, monitor, minimonitor, brainstorm) or starting with `brainstorm-` — are **not** listed in either section, and neither are companion panes (a minimonitor sidebar, or a shadow agent). See [Pane Classification](reference/#pane-classification) in the reference for the classification rules themselves.
 
 Each card shows:
 
@@ -192,6 +193,10 @@ A shadow agent that reviews a plan emits a structured **concern block** alongsid
 Monitor reads the bound shadow pane, parses the block, and opens a checklist modal. Each concern is tagged with a priority (`high` / `medium` / `low`) and the plan region it refers to. Tick the ones you want, confirm, and monitor copies them with a short preamble to your clipboard. Nothing is written to the clipboard until you confirm, and monitor never types into the agent itself: you stay the driver.
 
 The list is split into **Needs addressing** and **Informational**. Informational findings are dimmed; **a** selects or clears only the actionable ones, while **A** takes everything. Neither header appears when there are no informational findings. If some marker lines in the block could not be parsed, the modal says how many, and if *none* of them parsed you get a message saying so rather than a misleading "no concerns".
+
+**Seeing what was lost.** When that warning appears, press **u** to open a read-only view of the exact lines the parser could not use, together with the raw block they came from. That is what lets you tell a marker the shadow wrapped across too many rows from a genuine mistake in what it wrote — and report the latter. When *no* line parsed there is no checklist to show the warning beside, so **u**'s view opens straight away instead. Press **q** or **Esc** to close it and return to the checklist with your ticks intact.
+
+The picker sizes itself from its own measured width, so a monitor running in a narrow terminal gets the compact treatment too: at 30 columns and below it drops its OK/Cancel buttons and switches to a compact key hint (confirm with **Enter**, cancel with **Esc**). 24 columns is the narrowest width it is designed for — below that the concern block's own markers wrap in the shadow pane and there is nothing left to parse.
 
 If the selected agent has no shadow bound, monitor tells you so — and points you at **e** to launch one. If the shadow has not emitted a block yet, it says that instead.
 

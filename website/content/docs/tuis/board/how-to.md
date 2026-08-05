@@ -26,6 +26,58 @@ Task positions are stored in the `boardidx` field of each task file's frontmatte
 
 > **Note:** Child tasks cannot be moved between columns or reordered — only parent tasks can be repositioned.
 
+### How to Mark Tasks
+
+Marking selects a set of tasks for a bulk operation.
+
+1. Focus a parent task card
+2. Press **Space** to mark it, and **Space** again to unmark
+
+Every parent card carries a mark glyph at the start of its title row — **☑** when marked, **☐** when not — so the column is always present and rows never shift as you toggle. Marked cards are drawn in bold yellow.
+
+Only parent cards can be marked. Pressing **Space** on a child says so rather than doing nothing silently:
+
+```
+Child tasks move with their parent — mark the parent instead.
+```
+
+Marking is unavailable in the In-Flight, By-Topic and By-Trail views, which render derived, non-reorderable lanes — the key is hidden from the footer there.
+
+**Marks survive filtering.** Typing in the search box or toggling the Git (**g**) / Type (**t**) add-on filters leaves your marks intact, so a marked card may be hidden from view right now. That is deliberate — it is why a bulk move always shows you what it is about to act on. Switching the *base* view (**a** / **l** / **f** / **i** / **y** / **z**) does clear the marks.
+
+If a marked task leaves the board entirely — archived by another session, say — the next refresh drops it from the selection and tells you, rather than shrinking your selection invisibly:
+
+```
+Unmarked 2 task(s) no longer on the board: t51_foo.md, t63_bar.md
+```
+
+To unmark everything at once, open the command palette (**Ctrl+Backslash**) and select **"Clear Selection"**.
+
+### How to Move Several Tasks at Once
+
+1. Mark the tasks you want to move (**Space** on each)
+2. Press **m**
+3. Review the list of tasks that will move, then confirm
+4. Pick the destination column
+
+With nothing marked, **m** acts on the focused card alone and skips the review — the target is unambiguous and visible by construction. With a column placeholder focused instead of a card, **m** scopes to every task in that column, including ones the active filter is hiding.
+
+**The review step always runs when tasks are marked**, because marks survive a filter pass and a marked card may be off-screen. The dialog lists each task in rendered board order as `[Backlog] t47 playlists support` — source column, task number, title. Every row starts ticked; press **Space** to untick one, **Enter** to confirm, **Esc** to cancel.
+
+The destination list omits collapsed columns, and — when the whole selection already sits in one column — that column too. A column only *some* of the selection occupies stays on the list, since consolidating there is a real move. If nothing is left to choose:
+
+```
+Nowhere to move to — every other column is collapsed, and the selection already sits where it is.
+```
+
+Moved tasks are appended to the bottom of the destination column in the same order you reviewed them, and focus follows the last one. Child cards refuse as they do for marking:
+
+```
+Child tasks move with their parent — move the parent instead.
+```
+
+> **Note:** The move is all-or-nothing. If any task in the selection has left the board since you marked it, nothing is written — press **r** to refresh, then retry.
+
 ### How to Customize Columns
 
 {{< static-img src="imgs/aitasks_board_customize_column.svg" alt="Column edit dialog with title input and color palette" caption="The column edit dialog lets you set a title and choose a color" >}}
@@ -40,6 +92,7 @@ The column operations — add, edit, delete, reorder, collapse, expand — are a
 | Reorder column | Focus any card in the column → **Ctrl+Right** / **Ctrl+Left** | — | — |
 | Collapse column | Focus any card in the column → **X** (Shift+X) | Click `▼` arrow in column header | "Collapse Column" → pick column |
 | Expand collapsed column | Focus the placeholder → **X** (Shift+X) | Click `▶` arrow in collapsed header | "Expand Column" → pick column |
+| Move marked tasks to a column | Mark with **Space** → **m** → review → pick column | — | "Move Tasks to Column" (and "Clear Selection" to unmark everything) |
 
 Notes:
 

@@ -31,7 +31,7 @@ ait setup
    Setup also has two further **opt-in dependency tiers**, neither installed by default. Each is remembered after the first opt-in, so later plain `ait setup` runs revalidate and repair it:
 
    - `ait setup --with-chat` — the chat adapter SDKs (`discord.py`, `slack-bolt`, `slack-sdk`)
-   - `ait setup --with-dev` — `pytest` and `pytest-xdist`, which give the Python test suite a parallel lane. Contributors only; the suite runs on the standard library's `unittest` without them
+   - `ait setup --with-dev` — `pytest` and `pytest-xdist`, which give the Python test suite a parallel lane. Contributors only; the suite runs on the standard library's `unittest` without them — see [Testing Changes]({{< relref "/docs/development" >}}#testing-changes) for the lane's environment knobs and how to opt out
 8. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
 10. **Version check** — Compares local version against latest GitHub release and suggests update if newer

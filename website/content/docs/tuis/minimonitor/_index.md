@@ -7,7 +7,7 @@ maturity: [stable]
 depth: [intermediate]
 ---
 
-`ait minimonitor` is a narrow (~40 column) sidebar TUI that lists every running code agent across every aitasks tmux session on the current tmux server, with idle indicators and a companion-pane focus model. It is the agents-only cousin of [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}): no preview panel, no TUI/other pane categories — just the running agents in a compact column designed to sit next to a code pane while you work.
+`ait minimonitor` is a narrow (~40 column) sidebar TUI that lists every running code agent across every aitasks tmux session on the current tmux server, with idle indicators and a companion-pane focus model. It is the compact cousin of [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}): no preview panel and no keystroke forwarding — agents first, any other pane in a short section below them, in a column designed to sit next to a code pane while you work.
 
 Minimonitor is **meant to be auto-spawned** alongside every code agent you launch from the ait TUIs. You rarely need to start it yourself — whenever a new agent window is created, the launching TUI also splits a minimonitor pane next to it, and minimonitor closes itself automatically when the agent pane exits. Manual launch via `ait minimonitor` is supported but is an escape hatch rather than the primary workflow.
 
@@ -27,12 +27,14 @@ Minimonitor is the persistent sidebar companion of a code agent pane. It gives y
 |--------|---------------|-------------------|
 | Width | Full window | ~40 columns (configurable) |
 | Shows agents | Yes, across all aitasks tmux sessions (default) | Yes, across all aitasks tmux sessions (default) |
-| Shows TUIs and other panes | Yes | No |
+| Shows non-agent panes | Yes, under an `OTHER (N)` header | Yes, under a `── other (n) ──` header |
 | Preview zone with keystroke forwarding | Yes | No |
 | Multi-session toggle | `M` (in-memory, per-TUI) | `M` (in-memory, per-TUI) |
 | Session grouping | `── session ──` dividers + inline `[project]` tag on each row | `── session ──` dividers only |
 | Intended placement | Its own tmux window | A side split inside an agent window |
 | TUI switcher (`j`) | Yes | Yes |
+
+Windows classified as TUIs (board, codebrowser, settings, brainstorm, and the monitors themselves) are listed by neither TUI, and companion panes — a minimonitor sidebar or a shadow agent — never appear in either list.
 
 The two can coexist in the same tmux session — a typical layout has monitor in its own window as a dashboard, and minimonitor split alongside each agent pane. See [Pairing minimonitor with monitor](how-to/#pairing-minimonitor-with-monitor) in the how-to for details.
 
@@ -68,7 +70,7 @@ Because auto-spawn is the primary mode, manual `ait minimonitor` invocations are
 - You killed a minimonitor split and want to bring it back without restarting the agent.
 - You are experimenting with a layout where minimonitor sits alongside a non-agent pane.
 
-For a full dashboard with previews, pane classification, and kill/switch controls, use [monitor](../monitor/) instead.
+For a full dashboard with previews, keystroke forwarding, and kill/switch controls, use [monitor](../monitor/) instead.
 
 ## Launching a shadow agent
 

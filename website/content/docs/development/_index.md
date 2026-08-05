@@ -177,6 +177,40 @@ bash -n .aitask-scripts/*.sh             # Syntax-check all scripts
 shellcheck .aitask-scripts/aitask_*.sh   # Lint all scripts
 ```
 
+### Bash tests
+
+Bash tests have no runner — each file under `tests/` is self-contained and prints its own PASS/FAIL summary. Run them one at a time:
+
+```bash
+bash tests/test_claim_id.sh
+```
+
+### Python tests
+
+The Python tests do have an aggregate runner:
+
+```bash
+bash tests/run_all_python_tests.sh                    # whole suite
+bash tests/run_all_python_tests.sh --test-dir <dir>   # a subset
+```
+
+It runs on `pytest` when that is importable and falls back to the standard library's `unittest discover` otherwise, so the suite works on a default install.
+
+**Read only the last line for the verdict.** It is written to stderr in the form `PYTHON SUITE: PASSED (runner=pytest, exit=0)` — or `FAILED` — and is derived from the backend's real exit status. A `Results: N passed, 0 failed` line earlier in the output belongs to a single test module, not to the suite. Piping discards the exit status (`… | tail` exits with `tail`'s `0` whatever the suite did), so use `set -o pipefail` or check `${PIPESTATUS[0]}`; the verdict line itself survives `2>&1 | tail` because it goes to stderr.
+
+#### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AIT_TEST_WORKERS` | Auto — 4 or 2 | Worker count for the parallel lane. The default is load-aware: 4 when the machine has at least 4 CPUs and a 1-minute load average at or below half of them, otherwise 2. An explicit value always wins, and the runner prints the count it auto-selected. |
+| `AIT_TEST_PARALLEL` | `1` | Set to `0` to run the suite serially. |
+
+**What switches the parallel lane on.** The runner resolves its interpreter to the `ait setup` virtual environment at `~/.aitask/venv/` rather than a bare `python3`. It selects pytest when `pytest` is importable there, and enables the parallel lane (`-n <workers> --dist loadfile`, with a small serial carve-out) whenever `pytest-xdist` is importable too. `ait setup --with-dev` is the supported way to install both into that venv; it also records a marker so later plain `ait setup` runs revalidate and repair the tier. The runner never reads that marker — it simply checks whether `pytest-xdist` can be imported.
+
+**Opting out is two independent actions.** `AIT_TEST_PARALLEL=0` disables the lane while leaving the packages installed; deleting the marker at `~/.aitask/dev_tier` stops `ait setup` reinstalling or repairing the tier while leaving the lane running. Removing the tier entirely means both, plus uninstalling `pytest` and `pytest-xdist` from the venv.
+
+**Narrow a run with `--test-dir`, not a path.** A positional test path is forwarded to every phase, which *widens* the run and disables the parallel lane along with its serial carve-out.
+
 ---
 
 ## Release Process

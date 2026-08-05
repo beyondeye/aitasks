@@ -34,15 +34,19 @@ This starts minimonitor in the current tmux pane.
 
 ### How to Read the Agent List
 
-Minimonitor shows a single scrollable list of **agent panes** (windows whose names match the configured agent prefix — default `agent-`). By default the list aggregates agents from every aitasks tmux session on the current tmux server; `── <session_name> ──` divider rows separate agents that belong to different sessions. TUIs, shells, and other panes are deliberately filtered out; for the full categorized view use [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}).
+Minimonitor shows a single scrollable list, **agent panes** first (windows whose names match the configured agent prefix — default `agent-`). By default the list aggregates agents from every aitasks tmux session on the current tmux server; `── <session_name> ──` divider rows separate agents that belong to different sessions.
 
-Each card in the list shows:
+Any pane that is **not** an agent — a shell, a log, a window you renamed off the `agent-` prefix — follows below them under a bold `── other (n) ──` section header. Only that section is headed; the agent list needs none, because the bar at the top already carries the agent count. Session dividers still apply within each section. Windows classified as TUIs (board, codebrowser, settings, brainstorm, and the monitors themselves) are not listed, and neither are companion panes — a shadow agent, or another minimonitor.
+
+Each agent card in the list shows:
 
 - A prioritized mark: **★** when the agent is marked, dim **☆** when it is not. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized))
 - A status dot: **green** when the agent has produced recent output, **magenta** when it is waiting for your input, **blue** when its task is finished, **yellow** when it is idle
 - The agent window name (truncated to 20 characters on narrow layouts)
 - A matching label: `PROMPT <n>s` when the agent is waiting for you, `DONE <n>s` when its task is finished, or `IDLE <n>s` when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds). `DONE` reflects the pane's *task* — its status reads `Done`, or it has been archived — so an agent still printing output after its task landed reads `DONE`, while an agent waiting on you reads `PROMPT` even when its task is done
 - For agents whose window name carries a task ID, a second dimmed line showing the task's title
+
+A card in the **other** section is deliberately much plainer — a dim `○`, the window name, and the pane's current command (`○ zsh  nvim`). It carries no mark, status dot, status label, task title or gate line, because none of those mean anything for a pane that is not an agent, and the ~40-column sidebar has no room to spare for them.
 
 The header bar at the top of the pane shows either `multi: 2s · 5a 1 awaiting 2d 1 idle` when the multi-session view is active, or `<session>  5 agents 2d 1 idle` when the view is restricted to the attached session. The three counters — waiting for input, done (shown compactly as `Nd`), and idle — each disappear when zero, and every agent falls into exactly one of them. See [How to Toggle the Multi-Session View](#how-to-toggle-the-multi-session-view) below.
 
@@ -107,12 +111,16 @@ For agent panes whose window name carries a task ID (e.g., `agent-t42-claudecode
 
 The task cache is refreshed and the task detail dialog appears with the task's metadata and content. If the focused card has no task ID in its window name, a warning notification is shown instead.
 
-The agent minimonitor **follows** — the one pinned at the top under `── this agent ──` — is never selectable, so **i** cannot reach it. Press **I** (Shift+i) instead: it always opens the task detail dialog for the followed agent, whichever card happens to be highlighted. If this window has no agent to follow, a warning notification is shown instead.
+The pane minimonitor **follows** — the one pinned at the top — is never selectable, so **i** cannot reach it. Press **I** (Shift+i) instead: it always opens the task detail dialog for the followed agent, whichever card happens to be highlighted. If this window has no agent to follow, a warning notification is shown instead.
+
+The pinned card's header names what it is following: `── this agent ──` when that pane is classified as an agent, and `── this window ──` when it is not. A window you renamed off the `agent-` prefix still gets a panel, headed `── this window ──`, so the uncategorized state is visible rather than looking like a missing agent.
 
 > **Note:** the pinned card is a static identity line — it shows the window name
 > and task title, but never a live status badge, so it does not turn `DONE` when
 > the followed agent's task lands. Use the scrollable list, or
-> [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), to see that.
+> [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), to see that. The header
+> and name are frozen when the panel is first built, so renaming the window
+> afterwards does not change them.
 >
 > The one thing on the pinned card that *does* change is its prioritized mark
 > (**★** / **☆**). That is not a status badge but a note you left yourself, and
@@ -173,7 +181,7 @@ When you are following many agents, some matter more than others. Press **Space*
 
 The cards in the scrollable list show marks but cannot be toggled from here — to mark some *other* agent, use [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), where **Space** acts on the focused card.
 
-If this window has no agent to follow — including a window you have renamed off the `agent-` prefix — **Space** shows a warning and writes nothing, and the pinned card shows no mark at all.
+If this window has no agent to follow — including a window you have renamed off the `agent-` prefix — **Space** shows a warning and writes nothing, and the pinned card shows no mark at all. The card itself is still there, headed `── this window ──`; what a rename switches off is the agent-only actions (**k**, **n**, **e**, **E**, **I** and this mark), which is the point of taking a window out of the agent rotation.
 
 The marks are stored **per user, outside every repository**, in `~/.config/aitasks/agent_marks.json` (override the path with `AITASKS_AGENT_MARKS_FILE`). That means a mark you set here is visible from every other project's `minimonitor` and `monitor` — usually within one refresh cycle (about 3 seconds). Marks survive restarting the TUI.
 
