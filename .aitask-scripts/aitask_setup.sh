@@ -1985,6 +1985,40 @@ setup_gate_logs_gitignore() {
     success "Gate sidecar-log rule added to .gitignore"
 }
 
+# --- Shadow rejection-store gitignore rule (t1427_1) ---
+# Concerns the user rejected in the monitor/minimonitor picker live under
+# .aitask-shadow/<task-id>/. They are per-task, local-only working state the
+# shadow agent reads back as prompt context, and are pruned when the task is
+# archived — nothing here belongs in git.
+setup_shadow_store_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local gitignore="$project_dir/.gitignore"
+
+    if [[ -f "$gitignore" ]] && grep -qxF ".aitask-shadow/" "$gitignore"; then
+        success "Shadow rejection-store rule already in .gitignore"
+        return
+    fi
+
+    info "Adding .aitask-shadow/ to .gitignore (shadow concern-rejection store)..."
+
+    if [[ -f "$gitignore" ]]; then
+        echo "" >> "$gitignore"
+        echo "# Shadow concern-rejection store (per-task, local-only; pruned at archive)" >> "$gitignore"
+        echo ".aitask-shadow/" >> "$gitignore"
+    else
+        {
+            echo "# Shadow concern-rejection store (per-task, local-only; pruned at archive)"
+            echo ".aitask-shadow/"
+        } > "$gitignore"
+    fi
+
+    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add .aitask-shadow/ to .gitignore (shadow rejection store)" 2>/dev/null) || true
+    fi
+
+    success "Shadow rejection-store rule added to .gitignore"
+}
+
 # --- Version check ---
 check_latest_version() {
     local local_version=""
@@ -3717,6 +3751,9 @@ main() {
     echo ""
 
     setup_gate_logs_gitignore
+    echo ""
+
+    setup_shadow_store_gitignore
     echo ""
 
     setup_id_counter

@@ -191,6 +191,22 @@ release_lock() {
     "$SCRIPT_DIR/aitask_lock.sh" --unlock "$task_num" 2>/dev/null || true
 }
 
+# --- Helper: prune shadow rejection store (best-effort, idempotent) ---
+# A rejection is scoped to the task under review and is meaningless once the
+# task archives, so the archival seam is where the store self-cleans. Archival
+# never blocks on it: a LOCK_BUSY prune (a TUI mid-write) leaves the store in
+# place for any later prune of the same id to finish.
+prune_shadow_rejections() {
+    local task_id="$1"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        info "[dry-run] Would prune shadow rejection store for t$task_id"
+        return
+    fi
+
+    "$SCRIPT_DIR/aitask_shadow_rejected.sh" prune "$task_id" >/dev/null 2>&1 || true
+}
+
 # --- Archive a parent task ---
 archive_parent() {
     local task_num="$1"
@@ -246,6 +262,7 @@ archive_parent() {
 
     # Release lock
     release_lock "$task_num"
+    prune_shadow_rejections "$task_num"
 
     # Git staging and commit
     if [[ "$DRY_RUN" != true ]]; then
@@ -454,6 +471,7 @@ archive_child() {
 
     # Release child lock
     release_lock "$task_id"
+    prune_shadow_rejections "$task_id"
 
     # Check if all children are complete
     local remaining_children
@@ -506,6 +524,7 @@ archive_child() {
 
         # Release parent lock
         release_lock "$parent_num"
+        prune_shadow_rejections "$parent_num"
         parent_archived=true
     fi
 

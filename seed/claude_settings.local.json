@@ -39,6 +39,7 @@
       "Bash(./.aitask-scripts/aitask_project_resolve.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_capture.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_context.sh:*)",
+      "Bash(./.aitask-scripts/aitask_shadow_rejected.sh:*)",
       "Bash(./.aitask-scripts/aitask_skill_resolve_profile.sh:*)",
       "Bash(./.aitask-scripts/aitask_skill_render.sh:*)",
       "Bash(./.aitask-scripts/aitask_skill_verify.sh:*)",

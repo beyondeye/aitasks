@@ -28,6 +28,7 @@
       "./.aitask-scripts/aitask_project_resolve.sh *": "allow",
       "./.aitask-scripts/aitask_shadow_capture.sh *": "allow",
       "./.aitask-scripts/aitask_shadow_context.sh *": "allow",
+      "./.aitask-scripts/aitask_shadow_rejected.sh *": "allow",
       "./.aitask-scripts/aitask_skill_resolve_profile.sh *": "allow",
       "./.aitask-scripts/aitask_skill_render.sh *": "allow",
       "./.aitask-scripts/aitask_skill_verify.sh *": "allow",

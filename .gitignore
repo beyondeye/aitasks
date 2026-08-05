@@ -18,6 +18,9 @@ __pycache__/
 # committed, not the raw logs)
 .aitask-gates/
 
+# Shadow concern-rejection store (per-task, local-only; pruned at archive)
+.aitask-shadow/
+
 # Antigravity CLI workspace state (per-machine: absolute repo path + permissions)
 .antigravitycli/
 
