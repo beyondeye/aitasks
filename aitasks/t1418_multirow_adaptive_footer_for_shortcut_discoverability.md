@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [board, tui, textual, shortcuts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-04 18:39
-updated_at: 2026-08-04 18:39
+updated_at: 2026-08-05 08:21
 ---
 
 `ait board`'s main screen declares far more shortcuts than its single-line
