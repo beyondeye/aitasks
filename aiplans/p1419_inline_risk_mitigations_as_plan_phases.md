@@ -29,9 +29,10 @@ Verified during exploration:
   - `added_complexity: low|medium|high` — how much the mitigation grows the task, **relative to the plan's own scope**.
 - New line shape:
   ```
-  - timing: <before|after|pre-phase|post-phase> | name: <snake_name> | type: <issue_type> | priority: <p> | effort: <e> | inline_risk: <l> | added_complexity: <l> | addresses: <which risk> | desc: <one-line description>
+  - timing: <before|after|pre-phase|post-phase> | name: <snake_name> | type: <issue_type> | priority: <p> | effort: <e> | inline_risk: <l> | added_complexity: <l> | addresses: <which risk> | desc: <one-line description> [| created: t<id>]
   ```
-- Document the `→ mitigation:` cross-reference form for inline entries: `→ mitigation: inline pre-phase step <N>` / `inline post-phase step <N>` (spawned entries keep the planned name / back-filled `t<id>`; the `created: t<id>` annotation semantics are untouched — t1331 compatibility).
+- **Formally define `created: t<id>`** (today it exists only in live plans and t1331's prose): an **optional, spawned-only** trailing field. Absent at design time (Part 1 never writes it); appended by the Part 2 / Part 3 back-fill step (step 4) when the task is actually created, as the creation witness t1331's idempotency guard will key on. Inline (`pre-phase`/`post-phase`) lines **never** receive it — nothing is created for them. Any future normalization of a `### Planned mitigations` block MUST preserve an existing `created:` field verbatim.
+- Document the `→ mitigation:` cross-reference forms. **Identity is the stable mitigation `name`, never a step position** (positions drift when a plan is later re-verified or phases are added/dropped): inline entries use `→ mitigation: inline pre-phase <name>` / `inline post-phase <name>`; spawned entries keep the planned `name`, back-filled to `t<id>` at creation.
 
 **Part 1, step 2 (propose):**
 - Each proposed candidate carries: timing (before/after), both metrics, and a **recommended disposition** derived from them: both metrics `low` → recommend inline (pre-phase for before-timed, post-phase for after-timed); any metric `high` → recommend spawn; otherwise (any `medium`, none high) → judgement call, lean spawn. Cite the quality argument in the guidance: an inline phase automatically gets shadow-agent review coverage (plan-challenge / impl-challenge see the plan; a spawned task is invisible to them).
@@ -46,15 +47,22 @@ Verified during exploration:
   (The user can flip timing via the built-in "Other" free text.) All dropped → treat as "No mitigations".
 
 **Part 1, step 3 (record):**
-- Spawned confirmations: unchanged (write `before`/`after` lines, fill `→ mitigation:` with the planned name).
-- Inline confirmations: write the `pre-phase`/`post-phase` line AND edit the plan's implementation steps — prepend a `### Pre-phase (risk mitigations)` block before step 1 / append a `### Post-phase (risk mitigations)` block after the last step, each with its own step numbering (`pre-phase step 1..N`), so existing plan step numbers are untouched and the `→ mitigation: inline pre-phase step <N>` cross-reference is unambiguous. Each phase step must be a concrete, verifiable instruction (same detail bar as normal plan steps).
+- Spawned confirmations: unchanged (write `before`/`after` lines, fill `→ mitigation:` with the planned name; `created:` is back-filled later by Parts 2/3).
+- Inline confirmations: write the `pre-phase`/`post-phase` line AND edit the plan's implementation steps. **Canonical placement:** the `### Pre-phase (risk mitigations)` block is inserted immediately **before the first numbered step of the plan's main implementation body**; the `### Post-phase (risk mitigations)` block immediately **after its last numbered step** (before any trailing `## Verification` / `## Risk` sections). Each block's steps have their own numbering and each step is **labeled with its mitigation `name`** (e.g. `1. [characterize_board_sort] <instruction>`), so the name-based `→ mitigation: inline pre-phase <name>` cross-reference resolves regardless of later reordering. Existing plan step numbers are untouched. Each phase step must be a concrete, verifiable instruction (same detail bar as normal plan steps).
 - `risk_mitigations_confirmed = true` if ≥1 mitigation confirmed with any disposition.
+
+**Part 1, new step 4 (post-inline reassessment — single pass, no recursion):** If ≥1 mitigation was confirmed **inline**, the plan the user will approve is no longer the plan the risk levels were assessed against. Re-run the Risk Evaluation Procedure's Steps 1–2 **once** against the final augmented plan (implementation body + inline phases) and update the `## Risk` subsection level headings in place if a level changed. **Bullet update rules — linked bullets are durable provenance:**
+  - A bullet with a `→ mitigation:` link is never deleted and never collapsed into `None identified.` — it is the record of why its mitigation (inline phase or spawned task) exists. Update it in place to describe residual state, e.g. `<description> · severity: low (residual — addressed by inline pre-phase <name>) · → mitigation: inline pre-phase <name>`, keeping its identity and link verbatim.
+  - Genuinely **new** risks introduced by the augmented plan are added as separate new bullets (link `TBD`/`none`) — never by rewriting an existing linked bullet.
+  - The reassessment MUST NOT reopen mitigation selection: `### Planned mitigations` lines and dispositions are preserved verbatim, and no new mitigation proposals are made (one pass, terminates).
+
+  Thread the possibly-updated `risk_level_code_health` / `risk_level_goal_achievement` back into the workflow context — SKILL.md Step 7's post-approval field write then records the levels of the plan as approved, not the pre-insertion ones. Skip this step entirely when no inline disposition was confirmed.
 
 **Part 2, step 1 / Part 3, step 1:** change "keep only `timing: before` lines" → "keep only `timing: before` lines (`pre-phase`/`post-phase` lines are inline plan phases, never spawn candidates — skip them)"; same for `after` in Part 3.
 
 ### 2. `.claude/skills/task-workflow/risk-evaluation.md`
 
-Step 3 (`## Risk` section format): document the two accepted `→ mitigation:` link forms — a task reference (spawned) or `inline pre-phase step <N>` / `inline post-phase step <N>` (inline phase), filled by the follow-up procedure.
+Step 3 (`## Risk` section format): document the two accepted `→ mitigation:` link forms — a task reference (spawned) or `inline pre-phase <name>` / `inline post-phase <name>` (inline phase, name-based identity), filled by the follow-up procedure. Add a note that when inline mitigations are confirmed, the follow-up procedure re-runs this evaluation's Steps 1–2 once against the augmented plan (see Part 1 step 4 above) so the levels Step 7 writes describe the approved plan.
 
 ### 3. `.claude/skills/task-workflow/planning.md`
 
@@ -62,7 +70,7 @@ Step 3 (`## Risk` section format): document the two accepted `→ mitigation:` l
 
 ### 4. `.aitask-scripts/skill_templates/_planning_plan_contract.md`
 
-Append one bullet: confirmed inline risk mitigations appear as explicit `### Pre-phase (risk mitigations)` / `### Post-phase (risk mitigations)` step blocks in the implementation plan, cross-referenced from the `## Risk` bullets.
+Append one bullet: confirmed inline risk mitigations appear as explicit `### Pre-phase (risk mitigations)` / `### Post-phase (risk mitigations)` step blocks — the pre-phase block immediately before the first numbered implementation step, the post-phase block immediately after the last — with name-labeled steps cross-referenced from the `## Risk` bullets by mitigation name. These two headings are the canonical insertion anchors (single sourced here and in `risk-mitigation-followup.md`).
 
 ### 5. `.claude/skills/task-workflow/SKILL.md`
 
@@ -86,15 +94,17 @@ Then refresh live rendered variants: `./.aitask-scripts/aitask_skill_rerender.sh
 
 ## Not changed
 
-- `aitask_gate_risk.sh`, `aitask_risk_mitigation_landed.sh`, Step 6.0a force-reverify, `risk_mitigation_tasks` frontmatter semantics (spawned-only), the `created: t<id>` annotation (t1331 lands compatibly), Step 7/8d dispatch conditions.
+- `aitask_gate_risk.sh`, `aitask_risk_mitigation_landed.sh`, Step 6.0a force-reverify, `risk_mitigation_tasks` frontmatter semantics (spawned-only), Step 7/8d dispatch conditions. The `created: t<id>` annotation's *semantics* are unchanged (creation witness, back-filled at spawn time) — this task only documents it formally in the line contract, exactly the shape t1331's guard expects to key on.
 
 ## Verification
 
 1. `bash tests/test_skill_render_task_workflow.sh` — all goldens green (diff reviewed as the audit signal, per conventions).
-2. Fixture walk (scratchpad): a fixture plan whose `### Planned mitigations` has one `before`, one `pre-phase`, one `post-phase` line — confirm by reading the updated procedure that: Part 2 selects only the `before` line; Part 3 selects nothing; Step 7's dispatch (`≥1 before line`) still fires for the spawned one; a plan with only inline lines has zero `before` lines → `risk_before_created` stays false → no session stop.
-3. `aitask_gate_risk.sh` still passes a plan containing the extended line format + phase blocks (run the verifier against a fixture task/plan pair in the scratchpad — it only greps section headings).
-4. `shellcheck` not applicable (no script edits); `./.aitask-scripts/aitask_skill_verify.sh` passes.
-5. Step 9 (Post-Implementation) per task-workflow: merge approval, gates run (`risk_evaluated` gate must pass), archival.
+2. **Fixture walk covering all four timings** (scratchpad): a fixture plan whose `### Planned mitigations` has one `before`, one `after`, one `pre-phase`, and one `post-phase` line (the `before`/`after` lines carrying `created: t<id>` back-fill examples). Assert with executable greps against the fixture: Part 2's stated filter (`timing: before`) matches exactly 1 line; Part 3's (`timing: after`) exactly 1; the two inline lines match neither; an inline-only variant of the fixture matches zero `before` lines (→ `risk_before_created` stays false → no Step 7 session stop).
+3. **Semantic assertions on rendered procedures**: grep each rendered `risk-mitigation-followup` variant (all 3 profiles × rendered dirs) for the four-timing enum, both metric names, the spawned-only `created:` definition, the name-based `inline pre-phase <name>` link form, and the durable-provenance bullet rule (linked bullets never collapsed to `None identified.`) — asserting the contract survives rendering in every profile.
+4. `aitask_gate_risk.sh` still passes a plan containing the extended line format + phase blocks (run the verifier against a fixture task/plan pair in the scratchpad — it only greps section headings).
+5. `shellcheck` not applicable (no script edits); `./.aitask-scripts/aitask_skill_verify.sh` passes.
+6. **Accepted as unverified at implementation time:** the live >4-mitigation prompt-batching behavior (order preservation across batched `AskUserQuestion` calls) is agent-interpreted prose that only a live walk of a 5-mitigation risk-gated task can exercise; the user declined a follow-up verification task for it. Record this explicitly in Final Implementation Notes.
+7. Step 9 (Post-Implementation) per task-workflow: merge approval, gates run (`risk_evaluated` gate must pass), archival.
 
 ## Risk
 
@@ -102,4 +112,4 @@ Then refresh live rendered variants: `./.aitask-scripts/aitask_skill_rerender.sh
 - None identified. (Procedure-markdown + docs + goldens only; renders are pinned by `tests/test_skill_render_task_workflow.sh`; no executable code or verifier changes.)
 
 ### Goal-achievement risk: low
-- The new per-mitigation prompt flow is agent-interpreted prose; ambiguity under many (>4) mitigations could degrade the live UX · severity: low · → mitigation: none (user declined — covered by the in-plan fixture walk)
+- The new per-mitigation prompt flow is agent-interpreted prose; ambiguity under many (>4) mitigations could degrade the live UX. The batching behavior itself is accepted as unverified (user declined a live-walk follow-up); the timing filters and record schema are covered by the fixture walk and rendered-procedure assertions · severity: low · → mitigation: none (user declined)
