@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [trails, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-08-05 12:33
-updated_at: 2026-08-05 12:33
+updated_at: 2026-08-05 12:40
 ---
 
 ## Problem
