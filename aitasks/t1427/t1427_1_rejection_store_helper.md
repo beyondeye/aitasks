@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, aitask_monitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-05 17:17
-updated_at: 2026-08-05 17:17
+updated_at: 2026-08-05 17:30
 ---
 
 Substrate spike for t1427 (reject shadow concerns; suppress next round): the
