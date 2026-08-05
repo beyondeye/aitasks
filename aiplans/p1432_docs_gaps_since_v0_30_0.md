@@ -429,3 +429,105 @@ same board bulk-move section:
   rendering were to differ from the two-header reading, both pages would land
   wrong together. Verified directly at `monitor_app.py:1574-1577` and
   `:1600-1665`. · severity: low · → mitigation: none needed — verified at source
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All five documented gaps landed, plus the two approved
+  scope additions. Nine files under `website/` changed (137 insertions, 15
+  deletions):
+  - *Gap 1 (board marking)* — `board/reference.md`: `Space` row in Task
+    Operations, mark glyph added to the Task Card Anatomy diagram;
+    `board/_index.md`: a leading **Mark** bullet in the card-anatomy list;
+    `board/how-to.md`: new "How to Mark Tasks" section.
+  - *Gap 2 (board bulk move)* — `board/reference.md`: `m` row, plus **Move
+    Tasks to Column** and **Column Select (Move to)** rows in Modal Dialogs
+    Reference; `board/how-to.md`: new "How to Move Several Tasks at Once"
+    section and a bulk-move row in the 4-column palette matrix.
+  - *Gap 3 (monitor concern picker)* — `monitor/how-to.md`: the "Seeing what
+    was lost" and narrow-width paragraphs, adapted to monitor's wording;
+    `monitor/reference.md`: `c` row extended with the `u` parenthetical.
+  - *Gap 4 (minimonitor)* — `minimonitor/_index.md`: intro clause, comparison
+    row, a new TUI/companion-pane sentence, and the line-71 reword;
+    `minimonitor/how-to.md`: list intro, an "other"-card anatomy paragraph,
+    the conditional pinned-card header, and the renamed-window paragraph.
+  - *Gap 5 (test lane)* — `development/_index.md`: new "Bash tests" and
+    "Python tests" subsections, an `#### Environment Variables` table and three
+    follow-up paragraphs; `setup-install.md`: cross-link on the `--with-dev`
+    bullet.
+  - *Approved addition* — `monitor/how-to.md` lines 32–36 rewritten from three
+    categories to the two rendered sections.
+  - *Task files (separate commit `e6e441e90`)* — `t1243_13` narrowed,
+    `t1432` gap text corrected, both with reciprocal scope pointers.
+
+- **Deviations from plan:** None in substance. Two small judgement calls during
+  execution: (1) the plan proposed splitting the minimonitor comparison row and
+  noting the TUI exclusion "after the table" — implemented as a dedicated
+  sentence above the existing "The two can coexist…" paragraph, which reads
+  better than a trailing note; (2) `how-to.md:180` (the marking section's
+  `── this agent ──` reference) was left unchanged after checking the source:
+  `_own_mark_state` is `None` for a non-agent window, so marking genuinely only
+  applies to the agent case and that sentence is already correct. The header
+  variant is documented at its own site (the `I` section) and in the
+  renamed-window paragraph instead.
+
+- **Issues encountered:**
+  - *Stale acceptance criteria.* The task's Gap 2 text specified
+    `Binding("m", …, show=False)` and asked for prose explaining why `m` is
+    hidden from the footer. Source disagreed: `f8a4d7614` (t1418) removed
+    `show=False`, and `aitask_board.py:6176` carries a source comment saying so
+    explicitly. Documented the current state and rewrote the task's gap
+    paragraph rather than deviating silently.
+  - *Working directory persistence.* `cd website && hugo build` left the shell
+    in `website/`, which made a subsequent `ls -d website/public` and a
+    `aitask_gate.sh` invocation resolve against the wrong root. The `public/`
+    check was re-run from the repo root: the directory does exist after a build
+    and is gitignored, so nothing untracked reaches a commit.
+  - *Concurrent session.* An unrelated session had `trail_gather.py`, the
+    `aitask-trail` skill template, three trail goldens, `test_trail_gather.py`
+    and `aidocs/implementation_trail_design.md` modified in the worktree
+    throughout. The index was verified empty before staging, and only the nine
+    website paths were staged explicitly.
+
+- **Key decisions:**
+  - *Board docs written here rather than deferred to `t1243_13`* (user-confirmed).
+    That child is `depends: [t1243_12]` behind an unimplemented group series, so
+    deferring would have left shipped features undocumented indefinitely. It was
+    narrowed in the same session, with pointers in both directions committed
+    together so the halves cannot separate.
+  - *`monitor/how-to.md` category correction pulled into scope* (user-confirmed).
+    Writing an accurate minimonitor comparison row forces a claim about monitor;
+    `monitor_app.py:1574-1577` appends only `AGENT` and `OTHER`, so the page's
+    "three categories" claim was false and would have contradicted the very row
+    being fixed. `monitor/reference.md`'s Pane Classification table was left
+    alone — it describes classification, not rendering, and is accurate.
+  - *Test-lane knobs on `development/_index.md`, not `setup-install.md`.* The
+    command page already covered `--with-dev` adequately; duplicating the knobs
+    there would have created a second source to drift. It gained a cross-link.
+  - *Installation path vs runtime condition kept distinct.* The lane activates
+    on `import xdist` in the resolved venv interpreter and never reads
+    `~/.aitask/dev_tier`, so the docs say "whenever `pytest-xdist` is importable"
+    and present the two opt-outs as independent actions. `AIT_TEST_NCPU` /
+    `AIT_TEST_LOADAVG` are marked test seams in source and stay undocumented.
+  - *Verification asserts location and presence, not occurrence counts.* A
+    pinned "exactly once" check would have failed on correct content —
+    `AIT_TEST_PARALLEL` legitimately appears twice on the page (confirmed: the
+    final count is 2).
+
+- **Upstream defects identified:** None.
+
+  The `monitor/how-to.md` three-categories error was a documentation defect, not
+  a code defect, and was fixed within this task rather than deferred.
+
+## Verification results
+
+| Check | Result |
+|---|---|
+| `hugo build --gc --minify` | PASS — 232 pages, exit 0; only pre-existing `.Language.LanguageDirection` / `.Site.AllPages` deprecation warnings. Also proves the new relref resolves, since Hugo fails the build on an unresolved ref. |
+| Stale-claim grep across `tuis/` | PASS — exit 1, no matches |
+| Test seams absent from `website/` | PASS — exit 1, no matches |
+| Knobs confined to one page | PASS — only `website/content/docs/development/_index.md` |
+| Knob presence | PASS — `AIT_TEST_WORKERS` ×1, `AIT_TEST_PARALLEL` ×2 |
+| Bidirectional task pointers | PASS — `t1243_13:43` → t1432, `t1432:36` → t1243_13; commit `e6e441e90` lists both files |
+| `setup-install.md` cross-link | PASS — present at line 34 |
