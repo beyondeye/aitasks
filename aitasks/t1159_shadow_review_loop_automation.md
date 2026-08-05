@@ -51,7 +51,43 @@ The plan must include a safety contract for any pane injection (bracketed paste 
 - Steerability (from folded t1017): the loop must keep the user in control — per-round concern triage should let the user route each concern to "address in plan now" vs "spin off as a separate task" (e.g. via `/aitask-explore` fix-task spawning, as `plan-diagnose-errors.md` already does) vs "dismiss", so plans don't bloat from absorbing every secondary concern across rounds.
 - Preserve load-bearing contracts: the shadow advisory-only guardrail (the shadow never drives the followed pane — injection, if any, is done by minimonitor upon user confirmation), the concern-format parser contract, and staleness semantics (passive observation never refreshes stamps).
 
+## Scope priority — the two directions are NOT equal (user clarification, 2026-08-05)
+
+The loop has two automatable seams, and they carry very different value and
+very different risk. Plan and sequence accordingly rather than treating them as
+one symmetric feature:
+
+- **Critical seam — followed agent → shadow (auto-recheck).** "The main agent
+  has finished addressing the concerns" → automatically start the next shadow
+  review round. This is where the time goes today (the manual "refetch and
+  recheck round N" typing, plus the watching-for-completion that precedes it),
+  and it is the direction that should be optimized first. It is also the *safe*
+  direction: it drives the shadow, which is the advisory companion, not the
+  agent doing the work.
+- **Not on the critical path — shadow → followed agent (concern forwarding).**
+  Direct injection of picked concerns into the followed pane is a convenience,
+  not a bottleneck: **human review of what gets forwarded should be kept**
+  deliberately, so this direction is not a time-optimization target. Treat
+  automating it as optional/later, and do not let its safety contract (bracketed
+  paste, mid-output detection, confirmation) dominate the design budget for the
+  loop as a whole.
+
+This re-weights the candidate architectures above: an option that automates the
+recheck direction well and leaves forwarding as today's confirmed pick-and-paste
+is a **complete** answer to the priority requirement, not a partial one. The
+pane-injection safety contract is still required for whatever forwarding does
+land, but it is no longer the gating design problem.
+
 Relevant sources: `.claude/skills/aitask-shadow/` (`SKILL.md`, `plan-challenge.md`, `impl-challenge.md`, `concern-format.md`), `.aitask-scripts/aitask_shadow_capture.sh`, `.aitask-scripts/aitask_shadow_context.sh`, `.aitask-scripts/monitor/` (`minimonitor_app.py`, `monitor_shared.py`, `concern_parser.py`, `monitor_core.py`, `prompt_patterns.py`), `aidocs/framework/shadow_agent.md`, `aidocs/framework/tmux_gateway.md`.
+
+Coordination note: t1420 (advisory workflow-phase signal for shadow mode
+pre-selection) builds the *input* this loop needs to pick `plan-challenge` vs
+`impl-challenge` per round without the user inspecting the followed pane. It is
+deliberately independent (this task must not wait on it — a loop can be driven
+with an explicit mode), but if t1420 lands first, consume its phase seam instead
+of adding a second phase derivation here. Its shape is pinned advisory-only by
+`aidocs/framework/shadow_agent.md:360-367`, which this loop must also respect:
+the phase may pre-select a round's mode, never refuse one.
 
 Coordination note: t1158 (shadow impl review modes/tiers from /code-review prompts) reworks `impl-challenge.md` review *content*; this task reworks loop *mechanics*. Keep them separate and coordinate whichever lands second.
 
