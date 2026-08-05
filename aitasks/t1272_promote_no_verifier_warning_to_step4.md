@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [gates, task_workflow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-27 23:29
-updated_at: 2026-07-27 23:29
+updated_at: 2026-08-05 12:48
 boardidx: 50176
 ---
 
