@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 18:39
-updated_at: 2026-08-05 08:22
+updated_at: 2026-08-05 09:57
 ---
 
 `ait board`'s main screen declares far more shortcuts than its single-line
@@ -167,3 +168,8 @@ the other five is a follow-up once the widget has proven itself in place.
 - `aidocs/framework/tui_conventions.md` is updated: the existing "TUI footer must
   surface every operation on the affected tab/screen" section should reference
   the new widget as the way to satisfy itself when a screen has too many keys.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T06:57:37Z status=pass attempt=1 type=human
