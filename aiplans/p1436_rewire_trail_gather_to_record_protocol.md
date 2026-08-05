@@ -242,3 +242,65 @@ Step 9 (Post-Implementation) then runs the merge / archival flow as usual.
 **Reassessment after inlining:** both phases are additive, independently
 verifiable test work on the same two files the plan already touches. Neither
 changes the rewire itself, so the two levels stand at **low / low**.
+
+## Final Implementation Notes
+
+- **Actual work done:** exactly the planned scope, two files.
+  `lib/trail_gather.py` lost its private six-symbol delimiter-safety block and
+  now imports `INVALID_ENUM, enum_field, has_record_breaking,
+  sanitize_last_field` from `record_protocol` (placed in the sorted `lib/` block
+  between `gate_ledger` and `task_yaml`); all 10 call sites were renamed;
+  `_csv_entry` and `_die` stayed local; the `# --- Delimiter safety ---` header
+  was retargeted to name the shared module and to say *why* `_csv_entry` (fourth
+  reserved char `,`) and the `trail_gather: ` prefix do not move.
+  `tests/test_trail_gather.py` followed the rename at its one call site, hoisted
+  `run_wrapper` from `WrapperIntegrationTests` onto `TrailGatherCase`, and gained
+  section **J2** `InfraExitCharacterizationTests` (6 tests) — a sibling class,
+  not a subclass.
+- **Deviations from plan:** none in substance. Two refinements the plan left
+  open were resolved by the pre-phase probe (below).
+- **Issues encountered:**
+  - The pre-phase probe returned **Case A**: rc=3, stdout empty (0 bytes), and
+    stderr exactly one line — `trail_gather: aitasks/metadata/project_config.yaml:
+    missing project.name\n`, with no `require_ait_python` preamble (verified
+    structurally too: every `echo` in `lib/python_resolve.sh` goes to stdout).
+    Because `_local_dirs()` defaults to a *relative* `aitasks/` and
+    `TrailGatherCase` clears `TASK_DIR`, the whole stream is deterministic, so
+    the assertion became an exact whole-stream equality against
+    `EXPECTED_INFRA_STDERR` rather than the weaker prefix+suffix form Case A
+    permitted.
+  - The `## Verification` block's CR-replacement scan is **mis-escaped as
+    written**: `grep -rn 'replace("\r"' …` inside single quotes hands grep a BRE
+    `\r`, which collapses to `r`, so it matched *nothing* and looked clean
+    vacuously. Re-run as `grep -rnF 'replace("\r"' …`, which correctly returns
+    only `lib/record_protocol.py:114`. Verified the pattern discriminates by
+    confirming it still hits that file (`grep -cF` → 1).
+- **Key decisions:**
+  - **Whole-stream over prefix pin.** Asserting the complete stderr (prefix *and*
+    message body) is what names *this* `_die` call site: `cmd_drift` has a second
+    `_die` (the version lock, also `EXIT_INFRA`) that a prefix-only assertion
+    would accept. A future wrapper preamble now fails loudly rather than silently
+    widening the ownership contract.
+  - **The drift fixture's ordering is load-bearing.** `cmd_drift` calls
+    `local_project_name()` *before* the `--trail` existence check and before
+    `trail_schema.load_trail()`, so a missing or invalid trail exits 3 with the
+    identical message. The test therefore builds the trail while the config is
+    valid, proves it live with a positive control (`rc 0` + `CURRENT`) on that
+    exact path, and only then breaks the config as the single mutation. Without
+    that control the exit-3 would be unattributable.
+  - `EXIT_INFRA = 3` is an independent literal in the test module, not an import
+    of `trail_gather.EXIT_INFRA` — the suite must agree with the protocol
+    contract, not with whatever the module currently does.
+- **Verification performed:** `pytest tests/test_trail_gather.py
+  tests/test_record_protocol.py` → 92 passed; `tests/test_no_lib_to_tui_import.sh`
+  → 13/13 PASS; `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED
+  (runner=pytest, exit=0)`. Acceptance greps: old-name count 0; CR scan (fixed
+  escaping) only `lib/record_protocol.py`.
+  **Discrimination proof:** mutating `_die`'s prefix to `record_protocol: ` (with
+  `__pycache__` purged) failed `InfraExitCharacterizationTests::
+  test_prefix_assertion_discriminates` **by name**, on its `assertNotIn(
+  "record_protocol:", …)` line, plus both verbs' message pins — then restored by
+  undoing the edit (not `git checkout`; the tree carries a concurrent session's
+  unrelated work) and the suite went green again.
+- **Upstream defects identified:** None
+
