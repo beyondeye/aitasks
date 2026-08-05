@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 16:07
-updated_at: 2026-08-05 16:10
+updated_at: 2026-08-05 17:39
 ---
 
 ## Origin
@@ -86,3 +87,8 @@ and a missed one lets a record-breaking character through into a `|`-delimited
 stream where no reader can distinguish it from a separator.
 `aidocs/framework/planning_conventions.md:11` ("Refactor duplicates before adding
 to them") is the standing rule this satisfies.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T14:40:06Z status=pass attempt=1 type=human
