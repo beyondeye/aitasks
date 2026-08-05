@@ -67,8 +67,6 @@ from textual.command import Provider, Hit, Hits, DiscoveryHit
 
 TASKS_DIR = task_dir()
 METADATA_FILE = TASKS_DIR / "metadata" / "board_config.json"
-_PROJECT_KEYS = {"columns", "column_order"}
-_USER_KEYS = {"settings"}
 TASK_TYPES_FILE = TASKS_DIR / "metadata" / "task_types.txt"
 DATA_WORKTREE = Path(".aitask-data")
 USERCONFIG_FILE = TASKS_DIR / "metadata" / "userconfig.yaml"
@@ -447,8 +445,11 @@ import board_ordering  # noqa: E402
 # and in the gatherer under a "keep in sync" comment. The board stays the
 # semantic owner — see that module's docstring.
 from board_columns import (  # noqa: E402
-    DEFAULT_COLUMNS, DEFAULT_ORDER, UNORDERED_ID,
+    DEFAULT_COLUMNS, DEFAULT_ORDER, PALETTE_COLORS, UNORDERED_ID,
+    generate_col_id, project_columns_at,
 )
+from board_columns import PROJECT_KEYS as _PROJECT_KEYS  # noqa: E402
+from board_columns import USER_KEYS as _USER_KEYS  # noqa: E402
 
 
 def _topic_lane_label(key, members, tasks_by_id):
@@ -1021,7 +1022,16 @@ class MoveResult:
 
 
 class TaskManager:
-    def __init__(self):
+    def __init__(self, on_warning=None):
+        # Optional sink for user-visible warnings raised outside a screen (the
+        # save-time column reconciliation, t1377_3). The app passes `self.notify`;
+        # tests leave it None and read `reconcile_warnings` instead.
+        self._on_warning = on_warning
+        self.reconcile_warnings: list[str] = []
+        # Column ids this board instance has already seen. Seeded by
+        # load_metadata, refreshed by save_metadata. It is what distinguishes an
+        # external ADDITION from a board-side DELETION at reconcile time.
+        self._known_col_ids: set[str] = set()
         self.task_datas: dict[str, Task] = {} # Filename -> Task (parents)
         self.child_task_datas: dict[str, Task] = {} # Filename -> Task (children)
         self.archived_task_cache: dict[str, Task | None] = {}
@@ -1060,10 +1070,93 @@ class TaskManager:
         self.columns = config.get("columns", DEFAULT_COLUMNS)
         self.column_order = config.get("column_order", DEFAULT_ORDER)
         self.settings = config.get("settings", {"auto_refresh_minutes": 0})
+        self._refresh_known_col_ids()
         if not METADATA_FILE.exists():
             self.save_metadata()
 
+    def _refresh_known_col_ids(self):
+        """Snapshot the column ids this instance knows about (t1377_3)."""
+        self._known_col_ids = {
+            c["id"] for c in self.columns
+            if isinstance(c, dict) and isinstance(c.get("id"), str)
+        }
+
+    def _warn_reconcile(self, message: str):
+        """Record a reconciliation warning and surface it if the app wired a sink."""
+        self.reconcile_warnings.append(message)
+        if self._on_warning is not None:
+            try:
+                self._on_warning(message, severity="warning", markup=False)
+            except Exception:  # noqa: BLE001 - a notify failure must not lose the save
+                pass
+
+    def _reconcile_external_columns(self):
+        """Merge columns another process added since this board loaded (t1377_3).
+
+        `load_metadata` runs exactly once, at construction, so without this the
+        board would write its startup-era `self.columns` over the file and
+        silently destroy a column created meanwhile through the headless writer
+        (`lib/board_columns.create_column`, reached from `ait minimonitor`).
+
+        **Called from `save_metadata` ONLY.** It must never be reached from
+        `refresh_board`, the auto-refresh timer, or any render path — that is a
+        hard performance constraint, enforced by an AST call-site scan in
+        `tests/test_board_columns_reconcile.py`. It is affordable precisely
+        because every `save_metadata` call sits behind a discrete user gesture.
+
+        Per on-disk column id:
+
+        =========  ==============  ================  ==============================
+        on disk    known to us     in self.columns   action
+        =========  ==============  ================  ==============================
+        X          yes             yes               ours wins (board-side edit)
+        X          yes             no                board DELETED it - leave gone
+        X          no              no                external addition - merge
+        X          no              yes               id collision - warn, keep ours
+        =========  ==============  ================  ==============================
+
+        This narrows the stale-reader window; it does **not** serialize writers.
+        Two processes whose read-modify-write cycles interleave still lose one
+        update — `save_project_config` gives reader-visible atomicity, not writer
+        serialization, and no lock is taken here.
+        """
+        disk_cols, disk_order = project_columns_at(METADATA_FILE)
+        if not disk_cols:
+            return
+        mine = {
+            c["id"]: c for c in self.columns
+            if isinstance(c, dict) and isinstance(c.get("id"), str)
+        }
+        additions: dict[str, dict] = {}
+        for entry in disk_cols:
+            if not isinstance(entry, dict):
+                continue
+            cid = entry.get("id")
+            if not isinstance(cid, str) or cid in self._known_col_ids:
+                continue  # we knew it: our edit wins, our deletion sticks
+            if cid in mine:
+                if mine[cid] != entry:
+                    self._warn_reconcile(
+                        f"Column '{cid}' was created both here and by another "
+                        f"process with a different definition "
+                        f"({mine[cid].get('title')!r} vs {entry.get('title')!r}). "
+                        f"Keeping this board's version — reconcile manually."
+                    )
+                continue
+            additions[cid] = entry
+        if not additions:
+            return
+        # On-disk order first, then any addition absent from column_order.
+        ordered = [cid for cid in disk_order
+                   if isinstance(cid, str) and cid in additions]
+        ordered += [cid for cid in additions if cid not in ordered]
+        for cid in ordered:
+            self.columns.append(additions[cid])
+            if cid not in self.column_order:
+                self.column_order.append(cid)
+
     def save_metadata(self):
+        self._reconcile_external_columns()
         data = {
             "columns": self.columns,
             "column_order": self.column_order,
@@ -1073,6 +1166,7 @@ class TaskManager:
         save_project_config(str(METADATA_FILE), project_data)
         if user_data:
             save_local_config(str(local_path_for(str(METADATA_FILE))), user_data)
+        self._refresh_known_col_ids()
 
     @property
     def auto_refresh_minutes(self) -> int:
@@ -5502,18 +5596,6 @@ class CommitMessageScreen(ModalScreen):
 
 # --- Column Customization Screens ---
 
-PALETTE_COLORS = [
-    ("#FF5555", "Red"),
-    ("#FFB86C", "Orange"),
-    ("#F1FA8C", "Yellow"),
-    ("#50FA7B", "Green"),
-    ("#8BE9FD", "Cyan"),
-    ("#BD93F9", "Purple"),
-    ("#FF79C6", "Pink"),
-    ("#6272A4", "Gray"),
-]
-
-
 class ColorSwatch(Static):
     """A clickable color swatch for the palette."""
 
@@ -5567,22 +5649,13 @@ class ColumnEditScreen(ModalScreen):
 
     @staticmethod
     def _generate_col_id(name: str, existing_ids: list) -> str:
-        """Generate a unique column ID from a display name."""
-        # Remove emojis and non-ASCII, lowercase, replace spaces/special with underscore
-        slug = re.sub(r'[^\x00-\x7F]+', '', name)  # strip non-ASCII (emojis)
-        slug = slug.strip().lower()
-        slug = re.sub(r'[^a-z0-9]+', '_', slug)  # replace non-alnum with _
-        slug = slug.strip('_')  # trim leading/trailing underscores
-        slug = slug[:20]  # limit length
-        if not slug:
-            slug = "column"
-        # Ensure uniqueness
-        base = slug
-        counter = 2
-        while slug in existing_ids:
-            slug = f"{base}_{counter}"
-            counter += 1
-        return slug
+        """Generate a unique column ID from a display name.
+
+        Thin delegate: the implementation moved to `lib/board_columns.py`
+        (t1377_3) so the headless writer and this dialog slug identically. The
+        board stays the semantic owner — see that module's docstring.
+        """
+        return generate_col_id(name, existing_ids)
 
     def compose(self):
         title = "Add New Column" if self.mode == "add" else f"Edit Column: {self.col_conf['title']}"
@@ -6195,7 +6268,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def __init__(self):
         super().__init__()
         self.current_tui_name = "board"
-        self.manager = TaskManager()
+        # `notify` is the single sink for save-time reconciliation warnings
+        # (t1377_3); TaskManager has no screen of its own to raise them on.
+        self.manager = TaskManager(on_warning=self.notify)
         self.search_filter = ""
         self.base_filter = "all"          # "all" | "locked" | "free" | "inflight" | "bytopic" | "bytrail"
         self.git_filter_active = False

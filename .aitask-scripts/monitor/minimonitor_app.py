@@ -45,7 +45,7 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
-    AgentMarksMixin, ColumnPickerModal,
+    AgentMarksMixin, ColumnPickerModal, NewColumnTitleModal,
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
     TaskPickConfirmDialog,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
@@ -1594,22 +1594,35 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
 
         titles = {col_id: title for col_id, _c, title in columns}
         self.push_screen(
-            ColumnPickerModal(target_id, columns, current=current, narrow=True),
-            callback=lambda col_id: self._on_column_chosen(
-                col_id, target_id, target_root, sess, current, titles
+            ColumnPickerModal(target_id, columns, current=current, narrow=True,
+                              allow_new=True),
+            callback=lambda result: self._on_column_chosen(
+                result, target_id, target_root, sess, current, titles
             ),
         )
 
     def _on_column_chosen(
         self,
-        col_id: str | None,
+        result: tuple[str, str | None] | None,
         target_id: str,
         target_root: Path,
         sess: str,
         current: str,
         titles: dict[str, str],
     ) -> None:
-        if not col_id:
+        # `result` is the picker's tagged tuple (t1377_3). Branch on the TAG,
+        # never on truthiness: both ("existing", id) and ("new", None) are truthy,
+        # so a truthiness test would send the create action down the move path.
+        if not result:
+            return
+        action, col_id = result
+        if action == "new":
+            self.push_screen(
+                NewColumnTitleModal(narrow=True),
+                callback=lambda title: self._on_new_column_title(
+                    title, target_id, target_root, sess
+                ),
+            )
             return
         title = titles.get(col_id, col_id)
         if col_id == current:
@@ -1627,10 +1640,63 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             group="board-column",
         )
 
+    def _on_new_column_title(
+        self, title: str | None, target_id: str, target_root: Path, sess: str,
+    ) -> None:
+        """Callback for NewColumnTitleModal (t1377_3).
+
+        A blank title cannot normally arrive — the modal rejects it in place and
+        stays mounted — but the guard is kept so a programmatic dismissal cannot
+        reach the seam with nothing to create.
+        """
+        if not title or not title.strip():
+            return
+        self.run_worker(
+            self._create_and_move(target_id, target_root, sess, title.strip()),
+            exclusive=False,
+            exit_on_error=False,
+            group="board-column",
+        )
+
+    async def _create_and_move(
+        self, target_id: str, target_root: Path, sess: str, title: str,
+    ) -> None:
+        """Create a board column, then move the task into it in one gesture.
+
+        The colour is deliberately not passed: the seam auto-assigns the next
+        unused palette entry, which is what keeps this a single title prompt in a
+        pane too small for a swatch palette.
+        """
+        rc, out = await self._run_board_column_cmd(
+            ["create", "--root", str(target_root), "--title", title]
+        )
+        first = out.splitlines()[0] if out else ""
+        if rc or not first.startswith("CREATED:"):
+            self.notify(
+                f"Create failed: {first or f'exit {rc}'}",
+                severity="warning", markup=False,
+            )
+            return
+        # Title LAST, so split on the first two separators only.
+        parts = first[len("CREATED:"):].split("|", 2)
+        if len(parts) != 3:
+            self.notify(f"Create failed: malformed response {first}",
+                        severity="warning", markup=False)
+            return
+        col_id, _color, new_title = parts
+        moved = await self._apply_column_move(
+            target_id, target_root, sess, col_id, new_title)
+        if not moved:
+            # The column exists even though the task did not move — say so, or
+            # the user re-runs and creates a duplicate.
+            self.notify(f"Column {new_title} was created but t{target_id} "
+                        f"was not moved into it",
+                        severity="warning", markup=False)
+
     async def _apply_column_move(
         self, target_id: str, target_root: Path, sess: str,
         col_id: str, title: str,
-    ) -> None:
+    ) -> bool:
         rc, out = await self._run_board_column_cmd(
             ["move", "--root", str(target_root),
              "--task", target_id, "--column", col_id]
@@ -1641,12 +1707,13 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                 f"Move failed: {first or f'exit {rc}'}",
                 severity="warning", markup=False,
             )
-            return
+            return False
         # `TaskInfoCache` would reject the stale entry on its (st_mtime_ns,
         # st_size) identity gate anyway, but a same-size edit inside the same
         # second is real, and every explicit gesture in this flow invalidates.
         self._task_cache.invalidate(target_id, sess)
         self.notify(f"Moved t{target_id} → {title}", markup=False)
+        return True
 
     def action_launch_shadow(self) -> None:
         """Spawn the shadow companion agent for the followed coding agent.

@@ -57,6 +57,7 @@ from monitor.monitor_core import (  # noqa: E402
 from monitor import monitor_shared as ms  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     TaskNumberInputModal, TaskPickConfirmDialog, ColumnPickerModal, _ColumnRow,
+    NewColumnTitleModal, _NewColumnRow,
 )
 
 _HINT_WIDTH_BUDGET = 38
@@ -1111,7 +1112,7 @@ class ColumnActionTests(unittest.TestCase):
         self._drive(app, self._happy())
         picker_cb = app.spy_pushed[-1][1]
         app.column_cmd_results = [(0, "MOVED:t1310_x.md|next|2048")]
-        picker_cb("next")
+        picker_cb(("existing", "next"))
         self.assertEqual(
             app.spy_column_cmds[-1],
             ["move", "--root", str(_ROOT), "--task", "1310", "--column", "next"],
@@ -1126,7 +1127,7 @@ class ColumnActionTests(unittest.TestCase):
         picker_cb = app.spy_pushed[-1][1]
         before = app._task_cache.invalidated.count("1310")
         app.column_cmd_results = [(1, "ERROR:unknown_column")]
-        picker_cb("next")
+        picker_cb(("existing", "next"))
         msg, severity = app.spy_notify[-1]
         self.assertIn("unknown_column", msg)
         self.assertEqual(severity, "warning")
@@ -1141,7 +1142,7 @@ class ColumnActionTests(unittest.TestCase):
     def test_choosing_the_current_column_issues_no_move(self):
         app = self._app()
         self._drive(app, self._happy())
-        app.spy_pushed[-1][1]("now")
+        app.spy_pushed[-1][1](("existing", "now"))
         self.assertNotIn("move", [c[0] for c in app.spy_column_cmds])
         self.assertEqual(app.spy_notify[-1],
                          ("t1310 is already in Now", "information"))
@@ -1178,7 +1179,7 @@ class ColumnNotificationMarkupTests(unittest.TestCase):
         app = self._app()
         self._drive(app, [(0, self._BRACKET_COLS), (0, "CURRENT:1310|now")])
         app.column_cmd_results = [(0, "MOVED:t1310_x.md|next|2048")]
-        app.spy_pushed[-1][1]("next")
+        app.spy_pushed[-1][1](("existing", "next"))
         msg, _sev = app.spy_notify[-1]
         self.assertEqual(msg, "Moved t1310 → a[b]c")
         self.assertIs(app.spy_notify_kwargs[-1].get("markup"), False)
@@ -1186,7 +1187,7 @@ class ColumnNotificationMarkupTests(unittest.TestCase):
     def test_already_in_toast_is_also_markup_free(self):
         app = self._app()
         self._drive(app, [(0, self._BRACKET_COLS), (0, "CURRENT:1310|now")])
-        app.spy_pushed[-1][1]("now")
+        app.spy_pushed[-1][1](("existing", "now"))
         msg, _sev = app.spy_notify[-1]
         self.assertEqual(msg, "t1310 is already in Backlog [/]")
         self.assertIs(app.spy_notify_kwargs[-1].get("markup"), False)
@@ -1273,12 +1274,14 @@ class ColumnButtonVisibilityTests(unittest.TestCase):
 
 
 class _PickerHost(App):
-    def __init__(self, columns, current=None, narrow=True, task_id="1310"):
+    def __init__(self, columns, current=None, narrow=True, task_id="1310",
+                 allow_new=False):
         super().__init__()
         self._columns = columns
         self._current = current
         self._narrow = narrow
         self._task_id = task_id
+        self._allow_new = allow_new
         self.results = []
 
     def compose(self) -> ComposeResult:
@@ -1287,7 +1290,8 @@ class _PickerHost(App):
     def on_mount(self) -> None:
         self.push_screen(
             ColumnPickerModal(self._task_id, self._columns,
-                              current=self._current, narrow=self._narrow),
+                              current=self._current, narrow=self._narrow,
+                              allow_new=self._allow_new),
             self.results.append,
         )
 
@@ -1378,7 +1382,7 @@ class ColumnPickerRenderTests(unittest.TestCase):
                 await pilot.press("enter")
                 await pilot.pause()
                 return app.results
-        self.assertEqual(self._run(runner()), ["now"])
+        self.assertEqual(self._run(runner()), [("existing", "now")])
 
     def test_escape_cancels(self):
         async def runner():
@@ -1556,6 +1560,353 @@ class BoardColumnCmdTests(unittest.TestCase):
         self.assertEqual((rc, out), (0, "COLUMN:c1|red|t"))
         self.assertEqual(recorded["argv"][0], str(mm._BOARD_COLUMN_SH))
         self.assertEqual(recorded["argv"][1:], ["list-columns", "--root", "/r"])
+
+
+# --- "New column…" (t1377_3) -------------------------------------------------
+
+
+class NewColumnRowVisibilityTests(unittest.TestCase):
+    """`allow_new` is opt-in, and the row is last."""
+
+    def _rows(self, allow_new):
+        async def runner():
+            app = _PickerHost(_PICKER_COLS, narrow=True, allow_new=allow_new)
+            async with app.run_test(size=(40, 50)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return [type(w).__name__ for w in app.screen.query(_ColumnRow)], _flat(app)
+        return asyncio.run(runner())
+
+    def test_new_row_is_appended_last_when_allowed(self):
+        kinds, text = self._rows(True)
+        self.assertEqual(kinds[-1], "_NewColumnRow")
+        self.assertEqual(kinds.count("_NewColumnRow"), 1)
+        self.assertIn("New column", text)
+
+    def test_negative_control_absent_by_default(self):
+        """The discriminating control: same dialog, flag off, row gone."""
+        kinds, text = self._rows(False)
+        self.assertNotIn("_NewColumnRow", kinds)
+        self.assertNotIn("New column", text)
+
+    def test_new_row_participates_in_navigation_and_dismisses_tagged(self):
+        """Subclassing `_ColumnRow` is what keeps ↑/↓ and focus working."""
+        async def runner():
+            app = _PickerHost(_PICKER_COLS, current="next", narrow=True,
+                              allow_new=True)
+            async with app.run_test(size=(40, 50)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.press("down")      # next -> the new-column row
+                await pilot.pause()
+                focused = type(app.focused).__name__
+                await pilot.press("enter")
+                await pilot.pause()
+                return focused, app.results
+        focused, results = asyncio.run(runner())
+        self.assertEqual(focused, "_NewColumnRow")
+        self.assertEqual(results, [("new", None)])
+
+    def test_ok_button_also_yields_the_tagged_result(self):
+        """Enter and OK must not disagree — both route through pick_result()."""
+        self.assertEqual(_NewColumnRow().pick_result(), ("new", None))
+        self.assertEqual(_ColumnRow("now", "Now", "").pick_result(),
+                         ("existing", "now"))
+
+
+class NewColumnFlowTests(unittest.TestCase):
+    """The create-then-move gesture, driven through the real callbacks."""
+
+    def _app(self):
+        own = _snap("%own", window_index="1", session="s1",
+                    window_name="agent-pick-77")
+        return _mk_app(
+            {"1310": _task_info("1310"), "77": _task_info("77", status="Done")},
+            snapshots=[own],
+            pane_to_task={"%own": "77"},
+        )
+
+    def _to_picker(self, app):
+        """Drive p -> confirm -> "column" and return the picker's callback."""
+        app.column_cmd_results = [(0, _COLS_OUT), (0, "CURRENT:1310|now")]
+        _screen, callback = _enter(app, "1310")
+        callback(("column", None))
+        return app.spy_pushed[-1][1]
+
+    def _to_title_modal(self, app):
+        """…then choose "New column…" and return the title modal's callback."""
+        self._to_picker(app)(("new", None))
+        screen, callback = app.spy_pushed[-1]
+        self.assertIsInstance(screen, NewColumnTitleModal)
+        return callback
+
+    def test_choosing_new_pushes_the_title_modal_and_calls_no_seam(self):
+        app = self._app()
+        picker_cb = self._to_picker(app)
+        # Snapshot AFTER the picker is open: reaching it legitimately spends a
+        # `list-columns` and a `current-column`. The claim is that *choosing*
+        # "New column…" adds none of its own — the seam waits for a title.
+        before = len(app.spy_column_cmds)
+        picker_cb(("new", None))
+        self.assertIsInstance(app.spy_pushed[-1][0], NewColumnTitleModal)
+        self.assertEqual(len(app.spy_column_cmds), before)
+
+    def test_title_modal_is_narrow(self):
+        app = self._app()
+        self._to_title_modal(app)
+        self.assertTrue(app.spy_pushed[-1][0]._narrow)
+
+    def test_create_then_move_in_one_gesture(self):
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [
+            (0, "CREATED:spikes|#8BE9FD|Spikes"),
+            (0, "MOVED:t1310_x.md|spikes|1024"),
+        ]
+        cb("Spikes")
+
+        creates = [c for c in app.spy_column_cmds if c[0] == "create"]
+        moves = [c for c in app.spy_column_cmds if c[0] == "move"]
+        self.assertEqual(len(creates), 1)
+        self.assertEqual(len(moves), 1)
+        self.assertEqual(
+            creates[0],
+            ["create", "--root", str(_ROOT), "--title", "Spikes"])
+        self.assertEqual(
+            moves[0],
+            ["move", "--root", str(_ROOT), "--task", "1310",
+             "--column", "spikes"])
+        self.assertEqual(app.spy_notify[-1], ("Moved t1310 → Spikes",
+                                              "information"))
+
+    def test_no_colour_is_passed_the_seam_auto_assigns(self):
+        """The pane is too small for a palette; omission is the contract."""
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [(0, "CREATED:spikes|#8BE9FD|Spikes"),
+                                  (0, "MOVED:t1310_x.md|spikes|1024")]
+        cb("Spikes")
+        self.assertNotIn("--color",
+                         [a for c in app.spy_column_cmds for a in c])
+
+    def test_title_is_stripped_before_reaching_the_seam(self):
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [(0, "CREATED:spikes|#8BE9FD|Spikes"),
+                                  (0, "MOVED:t1310_x.md|spikes|1024")]
+        cb("  Spikes  ")
+        creates = [c for c in app.spy_column_cmds if c[0] == "create"]
+        self.assertEqual(creates[0][-1], "Spikes")
+
+    def test_blank_title_from_the_callback_creates_nothing(self):
+        """Backstop: the modal rejects blanks in place, but a programmatic
+        dismissal must not reach the seam with nothing to create."""
+        app = self._app()
+        cb = self._to_title_modal(app)
+        for value in (None, "", "   "):
+            cb(value)
+        self.assertEqual([c for c in app.spy_column_cmds if c[0] == "create"], [])
+
+    def test_create_failure_warns_and_issues_no_move(self):
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [(1, "ERROR:invalid_color")]
+        cb("Spikes")
+        msg, severity = app.spy_notify[-1]
+        self.assertIn("invalid_color", msg)
+        self.assertEqual(severity, "warning")
+        self.assertEqual([c for c in app.spy_column_cmds if c[0] == "move"], [])
+
+    def test_move_failure_after_create_tells_the_user_the_column_exists(self):
+        """Otherwise the user re-runs and creates a duplicate column."""
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [
+            (0, "CREATED:spikes|#8BE9FD|Spikes"),
+            (1, "ERROR:not_a_parent_task"),
+        ]
+        cb("Spikes")
+        messages = [m for m, _s in app.spy_notify[-2:]]
+        self.assertTrue(any("Move failed" in m for m in messages), messages)
+        self.assertTrue(any("was created but" in m for m in messages), messages)
+
+    def test_created_title_with_a_pipe_survives(self):
+        """Title is LAST in the record, so it absorbs its own separator."""
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [
+            (0, "CREATED:ab|#8BE9FD|a|b"),
+            (0, "MOVED:t1310_x.md|ab|1024"),
+        ]
+        cb("a|b")
+        self.assertEqual(app.spy_notify[-1], ("Moved t1310 → a|b",
+                                              "information"))
+
+    def test_malformed_created_line_is_refused_not_split_wrongly(self):
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [(0, "CREATED:onlyone")]
+        cb("Spikes")
+        msg, severity = app.spy_notify[-1]
+        self.assertIn("malformed", msg)
+        self.assertEqual(severity, "warning")
+        self.assertEqual([c for c in app.spy_column_cmds if c[0] == "move"], [])
+
+    def test_every_create_toast_is_markup_free(self):
+        """`App.notify` parses markup by default and titles are user-authored:
+        `[/]` raises MarkupError, `a[b]c` is silently swallowed to `ac`."""
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [
+            (0, "CREATED:bracket|#8BE9FD|Backlog [/]"),
+            (0, "MOVED:t1310_x.md|bracket|1024"),
+        ]
+        cb("Backlog [/]")
+        self.assertEqual(app.spy_notify[-1][0], "Moved t1310 → Backlog [/]")
+        for kwargs in app.spy_notify_kwargs[-2:]:
+            self.assertIs(kwargs.get("markup"), False)
+
+    def test_create_failure_toast_is_markup_free(self):
+        app = self._app()
+        cb = self._to_title_modal(app)
+        app.column_cmd_results = [(1, "ERROR:[Errno 2] no such file")]
+        cb("Spikes")
+        self.assertIs(app.spy_notify_kwargs[-1].get("markup"), False)
+
+
+class _TitleModalHost(App):
+    def __init__(self, narrow: bool) -> None:
+        super().__init__()
+        self._narrow = narrow
+        self.results = []
+
+    def compose(self) -> ComposeResult:
+        yield Label("host")
+
+    def on_mount(self) -> None:
+        self.push_screen(NewColumnTitleModal(narrow=self._narrow),
+                         self.results.append)
+
+
+class NewColumnTitleModalTests(unittest.TestCase):
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_enter_dismisses_with_the_typed_title(self):
+        async def runner():
+            app = _TitleModalHost(True)
+            async with app.run_test(size=(40, 20)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                app.screen.query_one("#new-col-input", Input).value = "Spikes"
+                await pilot.press("enter")
+                await pilot.pause()
+                return app.results
+        self.assertEqual(self._run(runner()), ["Spikes"])
+
+    def test_escape_cancels(self):
+        async def runner():
+            app = _TitleModalHost(True)
+            async with app.run_test(size=(40, 20)) as pilot:
+                await pilot.pause()
+                await pilot.press("escape")
+                await pilot.pause()
+                return app.results
+        self.assertEqual(self._run(runner()), [None])
+
+    def test_blank_title_keeps_the_modal_mounted_and_warns(self):
+        """The in-place rejection, mirroring ColumnEditScreen.save.
+
+        Driven on a real Pilot because "still mounted" is not observable on the
+        no-Textual harness — the whole assertion is about NOT dismissing.
+        """
+        async def runner():
+            app = _TitleModalHost(True)
+            notes = []
+            async with app.run_test(size=(40, 20)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                app.notify = lambda msg, **kw: notes.append((msg, kw))
+                app.screen.query_one("#new-col-input", Input).value = "   "
+                await pilot.press("enter")
+                await pilot.pause()
+                return type(app.screen).__name__, app.results, notes
+        screen, results, notes = self._run(runner())
+        self.assertEqual(screen, "NewColumnTitleModal")   # still mounted
+        self.assertEqual(results, [])                     # dismissed nothing
+        self.assertTrue(any("Title is required" in m for m, _ in notes), notes)
+
+    def test_blank_title_via_the_create_button_is_rejected_too(self):
+        """Both entry points route through the same guard."""
+        async def runner():
+            app = _TitleModalHost(True)
+            notes = []
+            async with app.run_test(size=(40, 20)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                app.notify = lambda msg, **kw: notes.append((msg, kw))
+                await pilot.click("#btn-new-col-ok")
+                await pilot.pause()
+                return type(app.screen).__name__, app.results, notes
+        screen, results, notes = self._run(runner())
+        self.assertEqual(screen, "NewColumnTitleModal")
+        self.assertEqual(results, [])
+        self.assertTrue(any("Title is required" in m for m, _ in notes), notes)
+
+    def test_controls_fit_on_short_panes(self):
+        async def runner():
+            for size in ((40, 50), (40, 20), (40, 16)):
+                app = _TitleModalHost(True)
+                async with app.run_test(size=size) as pilot:
+                    await pilot.pause()
+                    await pilot.pause()
+                    _assert_controls_inside(self, app, "#new-col-dialog")
+        self._run(runner())
+
+    def test_labels_reach_the_screen_at_40_cols(self):
+        async def runner():
+            app = _TitleModalHost(True)
+            async with app.run_test(size=(40, 20)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return _flat(app)
+        text = self._run(runner())
+        for label in ("New Board Column", "Create", "Cancel"):
+            self.assertIn(label, text)
+
+    def test_negative_control_without_narrow_css(self):
+        stripped = _drop_narrow_rules(NewColumnTitleModal.DEFAULT_CSS)
+        self.assertNotIn("narrow", stripped)
+        # The helper eats whole rule blocks; prove it left the ordinary rules —
+        # and a balanced comment — behind, or the control would "fail" on a
+        # CSS parse error instead of on the layout.
+        self.assertIn("#new-col-dialog {", stripped)
+        self.assertEqual(stripped.count("/*"), stripped.count("*/"))
+
+        async def runner():
+            app = _TitleModalHost(True)
+            async with app.run_test(size=(40, 16)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                _assert_controls_inside(self, app, "#new-col-dialog")
+
+        with patch.object(NewColumnTitleModal, "DEFAULT_CSS", stripped):
+            with self.assertRaises(AssertionError):
+                self._run(runner())
+
+
+class PickerWithNewRowRenderTests(unittest.TestCase):
+    """The picker still fits once the extra row is added."""
+
+    def test_controls_fit_on_short_panes_with_the_new_row(self):
+        async def runner():
+            for size in ((40, 50), (40, 20), (40, 16)):
+                app = _PickerHost(_PICKER_COLS, narrow=True, allow_new=True)
+                async with app.run_test(size=size) as pilot:
+                    await pilot.pause()
+                    await pilot.pause()
+                    _assert_controls_inside(self, app, "#column-pick-dialog")
+        asyncio.run(runner())
 
 
 if __name__ == "__main__":

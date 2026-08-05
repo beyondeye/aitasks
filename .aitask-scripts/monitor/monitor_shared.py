@@ -1295,6 +1295,16 @@ class _ColumnRow(Static):
     def col_id(self) -> str:
         return self._col_id
 
+    def pick_result(self):
+        """This row's dismissal payload (t1377_3).
+
+        The **one** place that knows the picker's result shape for a real
+        column; `_NewColumnRow` overrides it for the create action. Both the
+        Enter key and the OK button route through here, so the tagged tuple is
+        defined once rather than at each dismissal site.
+        """
+        return ("existing", self._col_id)
+
     def render(self) -> str:
         # `title` and `col_id` are user-authored config reaching a markup
         # string, so both are escaped. Verified, not theoretical: an unescaped
@@ -1309,7 +1319,7 @@ class _ColumnRow(Static):
 
     def on_key(self, event) -> None:
         if event.key == "enter":
-            self.screen.dismiss(self._col_id)
+            self.screen.dismiss(self.pick_result())
             event.prevent_default()
             event.stop()
         elif event.key == "down":
@@ -1336,6 +1346,30 @@ class _ColumnRow(Static):
             rows[new_idx].scroll_visible()
 
 
+class _NewColumnRow(_ColumnRow):
+    """The trailing "create a new column" row of ColumnPickerModal (t1377_3).
+
+    A **subclass** rather than a sentinel `col_id` string: a sentinel would flow
+    into the caller's `titles` lookup and could reach the seam as a real column
+    id, whereas the tagged result makes the create action structurally distinct.
+    Subclassing (rather than a sibling widget) is what keeps `_focus_neighbor`'s
+    ``isinstance(w, _ColumnRow)`` scan and the modal's focus loop working
+    unchanged.
+
+    It carries no id and no colour, so it renders no swatch — there is nothing
+    user-authored in this row to escape.
+    """
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__("", "", "", current=False, **kwargs)
+
+    def pick_result(self):
+        return ("new", None)
+
+    def render(self) -> str:
+        return "   [bold]＋ New column…[/]"
+
+
 class ColumnPickerModal(ModalScreen):
     """Pick the board column to move a task into (t1377_2).
 
@@ -1344,7 +1378,20 @@ class ColumnPickerModal(ModalScreen):
     ``unordered`` entry. ``current`` is the task's present column, marked in the
     list so the user can see where it sits before moving it.
 
-    Dismisses the chosen ``col_id`` string, or ``None`` on cancel.
+    ``allow_new`` appends a trailing "＋ New column…" row (t1377_3). It defaults
+    to off so the constructor stays usable by a caller that only wants to move.
+
+    Dismisses a **tagged tuple** (t1377_3):
+
+    ==========================  ====================================
+    ``("existing", col_id)``    move to an already-configured column
+    ``("new", None)``           the user chose to create one
+    ``None``                    cancel
+    ==========================  ====================================
+
+    The tag exists because both actions would otherwise be a bare string, and a
+    sentinel id could reach the headless seam as a real column. Note both tuples
+    are **truthy**: a consumer must branch on the tag, not on truthiness.
     """
 
     BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
@@ -1395,12 +1442,14 @@ class ColumnPickerModal(ModalScreen):
         columns: list[tuple[str, str, str]],
         current: str | None = None,
         narrow: bool = False,
+        allow_new: bool = False,
     ) -> None:
         super().__init__()
         self._task_id = task_id
         self._columns = columns
         self._current = current
         self._narrow = narrow
+        self._allow_new = allow_new
 
     def _current_title(self) -> str:
         for col_id, _color, title in self._columns:
@@ -1423,6 +1472,8 @@ class ColumnPickerModal(ModalScreen):
                 for col_id, color, title in self._columns:
                     yield _ColumnRow(col_id, title, color,
                                      current=col_id == self._current)
+                if self._allow_new:
+                    yield _NewColumnRow()
             yield Static(
                 "[dim]\\[↑/↓] navigate  \\[Enter/OK] select  \\[Esc] cancel[/]",
                 id="column-pick-help",
@@ -1445,13 +1496,105 @@ class ColumnPickerModal(ModalScreen):
         if event.button.id == "btn-col-ok":
             focused = self.focused
             if isinstance(focused, _ColumnRow):
-                self.dismiss(focused.col_id)
+                self.dismiss(focused.pick_result())
                 return
             rows = list(self.query(_ColumnRow))
             if rows:
-                self.dismiss(rows[0].col_id)
+                self.dismiss(rows[0].pick_result())
             else:
                 self.dismiss(None)
+        else:
+            self.dismiss(None)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)
+
+
+class NewColumnTitleModal(ModalScreen):
+    """Prompt for the title of a board column to create (t1377_3).
+
+    Shape copied from :class:`TaskNumberInputModal` — one input, OK/Cancel, a
+    ``.narrow`` variant for the ~40-column companion pane. Dismisses the raw
+    title string, or ``None`` on cancel; the id and colour are derived by the
+    headless seam, so this asks for the one thing only a human can supply.
+
+    **A blank title is rejected in place** — warn and stay mounted, mirroring
+    the board's ``ColumnEditScreen.save``. Dismissing an empty string would push
+    the refusal down to the seam and close the dialog the user has to reopen.
+    """
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    NewColumnTitleModal { align: center middle; }
+    #new-col-dialog {
+        width: 60%;
+        min-width: 28;
+        height: auto;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #new-col-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #new-col-input { margin: 0 0 1 0; }
+    #new-col-help { color: $text-muted; margin: 0 0 1 0; }
+    #new-col-buttons { width: 100%; height: auto; layout: horizontal; }
+    #new-col-buttons Button { margin: 0 1; }
+
+    /* Small-pane variant for the ~40-column companion pane. `min-width: 0` is
+       load-bearing: Textual's Button defaults to `min-width: 16`, so two of them
+       plus margins overflow a 32-cell content box and Cancel renders outside the
+       dialog. Buttons stack, as in TaskNumberInputModal.
+       Keep the small-pane keyword out of THIS comment: the CSS-stripping helper
+       in tests/test_minimonitor_pick_by_number.py drops any line containing it
+       and then eats lines through the next `}`, so a mention here would orphan
+       this comment's opener and take a real rule with it. */
+    NewColumnTitleModal.narrow #new-col-dialog { width: 90%; min-width: 30; }
+    NewColumnTitleModal.narrow #new-col-buttons { layout: vertical; height: auto; }
+    NewColumnTitleModal.narrow #new-col-buttons Button {
+        width: 1fr;
+        min-width: 0;
+        height: 1;
+        border: none;
+        margin: 0 0 1 0;
+    }
+    """
+
+    def __init__(self, narrow: bool = False) -> None:
+        super().__init__()
+        self._narrow = narrow
+
+    def compose(self) -> ComposeResult:
+        if self._narrow:
+            self.add_class("narrow")
+        with Container(id="new-col-dialog"):
+            yield Static("[bold]New Board Column[/]", id="new-col-header")
+            yield Input(placeholder="e.g. Spikes", id="new-col-input")
+            yield Static(
+                "[dim]\\[Enter/OK] create  \\[Esc] cancel[/]",
+                id="new-col-help",
+            )
+            with Container(id="new-col-buttons"):
+                yield Button("Create", variant="primary", id="btn-new-col-ok")
+                yield Button("Cancel", variant="default", id="btn-new-col-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#new-col-input", Input).focus()
+
+    def _submit(self) -> None:
+        """The single guard both Enter and the Create button route through."""
+        title = self.query_one("#new-col-input", Input).value.strip()
+        if not title:
+            self.app.notify("Title is required", severity="warning")
+            return  # stay mounted — never dismiss on a blank title
+        self.dismiss(title)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._submit()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-new-col-ok":
+            self._submit()
         else:
             self.dismiss(None)
 
@@ -1468,18 +1611,35 @@ _CONCERN_BADGE = {
 }
 
 
+#: Disposition → row mark (t1427_2). Every glyph is **single-width**, which is
+#: what keeps :data:`_NARROW_PREFIX_COLS` valid: the narrow layout budgets the
+#: prefix in columns, so a double-width mark would silently eat a column of
+#: region text at exactly the widths that already have none to spare.
+_CONCERN_MARKS = {
+    "none": "☐",
+    "forward": "[bold yellow]☑[/]",
+    "rejected": "[red]✗[/]",
+}
+
+
 #: Columns line 1 of a narrow row spends before the region: mark, spaces, the
 #: widest badge (`HIGH`), and the separating space.
 _NARROW_PREFIX_COLS = 8
 
 
 class _ConcernRow(Static):
-    """A focusable, toggleable concern row inside ConcernPickerModal.
+    """A focusable, tri-state concern row inside ConcernPickerModal.
 
     Holds one ``Concern``, its ``original_index`` in the modal's input list, and a
-    ``selected`` flag. The checkbox glyph follows the t1004 convention (☑/☐, never
-    a dot; marked = bold yellow). Navigation mirrors ``_SiblingRow``; ``space``
-    toggles the selection (``enter`` confirm is handled at the modal level).
+    **mutually exclusive** disposition in ``{"none", "forward", "rejected"}``
+    (t1427_2). The checkbox glyph follows the t1004 convention (☑/☐, never a dot;
+    marked = bold yellow); rejection adds a red ``✗``. Navigation mirrors
+    ``_SiblingRow``; ``space`` toggles *forward* and ``r`` toggles *rejected* —
+    setting either clears the other, so a concern can never be forwarded and
+    rejected at once (``enter`` confirm is handled at the modal level).
+
+    The three marks are all **single-width**, so :data:`_NARROW_PREFIX_COLS`
+    still describes the narrow layout's prefix budget.
 
     **Two layouts (t1274).** The wide variant is one line,
     ``☐ BADGE region body``. The narrow variant — the minimonitor companion pane,
@@ -1506,6 +1666,13 @@ class _ConcernRow(Static):
     _ConcernRow.informational {
         color: $text-muted;
     }
+    /* Rejected (t1427_2): dim, which together with the red ✗ mark reads as
+       struck through without depending on terminal strikethrough support.
+       Same colour as .informational on purpose — a rejected informational row
+       is simply dim, and the mark is what distinguishes the two states. */
+    _ConcernRow.rejected {
+        color: $text-muted;
+    }
     _ConcernRow:focus {
         background: $accent 30%;
     }
@@ -1527,7 +1694,7 @@ class _ConcernRow(Static):
         self._concern = concern
         self._narrow = narrow
         self._original_index = original_index
-        self._selected = False
+        self._state = "none"
         if narrow:
             self.add_class("two-line")
         if not needs_addressing(concern):
@@ -1548,16 +1715,38 @@ class _ConcernRow(Static):
         return self._original_index
 
     @property
+    def state(self) -> str:
+        """One of ``"none"`` / ``"forward"`` / ``"rejected"``."""
+        return self._state
+
+    @property
     def selected(self) -> bool:
-        return self._selected
+        """True only in the ``forward`` state — the "will be forwarded" read."""
+        return self._state == "forward"
 
-    def toggle(self) -> None:
-        self.set_selected(not self._selected)
+    @property
+    def rejected(self) -> bool:
+        return self._state == "rejected"
 
-    def set_selected(self, value: bool) -> None:
-        if self._selected != value:
-            self._selected = value
-            self.refresh()
+    def set_state(self, value: str) -> None:
+        """Set the disposition; repaint and re-class only on a real change.
+
+        The ``rejected`` CSS class tracks the state here rather than at each
+        call site, so the glyph and the dimming can never disagree.
+        """
+        if self._state == value:
+            return
+        self._state = value
+        self.set_class(value == "rejected", "rejected")
+        self.refresh()
+
+    def toggle_forward(self) -> None:
+        """``space``: forward ⇄ none. Clears a rejection by construction."""
+        self.set_state("none" if self._state == "forward" else "forward")
+
+    def toggle_reject(self) -> None:
+        """``r``: rejected ⇄ none. Clears a forward selection by construction."""
+        self.set_state("none" if self._state == "rejected" else "rejected")
 
     def _region_label(self, budget: int) -> str:
         """The region, ellipsized to ``budget`` columns, or a visible placeholder."""
@@ -1569,7 +1758,7 @@ class _ConcernRow(Static):
         return f"[dim]{escape(region)}[/]"
 
     def render(self) -> str:
-        mark = "[bold yellow]☑[/]" if self._selected else "☐"
+        mark = _CONCERN_MARKS[self._state]
         badge = _CONCERN_BADGE.get(self._concern.priority, "[dim]LOW[/]")
         # display_body(), never .body — the Disposition:/Verified: trailer is
         # metadata for the receiving agent, not for this row. (The clipboard path
@@ -1584,7 +1773,11 @@ class _ConcernRow(Static):
 
     def on_key(self, event) -> None:
         if event.key == "space":
-            self.toggle()
+            self.toggle_forward()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "r":
+            self.toggle_reject()
             event.prevent_default()
             event.stop()
         elif event.key == "down":
@@ -1640,14 +1833,15 @@ _PICKER_NARROW_MIN_WIDTH = 30
 _PICKER_MIN_COLS = 24
 
 _CONCERN_HELP_FULL = (
-    "[dim]\\[↑/↓] navigate  \\[Space] toggle  \\[a] all actionable  "
-    "\\[A] copy all  \\[u] unparsed  \\[Enter/OK] confirm  \\[Esc] cancel[/]"
+    "[dim]\\[↑/↓] navigate  \\[Space] forward  \\[r] reject  "
+    "\\[R] rejected list  \\[u] unparsed  \\[Enter/OK] confirm  \\[Esc] cancel[/]"
 )
 
 #: Same keys, ~50 columns instead of ~100 — at the xnarrow tier the full line
-#: wraps to five rows and evicts the buttons.
+#: wraps to five rows and evicts the buttons. Dropping the removed `a`/`A` bulk
+#: keys (t1427_2) is what buys the room for `r` / `R` at 24 columns.
 _CONCERN_HELP_COMPACT = (
-    "[dim]↑↓ move · spc pick · a all · A copy · u raw · ↵ ok · esc[/]"
+    "[dim]↑↓ move · spc fwd · r rej · R list · u raw · ↵ ok · esc[/]"
 )
 
 

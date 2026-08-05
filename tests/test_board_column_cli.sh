@@ -6,11 +6,19 @@
 # in the Python suite (tests/test_board_columns_seam.py). A Python-only test
 # would not cover the real entry point.
 #
-# Covers: all three subcommands; the `|`-delimited record shape (title LAST,
+# Covers: all four subcommands; the `|`-delimited record shape (title LAST,
 # because titles may legitimately contain `|`); non-zero exit plus a machine
 # `ERROR:<reason>` line for every refusal; the four identifier cases (malformed
 # incl. a literal `*` that must not glob, ambiguous, child, missing); and
 # --task-dir containment, with a canary planted OUTSIDE --root that must survive.
+#
+# `create` (t1377_3) additionally pins the colour policy at the shell layer,
+# where an operator or another tool actually supplies the value: a malformed
+# colour is REFUSED (it is a middle field, and it reaches rich markup), while
+# `gray` — this seam's own UNORDERED_COLOR, which rich cannot parse — is
+# ACCEPTED. That pair is what keeps the validator a regex rather than
+# rich.Color.parse. An omitted --title is a usage error (exit 2); a blank one is
+# a refusal (exit 1) — callers branch on the difference.
 #
 # Run: bash tests/test_board_column_cli.sh
 
@@ -232,6 +240,74 @@ assert_dir_not_exists "no default layout present" "$PROJ/aitasks"
 echo "=== Test 10: --root is honoured from an unrelated cwd ==="
 out="$(cd "$TMP" && "$COLUMN_SH" list-columns --root "$PROJ" --task-dir mytasks 2>&1)"
 assert_contains "works with cwd outside the project" "COLUMN:c0|" "$out"
+
+# --- create (t1377_3) --------------------------------------------------------
+# The CLI is a public write surface: `aitask_update.sh` probes it and sibling
+# tasks reuse it, so the colour policy is asserted HERE and not only in Python.
+
+rm -rf "$PROJ"
+build_tree "aitasks"
+
+echo "=== Test 11: create ==="
+out="$("$COLUMN_SH" create --root "$PROJ" --title "My Col" 2>&1)"; rc=$?
+assert_eq "create exits 0" "0" "$rc"
+assert_contains "emits the slugged id and the title" "CREATED:my_col|" "$out"
+assert_contains "auto-assigns the first unused palette colour" "|#FFB86C|My Col" "$out"
+
+# The round trip is what proves the write is real, not just well-formed output.
+out="$("$COLUMN_SH" list-columns --root "$PROJ" 2>&1)"
+assert_contains "the new column is listed" "COLUMN:my_col|#FFB86C|My Col" "$out"
+out="$("$COLUMN_SH" move --root "$PROJ" --task 100 --column my_col 2>&1)"; rc=$?
+assert_eq "the new column is a legal move target" "0" "$rc"
+assert_contains "the task moved into it" "boardcol: my_col" \
+    "$(cat "$PROJ/aitasks/t100_alpha.md")"
+
+echo "=== Test 12: create — title handling ==="
+out="$("$COLUMN_SH" create --root "$PROJ" --title "a|b" 2>&1)"
+# Title is LAST, so it absorbs its own separator: split on the first two only.
+recovered="$(printf '%s' "$out" | sed 's/^CREATED:[^|]*|[^|]*|//')"
+assert_eq "title keeps its pipe" "a|b" "$recovered"
+
+before="$(tree_checksum)"
+out="$("$COLUMN_SH" create --root "$PROJ" --title '' 2>&1)"; rc=$?
+assert_exit_nonzero_rc "empty title exits non-zero" "$rc"
+assert_contains "empty title reports reason" "ERROR:empty_title" "$out"
+assert_eq "empty title wrote nothing" "$before" "$(tree_checksum)"
+
+# An OMITTED flag is a usage error (exit 2) — a different thing from a blank
+# value, and callers branch on the distinction.
+out="$("$COLUMN_SH" create --root "$PROJ" 2>&1)"; rc=$?
+assert_eq "omitted --title is a usage error" "2" "$rc"
+assert_not_contains "usage error is not a refusal" "ERROR:" "$out"
+
+echo "=== Test 13: create — colour policy ==="
+out="$("$COLUMN_SH" create --root "$PROJ" --title "Hexed" --color '#FF5555' 2>&1)"
+assert_contains "explicit hex honoured verbatim" "|#FF5555|Hexed" "$out"
+# `gray` is this seam's own UNORDERED_COLOR and rich CANNOT parse it — accepting
+# it is what pins the validator to the regex rather than to rich.Color.parse.
+out="$("$COLUMN_SH" create --root "$PROJ" --title "Named" --color gray 2>&1)"
+assert_contains "stock style-name token accepted" "|gray|Named" "$out"
+out="$("$COLUMN_SH" create --root "$PROJ" --title "Plain" --color '' 2>&1)"
+assert_contains "empty colour means colourless" "CREATED:plain||Plain" "$out"
+
+before="$(tree_checksum)"
+for bad in "not a color" "red] [/" "#GG0000" "Red"; do
+    out="$("$COLUMN_SH" create --root "$PROJ" --title "X" --color "$bad" 2>&1)"; rc=$?
+    assert_exit_nonzero_rc "colour '$bad' exits non-zero" "$rc"
+    assert_contains "colour '$bad' reports reason" "ERROR:invalid_color" "$out"
+done
+assert_eq "refused colours wrote nothing" "$before" "$(tree_checksum)"
+
+echo "=== Test 14: create — boundary checks at the shell layer ==="
+before="$(tree_checksum)"
+for bad in "/etc" "../sibling"; do
+    out="$("$COLUMN_SH" create --root "$PROJ" --task-dir "$bad" --title "X" 2>&1)"; rc=$?
+    assert_exit_nonzero_rc "create task-dir '$bad' exits non-zero" "$rc"
+    assert_contains "create task-dir '$bad' reports reason" \
+        "ERROR:unsafe_task_dir" "$out"
+done
+assert_eq "unsafe task-dir wrote nothing" "$before" "$(tree_checksum)"
+assert_file_exists "canary still present after create attempts" "$CANARY"
 
 echo ""
 echo "=========================="

@@ -552,6 +552,8 @@ class ReaderContractTests(_SeamCase):
 BOARD_SRC = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
 GATHER_SRC = REPO_ROOT / ".aitask-scripts" / "lib" / "work_report_gather.py"
 SEAM_SRC = REPO_ROOT / ".aitask-scripts" / "lib" / "board_columns.py"
+SETTINGS_SRC = REPO_ROOT / ".aitask-scripts" / "settings" / "settings_app.py"
+STATS_CONFIG_SRC = REPO_ROOT / ".aitask-scripts" / "stats" / "stats_config.py"
 
 
 class SeamGuardTests(unittest.TestCase):
@@ -588,6 +590,53 @@ class SeamGuardTests(unittest.TestCase):
         self.assertNotIn("kept in sync with aitask_board.py",
                          GATHER_SRC.read_text(encoding="utf-8"))
 
+    def test_board_imports_the_palette_and_slug_instead_of_defining_them(self):
+        """t1377_3: the board delegates rather than carrying a second copy."""
+        src = BOARD_SRC.read_text(encoding="utf-8")
+        self.assertNotIn("PALETTE_COLORS = [", src,
+                         "PALETTE_COLORS must live in lib/board_columns.py")
+        self.assertNotIn("slug = slug.strip('_')", src,
+                         "the slug body must live in lib/board_columns.py")
+        self.assertIn("return generate_col_id(name, existing_ids)", src,
+                      "_generate_col_id must delegate to the shared one")
+
+    def test_board_and_settings_import_the_layer_key_sets(self):
+        """t1377_3: `_PROJECT_KEYS` / `_USER_KEYS` had two byte-identical copies."""
+        board = BOARD_SRC.read_text(encoding="utf-8")
+        settings = SETTINGS_SRC.read_text(encoding="utf-8")
+        self.assertNotIn('_PROJECT_KEYS = {"columns"', board)
+        self.assertNotIn('_USER_KEYS = {"settings"}', board)
+        self.assertNotIn('_BOARD_PROJECT_KEYS = {"columns"', settings)
+        self.assertNotIn('_BOARD_USER_KEYS = {"settings"}', settings)
+        self.assertIn("from board_columns import PROJECT_KEYS", board)
+        self.assertIn("from board_columns import PROJECT_KEYS", settings)
+
+    def test_stats_config_user_keys_is_a_name_collision_not_a_duplicate(self):
+        """The negative control for the de-dup's *scope*.
+
+        `stats/stats_config.py` also defines `_USER_KEYS`, and a sweep that
+        matched on the name alone would "unify" it. It is a different key set for
+        a different config file — this pins that it is left alone, and that the
+        two are not interchangeable.
+        """
+        # `stats_config` does `from lib.config_utils import …`, so it needs the
+        # scripts ROOT on the path, not the stats directory.
+        scripts_root = str(REPO_ROOT / ".aitask-scripts")
+        if scripts_root not in sys.path:
+            sys.path.insert(0, scripts_root)
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "stats_config_probe", STATS_CONFIG_SRC)
+        stats_config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stats_config)
+
+        self.assertEqual(stats_config._USER_KEYS,
+                         ("active", "days", "week_start", "custom"))
+        self.assertNotEqual(set(stats_config._USER_KEYS), bc.USER_KEYS)
+        self.assertNotIn("from board_columns import",
+                         STATS_CONFIG_SRC.read_text(encoding="utf-8"))
+
 
 class DedupDriftTests(_SeamCase):
     """The de-dup is real, not two implementations that agree today.
@@ -621,6 +670,321 @@ class DedupDriftTests(_SeamCase):
         self.assertEqual(ambient, bc.load_columns(self.tree))
         self.assertEqual(ambient[0], ["solo"],
                          "the undefined 'ghost' entry must be dropped by both")
+
+
+# --- Column creation (t1377_3) ----------------------------------------------
+
+
+class SlugTests(unittest.TestCase):
+    """First tests for the slug generator — it had none before t1377_3."""
+
+    def test_non_ascii_is_stripped_and_the_rest_slugged(self):
+        self.assertEqual(bc.generate_col_id("My Spikes 🚀", []), "my_spikes")
+        self.assertEqual(bc.generate_col_id("  Now ⚡  ", []), "now")
+
+    def test_empty_and_all_stripped_titles_fall_back(self):
+        for title in ("", "   ", "🙂", "!!!"):
+            self.assertEqual(bc.generate_col_id(title, []), "column")
+
+    def test_collisions_are_uniquified_in_order(self):
+        existing = []
+        for expected in ("dup", "dup_2", "dup_3"):
+            got = bc.generate_col_id("Dup", existing)
+            self.assertEqual(got, expected)
+            existing.append(got)
+
+    def test_length_is_capped_at_twenty_before_the_suffix(self):
+        """Preserved verbatim from the board, quirk included: the uniquifying
+        suffix is appended AFTER truncation, so a collided id may exceed 20."""
+        long_title = "a" * 40
+        self.assertEqual(bc.generate_col_id(long_title, []), "a" * 20)
+        self.assertEqual(bc.generate_col_id(long_title, ["a" * 20]),
+                         "a" * 20 + "_2")
+
+    def test_output_can_never_break_a_delimited_record(self):
+        """The load-bearing property, asserted with the REAL predicate.
+
+        `record_protocol.has_record_breaking` is what the report protocol
+        actually enforces; a hand-rolled regex here could drift from it.
+        """
+        from record_protocol import has_record_breaking
+
+        for title in ("a|b", "a\rb", "a\nb", "pipe | cr \r lf \n 🚀",
+                      "|||", "\r\n"):
+            for existing in ([], ["a_b"], ["column"]):
+                self.assertFalse(has_record_breaking(
+                    bc.generate_col_id(title, existing)))
+
+
+class PaletteTests(unittest.TestCase):
+    def test_first_unused_palette_entry_is_chosen(self):
+        self.assertEqual(bc.next_palette_color([]), "#FF5555")
+        self.assertEqual(bc.next_palette_color(["#FF5555"]), "#FFB86C")
+        self.assertEqual(bc.next_palette_color(["#FF5555", "#FFB86C"]),
+                         "#F1FA8C")
+
+    def test_non_palette_colours_do_not_suppress_a_palette_entry(self):
+        self.assertEqual(bc.next_palette_color(["gray", "#123456", None]),
+                         "#FF5555")
+
+    def test_all_used_falls_back_by_count(self):
+        used = [hexv for hexv, _label in bc.PALETTE_COLORS]
+        self.assertEqual(bc.next_palette_color(used),
+                         bc.PALETTE_COLORS[len(used) % 8][0])
+
+
+class ColorPolicyTests(_SeamCase):
+    """Writers refuse, readers degrade — both stances pinned here."""
+
+    REFUSED = ("not a color", "#GG0000", "#FF55", "red] [/", "Red",
+               "a|b", "a\rb", "a\nb", "[bold]", "#", "rgb(1,2,3)")
+    ACCEPTED = ("#FF5555", "#abc", "#ABC", "gray", "bright_blue", "red")
+
+    def test_malformed_colours_are_refused_and_write_nothing(self):
+        for color in self.REFUSED:
+            with self.subTest(color=color):
+                out = bc.create_column(self.tree, "Title", color)
+                self.assertFalse(out.ok, f"{color!r} should be refused")
+                self.assertEqual(out.refused, (("Title", "invalid_color"),))
+                self.assert_untouched()
+
+    def test_accepted_colours_include_the_seams_own_stock_value(self):
+        """`gray` is `UNORDERED_COLOR` and rich CANNOT parse it.
+
+        This row is what fails if the validator is ever "improved" into
+        `rich.Color.parse` — it would start refusing a value this module ships.
+        """
+        self.assertIn("gray", self.ACCEPTED)
+        for color in self.ACCEPTED:
+            with self.subTest(color=color):
+                out = bc.create_column(self.tree, f"T {color}", color)
+                self.assertTrue(out.ok, out.refused)
+                self.assertEqual(out.color, color)
+
+    def test_colour_is_stored_verbatim_case_preserved(self):
+        out = bc.create_column(self.tree, "Cased", "#AbCdEf")
+        self.assertEqual(self._entry(out.col_id)["color"], "#AbCdEf")
+
+    def test_omitted_colour_auto_assigns_from_the_palette(self):
+        out = bc.create_column(self.tree, "Auto")
+        self.assertIn(out.color, [h for h, _l in bc.PALETTE_COLORS])
+
+    def test_empty_colour_means_explicitly_colourless(self):
+        """`None` (omitted) and `""` (explicit) are different requests."""
+        out = bc.create_column(self.tree, "Plain", "")
+        self.assertTrue(out.ok, out.refused)
+        self.assertIsNone(out.color)
+        self.assertNotIn("color", self._entry(out.col_id))
+
+    def test_reader_still_degrades_a_hand_written_bad_colour(self):
+        """The asymmetry, in one test so neither stance can absorb the other."""
+        path = self.tree / "aitasks" / "metadata" / "board_config.json"
+        path.write_text(json.dumps(
+            {"columns": [{"id": "c9", "title": "Nine", "color": "not a color"}],
+             "column_order": ["c9"]}) + "\n", encoding="utf-8")
+
+        records = bc.column_records(self.tree)
+        self.assertEqual(records[0].color, "not a color")   # reader tolerates
+        self.assertFalse(bc.create_column(self.tree, "X", "not a color").ok)
+
+    def test_negative_control_bypassing_the_guard_lets_a_pipe_be_mangled(self):
+        """Why refusal, not storage: the corruption is undecidable on read.
+
+        With the validator bypassed a `|` colour reaches disk, and `list-columns`
+        then silently strips it — the reader cannot tell that from a colour that
+        never had one.
+        """
+        with mock.patch.object(bc, "_validate_color", lambda c: c):
+            out = bc.create_column(self.tree, "Sneak", "re|d")
+        self.assertTrue(out.ok, out.refused)
+        self.assertEqual(self._entry(out.col_id)["color"], "re|d")
+
+        emitted = [line for line in self._cli_list_columns()
+                   if line.startswith(f"COLUMN:{out.col_id}|")]
+        self.assertEqual(len(emitted), 1)
+        _cid, color, _title = emitted[0][len("COLUMN:"):].split("|", 2)
+        self.assertEqual(color, "red")      # the `|` vanished, silently
+
+    def _entry(self, col_id):
+        path = self.tree / "aitasks" / "metadata" / "board_config.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return next(c for c in raw["columns"] if c["id"] == col_id)
+
+    def _cli_list_columns(self):
+        out = []
+        path = self.tree / "aitasks" / "metadata" / "board_config.json"
+        for rec in bc.column_records_at(path):
+            from record_protocol import sanitize_last_field, sanitize_middle_field
+            out.append(f"COLUMN:{rec.id}|{sanitize_middle_field(rec.color or '')}"
+                       f"|{sanitize_last_field(rec.title)}")
+        return out
+
+
+class CreateRefusalTests(_SeamCase):
+    def test_blank_titles_are_refused(self):
+        for title in ("", "   ", "\t", None):
+            with self.subTest(title=title):
+                out = bc.create_column(self.tree, title)
+                self.assertFalse(out.ok)
+                self.assertEqual(out.refused[0][1], "empty_title")
+                self.assert_untouched()
+
+    def test_unsafe_task_dir_is_refused(self):
+        for task_dir in ("/etc", "../sibling", "a/../../b", ""):
+            with self.subTest(task_dir=task_dir):
+                out = bc.create_column(self.tree, "T", task_dir=task_dir)
+                self.assertFalse(out.ok)
+                self.assertEqual(out.refused[0][1], "unsafe_task_dir")
+                self.assert_untouched()
+
+    def test_missing_layout_is_refused(self):
+        empty = self.root_dir / "empty"
+        empty.mkdir()
+        out = bc.create_column(empty, "T")
+        self.assertFalse(out.ok)
+        self.assertEqual(out.refused[0][1], "unsupported_layout")
+
+
+class CreateSemanticsTests(_SeamCase):
+    def test_new_column_lands_last_in_both_lists(self):
+        before_ids, _titles = bc.load_columns(self.tree)
+        out = bc.create_column(self.tree, "Spikes")
+        self.assertTrue(out.ok, out.refused)
+        after_ids, titles = bc.load_columns(self.tree)
+        self.assertEqual(after_ids, before_ids + [out.col_id])
+        self.assertEqual(titles[out.col_id], "Spikes")
+
+    def test_existing_columns_keep_their_order_and_colours(self):
+        before = bc.column_records(self.tree)
+        bc.create_column(self.tree, "Spikes")
+        after = bc.column_records(self.tree)
+        self.assertEqual([(r.id, r.title, r.color) for r in after[:len(before)]],
+                         [(r.id, r.title, r.color) for r in before])
+
+    def test_title_keeps_its_pipe(self):
+        out = bc.create_column(self.tree, "a|b")
+        _ids, titles = bc.load_columns(self.tree)
+        self.assertEqual(titles[out.col_id], "a|b")
+
+    def test_missing_config_file_yields_the_stock_board_plus_the_new_column(self):
+        """Board parity with `load_metadata`, pinned because it is surprising."""
+        (self.tree / "aitasks" / "metadata" / "board_config.json").unlink()
+        (self.tree / "aitasks" / "metadata" / "board_config.local.json").unlink()
+        out = bc.create_column(self.tree, "Spikes")
+        ids, _titles = bc.load_columns(self.tree)
+        self.assertEqual(ids, bc.DEFAULT_ORDER + [out.col_id])
+
+
+class LayeredWriteTests(_SeamCase):
+    """The project/local split — three failure modes, all invisible to a
+    happy-path creation test."""
+
+    def setUp(self):
+        super().setUp()
+        self.config = self.tree / "aitasks" / "metadata" / "board_config.json"
+        self.local = self.tree / "aitasks" / "metadata" / "board_config.local.json"
+        raw = json.loads(self.config.read_text(encoding="utf-8"))
+        raw["unrelated_project_key"] = {"keep": "me"}
+        self.config.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        local = json.loads(self.local.read_text(encoding="utf-8"))
+        local["settings"]["collapsed_columns"] = ["c1"]
+        local["settings"]["auto_refresh_minutes"] = 7
+        # A top-level user key that is in NEITHER key set. `split_config` routes
+        # an unclassified key to the PROJECT dict, so this is what discriminates
+        # "wrote the project layer" from "wrote the merged dict": the former
+        # leaves it here, the latter both drops it here and leaks it there.
+        # It is also what makes the mirror control observable at all — a
+        # `settings`-only round trip re-serializes byte-identically, so a bytes
+        # comparison alone could not tell a rewrite from a no-op.
+        local["local_only_marker"] = {"user": "private"}
+        self.local.write_text(json.dumps(local, indent=2) + "\n", encoding="utf-8")
+        self.local_before = self.local.read_bytes()
+
+    def project(self):
+        return json.loads(self.config.read_text(encoding="utf-8"))
+
+    def test_round_trip_keeps_each_layer_where_it_belongs(self):
+        out = bc.create_column(self.tree, "Spikes")
+        self.assertTrue(out.ok, out.refused)
+        project = self.project()
+
+        # (a) the new column is in the project layer
+        self.assertIn(out.col_id, [c["id"] for c in project["columns"]])
+        # (b) an unrelated project key survives verbatim
+        self.assertEqual(project["unrelated_project_key"], {"keep": "me"})
+        # (c) NO user-layer key leaked into the tracked file — not `settings`,
+        #     and not an unclassified one either
+        self.assertNotIn("settings", project)
+        self.assertNotIn("local_only_marker", project)
+        # (d) the local file is byte-identical
+        self.assertEqual(self.local.read_bytes(), self.local_before)
+
+    def test_negative_control_merged_write_leaks_settings(self):
+        """Mutation 1: skip `split_config` and write the merged dict.
+
+        Names the exact corruption — `settings` in the tracked file — rather
+        than asserting that "something" differs.
+        """
+        real_save = bc.save_project_config
+
+        def leaky(path, _data):
+            merged = bc.load_layered_config(
+                str(path), defaults={"columns": bc.DEFAULT_COLUMNS,
+                                     "column_order": bc.DEFAULT_ORDER})
+            real_save(path, merged)
+
+        with mock.patch.object(bc, "save_project_config", leaky):
+            bc.create_column(self.tree, "Spikes")
+
+        project = self.project()
+        self.assertIn("settings", project)
+        self.assertIn("collapsed_columns", project["settings"])
+        # An unclassified local key rides along too — the leak is not limited to
+        # `settings`, which is why the real writer never touches the merged dict.
+        self.assertIn("local_only_marker", project)
+        # …and the local file is still untouched, which is what makes this a
+        # one-mutation control rather than two overlapping ones.
+        self.assertEqual(self.local.read_bytes(), self.local_before)
+
+    def test_negative_control_save_metadata_mirror_rewrites_the_local_file(self):
+        """Mutation 2: also write the user layer, as `save_metadata` does.
+
+        A distinct failure from the leak above — this one leaves the project
+        file correct and damages the user's own file instead, which is why one
+        control cannot stand in for both.
+
+        Note what makes it *observable*: a `settings`-only round trip
+        re-serializes to identical bytes, so comparing bytes would have shown no
+        difference and the control would have "passed" while proving nothing.
+        The unclassified `local_only_marker` is the discriminator — a mirroring
+        write drops it, because `split_config` does not route it to the user
+        layer.
+        """
+        from config_utils import local_path_for, save_local_config
+
+        real_save = bc.save_project_config
+
+        def mirroring(path, data):
+            real_save(path, data)
+            merged = bc.load_layered_config(str(path))
+            _p, user = bc.split_config(merged, project_keys=bc.PROJECT_KEYS,
+                                       user_keys=bc.USER_KEYS)
+            save_local_config(str(local_path_for(str(path))), user)
+
+        with mock.patch.object(bc, "save_project_config", mirroring):
+            bc.create_column(self.tree, "Spikes")
+
+        self.assertNotEqual(self.local.read_bytes(), self.local_before)
+        local_now = json.loads(self.local.read_text(encoding="utf-8"))
+        self.assertNotIn("local_only_marker", local_now,
+                         "the mirror silently drops an unclassified user key")
+        self.assertNotIn("settings", self.project())   # project stayed clean
+
+    def test_the_controls_start_from_a_clean_baseline(self):
+        """Assert the pre-state too, so a control that 'fails' because the
+        fixture was already dirty is distinguishable from a live guard."""
+        self.assertNotIn("settings", self.project())
+        self.assertEqual(self.local.read_bytes(), self.local_before)
 
 
 if __name__ == "__main__":

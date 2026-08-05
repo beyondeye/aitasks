@@ -100,8 +100,11 @@ def _task_git_cmd() -> list[str]:
     return ["git"]
 
 
-_BOARD_PROJECT_KEYS = {"columns", "column_order"}
-_BOARD_USER_KEYS = {"settings"}
+# The board_config.json layer split lives in lib/board_columns.py so the board,
+# this TUI and the headless writer share one definition (t1377_3). Aliased to the
+# names save_board() already uses, so that call site is untouched.
+from board_columns import PROJECT_KEYS as _BOARD_PROJECT_KEYS  # noqa: E402
+from board_columns import USER_KEYS as _BOARD_USER_KEYS  # noqa: E402
 
 DEFAULT_REFRESH_OPTIONS = ["0", "1", "2", "5", "10", "15", "30"]
 

@@ -14,11 +14,19 @@
 #                       -> CURRENT:<task_id>|<col_id>
 #   move           --root R [--task-dir D] --task N --column C
 #                       -> MOVED:<filename>|<col>|<idx>
+#   create         --root R [--task-dir D] --title T [--color C]
+#                       -> CREATED:<col_id>|<color>|<title>
 #
 # Refusals print `ERROR:<reason>` and exit 1; a usage error exits 2. Reasons are
 # stable machine tokens (unknown_column, malformed_task_id, ambiguous_task_id,
-# not_a_parent_task, not_found, unsafe_task_dir, unsupported_layout, vanished)
-# so a caller branches on them rather than on prose.
+# not_a_parent_task, not_found, unsafe_task_dir, unsupported_layout, vanished,
+# empty_title, invalid_color) so a caller branches on them rather than on prose.
+#
+# `create` omits --color to auto-assign the next unused palette colour; pass
+# `--color ''` for a colourless column. A malformed colour is REFUSED rather than
+# stored: it is a middle field (so a `|` would be silently stripped on emit) and
+# it is interpolated into rich markup by the TUIs. Titles, by contrast, are kept
+# verbatim — they are last precisely so a `|` survives.
 #
 # Titles may contain `|`, so the title is the LAST field — split on the first
 # two separators only.
