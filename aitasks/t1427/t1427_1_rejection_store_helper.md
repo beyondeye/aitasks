@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:17
-updated_at: 2026-08-05 17:30
+updated_at: 2026-08-05 19:06
 ---
 
 Substrate spike for t1427 (reject shadow concerns; suppress next round): the
@@ -112,3 +113,8 @@ Producers (t1427_3) reference the helper from SKILL.md files, so register:
   LOCK_BUSY and deletes nothing while an add holds the lock). Each regression
   proven able to exit 1.
 - `shellcheck .aitask-scripts/aitask_shadow_rejected.sh` clean.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T16:06:40Z status=pass attempt=1 type=human
