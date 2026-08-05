@@ -75,6 +75,7 @@ modelvrapper
 opencode
 openshell
 performance
+planning
 positioning
 project_groups
 pypy
@@ -85,6 +86,7 @@ remote
 remove_support
 reporting
 reviewguides
+risk_evaluation
 robustness
 sanboxing
 script-performance
