@@ -123,15 +123,27 @@ depend on the scanner being exhaustive.
 
 ## Verification
 
+> **Corrected during implementation (2026-08-05).** The two bullets below
+> originally described the `risk_mitigation_tasks` edge as running from a live
+> task *to* an archived member. That is the wrong direction and contradicts §1
+> of this task: real data has the **archived member** carrying
+> `risk_mitigation_tasks: [1426]` while live t1426 has no back-reference. The
+> original negative control was also **vacuous** — under a member-side scan
+> nothing ever reads a live non-member's `risk_mitigation_tasks`, so the test
+> would have passed without exercising any new code. Both are restated below.
+> Direction confirmed with the user before implementation.
+
 The discriminating test is a **negative control on the member set**, not a
-happy-path scan: a live task carrying `risk_mitigation_tasks: [<non-member>]`
-must NOT be reported, or the edge is matching on field presence rather than on
-intersection with the member set.
+happy-path scan: an **archived non-member** carrying
+`risk_mitigation_tasks: [<live task>]` must NOT cause that task to be
+reported, or the scan is walking the archive at large rather than intersecting
+the persisted member set.
 
 Also required:
 
-- A live task whose `risk_mitigation_tasks` names an **archived** member is
-  reported (the real case — t1293/t1426).
+- An **archived member** whose `risk_mitigation_tasks` names a live task is
+  reported (the real case — t1293 names t1426, which carries no back-reference
+  of its own).
 - A manual-verification task with `verifies: [<member>]` and **no** `depends`
   edge is reported. Today's t1425 passes only via `depends`, so a fixture that
   keeps the depends edge would not prove the new code runs at all.
