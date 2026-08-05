@@ -113,3 +113,11 @@ Then refresh live rendered variants: `./.aitask-scripts/aitask_skill_rerender.sh
 
 ### Goal-achievement risk: low
 - The new per-mitigation prompt flow is agent-interpreted prose; ambiguity under many (>4) mitigations could degrade the live UX. The batching behavior itself is accepted as unverified (user declined a live-walk follow-up); the timing filters and record schema are covered by the fixture walk and rendered-procedure assertions · severity: low · → mitigation: none (user declined)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-05 08:55)
+- **Requested by user:** Four review findings: (1) `created:` witness documented but never consumed — Parts 2/3 could duplicate mitigations on re-entry, and the batch back-fill was not interruption-safe; (2) decision data lived only in pre-prompt prose, which the agent UI can hide — move it into the AskUserQuestion payload; (3) the per-mitigation disposition prompts lacked a NON-SKIPPABLE banner; (4) `risk-evaluation.md`'s `risk_mitigations_planned` return contract still described only before/after tasks.
+- **Changes made:** Parts 2/3 step 1 now skip lines whose `created: t<id>` names an existing (active or archived) task; step 2 persists the witness per item immediately after each creation; Part 2 step 5 sets `risk_before_created` only for this run's creations. Part 1 step 2 rewritten: NON-SKIPPABLE banner (auto mode/profiles/"don't ask" do not cover the disposition prompts), candidate summaries required inside the question text, per-mitigation questions carry full decision context, option descriptions state concrete outcomes. Return contract updated for both dispositions. Goldens regenerated; variants rerendered.
+- **Files affected:** `.claude/skills/task-workflow/risk-mitigation-followup.md`, `.claude/skills/task-workflow/risk-evaluation.md`, `tests/golden/procs/task-workflow/risk-mitigation-followup-default.md`, `tests/golden/procs/task-workflow/risk-evaluation-default.md`, tracked `-remote-` rendered variants.
+- **Coordination note:** the witness-consumption guard implements t1331's item (2) design verbatim (skip witnessed lines whose task exists; `risk_before_created` only for actual creations). t1331's item (1) — Step 6.0a force-reverify inert under `use_current` — remains open there.
