@@ -147,3 +147,8 @@ Then refresh live rendered variants: `./.aitask-scripts/aitask_skill_rerender.sh
 - **Requested by user:** (1) the working tree mixes t1419 changes with a concurrent session's t1293 monitor/parser files — stage the t1419-only set explicitly at commit; (2) live experience showed the full candidate summaries inside the AskUserQuestion question text render as one unreadable blob — roll back to prose-first with better widget formatting.
 - **Changes made:** Part 1 step 2 rebalanced: full details stay in the pre-prompt numbered list (with an explicit "do not cram details into the question text" caution); the question carries only a short `<index>. <name> → <disposition>` recap per candidate so the decision stays legible even if prose is hidden. Commit will stage the enumerated t1419 file set explicitly, leaving the concurrent session's files untouched.
 - **Files affected:** `.claude/skills/task-workflow/risk-mitigation-followup.md`, regenerated golden, tracked `-remote-` rendered variants.
+
+### Change Request 7 (2026-08-05 09:46)
+- **Requested by user:** A drop-only stale-witness recovery left both creation partitions empty and returned before step 3 could unwire the vanished ID (Parts 2 and 3), and the replacement expressions did not show the subtraction.
+- **Changes made:** `dropped_stale_ids` is now a third work partition in both Parts; the early return fires only when all three partitions are empty; the drop-only case explicitly routes through the step-3 subtraction; both bash replacement expressions now show `- dropped_stale_ids`.
+- **Files affected:** `.claude/skills/task-workflow/risk-mitigation-followup.md`, regenerated golden, tracked `-remote-` rendered variants.
