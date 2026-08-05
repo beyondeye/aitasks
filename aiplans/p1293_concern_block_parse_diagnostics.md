@@ -447,6 +447,106 @@ same view over the picker, and that the selection survives closing it.
 - timing: post-phase | name: pin_tier_independent_of_narrow | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — two knobs (`narrow` vs the measured width tier) that both mean "small" | desc: test plus class-docstring contract asserting the xnarrow tier is derived from measured width and is independent of the caller's narrow row-layout flag, with a negative control
 - timing: after | name: picker_full_body_view | type: enhancement | priority: medium | effort: low | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — only the lost lines become readable, not long parsed bodies | desc: give the concern picker a way to read a focused concern's full body, which the two-line row truncates at every width including 40
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-05) — the tier threshold was an undeclared magic number
+
+- **Requested by user** (shadow concern, `[high | monitor_shared.py:1631]`,
+  Disposition: blocking, Verified: CONFIRMED): the extra-narrow branch compares
+  `self.size.width` against a private constant; `aidocs/framework/tui_conventions.md`
+  requires terminal-width layout decisions to go through
+  `terminal_tier()` / `is_narrow_terminal()` or to derive the breakpoint from
+  live geometry. Route it through the supported mechanism, or make the
+  component-geometry derivation explicit and test it.
+- **Verified — partly valid, and the valid half was acted on.**
+  - **Rejected:** routing through `tui_layout`. Those helpers bound the NARROW
+    tier at **80** columns, so `is_narrow_terminal` is `True` for *every* width
+    this modal distinguishes (24 / 30 / 40) and cannot express the decision;
+    adopting it would strip the dialog chrome at 79 columns, where it fits
+    perfectly. Rule 3 of that same document explicitly forbids reusing a tier
+    constant as a component floor. This threshold is a **component minimum
+    width**, which the document says stays with its widget.
+  - **Accepted:** rule 4 ("prefer deriving the threshold from live geometry over
+    any constant"). The `30` was measured but undeclared, and could silently
+    drift from the `min-width: 30` it exists to track.
+- **Changes made:**
+  - `_PICKER_XNARROW_COLS` → `_PICKER_NARROW_MIN_WIDTH`, documented as *derived*:
+    a dialog whose declared minimum is N cells cannot fit a screen of N or fewer,
+    so N **is** the boundary. The docstring also records why `tui_layout` is the
+    wrong mechanism, so the next reader does not "fix" it back.
+  - New drift guard `test_tier_threshold_is_derived_from_the_declared_min_width`
+    parses `min-width` out of the live `DEFAULT_CSS` and asserts equality, so
+    retuning the stylesheet moves the tier with it.
+  - New `test_threshold_is_a_component_floor_not_a_terminal_tier` pins that a
+    79-column terminal (NARROW tier) does **not** get the stripped chrome.
+  - `SUPPORTED_WIDTHS` in the layout tests now reads the production constants
+    instead of hard-coding 30 / 24.
+- **Discrimination proven:** two new negative controls — retuning the CSS
+  `min-width` without moving the constant, and swapping the comparison for
+  `is_narrow_terminal` — each fail the matching test, and pass again on restore.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned. `concern_parser.py`: `block_region()` plus a
+  fourth row in the module strictness table. `monitor_shared.py`:
+  `ConcernBlockInspectModal`, `unrecovered` carrying the **lines** rather than a
+  count, `raw_block`, the `u` binding and `action_inspect_unrecovered`, the
+  measured `xnarrow` chrome tier with `_apply_width_tier` on mount and resize,
+  and the full/compact help constants. `minimonitor_app.py` / `monitor_app.py`:
+  pass the lines and the raw region, and open the raw view directly on the
+  all-malformed path (the monitor additionally gained `_on_inspect_closed` to
+  release its pick guard). Docs: `aidocs/framework/shadow_agent.md` and the
+  minimonitor how-to page. No skill files were touched, so no rerender/goldens.
+- **Deviations from plan:**
+  - **Buttons at the narrow tier: the plan's named fallback was taken.** The plan
+    preferred stacking OK/Cancel; measured at 24x20 the stacked pair costs 6 rows
+    and evicted the help line — the only place `u` / `a` / `A` are named. Docking
+    the help instead made it collapse entirely. The buttons are hidden at the
+    tier: they are fully redundant with Enter/Esc, which the compact help does
+    name, and nothing is ever left half-drawn. The plan's stated trigger for the
+    fallback was "the concern list is pushed out", which did **not** happen — the
+    fallback was taken for the adjacent reason recorded here.
+  - The tier bound is **inclusive** (`<=`). The plan assumed the defects began
+    below 30; measurement showed both already bite *at* 30 (the dialog exactly
+    fills the screen, and the buttons are already off-screen there).
+- **Issues encountered:**
+  - The banner's `[u]` was being eaten as Rich's underline tag and rendered as
+    nothing — caught by rendering the real modal, not by any test. Now escaped
+    (`\\[u]`) and pinned.
+  - Rich markup is more destructive here than expected: the canonical marker
+    `- [high | x.py:1] a good one` renders as `-  a good one`, and a bare `[/]`
+    in a body raises `MarkupError` and would take the modal down. Both shapes are
+    now in the inspect-view fixture, and `markup=False` covers both.
+  - The compact help line **wraps**, so `u raw` is not a contiguous substring of
+    the composited screen. Phrase assertions go through a `_flat_text` helper
+    that strips borders and collapses whitespace; substring assertions on a
+    line-oriented screen dump cannot see across a wrap.
+  - The region prefix shortens with the width (24 columns leaves `authoring…`),
+    so the sweep asserts the prefix that survives everywhere. Discrimination is
+    unaffected — under the guarded failure the region vanishes entirely.
+- **Key decisions:**
+  - `unrecovered` carries the **lines**, not a count. A count derived with
+    `len()` cannot disagree with what the inspect view shows; a separate `int`
+    parameter beside a list parameter could.
+  - `block_region` is **display-only** and documented as such. The block a user
+    inspects and the block the picker forwards stay separate code paths, because
+    a shadow doc read into the pane can carry literal example markers (t1123).
+  - The chrome tier is keyed on **measured width**, independent of the caller's
+    `narrow` row-layout hint, so a full-width monitor in a tiny terminal gets it
+    too — and `narrow`'s meaning is unchanged, which keeps t1274's negative
+    control valid.
+  - The threshold is a **component minimum width**, not a terminal tier, and is
+    derived from the dialog's own declared `min-width` (see Change Request 1).
+  - The picker is pushed *under* the inspect view rather than dismissed, so the
+    selection survives a look at the raw block.
+- **Upstream defects identified:** None
+- **Test-harness note:** every new guard was proven to fail when its fix is
+  patched out of the real source — 9 controls: `markup=False` dropped, `[u]`
+  unescaped, tier disabled, CSS `min-width` drift, tier routed through
+  `is_narrow_terminal`, tier keyed off `narrow`, the `u` empty-list guard
+  removed, the monitor's guard-release callback removed, and `block_region` made
+  strict. All 9 fail under mutation and pass on restore.
+
 ## Step 9 (Post-Implementation)
 
 Standard: merge approval into `main`, `./ait gates run 1293` (declares
