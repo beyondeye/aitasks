@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1037
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 12:56
-updated_at: 2026-08-05 09:38
+updated_at: 2026-08-05 10:40
 boardidx: 65536
 ---
 
@@ -69,3 +70,8 @@ Note the existing precedent for a width floor: `concern_parser._SENTINEL_SAFE_CO
 - Composited-screen assertions at each supported width, each with a negative
   control proving the assertion discriminates (see t1274's
   `test_single_line_layout_is_what_lost_them` for the pattern).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T07:40:30Z status=pass attempt=1 type=human
