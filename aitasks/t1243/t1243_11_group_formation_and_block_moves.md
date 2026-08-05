@@ -8,8 +8,9 @@ labels: [aitask_board, tui, python]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-07-28 01:17
-updated_at: 2026-07-28 01:17
+updated_at: 2026-08-05 08:54
 ---
+
 
 ## Context
 
@@ -118,3 +119,29 @@ Exact **changed-path sets**, not just counts, through the t1243_1 harness:
 - coalesce-on-move: arriving members render after residents, deterministically;
 - `delete_column` on a column with two groups and loose tasks preserves relative
   order and both group runs.
+
+## Notes for sibling tasks
+
+**`t1377_4_column_merge_engine` overlaps §3 and §4. The order is undecided — check
+before implementing.**
+
+`t1377_4` adds `TaskManager.merge_columns(source_ids, dest_id)`: an N->1 column
+merge that drains each source into a destination and removes it. That is the same
+operation shape as `delete_column`, so:
+
+- **§4 (`delete_column` tidy-up).** `merge_columns` already assigns contiguous,
+  relative-order-preserving indices via `board_ordering.index_for_append` per
+  member — exactly the property §4 wants, on a parallel path. **Grep for
+  `merge_columns` in `board/aitask_board.py` first.** If it exists, factor its
+  drain/re-index step into a shared helper and have `delete_column` call it rather
+  than writing a second mass-move strategy. If it does not, implement §4 as
+  written; t1377_4 is instructed to reuse *your* helper if you land first.
+- **§3 (coalesce on move).** A column merge is a mass move and triggers coalescing
+  whenever both columns hold the same slug. t1377_4 is instructed to emit your
+  notify — aggregated once per coalesced group rather than per task — and to hand
+  collapse-key combination to t1243_10's rule.
+
+`merge_columns` is also **non-transactional by contract** (per-file atomic writes,
+config removal last, a `MergeResult.failed` field and a convergent re-run). Any
+shared helper must preserve that: do not introduce an all-or-nothing assumption a
+partial merge would violate. See `aiplans/p1377/p1377_4_column_merge_engine.md`.

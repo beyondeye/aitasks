@@ -108,6 +108,30 @@ It migrates `column_order` and every member's `boardcol` but **not**
 `settings.collapsed_columns` — a rename orphans the collapsed entry. Dead in the UI
 today (`_handle_column_edit_result` passes `col_id` twice); t1377_5 makes it live.
 
+## Column-drain semantics — shared with `t1243_11`, order undecided
+
+`merge_columns` drains a column and removes it — the same shape as
+`delete_column` — and `t1243_11` has two overlapping sections. Both chains are
+live; neither gates the other.
+
+- **§4 `delete_column` tidy-up.** t1243_11 replaces `delete_column`'s flat
+  `board_idx = 0` with contiguous order-preserving indices. This task already gets
+  that property from `index_for_append`. **Grep for the t1243_11 re-index helper
+  first** — if it exists, reuse it; otherwise record `merge_columns` as the
+  reference drain path in `## Notes for sibling tasks` so t1243_11 §4 consumes it.
+  Two mass-move implementations with different index arithmetic in one class is the
+  outcome to avoid.
+- **§3 coalesce-on-move.** Group identity is `(column, slug)`, so merging A into B
+  when both hold the same slug coalesces by derivation. t1243_11 requires a
+  **notify**, not a refusal. If `boardgroup` exists when this runs, emit it
+  **aggregated once per coalesced group**, not per task, and hand collapse-key
+  combination to t1243_10's rule. If not, ignore.
+
+Any shared helper must preserve this task's **non-transactional** contract
+(per-file atomic writes, config removal last, `MergeResult.failed`, convergent
+re-run) — do not let a refactor introduce an all-or-nothing assumption a partial
+merge would violate.
+
 ## Composite group collapse keys — check, don't assume
 
 `t1243_10_group_collapse_and_filtering` introduces `settings.collapsed_groups`

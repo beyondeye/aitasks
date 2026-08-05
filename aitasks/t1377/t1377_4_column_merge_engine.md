@@ -8,8 +8,9 @@ labels: [aitask_board, board_columns]
 gates: [risk_evaluated]
 anchor: 1243
 created_at: 2026-08-04 09:55
-updated_at: 2026-08-04 19:21
+updated_at: 2026-08-05 08:54
 ---
+
 
 
 ## Context
@@ -155,6 +156,33 @@ Before implementing, grep for `collapsed_groups` in
   `aiplans/archived/p1243/p1243_10_*.md` for the exact rule, and add tests.
 - **Absent** -> do nothing extra; t1243_10 carries a sibling note instructing it to
   extend `merge_columns` / `update_column` when it lands after this task.
+
+### Column-drain semantics — shared with `t1243_11`, order undecided
+
+`merge_columns` drains a column and removes it — the **same operation shape** as
+`delete_column`, and `t1243_11_group_formation_and_block_moves` has two sections
+that overlap it directly. Both chains are live; neither is a prerequisite.
+
+**§4 `delete_column` tidy-up.** t1243_11 wants to replace `delete_column`'s flat
+`board_idx = 0` (which mass-ties every task on arrival in `unordered`) with
+contiguous indices preserving relative order and group runs. This task already
+produces that property for merge, via `index_for_append` per member. So:
+
+- **If `t1243_11` landed first**, read how it re-indexed `delete_column` and
+  **reuse that helper** rather than adding a second drain strategy. Two mass-move
+  implementations with different index arithmetic in the same class is the outcome
+  to avoid.
+- **If it has not**, implement merge as planned and record in this task's
+  `## Notes for sibling tasks` that `merge_columns` is the reference drain path, so
+  t1243_11 §4 can consume it instead of writing its own.
+
+**§3 coalesce-on-move.** Group identity is `(column, slug)`, so merging column A
+into B where both hold group `perf_work` coalesces **automatically by derivation**
+— and t1243_11 requires a **notify** ("merged into existing group 'perf work'"),
+not a refusal. A column merge is a mass move that triggers exactly this. If
+`boardgroup` exists when this task runs, emit that notify (aggregated once per
+coalesced group, not per task) and hand collapse-key combination to t1243_10's
+rule. If it does not exist, ignore — there are no groups to coalesce.
 
 ## Verification Steps
 
