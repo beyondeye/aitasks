@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -156,7 +158,15 @@ the other five is a follow-up once the widget has proven itself in place.
   bindings), so `check_action` gating, click-to-fire and `bindings_updated`
   recompose all still work on the board.
 - On a 200-column terminal the board footer shows **every** shown binding
-  (vs. 16/24 today); on a 400-column terminal it still renders as a single row.
+  (vs. 16/24 today), and it renders exactly **one** row whenever the total
+  content fits the available width.
+
+  > **AC amended during implementation (agreed with the user).** This criterion
+  > originally read "on a 400-column terminal it still renders as a single row".
+  > Un-hiding the four keys below adds ~45 columns of label text, which moves the
+  > single-row threshold from ~400 to ~440 columns — measured 1 row at 440/460,
+  > 2 rows at 400. The invariant worth pinning is "grows only when it must", not
+  > a specific column count, so the criterion is stated that way instead.
 - `m`, `X`, `ctrl+up`, `ctrl+down` are footer-visible on the board; the stale
   t1243_7 "footer is already full" comment is updated.
 - `a l f i y z g t` stay `show=False` (already surfaced by `ViewSelector`).

@@ -382,3 +382,81 @@ with `m` / `X` / `ctrl+up` / `ctrl+down` legible and `ctrl+p` bottom-right.
 ### Planned mitigations
 - timing: after | name: adopt_multirow_footer_in_remaining_tuis | type: enhancement | priority: medium | effort: medium | addresses: transitional duplication — two Footer subclasses with different strategies | desc: Adopt MultiRowFooter in agentcrew_dashboard, codebrowser (refactoring ContextualFooter onto it), monitor, stats and codebrowser/history_screen, so the replicate-compose and reflow-compose strategies converge on one widget.
 - timing: after | name: reconcile_shortcuts_editor_and_command_palette | type: enhancement | priority: medium | effort: medium | addresses: discovery-surface overlap between `?` and ctrl+p | desc: Reconcile the two discovery surfaces — four board commands (Add/Edit/Delete/Expand Column, Clear Selection) exist only in the ctrl+p palette because they have no key binding, while `?` is the only place keys can be rebound; neither surface currently shows the whole operation set.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly the approved design. New shared widget
+  `.aitask-scripts/lib/multirow_footer.py` (`MultiRowFooter` + the pure
+  `plan_footer_rows` / `footer_item_width` + the `footer_max_rows` userconfig
+  resolver with a `refresh_max_rows()` test hook). Board adoption in
+  `aitask_board.py`: mounts `MultiRowFooter(hint_action="open_shortcuts_editor")`,
+  un-hides `ctrl+up` / `ctrl+down` / `m` / `X`, rewrites the stale t1243_7
+  "footer is already full" comment, drops the now-unused `Footer` import. Docs in
+  `aidocs/framework/tui_conventions.md` (the "footer must surface every operation"
+  section now points at the widget) and the website (`tuis/_index.md`
+  `footer_max_rows`, `tuis/board/_index.md` footer bullet). Tests:
+  `tests/test_multirow_footer.py` (48) and `tests/test_board_footer_multirow.py`
+  (10).
+
+- **Deviations from plan:** None in design. Two plan *statements* were corrected
+  while implementing: the module is `rich.cells`, not `rich.cell`, and the
+  ground-truth comparison is against `outer_size.width + margin.left + margin.right`
+  — `outer_size` excludes margins, so comparing against it alone would have passed
+  while rows overflowed by exactly the margin. One extra file was touched that the
+  plan did not anticipate: `tests/test_board_fixture_harness.py` (below).
+
+- **Issues encountered:**
+  - `HorizontalGroup(*children)` keeps its children *pending* until mount, so the
+    first draft of the width-model test captured an empty list at compose time and
+    passed vacuously. Rewritten to measure after mount and reduce to plain data
+    inside the running app.
+  - The row planner went through three drafts. Reserving width for "the last row"
+    cannot work (the final row count is unknown until packing finishes) and let
+    `O Options` collide with the docked palette key at 200 and 400 columns; a
+    balanced split dropped a key at 200 columns, failing the coverage AC. Final
+    design: the palette is a *pinned tail* item, so its row **is** the last row by
+    construction, with one reserve pass and a coverage fallback.
+  - `tests/test_board_fixture_harness.py` regressed: its control boots the board at
+    `size=(200, 12)`, and a 2-row footer left a 4-row column viewport, so the
+    5-row short-slug cards no longer fit and the control failed for a reason
+    unrelated to slug length. Raised to `(200, 14)`, which restores headroom on
+    both halves (short cards 5 ≤ 6; tall cards 13 > 6). The test it protects,
+    `test_board_scroll_focus_jump`, asserts the opposite direction and was
+    unaffected.
+  - Live verification initially looked broken: the real board in tmux showed only
+    4 footer keys. Root-caused with a stock-`Footer` control to pre-existing
+    behavior, not this change — see the upstream defects below.
+
+- **Key decisions:**
+  - Compose via Textual's public `textual.compose.compose(self, super().compose())`
+    rather than `list(super().compose())`. `Footer.compose()` builds grouped
+    bindings with a `with KeyGroup(...)` context manager that pushes onto
+    `app._compose_stacks` instead of yielding; a bare `list()` produces empty
+    `KeyGroup`s and corrupts the caller's compose stack.
+  - `hint_action` takes an **action**, not a key. The key display is resolved from
+    the composed binding (Textual already resolved it via `app.get_key_display`),
+    so it follows a user remap. `resolve_key("board", "open_shortcuts_editor")`
+    would have returned `None` — that action is registered under the `shared`
+    scope and `register_app_bindings` deliberately does not shadow shared actions
+    into the app scope — leaving a hardcoded `?` that goes stale for exactly the
+    users who rebound it.
+  - All text measured with `cell_len`, never `len`. Proven necessary: with
+    character-based costs and CJK labels at 44 columns, a key renders at x-right
+    48, entirely off-screen.
+  - Both negative controls were exercised by mutating the source and confirming a
+    loud failure (`cell_len → len` fails the three wide-character guards;
+    breaking the collapsed-margin term fails the width matrix), then reverted. The
+    board control (reverting one `show=True`) fails the two un-hide tests. The
+    overflow-width guard originally could not discriminate and was widened to a
+    sweep that does.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/shortcuts_mixin.py:117-131` — `_relink_live_bindings` removes the default key with `mapping.get(old_key)` using the *raw* binding key, but Textual stores the live keymap under the normalized key name (`?` → `question_mark`, `#` → `number_sign`). For any punctuation/special key the removal silently no-ops: the override key is added while the default stays live, so the old key keeps firing after a rebind (defeating the method's stated purpose) and the footer keeps displaying the old key. Plain-letter rebinds are unaffected. Verified live: with a `shared` override of `open_shortcuts_editor` to `f2`, `app._bindings.key_to_bindings` contained **both** `question_mark` and `f2`.
+  - `.aitask-scripts/board/aitask_board.py:6470-6478` — at startup in a real terminal the search `Input` takes focus, and a focused `Input` consumes printable characters, so Textual drops every single-character binding from `active_bindings`. The board's footer therefore shows only 4 non-printable movement keys (`shift+↑/↓`, `^↑/^↓`) until the user presses Escape. Confirmed pre-existing with a stock-`Footer` control (identical 4-key result), so it is not caused by t1418 — but it does mean the footer is nearly empty on the screen the user first sees, which blunts this task's discoverability goal.
+
+- **Follow-up noted for the user (agreed during planning):** reconciling the `?`
+  shortcuts editor and the `ctrl+p` command palette. They are not duplicates —
+  four board commands (Add / Edit / Delete / Expand Column, Clear Selection) exist
+  only in the palette because they have no key binding, while `?` is the only
+  place keys can be rebound — so neither surface shows the whole operation set.
+  Captured as the `reconcile_shortcuts_editor_and_command_palette` mitigation.
