@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 635
 implemented_with: claudecode/opus5
 created_at: 2026-07-27 23:29
-updated_at: 2026-08-05 17:38
+updated_at: 2026-08-05 17:39
 boardidx: 50176
 ---
 
@@ -61,12 +63,28 @@ surface it, rather than relying on it merely being visible in tool output.
    enforced gate cannot be satisfied and will block archival; the agent should
    surface it to the user and suggest `ait gates sync-registry`. Keep it
    OUTSIDE any Jinja conditional — that block is deliberately always-rendered.
+1b. **Scope extension (agreed with the user at planning time, t1272 session).**
+   The same parse contract is duplicated in
+   `.claude/skills/aitask-pickrem/materialize-active.md`, which states it
+   "mirrors the attended workflow's Step 4". t635_34's recorded risk is that the
+   warning "reaches **every lane** via stderr, but no skill instructs the agent
+   to surface it" — so the remote lane needs the bullet too. Add the same
+   bullet there, adapted to that file's non-interactive voice (it *displays*;
+   there is no user to prompt). This adds no goldens: `aitask-pickrem`'s only
+   golden renders `SKILL.md.j2`, not `materialize-active.md`.
 2. Do NOT change the exit-code contract: the warning is advisory. A nonzero
    exit still means abort; a warning still means continue.
 3. Regenerate goldens and committed prerenders in the same commit:
    `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md` plus the
-   3 committed remote prerenders (`./.aitask-scripts/aitask_skill_rerender.sh
+   committed remote prerenders (`./.aitask-scripts/aitask_skill_rerender.sh
    remote` — one call per profile; only `remote` variants are git-tracked).
+   With scope item 1b there are **6** prerender files: the 3
+   `task-workflow-remote-*` `SKILL.md` plus the 3 `aitask-pickrem-remote-*`
+   `materialize-active.md`.
+3b. The `remote` rerender sweeps 38 render targets across 9 tracked trees, so
+   stage against an explicit 11-path allowlist inside a fail-closed gate script
+   (non-empty index / missing path / staged-set != allowlist / any deletion line
+   each `exit 1`) rather than reviewing a broad `git status`.
 4. Run `./.aitask-scripts/aitask_skill_verify.sh`.
 
 ## Reference
@@ -81,6 +99,11 @@ surface it, rather than relying on it merely being visible in tool output.
 
 - The rendered `SKILL.md` for all three profiles contains the new bullet
   (it must NOT be profile-conditional).
+- All 6 committed remote prerenders contain the bullet: the 3
+  `task-workflow-remote-*` `SKILL.md` and the 3 `aitask-pickrem-remote-*`
+  `materialize-active.md` (scope item 1b).
+- The staging gate exited 0 / printed `GATE_OK`; the code commit's
+  `git show --stat` lists exactly the 11 allowlisted paths (scope item 3b).
 - `bash tests/test_skill_render_task_workflow.sh` passes.
 - `./.aitask-scripts/aitask_skill_verify.sh` passes; goldens committed in the
   same change.
