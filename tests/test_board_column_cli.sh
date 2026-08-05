@@ -108,6 +108,38 @@ assert_contains "unordered listed" "COLUMN:unordered|gray|Unsorted / Inbox" "$ou
 assert_eq "unordered is first" "COLUMN:unordered|gray|Unsorted / Inbox" \
     "$(printf '%s\n' "$out" | head -1)"
 
+echo "=== Test 2b: CR/LF and pipe in the emitted fields (t1433) ==="
+# Test 1 proves `|` survives the LAST field. It says nothing about CR/LF, which
+# is the half t1433 changed: the shared `sanitize_last_field` collapses a CRLF
+# to ONE space (board_columns' old private `_line_safe` left two). Asserting
+# that through `bc.sanitize_last_field` would only prove the FUNCTION; this
+# proves the CLI writer still places the title last AND runs it through that
+# sanitizer, decoded by the documented fixed max-split rule.
+CRLF_CONF="$PROJ/aitasks/metadata/board_config.json"
+cp "$CRLF_CONF" "$TMP/board_config.orig.json"
+cat > "$CRLF_CONF" <<'JSON'
+{
+  "columns": [{"id": "crlf", "title": "A|B\r\nC", "color": "#FF|00\r00"}],
+  "column_order": ["crlf"]
+}
+JSON
+out="$("$COLUMN_SH" list-columns --root "$PROJ" 2>&1)"; rc=$?
+assert_eq "CRLF title: list-columns still exits 0" "0" "$rc"
+assert_eq "CRLF title does not split the record" "1" \
+    "$(printf '%s\n' "$out" | grep -c '^COLUMN:crlf|')"
+
+line="$(printf '%s\n' "$out" | grep '^COLUMN:crlf|')"
+recovered="$(printf '%s' "${line#COLUMN:}" | cut -d'|' -f3-)"
+assert_eq "title keeps its pipe and collapses CRLF to ONE space" "A|B C" "$recovered"
+
+# The colour is a MIDDLE field, so it must lose BOTH reserved characters —
+# otherwise a stray `|` would shift the title field and the decode above would
+# recover the wrong text.
+colour="$(printf '%s' "${line#COLUMN:}" | cut -d'|' -f2)"
+assert_eq "middle colour field is stripped of its pipe and CR" "#FF00 00" "$colour"
+
+cp "$TMP/board_config.orig.json" "$CRLF_CONF"
+
 echo "=== Test 3: current-column ==="
 out="$("$COLUMN_SH" current-column --root "$PROJ" --task 100 2>&1)"; rc=$?
 assert_eq "current-column exits 0" "0" "$rc"

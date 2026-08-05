@@ -69,6 +69,11 @@ from atomic_write import discard as _atomic_discard
 from atomic_write import prepare as _atomic_prepare
 from board_ordering import index_for_append
 from config_utils import load_layered_config
+from record_protocol import (
+    has_record_breaking,
+    sanitize_last_field,
+    sanitize_middle_field,
+)
 from task_yaml import (
     BOARD_KEYS,
     normalize_board_idx,
@@ -114,9 +119,6 @@ UNORDERED_COLOR = "gray"
 DEFAULT_TASK_DIR = "aitasks"
 
 _BOARD_CONFIG_NAME = "board_config.json"
-
-#: Characters that cannot round-trip the `|`-delimited report/CLI protocols.
-_RECORD_BREAKING = ("|", "\r", "\n")
 
 # A task id is untrusted input that reaches a glob, so it is matched, never
 # quoted. `^\d+$` is what makes `*`, `1*`, `../x` and `t42` inert.
@@ -204,10 +206,6 @@ class MoveOutcome:
     @property
     def ok(self) -> bool:
         return not self.refused
-
-
-def _has_record_breaking(value: str) -> bool:
-    return any(ch in value for ch in _RECORD_BREAKING)
 
 
 # --- Path resolution ---------------------------------------------------------
@@ -307,7 +305,7 @@ def column_records_at(config_path, *, include_unordered: bool = False):
     records = [defined[cid] for cid in order
                if isinstance(cid, str) and cid in defined]
     for rec in records:
-        if _has_record_breaking(rec.id):
+        if has_record_breaking(rec.id):
             raise ColumnIdError(
                 f"{_BOARD_CONFIG_NAME}: column id {rec.id!r} contains '|', CR "
                 "or LF, which cannot round-trip through the report protocol")
@@ -536,27 +534,13 @@ EXIT_REFUSED = 1
 EXIT_USAGE = 2
 
 
-def _line_safe(value: str) -> str:
-    """Sanitize the **last** field of a record: CR/LF only.
-
-    A `|` is harmless here and must be preserved — column *titles* legitimately
-    contain one, and putting the title last is exactly what buys that. Mirrors
-    `work_report_gather._free_text`, which lets `|` survive for the same reason.
-    CR/LF would break the line protocol itself, so they go.
-    """
-    return value.replace("\r", " ").replace("\n", " ")
-
-
-def _field_safe(value: str) -> str:
-    """Sanitize a **middle** field: `|` as well as CR/LF.
-
-    Sanitizing happens **here, at the write site**, because a delimited encoding
-    is undecidable on read: once a stray `|` is in the stream, no reader can
-    tell it from a separator. Colour is cosmetic, so a bad value degrades
-    rather than failing the run — a bad *id* stays fatal (`ColumnIdError`).
-    """
-    out = _line_safe(value)
-    return out.replace("|", "")
+# The field sanitizers (`sanitize_last_field` / `sanitize_middle_field`) and the
+# record-breaking predicate live in lib/record_protocol.py (t1433). This module
+# used to carry private copies under the names `_line_safe` / `_field_safe` /
+# `_has_record_breaking`; the reasoning they documented — write-site
+# sanitization, and why a `|` must survive the LAST field — moved with them.
+# What stays here is this module's own *reaction*: a bad colour degrades, a bad
+# id is fatal (`ColumnIdError`), and the `board_columns:` stderr prefix is ours.
 
 
 def _emit_refusal(refused) -> int:
@@ -590,8 +574,8 @@ def main(argv=None) -> int:
                                       include_unordered=args.include_unordered):
                 # Title LAST: titles may legitimately contain '|', so only the
                 # final field can absorb one. Split on the first two separators.
-                print(f"COLUMN:{rec.id}|{_field_safe(rec.color or '')}"
-                      f"|{_line_safe(rec.title)}")
+                print(f"COLUMN:{rec.id}|{sanitize_middle_field(rec.color or '')}"
+                      f"|{sanitize_last_field(rec.title)}")
             return 0
 
         if args.command == "current-column":

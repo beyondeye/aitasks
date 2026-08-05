@@ -64,6 +64,7 @@ from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter
 # went with the reader and have no consumer here, so re-exporting them would
 # just re-create a second name for the same thing.
 from board_columns import UNORDERED_ID, ColumnIdError, load_columns_at
+from record_protocol import enum_field, has_record_breaking, sanitize_last_field
 
 DEFAULT_VELOCITY_WINDOW = 90
 PROJECTION_MAX_DAYS = 3650
@@ -92,27 +93,12 @@ EXIT_INFRA = 3
 # board_config.json and status/priority/effort from user-editable task YAML, so
 # neither is pipe-free by construction — each field class gets an explicit,
 # tested policy instead of an assumption.
-
-_RECORD_BREAKING = ("|", "\r", "\n")
-INVALID_ENUM = "invalid"
-UNKNOWN_ENUM = "unknown"
-
-
-def _has_record_breaking(value: str) -> bool:
-    return any(ch in value for ch in _RECORD_BREAKING)
-
-
-def _free_text(value: str) -> str:
-    """Sanitize a free-text LAST field: '|' survives (maxsplit), CR/LF cannot."""
-    return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
-
-
-def _enum_field(value) -> str:
-    """A fixed-position enum-ish field: absent -> `unknown`, unsafe -> `invalid`."""
-    if value is None or value == "":
-        return UNKNOWN_ENUM
-    text = str(value)
-    return INVALID_ENUM if _has_record_breaking(text) else text
+#
+# That policy lives in lib/record_protocol.py (t1433), which this module used to
+# carry a private copy of — byte-identical to trail_gather's, and near-identical
+# to board_columns'. `_die` and the `work_report_gather:` prefix below stay HERE
+# on purpose: a library path must not sys.exit, and the prefix is pinned (with a
+# negative control) by tests/test_work_report_columns_characterization.py.
 
 
 def _die(msg: str, code: int) -> None:
@@ -198,7 +184,7 @@ def scan_tasks() -> list[TaskRow]:
         # A non-string boardcol matches no column on the board either; "" can
         # never equal a validated column id, so such a task stays unreportable.
         col_id = col_raw if isinstance(col_raw, str) else ""
-        status = _enum_field(metadata.get("status"))
+        status = enum_field(metadata.get("status"))
         pending, remaining = _work_counts(metadata, status, path.name)
         rows.append(
             TaskRow(
@@ -206,8 +192,8 @@ def scan_tasks() -> list[TaskRow]:
                 col_id=col_id,
                 board_idx=normalize_board_idx(metadata.get("boardidx", 0)),
                 status=status,
-                priority=_enum_field(metadata.get("priority")),
-                effort=_enum_field(metadata.get("effort")),
+                priority=enum_field(metadata.get("priority")),
+                effort=enum_field(metadata.get("effort")),
                 pending_children=pending,
                 remaining_items=remaining,
                 path=str(path),
@@ -398,11 +384,11 @@ def emit_velocity_block(
 
     print(
         f"VELOCITY_MODEL:{model.model_id}|{window_days}|{window[0].isoformat()}"
-        f"|{window[-1].isoformat()}|{_free_text(model.model_label)}",
+        f"|{window[-1].isoformat()}|{sanitize_last_field(model.model_label)}",
         file=out,
     )
     for bucket in estimate.buckets:
-        if _has_record_breaking(bucket.bucket_id):
+        if has_record_breaking(bucket.bucket_id):
             _die(
                 f"velocity model {model.model_id!r} produced a bucket id "
                 f"{bucket.bucket_id!r} containing '|', CR or LF",
@@ -411,7 +397,7 @@ def emit_velocity_block(
         print(
             f"VELOCITY:{bucket.bucket_id}|{bucket.observed_units}"
             f"|{bucket.completed_count}|{_fmt_avg(bucket.avg_per_unit)}"
-            f"|{_free_text(bucket.bucket_label)}",
+            f"|{sanitize_last_field(bucket.bucket_label)}",
             file=out,
         )
 
@@ -450,7 +436,7 @@ def _parse_csv(raw: str, flag: str, strip_t: bool = False) -> list[str]:
         part = part.strip()
         if not part:
             continue
-        if _has_record_breaking(part):
+        if has_record_breaking(part):
             _die(f"{flag}: value contains '|', CR or LF", EXIT_USAGE)
         if strip_t and len(part) > 1 and part[0] == "t" and part[1].isdigit():
             part = part[1:]
@@ -523,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         if any(row.col_id == UNORDERED_ID for row in rows):
             listed.insert(0, UNORDERED_ID)
         for col_id in listed:
-            print(f"COLUMN:{col_id}|{_free_text(titles[col_id])}", file=out)
+            print(f"COLUMN:{col_id}|{sanitize_last_field(titles[col_id])}", file=out)
         return 0
 
     if not args.columns:
@@ -587,7 +573,7 @@ def main(argv: list[str] | None = None) -> int:
         print("NO_TASKS", file=out)
     else:
         for col_id in ordered_cols:
-            print(f"COLUMN:{col_id}|{_free_text(titles[col_id])}", file=out)
+            print(f"COLUMN:{col_id}|{sanitize_last_field(titles[col_id])}", file=out)
         for col_id in ordered_cols:
             for row in ordered_rows:
                 if row.col_id != col_id:
@@ -595,7 +581,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     f"TASK:{row.col_id}|{row.task_id}|{row.board_idx}|{row.status}"
                     f"|{row.priority}|{row.effort}|{row.pending_children}"
-                    f"|{row.remaining_items}|{_free_text(row.path)}",
+                    f"|{row.remaining_items}|{sanitize_last_field(row.path)}",
                     file=out,
                 )
 

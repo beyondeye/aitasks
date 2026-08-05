@@ -469,7 +469,7 @@ class ColourTests(_SeamCase):
         failing the run — a bad *id* stays fatal.
         """
         self._set_colour("#FF|00\r00")
-        rendered = bc._field_safe(bc.column_records(self.tree)[0].color)
+        rendered = bc.sanitize_middle_field(bc.column_records(self.tree)[0].color)
         self.assertNotIn("|", rendered)
         self.assertNotIn("\r", rendered)
 
@@ -478,10 +478,23 @@ class ColourTests(_SeamCase):
 
         Stripping `|` from the title too would silently corrupt a legitimate
         title and make the field ordering pointless.
+
+        Reached through `bc.` rather than by importing `record_protocol`
+        directly: that also proves `board_columns` really does import the shared
+        helpers rather than keeping a private copy.
+
+        **CRLF flip (t1433).** This assertion used to expect `"a  b"` — two
+        spaces. `board_columns._line_safe` replaced CR and LF independently,
+        while the gatherers' `_free_text` replaced `"\\r\\n"` first and produced
+        one space. Both were safe; neither was canonical. t1433 unified the
+        shared last-field sanitizer on the collapsing policy (a CRLF is one line
+        break, so it becomes one space), which makes this the **single intended
+        behaviour change** of that task. Everything else about the protocol —
+        including `|` survival below — is byte-identical.
         """
-        self.assertEqual(bc._line_safe("Col|One"), "Col|One")
-        self.assertEqual(bc._field_safe("Col|One"), "ColOne")
-        self.assertEqual(bc._line_safe("a\r\nb"), "a  b",
+        self.assertEqual(bc.sanitize_last_field("Col|One"), "Col|One")
+        self.assertEqual(bc.sanitize_middle_field("Col|One"), "ColOne")
+        self.assertEqual(bc.sanitize_last_field("a\r\nb"), "a b",
                          "CR/LF still go — they would break the line protocol")
 
     def test_a_non_string_colour_degrades_to_none(self):
