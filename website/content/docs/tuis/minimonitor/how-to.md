@@ -154,6 +154,10 @@ Minimonitor reads the shadow pane, parses its concern block, and opens a checkli
 
 For an implementation review, the modal splits the list into **Needs addressing** and **Informational**. The second section holds findings the shadow reports for your judgement without asking for a change; they are dimmed and **a** (select all) skips them, while **A** (copy all) still takes everything. A review with no informational findings shows no section headers at all. If some lines in the block could not be parsed, a warning above the list says how many, so a short list is never mistaken for a complete one. If *none* of them could be parsed, minimonitor says the shadow emitted a block that yielded nothing forwardable — rather than reporting no concerns at all.
 
+**Seeing what was lost.** When that warning appears, press **u** to open a read-only view of the exact lines the parser could not use, together with the raw block they came from. That is what lets you tell a marker the shadow wrapped across too many rows from a genuine mistake in what it wrote — and report the latter. When *no* line parsed there is no checklist to show the warning beside, so **u**'s view opens straight away instead. Press **q** or **Esc** to close it and return to the checklist with your ticks intact.
+
+The picker adapts down to narrow companion panes: at 30 columns and below it drops its OK/Cancel buttons and switches to a compact key hint (confirm with **Enter**, cancel with **Esc**). 24 columns is the narrowest width it is designed for — below that the concern block's own markers wrap in the shadow pane and there is nothing left to parse.
+
 If no shadow is running, pressing **c** tells you to launch one with **e**; if the shadow has not raised any concerns yet, minimonitor says so and does nothing.
 
 > **Auto-offer:** when the shadow produces a fresh concern block, minimonitor proactively surfaces a `Shadow raised 2 concern(s) — press 'c' to pick` toast — once per block — so you don't have to poll the shadow pane for it. The count is of concerns needing attention; any informational ones are noted separately in the same toast.
@@ -259,7 +263,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `p` | Pick any task by typing its number, then launch it |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
-| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard |
+| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker, `u` shows any lines that could not be parsed) |
 | `Space` | Toggle the prioritized mark (`★`) on the **followed** agent (the one pinned at the top) — shared across all your projects |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |

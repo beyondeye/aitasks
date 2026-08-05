@@ -32,7 +32,7 @@ from monitor.monitor_core import (  # noqa: E402,F401
     TaskInfoCache,
 )
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, VerticalScroll  # noqa: E402
@@ -1357,6 +1357,105 @@ class _ConcernRow(Static):
 _CONCERN_SECTIONS = ("Needs addressing", "Informational")
 
 
+#: The ``.narrow`` dialog's declared ``min-width``, and therefore the width at or
+#: below which its chrome can no longer fit (t1293). **Derived, not chosen:** a
+#: dialog whose minimum is N cells exactly fills an N-cell screen and overflows
+#: anything narrower — at 24 the composited rows lose their right border and are
+#: cut mid-word (``HIGH authoring-co``, ``[Spac``). The bound is inclusive
+#: because the second defect bites at N too: ``max-height: 80%`` plus a help line
+#: that wraps to five rows pushes the OK/Cancel labels off-screen. Pinned to the
+#: stylesheet by ``test_tier_threshold_is_derived_from_the_declared_min_width``,
+#: so retuning the CSS moves the tier with it.
+#:
+#: **Not a terminal tier.** This is a *component minimum width* in the sense of
+#: ``aidocs/framework/tui_conventions.md`` — a property of this dialog, which is
+#: why it lives here rather than in ``lib/tui_layout.py``. Do not route it
+#: through ``terminal_tier`` / ``is_narrow_terminal``: those bound the NARROW
+#: tier at 80 columns, so they answer True for every width this modal
+#: distinguishes (24, 30, 40) and cannot express the decision at all. Rule 3 of
+#: that document forbids reusing a tier constant as a component floor.
+_PICKER_NARROW_MIN_WIDTH = 30
+
+#: Narrowest width the picker is *tested* at, and the floor the docs quote.
+#: Matches ``concern_parser._SENTINEL_SAFE_COLS`` — below it the block's own
+#: fences wrap in the shadow pane and there is nothing parseable to show anyway.
+_PICKER_MIN_COLS = 24
+
+_CONCERN_HELP_FULL = (
+    "[dim]\\[↑/↓] navigate  \\[Space] toggle  \\[a] all actionable  "
+    "\\[A] copy all  \\[u] unparsed  \\[Enter/OK] confirm  \\[Esc] cancel[/]"
+)
+
+#: Same keys, ~50 columns instead of ~100 — at the xnarrow tier the full line
+#: wraps to five rows and evicts the buttons.
+_CONCERN_HELP_COMPACT = (
+    "[dim]↑↓ move · spc pick · a all · A copy · u raw · ↵ ok · esc[/]"
+)
+
+
+class ConcernBlockInspectModal(ModalScreen):
+    """Raw view of a concern block that did not fully parse (t1293).
+
+    t1274 made the loss *visible* (``⚠ N line(s) … could not be parsed``); this
+    shows **what** was lost, so the user can tell an over-bound split marker from
+    a producer typo and file a real bug against the shadow procedure.
+
+    Two entry points: ``u`` from :class:`ConcernPickerModal`, and — when the
+    block parsed to *nothing*, so there is no picker to show a banner beside —
+    pushed directly by the caller's ``c`` handler.
+
+    Everything is rendered with ``markup=False``. A concern marker is literally
+    ``- [high | region]``; interpreted as Rich markup the bracket is eaten, i.e.
+    the inspect view would corrupt the very text it exists to show.
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss_dialog", "Close", show=False),
+        Binding("q", "dismiss_dialog", "Close", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    ConcernBlockInspectModal { align: center middle; }
+    #concern-inspect-dialog {
+        width: 90%;
+        height: 85%;
+        background: $surface;
+        border: thick $warning;
+        padding: 0 1;
+    }
+    #concern-inspect-header { text-style: bold; color: $warning; }
+    #concern-inspect-lines { color: $text; height: auto; max-height: 40%; }
+    #concern-inspect-raw-label { color: $text-muted; }
+    #concern-inspect-scroll { height: 1fr; }
+    #concern-inspect-footer { dock: bottom; height: 1; color: $text-muted; }
+    """
+
+    def __init__(self, unrecovered: Sequence[str], raw_block: str = "") -> None:
+        super().__init__()
+        self._unrecovered = list(unrecovered)
+        self._raw_block = raw_block
+
+    def compose(self) -> ComposeResult:
+        with Container(id="concern-inspect-dialog"):
+            yield Static(
+                f"Unparsed concern lines ({len(self._unrecovered)})",
+                id="concern-inspect-header",
+            )
+            with VerticalScroll(id="concern-inspect-lines"):
+                for line in self._unrecovered:
+                    yield Static(line, markup=False)
+            yield Static("─ raw block ─", id="concern-inspect-raw-label")
+            with VerticalScroll(id="concern-inspect-scroll"):
+                yield Static(
+                    self._raw_block.strip() or "(block region unavailable)",
+                    markup=False,
+                )
+            yield Static("q/Esc: close", id="concern-inspect-footer")
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss()
+
+
 class ConcernPickerModal(ModalScreen):
     """Modal letting the user pick which shadow concerns to forward.
 
@@ -1370,6 +1469,12 @@ class ConcernPickerModal(ModalScreen):
     A block whose concerns all fall in one partition shows no headers at all, so
     plan-review blocks (whose producers have no disposition concept) look exactly
     as they did before.
+
+    **Two independent size knobs (t1293) — neither is derived from the other.**
+    ``narrow`` is the *caller's* hint and owns only the two-line ``_ConcernRow``
+    layout. The ``xnarrow`` class is derived from the modal's own **measured**
+    width (:data:`_PICKER_NARROW_MIN_WIDTH`) and owns only the dialog chrome, so a
+    full-width monitor running in a 24-column terminal gets it too.
 
     **Dismiss contract (consumed by t1037_4):** dismisses with the **selected**
     ``list[Concern]`` on confirm (OK / Enter) or with the full list on "copy ALL"
@@ -1385,6 +1490,9 @@ class ConcernPickerModal(ModalScreen):
         Binding("enter", "confirm", "OK"),
         Binding("a", "toggle_all", "Select all/none"),
         Binding("A", "copy_all", "Copy ALL"),
+        # `u` for "unparsed". Deliberately not `i` — both apps bind that to Task
+        # Info. `_ConcernRow.on_key` stops only space/up/down, so this bubbles.
+        Binding("u", "inspect_unrecovered", "Unparsed", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -1408,18 +1516,46 @@ class ConcernPickerModal(ModalScreen):
 
     /* Narrow variant (minimonitor companion pane, ~40 cols): widen the dialog
        so the header, concern rows, and OK/Cancel render fully. */
+    /* `min-width` here is the CANONICAL value _PICKER_NARROW_MIN_WIDTH mirrors;
+       a drift guard in tests/test_concern_picker_modal.py keeps the two equal,
+       so retuning this number moves the tier boundary with it. */
     ConcernPickerModal.narrow #concern-dialog { width: 90%; min-width: 30; }
+
+    /* Extra-narrow tier (t1293), applied from the modal's MEASURED width at or
+       below _PICKER_NARROW_MIN_WIDTH. The `min-width` above is exactly what
+       makes the dialog overflow a 24-column screen — clipping the right border
+       away and cutting every row mid-word — so it is cleared here, not reduced.
+       `border: thick` is deliberately KEPT: an intact border on every dialog row
+       is what the layout tests assert against to prove nothing is clipped. */
+    ConcernPickerModal.xnarrow #concern-dialog {
+        width: 100%;
+        min-width: 0;
+        max-height: 100%;
+        padding: 0 1;
+    }
+    /* No OK/Cancel at this tier. Measured: side by side under ~34 columns the
+       second label renders as "Can"; stacked they cost 6 rows and at 24x20 they
+       evict the help line — the only place `u` / `a` / `A` are named. They are
+       fully redundant with Enter/Esc, which the compact help does name, so the
+       buttons are the right thing to drop. Nothing is ever half-drawn. */
+    ConcernPickerModal.xnarrow #concern-buttons { display: none; }
+    ConcernPickerModal.xnarrow #concern-buttons Button { width: 100%; margin: 0; }
     """
 
     def __init__(
         self, concerns: list["Concern"], narrow: bool = False,
-        stale: bool = False, unrecovered: int = 0,
+        stale: bool = False, unrecovered: Sequence[str] = (),
+        raw_block: str = "",
     ) -> None:
         super().__init__()
         self._concerns = list(concerns)
         self._narrow = narrow
         self._stale = stale
-        self._unrecovered = unrecovered
+        # The LINES, not a count (t1293): a count derived from the list with
+        # `len()` cannot disagree with what the inspect view shows, whereas a
+        # separate int parameter alongside a list parameter could.
+        self._unrecovered = list(unrecovered)
+        self._raw_block = raw_block
 
     def _partitions(self) -> list[tuple[str, list[tuple[int, "Concern"]]]]:
         """``[(section_title, [(original_index, concern), …]), …]``, non-empty only.
@@ -1463,8 +1599,10 @@ class ConcernPickerModal(ModalScreen):
             # emitted. Visible degradation beats a silently truncated list.
             if self._unrecovered:
                 yield Static(
-                    f"⚠ {self._unrecovered} line(s) in this block "
-                    "could not be parsed",
+                    # `\\[u]` — an unescaped `[u]` is Rich's underline tag and
+                    # renders as nothing at all.
+                    f"⚠ {len(self._unrecovered)} line(s) in this block "
+                    "could not be parsed — \\[u] inspect",
                     id="concern-unrecovered",
                 )
             yield Static(self._context_line(), id="concern-context")
@@ -1479,19 +1617,57 @@ class ConcernPickerModal(ModalScreen):
                         yield _ConcernRow(
                             concern, narrow=self._narrow, original_index=index
                         )
-            yield Static(
-                "[dim]\\[↑/↓] navigate  \\[Space] toggle  \\[a] all actionable  "
-                "\\[A] copy all  \\[Enter/OK] confirm  \\[Esc] cancel[/]",
-                id="concern-help",
-            )
+            # Swapped for the compact variant by _apply_width_tier() once the
+            # modal knows its measured width.
+            yield Static(_CONCERN_HELP_FULL, id="concern-help")
             with Container(id="concern-buttons"):
                 yield Button("OK", variant="primary", id="btn-ok")
                 yield Button("Cancel", variant="default", id="btn-cancel")
 
     def on_mount(self) -> None:
+        self._apply_width_tier()
         rows = list(self.query(_ConcernRow))
         if rows:
             rows[0].focus()
+
+    def on_resize(self) -> None:
+        self._apply_width_tier()
+
+    def _apply_width_tier(self) -> None:
+        """Pick the dialog chrome from the modal's MEASURED width (t1293).
+
+        Keyed on ``self.size.width`` — never on ``self._narrow``, which is the
+        caller's row-layout hint and says nothing about the real terminal. Textual
+        has no media queries, so this is the substitute; ``on_resize`` keeps it
+        live. ``_ConcernRow.render`` already derives its region budget from live
+        width, so the rows follow with no change here.
+
+        The threshold is this dialog's own declared minimum, not a shared
+        terminal tier — see :data:`_PICKER_NARROW_MIN_WIDTH` for why
+        ``tui_layout.is_narrow_terminal`` cannot express this decision.
+        """
+        xnarrow = self.size.width <= _PICKER_NARROW_MIN_WIDTH
+        self.set_class(xnarrow, "xnarrow")
+        help_widgets = list(self.query("#concern-help"))
+        if help_widgets:
+            help_widgets[0].update(
+                _CONCERN_HELP_COMPACT if xnarrow else _CONCERN_HELP_FULL
+            )
+
+    def action_inspect_unrecovered(self) -> None:
+        """Show the marker lines this block lost, over the still-open picker.
+
+        Pushed on the App (the first modal-over-modal in the monitor package;
+        the repo precedent is ``brainstorm/modals.py``'s ``NodeDetailModal``).
+        The picker is NOT dismissed, so closing the inspect view returns to an
+        intact selection.
+        """
+        if not self._unrecovered:
+            self.app.notify("Nothing unparsed in this block")
+            return
+        self.app.push_screen(
+            ConcernBlockInspectModal(self._unrecovered, self._raw_block)
+        )
 
     def _rows(self) -> list[_ConcernRow]:
         return list(self.query(_ConcernRow))

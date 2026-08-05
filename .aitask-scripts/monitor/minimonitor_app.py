@@ -45,14 +45,15 @@ from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin,
-    ConcernPickerModal, TaskNumberInputModal, TaskPickConfirmDialog,
+    ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
+    TaskPickConfirmDialog,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_shadow_glyph, format_stale_duration, format_state_dot,
     is_task_completed, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
-    block_head_truncated, build_clipboard_payload, has_concern_block,
-    needs_addressing, parse_concerns, unrecovered_markers,
+    block_head_truncated, block_region, build_clipboard_payload,
+    has_concern_block, needs_addressing, parse_concerns, unrecovered_markers,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -1715,9 +1716,15 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             # A block whose markers are ALL malformed parses to nothing, so the
             # bland "no concerns" message would be a lie — the shadow did emit a
             # block, none of it survived. Say that instead (t1274).
-            lost = len(unrecovered_markers(text))
+            lost = unrecovered_markers(text)
             if lost:
-                self.notify(unparsed_concerns_msg(lost), severity="warning")
+                self.notify(unparsed_concerns_msg(len(lost)), severity="warning")
+                # No picker means no banner to hang the `u` affordance off, so
+                # open the raw view directly — the user pressed `c` deliberately
+                # and this is the only thing left to show them (t1293).
+                self.push_screen(
+                    ConcernBlockInspectModal(lost, block_region(text) or "")
+                )
             else:
                 self.notify("No concerns detected on the shadow pane")
             return
@@ -1729,7 +1736,8 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                 concerns,
                 narrow=True,
                 stale=stale,
-                unrecovered=len(unrecovered_markers(text)),
+                unrecovered=unrecovered_markers(text),
+                raw_block=block_region(text) or "",
             ),
             callback=self._on_concerns_picked,
         )

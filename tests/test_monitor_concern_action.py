@@ -338,7 +338,49 @@ class ActionPickConcernsTests(unittest.TestCase):
         msg, severity = app.spy_notify[0]
         self.assertIn("could not be parsed", msg)
         self.assertEqual(severity, "warning")
+
+    def test_malformed_only_block_opens_the_raw_view(self):
+        """Same affordance as minimonitor — the surfaces must not diverge (t1293)."""
+        app = self._app_with_shadow()
+        _install_capture(self, _CaptureScript(_MALFORMED_ONLY_BLOCK))
+        _run(app.action_pick_concerns())
+        self.assertEqual(len(app.spy_pushed), 1)
+        screen, _ = app.spy_pushed[0]
+        self.assertIsInstance(screen, ma.ConcernBlockInspectModal)
+        self.assertTrue(screen._unrecovered)
+        for line in screen._unrecovered:
+            self.assertIn(line, screen._raw_block)
+
+    def test_raw_view_releases_the_pick_guard_when_closed(self):
+        """Guard-leak regression (t1293).
+
+        The all-malformed path pushes a modal instead of returning, so it claims
+        the pick guard. Without its own release callback the guard stays held and
+        every later `c` is silently swallowed — the picker would appear dead.
+        """
+        app = self._app_with_shadow()
+        _install_capture(self, _CaptureScript(_MALFORMED_ONLY_BLOCK))
+        _run(app.action_pick_concerns())
+        # Held while the raw view is up, exactly as for the picker.
+        self.assertTrue(app._concern_pick_busy)
+        _screen, callback = app.spy_pushed[0]
+        self.assertIsNotNone(callback, "the push must carry a release callback")
+        callback(None)
+        self.assertFalse(app._concern_pick_busy)
+
+        # And a second `c` is honoured rather than swallowed.
+        app.spy_pushed.clear()
+        _install_capture(self, _CaptureScript(_MALFORMED_ONLY_BLOCK))
+        _run(app.action_pick_concerns())
+        self.assertEqual(len(app.spy_pushed), 1)
+
+    def test_genuinely_no_block_pushes_nothing(self):
+        """Negative control for the two tests above: absence opens no view."""
+        app = self._app_with_shadow()
+        _install_capture(self, _CaptureScript("just some output\n"))
+        _run(app.action_pick_concerns())
         self.assertEqual(app.spy_pushed, [])
+        self.assertFalse(app._concern_pick_busy)
 
     def test_genuinely_no_block_keeps_the_plain_message_and_no_recapture(self):
         """Negative control for the deep retry: absence is not truncation."""
@@ -361,7 +403,10 @@ class ActionPickConcernsTests(unittest.TestCase):
         _install_staleness(self)
         _run(app.action_pick_concerns())
         screen, _ = app.spy_pushed[0]
-        self.assertEqual(screen._unrecovered, 1)
+        # The LINES, not a count (t1293) — so the banner's number and the raw
+        # view can never disagree.
+        self.assertEqual(screen._unrecovered, ["- [medium | parser never closes"])
+        self.assertIn("A real one.", screen._raw_block)
 
     def test_stale_flag_forwarded_to_the_modal(self):
         app = self._app_with_shadow()

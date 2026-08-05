@@ -202,6 +202,8 @@ class ActionPickConcernsTests(unittest.TestCase):
         app._find_own_agent_snapshot = lambda: _snap("%1")
         _stub_capture(self, _async_return("no concern block here"))
         asyncio.run(app.action_pick_concerns())
+        # Negative control for test_malformed_only_block_opens_the_raw_view: a
+        # pane with genuinely no block must open nothing at all (t1293).
         self.assertEqual(app.spy_pushed, [])
         self.assertEqual(app.spy_clipboard, [])
         # A pane with genuinely no block says exactly that — no scare warning.
@@ -222,13 +224,33 @@ class ActionPickConcernsTests(unittest.TestCase):
 
         asyncio.run(app.action_pick_concerns())
 
-        self.assertEqual(app.spy_pushed, [])  # nothing forwardable to pick
         self.assertEqual(app.spy_clipboard, [])
         self.assertEqual(len(app.spy_notify), 1)
         message, severity = app.spy_notify[0]
         self.assertEqual(severity, "warning")
         self.assertIn("2 line(s) could not be parsed", message)
         self.assertNotIn("No concerns detected", message)
+
+    def test_malformed_only_block_opens_the_raw_view(self):
+        """With no picker there is no banner to hang `u` off (t1293).
+
+        The user pressed `c` deliberately and every marker was lost, so the raw
+        block IS the answer — showing it is the only way they can tell an
+        over-bound split from a producer typo.
+        """
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_MALFORMED_ONLY_BLOCK))
+
+        asyncio.run(app.action_pick_concerns())
+
+        self.assertEqual(len(app.spy_pushed), 1)
+        modal, _callback = app.spy_pushed[0]
+        self.assertIsInstance(modal, mm.ConcernBlockInspectModal)
+        self.assertEqual(len(modal._unrecovered), 2)
+        # The raw region travels with it, not just the offending lines.
+        for line in modal._unrecovered:
+            self.assertIn(line, modal._raw_block)
 
     def test_retries_deeper_on_truncated_head(self):
         """A clipped opening fence buys ONE much deeper re-capture (t1187)."""

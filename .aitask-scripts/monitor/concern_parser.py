@@ -71,6 +71,10 @@ Entry point                     Input shape                    Purpose
                                                                same (forgiving) region yielded no concern
                                                                for, so the picker can say how many items
                                                                were lost instead of degrading silently.
+:func:`block_region`            wrap-joined, ANSI-free (``-J``) **display only** — the same (forgiving)
+                                                               region's text, verbatim, so a human can read
+                                                               what the parser could not use (t1293). Never
+                                                               parsed into forwardable concerns.
 =============================== ============================== ==========================================
 """
 from __future__ import annotations
@@ -428,6 +432,22 @@ def unrecovered_markers(capture_text: str) -> list[str]:
     """
     region = _last_block_region(capture_text, require_close=False)
     return _scan_items(region)[1] if region is not None else []
+
+
+def block_region(capture_text: str) -> str | None:
+    """The newest block's raw region text, or ``None`` when no fence is present.
+
+    Same forgiving scope as :func:`parse_concerns` / :func:`unrecovered_markers`
+    (``require_close=False``), so all three always describe the *same* block: the
+    lines a user inspects are exactly the lines those two read.
+
+    **Display only.** The text is returned verbatim for a human to read; it is
+    never parsed into forwardable items. A shadow doc read into the pane can
+    carry literal ``- [priority | region]`` example lines (the t1123 hazard),
+    which is why the block a user *inspects* and the block the picker *forwards*
+    stay separate code paths (t1293).
+    """
+    return _last_block_region(capture_text, require_close=False)
 
 
 def has_concern_block(text: str) -> bool:

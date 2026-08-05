@@ -18,6 +18,12 @@ list by the finding's **disposition** (derived from the body's terminal
 `Disposition:` trailer), so items the shadow is not asking you to act on sit in
 their own dimmed section and are skipped by bulk-select.
 
+When some marker lines in the block could not be parsed, the picker's warning
+banner is backed by an affordance: `u` opens a read-only view of the offending
+lines plus the raw block region, so an over-bound split marker can be told apart
+from a producer typo and reported. When *no* marker parsed — so there is no
+picker to hang the banner on — that view opens directly instead.
+
 ## Pipeline: capture → context-fetch → skill
 
 The shadow is built from three composable pieces. There is no workflow-phase

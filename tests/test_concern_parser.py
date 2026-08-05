@@ -22,6 +22,7 @@ from concern_parser import (  # noqa: E402
     Concern,
     DEFAULT_PREAMBLE,
     block_head_truncated,
+    block_region,
     build_clipboard_payload,
     contains_any_concern_block,
     has_concern_block,
@@ -735,6 +736,48 @@ class TestUnrecoveredMarkers(unittest.TestCase):
 
     def test_no_block_reports_nothing(self):
         self.assertEqual(unrecovered_markers("just some pane output"), [])
+
+
+class TestBlockRegion(unittest.TestCase):
+    """The raw region a human inspects is the SAME one the parser read (t1293).
+
+    `block_region` exists so the picker can show *what* was lost, not just how
+    much. Its value is only trustworthy if it is scoped identically to
+    `parse_concerns` / `unrecovered_markers` — otherwise the user would be
+    reading a different block than the one that produced the warning.
+    """
+
+    def test_returns_the_region_verbatim_including_unrecovered_lines(self):
+        text = block(
+            "- [low | aaaa", "bbbb", "cccc", "dddd] over-bound body",
+            "- [high | ok] a good one",
+        )
+        region = block_region(text)
+        # The lost marker AND its continuation rows — the only thing that shows
+        # an over-bound split for what it is, rather than a producer typo.
+        self.assertIn("- [low | aaaa", region)
+        self.assertIn("dddd] over-bound body", region)
+        self.assertIn("- [high | ok] a good one", region)
+        for line in unrecovered_markers(text):
+            self.assertIn(line, region)
+
+    def test_forgiving_scope_matches_parse_concerns(self):
+        """No closing fence — the same EOF tolerance the hotkey path relies on."""
+        text = OPEN + "\n- [high | ok] still streaming"
+        self.assertEqual(len(parse_concerns(text)), 1)
+        self.assertIn("still streaming", block_region(text))
+
+    def test_last_block_wins(self):
+        text = "\n".join([
+            block("- [high | old] superseded"),
+            block("- [high | new] the newest one"),
+        ])
+        region = block_region(text)
+        self.assertIn("the newest one", region)
+        self.assertNotIn("superseded", region)
+
+    def test_no_fence_returns_none(self):
+        self.assertIsNone(block_region("just some pane output"))
 
 
 def _states_short_region_rule(text: str) -> bool:

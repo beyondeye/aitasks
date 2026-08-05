@@ -40,15 +40,15 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
-    AgentMarksMixin, ConcernPickerModal,
+    AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_shadow_glyph, format_state_dot, is_task_completed,
     unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
-    _SENTINEL_SAFE_COLS, block_head_truncated, build_clipboard_payload,
-    concern_block_signature, needs_addressing, parse_concerns,
-    unrecovered_markers,
+    _SENTINEL_SAFE_COLS, block_head_truncated, block_region,
+    build_clipboard_payload, concern_block_signature, needs_addressing,
+    parse_concerns, unrecovered_markers,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from rich.text import Text  # noqa: E402
@@ -2879,9 +2879,11 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                     self.notify(_SHADOW_TRUNCATED_MSG, severity="warning")
                     return  # indeterminate — marker untouched
             if not concerns:
-                lost = len(unrecovered_markers(text))
+                lost = unrecovered_markers(text)
                 if lost:
-                    self.notify(unparsed_concerns_msg(lost), severity="warning")
+                    self.notify(
+                        unparsed_concerns_msg(len(lost)), severity="warning"
+                    )
                 else:
                     self.notify("No concerns detected on the shadow pane")
                 # Definitive ONLY when the capture does contain a complete block:
@@ -2893,6 +2895,16 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                     self._mark_concern_sig(
                         self._concern_sig_offered, pane_id, trigger_sig, done_sig
                     )
+                if lost:
+                    # No picker means no banner to hang the `u` affordance off,
+                    # so open the raw view directly (t1293). It owns the pick
+                    # guard until dismissed, exactly like the picker does —
+                    # otherwise a second `c` would stack inspect modals.
+                    self.push_screen(
+                        ConcernBlockInspectModal(lost, block_region(text) or ""),
+                        callback=self._on_inspect_closed,
+                    )
+                    modal_owns_guard = True
                 return
             eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
             stale, _ = await compute_shadow_staleness(
@@ -2911,7 +2923,8 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                     concerns,
                     narrow=False,  # the monitor is full-width, unlike minimonitor
                     stale=bool(stale),
-                    unrecovered=len(unrecovered_markers(text)),
+                    unrecovered=unrecovered_markers(text),
+                    raw_block=block_region(text) or "",
                 ),
                 callback=self._on_concerns_picked,
             )
@@ -2940,6 +2953,15 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         # tests/test_tui_clipboard_seam.sh enforces this.
         copy_to_system_clipboard(self, build_clipboard_payload(selected))
         self.notify("Concerns copied to clipboard.")
+
+    def _on_inspect_closed(self, _result) -> None:
+        """Release the pick guard when the raw-block view closes (t1293).
+
+        The all-malformed path pushes :class:`ConcernBlockInspectModal` instead
+        of the picker, so it needs its own release — without it the guard would
+        stay held and every later `c` would be silently swallowed.
+        """
+        self._concern_pick_busy = False
 
     def action_show_task_info(self) -> None:
         """Show task detail dialog for the focused agent pane."""
