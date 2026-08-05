@@ -320,9 +320,47 @@ cross-references (:192, :310, :331) are untouched, and
 >     it, so re-reading it can never surface this edge. Look for it on the other
 >     side, with a targeted over-inclusive prefilter confirmed by reading:
 >     ```bash
->     grep -rl --include='t*.md' '^verifies:' aitasks \
->       | xargs -r grep -l '<member bare id>'
+>     { grep -rl --include='t*.md' '^verifies:' aitasks || [ "$?" = 1 ]; } |
+>       { rc=0
+>         while IFS= read -r f; do
+>           grep -q -- '<member bare id>' "$f"
+>           case $? in
+>             0) printf '%s\n' "$f" ;;                            # candidate
+>             1) ;;                                  # no match: expected, ok
+>             *) printf 'sweep: cannot read %s\n' "$f" >&2; rc=2 ;;
+>           esac
+>         done
+>         exit "$rc"; }
 >     ```
+>     A nonzero exit means the sweep is INCOMPLETE — re-run before trusting the
+>     candidate list, and never read that run as "no candidates found".
+>
+>     Three exit-status properties are load-bearing and must not be
+>     "simplified" away:
+>
+>     - **No `xargs -r`.** BSD/macOS `xargs` has no `-r` and exits with an
+>       error, aborting the whole sweep and silently dropping every
+>       manual-verification candidate — on the one platform where nothing else
+>       would signal the loss. BSD `xargs` also already skips empty input, so
+>       the loop is the portable form of both behaviours. See
+>       `aidocs/framework/sed_macos_issues.md` for this class of defect.
+>     - **`grep`'s no-match exit 1 is normalized to success.** Finding no
+>       verifier is the common, expected outcome. Left unnormalized the sweep
+>       returns 1 and — under `pipefail`, or any runner that reads nonzero as
+>       failure — looks like a broken command and invites a spurious retry.
+>     - **A per-file read failure propagates.** If a file vanishes or becomes
+>       unreadable between the prefilter and the confirmation scan, that
+>       candidate is silently omitted — the precise loss this sweep exists to
+>       prevent. An stderr message alone is insufficient: the loop's own status
+>       would still be 0. `rc=2` plus the trailing `exit "$rc"` (and the `{ }`
+>       group, so the assignment survives to the pipeline's status) is what
+>       makes the omission visible.
+>
+>     Verified under `set -o pipefail`, five cases: member with a verifier →
+>     rc 0 + the file; member with none → rc 0, silent; prefilter matching
+>     nothing → rc 0; unreadable prefilter root → rc 1; **file vanishing
+>     between the two passes → rc 2, with the surviving candidate still
+>     printed and the loss reported on stderr**.
 >     Then open each hit and keep only those whose parsed `verifies:` list really
 >     names the member. The confirm-by-reading step is required, not optional:
 >     the wild corpus spells the list as `[1039]`, `['1074_2']` and
@@ -576,3 +614,108 @@ stored in artifacts, and that blast radius is what sets the level.
   not fix the reported defect. Already resolved — direction confirmed against
   live data and with the user, and the bullet is corrected in Implementation
   step 7. · severity: low · → mitigation: none needed
+
+## Final Implementation Notes
+
+- **Actual work done:** All three Required items landed as planned.
+  `trail_gather.py` gained `_canonical_refs` (shared relation normalizer, with
+  `_canonical_depends` kept as a thin wrapper so the digest contract stays
+  pinned to its own name), `_archived_metadata` (extracted from
+  `_existence_reason`, preserving the three-way outcome), a `verifies` branch
+  on the live-row scan, and a new inverted member-side
+  `risk_mitigation_tasks` scan that reads the member's own frontmatter from
+  the active tree or the archive. Docstring drift vocabulary, design-doc
+  §8.2/§8.3, and the `aitask-trail` refresh flow were updated; goldens and
+  rendered variants regenerated. Eight tests added.
+
+- **Deviations from plan:**
+  - *Live-acceptance criterion corrected.* The plan required the two stored
+    trails to emit **zero** `new_related_task` lines. They now emit several —
+    all from the pre-existing **topic** edge, on tasks a concurrent session
+    created at 17:17–17:18 (t1427_1..4, t1434), well after the 12:40 baseline.
+    The stable criterion is *zero lines attributable to the new edges*, and
+    that holds: 0 on both trails. The original phrasing was only ever true
+    while the repo was quiet.
+  - *Rendered variants are gitignored* (`.gitignore:44-46`), so the plan's
+    "the committed rendered variants are regenerated in this commit" was
+    wrong — they are generated at dispatch time and not tracked. They were
+    still regenerated on disk and verified to carry the new bullet in all
+    three agent trees; only the 3 goldens are committed.
+  - *`SyntheticRepo.archive_task` needed no list-rendering branch* (the plan
+    had proposed adding one): `str()` of a Python list is already a valid YAML
+    flow sequence.
+
+- **Issues encountered:**
+  - The `verifies` sweep instruction went through three review rounds, each
+    finding a real defect in the same six lines: `xargs -r` (GNU-only; BSD
+    aborts, silently dropping every candidate), `grep`'s no-match exit 1
+    propagating under `pipefail` as a false failure, and — the subtlest — the
+    per-file error branch reporting to stderr while the loop still returned 0,
+    so a file vanishing between the prefilter and the confirmation scan would
+    omit a candidate *and report success*. Final form normalizes no-match to 0
+    and propagates read failures as rc 2 via a `{ }` group + `exit "$rc"`.
+    Verified under `set -o pipefail` across five cases including a
+    deterministic simulation of the race.
+  - The `make_trail` exclusions builder failed schema validation the first
+    time any test used it (see the defect bullet below).
+
+- **Key decisions:**
+  - *Edge direction (confirmed with the user).* `risk_mitigation_tasks` is
+    member-side and inverted — the task's own Verification bullet claimed the
+    opposite and would not have detected t1426 or t1411. The bullet was
+    corrected in the task file rather than silently deviated from.
+  - *Dead targets are skipped.* A named follow-up that is itself archived
+    (real: t1319 → t1410) is not reported, matching the live-row scan, which
+    only ever iterates active rows.
+  - *No new drift code.* Both edges emit the existing `new_related_task`, so
+    `GATHERER_DRIFT_CODES`, the schema enum, and the board badge are untouched
+    and no input record is added — the digest cannot move.
+  - *Detail-prefix ordering is load-bearing.* `dedup_reasons` keeps the
+    lexicographically smallest detail per `(code, task_ref)`, so
+    `"risk-mitigation follow-up of …"` sorting after `"new task …"` is what
+    preserves existing wording for a doubly-reachable target. Pinned by test
+    and by a call-site comment.
+
+- **Risk-mitigation phases (all three executed):**
+  - `characterize_archived_existence_classification` (pre-phase) —
+    `test_existence_reason_archived_classification` written first and green on
+    unmodified code across all five archived outcomes, including the malformed
+    frontmatter case that had no coverage at all; still green after the
+    extraction.
+  - `pin_stored_trail_verdicts` (post-phase) — `art:trail-shadow-review-loop`:
+    before `CURRENT` (12:40) → after `STALE`, but every reason is topic-edge or
+    ambient (`status_changed`, `plan_changed`) from concurrent-session tasks;
+    **0** lines from the new edges. `art:trail-gates-framework-landing`:
+    `STALE` before and after, all topic-edge / `task_completed`; **0** lines
+    from the new edges. Neither stored artifact's verdict changed because of
+    this task.
+  - `pin_detail_prefix_ordering` (post-phase) —
+    `test_doubly_reachable_target_keeps_depends_detail` added plus the
+    call-site comment.
+
+- **Negative controls (proving the vacuous guards discriminate):** the four
+  "not reported" tests pass vacuously on unmodified code, so each load-bearing
+  one was proven with a single mutation, reverted by hand (no `git checkout`,
+  which would have taken a concurrent session's files with it). Iterating the
+  archive at large instead of `member_refs` turned
+  `test_risk_mitigation_archived_non_member_not_scanned` red; removing the
+  dead-target guard turned `test_risk_mitigation_archived_target_skipped` red.
+  Baseline before implementation: tests 1 and 5 red on the missing assertion,
+  the other six green — exactly as predicted.
+
+- **Upstream defects identified:** `tests/test_trail_gather.py:244-253 —
+  make_trail's exclusions and observations builders were both schema-invalid
+  (exclusions emitted `reason`/`note` instead of the required
+  `reason_code`/`reason`, with `out_of_scope` absent from the reason_code
+  enum; observations emitted `category`/`summary` instead of `kind`/`statement`).
+  Pre-existing dead code: no test had ever passed `exclusions=` or
+  `observations=`, so make_trail's own schema assertion never saw them, and
+  the first use (this task's baseline-suppression test) failed immediately.
+  Fixed in this commit — no follow-up task needed.`
+
+- **Deferred (not a defect, a scoped-out gap):** `folded_into` is the one
+  remaining post-landing connection the trail cannot see — a member folded
+  into a live *non-member* absorber (real shape: `t666: folded_into: 1343`).
+  `_existence_reason` emits `task_folded` naming the member, but the absorber
+  is never proposed as a membership candidate. Mechanically different (scalar,
+  not list) and orthogonal to this task's two list fields.
