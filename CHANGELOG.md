@@ -1,5 +1,61 @@
 # Changelog
 
+## v0.31.0
+
+### Features
+
+- **Board multi-select marking** (t1243_6): Press `Space` on the board to mark cards with a checkbox glyph, building a selection that survives navigation and is pruned automatically when tasks disappear.
+- **Bulk move to column** (t1243_7): A new `m` key and command-palette entry moves every marked task to a column you pick, with a review dialog and a stale-selection guard.
+- **Headless board columns** (t1377_1): Board column reads and moves are now available from a standalone command, so scripts and agents can query or change a task's column without opening the board TUI, and `--boardcol` values are validated everywhere.
+
+### Bug Fixes
+
+- **Silent task-data sync failures** (t1269): Syncing task data now reports when a pull or push actually failed instead of always claiming success, with a specific reason and recovery hint per failure class — including a missing upstream.
+- **`gate pass` missing from help** (t1270): `ait --help` now lists the `gate pass` subcommand alongside the rest of the gate family.
+- **By-Trail misses a new trail** (t1365): The board's By-Trail view now sees trails created while the board is open, warns about trail files it can't read, and renders a newly activated trail's members as real cards.
+- **Trail selector focus and scrolling** (t1366): The trail picker — and every other picker dialog on the board — now shows a visible focus highlight and scrolls the focused row into view.
+- **Silent lock-cleanup failures** (t1370): Stale-lock cleanup during task pick now reports why it failed and what the consequence is, instead of swallowing the error and exiting successfully.
+- **Torn frontmatter writes** (t1371): Frontmatter patches are written atomically, so a concurrent reader can never see a half-written task file.
+- **Torn task-file writes** (t1379): The shell-side task, plan, gate-witness and issue-import writers are atomic too, preserving file mode and never leaving a truncated file behind.
+- **Setup leaves a broken environment** (t1374): A failed optional `pip install` during `ait setup` no longer leaves a half-built venv; setup degrades in clear escalating steps and tells you what to do.
+- **`ait lock list` on an empty branch** (t1378): Listing locks no longer aborts when the task-data branch has no lock files, and incomplete lock records show `unknown` fields instead of being dropped.
+- **Resume drift and plan-approval gaps** (t1380): Resuming an in-flight task now runs the same branch-resolution and drift checks as a fresh run, and records plan approval on every stop path.
+- **Renamed agent windows** (t1382): Companion panes are classified correctly even after a window is renamed, and the minimonitor groups non-agent panes under an "other" section instead of hiding them.
+- **Stale human gate signatures** (t1409): A human gate signed before later code changes is now detected as stale — archive readiness reports it as blocked instead of accepting an out-of-date signature.
+- **Installer aborts silently** (t1414): A fresh-directory install no longer ends silently partway through — the upgrade-changelog step can no longer terminate the installer with a stray exit status.
+
+### Improvements
+
+- **Board gap indexing** (t1243_3): Moving a card no longer renumbers a whole column — a move rewrites one file instead of several, so concurrent board edits stop fighting each other.
+- **No-verifier warning in the parse contract** (t1272): The task workflow now warns when a gate can't be verified because no verifier or registry entry is configured, in both the interactive and autonomous lanes.
+- **Shared shadow helpers** (t1289): The minimonitor's duplicate shadow wrappers were removed so both monitors run exactly the same shadow capture and formatting code.
+- **Concern parse diagnostics** (t1293): When a shadow concern block can't be parsed, `u` opens the raw text that was lost, and the dialog adapts down to very narrow terminals.
+- **Shadow self-binding** (t1319): The shadow's capture step resolves its own target pane instead of taking it as an argument, and refuses to act when it is unbound or on another tmux server.
+- **Minimonitor mark for the followed agent** (t1383): `Space` in the minimonitor now marks the agent you are following whatever card has focus, and the docked panel shows its mark state live.
+- **Multi-row footer** (t1418): TUI footers wrap onto several rows instead of hiding shortcuts, so every board operation is discoverable; the row cap is configurable via `footer_max_rows`.
+- **Inline risk mitigations** (t1419): Risk mitigations chosen during planning can now be inlined as pre- or post-phases of the plan itself instead of always becoming follow-up tasks, with a per-mitigation prompt, reconciliation of already-created tasks, and a stop signal when a blocking mitigation is unfinished.
+- **Trail drift covers more edges** (t1429): Trail refresh now detects drift from `risk_mitigation_tasks` and `verifies` relations, including tasks that point at a trail member from the outside.
+- **Shared record protocol** (t1433): The delimited-record encoding used by the work-report and board-column tools moved into one shared module, so sanitizing and record-breaking checks behave identically everywhere.
+
+### Documentation
+
+- **Docs gaps since v0.30.0** (t1432): Documented board marking and bulk move, the monitor's concern picker, and the parallel Python test lane across the board, monitor and development doc pages.
+
+### Performance
+
+- **Scoped board filtering** (t1243_4): Board search and filtering touch only the columns that changed and reuse a cached search string per task, so typing in the filter stays responsive on large boards.
+- **Card moves without a rebuild** (t1243_5): Moving a card between columns transplants the existing widget instead of recomposing the board.
+- **Batch moves scale linearly** (t1369): Moving many marked tasks to a column computes the whole run of positions from one scan instead of rescanning per task.
+- **Board test fixture migration** (t1354_2): The remaining board test modules moved onto the shared fixture, replacing self-skipping tests with real assertions.
+- **Parallel test lane** (t1354_3): `ait setup --with-dev` installs an optional pytest tier, after which the Python suite runs across parallel workers with a small serial carve-out.
+- **Load-aware worker count** (t1354_4): The parallel test lane picks its worker count from the machine's load instead of a fixed default, backed by a full measurement campaign.
+- **Board move cost attribution** (t1395): The board's movement profiler gained nested span attribution to pin down what remains of a card move's cost; board behaviour is unchanged.
+
+### Tests
+
+- **Concern display contract guard** (t1294): A new guard pins which concern fields each display surface reads, so one surface can't silently diverge from the others.
+- **Inherited-test duplication guard** (t1384): A new structural guard catches test classes that re-run an inherited suite, which was inflating collection counts.
+
 ## v0.30.0
 
 ### Features
