@@ -604,5 +604,227 @@ resolve regardless of later reordering.
 - timing: pre-phase | name: archive_hook_per_site | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: low | addresses: prune hook missing or mis-wired at one of three archive call sites | desc: new tests/test_archive_shadow_prune.sh covering parent, child, auto-parent and dry-run in isolation with a decoy store and a fixture pre-check that the helper was copied
 - timing: pre-phase | name: own_root_guard_reachable_trigger | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: own-root guard shadowed by the id regex | desc: reach the realpath guard via a symlinked store dir outside the root and assert prune refuses; assert the id regex separately
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-05 16:35)
+
+- **Requested by user:** Two review findings against the implemented helper.
+  1. *(blocking)* `lock_or_busy` swallowed a failed `mkdir -p "$STORE_DIR"` and
+     went on to call `registry_lock_acquire`, which retries its own `mkdir`
+     until the timeout and then returns 1 → the helper waited the **full 10s**
+     and reported `LOCK_BUSY`/exit 3, blaming a competing writer, when the real
+     condition was an unusable store path and the documented answer is exit 4.
+  2. *(follow-up)* `_read_next_id` accepted any digit string as the high-water
+     header. `<!-- next_id: 0 -->` issued an `r0` outside the documented
+     monotonic-from-1 scheme, and `<!-- next_id: 08 -->` was parsed as **octal**
+     by bash arithmetic → `value too great for base`, an undocumented exit 1
+     that lost the append entirely.
+
+- **Verified before changing anything.** Both reproduced against the shipped
+  code: (1) `AITASK_SHADOW_DIR` pointed at a regular file → `LOCK_BUSY`, rc 3,
+  **10s elapsed**; (2) header `0` → entry `### r0`; header `08` → rc 1 with the
+  raw bash error on stderr and no entry written. Both findings CONFIRMED.
+
+- **Changes made:**
+  - `lock_or_busy` now diagnoses the write error **before** touching the lock:
+    a failed `mkdir -p` and a non-writable `$STORE_DIR` each print a specific
+    message and exit **4**, immediately. The read-only-dir case is the second
+    reachable path to the same fault (`mkdir -p` succeeds on an existing dir, so
+    only the lock `mkdir` would have failed) and is handled explicitly rather
+    than left to fall through to the old behaviour.
+  - `_read_next_id` requires a **canonical** header — `[1-9][0-9]*`, positive
+    decimal, no leading zero — and otherwise falls through to the documented
+    self-heal. The `max(entry id)+1` fallback is forced to base 10 (`10#$max`)
+    so a leading-zero *entry* id (`### r08`) can never crash the arithmetic
+    either. Fixed the follow-up item inline rather than spawning a task: it is
+    one predicate in the function the blocking fix already touched.
+  - New **Test 14** (unusable store path: file-backed root and read-only dir →
+    exit 4, no `LOCK_BUSY`, returns in ≤2s not 10s; root-only case is skipped
+    when running as root, where a 0555 dir is still writable) and **Test 15**
+    (headers `0`, `08`, `007`, `00` all self-heal to `r1` with a canonically
+    rewritten header; a leading-zero entry id resolves base-10 to `r9`).
+  - Both new regressions proven able to fail by reverting each fix in turn
+    (M6 → the four Test-14 assertions including "took 10s"; M7 → the `r0` and
+    the exact octal error), each restored byte-identically afterwards.
+
+- **Files affected:** `.aitask-scripts/aitask_shadow_rejected.sh`,
+  `tests/test_shadow_rejected.sh` (83 → 109 assertions).
+
+### Change Request 2 (2026-08-05 16:47)
+
+- **Requested by user:** Change Request 1 validated the store *directory* but
+  not the **lock path itself**. If `rejected.md.lockd` exists as a regular file
+  rather than a live lock directory, `registry_lock_acquire` — which serializes
+  precisely by racing `mkdir "$LOCK_DIR"` — can never win that mkdir, so it
+  spins out its whole timeout and returns `LOCK_BUSY` though no competing
+  writer exists.
+
+- **Verified before changing anything.** Reproduced against the CR-1 code: a
+  regular file planted at the `.lockd` path gave `LOCK_BUSY`, rc 3, **10s
+  elapsed**, with no writer in existence. CONFIRMED — the same fault class as
+  CR-1, one layer deeper.
+
+- **Changes made:**
+  - `lock_or_busy` now also rejects a lock path that exists but is **not a
+    directory**, printing a message that names the lock path and exiting **4**
+    immediately. The predicate is `{ -e || -L } && ! -d`, so it catches a
+    **dangling symlink** too — `-e` alone is false for one, yet `mkdir` still
+    fails with `EEXIST` and would stall identically.
+  - An existing lock *directory* is deliberately left untouched: that is the
+    genuine held-lock case, and `registry_lock_acquire` is what knows how to
+    wait out a live holder and steal from a provably dead one.
+  - New **Test 14b**: both corrupted artifacts (regular file, dangling symlink)
+    → exit 4, no `LOCK_BUSY`, message names the lock path, returns in ≤2s.
+    Paired with a **discrimination assertion** that a genuinely held lock
+    directory still yields `LOCK_BUSY`/exit 3 — so the new guard cannot be
+    "fixed" into swallowing real contention.
+  - Negative control M8 (revert the check) reproduced all four assertions for
+    both artifact kinds, including `took 10s`, while leaving the
+    genuine-contention assertion passing — confirming the guard is precise.
+    Helper restored byte-identically.
+
+- **Files affected:** `.aitask-scripts/aitask_shadow_rejected.sh`,
+  `tests/test_shadow_rejected.sh` (109 → 119 assertions).
+
+### Change Request 3 (2026-08-05 16:58)
+
+- **Requested by user:** CR-2's lock-artifact guard used `{ -e || -L } && ! -d`,
+  and Bash `-d` **follows symlinks** — so a symlink pointing at an existing
+  directory satisfied `-d` and was waved through as a valid lock. `mkdir` still
+  fails with `EEXIST` on the link itself, so acquire stalled the full timeout
+  and reported `LOCK_BUSY` with no real mutex ever held.
+
+- **Verified before changing anything.** Reproduced against the CR-2 code:
+  `[ -d <symlink-to-dir> ]` → yes; `add` → `LOCK_BUSY`, rc 3, **10s elapsed**.
+  CONFIRMED — the third and last reachable variant of this fault class.
+
+- **Changes made:**
+  - The symlink test is now **unconditional and first**: any `-L "$LOCK_DIR"`
+    exits 4 with its own message, before the `-e && ! -d` test for non-symlink
+    artifacts. Rejecting a symlink-to-directory is correct rather than
+    over-strict: `registry_lock_acquire` only ever creates this path with a
+    plain `mkdir` and removes it with `rm -rf`, so a symlink there is never
+    something it made and never something it can use.
+  - **Test 14b** gains a third artifact kind, `symlink-to-directory`, beside
+    the regular-file and dangling-symlink cases.
+  - Negative control M9 (restore the `-d`-follows-symlink predicate) failed
+    **only** the four symlink-to-directory assertions — including `took 10s` —
+    while the regular-file, dangling-symlink and genuine-held-lock assertions
+    all kept passing. That is the precision claim: the new predicate widens
+    coverage by exactly one variant and does not disturb the others.
+
+- **Files affected:** `.aitask-scripts/aitask_shadow_rejected.sh`,
+  `tests/test_shadow_rejected.sh` (119 → 123 assertions).
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven planned steps landed as specified.
+  `.aitask-scripts/aitask_shadow_rejected.sh` (new, ~330 lines) implements
+  `add` / `list` / `remove` / `prune` over
+  `${AITASK_SHADOW_DIR:-.aitask-shadow}/<task_id>/rejected.md`, holding the
+  `registry_lock.sh` mutex around every mutation and landing each through
+  `ait_atomic_render`. `aitask_setup.sh` gained `setup_shadow_store_gitignore()`
+  plus its call site; the repo `.gitignore` got the `.aitask-shadow/` rule;
+  `aitask_archive.sh` gained `prune_shadow_rejections()` wired at all three
+  `release_lock` sites; the helper is registered across all 5 whitelist
+  touchpoints. Tests: `tests/test_shadow_rejected.sh` (123 assertions) and
+  `tests/test_archive_shadow_prune.sh` (26 assertions, per-site).
+
+- **Deviations from plan:**
+  1. **The negative-control barrier moved from the top of `ait_atomic_render`
+     to between the render and the commit.** At the top it is *not*
+     deterministic: `_add_body` re-reads the store while rendering, so a writer
+     released early can read the other's already-committed file and the outcome
+     depends on timing after all. Placed after the render, both writers have
+     rendered from their own snapshot and neither has renamed, so the second
+     rename provably discards the first. Verified stable across repeated runs.
+  2. **`list` (default) returns `NO_REJECTIONS` on a drained store** rather than
+     printing nothing. The parent plan's binding contract specifies the sentinel
+     for "empty **or** missing", and a producer parsing the output needs one
+     unambiguous empty signal; the plan's pre-phase wording ("prints nothing")
+     was the looser reading and was not followed.
+  3. **`task_utils.sh` is not sourced**, a deviation from the parent plan's
+     architecture line, taken deliberately and for a concrete reason (EXIT-trap
+     contention with `archive_utils.sh`). Recorded as correction 3 above. A
+     welcome side effect: the helper's dependency set is three leaf libs, which
+     is what makes the negative-control tree cheap to build.
+
+- **Issues encountered:**
+  - `ait_atomic_render` refuses a zero-byte result, so the originally planned
+    "delete the store file when the last entry is removed" would have failed the
+    render *and* discarded the high-water mark. Resolved by keeping a
+    header-only file — one mechanism that solves both problems.
+  - GNU `realpath` tolerates one missing trailing component but fails on two, so
+    canonicalizing `<root>/<id>` aborted under `set -e` on the first archive in
+    any repo. Proven with a counterfactual copy of the real script (exit 1 with
+    a `realpath` error instead of `PRUNED:absent`), then fixed by checking
+    absence first and restoring the repo's `realpath … || echo` fallback idiom.
+  - Three review rounds surfaced a single recurring fault class: **every path
+    that reaches `registry_lock_acquire` with an unusable path spends the whole
+    timeout and then misreports the cause as contention.** Fixed at four
+    distinct surfaces (un-creatable store dir, read-only store dir, non-directory
+    lock artifact, symlink lock artifact), each now exit 4 in ~0s. The lesson
+    generalises: `registry_lock_acquire` cannot distinguish "busy" from
+    "impossible", so **every caller must validate the path before handing it
+    over**. Worth carrying to any future `registry_lock.sh` consumer.
+
+- **Key decisions:**
+  - **Entry ids never repeat.** A `<!-- next_id: N -->` header inside the store
+    file, not a sibling counter — that keeps id reservation and the entry write
+    in one atomic render, where a sibling could be lost independently. The
+    header is required to be canonical `[1-9][0-9]*`: `0` would issue an `r0`
+    and a leading-zero value is read as octal by bash arithmetic. The max()
+    fallback is forced to base 10 for the same reason.
+  - **Prune is lock-coordinated and never `rm -rf`.** It removes regular files
+    with `find -maxdepth 1 -type f` (skipping the held `.lockd`, and sweeping
+    stale staging temps), releases, then plain `rmdir` — so a concurrent
+    waiter's fresh lock survives and the dir is simply left for a later prune.
+  - **Archive integration is encapsulated** in a `prune_shadow_rejections()`
+    helper mirroring `release_lock()`'s DRY_RUN-aware, best-effort shape, rather
+    than three inline call sites — one place to change, and `--dry-run` is
+    honoured by construction.
+
+- **Verification evidence.** 149 assertions across two suites, all green and
+  stable across repeated runs. **10 negative controls**, each applied as a
+  single mutation, each verified to fail *for the right reason*, each restored
+  byte-identically from a scratchpad backup (never `git checkout`, which would
+  have risked a concurrent session's work):
+  M1 id-reuse → `r2` reissued · M2 empty-stdin guard → the predicted `ADDED:0` ·
+  M3 own-root guard → prune followed the symlink · M4 prune ordering →
+  `realpath` abort instead of `PRUNED:absent` · M5 header drop → zero-byte trap ·
+  M6 swallowed mkdir failure → `LOCK_BUSY` after 10s · M7 permissive next_id →
+  `r0` and the exact octal error · M8 lock-artifact check → 10s stall ·
+  M9 `-d`-follows-symlink → only the symlink-to-dir assertions failed ·
+  S1/S2/S3 archive call sites → each caught by exactly its own case, no
+  cross-talk. Plus a fixture pre-check proving an un-copied helper cannot make
+  the integration suite vacuously green.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1427_2 (picker):** `list --machine` emits
+    `REJECTED:<id>|<ts>|<producer>|<marker line>` — parse with `split('|', 3)`;
+    the marker line is last *because* it contains `|`. The empty signal is the
+    literal `NO_REJECTIONS` (single line, exit 0) for both a missing and a
+    drained store — check for it before parsing. Entry ids are stable and never
+    reused, which is what makes the pre-fetched `R`-view safe to act on despite
+    staleness handling being descoped; do **not** reintroduce a max()+1 scheme.
+    `remove` accepts ids with or without the `r` prefix.
+  - **Exit codes the TUI must distinguish:** `3` = LOCK_BUSY (another writer;
+    retry or notify), `4` = the store is unusable (do not retry — it will not
+    fix itself), `2` = the caller passed something wrong (a bug in the caller).
+    Since t1427_2 invokes this off the event loop, treating 3 and 4 alike would
+    turn a permanent misconfiguration into an infinite retry.
+  - **t1427_3 (producers):** producers call `list <task_id>` (no `--machine`);
+    output is the store body with the machine header stripped, ready to drop
+    into prompt context. It exits 0 in every resolution outcome, so branch on
+    the `NO_REJECTIONS` line, never on the exit status.
+  - **Both:** the helper is invoked by path and is already whitelisted across
+    all 5 touchpoints, so no permission work is needed on either side.
+  - **Testing:** `AITASK_SHADOW_DIR` makes any suite hermetic without `cd`.
+    `tests/test_shadow_rejected.sh` has a reusable `hold_lock` / `release_held_lock`
+    pair for LOCK_BUSY paths, and its negative-control tree shows how to
+    substitute a lib in a throwaway copy rather than adding a runtime bypass.
+
 Post-implementation cleanup, archival, and merge follow **Step 9
 (Post-Implementation)** of the task workflow.
