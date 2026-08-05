@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 16:06
-updated_at: 2026-08-05 16:09
+updated_at: 2026-08-05 17:21
 ---
 
 Documentation gaps found by /aitask-docs-gap for the release window v0.30.0..HEAD.
@@ -56,3 +57,8 @@ decomposition time.
 - **What shipped:** `ait setup --with-dev` installs an opt-in dev tier (`pytest` + `pytest-xdist`) that gives `tests/run_all_python_tests.sh` a parallel lane (`-n <workers> --dist loadfile`) with a small serial carve-out. Two environment knobs control it: `AIT_TEST_WORKERS=<n>` sets the worker count (default is **load-aware** — 4 when the box has headroom, 2 otherwise; never `auto`), and `AIT_TEST_PARALLEL=0` forces serial execution. Opting out is two separate actions: `AIT_TEST_PARALLEL=0` stops the lane, while `rm ~/.aitask/dev_tier` stops `ait setup` reinstalling the tier. Narrowing a run uses `--test-dir`; a positional test path *widens* the run and disables the lane. The site currently mentions only the one-line existence of `--with-dev`.
 - **What to write:** Document the two env knobs, the load-aware default, the two-part opt-out, and the `--test-dir` vs positional-path caveat, on the contributor-facing page. `CLAUDE.md` holds the canonical explanation — condense it for the site rather than duplicating it wholesale, and keep the site copy current-state-only.
 - **Sources:** `aiplans/archived/p1354/p1354_3_parallel_test_lane.md`, `aiplans/archived/p1354/p1354_4_retrospective_measure.md`; commits: 4f6c0b319, 07e16b81a
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T14:21:47Z status=pass attempt=1 type=human
