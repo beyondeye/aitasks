@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import os
 import re
@@ -44,7 +45,7 @@ from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
-    AgentMarksMixin,
+    AgentMarksMixin, ColumnPickerModal,
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
     TaskPickConfirmDialog,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
@@ -93,6 +94,13 @@ class MiniPaneCard(Static, can_focus=True):
 # Applied BEFORE any lookup, because the id is interpolated into a glob pattern
 # downstream and passed to the pick command.
 _PICK_TASK_ID_RE = re.compile(r"\d+(?:_\d+)?")
+
+# Headless board-column seam (t1377_1), shelled out to rather than imported: it
+# owns the task-file write, and `monitor/` keeps its no-in-process-mutation
+# stance. Timeout mirrors `_MARKS_CMD_TIMEOUT` — the wrapper takes no lock of its
+# own, so this only has to bound a wedged child.
+_BOARD_COLUMN_SH = _SCRIPT_DIR / "aitask_board_column.sh"
+_BOARD_COLUMN_CMD_TIMEOUT = 20.0
 
 
 # -- Main app -----------------------------------------------------------------
@@ -1432,7 +1440,7 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                 narrow=True,
             ),
             callback=lambda result: self._on_pick_confirmed(
-                result, target_id, target_root, pane_id
+                result, target_id, target_root, pane_id, sess
             ),
         )
 
@@ -1460,14 +1468,26 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _on_pick_confirmed(
         self,
-        result: tuple[bool, bool] | None,
+        result: tuple[str, object] | None,
         target_id: str,
         target_root: Path,
         pane_id: str | None,
+        sess: str,
     ) -> None:
         if not result:
             return
-        _ok, kill = result
+        action, payload = result
+        if action == "column":
+            # The seam is a subprocess and this is a synchronous push_screen
+            # callback, so the work has to move onto a worker.
+            self.run_worker(
+                self._open_column_picker(target_id, target_root, sess),
+                exclusive=False,
+                exit_on_error=False,
+                group="board-column",
+            )
+            return
+        kill = payload
         kill_pane_id = None
         if kill and pane_id:
             if pane_id in self._snapshots:
@@ -1478,6 +1498,155 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                     severity="warning",
                 )
         self._launch_pick(target_id, target_root, kill_pane_id)
+
+    async def _run_board_column_cmd(self, args: list[str]) -> tuple[int, str]:
+        """Run the headless board-column seam off the event loop.
+
+        Mirrors :meth:`AgentMarksMixin._run_marks_cmd`, including its contract:
+        **total — never raises, always terminates.** It is reached from a
+        keypress handler, so an unhandled ``OSError`` from a missing wrapper
+        would propagate out of the pick flow, and a child that never exits would
+        wedge the worker forever. Both are normalised to ``(rc, "ERROR:…")`` and
+        callers treat the result as data. Tests override this method.
+        """
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                str(_BOARD_COLUMN_SH), *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            out, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=_BOARD_COLUMN_CMD_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            # Kill the child, then reap it so it cannot become a zombie.
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:  # noqa: BLE001 - already exited / unkillable
+                pass
+            return 1, (
+                f"ERROR:board column command timed out after "
+                f"{_BOARD_COLUMN_CMD_TIMEOUT}s"
+            )
+        except OSError as exc:
+            return 1, f"ERROR:cannot run {_BOARD_COLUMN_SH.name}: {exc}"
+        return proc.returncode or 0, out.decode("utf-8", "replace").strip()
+
+    @staticmethod
+    def _parse_column_lines(out: str) -> list[tuple[str, str, str]]:
+        """`COLUMN:<id>|<colour>|<title>` lines → `(id, colour, title)`.
+
+        Split on the first two separators only: the title is emitted last
+        precisely because a configured title may legitimately contain ``|``.
+        """
+        columns: list[tuple[str, str, str]] = []
+        for line in out.splitlines():
+            if not line.startswith("COLUMN:"):
+                continue
+            parts = line[len("COLUMN:"):].split("|", 2)
+            if len(parts) != 3:
+                continue
+            columns.append((parts[0], parts[1], parts[2]))
+        return columns
+
+    async def _open_column_picker(
+        self, target_id: str, target_root: Path, sess: str
+    ) -> None:
+        """Read the board's columns and the task's current one, then pick.
+
+        ``target_root`` rather than ``self._project_root``: in multi-session
+        mode the followed pane may belong to a different project entirely.
+        ``--task-dir`` is deliberately left at its default — a foreign project's
+        layout is not discoverable from here.
+        """
+        root = str(target_root)
+        rc, out = await self._run_board_column_cmd(
+            ["list-columns", "--root", root, "--include-unordered"]
+        )
+        first = out.splitlines()[0] if out else ""
+        if rc:
+            self.notify(
+                f"Board columns unavailable: {first or f'exit {rc}'}",
+                severity="warning", markup=False,
+            )
+            return
+        columns = self._parse_column_lines(out)
+        if not columns:
+            self.notify("No board columns configured", severity="warning")
+            return
+
+        rc, out = await self._run_board_column_cmd(
+            ["current-column", "--root", root, "--task", target_id]
+        )
+        first = out.splitlines()[0] if out else ""
+        if rc:
+            # Defensive: the dialog already omits the button for a child id, so
+            # `not_a_parent_task` should be unreachable from the UI. Surface the
+            # stable reason token rather than prose either way.
+            self.notify(
+                f"Cannot move t{target_id}: {first or f'exit {rc}'}",
+                severity="warning", markup=False,
+            )
+            return
+        current = first[len("CURRENT:"):].rsplit("|", 1)[-1] if first else ""
+
+        titles = {col_id: title for col_id, _c, title in columns}
+        self.push_screen(
+            ColumnPickerModal(target_id, columns, current=current, narrow=True),
+            callback=lambda col_id: self._on_column_chosen(
+                col_id, target_id, target_root, sess, current, titles
+            ),
+        )
+
+    def _on_column_chosen(
+        self,
+        col_id: str | None,
+        target_id: str,
+        target_root: Path,
+        sess: str,
+        current: str,
+        titles: dict[str, str],
+    ) -> None:
+        if not col_id:
+            return
+        title = titles.get(col_id, col_id)
+        if col_id == current:
+            # `markup=False`: Textual parses a notification's message as markup
+            # by default, and the title is user-authored config. A column named
+            # `Backlog [/]` raises MarkupError; `a[b]c` is silently swallowed to
+            # `ac`. The picker escapes its own renderables, but a toast is a
+            # separate sink and needed its own fix (t1377_2).
+            self.notify(f"t{target_id} is already in {title}", markup=False)
+            return
+        self.run_worker(
+            self._apply_column_move(target_id, target_root, sess, col_id, title),
+            exclusive=False,
+            exit_on_error=False,
+            group="board-column",
+        )
+
+    async def _apply_column_move(
+        self, target_id: str, target_root: Path, sess: str,
+        col_id: str, title: str,
+    ) -> None:
+        rc, out = await self._run_board_column_cmd(
+            ["move", "--root", str(target_root),
+             "--task", target_id, "--column", col_id]
+        )
+        first = out.splitlines()[0] if out else ""
+        if rc or not first.startswith("MOVED:"):
+            self.notify(
+                f"Move failed: {first or f'exit {rc}'}",
+                severity="warning", markup=False,
+            )
+            return
+        # `TaskInfoCache` would reject the stale entry on its (st_mtime_ns,
+        # st_size) identity gate anyway, but a same-size edit inside the same
+        # second is real, and every explicit gesture in this flow invalidates.
+        self._task_cache.invalidate(target_id, sess)
+        self.notify(f"Moved t{target_id} → {title}", markup=False)
 
     def action_launch_shadow(self) -> None:
         """Spawn the shadow companion agent for the followed coding agent.

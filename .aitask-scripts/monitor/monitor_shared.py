@@ -43,6 +43,10 @@ from textual.widgets import (  # noqa: E402
 from textual.app import ComposeResult  # noqa: E402
 from rich.text import Text  # noqa: E402
 from rich.markup import escape  # noqa: E402
+# Both names live in `rich.color` — `rich.errors` does NOT export ColorParseError,
+# and this import sits at module scope, so getting it wrong takes down every
+# monitor TUI at startup rather than just the column picker (t1377_2).
+from rich.color import Color, ColorParseError  # noqa: E402
 
 try:
     from monitor.concern_parser import needs_addressing
@@ -747,7 +751,14 @@ class TaskPickConfirmDialog(TaskDetailDialog):
     so the base's ``#task-detail-dialog`` rules still apply here and only the
     confirm row and the ``.narrow`` variant live below.
 
-    Dismisses ``(True, kill_followed_agent)`` on confirm, ``None`` on cancel.
+    Dismisses ``("pick", kill_followed_agent)`` on confirm, ``("column", None)``
+    when the user chooses to move the task to a board column, and ``None`` on
+    cancel (t1377_2). The first element used to be a bare ``True``; it is a tag
+    now because a two-way boolean cannot carry a third action.
+
+    The column action is offered only for a **parent** task id: board columns
+    hold parent cards, and the headless seam refuses a child id outright with
+    ``not_a_parent_task``, so an affordance there would be a dead end.
     """
 
     DEFAULT_CSS = """
@@ -773,10 +784,12 @@ class TaskPickConfirmDialog(TaskDetailDialog):
     #pick-buttons { width: 100%; height: auto; layout: horizontal; }
     #pick-buttons Button { margin: 0 1; }
 
-    /* Narrow variant (minimonitor companion pane, ~40 cols): two buttons plus
-       a checkbox cannot share a row, so stack them — and drop the `tall`
+    /* Narrow variant (minimonitor companion pane, ~40 cols): the buttons plus a
+       checkbox cannot share a row, so stack them — and drop the `tall`
        borders, which cost two rows per control in a pane that has none to
-       spare. */
+       spare. With the t1377_2 column button the stack is three rows tall, which
+       is why `#pick-confirm-row { dock: bottom }` above is load-bearing: the
+       body scroll gives up the space, not the controls. */
     TaskPickConfirmDialog.narrow #task-detail-dialog { width: 90%; min-width: 30; }
     TaskPickConfirmDialog.narrow #pick-buttons { layout: vertical; height: auto; }
     TaskPickConfirmDialog.narrow #pick-buttons Button {
@@ -811,6 +824,19 @@ class TaskPickConfirmDialog(TaskDetailDialog):
     def has_eligibility_warning(self) -> bool:
         """True when the target is not cleanly pickable — drives the OK label."""
         return self._info.status != "Ready" or bool(self._blocking)
+
+    @property
+    def offers_column_action(self) -> bool:
+        """True when this task can be moved to a board column (t1377_2).
+
+        Only parent tasks are board cards: the board loads children into a
+        separate ``child_task_datas`` map and never renders them in a column, and
+        ``aitask_board_column.sh`` refuses a child id with ``not_a_parent_task``.
+        Offering the button for ``1377_2`` would therefore be a dead affordance,
+        so it is omitted instead. Same parent/child test as
+        ``NextSiblingDialog.compose``.
+        """
+        return "_" not in self._info.task_id
 
     def _kill_detail_text(self, kill: bool) -> str:
         """State of the kill checkbox, in words.
@@ -867,6 +893,13 @@ class TaskPickConfirmDialog(TaskDetailDialog):
                         )
                     else:
                         yield Button("OK", variant="primary", id="btn-pick-ok")
+                    if self.offers_column_action:
+                        # No trailing "…": no Button in this framework uses one,
+                        # and the narrow pane charges a column for it.
+                        yield Button(
+                            "Move to column", variant="default",
+                            id="btn-pick-column",
+                        )
                     yield Button("Cancel", variant="default", id="btn-pick-cancel")
             plan_hint = (
                 "  [dim]p: switch plan/task[/]" if self._info.plan_content else ""
@@ -883,13 +916,19 @@ class TaskPickConfirmDialog(TaskDetailDialog):
         self.query_one("#btn-pick-ok", Button).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id != "btn-pick-ok":
-            self.dismiss(None)
+        # Branch on the id explicitly. The earlier `!= "btn-pick-ok" -> cancel`
+        # shortcut would silently swallow any button added later — including
+        # `btn-pick-column`, which would then read as a cancel.
+        if event.button.id == "btn-pick-ok":
+            kill = False
+            if self._kill_target_label is not None:
+                kill = self.query_one("#pick-kill", Checkbox).value
+            self.dismiss(("pick", kill))
             return
-        kill = False
-        if self._kill_target_label is not None:
-            kill = self.query_one("#pick-kill", Checkbox).value
-        self.dismiss((True, kill))
+        if event.button.id == "btn-pick-column":
+            self.dismiss(("column", None))
+            return
+        self.dismiss(None)
 
     def action_dismiss_dialog(self) -> None:
         # Inherited q / Esc must mean cancel, never a truthy result.
@@ -1192,6 +1231,225 @@ class ChooseSiblingModal(ModalScreen):
             rows = list(self.query(_SiblingRow))
             if rows:
                 self.dismiss(rows[0].sib_id)
+            else:
+                self.dismiss(None)
+        else:
+            self.dismiss(None)
+
+    def action_dismiss_dialog(self) -> None:
+        self.dismiss(None)
+
+
+def _safe_column_color(raw: str) -> str:
+    """A board-column colour that is safe to use as a rich-markup tag.
+
+    Column colours come from a hand-editable ``board_config.json``, so the value
+    is arbitrary text landing in a markup *tag*. Textual's current renderer
+    tolerates an unknown style name (the text simply renders unstyled), so this
+    is **defence in depth, not crash-prevention** — but ``Style.parse`` does
+    raise ``StyleSyntaxError`` on the same input, so any path that resolves the
+    style eagerly would fail, and relying on the renderer's tolerance would be
+    relying on an implementation detail.
+
+    Note the seam's own ``unordered`` default, ``gray``, is **not** a valid rich
+    colour (rich has ``grey0``…``grey100``, no bare ``gray``/``grey``), so this
+    fires on a stock value and that row draws an unstyled swatch.
+
+    Only :class:`ColorParseError` is caught — the fallback is purely cosmetic so
+    it cannot fail open into wrong behaviour, and a broader except would hide
+    real bugs.
+    """
+    if not raw:
+        return ""
+    try:
+        Color.parse(raw)
+    except ColorParseError:
+        return ""
+    return raw
+
+
+class _ColumnRow(Static):
+    """A focusable board-column row inside ColumnPickerModal (t1377_2)."""
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    _ColumnRow {
+        height: 1;
+        padding: 0 1;
+    }
+    _ColumnRow:focus {
+        background: $accent 30%;
+    }
+    """
+
+    def __init__(self, col_id: str, title: str, color: str = "",
+                 current: bool = False, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._col_id = col_id
+        self._title = title
+        self._color = _safe_column_color(color)
+        self._current = current
+
+    @property
+    def col_id(self) -> str:
+        return self._col_id
+
+    def render(self) -> str:
+        # `title` and `col_id` are user-authored config reaching a markup
+        # string, so both are escaped. Verified, not theoretical: an unescaped
+        # `[/]` raises MarkupError and takes the modal down, and an unescaped
+        # `[b]` is silently swallowed — `a[b]c` renders as `ac`, corrupting the
+        # title with no signal at all. The colour is a *tag*, not text, so
+        # escaping is not the tool for it — it is validated in the constructor.
+        mark = "●" if self._current else " "
+        swatch = f"[{self._color}]██[/]" if self._color else "██"
+        return (f" {mark} {swatch} {escape(self._title)} "
+                f"[dim]({escape(self._col_id)})[/]")
+
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            self.screen.dismiss(self._col_id)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            self._focus_neighbor(1)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "up":
+            self._focus_neighbor(-1)
+            event.prevent_default()
+            event.stop()
+
+    def _focus_neighbor(self, delta: int) -> None:
+        parent = self.parent
+        if parent is None:
+            return
+        rows = [w for w in parent.children if isinstance(w, _ColumnRow)]
+        try:
+            idx = rows.index(self)
+        except ValueError:
+            return
+        new_idx = max(0, min(len(rows) - 1, idx + delta))
+        if new_idx != idx:
+            rows[new_idx].focus()
+            rows[new_idx].scroll_visible()
+
+
+class ColumnPickerModal(ModalScreen):
+    """Pick the board column to move a task into (t1377_2).
+
+    ``columns`` is ``(col_id, colour, title)`` in board order — the shape
+    ``aitask_board_column.sh list-columns`` emits, including the synthetic
+    ``unordered`` entry. ``current`` is the task's present column, marked in the
+    list so the user can see where it sits before moving it.
+
+    Dismisses the chosen ``col_id`` string, or ``None`` on cancel.
+    """
+
+    BINDINGS = [Binding("escape", "dismiss_dialog", "Close", show=False)]
+
+    DEFAULT_CSS = """
+    ColumnPickerModal { align: center middle; }
+    #column-pick-dialog {
+        width: 70%;
+        max-height: 80%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #column-pick-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #column-pick-context { color: $text-muted; margin: 0 0 1 0; }
+    #column-pick-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
+    #column-pick-help { color: $text-muted; margin: 0 0 1 0; }
+    #column-pick-buttons { width: 100%; height: auto; layout: horizontal; }
+    #column-pick-buttons Button { margin: 0 1; }
+
+    /* Small-pane variant (minimonitor companion pane, ~40 cols and as SHORT as
+       the tmux window): widen the dialog so rows render fully, then reclaim the
+       vertical budget. This dialog carries more chrome than the sibling picker
+       — header, context, list, help AND buttons — so at ~16 rows the borders
+       cost real space: drop them and let the list collapse to a single
+       scrolling row, the same levers the pick-confirm dialog pulls.
+       `min-width: 0` is load-bearing: Textual's Button defaults to
+       `min-width: 16`, so two of them plus margins overflow a 32-cell content
+       box and Cancel renders outside the dialog. */
+    ColumnPickerModal.narrow #column-pick-dialog { width: 90%; min-width: 30; }
+    ColumnPickerModal.narrow #column-pick-list { min-height: 1; }
+    /* At 40x16 the content box is 8 rows and the chrome wants 9, so the
+       blank-line margins are what has to give — not the list, which is the
+       only part carrying information. */
+    ColumnPickerModal.narrow #column-pick-header { margin: 0; }
+    ColumnPickerModal.narrow #column-pick-help { margin: 0; }
+    ColumnPickerModal.narrow #column-pick-buttons Button {
+        width: 1fr;
+        min-width: 0;
+        height: 1;
+        border: none;
+    }
+    """
+
+    def __init__(
+        self,
+        task_id: str,
+        columns: list[tuple[str, str, str]],
+        current: str | None = None,
+        narrow: bool = False,
+    ) -> None:
+        super().__init__()
+        self._task_id = task_id
+        self._columns = columns
+        self._current = current
+        self._narrow = narrow
+
+    def _current_title(self) -> str:
+        for col_id, _color, title in self._columns:
+            if col_id == self._current:
+                return title
+        return self._current or "unknown"
+
+    def compose(self) -> ComposeResult:
+        if self._narrow:
+            self.add_class("narrow")
+        with Container(id="column-pick-dialog"):
+            yield Static("[bold]Move to Column[/]", id="column-pick-header")
+            # The current column's title is user-authored config too.
+            yield Static(
+                f"Task: [bold]t{escape(self._task_id)}[/]  ·  "
+                f"now in: {escape(self._current_title())}",
+                id="column-pick-context",
+            )
+            with VerticalScroll(id="column-pick-list"):
+                for col_id, color, title in self._columns:
+                    yield _ColumnRow(col_id, title, color,
+                                     current=col_id == self._current)
+            yield Static(
+                "[dim]\\[↑/↓] navigate  \\[Enter/OK] select  \\[Esc] cancel[/]",
+                id="column-pick-help",
+            )
+            with Container(id="column-pick-buttons"):
+                yield Button("OK", variant="primary", id="btn-col-ok")
+                yield Button("Cancel", variant="default", id="btn-col-cancel")
+
+    def on_mount(self) -> None:
+        rows = list(self.query(_ColumnRow))
+        if not rows:
+            return
+        for row in rows:
+            if row.col_id == self._current:
+                row.focus()
+                return
+        rows[0].focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "btn-col-ok":
+            focused = self.focused
+            if isinstance(focused, _ColumnRow):
+                self.dismiss(focused.col_id)
+                return
+            rows = list(self.query(_ColumnRow))
+            if rows:
+                self.dismiss(rows[0].col_id)
             else:
                 self.dismiss(None)
         else:
