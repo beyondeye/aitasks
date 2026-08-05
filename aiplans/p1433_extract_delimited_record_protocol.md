@@ -508,3 +508,94 @@ fail-closed protocol path is still real.
 - timing: pre-phase | name: baseline_capture | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — CRLF output flip and ~25 mechanical call-site renames | desc: Capture both the six guard suites' verdicts and a deterministic byte-level protocol dump of all three real CLIs over two fixture trees (success and fail-closed, which cannot coexist in one config), before any source edit
 - timing: post-phase | name: differential_verification | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — CRLF output flip and ~25 mechanical call-site renames | desc: Re-run the identical capture harness and diff the protocol bytes, permitting only the CRLF title lines; suite verdicts are the coarse backstop
 - timing: post-phase | name: prove_new_guards_can_fail | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — trail_gather's fail-closed behaviour is unpinned, so preservation is unverifiable; code-health — the writer could stop applying the sanitizers or reorder its fields | desc: Four one-at-a-time source mutations proving each new guard turns a named test red, each restored with __pycache__ purged
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/lib/record_protocol.py` — zero
+  imports, no `__all__`, carrying the policy plus the reasoning that used to be
+  spread across three private copies. Rewired **two** of the three consumers:
+  `lib/work_report_gather.py` (imports `enum_field`, `has_record_breaking`,
+  `sanitize_last_field`; 10 call sites renamed) and `lib/board_columns.py`
+  (imports `has_record_breaking`, `sanitize_last_field`, `sanitize_middle_field`;
+  3 call sites renamed). Both keep their own `_die` and stderr prefix, as the
+  task required. Added `tests/test_record_protocol.py` (19 tests, including the
+  `ast`-based zero-import assertion), updated the three `test_board_columns_seam.py`
+  references with the one flipped CRLF assertion, and added **Test 2b** to
+  `tests/test_board_column_cli.sh` pinning the flip at the real CLI writer.
+
+- **Deviations from plan:** **Steps 3 and 7 were not implemented.** A concurrent
+  live session held 292 lines of uncommitted work in
+  `.aitask-scripts/lib/trail_gather.py` (+124) and `tests/test_trail_gather.py`
+  (+186) — two files the plan targets. Their hunks did not overlap the symbols
+  this task moves (verified: their diff is at lines 75, 383-399, 717-730,
+  937-943, and mentions none of the six symbols), but `git add` on those files
+  would have swept another session's in-flight work into this commit. The user
+  chose the split. Deferred to **t1436** (`depends: [1433]`), which carries the
+  full instructions including the missing `trail_gather` fail-closed
+  characterization. Consequence: the duplication is now **two copies, not
+  three** — the shared module plus `trail_gather.py`'s private block. The task
+  description records this under "## Scope split".
+
+  Also dropped: mutation 3 of `prove_new_guards_can_fail` (retarget
+  `trail_gather._die`'s prefix), which only makes sense once Step 7 exists. It
+  moved to t1436. Mutations 1, 2 and 4 all ran and all discriminated.
+
+  The `baseline_capture` harness was scoped to the two consumers actually being
+  changed; capturing `trail_gather` would have produced false alarms from the
+  other session's live edits rather than signal.
+
+- **Issues encountered:**
+  1. **The task's premise was false.** It asserted `_free_text` is *equivalent*
+     to `_line_safe`. It is not: `_free_text` replaces `"\r\n"` first (CRLF →
+     one space), `_line_safe` replaces CR and LF independently (CRLF → two
+     spaces). Both behaviours were pinned by different tests. Resolved with the
+     user (unify on collapse), and the task description was corrected **before**
+     any code was written.
+  2. **Verdict-only differencing was insufficient**, as raised in review: a
+     second semantic change could pass if its expectation were edited alongside
+     the permitted one. Replaced with a byte-level capture of the real CLIs
+     taken before any source edit.
+  3. **One fixture tree could not cover both success and fail-closed cases**,
+     also raised in review and confirmed in source: `column_records_at` loops
+     over *every* record and raises on the first `|`-bearing id rather than
+     skipping that column, so an unsafe id makes every invocation fail closed.
+     The harness builds two independent trees.
+
+- **Key decisions:**
+  - **No `__all__`**, and the docstring says why: generic names
+    (`enum_field`, `sanitize_last_field`) plus an `__all__` would advertise a
+    stability commitment an internal dedup has no mandate to make.
+    `board_ordering.py` is the precedent; `board_columns.py` has one because it
+    *is* a declared seam. Pinned by `test_no_all_is_declared`.
+  - **Direct imports, no aliases** (`from record_protocol import enum_field`,
+    not `as _enum_field`), following the t1377_1 precedent whose own comment
+    argues against re-creating "a second name for the same thing".
+  - **`_csv_entry` stays in `trail_gather`** — it adds a fourth reserved
+    character (`,`) only that module needs.
+  - **Test 2b reaches the CLI, not the function.** `bc.sanitize_last_field(...)`
+    proves the function; only the CLI case proves the writer still puts the
+    title last *and* applies the sanitizer. Mutation 4 (reordering the emit)
+    is caught by Test 2b and by nothing at the unit level.
+
+- **Evidence:**
+  - Protocol differential: exactly 2 changed lines across the whole capture —
+    the `board_column` CRLF title, `A|B  C` → `A|B C`. Both fail-closed paths
+    (exit 1 / exit 3), both stderr prefixes (`board_columns:` /
+    `work_report_gather:`) and every `work_report` line byte-identical.
+  - Suite deltas fully attributed: python 124 → 143 (+19 = exactly
+    `test_record_protocol.py`'s method count), board CLI 68 → 72 (+4 = Test 2b),
+    work_report 103 → 103, layering guard 13 → 13.
+  - `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - Board startup path: `board_columns.column_records_at('/nonexistent')` returns
+    the stock three columns, no ImportError.
+  - Negative controls: mutation 1 (drop CRLF collapse) failed
+    `LastFieldTests::test_each_newline_form_collapses_to_exactly_one_space`,
+    `MiddleFieldTests::test_newlines_are_handled_as_in_the_last_field` and Test 2b;
+    mutation 2 (drop pipe-strip) failed both `ColourTests` tests and shifted the
+    Test 2b decode to `00 00|A|B C`; mutation 4 (reorder emit) failed Test 1 and
+    Test 2b's max-split decode. Each restored, tree green after each.
+
+- **Upstream defects identified:** None
+
