@@ -89,6 +89,17 @@ of adding a second phase derivation here. Its shape is pinned advisory-only by
 `aidocs/framework/shadow_agent.md:360-367`, which this loop must also respect:
 the phase may pre-select a round's mode, never refuse one.
 
+Coordination note: t1427 (reject shadow concerns so the next review round
+suppresses them) builds the **substrate** for this task's "dismiss" triage arm —
+a durable per-task rejection store, a producer-side suppression rule inlined in
+all four concern producers, and the reject action in the picker. This loop
+consumes it rather than re-implementing rejection: t1427 owns *where per-round
+concern state lives*, this task owns *when a round starts and how it is driven*.
+t1427 is deliberately independent (a loop can run without rejection), but
+whichever lands second must re-check the other's assumptions — in particular,
+this task's round-number requirement is the natural key-space for scoping
+suppression per round, and t1427's store layout must not be duplicated here.
+
 Coordination note: t1158 (shadow impl review modes/tiers from /code-review prompts) reworks `impl-challenge.md` review *content*; this task reworks loop *mechanics*. Keep them separate and coordinate whichever lands second.
 
 Coordination note: t1311 (shadow impl-review gate premise + profile tier default) fixes the *entry conditions* of a single implementation review — it removes the "too early to review" abort/proceed gate that fires whenever the Final Implementation Notes are not yet written (the normal pre-commit state), and adds an execution-profile key supplying a default review tier. Both touch how a review round starts, so whichever lands second must re-check the other's assumptions about when a review may begin and which tier it runs at.
