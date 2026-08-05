@@ -137,3 +137,8 @@ Then refresh live rendered variants: `./.aitask-scripts/aitask_skill_rerender.sh
 - **Requested by user:** (1) the adoption probe's "anchored" Origin match could be read as full-line and would then miss the real heredoc line (which continues ", created at ..."), re-creating duplicates; (2) adopted tasks were labeled unfinished by definition, so adopting an already-landed archived mitigation would wrongly stop the session again.
 - **Changes made:** Probe contract now specifies the comma-delimited provenance prefix `Risk-mitigation ("before") for t<task_id>,` (comma delimits the id; end-of-line explicitly NOT anchored) — mirrored for Part 3's "after" prefix. Step 5 evaluates adopted tasks exactly like witnessed ones (landed vs unfinished), so only genuinely unfinished mitigations block.
 - **Files affected:** `.claude/skills/task-workflow/risk-mitigation-followup.md`, regenerated golden, tracked `-remote-` rendered variants.
+
+### Change Request 5 (2026-08-05 09:34)
+- **Requested by user:** (1) mitigation names are the identity keys but per-plan uniqueness was never required — duplicates would make backfill/recovery ambiguous; (2) the stale-witness Drop branch left an already-wired vanished ID in `depends:`/`risk_mitigation_tasks`.
+- **Changes made:** Plan record format now mandates per-plan name uniqueness with Part 1 step 3 validating (disambiguate before writing). The Drop branch now also removes the vanished ID from both list fields via the step-3 convergence (documented in Parts 2 and 3 as the only removal case), preventing a spurious permanent Blocked state.
+- **Files affected:** `.claude/skills/task-workflow/risk-mitigation-followup.md`, regenerated golden, tracked `-remote-` rendered variants.
