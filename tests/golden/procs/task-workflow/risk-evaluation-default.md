@@ -26,9 +26,9 @@ Threads three values back into the workflow context for Step 7:
 - `risk_level_code_health` — `high` \| `medium` \| `low`.
 - `risk_level_goal_achievement` — `high` \| `medium` \| `low`.
 - `risk_mitigations_planned` — `true` if the evaluation surfaced risks the user
-  may want to mitigate with before/after follow-up tasks (consumed by the
-  Risk-Mitigation Follow-up Procedure, `risk-mitigation-followup.md`, in t884_4);
-  `false` otherwise.
+  may want to mitigate — as spawned before/after follow-up tasks or as inline
+  pre-/post-phases of the plan (consumed by the Risk-Mitigation Follow-up
+  Procedure, `risk-mitigation-followup.md`); `false` otherwise.
 
 ---
 
@@ -82,8 +82,22 @@ Append a `## Risk` section to the plan with **two subsections, each headed by it
 own level**. List each identified risk as a bullet:
 `<description> · severity: <…> · → mitigation: <link>`. The `→ mitigation` link
 is left as a placeholder here and filled in by the Risk-Mitigation Follow-up
-Procedure (t884_4) if the user chooses to spawn mitigations. A subsection with
-no identified risk reads `None identified.`
+Procedure (`risk-mitigation-followup.md`) if the user confirms mitigations. It
+takes one of two name-based forms, depending on the confirmed disposition:
+
+- **spawned** — a task reference: the planned mitigation `name`, back-filled to
+  `t<id>` when the task is created;
+- **inline** — `inline pre-phase <name>` / `inline post-phase <name>`,
+  pointing at the name-labeled step the mitigation contributes to the plan's
+  `### Pre-phase (risk mitigations)` / `### Post-phase (risk mitigations)`
+  block.
+
+A subsection with no identified risk reads `None identified.`
+
+**Reassessment note:** when the follow-up procedure confirms ≥1 *inline*
+mitigation, it re-runs this procedure's Steps 1–2 once against the augmented
+plan (see `risk-mitigation-followup.md` Part 1 step 4) — so the levels Step 7
+eventually writes describe the plan as approved, not the pre-insertion one.
 
 ```markdown
 ## Risk

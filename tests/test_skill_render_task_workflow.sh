@@ -497,6 +497,19 @@ assert_not_contains "default profile: no plan-approved-stop.md Gate Recording Pr
 assert_contains "default profile: plan-approved-stop.md still reverts to Ready" \
     '--status Ready --assigned-to ""' "$DEFAULT_REC_STOP"
 
+# === Test 7: AskUserQuestion header cap in risk-mitigation-followup (t1419) ===
+#
+# The AskUserQuestion contract documents a 12-char cap on the header chip.
+# Scoped to risk-mitigation-followup.md, whose recovery prompts (stale
+# witness, ambiguous adoption) were added under that cap; two pre-existing
+# 13-char headers elsewhere ("Related tasks", "Manual verify") are out of
+# scope here.
+
+echo "=== Test 7: risk-mitigation-followup AskUserQuestion headers <= 12 chars ==="
+long_headers="$(grep -hoE '[Hh]eader:? "[^"]+"' "$WORKFLOW_DIR/risk-mitigation-followup.md" \
+    | awk -F'"' 'length($2) > 12 {print $2}' | sort -u | tr '\n' ',')"
+assert_eq "risk-mitigation-followup headers within 12-char cap" "" "$long_headers"
+
 # === Summary ===
 
 echo ""

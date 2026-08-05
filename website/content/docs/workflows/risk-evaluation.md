@@ -2,7 +2,7 @@
 title: "Risk Evaluation"
 linkTitle: "Risk Evaluation"
 weight: 79
-description: "Opt-in planning step that assesses code-health and goal-achievement risk, then offers before/after mitigation follow-ups"
+description: "Opt-in planning step that assesses code-health and goal-achievement risk, then offers mitigations as spawned follow-up tasks or inline plan phases"
 depth: [intermediate]
 ---
 
@@ -39,12 +39,24 @@ After you approve the plan, the two decided levels are written to the task's `ri
 
 ## Risk-Mitigation Follow-ups
 
-From the identified risks, the agent proposes mitigation tasks under a `### Planned mitigations` block in the plan and confirms each one with you before anything is created. Mitigations come in two timings:
+From the identified risks, the agent proposes mitigations under a `### Planned mitigations` block in the plan and confirms each one with you before anything is created. Each mitigation gets a **per-mitigation disposition** — spawn it as a separate task, or **inline it into the current plan as a pre-/post-phase**:
 
-- **before** — an independent task that the original task **depends on**. When a "before" mitigation is created, the original is reverted to `Ready` (it shows as **Blocked** in `ait ls` until the mitigation lands) and the session ends. You implement the mitigation first, then re-pick the original.
-- **after** — a post-implementation follow-up created once the original work is committed. It blocks nothing; the original task proceeds normally to archival.
+- **Spawn as "before" task** — an independent task that the original task **depends on**. When a "before" mitigation is created, the original is reverted to `Ready` (it shows as **Blocked** in `ait ls` until the mitigation lands) and the session ends. You implement the mitigation first, then re-pick the original.
+- **Spawn as "after" task** — a post-implementation follow-up created once the original work is committed. It blocks nothing; the original task proceeds normally to archival.
+- **Inline as pre-phase / post-phase** — the mitigation becomes an explicit, name-labeled step block in the plan itself (`### Pre-phase (risk mitigations)` before the implementation steps, `### Post-phase (risk mitigations)` after them). No task is created: the mitigation lands with the original work, in the same session.
 
-Created mitigation tasks are recorded in the original's `risk_mitigation_tasks` frontmatter list. The proposal is always propose-and-confirm — no mitigation task is created without your approval.
+Spawned mitigation tasks are recorded in the original's `risk_mitigation_tasks` frontmatter list; inline mitigations are not (there is nothing to track — they ship with the task, so the force re-verification below does not apply to them). The proposal is always propose-and-confirm — nothing is created or inlined without your approval.
+
+### When to inline
+
+Each proposed mitigation carries two agent-estimated decision metrics, and the agent derives a recommended disposition from them:
+
+- `inline_risk` (`low`/`medium`/`high`) — the risk of incorporating the mitigation into the main task, estimated from separability: an independently-verifiable bounded addition (a characterization test, say) is low; work that could invalidate or reshape the plan (an approach spike) is high.
+- `added_complexity` (`low`/`medium`/`high`) — how much the mitigation grows the task, relative to the plan's own scope.
+
+Both metrics low → inline is recommended; any metric high → spawning is recommended; in between it is a judgement call, leaning spawn. You always decide — the recommendation only orders the options.
+
+Inlining a small mitigation avoids a full extra task lifecycle and a forgettable Blocked task, and has a quality advantage: the shadow-agent review rounds (plan-challenge at planning, impl-challenge at implementation review) see the plan — so an inline phase gets that multi-round review coverage automatically, while a spawned mitigation task is invisible to it. When an inline mitigation is confirmed, the agent reassesses the augmented plan's risk levels once, so the recorded levels describe the plan you actually approve.
 
 ## Force Re-verification After a Mitigation Lands
 

@@ -41,7 +41,7 @@ Keeping the codebase correct and understandable — structured code review, test
 - [QA and Testing](qa-testing/) — Systematic test coverage analysis and follow-up task creation.
 - [Upstream Defect Follow-up](upstream-defect-followup/) — Automatic prompt to spawn a follow-up bug task when diagnosis surfaces a separate, pre-existing defect.
 - [Manual Verification](manual-verification/) — Human-checked verification items (TUI flows, live agent launches, artifact inspection) as first-class gated tasks.
-- [Risk Evaluation](risk-evaluation/) — Opt-in planning step that rates code-health and goal-achievement risk, then offers before/after mitigation follow-ups.
+- [Risk Evaluation](risk-evaluation/) — Opt-in planning step that rates code-health and goal-achievement risk, then offers mitigations as spawned follow-up tasks or inline plan phases.
 - [Shadow Agent](shadow-agent/) — Launch an advisory companion agent that reads a running agent's output, helps with prompts and plans, reviews the implementation, diagnoses failures, and spawns skill-learning sessions.
 - [Explain](explain/) — Use code evolution history to rebuild understanding of why code exists.
 

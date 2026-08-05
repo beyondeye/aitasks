@@ -252,6 +252,17 @@ While in plan mode:
   specific file paths, detailed implementation steps with exact changes
   needed in each file, code snippets for non-trivial modifications, and
   verification steps. Do not produce a high-level overview.
+- Confirmed **inline risk mitigations** appear as explicit
+  `### Pre-phase (risk mitigations)` / `### Post-phase (risk mitigations)`
+  step blocks — the pre-phase block immediately before the first numbered
+  implementation step, the post-phase block immediately after the last.
+  **Fallback for plans without numbered main steps** (heading- or
+  file-oriented plans): the pre-phase block goes at the top of the plan body,
+  immediately after the metadata header; the post-phase block goes
+  immediately before the first of `## Verification` / `## Risk` (end of file
+  if neither exists). Steps are name-labeled and cross-referenced from the
+  `## Risk` bullets by mitigation name. These two headings are the canonical
+  insertion anchors (see `risk-mitigation-followup.md` Part 1 step 3).
 - Include a reference to **Step 9 (Post-Implementation)** in the plan for the cleanup, archival, and merge steps
 
 #### End-of-planning terminal step (NON-SKIPPABLE — runs on EVERY plan path)
@@ -267,7 +278,7 @@ This is the shared terminus of **all** planning paths that reach `ExitPlanMode` 
 Exit **0** → the task's enforced active set (the `active_gates` tuple materialized at Step 4, falling back to the raw `gates:` field when no tuple exists) contains `risk_evaluated`: run **both** risk sub-steps below. Exit **1** → **skip** them (no `## Risk` section is authored, and Step 7 writes no risk fields). (Decision verbs branch on exit codes only — see `gate-cli.md`.) The planning-time producer here and the verify-time checker (the `risk_evaluated` gate at Step 9) read the same active set, so they **toggle together**. An existing `## Risk` section does not exempt the verify path — when risk-gated, re-run the evaluation and update the section in place.
 
 - **Risk evaluation (end of planning):** Now that the plan is designed (or re-verified), read and follow the **Risk Evaluation Procedure** (see `risk-evaluation.md`). It assesses the two risk dimensions (code-health and goal-achievement) **separately**, assigns a level to each, and appends (or updates) a `## Risk` section in the plan. Thread `risk_level_code_health`, `risk_level_goal_achievement`, and `risk_mitigations_planned` into the workflow context — `SKILL.md` Step 7 writes the two fields post-approval (plan mode is read-only).
-- **Risk-mitigation design (end of planning):** Immediately after the risk evaluation, read and follow **Part 1 (Design-in-planning)** of the **Risk-Mitigation Follow-up Procedure** (see `risk-mitigation-followup.md`). It proposes before/after mitigation tasks for the identified risks (propose-and-confirm), records the confirmed ones into the plan's `## Risk` section, and threads `risk_mitigations_confirmed`. It creates nothing (plan mode is read-only) — `SKILL.md` Step 7 creates the "before" mitigations and Step 8d creates the "after" ones, post-approval.
+- **Risk-mitigation design (end of planning):** Immediately after the risk evaluation, read and follow **Part 1 (Design-in-planning)** of the **Risk-Mitigation Follow-up Procedure** (see `risk-mitigation-followup.md`). It proposes mitigations for the identified risks as spawned before/after tasks **or as inline pre-/post-phases of this plan** (per-mitigation propose-and-confirm with decision metrics), records the confirmed ones into the plan's `## Risk` section — inline confirmations also become explicit phase steps in the plan body — and threads `risk_mitigations_confirmed`. It creates nothing (plan mode is read-only) — `SKILL.md` Step 7 creates the spawned "before" mitigations and Step 8d the spawned "after" ones, post-approval; inline mitigations land with the task itself.
 - Use `ExitPlanMode` when ready for user approval
 
 ## Child Task Documentation Requirements

@@ -72,7 +72,7 @@ After the "Commit changes" review approval, `/aitask-pick` Step 8c offers to que
 
 ## Automatic Risk-Mitigation Follow-up
 
-When [risk evaluation](../risk-evaluation/) is enabled, the planning step can propose mitigation tasks for the risks it identifies. A **before** mitigation becomes a blocking dependency of the original task (implement it first, then re-pick the original); an **after** mitigation is a post-implementation follow-up that blocks nothing. Each is proposed and confirmed during planning. See [Risk Evaluation](../risk-evaluation/) for the two risk dimensions, the `## Risk` plan section, and the force re-verification behavior.
+When [risk evaluation](../risk-evaluation/) is enabled, the planning step can propose mitigation tasks for the risks it identifies. A **before** mitigation becomes a blocking dependency of the original task (implement it first, then re-pick the original); an **after** mitigation is a post-implementation follow-up that blocks nothing. Small, separable mitigations can instead be **inlined as pre-/post-phases of the plan itself** — no task is created and the mitigation lands with the original work. Each is proposed and confirmed during planning. See [Risk Evaluation](../risk-evaluation/) for the two risk dimensions, the `## Risk` plan section, and the force re-verification behavior.
 
 ## Advantages Over Standalone Task Creation
 

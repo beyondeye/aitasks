@@ -372,9 +372,9 @@ Skip silently if the plan has no `## Risk` section (e.g. the task is not risk-ga
 
 If it exits **0** (the gate is not in the task's active set), execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=risk_evaluated`, `status=pass`, `fields="type=machine"`. If it exits **1** (active), **skip** — the Step-9 orchestrator records it (no double-record).
 
-**Risk-mitigation "before" creation (post-approval):** If the approved plan has a `### Planned mitigations` subsection with ≥1 `before` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 2 (Step 7 "before" creation)** of that procedure now (see `risk-mitigation-followup.md`). It creates each "before" mitigation as an **independent task the original depends on** (not a child), read-modify-writes the original's `depends:` and `risk_mitigation_tasks` to wire the blocking edge, and back-fills the plan's mitigation links.
+**Risk-mitigation "before" creation (post-approval):** If the approved plan has a `### Planned mitigations` subsection with ≥1 `before` line (authored during planning by the Risk-Mitigation Follow-up Procedure; inline `pre-phase`/`post-phase` lines are not spawn candidates — a plan with only inline mitigations has no `before` lines, so `risk_before_blocking` stays false and the session-stop branch below never fires), execute **Part 2 (Step 7 "before" creation)** of that procedure now (see `risk-mitigation-followup.md`). It creates each "before" mitigation as an **independent task the original depends on** (not a child), reconciling tasks an earlier interrupted run already created, converges the original's `depends:` and `risk_mitigation_tasks` blocking edge, and back-fills the plan's mitigation links.
 
-If it returns `risk_before_created: true`, the original is now blocked by an unfinished mitigation and must **not** be implemented this session. Stop the original here:
+If it returns `risk_before_blocking: true`, the original is blocked by ≥1 unfinished mitigation — created this run or recovered from an earlier one — and must **not** be implemented this session. Stop the original here (name the unfinished mitigation task(s) in the display):
 
 1. Release the task lock via the **Lock Release Procedure** (see `lock-release.md`).
 2. Revert the task to `Ready` and clear `assigned_to` (it will show **Blocked** in `ait ls` until the mitigation lands):
@@ -387,9 +387,9 @@ If it returns `risk_before_created: true`, the original is now blocked by an unf
    ./ait git commit -m "ait: Revert t<task_num> to Ready (risk mitigation pending)" 2>/dev/null || true
    ./ait git push
    ```
-4. Display: "Created risk-mitigation 'before' task(s) the original depends on. Task t\<task_id\> reverted to Ready — implement the mitigation first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
+4. Display: "Unfinished risk-mitigation 'before' task(s) the original depends on: t\<ids\>. Task t\<task_id\> reverted to Ready — implement the mitigation(s) first, then re-pick t\<task_id\> (its plan will be force re-verified)." Then **END the workflow** — do NOT proceed to the implementation below or to Step 8.
 
-If it returns `risk_before_created: false` (no "before" mitigations), continue to implementation normally.
+If it returns `risk_before_blocking: false` (no "before" mitigations, or all of them already landed), continue to implementation normally.
 
 Follow the approved plan, working in the directory specified in the plan metadata.
 
@@ -551,7 +551,7 @@ When the procedure returns, proceed to Step 8d.
 
 ### Step 8d: Risk-Mitigation "After" Follow-up
 
-Entered from Step 8c. At this point the code and plan files have already been committed. This step applies only when the task was risk-gated; if the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context. If the plan has no such subsection (the common case for non-risk-gated tasks), this step is a no-op.
+Entered from Step 8c. At this point the code and plan files have already been committed. This step applies only when the task was risk-gated; if the approved plan has a `### Planned mitigations` subsection with ≥1 `after` line (authored during planning by the Risk-Mitigation Follow-up Procedure; inline `pre-phase`/`post-phase` lines are not spawn candidates and are skipped), execute **Part 3 (Step 8d "after" creation)** of that procedure now (see `risk-mitigation-followup.md`) with `task_id`, `task_num`, `plan_file`, `is_child`, `parent_id`, and `active_profile` from the current context. If the plan has no such subsection (the common case for non-risk-gated tasks), this step is a no-op.
 
 It creates each "after" mitigation as an independent follow-up task and records it in the original's `risk_mitigation_tasks`. "After" mitigations block nothing, so the workflow continues normally. When the procedure returns, proceed to Step 9.
 
