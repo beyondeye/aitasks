@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -13,7 +15,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-05 16:07
-updated_at: 2026-08-05 17:39
+updated_at: 2026-08-05 17:40
 ---
 
 ## Origin
@@ -74,10 +76,35 @@ Constraints:
 
 `board_columns.py` splits the sanitizer in two — `_line_safe` (CR/LF only, for
 the **last** field, since titles may legitimately contain `|`) and `_field_safe`
-(also strips `|`, for middle fields). The gatherers' single `_free_text` is
-equivalent to `_line_safe`. If the shared module exposes both, name them so the
-last-field-vs-middle-field distinction is explicit — that asymmetry is load
-bearing and was a real defect caught during t1377_1 review.
+(also strips `|`, for middle fields). The shared module must expose both, named
+so the last-field-vs-middle-field distinction is explicit — that asymmetry is
+load bearing and was a real defect caught during t1377_1 review.
+
+**Correction (t1433 planning).** An earlier revision of this section claimed the
+gatherers' single `_free_text` is *equivalent* to `_line_safe`. It is not, and
+the difference is observable:
+
+| | source | `"a\r\nb"` → |
+|---|---|---|
+| `_free_text` (both gatherers) | `.replace("\r\n"," ").replace("\r"," ").replace("\n"," ")` | `"a b"` (one space) |
+| `_line_safe` (`board_columns`) | `.replace("\r"," ").replace("\n"," ")` | `"a  b"` (two spaces) |
+
+Both are *safe* (no CR/LF survives) but they are not the same function, and both
+behaviours are currently pinned — `tests/test_trail_gather.py:775` asserts one
+space, `tests/test_board_columns_seam.py:484` asserts two.
+
+**Decision (confirmed with the user, 2026-08-05):** the shared last-field
+sanitizer unifies on the CRLF-collapsing policy (`_free_text`'s). A CRLF is one
+line break and should become one space; the two-space result is an accident of
+replacement ordering, and the only affected input — a CRLF inside a board column
+*title* — is pathological and purely cosmetic.
+
+This makes **one intended behaviour change** in this task: `aitask_board_column.sh
+list-columns` renders a CRLF-bearing title with one space instead of two.
+Exactly one existing assertion flips —
+`tests/test_board_columns_seam.py:484` — and no other output may change. The
+"preserve the fail-closed CLI behaviour exactly" constraint above is otherwise
+unmodified.
 
 ## Why it matters
 
