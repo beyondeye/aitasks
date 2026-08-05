@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 09:54
-updated_at: 2026-08-05 09:57
+updated_at: 2026-08-05 11:50
 ---
 
 ## Context
@@ -206,3 +207,8 @@ file is being edited concurrently by the t1243 chain (`t1243_6` in flight,
 auto-merge — but it is the same shared checkout. Grep for the symbols rather than
 trusting line numbers, stage explicit paths, check `git diff --cached` before
 committing, and never `git stash` / `git add -A` here.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T08:50:51Z status=pass attempt=1 type=human
