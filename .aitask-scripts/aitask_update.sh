@@ -2213,6 +2213,19 @@ main() {
         BATCH_ANCHOR=$(normalize_anchor_id "$BATCH_ANCHOR")
     fi
 
+    # Validate --boardcol against the configured columns (t1377_1). An unknown
+    # id used to be written verbatim, leaving the task in no column at all. Same
+    # placement rule as --anchor above: after parse_args, before any file is
+    # touched. `--boardcol ""` still clears the field and skips validation.
+    #
+    # Note this runs only in the process that owns the task tree: the cross-repo
+    # `--project` redirect near the top of main() re-execs the sibling's own
+    # aitask_update.sh, so a cross-repo update validates against the TARGET
+    # project's board_config.json, not this one's.
+    if [[ "$BATCH_BOARDCOL_SET" == true && -n "$BATCH_BOARDCOL" ]]; then
+        BATCH_BOARDCOL=$(normalize_board_column "$BATCH_BOARDCOL")
+    fi
+
     if [[ "$BATCH_MODE" == true ]]; then
         run_batch_mode
     else

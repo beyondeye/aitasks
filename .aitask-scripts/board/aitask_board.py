@@ -141,13 +141,6 @@ def _load_task_types() -> list:
         pass
     return ["bug", "feature", "refactor"]
 
-DEFAULT_COLUMNS = [
-    {"id": "now", "title": "Now ⚡", "color": "#FF5555"},
-    {"id": "next", "title": "Next Week 📅", "color": "#50FA7B"},
-    {"id": "backlog", "title": "Backlog 🗄️", "color": "#BD93F9"},
-]
-DEFAULT_ORDER = ["now", "next", "backlog"]
-
 def _issue_indicator(url: str) -> str:
     """Return a short colored indicator based on issue URL platform."""
     from urllib.parse import urlparse
@@ -354,7 +347,7 @@ class Task:
 
     @property
     def board_col(self):
-        return self.metadata.get("boardcol", "unordered")
+        return self.metadata.get("boardcol", UNORDERED_ID)
 
     @board_col.setter
     def board_col(self, value):
@@ -447,6 +440,15 @@ from topic_semantics import (  # noqa: E402
 # module's docstring. Every value handed to it is already coerced through
 # normalize_board_idx.
 import board_ordering  # noqa: E402
+
+# The column vocabulary (stock columns + the synthetic `unordered` id) lives in
+# lib/board_columns.py so the board, lib/work_report_gather.py and the headless
+# move seam share one definition (t1377_1). It was duplicated byte-for-byte here
+# and in the gatherer under a "keep in sync" comment. The board stays the
+# semantic owner — see that module's docstring.
+from board_columns import (  # noqa: E402
+    DEFAULT_COLUMNS, DEFAULT_ORDER, UNORDERED_ID,
+)
 
 
 def _topic_lane_label(key, members, tasks_by_id):

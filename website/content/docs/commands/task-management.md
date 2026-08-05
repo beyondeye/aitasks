@@ -179,7 +179,7 @@ ait update --batch 10 --remove-child t10_1      # Remove child from parent
 | `--remove-verifies ID` | Remove one verified task ID (repeatable) |
 | `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
 | `--remove-file-ref REF` | Remove a file reference (exact-string match; repeatable) |
-| `--boardcol COL` | Board column ID |
+| `--boardcol COL` | Board column ID. Validated against the project's configured columns (plus `unordered`); an unknown id is rejected. Use `""` to clear |
 | `--boardidx IDX` | Board sort index |
 | `--pull-request URL` | Linked pull request URL (use `""` to clear) |
 | `--contributor NAME` | External contributor name for `Co-Authored-By` (use `""` to clear) |

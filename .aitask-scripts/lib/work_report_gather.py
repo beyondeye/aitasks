@@ -47,20 +47,23 @@ from typing import Callable
 # t1217 and stats_data in t1235 — this module reaches into no sibling package,
 # which is what tests/test_no_lib_to_tui_import.sh freezes (its allowlist is
 # now empty of real inversions).
-from config_utils import load_layered_config, metadata_dir, task_dir
+# `load_layered_config` moved out with the column reader (t1377_1) — the config
+# layering is now board_columns.py's business. What stays is the ambient-path
+# resolution this module still owns: task_dir() for the task glob, metadata_dir()
+# for the one config path it hands to the shared reader.
+from config_utils import metadata_dir, task_dir
 from stats_data import DAY_NAMES, collect_stats
 from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter
 
-# Board defaults, kept in sync with aitask_board.py DEFAULT_COLUMNS/DEFAULT_ORDER.
-DEFAULT_COLUMNS = [
-    {"id": "now", "title": "Now ⚡", "color": "#FF5555"},
-    {"id": "next", "title": "Next Week 📅", "color": "#50FA7B"},
-    {"id": "backlog", "title": "Backlog 🗄️", "color": "#BD93F9"},
-]
-DEFAULT_ORDER = ["now", "next", "backlog"]
-
-UNORDERED_ID = "unordered"
-UNORDERED_TITLE = "Unsorted / Inbox"
+# The column vocabulary lives in lib/board_columns.py so the board, this
+# gatherer and the headless move seam share one definition (t1377_1). It used to
+# be duplicated here and in aitask_board.py under a "keep in sync" comment —
+# exactly the drift the extraction removes.
+#
+# Only what this module actually uses is imported: the stock-column constants
+# went with the reader and have no consumer here, so re-exporting them would
+# just re-create a second name for the same thing.
+from board_columns import UNORDERED_ID, ColumnIdError, load_columns_at
 
 DEFAULT_VELOCITY_WINDOW = 90
 PROJECTION_MAX_DAYS = 3650
@@ -223,33 +226,22 @@ def load_columns() -> tuple[list[str], dict[str, str]]:
 
     A `column_order` entry with no matching `columns` definition is dropped —
     the board's renderer skips it too, so it is not a reportable column.
+
+    Thin ambient-path wrapper over `board_columns.load_columns_at` (t1377_1).
+    The reading rules live there so the board and the headless move seam cannot
+    drift from this one; what stays here is the **CLI's fail-closed protocol
+    behaviour**: a record-breaking column id exits `EXIT_INFRA` with this
+    module's message prefix, rather than raising. That difference is deliberate
+    — the library path must be importable into a TUI, where a `sys.exit` in a
+    render path would kill the app.
+
+    `metadata_dir()` is read here, not there: this is the ambient-cwd entry
+    point, while the shared reader is root-scoped by contract.
     """
-    config = load_layered_config(
-        str(metadata_dir() / "board_config.json"),
-        defaults={"columns": DEFAULT_COLUMNS, "column_order": DEFAULT_ORDER},
-    )
-    # `.get(key, default)`, not `or default`: a board deliberately configured
-    # with no columns must stay empty here, exactly as TaskManager.load_metadata
-    # leaves it — falling back on a falsy-but-present [] would invent the stock
-    # Now/Next/Backlog board the user never sees.
-    columns = config.get("columns", DEFAULT_COLUMNS)
-    order = config.get("column_order", DEFAULT_ORDER)
-
-    titles: dict[str, str] = {}
-    for entry in columns:
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str):
-            titles[entry["id"]] = str(entry.get("title", entry["id"]))
-
-    configured = [cid for cid in order if isinstance(cid, str) and cid in titles]
-    for cid in configured:
-        if _has_record_breaking(cid):
-            _die(
-                f"board_config.json: column id {cid!r} contains '|', CR or LF, "
-                "which cannot round-trip through the report protocol",
-                EXIT_INFRA,
-            )
-    titles[UNORDERED_ID] = UNORDERED_TITLE
-    return configured, titles
+    try:
+        return load_columns_at(metadata_dir() / "board_config.json")
+    except ColumnIdError as exc:
+        _die(str(exc), EXIT_INFRA)
 
 
 # --- Velocity estimation (swappable seam) -----------------------------------

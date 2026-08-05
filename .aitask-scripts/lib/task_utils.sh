@@ -882,6 +882,46 @@ normalize_anchor_id() {
     esac
 }
 
+# Validate a board column id against this project's configured columns (t1377_1).
+# Echoes the id unchanged when valid; dies naming the valid ids otherwise.
+#
+# Before this existed, `ait update --boardcol <bad-id>` wrote the value verbatim
+# and produced a task that rendered in NO column at all — not even `unordered` —
+# and that the work-report gatherer could not name either.
+#
+# The synthetic `unordered` is a legal target, so the listing is requested with
+# --include-unordered. The probe reads only board_config.json; deliberately NOT
+# `aitask_work_report_gather.sh --list-columns`, which globs and parses every
+# task file just to decide whether to prepend `unordered` (O(all tasks) per
+# `ait update` call).
+#
+# `$TASK_DIR` is forwarded so a repo using a non-default layout validates against
+# its own columns instead of the stock defaults.
+#
+# Reads globals: SCRIPT_DIR, TASK_DIR.
+normalize_board_column() {
+    local raw="$1"
+    local listing valid_ids
+    if ! listing=$("$SCRIPT_DIR/aitask_board_column.sh" list-columns \
+            --root . --task-dir "${TASK_DIR:-aitasks}" --include-unordered 2>/dev/null); then
+        die "board column '$raw': could not read the configured column list."
+    fi
+    # Column ids never contain '|' (load_columns rejects that), so cutting at the
+    # first separator is exact.
+    valid_ids=$(printf '%s\n' "$listing" | sed -n 's/^COLUMN:\([^|]*\)|.*/\1/p')
+    if [[ -z "$valid_ids" ]]; then
+        die "board column '$raw': no board columns are configured."
+    fi
+    local cid
+    while IFS= read -r cid; do
+        if [[ "$cid" == "$raw" ]]; then
+            echo "$raw"
+            return 0
+        fi
+    done <<< "$valid_ids"
+    die "board column '$raw' is not configured. Valid ids: $(printf '%s' "$valid_ids" | tr '\n' ' ')"
+}
+
 # Normalize child task IDs: ensure entries with underscore have 't' prefix.
 # e.g. "85_2,t85_3,16" -> "t85_2,t85_3,16"
 normalize_task_ids() {
