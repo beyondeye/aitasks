@@ -205,3 +205,10 @@ and flipping `state` to `done` after.
 - `grep -c "aidocs/framework" AGENTS.md` is no longer 0.
 - Every DISCARD ruling is journalled `state=done` and the file is gone from both
   disk and `MEMORY.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T15:24:40Z status=pass attempt=1 type=human
+>
+> Note: deferred
