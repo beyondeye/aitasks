@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1433
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:47
-updated_at: 2026-08-05 18:27
+updated_at: 2026-08-05 23:12
 ---
 
 ## Context
@@ -114,3 +115,8 @@ prefix to `record_protocol: ` and confirm the negative control fails with a
 `grep -c '_free_text\|_enum_field\|_has_record_breaking\|_RECORD_BREAKING' .aitask-scripts/lib/trail_gather.py`
 returns 0, and a repo-wide scan for inline `replace("\r"` under
 `.aitask-scripts/**.py` returns only `lib/record_protocol.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T20:13:01Z status=pass attempt=1 type=human
