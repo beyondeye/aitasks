@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [1433]
 issue_type: refactor
 status: Ready
 labels: [python]
 gates: [risk_evaluated]
 anchor: 1433
 created_at: 2026-08-05 17:47
-updated_at: 2026-08-05 17:47
+updated_at: 2026-08-05 17:48
 ---
 
 ## Context

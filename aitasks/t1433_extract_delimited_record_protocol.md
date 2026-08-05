@@ -106,6 +106,26 @@ Exactly one existing assertion flips —
 "preserve the fail-closed CLI behaviour exactly" constraint above is otherwise
 unmodified.
 
+## Scope split (t1433 implementation, 2026-08-05)
+
+**This task lands two of the three consumers, not three.** At implementation
+time a concurrent session held 292 lines of uncommitted work in
+`.aitask-scripts/lib/trail_gather.py` (+124) and `tests/test_trail_gather.py`
+(+186) — two of the files the Goal above names. Their hunks did not overlap the
+symbols this task moves, but committing those files would have swept another
+session's in-flight work into this task's commit. Splitting was an explicit user
+decision.
+
+Landed here: `lib/record_protocol.py`, plus the rewiring of
+`lib/work_report_gather.py` and `lib/board_columns.py` and their tests.
+
+Deferred to **t1436** (`depends: [1433]`): the `lib/trail_gather.py` rewiring,
+the `tests/test_trail_gather.py:775` reference update, and the
+`trail_gather` fail-closed characterization this task's constraints asked for
+("Add the equivalent for `trail_gather`'s protocol output if none exists" — none
+does). Until t1436 lands, the duplication is **two copies, not three**: the
+shared module plus `trail_gather.py`'s private block.
+
 ## Why it matters
 
 The reserved-character set is fixed by the wire protocol, so drift is unlikely —
