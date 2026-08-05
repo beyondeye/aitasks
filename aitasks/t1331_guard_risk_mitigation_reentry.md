@@ -60,6 +60,20 @@ On the second `/aitask-pick 1311` (profile `fast`), both defects surfaced:
    true` reverts the task to `Ready` and ends the session), making the task
    permanently un-implementable without manual intervention.
 
+## Scope update (2026-08-05, via t1419)
+
+t1419 (`inline_risk_mitigations_as_plan_phases`) landed the fix for defect (2)
+during its implementation review: `risk-mitigation-followup.md` Parts 2/3 now
+define the `created: t<id>` witness formally (spawned-only, singular, written
+per-item and committed immediately), consume it as a reconciliation input
+(witnessed lines skip creation but still converge `depends:` /
+`risk_mitigation_tasks` / risk links), handle stale witnesses explicitly
+(replace-in-place or `created: dropped`), and set `risk_before_created` only
+for tasks actually created in the current run. **Remaining scope here:**
+defect (1) — the §6.0a force-reverify inertness under
+`plan_preference: use_current` — plus the fixture verification below, which
+should now exercise the guard t1419 landed rather than introduce one.
+
 ## Suggested fix
 
 For (1): make Step 6.0a's force-verify signal independent of the plan-preference

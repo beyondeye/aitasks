@@ -116,11 +116,16 @@ clearly safe.
 
 ## Coordination
 
-- **t1331** (`guard_risk_mitigation_reentry`, open, kept separate by decision at
-  exploration time): fixes Part 2 idempotency + §6.0a inertness under
-  `plan_preference: use_current`. This task rewrites the same Parts — land
-  compatibly: do not change the `created: t<id>` annotation semantics t1331's
-  guard will key on, and rebase whichever lands second.
+- **t1331** (`guard_risk_mitigation_reentry`, open): originally covered Part 2
+  idempotency + §6.0a inertness under `plan_preference: use_current`.
+  **Partial landing:** t1419's implementation review made the Part 2/3
+  idempotency guard part of this task's scope — the `created: t<id>` witness is
+  now formally defined, written per-item (committed immediately), and consumed
+  as a reconciliation input (skip creation, converge wiring/links; stale
+  witnesses replaced in place or marked `created: dropped`). t1331 is narrowed
+  to its item (1) — the §6.0a force-reverify inertness — plus fixture
+  verification of the landed guard; its task file carries the matching
+  annotation.
 
 ## Verification
 
