@@ -498,3 +498,104 @@ row and the markup-interpolation pattern all still ship, and the blast radius ac
 `monitor_shared.py` / `minimonitor_app.py` / the pick test module is unchanged.
 Goal-achievement stays **low**. Neither inline phase introduces a new risk — the
 pre-phase is read-only, and the post-phase adds only tests.
+
+## Final Implementation Notes
+
+- **Actual work done:** Both inline phases ran. `sweep_dismissal_tuple_consumers`
+  enumerated the dismissal-tuple consumers first (result below) and gated the
+  contract change. Then: `TaskPickConfirmDialog` widened to the
+  `("pick", kill)` / `("column", None)` / `None` tuple with an
+  `offers_column_action` property; new `ColumnPickerModal`, `_ColumnRow` and
+  `_safe_column_color` in `monitor_shared.py`; `_run_board_column_cmd`,
+  `_parse_column_lines`, `_open_column_picker`, `_on_column_chosen` and
+  `_apply_column_move` in `minimonitor_app.py`, with `sess` threaded into
+  `_on_pick_confirmed`. `prove_column_row_markup_guards` closed with the markup
+  guard tests, extended mid-review to cover the toast sink. The module went from
+  ~52 to 87 tests.
+
+- **`sweep_dismissal_tuple_consumers` result (pre-phase, required record):** one
+  production unpacking — `minimonitor_app.py:_on_pick_confirmed` — plus its
+  callback lambda, and six test call sites in
+  `tests/test_minimonitor_pick_by_number.py` (the `ConfirmAndLaunchTests` group,
+  `SharedLaunchImplementationTests.drive_p`, and
+  `ConfirmDialogDismissalTests.test_ok_returns_checkbox_state`). The sweep also
+  *excluded* one look-alike: `_FakeMonitor.kill_agent_pane_smart` returns its own
+  unrelated `(True, False)`. All seven real sites migrated; the excluded one was
+  deliberately left. This is precisely the discrimination the phase existed to
+  make — a blind `(True,` replace would have corrupted the fake.
+
+- **Deviations from plan:**
+  - The button label is **"Move to column"**, not "Move to column…". No `Button`
+    in the framework uses a trailing ellipsis, and the existing
+    `test_checkbox_and_button_labels_are_not_ellipsised` asserts no `…` appears
+    anywhere on screen — the planned label would have forced that assertion to be
+    weakened. Dropping it keeps the ellipsis-clipping detector at full strength
+    and saves a column in a 40-cell pane.
+  - The picker's small-pane CSS needed two levers the plan did not anticipate:
+    `min-width: 0` on the buttons (Textual's `Button` defaults to `min-width: 16`,
+    so two of them overflow a 32-cell content box) and zeroing the header/help
+    margins (at 40×16 the content box is 8 rows and the chrome wanted 9).
+  - The CSS comment deliberately avoids the lowercase word "narrow":
+    `_drop_narrow_rules` skips any line containing it and then eats lines until
+    the next `}`, so a lowercase mention inside a comment silently deletes the
+    following real rule and the negative-control test errors out on malformed CSS.
+  - Added `_parse_column_lines` as a `@staticmethod` (not in the plan's sketch) so
+    the `split("|", 2)` title rule is unit-testable without driving the flow.
+
+- **Issues encountered:**
+  - **`minimonitor_app.py` never imported `asyncio`.** Every caller-level column
+    test passed regardless, because they all override `_run_board_column_cmd`.
+    Only the direct helper test — added specifically because the plan argued the
+    stubbed timeout test "proves only caller handling" — executed the real body
+    and caught the `NameError`. The phase earned its place on the first run.
+  - **The markup sink enumeration was incomplete** and was caught in review, not
+    by me: escaping the dialog's renderables left `App.notify`, which parses its
+    message as markup by default. Fixed across every notification in the flow with
+    `markup=False`. See gap 11 above.
+  - **Two claims in the plan were wrong and were corrected rather than worked
+    around.** (a) Textual *tolerates* an unknown style name — the swatch draws
+    unstyled and nothing raises — so the colour guard is defence in depth against
+    `Style.parse`, not the modal-crash preventer the plan asserted; the negative
+    control was rewritten to assert where it actually discriminates instead of
+    passing for the wrong reason. (b) `gray`, the seam's own `UNORDERED_COLOR`, is
+    **not** a valid rich colour (rich has `grey0`…`grey100`, no bare `gray`), so
+    the Unsorted row legitimately draws an unstyled swatch — pinned in a test
+    because it is surprising and it is a stock value.
+
+- **Key decisions:**
+  - The column button is **omitted** for a child id rather than shown-and-refused
+    (user decision). The `"column"` branch still surfaces a `not_a_parent_task`
+    refusal defensively, so the seam's contract is honoured even though the UI
+    should never reach it.
+  - `push_screen(..., callback=...)` rather than `push_screen_wait`: it matches
+    every other modal hop in this app and keeps the column tests on the existing
+    no-Textual harness instead of forcing them onto a real `Pilot`.
+  - `markup=False` on the toasts rather than escaping them. The message is not
+    styled at all, so disabling parsing is the structural fix — there is no
+    escape call left to forget on the next edit.
+  - Each guard's negative control mutates **one** thing and asserts the specific
+    failure it prevents, because the failure modes genuinely differ: `[/]` raises,
+    `[b]` silently corrupts, and a bad colour does neither.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_shared.py:1088 — _SiblingRow.render() interpolates an unescaped sibling task title into rich markup; a title containing '[/]' raises MarkupError inside the modal and one containing '[b]' is silently swallowed.`
+  - `.aitask-scripts/board/aitask_board.py:5748 — ColumnSelectItem.render() interpolates an unescaped column title AND an unvalidated colour into rich markup, the same defect this task fixed in the minimonitor picker.`
+  - `.aitask-scripts/lib/board_columns.py:110 — UNORDERED_COLOR is "gray", which rich cannot parse as a colour (it has grey0..grey100 but no bare gray/grey), so any consumer using it as a markup tag or Style silently gets no colour.`
+
+- **Notes for sibling tasks:**
+  - **For t1377_3 (create a new column):** `ColumnPickerModal(task_id, columns,
+    current=None, narrow=False)` where `columns` is `list[tuple[col_id, colour,
+    title]]` in board order; it dismisses a `col_id` string or `None`. To add a
+    "New column…" row, either append a sentinel row and branch on it in
+    `_on_column_chosen`, or widen the dismissal to a tagged tuple as
+    `TaskPickConfirmDialog` did here — the tagged-tuple shape is the one that
+    scaled, and the lesson from this task's pre-phase is to enumerate the
+    consumers *before* changing the shape, not after.
+  - **`markup=False` / `escape()` is mandatory for anything carrying a column
+    title.** There are three sinks, and the third (`App.notify`) was missed on the
+    first pass here. Assume a fourth exists in whatever you add.
+  - `_run_board_column_cmd` is the injectable subprocess seam and is total by
+    contract; `_mk_app` in the pick test module stubs it via a
+    `column_cmd_results` queue consumed in call order, and stubs `run_worker` to
+    drive coroutines with `asyncio.run`. Reuse both rather than building a parallel
+    harness.
