@@ -548,7 +548,133 @@ and the CLI contract change both still ship, and the blast radius across
 Goal-achievement stays **low**. No new risks are introduced by the inline phases
 themselves.
 
-## Notes for sibling tasks
+## Final Implementation Notes
 
-*(fill in at Step 8 — record the final module API, the wrapper's exact output
-protocol, and anything t1377_2 / t1377_3 must know to call it.)*
+- **Actual work done:** Both inline pre-phases ran first and gated the rest.
+  `characterize_work_report_columns` landed as
+  `tests/test_work_report_columns_characterization.py` (11 assertions pinning
+  `--list-columns` stdout, board order, the conditional `unordered` prepend,
+  exit 3 on a record-breaking id, and the `work_report_gather:` stderr prefix);
+  it was green **before** the de-dup and stayed green after, which is what proves
+  the delegation is behaviour-preserving. `audit_boardcol_callers` enumerated
+  every `--boardcol` site (below). Then: new `lib/board_columns.py` (readers,
+  `column_indices`, `task_column`, `move_task_to_column`, CLI `main()`), new
+  `aitask_board_column.sh` shim, the vocabulary de-dup across
+  `aitask_board.py` + `work_report_gather.py`, and `--boardcol` validation via a
+  new `normalize_board_column()` in `lib/task_utils.sh`.
+- **`audit_boardcol_callers` result (pre-phase 2, required record):** five hits
+  total — `aitask_update.sh:226` (help text), `:262` (cross-repo flag list doc),
+  `:350` (the parse arm), `tests/test_update_cross_repo.sh:121`, and
+  `website/content/docs/commands/task-management.md:182` (doc table). **No
+  framework code, skill, seed config or agent tree invokes `--boardcol`** — the
+  board mutates the field in-process via `reload_and_save_board_fields`. The
+  cross-repo test is unaffected because the `--project` redirect `exec`s at the
+  **top of `main()`**, before `parse_args` and therefore before the validation
+  block, so a cross-repo update validates against the **target** project's
+  `board_config.json`. **Decision: ship the fatal `die`.**
+- **Deviations from plan:**
+  - The plan said the wrapper emits `COLUMN:<id>|<colour>|<title>` and that the
+    emitter "must strip `|`/CR/LF" — applied literally that would have stripped
+    `|` from **titles** too, corrupting them and defeating the whole reason
+    title is the last field. Split into `_line_safe` (last field: CR/LF only,
+    matching `work_report_gather._free_text`) and `_field_safe` (middle fields:
+    also `|`). Caught by `tests/test_board_column_cli.sh` Test 1.
+  - Added `ColumnQuery.filename` (not in the plan's sketch) so a caller that
+    already asked for the current column need not re-resolve the file.
+  - `DEFAULT_TASK_DIR` / `_PARENT_ID_RE` / `_CHILD_ID_RE` / `UNORDERED_COLOR`
+    added as named constants rather than inline literals.
+  - Kept `_has_record_breaking` private to `board_columns.py` instead of sharing
+    `work_report_gather`'s copy: that predicate is also used there for bucket ids
+    and free-text parts, so folding it in would have widened the approved de-dup
+    scope. Noted as a candidate follow-up rather than taken silently.
+- **Issues encountered:**
+  - Two repo structural guards failed on the **new tests**, both correctly:
+    `test_board_fixture_harness.LiveTreeSweepTests` rejected the `os.chdir` used
+    to exercise the ambient reader, and
+    `test_collection_structure.NoInheritedTestDuplicationTests` rejected
+    `UnorderedPopulatedTests(UnorderedRowTests)`. Fixed **structurally** rather
+    than allowlisted: the chdir became an absolute `TASK_DIR` (cwd untouched,
+    which also makes it safe under `-n` parallelism), and the inheriting class
+    became a sibling of `_GatherCase` with distinct, non-inverted test names.
+  - `--task ''` originally hit argparse's "flag omitted" branch and reported a
+    usage error instead of `malformed_task_id`. Now `is None` means omitted
+    (usage) and `""` falls through to the seam (malformed) — the two are
+    genuinely different errors.
+  - Plan review flagged a stale `load_layered_config` import in
+    `work_report_gather.py`. Confirmed dead, and a pyflakes sweep found **three
+    more of the same defect that I had introduced**: `DEFAULT_COLUMNS`,
+    `DEFAULT_ORDER` and `UNORDERED_TITLE` re-exported under a
+    `# noqa: F401 - re-exported for existing importers` comment, when a grep
+    showed **no such importers exist**. All four removed. The repo has no Python
+    lint step, so nothing would have caught these automatically.
+- **Key decisions:**
+  - `task_dir` is an explicit parameter, not an ambient `TASK_DIR` read, because
+    `TASK_DIR` is env-only with no per-project source — a foreign root's layout
+    is undiscoverable, so inheriting this process's value would be actively
+    wrong for another project. It is validated for containment (not absolute, no
+    `..`, resolved-path under a resolved `root`), since `Path("/p") / "/etc"`
+    is `/etc` and `task_dir` reaches the module from a CLI.
+  - A missing layout is **refused** (`unsupported_layout`) rather than degraded:
+    `load_layered_config` returns stock defaults for a missing file, so silence
+    would report a confident `now/next/backlog` board for a project with none.
+  - The vanished-file guard uses `prepare` → identity re-check → `commit` instead
+    of the one-shot `atomic_write_text`, because `commit` is an unconditional
+    `os.replace` that would recreate a deleted task. The docstring states the
+    residual race honestly, and **both halves are tested** — one test proves the
+    guard fires, its sibling characterizes the race that remains.
+  - Every enforcement point carries a negative control proving it discriminates
+    (parity filter, parse guard, id regex, vanished guard, `--boardcol`
+    validation, and the characterization prefix). The parity and parse guards
+    needed **separate** controls: disabling `_eligible` does not move the
+    unparseable case, because that file is stopped earlier by the parse guard.
+- **Upstream defects identified:**
+  - `aitask_query_files.sh:402-407 — cmd_resolve emits a multi-line
+    "TASK_FILE:<paths>" when a task number matches two or more files, instead of
+    refusing an ambiguous id; a caller parsing one line silently gets a
+    two-line value.` (`board_columns._resolve_task` deliberately refuses
+    `ambiguous_task_id` rather than copying this shape.) Note the other
+    adjacent gap — `TaskManager.move_task_to_column` / `move_tasks_to_column`
+    never validate `new_col` — is **already assigned** to the confirmed
+    `board_move_column_validation` "after" mitigation created at Step 8d, so it
+    is not repeated here as a new follow-up candidate.
+- **Notes for sibling tasks:**
+  - **Module API** (`.aitask-scripts/lib/board_columns.py`, import flat from
+    `lib/`): `column_records(root, *, task_dir, include_unordered) ->
+    list[ColumnRecord(id, title, color)]`;
+    `load_columns(root, *, task_dir) -> (configured_ids, titles)` where
+    `titles` **also** carries `unordered` but `configured_ids` does not — that
+    asymmetry is what makes `col_id in titles` the single "is this a legal move
+    target" test; `column_indices(root, col_id, exclude="", *, task_dir)`;
+    `task_column(root, task_id, *, task_dir) -> ColumnQuery(col_id, filename,
+    refused)`; `move_task_to_column(root, task_id, col_id, *, task_dir) ->
+    MoveOutcome(moved, col_id, board_idx, refused)`. Both outcome types expose
+    `.ok`. Path helpers: `tasks_dir(root, task_dir)`,
+    `board_config_path(root, task_dir)`. Config-path variants for ambient
+    callers: `column_records_at(path, *, include_unordered)`,
+    `load_columns_at(path)`. Errors: `BoardColumnsError` base with a `.reason`,
+    subclasses `ColumnIdError`, `UnsafeTaskDirError`, `UnsupportedLayoutError`.
+  - **Wrapper protocol** (`aitask_board_column.sh`, exit 0 / 1 refused / 2
+    usage):
+    `list-columns --root R [--task-dir D] [--include-unordered]` →
+    `COLUMN:<id>|<colour>|<title>`;
+    `current-column --root R [--task-dir D] --task N` → `CURRENT:<task_id>|<col_id>`;
+    `move --root R [--task-dir D] --task N --column C` →
+    `MOVED:<filename>|<col_id>|<board_idx>`; refusals → `ERROR:<reason>`.
+  - **For t1377_2:** parse `COLUMN:` by splitting on the **first two** `|` only —
+    the title is last precisely because titles may contain a pipe (this repo's
+    own board has none today, but the fixture does). Colour may be empty. Branch
+    on the stable reason tokens (`unknown_column`, `malformed_task_id`,
+    `not_a_parent_task`, `not_found`, `ambiguous_task_id`, `unsafe_task_dir`,
+    `unsupported_layout`, `vanished`), not on prose. `current-column` applies the
+    **same** id rule as `move`, so a child id is refused identically by both —
+    surface that refusal before opening the picker. Pass minimonitor's
+    `target_root` as `--root`; leave `--task-dir` alone unless you know the
+    foreign project's layout.
+  - **For t1377_3:** extend this module additively —
+    `generate_col_id`, `PALETTE_COLORS`, `create_column`, and a `create`
+    wrapper verb. `UNORDERED_COLOR` ("gray") already exists here. Note the
+    module currently reads config only; `create_column` introduces the first
+    `board_config.json` **write**, so it must do the
+    `load_layered_config` → mutate → `split_config` → **project layer only**
+    dance described in p1377_3, and the layout/containment guards
+    (`_require_tree`) already give it a safe root to write into.
