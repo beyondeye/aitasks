@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1377_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tui, board_columns]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-04 09:54
-updated_at: 2026-08-04 09:54
+updated_at: 2026-08-05 16:21
 ---
 
 ## Context
