@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, aitask_monitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-05 12:04
-updated_at: 2026-08-05 12:04
+updated_at: 2026-08-05 12:45
 ---
 
 In the concern picker (`c` in `ait monitor` / `ait minimonitor`) the user can
