@@ -77,8 +77,18 @@ Two plan-review rounds then raised four further gaps, all confirmed against the 
    *and* `ait monitor` at startup, before any picker could run. Corrected to
    `from rich.color import Color, ColorParseError`. **Lesson for implementation:**
    resolve every third-party import against the real interpreter rather than from
-   recall — the rest of this plan's Rich usage (`rich.markup.escape`,
-   `rich.color.Color`) was checked the same way.
+   recall.
+11. **The markup sink enumeration was incomplete (review of the implementation).**
+   Escaping the dialog's renderables left a **second sink**: `App.notify` parses
+   its message as markup by default (`markup: bool = True`), and both the
+   "already in" and successful-move toasts interpolate the column title raw.
+   Verified at Textual's parse boundary: `Content.from_markup("Moved t1310 →
+   Backlog [/]")` **raises `MarkupError`**, and `a[b]c` is silently swallowed to
+   `ac`. Every notification in the flow now passes `markup=False` — including the
+   seam-error toasts, whose subprocess text can carry brackets of its own
+   (`[Errno 2] …`). The lesson is the one this plan already stated for the row and
+   then under-applied: enumerate **every** sink the user-derived value reaches,
+   not just the one being edited.
 
 **User decision:** the picker lists `unordered` ("Unsorted / Inbox") and allows moving
 to it. This is not optional polish — `current-column` reports `unordered` for any task
@@ -358,6 +368,11 @@ project's layout is not discoverable from here.
      compositing raises.
    - The context line carries the same escaping: a *current* column titled
      `Backlog [/]` renders the picker without raising.
+   - **The toast sink.** Every notification carrying a title or subprocess text
+     passes `markup=False`, asserted on the recorded kwarg; the negative control
+     asserts at Textual's parse boundary that the same strings under `markup=True`
+     fail in two different ways (`Content.from_markup` raises on `[/]`, swallows
+     `[b]`), which is why one control cannot stand in for both.
 
    Each negative control must fail for the intended reason — assert on the exception
    type / the specific corrupted text, never on "some assertion failed".
@@ -384,6 +399,7 @@ no-Textual Style A harness.
 | already-in-column | selecting the current column notifies and issues **no** `move` call |
 | title with `\|` | a `COLUMN:c1\|red\|a\|b` line parses to title `a\|b` (splits on the first two only) |
 | title with `[` | a `COLUMN:c1\|red\|Backlog [/]` line reaches the picker and the row renders with the title intact (the guard from the post-phase, driven end-to-end from the seam's own output rather than from a hand-built row) |
+| toast with `[` | the move / already-in / seam-error notifications all pass `markup=False` and carry a bracket title verbatim, with the parse-boundary negative control above |
 | narrow render — confirm row | the now-3-button row at 40×50 / 40×20 / **40×16** via the existing `_assert_controls_inside` (`:659`, which checks **both** axes) |
 | narrow render — picker | `ColumnPickerModal` at 40×50, **40×20 and 40×16**, same two-axis `_assert_controls_inside` on composited screen text (`_screen_text` / `_flat`, `:584`/`:590`). The short sizes are the ones that matter: the picker has more vertical chrome than the confirm row (header + context + list + help + buttons), and a 40-column-only test would pass while the help line and buttons sit off-screen |
 | narrow negative control | both dialogs re-run with `_drop_narrow_rules` (`:637`) applied to their `DEFAULT_CSS`, asserting `_assert_controls_inside` **raises** — the same construct the file already uses at `:807`, one dialog per test |
@@ -440,15 +456,22 @@ aggregate manual-verification sibling t1377_7.
   fit regression renders controls off-screen, which no region-fit check catches —
   only the composited-text assertion does · severity: medium · → mitigation: none
   (the 40×16 case is already a required row in the test table above)
-- `_ColumnRow.render()` and the picker's context line interpolate **user-configured
-  column titles, ids and colours** into Rich markup. Verified: a title of `Backlog [/]`
-  raises `MarkupError` and takes the modal down in a pane the user cannot easily
-  recover, and `a[b]c` renders as `ac` — silent title corruption, which is the worse
-  half because nothing signals it. The seam does not police brackets in either field ·
-  severity: medium (residual — step 2 escapes every user-derived field and validates
-  the colour, and the inline post-phase proves each guard discriminates; the
-  interpolation pattern itself remains, and two sibling renderers in the repo still
-  carry the unguarded form) · → mitigation: inline post-phase prove_column_row_markup_guards
+- **User-configured column titles/ids reach markup through THREE sinks**, not one:
+  `_ColumnRow.render()`, the picker's context line, and — missed on the first pass —
+  every `App.notify` toast, which parses its message as markup by default. Verified at
+  the parse boundary: `Backlog [/]` raises `MarkupError`, and `a[b]c` renders as `ac`
+  — silent corruption, the worse half because nothing signals it. The seam polices
+  neither field for brackets · severity: medium (residual — the rows and context line
+  escape, the toasts pass `markup=False`, and the inline post-phase proves each guard
+  discriminates; but the interpolation pattern remains and the *count* of sinks is the
+  real hazard — a fourth would be just as easy to miss, and two sibling renderers in
+  the repo still carry the unguarded form) ·
+  → mitigation: inline post-phase prove_column_row_markup_guards
+- The colour guard is **weaker than first assessed**: Textual's renderer tolerates an
+  unknown style name (the swatch simply draws unstyled), so an unvalidated colour does
+  not crash anything today — `_safe_column_color` is defence in depth against
+  `Style.parse`, which does raise. Recorded here because the plan originally claimed a
+  modal crash it could not demonstrate · severity: low · → mitigation: none
 - This is the first file-mutating gesture in the `monitor/` package, and its async
   runner fires off a keypress handler; a partial copy of the `_run_marks_cmd` body
   (kill without reap) leaks a child process while every caller-level test still passes ·
