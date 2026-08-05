@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:18
-updated_at: 2026-08-05 23:52
+updated_at: 2026-08-06 00:09
 ---
 
 Picker-side reject action for t1427. Depends on t1427_1 (the store helper
@@ -99,3 +100,8 @@ store entries (concurrent cross-session editing is out of scope).
 - Live: open minimonitor against a shadow with concerns, reject one with `r`,
   confirm `.aitask-shadow/<task_id>/rejected.md` gains the entry; press `R`,
   un-reject it, confirm removal.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T21:09:14Z status=pass attempt=1 type=human
