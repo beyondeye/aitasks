@@ -440,12 +440,12 @@ same view over the picker, and that the selection survives closing it.
   it at every width, including 40. That is pre-existing and out of scope here,
   but it means "see what the shadow said" is only fully solved for the *lost*
   lines, not for long parsed ones · severity: low ·
-  → mitigation: picker_full_body_view
+  → mitigation: t1426
 
 ### Planned mitigations
 - timing: pre-phase | name: enumerate_picker_construction_sites | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the `unrecovered: int → Sequence[str]` type change could miss a call site | desc: grep-verified inventory of every ConcernPickerModal construction and every _unrecovered read across production and tests, ticked off as each is migrated
 - timing: post-phase | name: pin_tier_independent_of_narrow | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — two knobs (`narrow` vs the measured width tier) that both mean "small" | desc: test plus class-docstring contract asserting the xnarrow tier is derived from measured width and is independent of the caller's narrow row-layout flag, with a negative control
-- timing: after | name: picker_full_body_view | type: enhancement | priority: medium | effort: low | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — only the lost lines become readable, not long parsed bodies | desc: give the concern picker a way to read a focused concern's full body, which the two-line row truncates at every width including 40
+- timing: after | name: picker_full_body_view | type: enhancement | priority: medium | effort: low | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — only the lost lines become readable, not long parsed bodies | desc: give the concern picker a way to read a focused concern's full body, which the two-line row truncates at every width including 40 | created: t1426
 
 ## Post-Review Changes
 
