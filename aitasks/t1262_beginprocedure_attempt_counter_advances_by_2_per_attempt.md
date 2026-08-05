@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/opus5
 created_at: 2026-07-27 09:15
-updated_at: 2026-08-05 18:24
+updated_at: 2026-08-05 23:58
 boardidx: 47104
 ---
 
@@ -49,3 +50,8 @@ so the bash and Python sides agree.
 
 Add a test asserting consecutive `begin-procedure` calls on a procedure gate
 report 1, 2, 3 across full attempt cycles (running + terminal each).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T20:58:16Z status=pass attempt=1 type=human
