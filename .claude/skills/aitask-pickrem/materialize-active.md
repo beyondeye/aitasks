@@ -33,6 +33,17 @@ Parse the single stdout line:
   "active-gates materialization failed (\<output\>) — fix the profile /
   compute backend and re-run." and trigger the **Abort Procedure**. Do NOT
   proceed to Step 6.
+- **Also on stderr (advisory — not part of the stdout status line):** a
+  `Warning: materialize-active: active gate '<gate>' has no verifier configured
+  in <registry> — it will block archival.` line — or its `… has no registry
+  entry in <registry> …` variant — means an **enforced** gate can never be
+  satisfied, so the Step 10 archival guard will hold the task in-flight
+  indefinitely. The exit status is still 0 and stdout still reports
+  `MATERIALIZED:` / `NOOP:`, so **continue** — but **display the warning
+  verbatim in the run output** and note that `ait gates sync-registry`
+  reconciles the registry. Same warn-and-continue shape as
+  `MATERIALIZED_UNCOMMITTED` / `NOOP_UNCOMMITTED` above; the exit-code contract
+  is unchanged (a nonzero exit still aborts).
 
 This claim-time materialization mirrors the attended workflow's Step 4: raw
 `gates:` stays the task's declared intent, and the persisted `active_gates`
