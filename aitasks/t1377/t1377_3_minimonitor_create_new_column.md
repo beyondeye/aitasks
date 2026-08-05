@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 09:55
-updated_at: 2026-08-05 18:50
+updated_at: 2026-08-05 23:45
 ---
 
 ## Context
@@ -146,3 +147,8 @@ Tests:
 Depends on t1377_2. Touches `aitask_board.py` only for imports — a small surface,
 but that file is edited by other in-flight tasks: re-read before editing, stage
 explicit paths, never `git stash` / `git add -A` in this shared checkout.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T20:45:11Z status=pass attempt=1 type=human
