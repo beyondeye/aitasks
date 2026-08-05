@@ -584,9 +584,22 @@ themselves.
   - `DEFAULT_TASK_DIR` / `_PARENT_ID_RE` / `_CHILD_ID_RE` / `UNORDERED_COLOR`
     added as named constants rather than inline literals.
   - Kept `_has_record_breaking` private to `board_columns.py` instead of sharing
-    `work_report_gather`'s copy: that predicate is also used there for bucket ids
-    and free-text parts, so folding it in would have widened the approved de-dup
-    scope. Noted as a candidate follow-up rather than taken silently.
+    `work_report_gather`'s copy — **taking the total from two copies to three.**
+    *(Corrected after review.)* The reason recorded here originally — that
+    folding it in would have widened the approved de-dup scope — does not hold:
+    importing the predicate would have been a one-line change with identical
+    semantics at the three unaffected call sites. The sound objection is
+    **ownership**: a `|`-delimited protocol predicate does not belong in a
+    board-column module, and `lib/trail_gather.py` should not import from a
+    board module to get it. That argues for a neutral home, not a third copy,
+    so this contradicts `aidocs/framework/planning_conventions.md:11`
+    ("Refactor duplicates before adding to them").
+    Filed as **t1433** (`extract_delimited_record_protocol`), which also covers
+    the wider finding: `work_report_gather.py:96-115` and
+    `trail_gather.py:160-181` already carried a **byte-identical** six-symbol
+    block (`_RECORD_BREAKING`, `INVALID_ENUM`, `UNKNOWN_ENUM`,
+    `_has_record_breaking`, `_free_text`, `_enum_field`) under a
+    "parity with work_report_gather's pinned policy" comment.
 - **Issues encountered:**
   - Two repo structural guards failed on the **new tests**, both correctly:
     `test_board_fixture_harness.LiveTreeSweepTests` rejected the `os.chdir` used
