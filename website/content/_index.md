@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.31.0: Mark cards and move them in bulk, The board got noticeably faster, and Every shortcut is visible again](blog/v0310-mark-cards-and-move-them-in-bulk-the-board-got-noticeably-faster-every-sho/)** -- Aug 5, 2026
 - **[v0.30.0: The shadow companion,  in the full monitor, Manage every linked repo from the syncer, and Triage that keeps up with you](blog/v0300-the-shadow-companion-in-the-full-monitor-manage-every-linked-repo-from-the/)** -- Jul 31, 2026
 - **[v0.29.0: Implementation trails, Work reports, and A real setup wizard for chat intake](blog/v0290-implementation-trails-work-reports-a-real-setup-wizard-for-chat-intake/)** -- Jul 26, 2026
-- **[v0.28.0: Report a bug from Discord,  get back a ready-to-work task, Store and share artifacts with your team, Slack, and  not just Discord](blog/v0280-report-a-bug-from-discord-get-back-a-ready-to-work-task-store-and-share-ar/)** -- Jul 10, 2026
 
 [All releases &rarr;](blog/)
 
