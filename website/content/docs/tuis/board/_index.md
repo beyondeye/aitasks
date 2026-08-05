@@ -32,7 +32,7 @@ The board has four main areas from top to bottom:
 1. **Header** — Application title bar
 2. **Filter area** — Contains a **View Selector** on the left (showing base views such as `a All`, `l Locked`, `f Free`, `i In-Flight`, `y By-Topic`, and `z By-Trail`) and a **Search box** on the right. The view selector switches between task view modes; the search box filters tasks by text. Both start unfocused.
 3. **Board area** — Horizontally scrollable columns, each containing vertically stacked task cards
-4. **Footer** — Dynamic keybinding help that changes based on context
+4. **Footer** — Dynamic keybinding help that changes based on context. It wraps onto up to three rows on narrower terminals so shortcuts stay visible instead of running off the edge; see [How many footer rows]({{< relref "/docs/tuis#how-many-footer-rows" >}}) to change the limit.
 
 <!-- SCREENSHOT: Annotated board layout showing header, search box, columns, and footer -->
 

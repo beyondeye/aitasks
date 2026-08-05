@@ -38,6 +38,7 @@ from sync_action_runner import (
 from tui_switcher import TuiSwitcherMixin, TuiSwitcherOverlay
 from shortcuts_mixin import ShortcutsMixin, get_label
 from keybinding_registry import resolve_key
+from multirow_footer import MultiRowFooter
 from cross_repo_notation import parse as parse_cross_repo_notation
 from cross_repo_notation import parse_ref as parse_cross_repo_ref
 from task_levels import LEVELS_ASCENDING
@@ -53,7 +54,7 @@ from task_yaml import (
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
-from textual.widgets import Header, Footer, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList, DataTable, Collapsible
+from textual.widgets import Header, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList, DataTable, Collapsible
 from textual.widgets.selection_list import Selection
 from textual.screen import Screen, ModalScreen
 from textual.binding import Binding
@@ -6116,8 +6117,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("shift+left", "move_task_left", "< Task"),
         Binding("shift+up", "move_task_up", "Task Up"),
         Binding("shift+down", "move_task_down", "Task Down"),
-        Binding("ctrl+up", "move_task_top", "Task Top", show=False),
-        Binding("ctrl+down", "move_task_bottom", "Task Btm", show=False),
+        Binding("ctrl+up", "move_task_top", "Task Top"),
+        Binding("ctrl+down", "move_task_bottom", "Task Btm"),
         Binding("enter", "view_details", "View/Edit"),
         # Topic lane sort order — footer-visible only in the By-Topic view
         # (gated in check_action), placed here so it reads near the front.
@@ -6162,22 +6163,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("x", "toggle_children", "Toggle Children"),
         # Multi-select marking (t1243_6; hidden in the derived views by check_action)
         Binding("space", "toggle_mark", "Mark"),
-        # Bulk move to a column (t1243_7). show=False is a MEASURED decision,
-        # not an oversight: the footer is already full at 200 columns —
-        # `space Mark` (t1243_6) took the last slot — so a shown `m` renders as
-        # a bare key with its label clipped off, whether the label is
-        # "Move to Col" or "Move". A key with no label is worse than no key.
-        # Discovery is via the `?` shortcuts editor (ShortcutsMixin registers
-        # this binding automatically) and the command palette's
-        # "Move Tasks to Column". Same call as ctrl+up/ctrl+down and X.
-        # check_action still gates it — hidden actions must not dispatch in the
+        # Bulk move to a column (t1243_7). This was `show=False` because the
+        # single-row footer was already full at 200 columns, so a shown `m`
+        # rendered as a bare key with its label clipped off. t1418's multi-row
+        # footer removed that constraint — the board now shows every declared
+        # binding down to ~160 columns — so `m` is footer-visible, as are the
+        # other three keys hidden for the same reason (ctrl+up / ctrl+down / X).
+        # check_action still gates it: hidden actions must not dispatch in the
         # derived views either.
-        Binding("m", "move_to_column", "Move to Col", show=False),
+        Binding("m", "move_to_column", "Move to Col"),
         # Column Movement
         Binding("ctrl+right", "move_col_right", "Move Col >"),
         Binding("ctrl+left", "move_col_left", "< Move Col"),
         # Column Collapse
-        Binding("X", "toggle_column_collapsed", "Collapse Col", show=False),
+        Binding("X", "toggle_column_collapsed", "Collapse Col"),
         # Settings
         Binding("O", "open_settings", "Options"),
         # View filters: base radio (a/l/f/i) + add-on toggles (g/t)
@@ -6476,7 +6475,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 yield Static("", id="type_filter_summary", classes="type-filter-summary hidden")
             yield Input(placeholder="Search tasks... (Tab to focus, Esc to return to board)", id="search_box")
         yield HorizontalScroll(id="board_container")
-        footer = Footer()
+        # Multi-row footer (t1418): the board declares more shown bindings than
+        # one row holds, and stock Textual clips the overflow into a
+        # mouse-wheel-only scroll region. `hint_action` (not a literal key) lets
+        # the "+N more" affordance name whatever key is bound to the shortcuts
+        # editor, including after a user remap.
+        footer = MultiRowFooter(hint_action="open_shortcuts_editor")
         footer.can_focus = False
         yield footer
 

@@ -73,6 +73,16 @@ shortcuts:
 
 Button and footer labels that highlight a mnemonic — such as `(P)ick` — reflect the key currently bound to that action. After you rebind and relaunch the TUI, the highlighted letter updates to match.
 
+### How many footer rows
+
+The board's footer wraps onto more than one row when your terminal is too narrow to show every shortcut on a single line, and collapses back to one row when you widen it. Set `footer_max_rows` in `userconfig.yaml` to change the limit:
+
+```yaml
+footer_max_rows: 3
+```
+
+The default is `3`. Set it to `1` to keep the footer one row tall as before. If even the maximum number of rows cannot fit every shortcut, the footer ends with a `+N more` marker telling you how many are hidden, followed by the key that opens the shortcut editor where you can see them all — `+7 more (?)` by default, or whatever key you have bound to the editor, so it stays accurate after a rebind.
+
 ### Coherent shared actions
 
 Actions shared across every TUI — the **`j`** TUI switcher and the **`?`** shortcut editor — stay on the same key everywhere. The Settings → Shortcuts tab's **Lint coherence** button reports any drift between TUIs for actions that should match.

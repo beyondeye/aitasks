@@ -686,8 +686,15 @@ class FixtureFactControlTests(unittest.TestCase):
             # Reproduce the Tall|Side two-column layout the real module imposes:
             # column WIDTH drives title wrapping, so measuring under the default
             # five narrow columns would answer a different question.
+            #
+            # Height 14, not 12 (t1418): the board's multi-row footer is 2 rows
+            # tall at 200 columns, so a 12-row terminal leaves a 4-row column
+            # viewport and the 5-row short-slug cards no longer fit — which would
+            # fail this control for a reason that has nothing to do with slug
+            # length. 14 restores headroom on both halves: short cards (5) fit a
+            # 6-row viewport, tall ones (13) still overflow it decisively.
             app = ab.KanbanApp()
-            async with app.run_test(size=(200, 12)) as pilot:
+            async with app.run_test(size=(200, 14)) as pilot:
                 await pilot.pause()
                 mgr = app.manager
                 mgr.save_metadata = lambda: None

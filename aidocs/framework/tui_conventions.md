@@ -406,6 +406,34 @@ How to apply:
 - Surface this as an explicit deliverable in the child task that introduces
   the new operations.
 
+**"There is no room in the footer" is no longer a reason to hide a binding.**
+Stock Textual's `Footer` is one row high and pushes the overflow into a
+horizontal *mouse-wheel* scroll region, so a hidden-by-necessity key is
+invisible to a keyboard user. `.aitask-scripts/lib/multirow_footer.py` provides
+`MultiRowFooter`, a drop-in `Footer` subclass that reflows the same `FooterKey`
+widgets onto as many rows as the width needs — so `check_action` gating,
+click-to-fire and the `bindings_updated` recompose all keep working. Use it when
+a screen declares more keys than one row holds:
+
+```python
+yield MultiRowFooter(hint_action="open_shortcuts_editor")
+```
+
+- Row count is emergent: content that fits stays on one row, so a wide terminal
+  looks exactly as it does today and the footer only grows when it must.
+- The row cap is the global `footer_max_rows` userconfig key (default 3; `1`
+  restores single-row behavior). Past the cap the footer drops the tail and
+  renders a `+N more (<key>)` affordance — it never hides keys silently.
+- `hint_action` takes an **action**, not a key: the affordance's key display is
+  resolved from the composed binding, so it follows a user remap. Do not resolve
+  it through `resolve_key(<app scope>, …)` for actions registered under the
+  `shared` scope (e.g. `open_shortcuts_editor`) — `register_app_bindings`
+  deliberately does not shadow those into the app scope, so the lookup returns
+  `None` and any literal fallback goes stale for exactly the users who rebound it.
+- Adopted on the board (t1418). The other TUIs still mount the stock `Footer`;
+  `agentcrew_dashboard`, `codebrowser`, `monitor`, `stats` and
+  `codebrowser/history_screen` all overflow a 120-column terminal today.
+
 ## brainstorm TUI information architecture
 
 The `ait brainstorm` TUI is organized as **three peer tabs** plus an always-on
