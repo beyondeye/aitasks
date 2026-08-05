@@ -112,3 +112,5 @@ surface it, rather than relying on it merely being visible in tool output.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-05T14:39:07Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-05T14:53:49Z status=pass attempt=1 type=human
