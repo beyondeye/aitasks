@@ -361,8 +361,8 @@ with `m` / `X` / `ctrl+up` / `ctrl+down` legible and `ctrl+p` bottom-right.
   strategies — `codebrowser.ContextualFooter` *replicates* `Footer.compose()`,
   `MultiRowFooter` *reflows* it. Intentional and bounded (this task ships the
   widget and adopts it on the board only), but it is added duplication until the
-  other five TUIs adopt it · severity: medium · → mitigation:
-  `adopt_multirow_footer_in_remaining_tuis`
+  other five TUIs adopt it · severity: medium · → mitigation: t1423
+  (`adopt_multirow_footer_in_remaining_tuis`)
 - The footer recomposes on every `bindings_updated`; a compose-time exception would
   break the board's footer entirely · severity: low · → mitigation: render-level
   tests boot the real board and the real widget
@@ -380,8 +380,8 @@ with `m` / `X` / `ctrl+up` / `ctrl+down` legible and `ctrl+p` bottom-right.
   needed
 
 ### Planned mitigations
-- timing: after | name: adopt_multirow_footer_in_remaining_tuis | type: enhancement | priority: medium | effort: medium | addresses: transitional duplication — two Footer subclasses with different strategies | desc: Adopt MultiRowFooter in agentcrew_dashboard, codebrowser (refactoring ContextualFooter onto it), monitor, stats and codebrowser/history_screen, so the replicate-compose and reflow-compose strategies converge on one widget.
-- timing: after | name: reconcile_shortcuts_editor_and_command_palette | type: enhancement | priority: medium | effort: medium | addresses: discovery-surface overlap between `?` and ctrl+p | desc: Reconcile the two discovery surfaces — four board commands (Add/Edit/Delete/Expand Column, Clear Selection) exist only in the ctrl+p palette because they have no key binding, while `?` is the only place keys can be rebound; neither surface currently shows the whole operation set.
+- timing: after | created: t1423 | name: adopt_multirow_footer_in_remaining_tuis | type: enhancement | priority: medium | effort: medium | addresses: transitional duplication — two Footer subclasses with different strategies | desc: Adopt MultiRowFooter in agentcrew_dashboard, codebrowser (refactoring ContextualFooter onto it), monitor, stats and codebrowser/history_screen, so the replicate-compose and reflow-compose strategies converge on one widget.
+- timing: after | created: t1424 | name: reconcile_shortcuts_editor_and_command_palette | type: enhancement | priority: medium | effort: medium | addresses: discovery-surface overlap between `?` and ctrl+p | desc: Reconcile the two discovery surfaces — four board commands (Add/Edit/Delete/Expand Column, Clear Selection) exist only in the ctrl+p palette because they have no key binding, while `?` is the only place keys can be rebound; neither surface currently shows the whole operation set.
 
 ## Final Implementation Notes
 
