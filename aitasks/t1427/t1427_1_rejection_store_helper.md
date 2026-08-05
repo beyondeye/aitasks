@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -118,3 +120,5 @@ Producers (t1427_3) reference the helper from SKILL.md files, so register:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-05T16:06:40Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-05T20:47:13Z status=pass attempt=1 type=human
