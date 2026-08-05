@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [gates]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-07-27 09:15
-updated_at: 2026-07-27 09:15
+updated_at: 2026-08-05 18:24
 boardidx: 47104
 ---
 
