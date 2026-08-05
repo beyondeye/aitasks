@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5
 created_at: 2026-08-05 08:37
-updated_at: 2026-08-05 08:41
+updated_at: 2026-08-05 09:09
 ---
 
 ## Context
@@ -130,3 +131,8 @@ clearly safe.
   as plan phases, and `aitask_gate_risk.sh` still passes the plan.
 - Confirm a plan with only inline mitigations does NOT trigger the Step 7
   session-stop branch (`risk_before_created` stays false).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-05T06:09:43Z status=pass attempt=1 type=human
