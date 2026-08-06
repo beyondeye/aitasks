@@ -237,33 +237,78 @@ the partial state safe, self-describing, recoverable:
    `OSError`, reconcile as above, record it, and skip that source's config removal.
    Clean sources are still removed.
 
-4. **Metadata writes fail too — roll back the in-memory config.** `save_metadata`
-   (`:1158-1169`) performs **two** separate writes (`save_project_config`, then
-   `save_local_config` for the user-keys half that holds `collapsed_columns`) *after*
-   the in-memory removal. An `OSError` from either leaves `self.columns`,
-   `self.column_order` and `settings["collapsed_columns"]` already stripped of sources
-   that are still on disk, and propagates out of `merge_columns` with no result. A
-   same-manager retry then refuses every source as an unknown id.
+4. **Metadata writes fail too — and the two boundaries need OPPOSITE handling.**
+   `save_metadata` (`:1158-1169`) performs **two independent** `_save_json` writes:
+   `save_project_config` for `PROJECT_KEYS = {"columns", "column_order"}` →
+   `board_config.json`, then `save_local_config` for `USER_KEYS = {"settings"}` (which
+   holds `collapsed_columns`) → `board_config.local.json`. There is no cross-file
+   transaction, and **project is written first**. A blanket in-memory rollback is
+   therefore wrong at one of the two boundaries:
 
-   Snapshot the three structures immediately before the removal step and restore them if
-   `save_metadata()` raises, then report the failure rather than raising:
+   **Boundary A — `save_project_config` raises.** Nothing durable was written. Roll back
+   `self.columns` / `self.column_order` / `collapsed_columns` to the pre-removal
+   snapshot; disk still holds the sources, so in-memory and disk agree again.
+   - Report `failed += [("<metadata>", f"config_write_failed: {exc}")]`,
+     `sources_removed = ()`.
+   - **Retry = re-run `merge_columns`**, and it converges on the same manager *and* a
+     fresh one: the sources are present on disk but empty (all members already moved),
+     so the re-run moves nothing and removes them.
+
+   **Boundary B — `save_local_config` raises after the project write SUCCEEDED.** The
+   column removal is **durable**; only the user-local half is pending.
+   - **Do NOT roll back `self.columns` / `self.column_order`.** Restoring them would
+     contradict disk, and because `save_metadata` writes `self.columns` **wholesale**
+     (`:1160-1166`), any later `save_metadata()` on that same manager — a collapse
+     toggle, an `add_column`, a reorder — would **resurrect the merged-away source
+     columns on disk**. The blanket rollback is not merely insufficient here; it is
+     actively harmful.
+   - Keep `collapsed_columns` pruned in memory: that *is* the desired end state, it
+     simply is not persisted yet.
+   - The merge structurally **succeeded** — tasks moved, columns removed durably. Report
+     it asymmetrically: `sources_removed` is **populated** (they really were removed),
+     plus `failed += [("<metadata:local>", f"local_cleanup_pending: {exc}")]`.
+   - **Retry is NOT `merge_columns`** — a fresh manager loads `columns` from disk with
+     the sources already gone, so `merge_columns(src, dest)` correctly refuses them as
+     unknown ids. The retry is a **metadata-only re-save**: `manager.save_metadata()`.
 
    ```python
    before = (list(self.columns), list(self.column_order),
              list(self.collapsed_columns))
+   ... remove sources from columns / column_order / collapsed_columns ...
    try:
-       ... remove sources ...; self.save_metadata()
+       self.save_metadata()
    except OSError as exc:
-       self.columns, self.column_order, self.collapsed_columns = (
-           before[0], before[1], before[2])
-       failed.append(("<metadata>", f"metadata_write_failed: {exc}"))
-       sources_removed = ()
+       if self._project_columns_on_disk_still_have(srcs):   # boundary A
+           self.columns, self.column_order, self.collapsed_columns = before
+           failed.append(("<metadata>", f"config_write_failed: {exc}"))
+           sources_removed = ()
+       else:                                                # boundary B
+           failed.append(("<metadata:local>", f"local_cleanup_pending: {exc}"))
+           # sources_removed stays populated; in-memory stays as-is
    ```
 
-   `"<metadata>"` is a reserved sentinel in the `failed` tuple — never a real filename —
-   so a caller can distinguish a task-write failure from a config-write failure. With
-   the rollback, both a same-manager retry and a fresh manager see the sources present
-   but empty, and converge by removing them.
+   Discriminate the boundary by **re-reading the project file** (`project_columns_at`,
+   already imported and used by `_reconcile_external_columns` at `:1123`) rather than by
+   guessing from the exception — the same fail-closed principle the reconciler uses.
+
+   `"<metadata>"` and `"<metadata:local>"` are reserved sentinels in `failed` — never
+   real filenames — so a caller can tell a task-write failure from a config-write
+   failure, and a *retryable merge* from a *pending local cleanup*.
+
+4b. **Durable recovery record: the orphan IS the record — no journal needed.** After
+   boundary B, disk carries a `collapsed_columns` entry naming a column absent from both
+   `columns` and `column_order`. That orphan signature is self-describing, so any later
+   session can converge without a merge retry. Add a **load-time prune** in
+   `load_metadata`: drop `collapsed_columns` entries naming neither an existing column
+   nor the synthetic unordered lane; the next natural `save_metadata()` persists it (do
+   not force a write on every board open). This also heals configs already corrupted by
+   the pre-existing §4 rename bug — the identical orphan class.
+
+   **⚠ The prune MUST whitelist `UNORDERED_ID`.** `unordered` is collapsible
+   (`is_column_collapsed("unordered")` at `:6894`, `:8271`, `:9714`, `:9739`) yet is
+   deliberately absent from `columns` — an unguarded "prune ids not in `columns`" would
+   silently drop a legitimately collapsed unordered lane. That is the trap in this
+   self-heal, and it gets its own test.
 
 5. **Distinct field — do not overload `refused`.** `MoveResult`'s docstring guarantees
    *"`refused` non-empty always means NOTHING was written"*; putting write failures
@@ -273,23 +318,29 @@ the partial state safe, self-describing, recoverable:
    @dataclass(frozen=True)
    class MergeResult:
        merged: tuple[str, ...] = ()
-       failed: tuple[tuple[str, str], ...] = ()     # (filename|"<metadata>", reason)
+       failed: tuple[tuple[str, str], ...] = ()     # (filename|"<metadata>"|"<metadata:local>", reason)
        sources_removed: tuple[str, ...] = ()
        refused: tuple[tuple[str, str], ...] = ()    # input validation only
        @property
        def complete(self) -> bool: return not (self.failed or self.refused)
    ```
 
-6. **Recovery = re-run, and it converges — on the same manager or a fresh one.** Rules 2
-   and 4 are what make that true: after either failure class, in-memory state matches
-   disk, so an already-moved member is genuinely absent from the source and an unmoved
-   one is genuinely present. A second run moves only the remainder and then removes the
-   now-empty source. Document this idempotence in the docstring as the retry contract,
-   **naming both retry paths** — it is what makes "leave it partial" acceptable.
+6. **Recovery converges — but the retry path depends on the failure class.** The unifying
+   rule is that in-memory state is left matching disk (rules 2, 4A, 4B), so a member is
+   absent from its source exactly when it really moved. Document all three in the
+   docstring as the retry contract:
 
-7. **t1377_5 must branch on `complete`** — partial gets a warning-severity toast naming
-   counts and the retry, never a bare "Merged". A `"<metadata>"` failure means the tasks
-   moved but the columns remain; word it as "tasks merged; column list not saved — retry".
+   | failure | in-memory after | retry |
+   |---|---|---|
+   | task write (`OSError`) | reconciled to disk via `Task.load()` | re-run `merge_columns` — same or fresh manager |
+   | metadata, boundary A | rolled back to pre-removal | re-run `merge_columns` — same or fresh manager |
+   | metadata, boundary B | left as-is (sources removed) | `save_metadata()`, **not** `merge_columns`; a fresh session also self-heals via the 4b load-time prune |
+
+7. **t1377_5 must branch on `complete` — and on which sentinel.** Partial gets a
+   warning-severity toast naming counts and the retry, never a bare "Merged":
+   - `"<metadata>"` → "tasks merged; column list not saved — retry the merge".
+   - `"<metadata:local>"` → the merge **did** land; word it as "columns merged; collapsed
+     state not saved" and retry the save, **never** re-offer the merge (it would refuse).
 
 ### 4. Fix `update_column`'s rename path
 
@@ -340,7 +391,11 @@ The write-spy patch point **is** the `OSError` injection seam.
 | **partial recovery — fresh manager** | same injection, then build a **new** `TaskManager` over the same tree and retry: also converges. Run *both* — a fresh instance reloads from disk and would mask the stale-mutation bug entirely, so the fresh-manager case alone is not evidence |
 | **failure attribution** | with the injection on member N of a 4-member source, `failed` names member N with the `OSError` text and members N+1.. with `not_attempted` — not one undifferentiated blob, and not the whole source |
 | **vanished file during merge** | delete a member's file after `names` is captured but before its write, so `Task.load()` returns `False`: it is reported `file_missing` in `failed` and is **not** counted in `merged`, and the source is not removed |
-| **metadata-write failure** | inject `OSError` at each of the two `save_metadata` write boundaries in turn (`save_project_config`, then `save_local_config`): (a) all task moves persisted; (b) `self.columns` / `self.column_order` / `collapsed_columns` **rolled back** to include the sources; (c) `complete is False` and `failed` carries the `"<metadata>"` sentinel; (d) `sources_removed` is empty; (e) retry on the same manager **and** on a fresh one both converge — sources empty, then removed |
+| **metadata failure — boundary A** (`save_project_config` raises) | (a) all task moves persisted; (b) `self.columns` / `self.column_order` / `collapsed_columns` **rolled back** to include the sources; (c) `complete is False`, `failed` carries the `"<metadata>"` sentinel, `sources_removed` empty; (d) re-running `merge_columns` on the same manager **and** on a fresh one both converge — sources empty, then removed |
+| **metadata failure — boundary B** (`save_local_config` raises, project write already succeeded) | (a) the source columns are **gone from `board_config.json` on disk**; (b) `self.columns` / `self.column_order` are **NOT** rolled back — they match disk; (c) `failed` carries `"<metadata:local>"` and `sources_removed` **is populated**; (d) `save_metadata()` on the same manager persists the pruned `collapsed_columns`; (e) **a fresh manager's `merge_columns(src, dest)` REFUSES with an unknown-column reason** — this replaces the impossible merge-retry assertion and pins that the retry path here is the save, not the merge |
+| **no resurrection after boundary B** | after the boundary-B failure, trigger any later `save_metadata()` on the same manager (e.g. `toggle_column_collapsed` on a surviving column) and assert the merged-away sources are **still absent** from `board_config.json` — the regression a blanket rollback would cause, since `save_metadata` writes `self.columns` wholesale |
+| **load-time orphan prune** (§4b) | seed `collapsed_columns` with an id present in neither `columns` nor `column_order`, construct a `TaskManager`, and assert it is dropped from `manager.collapsed_columns` and persisted on the next save — the durable self-heal for boundary B and for the §4 rename-orphan class |
+| **prune whitelists `unordered`** | seed `collapsed_columns = ["unordered"]` (absent from `columns` by design) and assert the prune **keeps** it and `is_column_collapsed("unordered")` stays `True` — negative control for the §4b trap |
 | rename migration | collapsed entry migrated, **with a negative control** reverting only the migration line and showing the test fail |
 
 Frozen tables: `FLIP_TABLE` (`test_board_movement.py`) stays green **unedited**.
@@ -370,6 +425,8 @@ Step 9 (Post-Implementation) handles cleanup, archival, and merge.
 ### Code-health risk: medium
 - `merge_columns` becomes a **second column-drain path** alongside `delete_column`, with different index arithmetic (fresh appended vs flat `board_idx = 0`). The convergence is owned by t1243_11 §4, which has not landed — so this is deliberate transitional duplication in one class · severity: medium · → mitigation: inline pre-phase characterize_delete_column_drain
 - The **non-transactional** partial-merge contract is subtle and encoded mostly in prose + one test; a later refactor that folds merge and delete onto a shared helper could silently introduce an all-or-nothing assumption a partial merge violates · severity: medium · → mitigation: inline pre-phase pin_write_before_config_ordering
+- **The two metadata write boundaries need opposite handling** (§3.4), and the wrong choice is silently destructive: rolling back in-memory state after the *project* write already succeeded would make a later `save_metadata()` resurrect merged-away columns, because `save_metadata` writes `self.columns` wholesale. Pinned by the boundary-A/B and no-resurrection tests · severity: medium · → mitigation: covered by the core test table
+- **§4b widens scope slightly** — a load-time `collapsed_columns` prune in `load_metadata`, a method this task otherwise does not touch. Justified as the durable recovery record for boundary B and as the heal for the §4 rename-orphan class, but it runs on every board open and must whitelist the synthetic `unordered` lane or it silently drops a legitimate collapse · severity: medium · → mitigation: the prune-whitelist negative control
 - **In-memory/disk divergence on a failed write** is the sharpest edge in this task: `reload_and_save_board_fields` leaves `task.board_col` at the destination when the save raises, and `get_column_tasks` filters on that in-memory value — so a recovery path that does not reconcile back to disk silently orphans a task onto a removed column. Handled explicitly (§3.2, §3.4) and pinned by the same-manager recovery and metadata-failure tests, but it is failure-path code with no live caller until t1377_5, so it is exercised only by those tests · severity: medium · → mitigation: covered by the core test table (same-manager + fresh-manager recovery, both metadata write boundaries)
 
 ### Goal-achievement risk: low
