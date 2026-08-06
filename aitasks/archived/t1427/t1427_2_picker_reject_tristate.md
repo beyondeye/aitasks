@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1427_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini, aitask_monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:18
-updated_at: 2026-08-06 00:09
+updated_at: 2026-08-06 09:28
+completed_at: 2026-08-06 09:28
 ---
 
 Picker-side reject action for t1427. Depends on t1427_1 (the store helper
@@ -109,3 +110,14 @@ store entries (concurrent cross-session editing is out of scope).
 > **✅ gate:plan_approved** run=2026-08-05T21:09:14Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-06T05:54:40Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-06T05:55:18Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:80ba8a3c4e582e29
+
+> **✅ gate:risk_evaluated** run=2026-08-06T05:55:18Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1427_2/risk_evaluated_2026-08-06T05:55:18Z-risk_evaluated-a1.log`
