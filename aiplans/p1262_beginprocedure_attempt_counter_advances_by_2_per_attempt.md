@@ -518,3 +518,73 @@ pipe's status, not the suite's (CLAUDE.md, "Piping discards the status").
   terminal-count was for double-begin) · severity: low · → mitigation: inline —
   each of the four rules in §Context is stated at the source and has a dedicated
   regression test, and each new test is proven to fail before the fix.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented all four rules as planned, across 9 files.
+  `aitask_gate.sh` gained `TERMINAL_STATUSES` + `is_terminal_status`, a new
+  `_gate_run_state` (one awk pass returning the live run and the terminal count,
+  backend-aware), and a `cmd_append` split into a lock-holding entry point plus
+  `_gate_append_locked` with the `AIT_GATES_BACKEND` branch hoisted inside it;
+  `cmd_begin_procedure` now holds one lock across its live-run check and append,
+  adopts an open run instead of opening a second, and generates run ids shaped
+  `<iso>-<gate>-a<attempt>`. `gate_ledger.py` gained `TERMINAL_STATUSES`,
+  `next_attempt()`, `live_run()` and a `run-state` CLI verb, and `build_block`
+  now auto-numbers every terminal status. `gate_orchestrator.py` got comments
+  only — `_attempts_used` and every retry-budget check are byte-identical, so
+  the task's "budget is not affected" invariant is preserved by construction.
+
+- **Deviations from plan:** Two, both from review concerns raised against the
+  plan and verified against the source before acting.
+  1. The plan's `_gate_run_state` recorded a run's latest status only for
+     terminal and `running` markers, while `gate_ledger.live_run` recorded it
+     for every status. On the history `running run=r1` → `pending run=r1` the
+     backends diverged — and bash was outright broken, not merely different: it
+     adopted `r1`, whose latest marker is `pending`, so the closing
+     `append --only-if-running r1` was a silent no-op (measured: 3 markers → 3)
+     and the gate could never be closed. Fixed by recording `last[rid]` for
+     every status, making the scan apply the same per-run-id rule as
+     `_gate_run_is_running`. That equality is the real invariant behind
+     adoption; it is now stated in the helper comment.
+  2. `test_gate_recorded_pass.sh` asserted that a `skip` row renders with no
+     attempt — a flip the plan's survey missed because that grep was truncated
+     with `head -20`. Its actual guard is that an *empty* attempt field must not
+     collapse the US-separated derivation table; `skip` was only the fixture
+     producing one. Retargeted at the `pending` row (genuinely attempt-less by
+     design and already in the fixture) and added an assertion pinning that a
+     `skip` now carries an attempt, so the guard is preserved rather than
+     silently made vacuous.
+
+- **Issues encountered:** The BSD-awk portability guard in
+  `tests/test_gate_ledger.sh` greps for a 3-arg `match()` with a regex that also
+  matches a 2-arg `match()` sharing a line with a 3-arg `substr()` — and, at
+  first, my own comment containing a literal `match(str, re, arr)`. Split the
+  RSTART/RLENGTH extractions onto their own lines (the idiom the existing code
+  already uses) and reworded the comment; noted in-place so nobody "fixes" it
+  back.
+
+- **Key decisions:**
+  - Counting rule is **terminal runs + 1**, not `_attempts_used`'s `fail|error`
+    count. They coincide on every path that re-dispatches a gate (a `pass`/`skip`
+    gate is never re-run), and where they would differ, terminal-counting never
+    writes a duplicate `attempt=N` for two run ids. `gate_orchestrator.py:347`
+    deliberately keeps the budget count, since the number it reports sits beside
+    the budget; both docstrings now name the split.
+  - A malformed-verifier correction counts as its own terminal run — matching
+    what the retry budget already charges, so ordinal and budget stay in
+    lockstep. Tested against both implementations rather than assumed.
+  - `begin-procedure` **adopts** a live run rather than closing it as `error`:
+    an auto-written `error` would spend retry budget on a crash.
+  - The `-a<attempt>` run-id suffix is load-bearing, not cosmetic. The live e2e
+    run produced all six markers within one second; the bare timestamp made runs
+    indistinguishable, and it is what keeps the tests deterministic without
+    sleeps.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_merge.py:354-361` — guard 2b returns `None`
+    (disabling the gate-ledger union fast path) when one `(name, run, attempt)`
+    key maps to more than one distinct block text. A `running` block and its
+    terminal closer already share all three keys by design — the orchestrator
+    passes the same `run` and `attempt` to both — so the fast path is
+    effectively disabled for every machine and procedure gate today. Pre-existing;
+    neither caused nor fixed by this task.
