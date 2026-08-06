@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 09:55
-updated_at: 2026-08-06 08:54
+updated_at: 2026-08-06 10:55
 ---
 
 ## Context
@@ -237,3 +238,8 @@ gate — but re-check against t1369's result if it lands first.
 `aitask_board.py` is edited by other in-flight tasks (t1243_4 was mid-flight during
 planning). Re-read the file before editing, grep for symbols rather than trusting
 line numbers, stage explicit paths, and never `git stash` / `git add -A` here.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-06T07:55:29Z status=pass attempt=1 type=human
