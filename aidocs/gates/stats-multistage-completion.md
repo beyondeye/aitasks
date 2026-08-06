@@ -144,10 +144,14 @@ Per the agreed scope, two further ledger-enabled metrics are specified here so t
 follow-up is turnkey:
 
 - **Per-gate pass/fail/retry rates.** For each gate name across the archived (and
-  optionally in-flight) population, count `pass`/`fail` runs and average `attempt=`
-  (retry depth). Surfaces framework health (which gates fail/retry most). A CLI
-  table + a TUI pane (e.g. `pipeline.gate_health`). Derive from
-  `parse_gate_run_blocks` (all runs, not just last-wins) so retries are visible.
+  optionally in-flight) population, count `pass`/`fail` runs. **Retry depth is the
+  count of `fail`/`error` runs per gate** — do *not* average `attempt=` for it:
+  `attempt` is the gate's run **ordinal**, which also advances on `skip` and on a
+  malformed-verifier correction (t1262), so its mean is not a retry statistic.
+  (`gate_orchestrator._attempts_used` is the retry-depth notion; `attempt=` is
+  useful for ordering runs within a gate.) Surfaces framework health (which gates
+  fail/retry most). A CLI table + a TUI pane (e.g. `pipeline.gate_health`). Derive
+  from `parse_gate_run_blocks` (all runs, not just last-wins) so retries are visible.
 - **Pending-human wait.** Time a gate sat `pending` before `pass`: requires a
   `pending` marker with a `run=` ts followed by a later `pass` for the same gate;
   compute the delta per gate and aggregate. Data-sparse today (most gates record

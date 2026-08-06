@@ -248,7 +248,7 @@ Every gate run appends a **marker-first blockquote** to a dedicated `## Gate Run
 ```
 
 **Format rules.**
-- **Marker line** — always the first line of the block, always starts with `> **<icon> gate:<name>**`, always contains `run=<ISO-8601-Z>` and `status=<pass|fail|pending|running|skip|error>`. For machine gates also `attempt=<N>` and `duration=<s>`. Icons: `✅` pass, `❌` fail, `⏸` pending, `🔄` running, `⏭` skip, `⚠` error.
+- **Marker line** — always the first line of the block, always starts with `> **<icon> gate:<name>**`, always contains `run=<ISO-8601-Z>` and `status=<pass|fail|pending|running|skip|error>`. Every **terminal** run (`pass`/`fail`/`skip`/`error`) also carries `attempt=<N>`, human gates included; `running` blocks carry the attempt of the run they open, and `pending` blocks carry none. Machine gates additionally carry `duration=<s>`. Icons: `✅` pass, `❌` fail, `⏸` pending, `🔄` running, `⏭` skip, `⚠` error.
 - **Body lines** — prefixed with `> ` (standard markdown blockquote). Blank line (`>` alone) separates the marker from the body. Body holds verifier name, command summary, result summary, sidecar log path. Keep it short — detail goes in the sidecar log.
 - **Block terminator** — next `> **` marker line, next `##` heading, or EOF. No closing fence. This avoids the mismatched-closer bug of paired fences when two runs of the same gate back-to-back appear.
 - **Always append.** Never rewrite or delete historical gate runs. A re-run produces a new block; `ait gate status` determines *current* status by scanning back-to-front and taking the first block per gate name.
@@ -324,10 +324,11 @@ The orchestrator guarantees:
 
 1. **Idempotent on no-op.** Running `aitask-run-gates t42` twice in a row with no state change produces the same reports and appends nothing.
 2. **Skip-already-passed.** Gates currently in `pass` state are not re-run unless explicitly forced with `--gate <name>`. **One carve-out (t1409):** a human gate whose code-bound `file-touch` witness was signed against a *different* code state is demoted out of the derived state before this rule is applied, so it is re-observed and re-pends. Nothing else re-opens a pass — an absent or unstamped witness, and an unverifiable digest, all leave the pass intact.
-3. **Retry within budget.** Failed gates are re-run up to `max_retries + 1` total attempts; the (attempt) counter increments per append.
-4. **Stop at pending-human.** The orchestrator never self-signals a human gate. If a pending-human block has no signal, it stays pending and execution stops for that branch.
-5. **No partial frontmatter writes.** The orchestrator never touches `gates:` in frontmatter. It only appends to `## Gate Runs`.
-6. **Concurrency safety.** Parallel machine-gate execution uses a task-level file lock (reusing aitasks's existing lock mechanism) around appends. Each verifier's append is atomic.
+3. **Retry within budget.** Failed gates are re-run up to `max_retries + 1` total attempts. `attempt=<N>` is the gate's **run ordinal**: it increments once per *terminal* run (`pass`/`fail`/`skip`/`error`), never per append — so a `running` block and the terminal block that closes it carry the **same** number (see the worked example below). The retry **budget** is a separate count, spent only by `fail`/`error`, so a forced `--gate` re-run of an already-passed gate advances the ordinal without spending budget.
+4. **One live run per gate.** A gate has at most one open `running` block (one with no terminal marker for the same run id). A repeat `begin-procedure` — a crash/resume re-dispatch or a concurrent launch — **adopts** the open run (same run id, same attempt, nothing appended) rather than opening a second.
+5. **Stop at pending-human.** The orchestrator never self-signals a human gate. If a pending-human block has no signal, it stays pending and execution stops for that branch.
+6. **No partial frontmatter writes.** The orchestrator never touches `gates:` in frontmatter. It only appends to `## Gate Runs`.
+7. **Concurrency safety.** Parallel machine-gate execution uses a task-level file lock (reusing aitasks's existing lock mechanism) around appends. Each verifier's append is atomic.
 
 ## Verifier skill contract
 

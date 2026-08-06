@@ -196,8 +196,70 @@ def _check_is_stuck():
           go.is_stuck(one, "AAA"))
 
 
+def _check_next_attempt_and_live_run():
+    """The attempt ORDINAL counts terminal runs only, and is deliberately NOT the
+    retry-BUDGET count (t1262)."""
+    def ledger(*markers):
+        """Each marker is `<gate> <k=v ...>`; rendered as a real marker line."""
+        body = ""
+        for m in markers:
+            name, _, fields = m.partition(" ")
+            body += f"> **x gate:{name}** {fields}\n\n"
+        return "## Gate Runs\n\n" + body
+
+    check("no runs -> attempt 1", 1, gl.next_attempt(ledger(), "g"))
+    check("one fail -> attempt 2", 2,
+          gl.next_attempt(ledger("g run=r1 status=fail attempt=1"), "g"))
+    # The running block does not advance the counter: its closer shares its number.
+    check("running + fail is ONE attempt -> next is 2", 2,
+          gl.next_attempt(ledger("g run=r1 status=running attempt=1",
+                                 "g run=r1 status=fail attempt=1"), "g"))
+    check("running alone consumes nothing -> attempt 1", 1,
+          gl.next_attempt(ledger("g run=r1 status=running attempt=1"), "g"))
+    check("pending consumes nothing -> attempt 1", 1,
+          gl.next_attempt(ledger("g run=r1 status=pending"), "g"))
+    check("skip is terminal -> attempt 2", 2,
+          gl.next_attempt(ledger("g run=r1 status=skip attempt=1"), "g"))
+    check("other gates are not counted", 1,
+          gl.next_attempt(ledger("h run=r1 status=fail attempt=1"), "g"))
+
+    # The ordinal/budget split, pinned so a future refactor cannot silently
+    # collapse the two into one function.
+    class _R:
+        def __init__(self, status):
+            self.status = status
+    check("_attempts_used counts a pass as 0 budget spent", 0,
+          go._attempts_used([_R("pass")]))
+    check("...while the ordinal counts it as a run", 2,
+          gl.next_attempt(ledger("g run=r1 status=pass attempt=1"), "g"))
+
+    # live_run: at most one, closed by a terminal marker with the same run id.
+    check("no live run on an empty ledger", None, gl.live_run(ledger(), "g"))
+    check("open running run is live", ("r1", "1"),
+          gl.live_run(ledger("g run=r1 status=running attempt=1"), "g"))
+    check("a terminal marker for the same run id closes it", None,
+          gl.live_run(ledger("g run=r1 status=running attempt=1",
+                             "g run=r1 status=fail attempt=1"), "g"))
+    check("a terminal marker for a DIFFERENT run leaves it live", ("r2", "2"),
+          gl.live_run(ledger("g run=r1 status=fail attempt=1",
+                             "g run=r2 status=running attempt=2"), "g"))
+    # A `pending` for the same run id ends the window too: `--only-if-running`
+    # takes the LAST marker for that id, so a run left pending can no longer be
+    # closed and must not be reported live (t1262).
+    check("a pending marker for the same run id ends the live window", None,
+          gl.live_run(ledger("g run=r1 status=running attempt=1",
+                             "g run=r1 status=pending"), "g"))
+    check("a later running marker re-opens the window", ("r1", "2"),
+          gl.live_run(ledger("g run=r1 status=running attempt=1",
+                             "g run=r1 status=pending",
+                             "g run=r1 status=running attempt=2"), "g"))
+    check("a run with no run id is never live", None,
+          gl.live_run(ledger("g status=running attempt=1"), "g"))
+
+
 _CHECKS = (_check_registry_keys, _check_compute_unlocked_linear, _check_compute_unlocked_dag,
-           _check_compute_unlocked_budget, _check_skip_satisfies_archive_and_deps, _check_is_stuck)
+           _check_compute_unlocked_budget, _check_skip_satisfies_archive_and_deps, _check_is_stuck,
+           _check_next_attempt_and_live_run)
 
 
 def main() -> int:

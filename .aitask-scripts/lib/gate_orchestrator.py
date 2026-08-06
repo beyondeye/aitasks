@@ -78,7 +78,13 @@ def _runs_by_gate(runs: list) -> dict[str, list]:
 
 
 def _attempts_used(runs_for_gate: list) -> int:
-    """Attempts consumed = terminal fail/error runs (pass/skip satisfy; running/pending don't count)."""
+    """Attempts consumed = terminal fail/error runs (pass/skip satisfy; running/pending don't count).
+
+    BUDGET consumption only. The ledger's attempt ORDINAL is
+    ``gate_ledger.next_attempt`` — a different question, which counts every
+    terminal run. They coincide on every path that re-dispatches a gate; see that
+    function's docstring for where and why they are allowed to diverge (t1262).
+    """
     return sum(1 for r in runs_for_gate if r.status in ("fail", "error"))
 
 
@@ -344,6 +350,9 @@ class Engine:
 
     def _run_machine_gate(self, gate: str, runs_by_gate: dict) -> None:
         meta = self.registry.get(gate, {})
+        # Budget slot k of max_retries+1, deliberately NOT gl.next_attempt (the
+        # ledger ordinal) — line 359 reports this number alongside the budget, so
+        # it must stay the budget's own count. See gl.next_attempt (t1262).
         attempt = _attempts_used(runs_by_gate.get(gate, [])) + 1
         run_id = f"{gl.iso_now()}-{gate}-a{attempt}"
         note = f"stuckhash:{self.digest}" if self.digest else None

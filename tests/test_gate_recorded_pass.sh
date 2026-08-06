@@ -160,10 +160,13 @@ test_status_parity_after_extraction() {
     fi
     setup
     make_task 706
-    # `attempt` auto-increments for pass/fail ONLY, so a skip run has an EMPTY
-    # attempt field. That empty field is the regression this asserts: a
+    # `attempt` is auto-assigned to every TERMINAL run (pass/fail/skip/error) but
+    # NOT to the non-terminal running/pending ones (t1262), so a pending run has
+    # an EMPTY attempt field. That empty field is the regression this asserts: a
     # tab-separated derivation table would let `read` collapse it and shift the
-    # run id into the attempt column.
+    # run id into the attempt column. The pending row is what carries that guard
+    # — before t1262 the skip row did, but a skip is a terminal run and is now
+    # numbered like any other.
     "$GATE" append 706 plan_approved pass type=human >/dev/null
     "$GATE" append 706 review_approved skip type=human >/dev/null
     "$GATE" append 706 merge_approved pending type=human >/dev/null
@@ -175,10 +178,12 @@ test_status_parity_after_extraction() {
 
     # Pin the empty-attempt shape explicitly so the parity assert cannot pass
     # by both backends being wrong in the same way.
-    assert_contains_re "skip row renders (run …) with no attempt" \
-        '^review_approved: skip \(run [^,]*\)$' "$out_bash"
+    assert_contains_re "pending row renders (run …) with no attempt" \
+        '^merge_approved: pending \(run [^,]*\)$' "$out_bash"
     assert_contains_re "pass row renders attempt AND run" \
         '^plan_approved: pass \(attempt 1, run .*\)$' "$out_bash"
+    assert_contains_re "skip row is a terminal run and renders attempt AND run" \
+        '^review_approved: skip \(attempt 1, run .*\)$' "$out_bash"
 }
 
 # --- Run ---

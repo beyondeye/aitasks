@@ -81,6 +81,59 @@ status_out=$("$GATE" status 10)
 assert_contains "derive last-wins -> pass" "tests_pass: pass (attempt 2, run 2026-01-01T01:00:00Z)" "$status_out"
 
 # ============================================================
+echo "--- append: only TERMINAL runs consume an attempt (t1262) ---"
+# ============================================================
+# A completed attempt leaves TWO markers — the `running` block and the terminal
+# block that closes it — so counting every marker advanced the counter by 2 per
+# attempt. Only pass/fail/skip/error consume a number; running/pending do not.
+make_task 12
+"$GATE" append 12 lint running run=r1 attempt=1 type=machine >/dev/null
+# SAME run id, `attempt=` omitted: proves the terminal block CLOSES the live run
+# and inherits its number, not merely that markers are counted.
+out=$("$GATE" append 12 lint pass run=r1)
+assert_contains "terminal closing run r1 keeps its run id" "run=r1" "$out"
+assert_contains "terminal closing run r1 reuses attempt 1" "attempt=1" "$out"
+
+out=$("$GATE" append 12 lint fail run=r2)
+assert_contains "next attempt after one terminal run = 2" "attempt=2" "$out"
+
+"$GATE" append 12 lint pending run=r3 type=human >/dev/null
+out=$("$GATE" append 12 lint skip run=r4)
+assert_contains "pending consumed nothing; skip is numbered too" "attempt=3" "$out"
+
+out=$("$GATE" append 12 lint error run=r5)
+assert_contains "error is a terminal status and is numbered" "attempt=4" "$out"
+
+# ============================================================
+echo "--- append: malformed-verifier correction is its own run (t1262) ---"
+# ============================================================
+# gate_orchestrator.reconcile_terminal() appends a FRESH-run-id `error` when a
+# verifier self-reports a status contradicting its exit code, reusing the same
+# explicit attempt. One dispatch therefore leaves two terminal markers, and both
+# count — matching what the retry budget (_attempts_used, which counts fail AND
+# error) already charges for that dispatch.
+make_task 13
+"$GATE" append 13 tests_pass running run=c1 attempt=1 type=machine >/dev/null
+"$GATE" append 13 tests_pass fail run=c1 attempt=1 type=machine >/dev/null
+"$GATE" append 13 tests_pass error run=c2 attempt=1 type=machine \
+    note="malformed: verifier reported fail but exit code mapped to error" >/dev/null
+out=$("$GATE" append 13 tests_pass fail run=c3)
+assert_contains "correction counts as its own terminal run -> next attempt 3" \
+    "attempt=3" "$out"
+if [[ -n "$PY" ]]; then
+    # ... and the retry budget agrees, so the ordinal and the budget stay in
+    # lockstep on this path rather than being assumed equal.
+    used=$("$PY" -c "
+import sys; sys.path.insert(0, '$PROJECT_DIR/.aitask-scripts/lib')
+import gate_ledger as gl, gate_orchestrator as go
+runs = [r for r in gl.parse_gate_run_blocks(open('$TASK_DIR/t13_demo.md', encoding='utf-8').read())
+        if r.name == 'tests_pass' and r.run_id != 'c3']
+print(go._attempts_used(runs) + 1)
+")
+    assert_eq "ordinal agrees with _attempts_used+1 on the correction path" "3" "$used"
+fi
+
+# ============================================================
 echo "--- append: pending human gate (no attempt) + multi-gate status ---"
 # ============================================================
 out=$("$GATE" append 10 review pending type=human run=2026-01-01T02:00:00Z note="awaiting sign-off")
@@ -137,6 +190,31 @@ if [[ -n "$PY" ]]; then
     block_bash=$(sed -n '/## Gate Runs/,$p' "$TASK_DIR/t20_demo.md")
     block_py=$(sed -n '/## Gate Runs/,$p' "$TASK_DIR/t21_demo.md")
     assert_eq "append-block parity (bash vs python)" "$block_bash" "$block_py"
+
+    # AUTO-attempt parity (t1262): the drift guard between bash's TERMINAL_STATUSES
+    # scan and gate_ledger.next_attempt(). `AIT_GATES_BACKEND=python` delegates the
+    # whole append before the bash auto path, so this genuinely exercises
+    # build_block's computation, not just its formatting. Run ids are pinned, so
+    # the comparison carries no wall-clock dependency.
+    make_task 24            # bash target
+    make_task 25            # python target
+    for spec in "running r1 attempt=1" "pass r1 -" "fail r2 -" "skip r3 -" "error r4 -"; do
+        set -- $spec
+        st="$1"; rid="$2"; extra="$3"
+        [[ "$extra" == "-" ]] && extra=""
+        # shellcheck disable=SC2086
+        "$GATE" append 24 tests_pass "$st" run="$rid" $extra type=machine >/dev/null
+        # shellcheck disable=SC2086
+        AIT_GATES_BACKEND=python "$GATE" append 25 tests_pass "$st" run="$rid" $extra type=machine >/dev/null
+    done
+    auto_bash=$(sed -n '/## Gate Runs/,$p' "$TASK_DIR/t24_demo.md")
+    auto_py=$(sed -n '/## Gate Runs/,$p' "$TASK_DIR/t25_demo.md")
+    assert_eq "auto-attempt parity across terminal statuses (bash vs python)" \
+        "$auto_bash" "$auto_py"
+    assert_contains "auto-attempt: bash closer reuses the running block's 1" \
+        "status=pass attempt=1" "$auto_bash"
+    assert_contains "auto-attempt: python closer reuses the running block's 1" \
+        "status=pass attempt=1" "$auto_py"
 else
     echo "SKIP: no python interpreter resolved — skipping bash<->python parity"
 fi

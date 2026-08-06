@@ -31,6 +31,10 @@ CLI:
                                     (t1409).
     gate_ledger.py resume-point  <task-file>
                                  -> PLAN | IMPLEMENT | POSTIMPL (t635_5)
+    gate_ledger.py run-state     <task-file> <gate>
+                                 -> OPEN:<run-id>|<attempt> / TERMINAL:<n>, the
+                                    python twin of aitask_gate.sh's
+                                    _gate_run_state (t1262)
     gate_ledger.py active        <task-file> <gate>
                                  -> exit 0 iff gate in the enforced active set
                                     (t635_33; python twin of the bash verb)
@@ -64,6 +68,13 @@ VALID_STATUSES = ("pass", "fail", "pending", "running", "skip", "error")
 # (t635_11). ``skip`` = "evaluated, not applicable" → terminal-satisfied, kept
 # distinct from ``pass`` in history but never blocking.
 SATISFIED_STATUSES = frozenset({"pass", "skip"})
+
+# Statuses that mean a run reached a VERDICT — the ones that CLOSE an attempt.
+# Deliberately distinct from SATISFIED_STATUSES ({pass, skip}), which asks
+# whether a gate is *done*; this asks whether an attempt *ended*. `running` and
+# `pending` are in-progress bookkeeping and never advance the attempt counter
+# (t1262). Mirrors TERMINAL_STATUSES in aitask_gate.sh.
+TERMINAL_STATUSES = frozenset({"pass", "fail", "skip", "error"})
 ICONS = {
     "pass": "✅",     # ✅
     "fail": "❌",     # ❌
@@ -244,6 +255,55 @@ def parse_gate_runs(text: str) -> list[dict]:
     return [run.as_legacy_dict() for run in parse_gate_run_blocks(text)]
 
 
+def next_attempt(text: str, gate: str) -> int:
+    """Attempt ORDINAL for a new run of ``gate`` = terminal runs so far + 1.
+
+    A completed attempt is ONE terminal marker (:data:`TERMINAL_STATUSES`), so the
+    ``running`` block a run opens and the terminal block that closes it carry the
+    SAME number. Counting every marker instead made the counter advance by 2 per
+    attempt (t1262).
+
+    Deliberately NOT ``gate_orchestrator._attempts_used() + 1``: that counts only
+    ``fail``/``error`` because it answers a different question — how much RETRY
+    BUDGET is spent. The two coincide on every path that re-dispatches a gate (a
+    ``pass``/``skip`` gate is never re-run: the orchestrator skips it and
+    :func:`unmet_procedure_gates` filters it out) and are allowed to diverge
+    elsewhere, e.g. a re-recorded human gate advances the ordinal without
+    spending budget. A malformed-verifier correction
+    (``gate_orchestrator.reconcile_terminal``) writes a second terminal marker
+    for one dispatch and counts here as its own run — the budget charges it the
+    same way, so the two stay in lockstep there.
+
+    Mirrored in bash by ``aitask_gate.sh``'s ``_gate_run_state``.
+    """
+    return 1 + sum(1 for r in parse_gate_run_blocks(text)
+                   if r.name == gate and r.status in TERMINAL_STATUSES)
+
+
+def live_run(text: str, gate: str) -> tuple[str, str] | None:
+    """``(run_id, attempt)`` of ``gate``'s open run, or ``None`` if none is live.
+
+    A run is LIVE when its latest marker is ``running``; any terminal marker
+    carrying the same run id closes it. A gate has at most one live run, which is
+    what ``begin-procedure`` adopts instead of opening a second (t1262).
+    """
+    latest: dict[str, str] = {}
+    attempts: dict[str, str] = {}
+    order: list[str] = []
+    for r in parse_gate_run_blocks(text):
+        if r.name != gate or not r.run_id:
+            continue
+        if r.run_id not in latest:
+            order.append(r.run_id)
+        latest[r.run_id] = r.status
+        if r.status == "running":
+            attempts[r.run_id] = r.attempt
+    for run_id in reversed(order):
+        if latest[run_id] == "running":
+            return run_id, attempts.get(run_id, "")
+    return None
+
+
 def derive_status(text: str) -> dict[str, dict]:
     """Map gate name -> its current run (the last marker in file order wins)."""
     return {name: run.as_legacy_dict() for name, run in derive_gate_runs(text).items()}
@@ -311,17 +371,17 @@ def compact_gate_summary(state: TaskGateState) -> str:
 def build_block(text: str, gate: str, status: str, fields: dict) -> str:
     """Build the marker-first blockquote for one gate run (no trailing newline).
 
-    ``attempt`` is taken from ``fields`` if present, else auto-computed for
-    pass/fail as (existing runs for this gate) + 1, else omitted. ``run`` is
-    taken from ``fields`` if present, else generated as an ISO-8601-Z stamp.
+    ``attempt`` is taken from ``fields`` if present, else auto-computed for any
+    TERMINAL status as (terminal runs for this gate) + 1 — see
+    :func:`next_attempt` — else omitted. ``run`` is taken from ``fields`` if
+    present, else generated as an ISO-8601-Z stamp.
     """
     fields = dict(fields)
     run_id = fields.pop("run", None) or iso_now()
 
     attempt = fields.pop("attempt", None)
-    if attempt is None and status in ("pass", "fail"):
-        existing = sum(1 for r in parse_gate_runs(text) if r["name"] == gate)
-        attempt = str(existing + 1)
+    if attempt is None and status in TERMINAL_STATUSES:
+        attempt = str(next_attempt(text, gate))
 
     icon = ICONS.get(status, "⚠")
     marker = f"> **{icon} gate:{gate}** run={run_id} status={status}"
@@ -1747,6 +1807,18 @@ def main(argv: list[str]) -> int:
             sys.stderr.write("Usage: gate_ledger.py recorded-pass <file> <gate>\n")
             return 2
         return 0 if recorded_pass(argv[1], argv[2]) else 1
+
+    if cmd == "run-state":
+        if len(argv) < 3:
+            sys.stderr.write("Usage: gate_ledger.py run-state <file> <gate>\n")
+            return 2
+        with open(argv[1], encoding="utf-8") as fh:
+            text = fh.read()
+        open_run = live_run(text, argv[2])
+        run_id, attempt = open_run if open_run else ("", "")
+        sys.stdout.write(f"OPEN:{run_id}|{attempt}\n")
+        sys.stdout.write(f"TERMINAL:{next_attempt(text, argv[2]) - 1}\n")
+        return 0
 
     if cmd == "effective-gates":
         if len(argv) < 2:

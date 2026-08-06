@@ -70,6 +70,13 @@ REGISTRY="${TASK_DIR}/metadata/gates.yaml"
 GATES_REFERENCE="${AIT_GATES_REFERENCE:-$SCRIPT_DIR/gates_reference.yaml}"
 
 VALID_STATUSES="pass fail pending running skip error"
+# Runs that reached a VERDICT — the ones that CLOSE an attempt. `running` and
+# `pending` are in-progress bookkeeping and never consume an attempt number: a
+# completed attempt leaves a `running` marker AND its terminal marker, so
+# counting every marker advanced the counter by 2 per attempt (t1262). Mirrors
+# TERMINAL_STATUSES in lib/gate_ledger.py; the bash<->python parity cases in
+# tests/test_gate_ledger.sh keep the two honest.
+TERMINAL_STATUSES="pass fail skip error"
 
 # --- Helpers ---------------------------------------------------------------
 
@@ -88,6 +95,12 @@ gate_icon() {
 is_valid_status() {
     local s
     for s in $VALID_STATUSES; do [[ "$1" == "$s" ]] && return 0; done
+    return 1
+}
+
+is_terminal_status() {
+    local s
+    for s in $TERMINAL_STATUSES; do [[ "$1" == "$s" ]] && return 0; done
     return 1
 }
 
@@ -164,6 +177,68 @@ _gate_run_is_running() {
     [[ "$last" == "running" ]]
 }
 
+# _gate_run_state <file> <gate> — the ledger facts a new run needs, in one pass:
+#
+#   OPEN:<run-id>|<attempt>    (both empty when no run is live)
+#   TERMINAL:<n>
+#
+# A run is LIVE when its latest marker is `running` — the SAME rule
+# _gate_run_is_running applies per run id, which is what makes an adopted run one
+# that `append --only-if-running` can actually close. Any later marker for that
+# run id (terminal OR `pending`) ends the window. <n> counts TERMINAL markers
+# only, so the caller's `n + 1` gives the next attempt ORDINAL: the `running`
+# block a run opens and the terminal block that closes it share one number
+# (t1262). A marker with no parseable status= counts as neither — malformed data
+# must not inflate the counter. Mirrors gate_ledger.live_run + next_attempt.
+#
+# Honors the documented AIT_GATES_BACKEND escape hatch so `begin-procedure`'s
+# READ half is substitutable too, not just its append.
+#
+# 2-arg match() only -- the gawk-only 3-argument form is a hard syntax error
+# under BSD awk, and tests/test_gate_ledger.sh greps this file for it. That grep
+# also trips on a 2-arg match() sharing a line with a 3-arg substr(), so the
+# RSTART/RLENGTH extractions below stay on their own lines.
+_gate_run_state() {
+    local file="$1" gate="$2"
+    if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
+        delegate_python run-state "$file" "$gate" && return 0
+        die "python gate_ledger run-state failed"
+    fi
+    awk -v g="$gate" -v terms=" $TERMINAL_STATUSES " '
+        /^>[[:space:]]*\*\*/ && /gate:/ {
+            if (!match($0, /gate:[A-Za-z0-9_]+/)) next
+            if (substr($0, RSTART + 5, RLENGTH - 5) != g) next
+            if (!match($0, /status=[A-Za-z]+/)) next
+            st = substr($0, RSTART + 7, RLENGTH - 7)
+            rid = ""
+            if (match($0, /run=[^ ]+/)) {
+                rid = substr($0, RSTART + 4, RLENGTH - 4)
+            }
+            if (index(terms, " " st " ") > 0) n++
+            if (rid == "") next
+            if (!(rid in seen)) { seen[rid] = 1; order[++k] = rid }
+            # EVERY status updates the run latest — not just terminal/running.
+            # A `pending` marker for a live run id closes the live-run window,
+            # because that is exactly what _gate_run_is_running (and therefore
+            # `append --only-if-running`) sees. Recording only terminal/running
+            # let this scan adopt a run whose closer is a silent no-op, so the
+            # gate could never be closed (t1262).
+            last[rid] = st
+            if (st == "running") {
+                if (match($0, /attempt=[0-9]+/)) {
+                    att[rid] = substr($0, RSTART + 8, RLENGTH - 8)
+                }
+            }
+        }
+        END {
+            open_rid = ""
+            for (i = k; i >= 1; i--) if (last[order[i]] == "running") { open_rid = order[i]; break }
+            printf "OPEN:%s|%s\n", open_rid, (open_rid == "" ? "" : att[open_rid])
+            printf "TERMINAL:%d\n", n + 0
+        }
+    ' "$file" 2>/dev/null
+}
+
 # --- append ----------------------------------------------------------------
 
 cmd_append() {
@@ -188,19 +263,42 @@ cmd_append() {
     local file
     file="$(resolve_task_file "$task_id")"
 
-    # Explicit python backend: delegate the whole append.
+    local key="${task_id//\//_}"
+    acquire_gate_lock "$key"
+    # shellcheck disable=SC2064
+    trap 'release_gate_lock' EXIT
+
+    # `--only-if-running` guard (atomic under the lock): if a terminal block was
+    # already written for this run id, do nothing. Checked ONCE here, for both
+    # backends — it used to be written twice, once per branch.
+    if [[ -n "$only_if_running" ]] && ! _gate_run_is_running "$file" "$only_if_running"; then
+        release_gate_lock; trap - EXIT
+        return 0
+    fi
+
+    _gate_append_locked "$file" "$gate" "$status" "$@"
+    local rc=$?
+
+    release_gate_lock
+    trap - EXIT
+    return "$rc"
+}
+
+# Append one gate-run block. ASSUMES THE CALLER HOLDS THE GATE LOCK for this
+# task — it never locks and never unlocks, so `cmd_begin_procedure` can hold the
+# lock across its live-run check and this append (the mkdir lock is not
+# reentrant, so it cannot call cmd_append). Echoes the block it wrote.
+_gate_append_locked() {
+    local file="$1" gate="$2" status="$3"
+    shift 3
+
+    # The documented AIT_GATES_BACKEND escape hatch lives HERE, not in
+    # cmd_append, so EVERY entry point reaches it — including begin-procedure,
+    # whose `running` block would otherwise stay bash-only under the python
+    # backend.
     if [[ "${AIT_GATES_BACKEND:-}" == "python" ]]; then
-        local key="${task_id//\//_}"
-        acquire_gate_lock "$key"
-        # shellcheck disable=SC2064
-        trap 'release_gate_lock' EXIT
-        if [[ -n "$only_if_running" ]] && ! _gate_run_is_running "$file" "$only_if_running"; then
-            release_gate_lock; trap - EXIT
-            return 0  # terminal block already exists for this run — no-op
-        fi
-        delegate_python append "$file" "$gate" "$status" "$@" || die "python gate_ledger append failed"
-        release_gate_lock
-        trap - EXIT
+        delegate_python append "$file" "$gate" "$status" "$@" \
+            || die "python gate_ledger append failed"
         return 0
     fi
 
@@ -225,34 +323,15 @@ cmd_append() {
         esac
     done
 
-    local key="${task_id//\//_}"
-    acquire_gate_lock "$key"
-    # shellcheck disable=SC2064
-    trap 'release_gate_lock' EXIT
-
-    # `--only-if-running` guard (atomic under the lock): if a terminal block was
-    # already written for this run id, do nothing.
-    if [[ -n "$only_if_running" ]] && ! _gate_run_is_running "$file" "$only_if_running"; then
-        release_gate_lock; trap - EXIT
-        return 0
-    fi
-
     # run id (ISO-8601-Z). date -u + this format is portable (no -d).
     [[ -z "$f_run" ]] && f_run="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    # attempt: explicit wins; else auto for pass/fail = existing count + 1.
-    if [[ -z "$f_attempt" && ( "$status" == "pass" || "$status" == "fail" ) ]]; then
-        local existing
-        existing="$(awk -v g="$gate" '
-            /^>[[:space:]]*\*\*/ && /gate:/ {
-                if (match($0, /gate:[A-Za-z0-9_]+/)) {
-                    name = substr($0, RSTART + 5, RLENGTH - 5)
-                    if (name == g) c++
-                }
-            }
-            END { print c + 0 }
-        ' "$file")"
-        f_attempt="$((existing + 1))"
+    # attempt: explicit wins; else auto for any TERMINAL status = terminal runs
+    # + 1 (t1262). `running`/`pending` get no auto number — begin-procedure
+    # supplies the running block's explicitly, and its terminal closer inherits
+    # the same value because non-terminal markers do not advance the count.
+    if [[ -z "$f_attempt" ]] && is_terminal_status "$status"; then
+        f_attempt="$(( $(_gate_run_state "$file" "$gate" | sed -n 's/^TERMINAL://p') + 1 ))"
     fi
 
     local icon
@@ -295,9 +374,6 @@ cmd_append() {
         fi
     } > "$tmp"
     mv "$tmp" "$file"
-
-    release_gate_lock
-    trap - EXIT
 
     # Echo the appended block (marker + body) for caller confirmation.
     printf '%s\n' "$marker"
@@ -1024,6 +1100,10 @@ cmd_sync_registry() {
 # following the gate's skill. Prints RUN_ID:<id> and ATTEMPT:<n> for the caller,
 # which passes them to the skill as `<task-id> <attempt> <run-id>`; the skill
 # closes the run with `append --only-if-running <run-id> ... <pass|skip|fail>`.
+#
+# A gate has AT MOST ONE LIVE RUN. A repeat call — a crash/resume re-dispatch
+# (`procedure-gates` still lists a gate that is neither pass nor skip) or a
+# concurrent launch — ADOPTS the open run rather than opening a second (t1262).
 cmd_begin_procedure() {
     local task_id="${1:-}" gate="${2:-}"
     [[ -z "$task_id" || -z "$gate" ]] && \
@@ -1031,24 +1111,44 @@ cmd_begin_procedure() {
     local file
     file="$(resolve_task_file "$task_id")"
 
-    # attempt = existing gate-run marker count for this gate + 1. (Attended,
-    # single-writer path; run-id is a unique timestamp regardless.)
-    local existing
-    existing="$(awk -v g="$gate" '
-        /^>[[:space:]]*\*\*/ && /gate:/ {
-            if (match($0, /gate:[A-Za-z0-9_]+/)) {
-                name = substr($0, RSTART + 5, RLENGTH - 5)
-                if (name == g) c++
-            }
-        }
-        END { print c + 0 }
-    ' "$file" 2>/dev/null)"
-    local attempt=$((existing + 1))
-    local run_id
-    run_id="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    # The live-run check and the append must be ONE critical section, or two
+    # racing dispatches each see "no live run" and each open one. _gate_append_locked
+    # exists for exactly this: the mkdir lock is not reentrant, so calling
+    # cmd_append here would deadlock against our own hold.
+    local key="${task_id//\//_}"
+    acquire_gate_lock "$key"
+    # shellcheck disable=SC2064
+    trap 'release_gate_lock' EXIT
 
-    # Open the running block (reuses cmd_append's lock + section handling).
-    cmd_append "$task_id" "$gate" running run="$run_id" attempt="$attempt" type=machine >/dev/null
+    local state open_field attempt run_id terminal
+    state="$(_gate_run_state "$file" "$gate")"
+    open_field="$(printf '%s\n' "$state" | sed -n 's/^OPEN://p')"
+    terminal="$(printf '%s\n' "$state" | sed -n 's/^TERMINAL://p')"
+
+    if [[ -n "${open_field%%|*}" ]]; then
+        # Adopt: same run id, same attempt, nothing appended. The caller's closing
+        # `append --only-if-running <run-id>` then closes the run that is actually
+        # open. The notice goes to stderr so stdout's two-line contract is
+        # byte-identical to the open path.
+        run_id="${open_field%%|*}"
+        attempt="${open_field#*|}"
+        [[ -z "$attempt" ]] && attempt="$((terminal + 1))"
+        warn "gate:${gate} already has a live run (${run_id}) — adopting it instead of opening a second"
+    else
+        # attempt = terminal runs recorded for this gate + 1 (t1262): this running
+        # block and the terminal block the gate skill appends for the SAME run id
+        # carry the SAME number.
+        attempt="$((terminal + 1))"
+        # Same shape as gate_orchestrator._run_machine_gate's run id. A bare
+        # second-resolution timestamp collides when two runs start within one
+        # second (observed), which would make two runs indistinguishable.
+        run_id="$(date -u +%Y-%m-%dT%H:%M:%SZ)-${gate}-a${attempt}"
+        _gate_append_locked "$file" "$gate" running \
+            run="$run_id" attempt="$attempt" type=machine >/dev/null
+    fi
+
+    release_gate_lock
+    trap - EXIT
 
     printf 'RUN_ID:%s\nATTEMPT:%s\n' "$run_id" "$attempt"
 }
@@ -1067,7 +1167,9 @@ Commands:
         section. <status>: pass | fail | pending | running | skip | error.
         Keys: run, attempt, duration, type (marker line);
               verifier, result, log, note (body lines).
-        run defaults to now (ISO-8601-Z); attempt auto-increments for pass/fail.
+        run defaults to now (ISO-8601-Z); attempt defaults to (terminal runs
+        for this gate) + 1 for any terminal status, so a `running` block and
+        the terminal block closing it share one number.
         --only-if-running <run-id>: append only if no terminal block exists yet
         for <run-id> (the run is still "running"); else no-op. Used by the
         orchestrator to write a terminal block exactly once per run (t635_11).
@@ -1167,6 +1269,10 @@ Commands:
         its `running` block and print RUN_ID:<id> / ATTEMPT:<n>. The attended
         dispatch (task-workflow / aitask-resume) calls this before running the
         gate's skill, which closes the run via `append --only-if-running`.
+        ATTEMPT is the gate's run ORDINAL and must be passed back verbatim on
+        that closing append. A gate has at most one live run: a repeat call
+        (crash/resume re-dispatch, concurrent launch) ADOPTS the open run —
+        same RUN_ID, same ATTEMPT, nothing appended.
 
   sync-registry [--dry-run] [--registry <file>] [--reference <file>]
         Additively reconcile the project's gate registry
