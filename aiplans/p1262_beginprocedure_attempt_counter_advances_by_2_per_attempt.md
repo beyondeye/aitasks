@@ -581,10 +581,15 @@ pipe's status, not the suite's (CLAUDE.md, "Piping discards the status").
     sleeps.
 
 - **Upstream defects identified:**
-  - `.aitask-scripts/board/aitask_merge.py:354-361` — guard 2b returns `None`
-    (disabling the gate-ledger union fast path) when one `(name, run, attempt)`
-    key maps to more than one distinct block text. A `running` block and its
-    terminal closer already share all three keys by design — the orchestrator
-    passes the same `run` and `attempt` to both — so the fast path is
-    effectively disabled for every machine and procedure gate today. Pre-existing;
-    neither caused nor fixed by this task.
+  - `.aitask-scripts/board/aitask_merge.py:314-350` — the gate-ledger union fast
+    path returns `None` for essentially every gated task, so concurrent ledger
+    writes surface as merge conflicts instead of auto-unioning. Verified by
+    calling `_union_gate_runs(body, body)` on identical input (the trivially
+    mergeable case): guard 1 (line 335) rejects the orchestrator's own
+    `<iso>-<gate>-a<N>` run-id format because `_ISO_RUN_RE` (line 269) is
+    anchored to a bare stamp, and guard 2b (lines 343-350) collides on the
+    `running` block and its terminal closer, which share `(name, run, attempt)`
+    by design. Fail-safe, not a correctness bug. Pre-existing; neither caused nor
+    fixed by this task — t1262's run-id change only moves procedure gates from
+    failing guard 2b to failing guard 1, with the same `None` outcome.
+    **Filed as t1443.**
