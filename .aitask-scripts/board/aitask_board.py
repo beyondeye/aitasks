@@ -201,6 +201,7 @@ class Task:
         self._original_key_order: list = []
         self.archived = False
         self._search_haystack = None        # memo; see `search_haystack`
+        self.load_ok = True
         self.load()
 
     @classmethod
@@ -215,6 +216,7 @@ class Task:
         # `__new__` bypasses __init__, so the memo slot must be seeded here too —
         # without it `search_haystack` raises AttributeError on archived tasks.
         task._search_haystack = None
+        task.load_ok = True                 # parsed from text, never read failed
         result = parse_frontmatter(raw)
         if result:
             task.metadata, task.content, task._original_key_order = result
@@ -254,9 +256,15 @@ class Task:
         return self._search_haystack
 
     def load(self):
-        """Load task from disk. Returns True on success, False on failure."""
+        """Load task from disk. Returns True on success, False on failure.
+
+        Also records the outcome on `self.load_ok`, because `__init__` discards
+        the return value and a failed load is indistinguishable from an empty
+        stub afterwards — both leave `metadata == {}` (t1377_4).
+        """
         self._invalidate_search_haystack()
         if self.archived and not self.filepath.exists():
+            self.load_ok = True
             return True
         try:
             with open(self.filepath, "r", encoding="utf-8") as f:
@@ -269,11 +277,13 @@ class Task:
                 self.metadata = {}
                 self._original_key_order = []
                 self.content = raw
+            self.load_ok = True
             return True
         except Exception as e:
             self.metadata = {}
             self._original_key_order = []
             self.content = str(e)
+            self.load_ok = False
             return False
 
     def save(self):
@@ -1021,6 +1031,80 @@ class MoveResult:
         return not self.refused
 
 
+#: Reserved `MergeResult.failed` keys. Never real filenames, so a caller can tell
+#: a task-write failure from a config-write failure — and a retryable merge from a
+#: pending local cleanup.
+MERGE_METADATA_KEY = "<metadata>"
+MERGE_METADATA_LOCAL_KEY = "<metadata:local>"
+MERGE_UNVERIFIABLE_KEY = "<unverifiable>"
+
+
+class MetadataWriteError(OSError):
+    """A `save_metadata` write that failed, tagged with WHICH half failed.
+
+    `save_metadata` persists PROJECT keys (`columns`/`column_order`) and USER
+    keys (`settings`) to two separate files, project first, with no cross-file
+    transaction. A caller recovering from a failure needs to know which half
+    landed — after the project write succeeds, a column removal is already
+    durable and must NOT be rolled back.
+
+    Subclasses `OSError` so every existing `except OSError` around a save keeps
+    working unchanged; `.phase` is `"project"` or `"local"`.
+
+    Reporting the phase from the site that performs the writes is what lets
+    `merge_columns` discriminate without re-reading the config from disk — which
+    would add a second `project_columns_at` call site and breach the
+    save-path containment guard in `tests/test_board_columns_reconcile.py`.
+    """
+
+    def __init__(self, phase: str, cause: OSError):
+        super().__init__(cause.errno, cause.strerror or str(cause))
+        self.phase = phase
+        self.__cause__ = cause
+
+
+@dataclass(frozen=True)
+class MergeResult:
+    """Outcome of an N->1 column merge (t1377_4).
+
+    Deliberately NOT a `MoveResult`. That type's docstring guarantees "`refused`
+    non-empty always means NOTHING was written", and a merge writes one task file
+    per member before touching config — so reporting write failures through
+    `refused` would make that invariant a lie for every existing consumer.
+
+    `refused` here keeps the same meaning (input validation only, nothing
+    written). `failed` is the separate channel for partial progress.
+
+    **The merge is not transactional, and recovery depends on the failure
+    class.** Per-file writes are atomic (`Task.save` -> `atomic_write_text`), so
+    no file is ever corrupt, but the multi-file operation is not:
+
+    ==========================  =========================  ======================
+    failure                     in-memory left as          retry with
+    ==========================  =========================  ======================
+    task write (OSError)        reconciled to disk         `merge_columns`
+    metadata, project write     rolled back pre-removal    `merge_columns`
+    metadata, local write       as-is (sources removed)    `save_metadata`
+    ==========================  =========================  ======================
+
+    The first two converge on a re-run because in-memory state matches disk, so a
+    member is absent from its source exactly when it really moved. The third
+    CANNOT be retried with `merge_columns`: the column removal is already durable,
+    so a fresh manager refuses the sources as unknown ids. Its pending work is the
+    user-local `collapsed_columns` prune, which `_prune_orphan_collapsed_columns`
+    also heals at load time on any later session.
+    """
+
+    merged: tuple[str, ...] = ()
+    failed: tuple[tuple[str, str], ...] = ()
+    sources_removed: tuple[str, ...] = ()
+    refused: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        return not (self.failed or self.refused)
+
+
 class TaskManager:
     def __init__(self, on_warning=None):
         # Optional sink for user-visible warnings raised outside a screen (the
@@ -1032,6 +1116,14 @@ class TaskManager:
         # load_metadata, refreshed by save_metadata. It is what distinguishes an
         # external ADDITION from a board-side DELETION at reconcile time.
         self._known_col_ids: set[str] = set()
+        # Task files that EXIST but could not be read (t1377_4). A failed load
+        # leaves `metadata == {}`, which `_is_phantom_stub` drops — so such a
+        # file is invisible to `task_datas` while its on-disk `boardcol` still
+        # claims a column. `merge_columns` refuses to remove any column while
+        # this is non-empty: it cannot prove the column is empty, and removing
+        # it would strand that file on a column that no longer exists.
+        # "Cannot verify" is its own state, distinct from "verified empty".
+        self.unreadable_files: set[str] = set()
         self.task_datas: dict[str, Task] = {} # Filename -> Task (parents)
         self.child_task_datas: dict[str, Task] = {} # Filename -> Task (children)
         self.archived_task_cache: dict[str, Task | None] = {}
@@ -1071,8 +1163,42 @@ class TaskManager:
         self.column_order = config.get("column_order", DEFAULT_ORDER)
         self.settings = config.get("settings", {"auto_refresh_minutes": 0})
         self._refresh_known_col_ids()
+        self._prune_orphan_collapsed_columns()
         if not METADATA_FILE.exists():
             self.save_metadata()
+
+    def _prune_orphan_collapsed_columns(self):
+        """Drop `collapsed_columns` entries naming a column that no longer exists.
+
+        The durable recovery record for a half-written merge (t1377_4): the two
+        halves of `save_metadata` are separate files, and the PROJECT half
+        (`columns` / `column_order`) is written first. If the USER half then
+        fails, the column removal is already durable while the collapsed entry
+        naming it is not yet pruned — leaving an orphan on disk. That orphan is
+        self-describing, so no journal is needed: any later session converges by
+        pruning it here. It also heals the identical orphan class left by
+        `update_column`'s pre-t1377_4 rename path.
+
+        In-memory only — the next natural `save_metadata()` persists it. Forcing
+        a write on every board open would cost a save per launch and race
+        concurrent writers for no benefit, since the in-memory value is what
+        governs rendering.
+
+        **`unordered` is whitelisted.** It is collapsible (the board calls
+        `is_column_collapsed("unordered")` for its synthetic lane) but is
+        deliberately absent from `columns`, so an unguarded "prune ids not in
+        `columns`" would silently drop a legitimate collapse.
+        """
+        collapsed = self.settings.get("collapsed_columns")
+        if not isinstance(collapsed, list):
+            return
+        live = {c["id"] for c in self.columns
+                if isinstance(c, dict) and isinstance(c.get("id"), str)}
+        live.update(cid for cid in self.column_order if isinstance(cid, str))
+        live.add(UNORDERED_ID)
+        kept = [cid for cid in collapsed if cid in live]
+        if len(kept) != len(collapsed):
+            self.settings["collapsed_columns"] = kept
 
     def _refresh_known_col_ids(self):
         """Snapshot the column ids this instance knows about (t1377_3)."""
@@ -1163,9 +1289,18 @@ class TaskManager:
             "settings": self.settings,
         }
         project_data, user_data = split_config(data, project_keys=_PROJECT_KEYS, user_keys=_USER_KEYS)
-        save_project_config(str(METADATA_FILE), project_data)
+        # Two files, no cross-file transaction: tag each failure with its phase so
+        # a caller can tell "nothing landed" from "columns landed, settings did
+        # not" without re-reading config from disk (t1377_4).
+        try:
+            save_project_config(str(METADATA_FILE), project_data)
+        except OSError as exc:
+            raise MetadataWriteError("project", exc) from exc
         if user_data:
-            save_local_config(str(local_path_for(str(METADATA_FILE))), user_data)
+            try:
+                save_local_config(str(local_path_for(str(METADATA_FILE))), user_data)
+            except OSError as exc:
+                raise MetadataWriteError("local", exc) from exc
         self._refresh_known_col_ids()
 
     @property
@@ -1199,9 +1334,14 @@ class TaskManager:
         self.task_datas.clear()
         self.archived_task_cache.clear()
         self.clear_gate_cache()
+        self.unreadable_files.clear()
         for f in glob.glob(str(TASKS_DIR / "*.md")):
             path = Path(f)
             task = Task(path)
+            if not task.load_ok:
+                # Present but unreadable. Still dropped from task_datas as
+                # before, but no longer silently: it may claim any column.
+                self.unreadable_files.add(path.name)
             if self._is_phantom_stub(task):
                 continue
             self.task_datas[path.name] = task
@@ -1810,6 +1950,14 @@ class TaskManager:
             idx = self.column_order.index(col_id) if col_id in self.column_order else -1
             if idx >= 0:
                 self.column_order[idx] = new_id
+            # Migrate collapsed state: a rename that moved column_order and every
+            # member's boardcol but left `collapsed_columns` pointing at the old id
+            # orphaned the entry, so the renamed column silently lost its collapse
+            # (t1377_4). Dead in the UI until t1377_5 makes the rename reachable.
+            collapsed = list(self.collapsed_columns)
+            if col_id in collapsed:
+                collapsed[collapsed.index(col_id)] = new_id
+                self.collapsed_columns = collapsed
             # Reassign tasks from old ID to new ID
             for task in self.get_column_tasks(col_id):
                 task.board_col = new_id
@@ -1853,6 +2001,238 @@ class TaskManager:
             collapsed.remove(col_id)
             self.collapsed_columns = collapsed
         self.save_metadata()
+
+    def merge_columns(self, source_ids, dest_id: str) -> MergeResult:
+        """Merge N source columns into `dest_id`, then remove the sources.
+
+        Composes `move_tasks_to_column` per source rather than reimplementing the
+        index arithmetic, so members get fresh appended indices from its
+        single-scan `indices_for_append_run` (t1369) and this adds no
+        `reload_and_save_board_fields` call site.
+
+        **Pass filenames, not `Task` objects.** `move_tasks_to_column` routes
+        through `_resolve_parents`, which looks names up in `task_datas` — a dict
+        keyed by FILENAME. Handing it the `Task` objects `get_column_tasks`
+        returns makes every lookup miss, refusing the whole batch as
+        `not_a_parent_task` and writing nothing: a silent no-op merge, not a
+        crash. `update_column`'s rename path assigns `task.board_col` directly and
+        never touches `_resolve_parents`, so the object shape is right there and
+        wrong here.
+
+        All-or-nothing on INPUTS only: every id is resolved and validated before
+        the first write. See `MergeResult` for the partial-progress contract and
+        the per-failure retry paths.
+
+        `unordered` is accepted on both sides. As a destination it is what
+        `delete_column` already does; as a source it is "empty the inbox", and its
+        config removal is skipped because the synthetic lane has no config entry —
+        a blind `column_order.remove(UNORDERED_ID)` would raise `ValueError`.
+        """
+        self._revalidate_unreadable()
+        srcs = list(source_ids)
+        refused: list[tuple[str, str]] = []
+        if not srcs:
+            refused.append(("", "no_source_columns"))
+        seen = set()
+        for src in srcs:
+            if src in seen:
+                refused.append((src, "duplicate_source"))
+                continue                      # one refusal per offending id
+            seen.add(src)
+            if src == dest_id:
+                refused.append((src, "source_is_destination"))
+            elif src != UNORDERED_ID and self.get_column_conf(src) is None:
+                refused.append((src, "unknown_column"))
+        if dest_id != UNORDERED_ID and self.get_column_conf(dest_id) is None:
+            refused.append((dest_id, "unknown_destination"))
+        if refused:
+            # Nothing written — not even save_metadata (the byte-identical tree
+            # assertion in tests/test_board_column_manage.py covers config files).
+            return MergeResult(refused=tuple(refused))
+
+        # Deterministic destination sequence: configured columns in column_order
+        # order, then `unordered` last. It is synthetic and absent from
+        # column_order, so `column_order.index()` would raise on a mixed merge.
+        order = self.column_order
+        srcs.sort(key=lambda c: order.index(c) if c in order else len(order))
+
+        merged: list[str] = []
+        failed: list[tuple[str, str]] = []
+        drained: list[str] = []
+        for src in srcs:
+            names = [t.filename for t in self.get_column_tasks(src)]
+            if not names:
+                drained.append(src)
+                continue
+            exc = None
+            try:
+                self.move_tasks_to_column(names, dest_id)
+            except OSError as raised:
+                exc = raised
+            # Verify against disk on BOTH paths. "No exception" does not mean
+            # "written": reload_and_save_board_fields returns early and silently
+            # when its reload fails, and move_tasks_to_column still counts that
+            # task as moved. Trusting the nominal path would drain a source whose
+            # member never landed.
+            landed = self._classify_members(names, dest_id, exc, failed)
+            merged.extend(landed)
+            if exc is None and len(landed) == len(names):
+                drained.append(src)            # else: keep the source
+
+        # An unreadable task file may claim ANY column, so while one exists we
+        # cannot prove a source is empty and must not remove it — on this run or
+        # on a retry. Without this, the retry path is where the orphan happens:
+        # the failed `Task.load()` wiped the member's metadata, so
+        # `get_column_tasks(src)` no longer lists it, the source looks empty, and
+        # it gets removed while the file on disk still names it.
+        if self.unreadable_files and drained:
+            failed.append((MERGE_UNVERIFIABLE_KEY,
+                           "unreadable task file(s), cannot verify a column is "
+                           f"empty: {', '.join(sorted(self.unreadable_files))}"))
+            drained = []
+
+        if not drained:
+            return MergeResult(merged=tuple(merged), failed=tuple(failed))
+
+        before = (list(self.columns), list(self.column_order),
+                  list(self.collapsed_columns))
+        self.columns = [c for c in self.columns if c.get("id") not in drained]
+        self.column_order = [c for c in self.column_order if c not in drained]
+        collapsed = [c for c in self.collapsed_columns if c not in drained]
+        if collapsed != self.collapsed_columns:
+            self.collapsed_columns = collapsed
+        try:
+            self.save_metadata()
+        except OSError as exc:
+            # save_metadata tags which of its two files failed. An untagged
+            # OSError (raised before either write) means nothing landed, so
+            # "project" is the fail-safe default: it rolls back.
+            if getattr(exc, "phase", "project") == "project":
+                # Project write did not land: nothing durable. Restore, so
+                # in-memory matches disk and re-running merge_columns converges.
+                self.columns, self.column_order, self.collapsed_columns = before
+                failed.append((MERGE_METADATA_KEY, f"config_write_failed: {exc}"))
+                return MergeResult(merged=tuple(merged), failed=tuple(failed))
+            # Project write LANDED; the local half is pending. Do NOT roll back:
+            # save_metadata writes self.columns wholesale, so restoring the
+            # sources would resurrect them on the next save. The merge itself
+            # succeeded; the retry is save_metadata(), never merge_columns().
+            failed.append((MERGE_METADATA_LOCAL_KEY, f"local_cleanup_pending: {exc}"))
+            return MergeResult(merged=tuple(merged), failed=tuple(failed),
+                               sources_removed=tuple(drained))
+        return MergeResult(merged=tuple(merged), failed=tuple(failed),
+                           sources_removed=tuple(drained))
+
+    def _revalidate_unreadable(self):
+        """Re-check tracked unreadable files and release the ones that now parse.
+
+        `unreadable_files` is otherwise cleared only by `load_tasks`, so without
+        this a same-manager retry after the file is repaired stays blocked on a
+        stale entry forever — a permanent refusal to merge, which is worse than
+        the orphan the block exists to prevent. A fresh manager hides the bug
+        because it re-runs `load_tasks`.
+
+        A repaired file is also restored to `task_datas`: the failed load wiped
+        its metadata, so it is invisible in its real column until re-read, and
+        the retry must actually move it rather than merely stop refusing.
+
+        Runs at the start of every merge. It iterates only the tracked set, which
+        is empty in the normal case, so it costs nothing when nothing is broken.
+
+        Scope: parents only, matching `load_tasks`. Column membership is a
+        parent-level property (`get_column_tasks` reads `task_datas`), so an
+        unreadable child cannot be stranded by removing a column.
+        """
+        for name in sorted(self.unreadable_files):
+            path = TASKS_DIR / name
+            if not path.exists():
+                self.unreadable_files.discard(name)   # gone: nothing to strand
+                self.task_datas.pop(name, None)
+                continue
+            task = Task(path)
+            if not task.load_ok:
+                continue                              # still unreadable
+            self.unreadable_files.discard(name)
+            if self._is_phantom_stub(task):
+                self.task_datas.pop(name, None)
+            else:
+                self.task_datas[name] = task
+
+    def _classify_members(self, names, dest_id, exc, failed):
+        """Re-read `names` from disk and return those that actually landed.
+
+        Runs after EVERY source's move, not only after an `OSError`, because a
+        nominal return does not prove a write happened.
+        `reload_and_save_board_fields` skips its save and returns normally when
+        its reload fails — a deleted file, but equally a permission or decode
+        error on a file that still exists. `move_tasks_to_column` marks that task
+        written and reports it in `moved` regardless. Believing it would let
+        `merge_columns` drain a source whose member still carries the source
+        column on disk, orphaning it onto a column that no longer exists.
+
+        Disk is the independent ground truth here: asking the same in-memory
+        objects that the failed write already corrupted (a failed `Task.load()`
+        wipes `metadata`) would be checking the answer against itself.
+
+        `move_tasks_to_column` sets `task.board_col`/`board_idx` BEFORE the write,
+        and `reload_and_save_board_fields` re-applies those values after its own
+        reload — so when the save raises, the in-memory copy claims the
+        destination while disk still says the source. `get_column_tasks` filters
+        on that in-memory value, so without this reconcile a same-manager retry
+        would not see the task in `src`, would find the source "empty", and would
+        remove the column — orphaning the task onto a column that no longer
+        exists. The raising call also returns no `MoveResult`, so which members
+        landed is recovered from disk rather than from a return value.
+
+        Appends to `failed`: the first non-moved member carries the OSError (it is
+        the I/O casualty), the rest are `not_attempted`. A member whose file
+        vanished mid-merge cannot be reloaded, so its in-memory value is
+        untrustworthy and it is reported `file_missing` rather than counted either
+        way.
+        """
+        moved, unreadable = [], set()
+        for name in names:
+            task = self.task_datas.get(name)
+            if task is None:
+                continue
+            if not task.load():
+                # Deleted and unreadable are NOT the same state. A file that is
+                # gone cannot be orphaned by removing its column; one that still
+                # exists carries a `boardcol` we cannot read and must block the
+                # removal until it becomes readable.
+                unreadable.add(name)
+                if task.filepath.exists():
+                    self.unreadable_files.add(name)
+                continue
+            if task.board_col == dest_id:
+                moved.append(name)
+
+        # Derive the attempt boundary from SOURCE ORDER, not from a filtered
+        # list. `move_tasks_to_column` writes in `names` order and raises on
+        # exactly one member, so the first member that did not move IS the
+        # casualty and everything after it was never attempted. Filtering
+        # vanished members out first would shift that boundary: a casualty whose
+        # file also disappeared would drop out of the list, promoting the next
+        # (untouched) member to position 0 and blaming it for the I/O error.
+        moved_set = set(moved)
+        # With no OSError there is no I/O casualty to attribute, so start past
+        # the boundary: a non-landed member is a silent skip, not a write error.
+        casualty_seen = exc is None
+        for name in names:
+            if name in moved_set:
+                continue
+            if name in unreadable:
+                failed.append((name, "unreadable" if name in self.unreadable_files
+                               else "file_missing"))
+                casualty_seen = True
+                continue
+            if not casualty_seen:
+                casualty_seen = True
+                failed.append((name, f"write_failed: {exc}"))
+            else:
+                failed.append((name, "not_attempted" if exc is not None
+                               else "not_written"))
+        return moved
 
     def get_column_conf(self, col_id: str):
         """Return the config dict for a column, or None."""

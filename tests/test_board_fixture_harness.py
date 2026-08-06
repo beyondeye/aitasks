@@ -302,6 +302,14 @@ CHDIR_ALLOWED = {
 #:   * test_board_movement.py — its IsolationNegativeControlTests asserts the
 #:     canonical module still has `TASKS_DIR == Path("aitasks")`, i.e. that the
 #:     harness did not contaminate it. Importing canonically IS the control.
+#:   * test_board_column_manage.py — the same patch mode again, for the column
+#:     merge engine (t1377_4). Identical shape to test_board_manager_moves.py:
+#:     `TaskManager` is constructed only inside
+#:     `mock.patch.object(B, "TASKS_DIR" / "METADATA_FILE")` over a
+#:     `build_fixture_tree` root, no `KanbanApp`, no chdir, and the patches are
+#:     `addCleanup`-scoped so the canonical module is restored. It deliberately
+#:     never calls `mock.patch.stopall()`, which would drop those two patches and
+#:     silently re-point the manager at the live tree.
 CANONICAL_IMPORT_ALLOWED = {
     "test_board_persistence_seam.py": frozenset({
         "canonical import: import aitask_board as B",
@@ -312,6 +320,9 @@ CANONICAL_IMPORT_ALLOWED = {
     "test_board_movement.py": frozenset({
         "canonical import: import aitask_board as B",
         "canonical import: import aitask_board",
+    }),
+    "test_board_column_manage.py": frozenset({
+        "canonical import: import aitask_board as B",
     }),
 }
 
