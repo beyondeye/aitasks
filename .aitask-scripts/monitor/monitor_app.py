@@ -41,14 +41,15 @@ from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
+    ShadowRejectionsMixin,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_shadow_glyph, format_state_dot, is_task_completed,
     unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS, block_head_truncated, block_region,
-    build_clipboard_payload, concern_block_signature, needs_addressing,
-    parse_concerns, unrecovered_markers,
+    build_clipboard_payload, concern_block_signature, concern_marker_line,
+    needs_addressing, parse_concerns, unrecovered_markers,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from rich.text import Text  # noqa: E402
@@ -358,7 +359,9 @@ class RestartConfirmDialog(ModalScreen):
 
 # -- Main app -----------------------------------------------------------------
 
-class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
+class MonitorApp(
+    AgentMarksMixin, ShadowRejectionsMixin, TuiSwitcherMixin, ShortcutsMixin, App
+):
     """Textual app for monitoring tmux panes running code agents."""
 
     _shortcuts_scope = "monitor"
@@ -604,6 +607,9 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         # Held from the `c` keypress until the picker is dismissed, so a second
         # `c` over the open modal cannot stack another one.
         self._concern_pick_busy: bool = False
+        # Task id of the agent the open picker belongs to, captured at pick time
+        # for the dismissal callback (t1427_2). None = unresolvable.
+        self._concern_pick_task_id: str | None = None
         self._pane_cards: dict[str, PaneCard] = {}
         self._selected_card_pane_id: str | None = None
         self._monitor: TmuxMonitor | None = None
@@ -2855,6 +2861,14 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self._concern_pick_busy = True
         modal_owns_guard = False
+        # Resolved HERE, not in the callback: Textual invokes the dismissal
+        # callback with the result and nothing else, so the pane — the only
+        # thing a task id can be derived from — is out of reach by then.
+        # Pinned for the same reason pane_id is: `c` acts on the agent that was
+        # selected when it was pressed.
+        self._concern_pick_task_id = self._task_cache.get_task_id_for_pane(
+            self._snapshots[pane_id].pane
+        )
         # Snapshot the trigger BEFORE any await: the 3s tick can replace it with
         # a newer block's signature while we capture, and marking THAT signature
         # offered would clear its badge without ever presenting it.
@@ -2918,6 +2932,8 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                 self._concern_sig_offered, pane_id, trigger_sig,
                 concern_block_signature(text),
             )
+            task_id = self._concern_pick_task_id
+            entries = await self._fetch_rejected_entries(task_id)
             self.push_screen(
                 ConcernPickerModal(
                     concerns,
@@ -2925,6 +2941,8 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                     stale=bool(stale),
                     unrecovered=unrecovered_markers(text),
                     raw_block=block_region(text) or "",
+                    rejected_entries=entries,
+                    store_unavailable=not task_id,
                 ),
                 callback=self._on_concerns_picked,
             )
@@ -2933,26 +2951,20 @@ class MonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
             if not modal_owns_guard:
                 self._concern_pick_busy = False
 
-    def _on_concerns_picked(self, selected: list | None) -> None:
-        """Modal callback: copy the selected concerns to the clipboard.
+    def _on_concerns_picked(self, result) -> None:
+        """Modal callback: forward and/or persist the user's dispositions.
 
         Also releases the pick guard. Textual invokes this on every dismissal
         (including ``None`` on Esc), and holding the guard until then is what
-        stops a second `c` over the open picker stacking another one — app
-        bindings resolve up the focus chain and the modal does not bind `c`.
+        stops a second `c` over the open picker stacking another one.
 
-        ``selected`` is the chosen ``list[Concern]`` on confirm (or the full list
-        on copy-all), or ``None``/empty on cancel — in which case nothing is
-        written (no side effect before an explicit confirm).
+        ``result`` is a ``ConcernPickResult`` on confirm, or ``None`` on
+        cancel — in which case nothing is written (no side effect before an
+        explicit confirm). The shared body lives on ``ShadowRejectionsMixin``;
+        only the guard release is monitor-specific.
         """
         self._concern_pick_busy = False
-        if not selected:
-            return
-        # copy_to_system_clipboard, never app.copy_to_clipboard: a bare OSC 52
-        # from a non-visible tmux window never reaches the system clipboard.
-        # tests/test_tui_clipboard_seam.sh enforces this.
-        copy_to_system_clipboard(self, build_clipboard_payload(selected))
-        self.notify("Concerns copied to clipboard.")
+        self.apply_concern_pick_result(result, self._concern_pick_task_id)
 
     def _on_inspect_closed(self, _result) -> None:
         """Release the pick guard when the raw-block view closes (t1293).

@@ -47,7 +47,7 @@ from monitor.monitor_shared import (  # noqa: E402
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ColumnPickerModal, NewColumnTitleModal,
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
-    TaskPickConfirmDialog,
+    TaskPickConfirmDialog, ShadowRejectionsMixin,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_shadow_glyph, format_stale_duration, format_state_dot,
     is_task_completed, unparsed_concerns_msg,
@@ -105,7 +105,9 @@ _BOARD_COLUMN_CMD_TIMEOUT = 20.0
 
 # -- Main app -----------------------------------------------------------------
 
-class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
+class MiniMonitorApp(
+    AgentMarksMixin, ShadowRejectionsMixin, TuiSwitcherMixin, ShortcutsMixin, App
+):
     """Compact Textual app for monitoring tmux agent panes."""
 
     _shortcuts_scope = "minimonitor"
@@ -1967,6 +1969,11 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
         # Warn on the actionable surface if the shadow's feedback is known-stale
         # (computed on the refresh tick — reuse it, no second live-sig spend).
         stale = bool(getattr(self, "_shadow_feedback_stale", None))
+        # Resolved and stashed here: the dismissal callback receives only the
+        # result, so the followed pane — the sole source of a task id — is out
+        # of reach by then (t1427_2).
+        self._concern_pick_task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+        entries = await self._fetch_rejected_entries(self._concern_pick_task_id)
         self.push_screen(
             ConcernPickerModal(
                 concerns,
@@ -1974,22 +1981,23 @@ class MiniMonitorApp(AgentMarksMixin, TuiSwitcherMixin, ShortcutsMixin, App):
                 stale=stale,
                 unrecovered=unrecovered_markers(text),
                 raw_block=block_region(text) or "",
+                rejected_entries=entries,
+                store_unavailable=not self._concern_pick_task_id,
             ),
             callback=self._on_concerns_picked,
         )
 
-    def _on_concerns_picked(self, selected: list | None) -> None:
-        """Modal callback: copy the selected concerns to the clipboard.
+    def _on_concerns_picked(self, result) -> None:
+        """Modal callback: forward and/or persist the user's dispositions.
 
-        ``selected`` is the chosen ``list[Concern]`` on confirm (or the full list
-        on copy-all), or ``None``/empty on cancel — in which case nothing is
-        written (no side effect before an explicit confirm).
+        ``result`` is a ``ConcernPickResult`` on confirm, or ``None`` on
+        cancel — in which case nothing is written (no side effect before an
+        explicit confirm). The body is shared with the full monitor via
+        ``ShadowRejectionsMixin``; this app holds no pick guard to release.
         """
-        if not selected:
-            return
-        payload = build_clipboard_payload(selected)
-        copy_to_system_clipboard(self, payload)
-        self.notify("Concerns copied to clipboard.")
+        self.apply_concern_pick_result(
+            result, getattr(self, "_concern_pick_task_id", None)
+        )
 
     async def _maybe_offer_concerns(self) -> None:
         """Proactively hint when a fresh, complete concern block appears on the shadow.

@@ -106,7 +106,11 @@ _FORBIDDEN = {
 EXPECTED_ACCESSES = {
     ("concern_parser.py", "Concern.display_body", "self"): (
         INTERNAL, frozenset({"body"})),
-    ("concern_parser.py", "build_clipboard_payload", "c"): (
+    # t1427_2 moved this read out of build_clipboard_payload into the shared
+    # marker renderer. build_clipboard_payload no longer touches a Concern body
+    # at all, so it has no row here — leaving a stale one would be exactly the
+    # silent post-refactor pass this table exists to refuse.
+    ("concern_parser.py", "concern_marker_line", "c"): (
         FORWARD, frozenset({"body"})),
     ("monitor_shared.py", "_ConcernRow.render", "self._concern"): (
         DISPLAY, frozenset({"display_body"})),
@@ -561,12 +565,17 @@ class GuardDiscriminationTests(unittest.TestCase):
         self.assertNotEqual(got[key], EXPECTED_ACCESSES[key][1])
 
     def test_guard_fails_when_the_clipboard_path_strips_the_trailer(self):
-        """AC #2 — build_clipboard_payload switched to display_body()."""
+        """AC #2 — the forward marker renderer switched to display_body().
+
+        Retargeted from ``build_clipboard_payload`` to ``concern_marker_line``
+        (t1427_2), which is where the read now lives. The mutation is the same
+        one line; the payload builder inherits the corruption by calling it.
+        """
         got = self._variant(
             PARSER_SRC,
             'f"- [{c.priority} | {c.region}] {c.body}"',
             'f"- [{c.priority} | {c.region}] {c.display_body()}"')
-        key = ("concern_parser.py", "build_clipboard_payload", "c")
+        key = ("concern_parser.py", "concern_marker_line", "c")
         self.assertEqual(got[key], {"display_body"})
         self.assertIn("display_body", _FORBIDDEN[FORWARD])
 

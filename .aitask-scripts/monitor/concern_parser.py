@@ -536,6 +536,21 @@ def concern_block_signature(raw_text: str) -> str | None:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
+def concern_marker_line(c: Concern) -> str:
+    """One concern in canonical ``- [priority | region] body`` marker form.
+
+    The single renderer of that grammar (t1427_2). Both consumers are FORWARD
+    paths and must agree byte-for-byte: the clipboard payload below, and the
+    rejection store, whose entries the shadow later matches fresh concerns
+    against — a store holding a differently-rendered line would not match.
+
+    ``.body``, never ``display_body()``: the trailer is metadata the receiving
+    agent needs. Frozen with a FORWARD role in
+    tests/test_concern_body_display_contract.py (t1294).
+    """
+    return f"- [{c.priority} | {c.region}] {c.body}"
+
+
 def build_clipboard_payload(
     concerns: list[Concern], preamble: str = DEFAULT_PREAMBLE
 ) -> str:
@@ -546,8 +561,5 @@ def build_clipboard_payload(
     """
     lines = [preamble, ""]
     for c in concerns:
-        # ``.body``, never ``display_body()`` — this is the forward path, and the
-        # trailer is metadata the receiving agent needs. Frozen with a FORWARD
-        # role in tests/test_concern_body_display_contract.py (t1294).
-        lines.append(f"- [{c.priority} | {c.region}] {c.body}")
+        lines.append(concern_marker_line(c))
     return "\n".join(lines)

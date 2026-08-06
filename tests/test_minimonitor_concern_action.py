@@ -11,7 +11,11 @@ Mock-based (no live tmux). Covers:
   no async query, spawns nothing);
 - the auto-offer: strict ``has_concern_block`` trigger (an unclosed block does
   not fire) and per-parsed-block de-dup (surrounding pane churn does not
-  re-hint; a changed concern does).
+  re-hint; a changed concern does);
+- the reject half of the dismiss contract (t1427_2): store pre-fetch, rejection
+  and un-rejection persistence, the visible no-task-id refusal, and exit-code
+  discrimination. The ``aitask_shadow_rejected.sh`` seam is spied via
+  ``_run_rejected_cmd`` — no bash is ever executed here.
 
 Run: bash tests/run_all_python_tests.sh
   or: python3 -m unittest tests.test_minimonitor_concern_action
@@ -31,8 +35,12 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 
 from monitor import minimonitor_app as mm  # noqa: E402
 from monitor import monitor_core as mc  # noqa: E402
-from monitor.concern_parser import build_clipboard_payload  # noqa: E402
-from monitor.monitor_shared import format_stale_duration  # noqa: E402
+from monitor.concern_parser import (  # noqa: E402
+    build_clipboard_payload, concern_marker_line,
+)
+from monitor.monitor_shared import (  # noqa: E402
+    ConcernPickResult, format_stale_duration,
+)
 
 
 _CLOSED_BLOCK = (
@@ -107,7 +115,7 @@ class _FakeMon:
         return (0, self._async_list)
 
 
-def _mk_app(monitor=None):
+def _mk_app(monitor=None, task_id="1427_2", rejected_rc=0, rejected_out=""):
     # Custom spy attribute names (spy_*) avoid colliding with read-only Textual
     # App properties such as ``clipboard``.
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
@@ -125,11 +133,52 @@ def _mk_app(monitor=None):
         (screen, callback)
     )
     app.copy_to_clipboard = lambda text: app.spy_clipboard.append(text)
+    _install_rejection_spy(app, task_id, rejected_rc, rejected_out)
     return app
+
+
+def _install_rejection_spy(app, task_id, rc=0, out=""):
+    """Bind the rejection-store seam so no bash ever runs (t1427_2).
+
+    ``_run_rejected_cmd`` is the single overridable seam on
+    ``ShadowRejectionsMixin``; replacing it here records ``(args, stdin)`` and
+    returns a canned ``(rc, out)``. ``run_worker`` is driven to completion so a
+    persistence call is observable in the same test that triggers it.
+    """
+    app.spy_rejected: list = []
+    app._task_cache = SimpleNamespace(get_task_id_for_pane=lambda pane: task_id)
+
+    async def _fake_cmd(args, stdin_text=""):
+        app.spy_rejected.append((list(args), stdin_text))
+        return (rc, out)
+
+    app._run_rejected_cmd = _fake_cmd
+
+    def _run_worker(coro, **kwargs):
+        asyncio.run(coro)
+
+    app.run_worker = _run_worker
+
+
+def _writes(app):
+    """Only the MUTATING helper calls — the picker also pre-fetches with `list`.
+
+    Asserting on the raw spy would conflate "wrote nothing" with "never even
+    read the store", which is the distinction several of these tests turn on.
+    """
+    return [c for c in app.spy_rejected if c[0][0] in ("add", "remove")]
 
 
 def _snap(pane_id="%1"):
     return SimpleNamespace(pane=SimpleNamespace(pane_id=pane_id))
+
+
+def _pick_result(forwarded=(), rejected=(), unrejected=()):
+    return ConcernPickResult(
+        forwarded=list(forwarded),
+        rejected=list(rejected),
+        unrejected=tuple(unrejected),
+    )
 
 
 class MatchShadowPaneTests(unittest.TestCase):
@@ -164,11 +213,13 @@ class ActionPickConcernsTests(unittest.TestCase):
         self.assertEqual(len(modal._concerns), 2)
         self.assertEqual(app.spy_clipboard, [])  # no side effect before confirm
 
-        # Simulate confirm with a selected subset -> real callback runs.
+        # Simulate confirm with a forwarded subset -> real callback runs.
         selected = [modal._concerns[0]]
-        callback(selected)
+        callback(_pick_result(forwarded=selected))
         self.assertEqual(app.spy_clipboard, [build_clipboard_payload(selected)])
         self.assertTrue(any("copied" in m.lower() for m, _ in app.spy_notify))
+        # Forwarding alone must not touch the rejection store.
+        self.assertEqual(_writes(app), [])
 
     def test_cancel_writes_nothing(self):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
@@ -178,6 +229,7 @@ class ActionPickConcernsTests(unittest.TestCase):
         _, callback = app.spy_pushed[0]
         callback(None)
         self.assertEqual(app.spy_clipboard, [])
+        self.assertEqual(_writes(app), [])
 
     def test_no_shadow_pane_notifies_nothing_pushed(self):
         app = _mk_app(_FakeMon(async_list="%1\t\n%6\t%2"))  # no shadow for %1
@@ -303,6 +355,157 @@ class ActionPickConcernsTests(unittest.TestCase):
 
         self.assertEqual(captures, [None])  # no pointless deeper re-capture
         self.assertEqual(app.spy_notify, [("No concerns detected on the shadow pane", "information")])
+
+
+class RejectionPersistenceTests(unittest.TestCase):
+    """The reject half of the dismiss contract (t1427_2)."""
+
+    def _picked(self, app, result):
+        """Drive one full pick and hand ``result`` to the real callback."""
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        _, callback = app.spy_pushed[0]
+        callback(result)
+
+    def test_rejections_only_result_still_persists(self):
+        """[rejections_only_result_negative_control]
+
+        Both callbacks used to early-return on ``if not selected:`` — "nothing
+        picked, nothing to do". Carrying that shortcut across to the new result
+        (``if not result.forwarded: return``) silently discards every
+        rejections-only confirm, and the user gets no feedback at all.
+
+        **Verified reachable.** A plain ``if not result`` is NOT the hazard: a
+        ``NamedTuple`` with fields is always truthy, so only ``None`` is falsy
+        and that mutation is a no-op. The reachable mutation is the one keyed on
+        ``forwarded``, and this test was confirmed to fail under it.
+        """
+        app = _mk_app(_FakeMon(async_list="%5\t%1"), rejected_out="ADDED:1")
+        concern = None
+
+        def _run():
+            nonlocal concern
+            app._find_own_agent_snapshot = lambda: _snap("%1")
+            _stub_capture(self, _async_return(_CLOSED_BLOCK))
+            asyncio.run(app.action_pick_concerns())
+            modal, callback = app.spy_pushed[0]
+            concern = modal._concerns[0]
+            callback(_pick_result(forwarded=[], rejected=[concern]))
+
+        _run()
+        writes = _writes(app)
+        self.assertEqual(len(writes), 1, "the rejection was swallowed")
+        args, stdin = writes[0]
+        self.assertEqual(args[:2], ["add", "1427_2"])
+        self.assertIn("--producer", args)
+        self.assertEqual(stdin, concern_marker_line(concern) + "\n")
+        # Nothing was forwarded, so the clipboard must be untouched.
+        self.assertEqual(app.spy_clipboard, [])
+        self.assertTrue(any("reject" in m.lower() for m, _ in app.spy_notify))
+
+    def test_forward_and_reject_in_one_confirm_do_both(self):
+        app = _mk_app(_FakeMon(async_list="%5\t%1"), rejected_out="ADDED:1")
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        modal, callback = app.spy_pushed[0]
+        fwd, rej = modal._concerns[0], modal._concerns[1]
+        callback(_pick_result(forwarded=[fwd], rejected=[rej]))
+
+        self.assertEqual(app.spy_clipboard, [build_clipboard_payload([fwd])])
+        writes = _writes(app)
+        self.assertEqual(len(writes), 1)
+        # The REJECTED concern is stored — not the forwarded one.
+        self.assertEqual(writes[0][1], concern_marker_line(rej) + "\n")
+
+    def test_unrejected_ids_are_removed(self):
+        app = _mk_app(_FakeMon(async_list="%5\t%1"), rejected_out="REMOVED:r1,r3")
+        self._picked(app, _pick_result(unrejected=("r1", "r3")))
+        writes = _writes(app)
+        self.assertEqual(len(writes), 1)
+        args, stdin = writes[0]
+        self.assertEqual(args, ["remove", "1427_2", "r1", "r3"])
+        self.assertEqual(stdin, "")
+
+    def test_no_task_id_is_a_visible_refusal(self):
+        """[task_id_refusal_is_visible]
+
+        Asserting only "nothing was written" would pass for a silent no-op, so
+        the notify is asserted too — the task requires this be visible.
+        """
+        app = _mk_app(_FakeMon(async_list="%5\t%1"), task_id=None)
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        modal, callback = app.spy_pushed[0]
+        # The picker was told the store is unreachable, before any confirm.
+        self.assertTrue(modal._store_unavailable)
+        callback(_pick_result(rejected=[modal._concerns[0]]))
+
+        self.assertEqual(_writes(app), [], "wrote without a task id")
+        message, severity = app.spy_notify[-1]
+        self.assertIn("no task id", message.lower())
+        self.assertIn("not persisted", message.lower())
+        self.assertEqual(severity, "warning")
+
+    def test_exit_codes_are_discriminated(self):
+        """[exit_code_discrimination]
+
+        rc 3 (transient contention), rc 4 (store unusable — never retry) and
+        rc 2 (bad request) must reach the user as three DIFFERENT outcomes.
+        t1427_1 recorded that conflating 3 and 4 turns a permanent
+        misconfiguration into an endless retry.
+        """
+        seen = {}
+        for rc, out in ((3, "LOCK_BUSY"), (4, "store unusable"), (2, "bad id")):
+            app = _mk_app(
+                _FakeMon(async_list="%5\t%1"), rejected_rc=rc, rejected_out=out
+            )
+            app._find_own_agent_snapshot = lambda: _snap("%1")
+            _stub_capture(self, _async_return(_CLOSED_BLOCK))
+            asyncio.run(app.action_pick_concerns())
+            modal, callback = app.spy_pushed[0]
+            callback(_pick_result(rejected=[modal._concerns[0]]))
+            seen[rc] = app.spy_notify[-1]
+
+        self.assertEqual(len(set(m for m, _ in seen.values())), 3, seen)
+        self.assertIn("busy", seen[3][0].lower())
+        self.assertEqual(seen[3][1], "warning")
+        self.assertIn("not retrying", seen[4][0].lower())
+        self.assertEqual(seen[4][1], "error")
+        self.assertEqual(seen[2][1], "error")
+        self.assertNotIn("busy", seen[4][0].lower())
+
+    def test_store_is_prefetched_and_passed_to_the_picker(self):
+        app = _mk_app(
+            _FakeMon(async_list="%5\t%1"),
+            rejected_out=(
+                "REJECTED:r1|2026-08-05T14:02:11Z|plan-challenge|"
+                "- [high | a] body with | a pipe"
+            ),
+        )
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+
+        self.assertEqual(app.spy_rejected[0][0], ["list", "1427_2", "--machine"])
+        modal, _ = app.spy_pushed[0]
+        self.assertFalse(modal._store_unavailable)
+        self.assertEqual(len(modal._rejected_entries), 1)
+        entry = modal._rejected_entries[0]
+        self.assertEqual(entry.id, "r1")
+        # The marker line is last on the wire BECAUSE it contains `|`.
+        self.assertEqual(entry.marker_line, "- [high | a] body with | a pipe")
+
+    def test_empty_store_sentinel_yields_no_entries(self):
+        app = _mk_app(_FakeMon(async_list="%5\t%1"), rejected_out="NO_REJECTIONS")
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertEqual(modal._rejected_entries, [])
+        self.assertFalse(modal._store_unavailable)
 
 
 class CaptureArgvTests(unittest.TestCase):

@@ -32,7 +32,7 @@ from monitor.monitor_core import (  # noqa: E402,F401
     TaskInfoCache,
 )
 
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, NamedTuple, Sequence
 
 from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, VerticalScroll  # noqa: E402
@@ -49,9 +49,15 @@ from rich.markup import escape  # noqa: E402
 from rich.color import Color, ColorParseError  # noqa: E402
 
 try:
-    from monitor.concern_parser import needs_addressing
+    from monitor.concern_parser import (
+        build_clipboard_payload, concern_marker_line, needs_addressing,
+    )
 except ImportError:  # imported flat (tests may put MONITOR_DIR on sys.path)
-    from concern_parser import needs_addressing  # noqa: E402
+    from concern_parser import (  # noqa: E402
+        build_clipboard_payload, concern_marker_line, needs_addressing,
+    )
+
+from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 if TYPE_CHECKING:  # annotations only (PEP 563 via `from __future__`); no runtime cost
     from monitor.concern_parser import Concern
@@ -196,6 +202,14 @@ _MARKS_PURGE_INTERVAL = 600.0
 #: timeouts (2s toggle / 10s purge) so a contended-but-healthy writer reports
 #: LOCK_BUSY itself rather than being killed mid-write.
 _MARKS_CMD_TIMEOUT = 20.0
+
+#: The shadow concern-rejection store's single writer/reader (t1427_1).
+_REJECTED_SH = _SCRIPT_DIR / "aitask_shadow_rejected.sh"
+
+#: Same rule as :data:`_MARKS_CMD_TIMEOUT`: above the helper's own mutation lock
+#: timeout (10s) so a contended-but-healthy writer gets to report LOCK_BUSY
+#: itself instead of being killed mid-write and blamed for a timeout.
+_REJECTED_CMD_TIMEOUT = 20.0
 
 
 class AgentMarksMixin:
@@ -519,6 +533,178 @@ class AgentMarksMixin:
                     os.unlink(path)
                 except OSError:
                     pass
+
+
+class ShadowRejectionsMixin:
+    """The concern-rejection store seam for a monitor TUI (t1427_2).
+
+    Mixed into both ``MonitorApp`` and ``MiniMonitorApp``. One shared seam
+    rather than two open-coded subprocess blocks, so the timeout, the
+    never-raises contract and the exit-code vocabulary are defined once.
+
+    A sibling of :class:`AgentMarksMixin` rather than part of it: both wrap a
+    locked bash writer with the same shape, but they own unrelated state and
+    conflating them would put rejection logic behind a marks-shaped name.
+    """
+
+    async def _run_rejected_cmd(
+        self, args: list[str], stdin_text: str = ""
+    ) -> tuple[int, str]:
+        """Run ``aitask_shadow_rejected.sh`` off the event loop. The test seam.
+
+        Modeled on :meth:`AgentMarksMixin._run_marks_cmd` and keeping its
+        contract: **total — never raises, always terminates.** It is reached
+        from a keypress handler and from a modal dismissal callback, so an
+        unhandled ``OSError`` would propagate out of the pick flow, and a child
+        that never exits would wedge the worker for the life of the process.
+        Both are normalised to ``(1, "ERROR:…")`` and callers treat the result
+        as data. Tests override this method — no bash runs in the suites.
+
+        Unlike the marks seam this one writes **stdin**: ``add`` takes its
+        marker lines there rather than as argv, so a body containing shell
+        metacharacters or newlines never has to survive an argument list.
+        """
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                str(_REJECTED_SH), *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            out, _ = await asyncio.wait_for(
+                proc.communicate(stdin_text.encode("utf-8")),
+                timeout=_REJECTED_CMD_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            # Kill the child, then reap it so it cannot become a zombie.
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:  # noqa: BLE001 - already exited / unkillable
+                pass
+            return 1, (
+                f"ERROR:rejection store command timed out after "
+                f"{_REJECTED_CMD_TIMEOUT}s"
+            )
+        except OSError as exc:
+            return 1, f"ERROR:cannot run {_REJECTED_SH.name}: {exc}"
+        return proc.returncode or 0, out.decode("utf-8", "replace").strip()
+
+    async def _fetch_rejected_entries(
+        self, task_id: str | None
+    ) -> list[RejectedEntry]:
+        """Pre-fetch the task's rejection store for the picker.
+
+        Returns ``[]`` for every non-success outcome — a store that cannot be
+        read is presented as "nothing rejected yet", which is the safe direction
+        (the shadow keeps raising concerns rather than appearing to suppress
+        them). Callers pass ``store_unavailable`` separately for the case that
+        genuinely needs to be visible: no task id at all.
+        """
+        if not task_id:
+            return []
+        rc, out = await self._run_rejected_cmd(["list", task_id, "--machine"])
+        if rc != 0:
+            return []
+        return parse_rejected_machine_lines(out)
+
+    def apply_concern_pick_result(self, result, task_id: str | None) -> None:
+        """Act on a :class:`ConcernPickResult` — the shared callback body.
+
+        Identical in both apps, so it lives here rather than being written
+        twice. The caller has already released whatever re-entrancy guard it
+        holds; this is purely the "do what the user asked" half.
+
+        Forwarding is synchronous (a clipboard write); persistence is not — it
+        is a subprocess, and this runs inside a synchronous ``push_screen``
+        dismissal callback, so the work moves onto a worker.
+        """
+        # `is None`, never `if not result`: an all-empty result is a legitimate
+        # "confirmed nothing" and must not be mistaken for a cancellation.
+        if result is None:
+            return
+
+        if result.forwarded:
+            # copy_to_system_clipboard, never app.copy_to_clipboard: a bare
+            # OSC 52 from a non-visible tmux window never reaches the system
+            # clipboard. tests/test_tui_clipboard_seam.sh enforces this.
+            copy_to_system_clipboard(self, build_clipboard_payload(result.forwarded))
+            self.notify("Concerns copied to clipboard.")
+
+        if not result.rejected and not result.unrejected:
+            return
+
+        if not task_id:
+            # A VISIBLE refusal, never a silent drop: the user marked rejections
+            # and they are not being stored, which they can only find out here.
+            self.notify(
+                "Rejections not persisted — no task id for this pane",
+                severity="warning",
+            )
+            return
+
+        self.run_worker(
+            self._persist_concern_dispositions(result, task_id),
+            exclusive=False,
+            exit_on_error=False,
+            group="shadow-rejections",
+        )
+
+    async def _persist_concern_dispositions(self, result, task_id: str) -> None:
+        """Write the confirmed rejections / un-rejections. Worker body.
+
+        Sequential rather than concurrent: both subcommands take the same
+        per-task mutex, so issuing them together would just make one of them
+        report ``LOCK_BUSY`` against ourselves.
+        """
+        if result.rejected:
+            stdin_text = "".join(
+                concern_marker_line(c) + "\n" for c in result.rejected
+            )
+            rc, out = await self._run_rejected_cmd(
+                ["add", task_id, "--producer", "picker"], stdin_text
+            )
+            message, severity = self.rejection_outcome_message(rc, out)
+            if message:
+                self.notify(message, severity=severity)
+            else:
+                n = len(result.rejected)
+                self.notify(f"{n} concern(s) rejected — suppressed next round")
+
+        if result.unrejected:
+            rc, out = await self._run_rejected_cmd(
+                ["remove", task_id, *result.unrejected]
+            )
+            message, severity = self.rejection_outcome_message(rc, out)
+            if message:
+                self.notify(message, severity=severity)
+            else:
+                self.notify(f"{len(result.unrejected)} concern(s) un-rejected")
+
+    def rejection_outcome_message(self, rc: int, out: str) -> tuple[str, str]:
+        """Map a helper result to ``(message, severity)``.
+
+        The three failure codes are kept **distinct** deliberately (t1427_1):
+        ``3`` is transient contention and retrying is reasonable, ``4`` means
+        the store is structurally unusable and will not fix itself, and ``2``
+        means this code passed something wrong. Collapsing them into one
+        "rejection failed" would turn a permanent misconfiguration into an
+        endless retry, which is exactly the failure t1427_1 recorded.
+        """
+        first = out.splitlines()[0] if out else ""
+        if rc == 3 or first == "LOCK_BUSY":
+            return ("Rejection store busy — try again", "warning")
+        if rc == 4:
+            return (
+                f"Rejection store unusable — not retrying ({first or 'exit 4'})",
+                "error",
+            )
+        if rc == 2:
+            return (f"Rejection store rejected the request: {first}", "error")
+        if rc != 0:
+            return (f"Rejection store failed: {first or f'exit {rc}'}", "error")
+        return ("", "")
 
 
 def unparsed_concerns_msg(count: int) -> str:
@@ -1611,6 +1797,60 @@ _CONCERN_BADGE = {
 }
 
 
+class RejectedEntry(NamedTuple):
+    """One row of the per-task rejection store, as pre-fetched by the caller.
+
+    Mirrors a single ``REJECTED:<id>|<ts>|<producer>|<marker line>`` line from
+    ``aitask_shadow_rejected.sh list --machine``. The marker line comes **last**
+    on the wire precisely because it contains ``|``, so the parse is a 3-way
+    split — see :func:`parse_rejected_machine_lines`.
+    """
+
+    id: str            # store entry id, `r`-prefixed exactly as the helper emits
+    ts: str            # ISO-8601 rejection timestamp
+    producer: str      # which shadow producer raised it, or "unknown"
+    marker_line: str   # the canonical `- [priority | region] body` line
+
+
+class ConcernPickResult(NamedTuple):
+    """What :class:`ConcernPickerModal` dismisses with on confirm (t1427_2).
+
+    Three independent output channels, because rejection needed a second one and
+    overloading the old ``list[Concern]`` return would have made "forward these"
+    and "reject these" indistinguishable.
+
+    **All-empty is a valid result** — the user confirmed without marking
+    anything. Cancellation is signalled by ``None`` instead, so a consumer must
+    test ``result is None`` and never ``if not result``.
+    """
+
+    forwarded: list["Concern"]
+    rejected: list["Concern"]
+    unrejected: tuple[str, ...]   # store entry ids to un-reject, e.g. ("r1", "r3")
+
+
+def parse_rejected_machine_lines(out: str) -> list[RejectedEntry]:
+    """Parse ``list --machine`` output into entries.
+
+    ``NO_REJECTIONS`` (a missing store *or* one drained of entries) and any
+    unrecognised line yield nothing. Branch on that sentinel, never on the exit
+    status: the helper exits 0 for **every** resolution outcome.
+
+    ``split("|", 3)`` — bounded at 3 — is what keeps a body containing ``|``
+    intact, since the marker line is the last field.
+    """
+    entries: list[RejectedEntry] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line.startswith("REJECTED:"):
+            continue
+        parts = line[len("REJECTED:"):].split("|", 3)
+        if len(parts) != 4:
+            continue
+        entries.append(RejectedEntry(*parts))
+    return entries
+
+
 #: Disposition → row mark (t1427_2). Every glyph is **single-width**, which is
 #: what keeps :data:`_NARROW_PREFIX_COLS` valid: the narrow layout budgets the
 #: prefix in columns, so a double-width mark would silently eat a column of
@@ -1908,8 +2148,161 @@ class ConcernBlockInspectModal(ModalScreen):
         self.dismiss()
 
 
+class _RejectedRow(Static):
+    """A focusable, toggleable row of :class:`RejectedStoreModal` (t1427_2).
+
+    ``space`` marks the entry for **un-rejection**; the mark follows the same
+    t1004 convention as ``_ConcernRow`` (☑/☐, marked = bold yellow). Navigation
+    mirrors ``_ConcernRow._focus_neighbor``.
+
+    Rendered with ``markup=False`` semantics: the marker line is escaped before
+    it reaches the markup renderer, because a marker literally reads
+    ``- [high | region]`` and Rich would eat the bracket — corrupting the very
+    text this view exists to show (the same rule
+    :class:`ConcernBlockInspectModal` states).
+    """
+
+    can_focus = True
+
+    DEFAULT_CSS = """
+    _RejectedRow {
+        height: auto;
+        padding: 0 1;
+    }
+    _RejectedRow:focus {
+        background: $accent 30%;
+    }
+    _RejectedRow:focus:hover {
+        background: $accent 40%;
+    }
+    /* Marked for un-rejection: it is coming back, so stop dimming it. */
+    _RejectedRow.unrejecting {
+        color: $text;
+    }
+    """
+
+    def __init__(self, entry: RejectedEntry, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._entry = entry
+        self._marked = False
+
+    @property
+    def entry(self) -> RejectedEntry:
+        return self._entry
+
+    @property
+    def marked(self) -> bool:
+        return self._marked
+
+    def toggle(self) -> None:
+        self._marked = not self._marked
+        self.set_class(self._marked, "unrejecting")
+        self.refresh()
+
+    def render(self) -> str:
+        mark = "[bold yellow]☑[/]" if self._marked else "☐"
+        meta = escape(f"{self._entry.id} · {self._entry.producer}")
+        return f"{mark}  [dim]{meta}[/]\n   {escape(self._entry.marker_line)}"
+
+    def on_key(self, event) -> None:
+        if event.key == "space":
+            self.toggle()
+            event.prevent_default()
+            event.stop()
+        elif event.key in ("down", "up"):
+            self._focus_neighbor(1 if event.key == "down" else -1)
+            event.prevent_default()
+            event.stop()
+
+    def _focus_neighbor(self, delta: int) -> None:
+        parent = self.parent
+        if parent is None:
+            return
+        rows = [w for w in parent.children if isinstance(w, _RejectedRow)]
+        try:
+            idx = rows.index(self)
+        except ValueError:
+            return
+        new_idx = max(0, min(len(rows) - 1, idx + delta))
+        if new_idx != idx:
+            rows[new_idx].focus()
+            rows[new_idx].scroll_visible()
+
+
+class RejectedStoreModal(ModalScreen):
+    """The task's persisted rejections, with a per-row un-reject toggle (t1427_2).
+
+    Rejection is otherwise irreversible, and a single mis-press would blind the
+    shadow to that concern for the rest of the task — so this view is the
+    required undo path (t1427 requirement 5). It is **TUI-only** by decision;
+    there is no user-facing CLI for un-rejecting.
+
+    Pure UI, exactly like the picker that pushes it: it neither reads nor writes
+    the store. Entries arrive pre-fetched, and the ids it dismisses with travel
+    back through the picker's result for the caller to act on.
+
+    Dismisses a ``tuple[str, ...]`` of entry ids to un-reject — empty on
+    ``escape``, which is therefore indistinguishable from "confirmed nothing".
+    That is deliberate: both mean "change nothing", so no caller needs to tell
+    them apart.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close", show=False),
+        Binding("q", "cancel", "Close", show=False),
+        Binding("enter", "confirm", "Un-reject marked"),
+    ]
+
+    DEFAULT_CSS = """
+    RejectedStoreModal { align: center middle; }
+    #rejected-dialog {
+        width: 90%;
+        height: 85%;
+        background: $surface;
+        border: thick $accent;
+        padding: 0 1;
+    }
+    #rejected-header { text-style: bold; color: $accent; }
+    #rejected-list { height: 1fr; }
+    #rejected-footer { dock: bottom; height: 1; color: $text-muted; }
+    """
+
+    def __init__(self, entries: Sequence[RejectedEntry]) -> None:
+        super().__init__()
+        self._entries = list(entries)
+
+    def compose(self) -> ComposeResult:
+        with Container(id="rejected-dialog"):
+            yield Static(
+                f"Rejected concerns ({len(self._entries)})", id="rejected-header"
+            )
+            with VerticalScroll(id="rejected-list"):
+                for entry in self._entries:
+                    yield _RejectedRow(entry)
+            yield Static(
+                "[dim]\\[Space] un-reject  \\[Enter] apply  \\[q/Esc] cancel[/]",
+                id="rejected-footer",
+            )
+
+    def on_mount(self) -> None:
+        rows = list(self.query(_RejectedRow))
+        if rows:
+            rows[0].focus()
+
+    def _marked_ids(self) -> tuple[str, ...]:
+        return tuple(
+            row.entry.id for row in self.query(_RejectedRow) if row.marked
+        )
+
+    def action_confirm(self) -> None:
+        self.dismiss(self._marked_ids())
+
+    def action_cancel(self) -> None:
+        self.dismiss(())
+
+
 class ConcernPickerModal(ModalScreen):
-    """Modal letting the user pick which shadow concerns to forward.
+    """Modal letting the user forward or reject shadow concerns.
 
     Lives here (rather than in minimonitor) because the full monitor is due to
     push it too — see t1216_3; today minimonitor is the only caller. It carries
@@ -1917,10 +2310,16 @@ class ConcernPickerModal(ModalScreen):
 
     **Disposition partition (t1274).** Concerns the shadow marked
     ``informational`` — real, but explicitly *not* a request for action — are
-    grouped under their own header and dimmed, and ``a`` (select all) skips them.
-    A block whose concerns all fall in one partition shows no headers at all, so
-    plan-review blocks (whose producers have no disposition concept) look exactly
-    as they did before.
+    grouped under their own header and dimmed. A block whose concerns all fall in
+    one partition shows no headers at all, so plan-review blocks (whose producers
+    have no disposition concept) look exactly as they did before.
+
+    **Per-row actions only (t1427_2).** ``space`` forwards, ``r`` rejects, and
+    the two are mutually exclusive on each row. The former ``a`` (select all
+    actionable) and ``A`` (copy ALL) bulk keys were **removed outright**, not
+    re-scoped: a bulk key that swept a row into "forward" would silently
+    overwrite a rejection the user had just made, and rejection is persistent
+    state rather than a one-shot selection.
 
     **Two independent size knobs (t1293) — neither is derived from the other.**
     ``narrow`` is the *caller's* hint and owns only the two-line ``_ConcernRow``
@@ -1928,20 +2327,25 @@ class ConcernPickerModal(ModalScreen):
     width (:data:`_PICKER_NARROW_MIN_WIDTH`) and owns only the dialog chrome, so a
     full-width monitor running in a 24-column terminal gets it too.
 
-    **Dismiss contract (consumed by t1037_4):** dismisses with the **selected**
-    ``list[Concern]`` on confirm (OK / Enter) or with the full list on "copy ALL"
-    (``A``); dismisses with ``None`` on Esc / Cancel. The modal stays pure-UI: it
-    does NOT build the clipboard payload or touch the clipboard — the caller's
-    action handler runs ``concern_parser.build_clipboard_payload`` +
-    ``tui_clipboard.copy_to_system_clipboard``. This keeps it unit-testable
-    without a clipboard backend.
+    **Dismiss contract (t1427_2; supersedes the t1037_4 list contract):**
+    dismisses with a :class:`ConcernPickResult` on confirm (OK / Enter) and with
+    ``None`` on Esc / Cancel. ``None`` is the ONLY cancel signal — a result whose
+    three fields are all empty is a legitimate "confirmed nothing", so consumers
+    MUST branch on ``is None`` and never on truthiness.
+
+    The modal stays pure-UI: it does NOT build the clipboard payload, touch the
+    clipboard, or write the rejection store — the caller's action handler runs
+    ``concern_parser.build_clipboard_payload`` +
+    ``tui_clipboard.copy_to_system_clipboard`` and the
+    ``aitask_shadow_rejected.sh`` seam. This keeps it unit-testable without a
+    clipboard backend or a filesystem. ``rejected_entries`` is likewise
+    pre-fetched by the caller and passed in.
     """
 
     BINDINGS = [
         Binding("escape", "dismiss_dialog", "Close", show=False),
         Binding("enter", "confirm", "OK"),
-        Binding("a", "toggle_all", "Select all/none"),
-        Binding("A", "copy_all", "Copy ALL"),
+        Binding("R", "show_rejected", "Rejected list"),
         # `u` for "unparsed". Deliberately not `i` — both apps bind that to Task
         # Info. `_ConcernRow.on_key` stops only space/up/down, so this bubbles.
         Binding("u", "inspect_unrecovered", "Unparsed", show=False),
@@ -1987,7 +2391,7 @@ class ConcernPickerModal(ModalScreen):
     }
     /* No OK/Cancel at this tier. Measured: side by side under ~34 columns the
        second label renders as "Can"; stacked they cost 6 rows and at 24x20 they
-       evict the help line — the only place `u` / `a` / `A` are named. They are
+       evict the help line — the only place `r` / `R` / `u` are named. They are
        fully redundant with Enter/Esc, which the compact help does name, so the
        buttons are the right thing to drop. Nothing is ever half-drawn. */
     ConcernPickerModal.xnarrow #concern-buttons { display: none; }
@@ -1998,6 +2402,9 @@ class ConcernPickerModal(ModalScreen):
         self, concerns: list["Concern"], narrow: bool = False,
         stale: bool = False, unrecovered: Sequence[str] = (),
         raw_block: str = "",
+        *,
+        rejected_entries: Sequence[RejectedEntry] = (),
+        store_unavailable: bool = False,
     ) -> None:
         super().__init__()
         self._concerns = list(concerns)
@@ -2008,6 +2415,15 @@ class ConcernPickerModal(ModalScreen):
         # separate int parameter alongside a list parameter could.
         self._unrecovered = list(unrecovered)
         self._raw_block = raw_block
+        # Pre-fetched by the caller at open time and never refreshed: the
+        # session's view of the store is deliberately frozen (t1427 descoped
+        # cross-session staleness handling). Safe to act on despite that,
+        # because t1427_1 made entry ids stable and never reused.
+        self._rejected_entries = list(rejected_entries)
+        # No task id for this pane ⇒ the store cannot be located at all. Kept
+        # distinct from "store is empty" so `R` can say which is true.
+        self._store_unavailable = store_unavailable
+        self._unreject_ids: list[str] = []
 
     def _partitions(self) -> list[tuple[str, list[tuple[int, "Concern"]]]]:
         """``[(section_title, [(original_index, concern), …]), …]``, non-empty only.
@@ -2026,11 +2442,11 @@ class ConcernPickerModal(ModalScreen):
     def _context_line(self) -> str:
         partitions = self._partitions()
         if len(partitions) < 2:
-            return f"{len(self._concerns)} concern(s)  ·  select to forward"
+            return f"{len(self._concerns)} concern(s)  ·  forward or reject"
         counts = {title: len(group) for title, group in partitions}
         return (
             f"{counts['Needs addressing']} to address  ·  "
-            f"{counts['Informational']} informational  ·  select to forward"
+            f"{counts['Informational']} informational  ·  forward or reject"
         )
 
     def compose(self) -> ComposeResult:
@@ -2124,44 +2540,68 @@ class ConcernPickerModal(ModalScreen):
     def _rows(self) -> list[_ConcernRow]:
         return list(self.query(_ConcernRow))
 
-    def _selected_concerns(self) -> list["Concern"]:
-        """Selected concerns in **original input order**.
+    def _concerns_in_state(self, state: str) -> list["Concern"]:
+        """Concerns whose row is in ``state``, in **original input order**.
 
         Sorted by ``original_index``, never by DOM position and never matched by
         value: partitioning reorders the DOM, and two equal ``Concern`` tuples
         are indistinguishable, so ticking one of a duplicate pair would otherwise
-        forward the wrong one — or both.
+        forward — or reject — the wrong one, or both.
         """
-        selected = [row for row in self._rows() if row.selected]
-        return [row.concern for row in sorted(selected, key=lambda r: r.original_index)]
+        rows = [row for row in self._rows() if row.state == state]
+        return [row.concern for row in sorted(rows, key=lambda r: r.original_index)]
 
-    def action_toggle_all(self) -> None:
-        rows = self._rows()
-        # Informational concerns are not requests for action, so bulk-select
-        # covers only the actionable ones. `A` (copy ALL) remains the escape
-        # hatch that takes literally everything.
-        actionable = [row for row in rows if needs_addressing(row.concern)]
-        target_rows = actionable or rows
-        # If every target row is already selected, a second press clears them.
-        target = not (
-            bool(target_rows) and all(row.selected for row in target_rows)
+    def _result(self) -> ConcernPickResult:
+        return ConcernPickResult(
+            forwarded=self._concerns_in_state("forward"),
+            rejected=self._concerns_in_state("rejected"),
+            unrejected=tuple(self._unreject_ids),
         )
-        for row in target_rows:
-            row.set_selected(target)
+
+    def action_show_rejected(self) -> None:
+        """Open the persisted rejection list, over the still-open picker.
+
+        Same modal-over-modal shape as :meth:`action_inspect_unrecovered` — the
+        picker is NOT dismissed, so returning lands on an intact selection.
+
+        The two empty cases are reported **differently on purpose**: "no task id"
+        means the store could not even be located and any rejection made here
+        will be refused, which the user needs to know *before* confirming; "no
+        rejected concerns" means the store was read and is genuinely empty.
+        """
+        if self._store_unavailable:
+            self.app.notify(
+                "No task id for this pane — rejection store unavailable",
+                severity="warning",
+            )
+            return
+        if not self._rejected_entries:
+            self.app.notify("No previously rejected concerns for this task")
+            return
+        self.app.push_screen(
+            RejectedStoreModal(self._rejected_entries),
+            callback=self._on_rejected_view_closed,
+        )
+
+    def _on_rejected_view_closed(self, ids) -> None:
+        """Accumulate the ids the rejected-store view marked for un-rejection.
+
+        Accumulates rather than replaces: the view can be opened more than once
+        before confirming, and a second visit must not discard the first visit's
+        choices. De-duped, order preserved.
+        """
+        for entry_id in ids or ():
+            if entry_id not in self._unreject_ids:
+                self._unreject_ids.append(entry_id)
 
     def action_confirm(self) -> None:
-        self.dismiss(self._selected_concerns())
-
-    def action_copy_all(self) -> None:
-        # Fast path: forward every concern in one keystroke (preamble is attached
-        # downstream by build_clipboard_payload).
-        self.dismiss(list(self._concerns))
+        self.dismiss(self._result())
 
     def action_dismiss_dialog(self) -> None:
         self.dismiss(None)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-ok":
-            self.dismiss(self._selected_concerns())
+            self.dismiss(self._result())
         else:
             self.dismiss(None)

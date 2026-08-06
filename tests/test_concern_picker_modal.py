@@ -34,7 +34,8 @@ from tui_layout import NARROW_TERMINAL_WIDTH, is_narrow_terminal  # noqa: E402
 from monitor.concern_parser import Concern  # noqa: E402
 from monitor import monitor_shared  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
-    ConcernBlockInspectModal, ConcernPickerModal, _ConcernRow,
+    ConcernBlockInspectModal, ConcernPickerModal, ConcernPickResult,
+    RejectedEntry, RejectedStoreModal, _ConcernRow, _RejectedRow,
 )
 
 
@@ -55,6 +56,8 @@ class _Host(App):
         self, concerns: list[Concern], narrow: bool = False,
         stale: bool = False, unrecovered: tuple[str, ...] = (),
         raw_block: str = "",
+        rejected_entries: tuple[RejectedEntry, ...] = (),
+        store_unavailable: bool = False,
     ) -> None:
         super().__init__()
         self._concerns = concerns
@@ -62,10 +65,17 @@ class _Host(App):
         self._stale = stale
         self._unrecovered = unrecovered
         self._raw_block = raw_block
+        self._rejected_entries = rejected_entries
+        self._store_unavailable = store_unavailable
         self.result = self._UNSET
+        self.notifications: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
         yield Label("host")
+
+    def notify(self, message: str, *args, severity: str = "information", **kwargs):
+        self.notifications.append((message, severity))
+        return super().notify(message, *args, severity=severity, **kwargs)
 
     def on_mount(self) -> None:
         def _capture(value) -> None:
@@ -75,6 +85,8 @@ class _Host(App):
             ConcernPickerModal(
                 self._concerns, narrow=self._narrow, stale=self._stale,
                 unrecovered=self._unrecovered, raw_block=self._raw_block,
+                rejected_entries=self._rejected_entries,
+                store_unavailable=self._store_unavailable,
             ),
             _capture,
         )
@@ -167,51 +179,120 @@ class ConcernPickerModalTests(unittest.TestCase):
 
         self._run(runner())
 
-    def test_select_all_toggles_every_row(self):
+    def test_r_toggles_the_reject_glyph_and_class(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                row = list(app.screen.query(_ConcernRow))[0]
+                self.assertEqual(row.state, "none")
+
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertEqual(row.state, "rejected")
+                self.assertIn("✗", row.render())
+                self.assertIn("rejected", row.classes)
+
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertEqual(row.state, "none")
+                self.assertIn("☐", row.render())
+                self.assertNotIn("rejected", row.classes)
+
+        self._run(runner())
+
+    def test_forward_and_reject_are_mutually_exclusive(self):
+        """Neither key ever leaves a row in both states — the whole point of
+        removing the bulk keys was that rejection must not be overwritten."""
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                row = list(app.screen.query(_ConcernRow))[0]
+
+                await pilot.press("space")
+                await pilot.pause()
+                self.assertEqual(row.state, "forward")
+
+                # reject over a forward: forward must clear, not coexist
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertEqual(row.state, "rejected")
+                self.assertFalse(row.selected)
+                self.assertIn("✗", row.render())
+                self.assertNotIn("☑", row.render())
+
+                # and back the other way
+                await pilot.press("space")
+                await pilot.pause()
+                self.assertEqual(row.state, "forward")
+                self.assertFalse(row.rejected)
+                self.assertIn("☑", row.render())
+                self.assertNotIn("✗", row.render())
+
+        self._run(runner())
+
+    def test_every_mark_is_single_width(self):
+        """_NARROW_PREFIX_COLS budgets the prefix in COLUMNS, so a double-width
+        glyph would silently eat region text at the widths with none to spare."""
+        import unicodedata
+        for state, markup in monitor_shared._CONCERN_MARKS.items():
+            glyph = re.sub(r"\[/?[^\]]*\]", "", markup)
+            self.assertEqual(len(glyph), 1, f"{state} is not one codepoint")
+            self.assertNotIn(
+                unicodedata.east_asian_width(glyph), ("W", "F"),
+                f"{state} mark {glyph!r} is double-width",
+            )
+
+    def test_ok_dismisses_with_a_partitioned_result_in_order(self):
+        async def runner():
+            concerns = _sample_concerns()
+            app = _Host(concerns)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                # Forward row 0, reject row 1, leave row 2 alone.
+                await pilot.press("space")   # row 0 forwarded (focused on mount)
+                await pilot.press("down")    # focus row 1
+                await pilot.press("r")       # row 1 rejected
+                await pilot.press("enter")   # confirm
+                await pilot.pause()
+                self.assertIsInstance(app.result, ConcernPickResult)
+                self.assertEqual(app.result.forwarded, [concerns[0]])
+                self.assertEqual(app.result.rejected, [concerns[1]])
+                self.assertEqual(app.result.unrejected, ())
+
+        self._run(runner())
+
+    def test_confirming_nothing_is_an_empty_result_not_none(self):
+        """The cancel signal is `None` ALONE. An all-empty result means the user
+        confirmed without marking anything, and consumers branch on `is None`."""
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertIsNotNone(app.result)
+                self.assertEqual(
+                    app.result, ConcernPickResult([], [], ())
+                )
+
+        self._run(runner())
+
+    def test_the_removed_bulk_keys_do_nothing(self):
+        """`a`/`A` were removed outright (t1427_2). Pressing them must not
+        select anything — a bulk sweep would overwrite a rejection."""
         async def runner():
             app = _Host(_sample_concerns())
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.pause()
                 rows = list(app.screen.query(_ConcernRow))
-
+                await pilot.press("r")       # reject row 0
                 await pilot.press("a")
+                await pilot.press("A")
                 await pilot.pause()
-                self.assertTrue(all(r.selected for r in rows))
-
-                await pilot.press("a")
-                await pilot.pause()
-                self.assertTrue(not any(r.selected for r in rows))
-
-        self._run(runner())
-
-    def test_ok_dismisses_with_selected_in_order(self):
-        async def runner():
-            concerns = _sample_concerns()
-            app = _Host(concerns)
-            async with app.run_test(size=(80, 24)) as pilot:
-                await pilot.pause()
-                # Select row 0, skip row 1, select row 2.
-                await pilot.press("space")   # row 0 selected (focused on mount)
-                await pilot.press("down")    # focus row 1
-                await pilot.press("down")    # focus row 2
-                await pilot.press("space")   # row 2 selected
-                await pilot.press("enter")   # confirm
-                await pilot.pause()
-                self.assertEqual(app.result, [concerns[0], concerns[2]])
-
-        self._run(runner())
-
-    def test_copy_all_dismisses_with_every_concern(self):
-        async def runner():
-            concerns = _sample_concerns()
-            app = _Host(concerns)
-            async with app.run_test(size=(80, 24)) as pilot:
-                await pilot.pause()
-                # Toggle one row on first to prove "copy ALL" ignores prior state.
-                await pilot.press("space")
-                await pilot.press("A")       # copy ALL
-                await pilot.pause()
-                self.assertEqual(app.result, concerns)
+                self.assertEqual(rows[0].state, "rejected")
+                self.assertTrue(all(r.state == "none" for r in rows[1:]))
 
         self._run(runner())
 
@@ -307,24 +388,28 @@ class ConcernPickerPartitionTests(unittest.TestCase):
 
         self._run(runner())
 
-    def test_select_all_skips_informational_but_copy_all_includes_it(self):
+    def test_an_informational_concern_can_be_rejected_like_any_other(self):
+        """The bulk keys used to treat informational rows specially (`a` skipped
+        them). With per-row actions only, every row is equally actionable — an
+        informational concern the user never wants to see again is exactly the
+        case rejection exists for."""
         async def runner():
             concerns = _mixed_concerns()
             app = _Host(concerns)
             async with app.run_test(size=(80, 24)) as pilot:
                 await pilot.pause()
-                await pilot.press("a")
-                await pilot.pause()
                 by_index = {
                     r.original_index: r for r in app.screen.query(_ConcernRow)
                 }
-                self.assertTrue(by_index[0].selected)
-                self.assertTrue(by_index[2].selected)
-                self.assertFalse(by_index[1].selected)
-
-                await pilot.press("A")
+                informational = by_index[1]
+                self.assertIn("informational", informational.classes)
+                informational.focus()
                 await pilot.pause()
-                self.assertEqual(app.result, concerns)
+                await pilot.press("r")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result.rejected, [concerns[1]])
+                self.assertEqual(app.result.forwarded, [])
 
         self._run(runner())
 
@@ -353,11 +438,11 @@ class ConcernPickerPartitionTests(unittest.TestCase):
                 by_index = {
                     r.original_index: r for r in app.screen.query(_ConcernRow)
                 }
-                by_index[1].set_selected(True)
-                by_index[2].set_selected(True)
+                by_index[1].set_state("forward")
+                by_index[2].set_state("forward")
                 await pilot.press("enter")
                 await pilot.pause()
-                self.assertEqual(app.result, [concerns[1], concerns[2]])
+                self.assertEqual(app.result.forwarded, [concerns[1], concerns[2]])
 
         self._run(runner())
 
@@ -375,10 +460,32 @@ class ConcernPickerPartitionTests(unittest.TestCase):
                 await pilot.pause()
                 rows = list(app.screen.query(_ConcernRow))
                 self.assertEqual([r.original_index for r in rows], [0, 1, 2])
-                rows[1].set_selected(True)
+                rows[1].set_state("forward")
                 await pilot.press("enter")
                 await pilot.pause()
-                self.assertEqual(app.result, [same])
+                self.assertEqual(app.result.forwarded, [same])
+
+        self._run(runner())
+
+    def test_duplicate_valued_concerns_are_rejected_positionally(self):
+        """The same positional-identity rule on the REJECT channel.
+
+        Rejection is persisted, so forwarding the wrong one of a duplicate pair
+        is recoverable while rejecting the wrong one suppresses a concern the
+        user never dismissed.
+        """
+        async def runner():
+            same = Concern("high", "dup", "identical body.", "blocking", "CONFIRMED")
+            concerns = [same, same, Concern("low", "other", "different body.")]
+            app = _Host(concerns)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                rows = list(app.screen.query(_ConcernRow))
+                rows[1].set_state("rejected")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result.rejected, [same])
+                self.assertEqual(app.result.forwarded, [])
 
         self._run(runner())
 
@@ -795,6 +902,163 @@ class ConcernInspectAffordanceTests(unittest.TestCase):
                 await pilot.pause()
                 await pilot.pause()
                 self.assertIn("(block region unavailable)", _screen_text(app))
+
+        self._run(runner())
+
+
+def _sample_entries() -> tuple[RejectedEntry, ...]:
+    return (
+        RejectedEntry(
+            "r1", "2026-08-05T14:02:11Z", "plan-challenge",
+            "- [high | Step 7 guard] The guard double-commits the lock.",
+        ),
+        RejectedEntry(
+            "r3", "2026-08-05T14:09:40Z", "impl-challenge",
+            "- [medium | parser] Multi-block accumulation is undefined.",
+        ),
+    )
+
+
+class RejectedStoreViewTests(unittest.TestCase):
+    """`R` — the persisted rejection list and its un-reject toggle (t1427_2)."""
+
+    def _run(self, coro):
+        asyncio.run(coro)
+
+    def test_R_opens_the_view_over_an_intact_picker(self):
+        async def runner():
+            app = _Host(_sample_concerns(), rejected_entries=_sample_entries())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")     # forward row 0 first
+                await pilot.press("R")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, RejectedStoreModal)
+                self.assertIn("Rejected concerns (2)", _screen_text(app))
+                # Both stored markers are visible, brackets and all.
+                self.assertIn("Step 7 guard", _screen_text(app))
+
+                await pilot.press("escape")
+                await pilot.pause()
+                await pilot.pause()
+                # Picker still open, and the earlier selection survived.
+                self.assertIsInstance(app.screen, ConcernPickerModal)
+                self.assertTrue(list(app.screen.query(_ConcernRow))[0].selected)
+                self.assertIs(app.result, _Host._UNSET)
+
+        self._run(runner())
+
+    def test_marker_brackets_are_not_eaten_as_markup(self):
+        """A marker literally reads `- [high | region]`; interpreted as Rich
+        markup the bracket disappears and the view corrupts what it exists to
+        show — the same rule ConcernBlockInspectModal states."""
+        async def runner():
+            app = _Host(_sample_concerns(), rejected_entries=_sample_entries())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("R")
+                await pilot.pause()
+                await pilot.pause()
+                text = _screen_text(app)
+                self.assertIn("[high | Step 7 guard]", text)
+                self.assertIn("[medium | parser]", text)
+
+        self._run(runner())
+
+    def test_un_rejected_ids_travel_back_in_the_result(self):
+        async def runner():
+            app = _Host(_sample_concerns(), rejected_entries=_sample_entries())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("R")
+                await pilot.pause()
+                await pilot.pause()
+                # Mark the SECOND entry only — proves the id comes from the row
+                # rather than from position-in-store or a blanket "all".
+                rows = list(app.screen.query(_RejectedRow))
+                rows[1].toggle()
+                await pilot.press("enter")     # apply un-rejection
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.press("enter")     # confirm the picker
+                await pilot.pause()
+                self.assertEqual(app.result.unrejected, ("r3",))
+                self.assertEqual(app.result.forwarded, [])
+                self.assertEqual(app.result.rejected, [])
+
+        self._run(runner())
+
+    def test_escaping_the_view_un_rejects_nothing(self):
+        async def runner():
+            app = _Host(_sample_concerns(), rejected_entries=_sample_entries())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("R")
+                await pilot.pause()
+                await pilot.pause()
+                list(app.screen.query(_RejectedRow))[0].toggle()
+                await pilot.press("escape")    # cancel, not apply
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result.unrejected, ())
+
+        self._run(runner())
+
+    def test_two_visits_accumulate_rather_than_replace(self):
+        """The view can be opened more than once before confirming; a second
+        visit must not discard the first visit's choices."""
+        async def runner():
+            app = _Host(_sample_concerns(), rejected_entries=_sample_entries())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                for index in (0, 1):
+                    await pilot.press("R")
+                    await pilot.pause()
+                    await pilot.pause()
+                    list(app.screen.query(_RejectedRow))[index].toggle()
+                    await pilot.press("enter")
+                    await pilot.pause()
+                    await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result.unrejected, ("r1", "r3"))
+
+        self._run(runner())
+
+    def test_no_task_id_says_so_instead_of_opening_an_empty_view(self):
+        """"Store unavailable" and "store empty" are different facts and the
+        user needs the first one BEFORE confirming a rejection that will be
+        refused."""
+        async def runner():
+            app = _Host(_sample_concerns(), store_unavailable=True)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("R")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ConcernPickerModal)
+                message, severity = app.notifications[-1]
+                self.assertIn("no task id", message.lower())
+                self.assertEqual(severity, "warning")
+
+        self._run(runner())
+
+    def test_empty_store_says_empty_not_unavailable(self):
+        async def runner():
+            app = _Host(_sample_concerns(), rejected_entries=())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("R")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ConcernPickerModal)
+                message, severity = app.notifications[-1]
+                self.assertIn("no previously rejected", message.lower())
+                self.assertNotIn("task id", message.lower())
+                self.assertEqual(severity, "information")
 
         self._run(runner())
 
