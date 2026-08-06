@@ -561,7 +561,7 @@ stays **low** — the added rules are contained and each is pinned by a named te
     objects, because a failed write is precisely what corrupts those objects.
 
 - **Upstream defects identified:**
-  - `aitask_board.py:1707-1719 (move_tasks_to_column) — counts a task as moved when
+  - `aitask_board.py:1839 (move_tasks_to_column) — counts a task as moved when
     reload_and_save_board_fields silently skipped its save (failed reload), so
     MoveResult.moved can name a task that was never written. merge_columns now
     compensates by verifying against disk, but every other consumer of the movement API
@@ -569,6 +569,7 @@ stays **low** — the added rules are contained and each is pinned by a named te
     move_task_to_edge, reposition_task, update_column) still trusts it. delete_column has
     the same drain-and-strand shape as the merge bug fixed here. Out of scope for t1377_4,
     which does not own those paths.`
+  - Spawned as **t1445** (`board_move_result_reports_unwritten_tasks_as_moved`) at Step 8b.
 
 - **Notes for sibling tasks:**
   - **t1377_5 (dialog) — the reporting contract to consume.** Branch on
