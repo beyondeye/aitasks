@@ -107,3 +107,5 @@ store entries (concurrent cross-session editing is out of scope).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-05T21:09:14Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-06T05:54:40Z status=pass attempt=1 type=human
