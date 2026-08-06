@@ -388,5 +388,104 @@ cross-references resolve regardless of later reordering.
 - timing: pre-phase | name: exit_code_discrimination | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: conflating LOCK_BUSY with an unusable store | desc: assert helper rc 3, 4 and 2 produce three distinct user-visible outcomes rather than one catch-all failure message
 - timing: pre-phase | name: body_role_registry_row | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: the frozen Concern-body role table silently passing after the marker-renderer extraction | desc: delete the new concern_marker_line row locally, confirm the guard fails with an unclassified-read finding naming it, restore, and record the observed failure text
 
+## Final Implementation Notes
+
+- **Actual work done:** All ten planned steps landed as specified, across 8
+  files (+1256/−140). `concern_parser.concern_marker_line()` is now the single
+  renderer of the canonical marker grammar. `_ConcernRow` carries a
+  mutually-exclusive `_state` (`none`/`forward`/`rejected`) with a
+  `_CONCERN_MARKS` glyph table; `a`/`A` are gone along with their bindings,
+  methods, help entries and the two prose sites that named them.
+  `ConcernPickResult` / `RejectedEntry` / `parse_rejected_machine_lines` and the
+  new `RejectedStoreModal` (+`_RejectedRow`) live in `monitor_shared.py`, as
+  does a new `ShadowRejectionsMixin` both apps inherit. Tests:
+  `test_concern_picker_modal.py` 41→47, `test_monitor_concern_action.py` 64→71,
+  `test_minimonitor_concern_action.py` 38→45.
+
+- **Deviations from plan:**
+  1. **The `rejections_only_result_negative_control` mitigation was re-targeted,
+     because the mutation the plan specified is unreachable.** The plan (and the
+     task file) called for pinning against an `if not result:` truthiness
+     regression. That mutation was applied and **the whole suite still passed**:
+     a `NamedTuple` with fields is *always* truthy, so `not result` is `True`
+     only for `None` and the mutation is a structural no-op. A passing negative
+     control means the control is wrong, so the test was re-aimed at the
+     regression that **is** reachable — carrying the old "nothing selected,
+     nothing to do" shortcut across as `if not result.forwarded: return`. Under
+     that mutation both suites fail (4 tests each, including "the rejection was
+     swallowed"). The always-truthy property is now stated in the
+     `ConcernPickResult` docstring so the next reader does not re-add the
+     unreachable guard.
+  2. **The callback body is shared, not duplicated.** The plan specified
+     equivalent edits to `_on_concerns_picked` in both apps; the logic was
+     identical, so it became `ShadowRejectionsMixin.apply_concern_pick_result()`
+     plus a `_persist_concern_dispositions()` worker. Each app's callback is now
+     3 lines: the monitor releases its pick guard, the minimonitor has none.
+  3. **`_fetch_rejected_entries` and `rejection_outcome_message` were added
+     beside the planned `_run_rejected_cmd`.** The plan named one seam; the
+     parse-and-branch and the exit-code vocabulary are equally shared, and
+     leaving them at the call sites would have duplicated the `NO_REJECTIONS`
+     check and the 2/3/4 discrimination in two apps.
+  4. **`_writes()` test helper.** The picker pre-fetches with `list`, so the raw
+     spy could not distinguish "wrote nothing" from "never read the store" —
+     several assertions turn on exactly that difference.
+
+- **Issues encountered:**
+  - `EXPECTED_ACCESSES` in `test_concern_body_display_contract.py` is a FROZEN
+    table and the extraction **moved** a tracked `.body` read. Adding the
+    `concern_marker_line` row and deleting the stale `build_clipboard_payload`
+    one was mandatory, and `test_guard_fails_when_the_clipboard_path_strips_the_trailer`
+    (AC #2) had to be retargeted to the new key.
+  - A hazard that looked real and is not: `monitor_app` binds `r`→`refresh` and
+    `R`→`restart_task` at App level. Textual does **not** dispatch App-level
+    `BINDINGS` under a `ModalScreen` — measured and pinned by
+    `tests/test_monitor_modal_space_dispatch.py`. No guard was added; a future
+    reader should not add one either.
+
+- **Key decisions:**
+  - **One shared, overridable subprocess seam.** `_run_rejected_cmd` copies
+    `_run_marks_cmd`'s total contract (never raises, always terminates, timeout
+    above the helper's own 10s lock timeout so a healthy contended writer
+    reports `LOCK_BUSY` itself) and adds stdin, which `add` needs. It is also
+    the test seam: no bash executes in any suite.
+  - **Exit codes 2 / 3 / 4 stay distinct**, per t1427_1's note that conflating
+    3 (busy) with 4 (unusable) turns a permanent misconfiguration into an
+    endless retry.
+  - **The no-task-id refusal is visible twice** — `R` says the store is
+    unavailable *before* confirming, and the confirm path warns that rejections
+    were not persisted.
+  - **`RejectedStoreModal` accumulates across visits** rather than replacing, so
+    reopening the view before confirming cannot discard earlier choices.
+
+- **Verification evidence.** Full suite: `PYTHON SUITE: PASSED (runner=pytest,
+  exit=0)`. `tests/test_tui_clipboard_seam.sh` 5/5. **Four negative controls**,
+  each a single mutation, each restored byte-identically from a scratchpad
+  backup (never `git checkout` — two other sessions were writing this tree):
+  M1 forwarded-early-return → 8 failures across both suites ·
+  M2 collapse rc 3/4 → both `test_exit_codes_are_discriminated` ·
+  M3 silent no-task-id → both `test_no_task_id_is_a_visible_refusal` ·
+  M4 drop the registry row → 3 failures naming `concern_marker_line`.
+  Plus an **end-to-end probe against the real `aitask_shadow_rejected.sh`**
+  (not the spy): `add --producer picker` → `ADDED:2`, `list --machine`
+  round-tripped a body containing `|` byte-identically, `remove r1` →
+  `REMOVED:r1` leaving `r2`, and an invalid id → rc 2 mapped to the
+  bad-request message.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1427_3 (producers):** the store is written with `--producer picker` for
+    picker-originated rejections, so `list`'s producer column distinguishes
+    them from anything a producer writes itself. Entry ids are `r`-prefixed on
+    the wire (`REJECTED:r1|…`) and `parse_rejected_machine_lines()` in
+    `monitor_shared.py` is the ready-made parser if a Python consumer needs one.
+  - **t1427_4 (docs):** the user-visible key map changed — `Space` forwards,
+    `r` rejects, `R` opens the rejected list, `u` inspects unparsed; **`a` and
+    `A` no longer exist**. Both help strings (`_CONCERN_HELP_FULL` /
+    `_CONCERN_HELP_COMPACT`) are the canonical wording and stay readable to 24
+    columns. The doc surfaces listed in the parent task all still name `a`/`A`.
+  - **Cross-agent skills:** nothing in `.claude/skills/` changed here, so no
+    Codex/OpenCode port is implied by this child.
+
 Post-implementation cleanup, archival, and merge follow **Step 9
 (Post-Implementation)** of the task workflow.
