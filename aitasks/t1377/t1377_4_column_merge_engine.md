@@ -3,15 +3,14 @@ priority: high
 effort: medium
 depends: [t1377_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, board_columns]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-04 09:55
-updated_at: 2026-08-05 08:54
+updated_at: 2026-08-06 08:54
 ---
-
-
 
 ## Context
 
