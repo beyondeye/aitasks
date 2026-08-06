@@ -217,16 +217,59 @@ the partial state safe, self-describing, recoverable:
        # record; skip THIS source's config removal
    ```
 
-   **`Task.load()` returning `False` is its own state, not a move.** The write path
-   itself skips the save when the file is gone (`:337-338`), leaving the in-memory copy
-   at `dest` — so a reload that also fails to load must **not** be read as "moved", or a
-   deleted file would be counted a success. Record those separately
-   (`("<name>", "file_missing")` in `failed`) rather than folding them into either bucket.
+   **⚠ "No exception" does NOT mean "written" — verify every source's move against
+   disk, not only the raising ones.** `reload_and_save_board_fields` returns early and
+   **silently** when its reload fails, and `move_tasks_to_column` then calls
+   `_mark_written` and reports that task in `MoveResult.moved` anyway. So a member can
+   fail to land with no `OSError` at all, and a merge that trusted the nominal return
+   would count it merged and **drain the source**.
 
-   **Attribute the failure precisely.** In source order, the first non-moved member is
-   the one whose write raised; the remainder were never attempted. Report the first with
-   the `OSError` text and the rest with a distinct `not_attempted` reason, so
-   `MergeResult.failed` names the actual I/O casualty instead of blaming the whole tail.
+   `Task.load()` returns `False` on *any* read exception, not just a missing file — a
+   permission or decode error on a file that still exists takes the same path (and wipes
+   `self.metadata`, so the in-memory copy cannot be asked about it either). That is the
+   harmful variant: the file survives holding `boardcol: <src>` while the source column
+   is removed, stranding it on a column that renders nowhere.
+
+   Therefore classify **after every source's move**, raising or not, by re-reading each
+   member from disk — independent ground truth, rather than asking the same in-memory
+   objects the failed write already corrupted. Report a non-landed member as
+   `file_missing` (unreadable/absent) or `not_written` (present but unchanged), and
+   **drain a source only when every member is confirmed landed and nothing raised.**
+   Recovery still converges: a vanished member's wiped metadata no longer claims the
+   source, so the retry sees only real members and completes.
+
+   **⚠ Deleted and unreadable are different states, and the difference decides the
+   RETRY.** For a deleted file there is nothing left to orphan, so converging by draining
+   is right. For a file that still exists but cannot be read, the failed `Task.load()`
+   wiped its metadata — so `get_column_tasks(src)` no longer lists it, the source looks
+   **empty**, and the retry drains it while the file on disk still names it. The retry is
+   where the orphan actually lands, and a fresh manager is no safer: `load_tasks` drops an
+   unreadable file as a phantom stub (`metadata == {}`), so it never appears at all.
+
+   So unreadability must be **tracked as state**, not inferred per-attempt:
+   - `Task.load()` records `load_ok` (`__init__` discards its return value, and afterwards
+     a failed load is indistinguishable from an empty stub — both leave `metadata == {}`).
+   - `load_tasks` populates `TaskManager.unreadable_files`, so a **fresh** manager
+     re-derives the hazard instead of inheriting nothing.
+   - `merge_columns` removes **no** column while that set is non-empty — an unreadable
+     file may claim any column, so no source can be proven empty — and reports
+     `("<unverifiable>", …)`. The block lifts by itself once the file parses again.
+
+   **Attribute the failure precisely, and derive the boundary from SOURCE ORDER.** In
+   `names` order, the first member that did not move is the one whose write raised; the
+   remainder were never attempted. Report the first with the `OSError` text and the rest
+   as `not_attempted`, so `MergeResult.failed` names the actual I/O casualty instead of
+   blaming the whole tail.
+
+   **⚠ The boundary must be computed over `names`, not over a list with the vanished
+   members filtered out.** If the casualty's file also disappeared, filtering it out
+   first drops it from the list and promotes the next — untouched — member to position 0,
+   which then gets reported as the I/O casualty. With a three-member source failing on
+   member 2, member 3 is blamed for an error it never saw. Walk `names` and take the
+   first non-moved member as the casualty (reporting it `file_missing` when it vanished,
+   otherwise `write_failed`); everything after it is `not_attempted`. **A two-member
+   source cannot detect this** — the casualty is the last member, so no following member
+   exists to be misattributed. The regression test needs a three-member source.
 
    `Task.load()` is the same reload the write path already uses (`:337`) and is **not**
    a `reload_and_save_board_fields` call, so this adds **no** new call site and
@@ -389,8 +432,15 @@ The write-spy patch point **is** the `OSError` injection seam.
 | **reconcile survival** (Drift 2) | after a merge, construct a **fresh** `TaskManager` over the same tmp tree and assert the merged-away source is absent from `columns` / `column_order` — i.e. `save_metadata()`'s `_reconcile_external_columns` did not resurrect it from disk |
 | **partial recovery — same manager** | inject `OSError` on the Nth `reload_and_save_board_fields`: (a) members 1..N-1 moved on disk, rest not; (b) failing source **still present** in both lists; (c) `complete is False` and `failed` names the failing file; (d) **the in-memory `board_col` of the failed task reads `src`, not `dest`** — the divergence rule of §3.2, and the single assertion that catches a missing `task.load()` reconcile; (e) `get_column_tasks(src)` still lists it; (f) **retry on the SAME manager** with the injection removed completes the merge and only then removes the source |
 | **partial recovery — fresh manager** | same injection, then build a **new** `TaskManager` over the same tree and retry: also converges. Run *both* — a fresh instance reloads from disk and would mask the stale-mutation bug entirely, so the fresh-manager case alone is not evidence |
-| **failure attribution** | with the injection on member N of a 4-member source, `failed` names member N with the `OSError` text and members N+1.. with `not_attempted` — not one undifferentiated blob, and not the whole source |
+| **failure attribution** | with the injection on member N of a **three**-member source, `failed` names member N with the `OSError` text and members N+1.. with `not_attempted` — not one undifferentiated blob, and not the whole source. Three members is the minimum: with two, the casualty is the last member and nothing follows it to be misattributed |
+| **vanished casualty does not shift blame** | three-member source, member 2 both fails **and** is deleted: member 2 is `file_missing` and member 3 is `not_attempted` — member 3 must NOT inherit the `write_failed` reason. Negative control: deriving the boundary from the vanished-filtered list reproduces exactly that misattribution |
 | **vanished file during merge** | delete a member's file after `names` is captured but before its write, so `Task.load()` returns `False`: it is reported `file_missing` in `failed` and is **not** counted in `merged`, and the source is not removed |
+| **silent skip — NO OSError** | delete a member's file just before its write and raise **nothing**: `complete` is `False`, the member is `file_missing` and absent from `merged`, and the source is **retained** in both `columns` and `column_order`. This is the path a nominal-return-trusting merge reports as a full success |
+| **unreadable member is not orphaned** | make a member's file present but undecodable (so `Task.load()` fails without raising): the source is retained, because draining would leave that file's `boardcol: <src>` pointing at a removed column. Negative control: trusting the nominal return drains it |
+| **retry after a silent skip converges** | re-run after the deletion: the vanished member no longer claims the source, so the retry completes and removes it |
+| **unreadable: same-manager RETRY does not drain** | re-run after the corruption: `sources_removed` stays empty and `failed` carries `<unverifiable>`. This is the case the first-merge assertion cannot cover — the wiped metadata makes the source *look* empty only on the second pass |
+| **unreadable: fresh-manager retry does not drain** | a new `TaskManager` lists the file in `unreadable_files` (re-derived by `load_tasks`, which otherwise drops it as a phantom stub) and refuses to remove the column |
+| **block lifts once readable** | rewrite the member as valid frontmatter still naming the source; the next merge completes and removes the source — the guard is until-readable, not permanent |
 | **metadata failure — boundary A** (`save_project_config` raises) | (a) all task moves persisted; (b) `self.columns` / `self.column_order` / `collapsed_columns` **rolled back** to include the sources; (c) `complete is False`, `failed` carries the `"<metadata>"` sentinel, `sources_removed` empty; (d) re-running `merge_columns` on the same manager **and** on a fresh one both converge — sources empty, then removed |
 | **metadata failure — boundary B** (`save_local_config` raises, project write already succeeded) | (a) the source columns are **gone from `board_config.json` on disk**; (b) `self.columns` / `self.column_order` are **NOT** rolled back — they match disk; (c) `failed` carries `"<metadata:local>"` and `sources_removed` **is populated**; (d) `save_metadata()` on the same manager persists the pruned `collapsed_columns`; (e) **a fresh manager's `merge_columns(src, dest)` REFUSES with an unknown-column reason** — this replaces the impossible merge-retry assertion and pins that the retry path here is the save, not the merge |
 | **no resurrection after boundary B** | after the boundary-B failure, trigger any later `save_metadata()` on the same manager (e.g. `toggle_column_collapsed` on a surviving column) and assert the merged-away sources are **still absent** from `board_config.json` — the regression a blanket rollback would cause, since `save_metadata` writes `self.columns` wholesale |
@@ -443,3 +493,102 @@ closed a real correctness hole in the recovery path (in-memory/disk divergence a
 unrolled-back metadata write), which raised the explicit failure-path surface while
 removing the silent-orphan outcome. Net: code-health stays **medium**, goal-achievement
 stays **low** — the added rules are contained and each is pinned by a named test.
+
+## Final Implementation Notes
+
+- **Actual work done:** `MergeResult` + `MetadataWriteError` + `TaskManager.merge_columns`
+  in `.aitask-scripts/board/aitask_board.py`, the `update_column` collapsed-state
+  migration (§4), the load-time `collapsed_columns` orphan prune (§4b), and
+  `tests/test_board_column_manage.py` (new, 40 tests) covering both pre-phase
+  mitigations, happy paths, refusals, t1377_3 reconcile survival, and the full failure
+  matrix. One pinned entry added to `CANONICAL_IMPORT_ALLOWED` in
+  `tests/test_board_fixture_harness.py`. `EXPECTED_CALL_SITES` and `FLIP_TABLE` stayed
+  green **unedited**, as planned — `merge_columns` composes `move_tasks_to_column` and
+  adds no `reload_and_save_board_fields` call site.
+
+- **Deviations from plan:**
+  1. **Boundary discrimination is by exception phase, not a config re-read.** The plan
+     had `merge_columns` call `project_columns_at` to tell the two `save_metadata` write
+     boundaries apart. That added a second call site and broke t1377_3's AST containment
+     guard (`tests/test_board_columns_reconcile.py`), which pins disk I/O to the
+     `save_metadata` path. Rather than weaken that performance invariant, `save_metadata`
+     now raises `MetadataWriteError` tagged `phase="project"|"local"`. Exact instead of
+     inferred, no extra I/O, frozen table untouched. An untagged `OSError` defaults to
+     `"project"` (fail-safe: it rolls back).
+  2. **Verification runs on the nominal path too, not only after an `OSError`** — see
+     "Issues encountered" below.
+  3. **Unreadability became tracked manager state** (`Task.load_ok`,
+     `TaskManager.unreadable_files`, `_revalidate_unreadable`), which the plan did not
+     anticipate at all.
+
+- **Issues encountered:** four defects were found in review, each confirmed against
+  source, fixed, and pinned by a test whose negative control reproduces it:
+  1. **Attempt-boundary misattribution.** The casualty was derived from a list with
+     vanished members filtered out, so a casualty that also disappeared promoted the next
+     — never attempted — member into the `write_failed` slot. Fixed by deriving the
+     boundary from source order. **A two-member source cannot detect this**; the
+     regression test needs three.
+  2. **Silent skip counted as success.** `reload_and_save_board_fields` returns early and
+     raises nothing when its reload fails, yet `move_tasks_to_column` still reports the
+     task in `moved`. A merge trusting that nominal return drained the source. For a
+     file that exists but is unreadable (permission/decode error — `Task.load()` returns
+     `False` for *any* read exception, not just a missing file) this stranded it holding
+     `boardcol: <src>` on a removed column. Fixed by verifying every member against disk
+     after every source's move.
+  3. **Retry orphan.** A failed `Task.load()` wipes `metadata`, so the member vanished
+     from `get_column_tasks(src)` and the *retry* found the source empty and drained it.
+     A fresh manager was no safer — `load_tasks` drops an unreadable file as a phantom
+     stub. Fixed by tracking `unreadable_files` at load time and refusing to remove any
+     column while the set is non-empty.
+  4. **Permanent block.** That guard was cleared only by `load_tasks`, so a same-manager
+     retry after the file was repaired stayed blocked forever. Fixed by
+     `_revalidate_unreadable()` at merge start, which also restores the repaired task to
+     `task_datas` so the retry actually moves it.
+
+  The recurring lesson: **three of the four were masked by a test that reconstructed the
+  manager.** `fresh_manager()` re-runs `load_tasks` and rebuilds exactly the state the
+  bug corrupts, so same-manager retry coverage is mandatory for every failure path here.
+
+- **Key decisions:**
+  - The `<unverifiable>` guard is deliberately **broad**: any unreadable task file blocks
+    all column removals, not only ones traceable to that file. Narrowing it would require
+    reading the file that just failed to read. Conservative-and-honest over
+    precise-and-guessing; the message names the offending files.
+  - `unreadable_files` tracks **parents only**, matching `load_tasks`. Column membership
+    is a parent-level property (`get_column_tasks` reads `task_datas`), so an unreadable
+    child cannot be stranded by removing a column.
+  - Disk is used as independent ground truth for verification rather than the in-memory
+    objects, because a failed write is precisely what corrupts those objects.
+
+- **Upstream defects identified:**
+  - `aitask_board.py:1707-1719 (move_tasks_to_column) — counts a task as moved when
+    reload_and_save_board_fields silently skipped its save (failed reload), so
+    MoveResult.moved can name a task that was never written. merge_columns now
+    compensates by verifying against disk, but every other consumer of the movement API
+    (move_task_to_column from the board/minimonitor move actions, delete_column,
+    move_task_to_edge, reposition_task, update_column) still trusts it. delete_column has
+    the same drain-and-strand shape as the merge bug fixed here. Out of scope for t1377_4,
+    which does not own those paths.`
+
+- **Notes for sibling tasks:**
+  - **t1377_5 (dialog) — the reporting contract to consume.** Branch on
+    `MergeResult.complete`, and on *which* sentinel appears in `failed`:
+    `"<metadata>"` → the merge did not land, retry the merge; `"<metadata:local>"` → the
+    merge **did** land, retry `save_metadata()` and never re-offer the merge (it would
+    refuse with `unknown_column`); `"<unverifiable>"` → name the unreadable files and ask
+    the user to fix them. Per-member reasons are `write_failed:` / `not_attempted` /
+    `not_written` / `file_missing` / `unreadable`. Never show a bare "Merged" when
+    `complete` is `False`.
+  - **t1243_11 §4** — `merge_columns` is the **reference drain path** (fresh appended
+    indices preserving relative order, via `move_tasks_to_column`); consume it rather
+    than writing a second re-index strategy for `delete_column`. Any shared helper must
+    preserve the non-transactional contract: per-file atomic writes, config removal last,
+    `MergeResult.failed`, convergent re-run, and **verification against disk** — do not
+    let a refactor reintroduce "no exception means written".
+    `DeleteColumnDrainCharacterizationTests` pins `delete_column`'s current flat
+    `board_idx = 0`; it is *expected* to fail when §4 lands, and names §4 in a comment.
+  - **t1243_10** — when `settings.collapsed_groups` lands with composite `"<col>/<slug>"`
+    keys, its column half must be re-pointed by **both** `merge_columns` and the fixed
+    `update_column`, applying t1243_10's coalesce rule. Note `_prune_orphan_collapsed_columns`
+    is the model for the equivalent group-key prune, **including its `unordered`
+    whitelist** — the synthetic lane is collapsible but absent from `columns`.
