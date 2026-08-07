@@ -270,16 +270,24 @@ suppress nothing. Do not add one.
         rules-bullet-only text, and `True` only when both are present. The
         one-copy cases are what prove the guard is placement-aware rather than
         a membership test.
-     2. *Fixture-directory control, exercising the real discovery wiring.*
-        `unittest.mock.patch.object(TestProducerRejectionSuppressionRule,
+     2. *Fixture-directory control that invokes **the production assertion
+        itself**.* `unittest.mock.patch.object(TestProducerRejectionSuppressionRule,
         "SHADOW_DIR", <tmpdir>)` over a tmp dir holding two synthetic producer
         files (both carrying the marker phrase; one compliant, one missing the
-        directive), then assert the offenders list is exactly the
-        non-compliant filename. The synthetic-text control alone proves only
-        that the *predicate* can return `False` — it cannot catch the vacuous
-        pass where the new class is wired to the wrong predicate (pasting
-        `_states_region_required_rule`, which all four producers satisfy). This
-        drives the real class, not a replica, and touches nothing shared.
+        directive), then **call
+        `test_every_producer_states_the_rejection_suppression_rule()`** inside
+        that context under `assertRaises(AssertionError)` and require the
+        message to name `bad.md` and **not** `good.md`.
+
+        **Re-implementing the offender comprehension in the control does not
+        work** — measured, not assumed. Recomputing offenders here with a direct
+        call to the predicate leaves the control blind to the very mutation it
+        exists to catch: pasting `_states_region_required_rule` (which all four
+        real producers satisfy) into the production method leaves that method
+        vacuously green *and* the re-implementation green, because the mutation
+        never reaches it. Invoking the real method is what couples them, and it
+        also catches a neutered assertion (`assertRaises` fires). Drives the
+        real class, not a replica, and touches nothing shared.
 
      **Deviation from the task file's "one-for-one mirror of
      `TestProducerRegionRequiredRule`":** this class carries one control more
@@ -395,6 +403,158 @@ suppress nothing. Do not add one.
 ### Planned mitigations
 - timing: after | name: producer_manifest_independent_discovery | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — marker-keyed producer discovery cannot see a fifth producer written without the marker phrase, so every rule guard stays green while a live producer carries none of the rules | desc: give the shadow producer set an independent discovery signal (explicit manifest, or a broader scan flagging any aitask-shadow/*.md that instructs emitting a concern block but lacks the marker) so a new producer cannot be added silently; benefits the short-region and region-required guards equally, and is spawned rather than inlined because it re-opens the shared t1187 discovery contract and its KNOWN_PRODUCERS pin
 - timing: post-phase | name: goldens_regenerated_render_suite_green | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — six goldens invalidated by the edits, with the impl-challenge procedure goldens the easy miss | desc: regenerate the 3 entry-point and 3 impl-challenge goldens with the documented driver, review each diff for rule-text-and-bulk-select-fix content only, and run tests/test_skill_render_aitask_shadow.sh green before committing — all in the same commit as the edits
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-07 16:03)
+
+- **Requested by user:** A review finding against the implemented guard.
+  `test_guard_wiring_flags_a_real_offender` recomputed the offender list with a
+  direct call to `_states_rejection_suppression_rule` instead of exercising
+  `test_every_producer_states_the_rejection_suppression_rule`, so it could not
+  catch that production test being copy-pasted to `_states_region_required_rule`
+  — the exact vacuous pass it was written to catch, and the sole justification
+  for carrying a control beyond the mirror's.
+
+- **Verified before changing anything.** Reproduced against the shipped test:
+  with the mutation applied at **one** site — the production method rewired to
+  `_states_region_required_rule`, nothing else touched — all four class tests
+  ran green. CONFIRMED.
+
+  The earlier "demonstration" that had claimed the opposite was itself invalid:
+  it substituted the predicate through a single variable used in **both** the
+  production comprehension and the control's, so the mutation reached the
+  control too. That is a negative-control discipline failure — the mutation must
+  be applied at the isolated enforcement point, not at two sites at once — and
+  it is what made an ineffective control look effective.
+
+- **Changes made:**
+  - The control is renamed `test_production_assertion_fails_on_a_real_offender`
+    and now **invokes the production method itself** inside the patched
+    `SHADOW_DIR` context, under `assertRaises(AssertionError)`, asserting the
+    message names `bad.md` and **not** `good.md`. Re-implementing the
+    comprehension is what broke the coupling; calling the real method restores
+    it.
+  - Its docstring records the measured finding, so a later reader does not
+    "simplify" it back into a re-implementation.
+  - Step 4 of this plan rewritten to specify the working shape.
+  - Re-verified against **two** mutation classes, each applied at the single
+    production site and each caught, failing for the right reason:
+    M1 production method rewired to `_states_region_required_rule` → fails on
+    `assertNotIn("good.md", …)` ("flagged the COMPLIANT fixture too") ·
+    M2 production method neutered to a no-op → fails on
+    `AssertionError not raised`. Baseline unmutated: 71 passed.
+
+- **Files affected:** `tests/test_concern_parser.py`,
+  `aiplans/p1427/p1427_3_producer_suppression_rule.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All five planned steps plus the post-phase landed as
+  specified, across 13 files (+405/−29 before CR-1). `concern-format.md` gained
+  a `## Rejected-concern suppression` section between the trigger-vs-action
+  contract and "Where it lives", carrying the store path, the three-outcome
+  reader contract, the semantic-matching rationale, fail-open, the `Suppressed
+  N` report, and the "the store can never become a block" property. All four
+  producers carry the rule in both placements — the bolded
+  `**Consult the rejection store before emitting.**` directive at the head of
+  the emit step and a `**Suppress previously-rejected concerns.**` entry in the
+  parser-rules list. `SKILL.md.j2` Step 2 gained one paragraph. Tests:
+  `test_concern_parser.py` 66 → 71, adding `_SUPPRESSION_DIRECTIVE`,
+  `_states_rejection_suppression_rule`, `TestProducerRejectionSuppressionRule`
+  (4 tests) and a rendered-render guard. Six goldens regenerated.
+
+- **Deviations from plan:**
+  1. **One negative control more than the task file's "one-for-one mirror of
+     `TestProducerRegionRequiredRule`".** The mirror's single synthetic control
+     proves only that the predicate can return `False`; it cannot see how the
+     production assertion is wired. Stated as a deliberate deviation in the plan
+     before implementation, and CR-1 then proved the extra control was worth
+     having — and initially built wrong.
+  2. **The rules-list "emit only when ≥1 concern" bullet gained a suppression
+     clause** in all four producers. Not in the plan, but the interaction is
+     reachable and undefined without it: if suppression drops every fresh
+     concern, the producer omits the block and says so, rather than emitting an
+     empty one.
+
+- **Issues encountered:**
+  - **`impl-challenge.md` has committed procedure goldens** that the original
+    task file's "producers are plain `.md` — no `.j2` work" wording pointed away
+    from. Caught during the plan-verification pass, not at test time.
+  - **The first version of the wiring negative control did not work, and the
+    demonstration that "proved" it was itself invalid** — see Change Request 1.
+    The lesson generalises beyond this task: a negative control must apply its
+    mutation at the **single** enforcement point under test. Substituting a
+    shared variable that both the production code and the control read makes an
+    ineffective control look effective, because the mutation reaches the control
+    too.
+  - **The working tree carried substantial concurrent work from other sessions**
+    (gate-skill wrappers under `.agents/` and `.opencode/`, `board_groups.py`,
+    sync/merge/fold changes, and `tests/golden/procs/task-workflow/SKILL-fast.md`
+    paired with a `task-workflow/SKILL.md` edit). The post-phase's
+    review-every-diff step is what surfaced that foreign golden; a blanket
+    `git add tests/golden/` would have swallowed it. Staging was done by
+    explicit path list.
+
+- **Key decisions:**
+  - **The rule resolves the task id rather than waiting for one.** "If a source
+    task id is known (Step 2)" would have made suppression conditional on an
+    explicitly optional step — the same unreachable-trigger shape the parent
+    task warned about, one level down. Both launchers already pass the id as a
+    launch argument (`minimonitor_app.py:1794-1797`), so the reachable wording
+    costs nothing.
+  - **Three defined outcomes, and errors are not "nothing was rejected".**
+    `list` exits 2 on a malformed id, so an inferred-but-wrong id must degrade
+    to a visible "suppression skipped", never to silent non-suppression. Both
+    the producers and `concern-format.md` state this; a Verification check
+    cross-references them because the doc is the format's source of truth and
+    would outrank the producers on a divergence.
+  - **The guard is placement-aware.** A plain "both substrings appear somewhere"
+    predicate is satisfied by the rules-list bullet alone, so deleting the
+    high-attention directive — the countermeasure for an agent skipping the rule
+    — would have left every guard green.
+  - **No producer filter on the rejection list.** Rejection is a judgement about
+    the concern, not the round that raised it, and t1427_2 writes everything with
+    `--producer picker`, so a producer-scoped filter would suppress nothing.
+
+- **Verification evidence.** `PYTHON SUITE: PASSED (runner=pytest, exit=0)` —
+  3787 passed, 2 skipped, plus the serial carve-out. `test_concern_parser.py`
+  71 passed. `tests/test_skill_render_aitask_shadow.sh` 475/475 (Test 1
+  entry-point goldens, Test 1p `impl-challenge` goldens, Test 1i invariance).
+  `aitask_skill_verify.sh` OK — 13 templates × 3 agents, wrapper parity clean.
+  Programmatic cross-checks: all four producers carry the directive with
+  `previously-rejected` ×4 and `aitask_shadow_rejected.sh list` ×2; the producer
+  set is still exactly the four known files (`concern-format.md` did not become
+  a fifth); all five surfaces state the same three outcomes. **Negative controls
+  (all in-suite, no repo file mutated):** the synthetic per-placement control
+  (neither copy / bullet-only / directive-only → `False`; both → `True`), and
+  the production-assertion control verified against two mutations applied at the
+  single production site — rewired predicate → fails naming the compliant
+  fixture; neutered assertion → `AssertionError not raised`.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1427_4 (docs):** the two stale `a`/`A` bulk-select sentences inside the
+    skill tree (`concern-format.md`, `impl-challenge.md`) were fixed here, so
+    t1427_4's a/A scrub applies only to `website/` and `aidocs/`. When
+    documenting suppression, the user-visible contract is: the report line is
+    `Suppressed N previously-rejected concern(s).`; unsure ⇒ the concern is
+    **kept** with a reason; an unresolvable task id or an unreadable store ⇒ the
+    round says suppression was skipped and emits everything. Do **not** document
+    the helper's `list` as a user-facing CLI — producers invoke it.
+  - **t1427_5 (manual verification):** its three t1427_3 checklist items match
+    what shipped, including "no resolvable task id → output states suppression
+    was skipped". Nothing needs re-wording.
+  - **The spawned `after` mitigation** (`producer_manifest_independent_discovery`)
+    covers a **pre-existing** t1187 blind spot shared by all three rule guards:
+    `_producers()` discovers by marker phrase, so a fifth producer written
+    without it inherits no rules and `test_producer_set_is_the_known_set` still
+    passes on the original four.
+  - **Anyone adding a fifth producer** must write the marker phrase
+    `load-bearing for minimonitor's parser` and all three rules, and must not
+    write that phrase into `concern-format.md` — doing so registers it as a
+    producer and fails the known-set assertion.
 
 Post-implementation cleanup, archival, and merge follow **Step 9
 (Post-Implementation)** of the task workflow.
