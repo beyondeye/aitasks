@@ -11,10 +11,10 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 risk_mitigation_tasks: [1404]
-children_to_implement: [t1377_6, t1377_7]
+children_to_implement: [t1377_7]
 anchor: 1243
 created_at: 2026-08-03 10:37
-updated_at: 2026-08-07 11:27
+updated_at: 2026-08-07 12:30
 boardidx: 17408
 ---
 
