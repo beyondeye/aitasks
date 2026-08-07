@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 09:56
-updated_at: 2026-08-06 15:30
+updated_at: 2026-08-07 06:40
 ---
 
 ## Context
@@ -173,3 +174,8 @@ immediately before implementing**, grep for symbols rather than trusting line
 numbers, and keep the new UI strictly above the render layer so t1243_5 does not
 rewrite it. Stage explicit paths; never `git stash` / `git add -A` in this shared
 checkout.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-07T03:41:08Z status=pass attempt=1 type=human
