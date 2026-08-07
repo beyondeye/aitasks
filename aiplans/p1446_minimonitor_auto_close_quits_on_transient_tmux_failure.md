@@ -66,6 +66,18 @@ already distinguishes "tmux list-panes failed" from "no other pane in this windo
   into t1446's `risk_mitigation_tasks` frontmatter. It blocks nothing, so this task
   still lands on its own.
 
+  **Re-verified against the implemented code (post-implementation review):** the
+  call is still `self.tmux_run([...])` at `monitor_core.py:1779` with no `timeout=`
+  argument, i.e. the 5.0 s default, reached from the async `_refresh_data` via the
+  sync `self._check_auto_close()` at `minimonitor_app.py:499`. So a stalled tmux can
+  still freeze the minimonitor UI for up to 5 s per tick — it just can no longer
+  *close* it, which is what t1446's acceptance criteria require. Disposition
+  unchanged: informational, out of scope here, and delivered by
+  `async_window_pane_discovery`. **Creation must be confirmed at Step 8d** — the
+  `timing: after` line below is its input, and the run is complete only once that
+  line carries a `created: t<id>` witness and the id appears in the task's
+  `risk_mitigation_tasks`.
+
 ## Design decisions
 
 **Return shape: `(observed, panes)` pair, not `list | None`.** With `| None`, a future
@@ -330,3 +342,88 @@ Step 9 (Post-Implementation) handles merge, gate verification, and archival.
 **Post-inline reassessment:** the confirmed inline post-phase adds a verification-only
 step that touches no production code and cannot invalidate the plan. Both levels stand
 at **code-health: low** / **goal-achievement: low**.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in four files.
+  `monitor_core.discover_window_panes` (`:1752`) now returns
+  `(observed, panes)`; `observed` is `True` only when tmux answered (`rc == 0`)
+  **and** every non-blank record parsed — the two bare `continue`s that silently
+  drop malformed records now clear a `complete` flag, and blank lines are skipped
+  without clearing it. `minimonitor_app` gained the module constant
+  `AUTO_CLOSE_CONFIRMATIONS = 2`, the `_empty_window_streak` field, and a rewritten
+  `_check_auto_close` in which every non-observation (tmux failure, incomplete
+  listing, listing without our own pane) resets the streak and returns without
+  exiting. `tests/test_monitor_modal_space_dispatch.py:93`'s `_FakeMonitor` stub was
+  moved to the new `(False, [])` shape. New suite
+  `tests/test_minimonitor_auto_close_guard.py` — 21 tests, three layers.
+- **Deviations from plan:** none in substance. One correction to the plan's negative
+  control table: the parser-only mutation (re-collapsing `rc != 0` into a *verified*
+  empty) does **not** fail the layer-2/3 tests, because the caller's self-sighting
+  rule catches an empty listing on its own. The control that fails them is the full
+  pre-fix revert (parser **and** caller), which is what the plan's first row actually
+  specifies; the run below used exactly that.
+- **Issues encountered:**
+  - A concurrent session was editing the same worktree on **t1449** (session-divider
+    single-sourcing), owning `monitor_app.py`, `monitor_shared.py`,
+    `tests/test_minimonitor_other_section.py`, `tests/test_monitor_session_divider.py`
+    **and three hunks inside `minimonitor_app.py`** (the `format_session_divider`
+    import, a CSS block, and the divider call site). Committing the file wholesale
+    would have absorbed t1449's in-progress work, so this task's commit stages only
+    its own hunks of `minimonitor_app.py` via a filtered patch to the index; the
+    t1449 hunks were left untouched in the working tree.
+  - Layer 3 must NOT clear `_own_window_id` the way `test_minimonitor_own_mark.py`
+    does to keep auto-close out of its way — doing so makes the whole layer pass
+    vacuously. That trap is called out in the suite docstring.
+- **Key decisions:**
+  - `(observed, panes)` pair rather than `list | None`: with `| None` a future caller
+    writing the natural `if not panes: exit()` re-creates this exact bug, since `None`
+    is falsy. A 2-tuple cannot be consumed without binding the flag.
+  - `rc == 1` (tmux command error) counts as unverifiable too. Exiting on it buys
+    nothing — if the window is genuinely gone our pane is gone with it.
+  - Completeness is decided **at the parser**, the only place that can see a dropped
+    record. Confirmed load-bearing: negative control 2 fails
+    `test_dropped_sibling_row_never_exits`, which the caller's self-sighting rule
+    alone does not catch (our own row is present in that listing).
+  - N = 2 consecutive verified-empty observations before exiting, and **no** opposite
+    budget — repeated failures never close the pane (both confirmed with the user
+    during planning).
+- **Verification run:**
+  - `tests/test_minimonitor_auto_close_guard.py` — 21/21 OK.
+  - `tests/test_monitor_modal_space_dispatch.py` — 7/7 OK.
+  - `bash tests/run_all_python_tests.sh` — `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - Negative controls (each applied alone, then reverted; repo verified free of
+    `NEGCTRL` markers afterwards):
+    | mutation | named tests that failed |
+    |---|---|
+    | full pre-fix revert (parser `return (True, [])` + caller's self-sighting guard disabled) | `test_transport_failure_is_not_an_empty_window`, `test_repeated_transport_failure_never_exits`, `test_stalled_tmux_tick_does_not_close_the_app` (7 total) |
+    | bare `continue`s restored (completeness flag dropped) | `test_truncated_sibling_row_makes_the_listing_unverifiable`, `test_unparseable_pid_makes_the_listing_unverifiable`, `test_dropped_sibling_row_never_exits` (3 total) |
+    | `AUTO_CLOSE_CONFIRMATIONS = 1` | `test_exit_requires_two_consecutive_verified_empty` (5 total) |
+- **`[live_autoclose_verification]` post-phase result (real tmux, session `mm1446`):**
+  - Fixture: `%422` = `sleep 3600` sibling, `%423` = `python` (the `./ait minimonitor`
+    companion, pid 4041322) — exactly two panes, as required.
+  - **(a) sibling remains → PASS.** After 12 s both `%422` and `%423` were still
+    listed. UI capture was byte-identical across the interval, but CPU time advanced
+    `cpu_ticks: 47 -> 63`, so the process was ticking, not frozen — the plan's
+    "diff differs OR ct1 > ct0" liveness criterion, satisfied by the second signal.
+  - **(b) sibling dies → PASS.** `tmux kill-pane -t %422` →
+    `CLOSED after 5s (PASS)`, i.e. within two 3 s refresh cycles, as designed.
+  - Cleanup ran and was confirmed (`cleanup OK`).
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:1410-1425` — `get_pane_option` returns
+    `""` on `rc != 0`, and `compute_shadow_staleness` (`:538-540`) reads that empty
+    string as "the shadow has not analyzed anything yet: nothing to warn about". A
+    tmux failure therefore suppresses a staleness warning — the same
+    unverifiable-read-as-negative class as t1446, in a different function.
+  - `.aitask-scripts/aitask_minimonitor.sh:37` and
+    `.aitask-scripts/lib/agent_launch_utils.py:1567` — the single-instance guards test
+    `pane_current_command` for `minimonitor` / `monitor_app`, but a live minimonitor
+    pane reports `python` (confirmed in this task's live fixture: `%423 … python`), so
+    neither guard can ever fire. Harmless but dead. (Also noted in t1446's own
+    "Out of scope" section.)
+  - `.aitask-scripts/lib/agent_launch_utils.py:1465-1603` — `maybe_spawn_minimonitor`
+    spawns the companion but never arms the `pane-died` cleanup hook, and
+    `.aitask-scripts/lib/tui_switcher.py:1387` arms it with a **bare**
+    `set-hook -p … pane-died` (index 0) — the overwrite hazard
+    `attach_shadow_cleanup_hook` was written to avoid. (Carried over from t1446's
+    "Out of scope" section; not re-verified live in this session.)
