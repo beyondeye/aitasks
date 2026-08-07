@@ -293,3 +293,4 @@ None identified.
   other three is cheap. Anyone re-verifying a t1377 plan should read the landed
   source, not the sibling plans: four of the five things this task documents
   were introduced as deviations during implementation.
+- **Manual-verification failure:** item "[t1377_6] Read the updated board and minimonitor doc pages against the shipped behaviour and confirm no statement is stale" failed; follow-up task t1455.
