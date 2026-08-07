@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-06 11:54
-updated_at: 2026-08-06 11:57
+updated_at: 2026-08-07 16:04
 ---
 
 ## Origin
@@ -140,3 +141,8 @@ counts tabled above — an unreachable trigger would prove nothing.
   record, or enforce) the "stdout is always a pipe" contract that makes
   `2>/dev/null` safe. Where it does not hold, a genuine `ENOSPC` would become
   silent truncation.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-07T13:04:55Z status=pass attempt=1 type=human
