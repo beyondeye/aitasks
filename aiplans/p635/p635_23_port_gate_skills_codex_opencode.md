@@ -259,7 +259,7 @@ archival (child → `aitasks/archived/t635/`), and merge.
   nothing here proves the tool mapping carries the `AskUserQuestion` confirmation
   step or that the new whitelist entries are honoured in a live session — this is
   agent-driven behavior, not unit-testable · severity: medium ·
-  → mitigation: cross_agent_gate_live_verify (its pass is the explicit acceptance
+  → mitigation: t1457 (its pass is the explicit acceptance
   condition for the end-to-end claim — see "What checks 1–9 do and do not
   establish")
 - **Recurrence:** `cmd_discover` (the only check that walks the Claude tree for
@@ -267,12 +267,12 @@ archival (child → `aitasks/archived/t635/`), and merge.
   compares wrapper trees to each other, so a skill absent from *all* trees is
   invisible. That is precisely why these three sat unported. After this lands the
   same hole remains open for the next Claude-only skill · severity: medium ·
-  → mitigation: `wire_discover_into_verify`
+  → mitigation: t1458
 
 ### Planned mitigations
 - timing: post-phase | name: sweep_path_allowlist | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "rerender sweep drags unrelated churn / stale prerenders" | desc: after the Phase B6 rerender, reconcile `git status` against an explicit four-path allowlist and stage only those paths.
-- timing: after | name: cross_agent_gate_live_verify | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement "pointer stubs prove resolution, not agent behavior" | desc: drive aitask-gate-docs-updated end-to-end from a live Codex CLI session and a live OpenCode session — wrapper resolves, the tool mapping carries the AskUserQuestion confirmation step, aitask_resolve_config_path.sh runs unprompted, and the terminal ledger block lands. ACCEPTANCE-GATING: this task's end-to-end "runnable on Codex/OpenCode" claim is not established until this MV passes.
-- timing: after | name: wire_discover_into_verify | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement "recurrence — a skill absent from ALL wrapper trees is invisible to parity" | desc: wire `aitask_audit_wrappers.sh discover` into `aitask_skill_verify.sh` behind an explicit Claude-only exemption list (aitask-explorechat is deliberately unported), so the next plain Claude skill cannot silently ship without wrappers.
+- timing: after | name: cross_agent_gate_live_verify | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement "pointer stubs prove resolution, not agent behavior" | desc: drive aitask-gate-docs-updated end-to-end from a live Codex CLI session and a live OpenCode session — wrapper resolves, the tool mapping carries the AskUserQuestion confirmation step, aitask_resolve_config_path.sh runs unprompted, and the terminal ledger block lands. ACCEPTANCE-GATING: this task's end-to-end "runnable on Codex/OpenCode" claim is not established until this MV passes. | created: t1457
+- timing: after | name: wire_discover_into_verify | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement "recurrence — a skill absent from ALL wrapper trees is invisible to parity" | desc: wire `aitask_audit_wrappers.sh discover` into `aitask_skill_verify.sh` behind an explicit Claude-only exemption list (aitask-explorechat is deliberately unported), so the next plain Claude skill cannot silently ship without wrappers. | created: t1458
 
 ## Final Implementation Notes
 
@@ -334,8 +334,8 @@ archival (child → `aitasks/archived/t635/`), and merge.
   they invoke are permitted."* Whether a Codex or OpenCode agent can actually complete
   `aitask-gate-docs-updated` end-to-end — tool mapping translating the
   `AskUserQuestion` confirmation, `aitask_resolve_config_path.sh` running unprompted,
-  the terminal ledger block landing — remains gated on the
-  `cross_agent_gate_live_verify` MV created at Step 8d.
+  the terminal ledger block landing — remains gated on **t1457**
+  (`cross_agent_gate_live_verify`), the MV created at Step 8d.
 
 - **Upstream defects identified:**
   - .aitask-scripts/aitask_skill_verify.sh:212-244 — wires only `aitask_audit_wrappers.sh parity` (wrapper-tree vs wrapper-tree), never `discover` (Claude-tree vs wrappers), so a skill absent from ALL wrapper trees is invisible to the mandated pre-commit check; this is why these three skills sat unported. Tracked as the `wire_discover_into_verify` mitigation.
