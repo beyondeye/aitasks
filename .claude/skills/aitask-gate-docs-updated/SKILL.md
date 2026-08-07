@@ -144,4 +144,9 @@ log="${logdir}/docs_updated_<run-id>.log"
   `aitask-gate-template` and the `aitasks/metadata/gates.yaml` header.
 - The attended dispatch (allocate run → run this skill → it records) lives in the
   shared `task-workflow` (Step 8) and is reused by `aitask-resume`.
-- Codex / OpenCode ports of the gate skills are tracked under **t635_23**.
+- This skill ships wrapper surfaces in every supported agent tree — Codex
+  (`.agents/skills/aitask-gate-docs-updated/`) and OpenCode
+  (`.opencode/skills/aitask-gate-docs-updated/` + `.opencode/commands/`). Those are
+  generated pointers to this canonical body; refresh them with
+  `./.aitask-scripts/aitask_audit_wrappers.sh apply-wrapper <tree> aitask-gate-docs-updated --force`
+  rather than hand-editing.

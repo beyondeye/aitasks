@@ -179,7 +179,8 @@ gates:
     # Post-integration sign-off — like review/manual-verify it must not block
     # dependents (would otherwise hold them up for a docs pass).
     blocks_dependents: false
-    # The verifier names a SKILL (.claude/skills/aitask-gate-docs-updated/), not a
+    # The verifier names a SKILL (aitask-gate-docs-updated/, resolved in the running
+    # agent's own skill tree — it ships in all of them), not a
     # shell command. The ATTENDED agent runs it (task-workflow Step 8 / aitask-resume):
     # it reads the doc-update spec (seed/doc_update_guide.md default, layered with
     # project_config.yaml doc_update.guide), inspects the change, updates docs with

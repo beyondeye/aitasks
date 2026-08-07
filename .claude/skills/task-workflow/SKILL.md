@@ -472,7 +472,7 @@ Some gates verify *work an agent must do* (`kind: procedure` in `aitasks/metadat
      ./.aitask-scripts/aitask_gate.sh begin-procedure <task_id> <gate>
      ```
      Parse `RUN_ID:<run-id>` and `ATTEMPT:<attempt>` from the output.
-  2. Resolve the gate's registry `verifier` (an `aitask-gate-<name>` value) to its `SKILL.md` **in your agent's skill tree** and **Read-and-follow that skill** with arguments `<task_id> <attempt> <run-id>`. The skill inspects the change, updates the docs **confirming with the user**, and appends the terminal result (`pass` / `skip` / `fail`) via `append --only-if-running <run-id>`. (Gate skills currently ship in the Claude tree; per-agent Codex/OpenCode wrappers are tracked in **t635_23**. Selecting a specific code-agent/model per gate is a planned generalization — see t635_19's follow-up.)
+  2. Resolve the gate's registry `verifier` (an `aitask-gate-<name>` value) to its `SKILL.md` **in your agent's skill tree** and **Read-and-follow that skill** with arguments `<task_id> <attempt> <run-id>`. The skill inspects the change, updates the docs **confirming with the user**, and appends the terminal result (`pass` / `skip` / `fail`) via `append --only-if-running <run-id>`. (Gate skills ship a wrapper surface in every supported agent tree, so the resolution succeeds wherever you are running. Selecting a specific code-agent/model per gate is a planned generalization — see t635_19's follow-up.)
   3. If the skill records `fail` (the user rejected needed doc work), surface it — the gate is unsatisfied and Step-9 archival will be blocked until it is resolved.
 
   This dispatch is generic over `kind: procedure` gates (`docs_updated` is the first); a gate already `pass`/`skip` is done and is not re-dispatched.

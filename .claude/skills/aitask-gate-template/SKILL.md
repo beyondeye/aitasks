@@ -125,8 +125,8 @@ gates:
 Some gates verify **work an agent must do**, not a check a shell command can run —
 e.g. `docs_updated` (update the docs for this change), or a project's
 `changelog_updated`. These are **procedure-backed** gates: the `verifier` names an
-**`aitask-gate-<name>` skill** (a `.claude/skills/aitask-gate-<name>/`), and the
-gate is marked `kind: procedure` in the registry:
+**`aitask-gate-<name>` skill** (an `aitask-gate-<name>/` skill dir in each agent's
+skill tree), and the gate is marked `kind: procedure` in the registry:
 
 ```yaml
 gates:
@@ -144,8 +144,8 @@ gates:
 - The **attended** path (task-workflow Step 8 / `aitask-resume`) drives it:
   1. allocate the run — `aitask_gate.sh begin-procedure <task-id> <name>` opens the
      `running` block and prints `RUN_ID:<id>` / `ATTEMPT:<n>`;
-  2. Read-and-follow `.claude/skills/aitask-gate-<name>/SKILL.md` with
-     `<task-id> <attempt> <run-id>`;
+  2. Read-and-follow the `aitask-gate-<name>` skill's `SKILL.md` **in your agent's
+     skill tree** with `<task-id> <attempt> <run-id>`;
   3. the skill does the work, **confirms with the user**, and closes the run.
 
 **The skill records the terminal block** (reusing `<run-id>`), the same
@@ -198,4 +198,17 @@ tooling here. **Never** create or auto-create a signal from a verifier or agent.
 - New verifiers are run by the `aitask-run-gates` skill / `ait gates run`
   (one engine: `lib/gate_orchestrator.py`).
 - Whitelist any new `aitask_gate_<name>.sh` verifier you create as a helper
-  script (see `aidocs/framework/aitasks_extension_points.md`).
+  script (see `aidocs/framework/aitasks_extension_points.md`). The same applies to
+  any helper a **procedure** gate's skill shells out to — an unwhitelisted helper
+  stalls the gate on a permission prompt in every agent.
+- **A new `aitask-gate-<name>` skill must also ship its wrapper surfaces.** Gate
+  skills are plain (non-templated), so they do **not** auto-render to the other
+  agent trees — an unported skill makes the gate silently unrunnable outside the
+  tree it was authored in. After creating `.claude/skills/aitask-gate-<name>/`, run:
+  ```bash
+  for tree in agents opencode-skill opencode-command; do
+    ./.aitask-scripts/aitask_audit_wrappers.sh apply-wrapper "$tree" aitask-gate-<name>
+  done
+  ```
+  `./.aitask-scripts/aitask_audit_wrappers.sh discover` lists what is still missing;
+  cross-tree parity is then enforced by `aitask_skill_verify.sh`.
