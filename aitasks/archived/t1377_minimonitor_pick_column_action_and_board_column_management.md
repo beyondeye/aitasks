@@ -3,7 +3,7 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [aitask_monitormini, aitask_board, tui, board_columns]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,10 +11,10 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 risk_mitigation_tasks: [1404]
-children_to_implement: [t1377_7]
 anchor: 1243
 created_at: 2026-08-03 10:37
-updated_at: 2026-08-07 12:30
+updated_at: 2026-08-07 13:11
+completed_at: 2026-08-07 13:11
 boardidx: 17408
 ---
 
