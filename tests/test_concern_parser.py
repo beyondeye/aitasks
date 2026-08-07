@@ -922,6 +922,172 @@ class TestProducerRegionRequiredRule(unittest.TestCase):
         self.assertTrue(_states_region_required_rule(with_rule))
 
 
+#: The bolded pre-emit directive's lead phrase, verbatim. Load-bearing: it is
+#: what lets the predicate below tell the two placements apart.
+_SUPPRESSION_DIRECTIVE = "**Consult the rejection store before emitting.**"
+
+
+def _states_rejection_suppression_rule(text: str) -> bool:
+    """True when a producer states the suppression rule in BOTH placements.
+
+    Whitespace is collapsed first for the same reason as
+    :func:`_states_short_region_rule` — these are hand-wrapped markdown files.
+    (A hyphen-wrapped ``previously-rejected`` still fails, correctly: collapsing
+    turns it into ``previously- rejected``.)
+
+    Counts rather than membership-tests. The rule lives twice in each producer:
+    once in the bolded pre-emit directive at the head of the emit step, once in
+    the parser-rules list. A guard that could not tell them apart would stay
+    green after the *directive* — the high-attention copy, and the countermeasure
+    for an agent skipping the rule — was deleted, leaving only the bullet.
+    """
+    flat = " ".join(text.split())
+    return (_SUPPRESSION_DIRECTIVE in flat
+            and flat.count("previously-rejected") >= 2
+            and flat.count("aitask_shadow_rejected.sh list") >= 2)
+
+
+class TestProducerRejectionSuppressionRule(unittest.TestCase):
+    """Every producer must state the rejection-suppression rule (t1427_3).
+
+    The user can reject a concern in the picker; t1427_1/t1427_2 persist that to
+    ``.aitask-shadow/<task_id>/rejected.md``. Nothing *reads* the store except
+    the producers themselves — matching has to be semantic (bodies are re-worded
+    between rounds and ``Concern`` has no cross-round identity), so it cannot
+    move into ``concern_parser.py``. A producer that drops the rule silently
+    re-raises concerns the user already dismissed, which is the exact friction
+    t1427 exists to remove.
+
+    Mirrors :class:`TestProducerRegionRequiredRule`, plus one extra negative
+    control — see :meth:`test_guard_flags_a_producer_missing_the_rule` and
+    :meth:`test_production_assertion_fails_on_a_real_offender`.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_producer_set_is_the_known_set(self):
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_rejection_suppression_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_rejection_suppression_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state the rejection-suppression rule in "
+            "both placements (bolded pre-emit directive AND rules-list entry), "
+            "so the agent may re-raise concerns the user already rejected: "
+            + ", ".join(offenders),
+        )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control: prove the guard can fail, per placement.
+
+        Exercises the predicate on synthetic text rather than editing a repo
+        file — this worktree is shared with concurrent sessions, so a
+        mutate-and-restore control could silently overwrite their work.
+
+        The two one-copy cases are the point: they prove the guard is
+        placement-aware rather than a plain "both substrings appear somewhere"
+        membership test.
+        """
+        rules_entry = (
+            "- **Suppress previously-rejected concerns.** Before emitting, run\n"
+            "  `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and\n"
+            "  drop anything matching a previously-rejected entry.\n"
+        )
+        directive = (
+            _SUPPRESSION_DIRECTIVE + " Run\n"
+            "`./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop\n"
+            "every previously-rejected concern.\n"
+        )
+        base = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+
+        # Neither copy.
+        self.assertFalse(_states_rejection_suppression_rule(base))
+        # Rules-list entry only — the directive was deleted.
+        self.assertFalse(_states_rejection_suppression_rule(base + rules_entry))
+        # Directive only — the rules-list entry was deleted.
+        self.assertFalse(_states_rejection_suppression_rule(base + directive))
+        # Both placements present.
+        self.assertTrue(
+            _states_rejection_suppression_rule(base + directive + rules_entry)
+        )
+
+    def test_production_assertion_fails_on_a_real_offender(self):
+        """Negative control for the production assertion itself.
+
+        The synthetic control above proves only that the *predicate* can return
+        ``False``; it says nothing about how the production test is wired. So
+        run **the production method itself** — not a re-implementation of it —
+        against a fixture directory holding one compliant and one offending
+        producer, and require it to fail naming exactly the offender.
+
+        Calling the method is the whole point. An earlier version of this
+        control recomputed the offender list here with a direct call to
+        :func:`_states_rejection_suppression_rule`, and was verified **not** to
+        work: pasting the wrong predicate into
+        :meth:`test_every_producer_states_the_rejection_suppression_rule` (e.g.
+        ``_states_region_required_rule``, which all four real producers satisfy)
+        left that method vacuously green *and* left the re-implementation green,
+        because the mutation never reached it. Only invoking the real method
+        couples the two.
+
+        Patching ``SHADOW_DIR`` exercises the real ``_producers`` glob-and-filter
+        rather than a replica, and touches no shared file — this worktree is
+        shared with concurrent sessions, so a mutate-and-restore control could
+        silently overwrite their work.
+        """
+        import tempfile
+        from unittest import mock
+
+        marker_line = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        rules_entry = (
+            "- **Suppress previously-rejected concerns.** Run\n"
+            "  `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop\n"
+            "  any previously-rejected entry.\n"
+        )
+        directive = (
+            _SUPPRESSION_DIRECTIVE + " Run\n"
+            "`./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop\n"
+            "every previously-rejected concern.\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "good.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + directive + rules_entry)
+            # Compliant except the directive was removed.
+            with open(os.path.join(tmp, "bad.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + rules_entry)
+            # Not a producer at all (no marker) — must be ignored, not flagged.
+            with open(os.path.join(tmp, "notaproducer.md"), "w", encoding="utf-8") as fh:
+                fh.write("Prose with no producer marker and no rule.\n")
+
+            with mock.patch.object(TestProducerRejectionSuppressionRule,
+                                   "SHADOW_DIR", tmp):
+                # The marker filter still picks exactly the two producers.
+                self.assertEqual(sorted(self._producers()), ["bad.md", "good.md"])
+                # The real production assertion must fail here, and only here.
+                with self.assertRaises(AssertionError) as caught:
+                    self.test_every_producer_states_the_rejection_suppression_rule()
+
+        message = str(caught.exception)
+        self.assertIn("bad.md", message,
+                      "the production assertion failed without naming the "
+                      "offending producer")
+        self.assertNotIn("good.md", message,
+                         "the production assertion flagged the COMPLIANT "
+                         "fixture too — its predicate is not the "
+                         "suppression-rule one")
+
+
 class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
     """The same guarantees must survive rendering (t1311).
 
@@ -1021,6 +1187,19 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
                                     "rule: " + ", ".join(short))
         self.assertEqual(required, [], "rendered producer(s) lost the "
                                        "region-is-mandatory rule: " + ", ".join(required))
+
+    def test_every_rendered_producer_states_the_suppression_rule(self):
+        """A conditional that dropped the rule from one profile's render would
+        leave the authoring-dir guard green while the executed surface re-raised
+        rejected concerns."""
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if not _states_rejection_suppression_rule(t)]
+        self.assertEqual(
+            offenders,
+            [],
+            "rendered producer(s) lost the rejection-suppression rule in one or "
+            "both placements: " + ", ".join(offenders),
+        )
 
 
 if __name__ == "__main__":

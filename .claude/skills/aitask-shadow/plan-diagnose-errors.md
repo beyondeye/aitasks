@@ -51,6 +51,14 @@ pane — never the followed pane.
    at). Then append a machine-parseable copy of the *same* concerns so the user
    can forward a subset via minimonitor's concern picker instead of retyping.
 
+   **Consult the rejection store before emitting.** Using the source task id
+   from your launch arguments or Step 2 — resolving one now if you have neither
+   (it is inferable from the followed agent's window name, e.g.
+   `agent-pick-635_3`) — run
+   `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop every
+   fresh concern that is substantively the same as a previously-rejected entry,
+   even when reworded. The full contract is in the format rules below.
+
    Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a
    closing `===END-CONCERNS===` line (those two exact literals; single source of
    truth: `.claude/skills/aitask-shadow/concern-format.md`), with one concern per
@@ -82,10 +90,23 @@ pane — never the followed pane.
      "One logical line" is a **parser constraint** (emit no literal newline
      mid-concern — let the terminal soft-wrap), not a brevity constraint.
    - Order items by severity, matching the prose list.
+   - **Suppress previously-rejected concerns.** Before emitting, run
+     `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>`. Exactly three
+     outcomes are defined: the single line `NO_REJECTIONS` means nothing is
+     rejected; a printed body is the user's previously-rejected concerns; and
+     **anything else** — a non-zero exit (a malformed task id exits `2`), empty
+     output, or output matching neither shape — means you could not consult the
+     store, so emit every fresh concern and state that rejection suppression was
+     skipped. Never read an error as "nothing was rejected". Drop a fresh
+     concern only when it is substantively the same as a rejected one; when
+     unsure, **keep it and say why** (fail-open). Whenever N ≥ 1 were dropped,
+     report `Suppressed N previously-rejected concern(s).` in the prose before
+     the block. When no task id can be resolved, say suppression was skipped.
    - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
      auto-offer only fires on a complete block.
    - Emit the block **only when you found at least one genuine error/retry
-     signal** (step 2). If there were none, omit the block entirely.
+     signal** (step 2) that survived suppression. If there were none, omit the
+     block entirely and say so.
 
 5. **Let the user choose which concerns to act on, then offer ONE action.** Ask
    the user which of the presented concerns actually warrant their own fix-task —

@@ -55,6 +55,14 @@ agent's pane.
    advisory-only guardrail (it is text for the *user* to copy; you still never
    drive the followed pane).
 
+   **Consult the rejection store before emitting.** Using the source task id
+   from your launch arguments or Step 2 — resolving one now if you have neither
+   (it is inferable from the followed agent's window name, e.g.
+   `agent-pick-635_3`) — run
+   `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop every
+   fresh concern that is substantively the same as a previously-rejected entry,
+   even when reworded. The full contract is in the rules list below.
+
    Map assumptions to items: emit one item per **dangerous** assumption
    (load-bearing AND unverified — the ones Step 4 ordered first); include lesser
    ones only if useful. Set `priority` by how exposed the assumption is:
@@ -98,7 +106,19 @@ agent's pane.
      rich, multi-sentence body that soft-wraps across several rows is correct and
      reassembles into one concern.
    - Order items by priority, matching the prose list (dangerous ones first).
+   - **Suppress previously-rejected concerns.** Before emitting, run
+     `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>`. Exactly three
+     outcomes are defined: the single line `NO_REJECTIONS` means nothing is
+     rejected; a printed body is the user's previously-rejected concerns; and
+     **anything else** — a non-zero exit (a malformed task id exits `2`), empty
+     output, or output matching neither shape — means you could not consult the
+     store, so emit every fresh concern and state that rejection suppression was
+     skipped. Never read an error as "nothing was rejected". Drop a fresh
+     concern only when it is substantively the same as a rejected one; when
+     unsure, **keep it and say why** (fail-open). Whenever N ≥ 1 were dropped,
+     report `Suppressed N previously-rejected concern(s).` in the prose before
+     the block. When no task id can be resolved, say suppression was skipped.
    - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
      auto-offer only fires on a complete block.
    - Emit the block **only when you have at least one assumption worth
-     forwarding**; otherwise omit it entirely.
+     forwarding** after suppression; otherwise omit it entirely and say so.

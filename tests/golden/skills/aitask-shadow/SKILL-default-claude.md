@@ -163,6 +163,11 @@ screen.
      windows are named like `agent-pick-635_3`).
    - Else ask the user once for the task id. If they don't know, proceed from the
      captured screen alone and say so.
+
+   Resolve the id even for a request you could serve from the screen alone: the
+   concern producers key **rejection suppression** on it, and without one they
+   must emit every concern and report that suppression was skipped (see
+   `concern-format.md`, "Rejected-concern suppression").
 2. **Fetch the task + most-recent plan:**
    ```bash
    ./.aitask-scripts/aitask_shadow_context.sh <source_task_id>

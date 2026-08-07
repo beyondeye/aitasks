@@ -132,8 +132,8 @@ Three rules make the derivation safe:
   as needing attention — the safe direction.
 
 The picker consumes this by splitting its list into **Needs addressing** and
-**Informational** sections, dimming the latter and excluding it from bulk
-select. A block whose concerns all land in one partition shows no headers.
+**Informational** sections and dimming the latter. A block whose concerns all
+land in one partition shows no headers.
 
 ### Capture-join contract
 
@@ -212,6 +212,61 @@ nothing on a pane narrower than `_SENTINEL_SAFE_COLS` (24), where the fence itse
 can wrap; such panes need the authoritative capture instead.
 
 **Producers must emit the closing fence** so the strict auto-offer fires.
+
+## Rejected-concern suppression
+
+The concern picker lets the user **reject** a concern — "do not show me this one
+again next round". Rejections are persisted per task by
+`.aitask-scripts/aitask_shadow_rejected.sh` at
+`.aitask-shadow/<task_id>/rejected.md` (bare task id mirroring `.aitask-gates/`,
+git-ignored, never committed, pruned at archival), and every producer consults
+them before emitting its block.
+
+**Matching is semantic, and the shadow agent performs it — not the parser.**
+Bodies are re-worded between review rounds, so no consumer-side hash can serve
+as a cross-round identity: `Concern` carries no id, and `region` is a display
+label and never a key (see above). A rejected concern must therefore be
+recognised by *meaning*, which only the producing agent can do.
+
+**The reader contract.** A producer runs
+`./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and branches on
+exactly three outcomes:
+
+| Outcome | Meaning |
+|---------|---------|
+| the single line `NO_REJECTIONS` | nothing is rejected — proceed normally |
+| a printed body | the user's previously-rejected concerns |
+| anything else | the store could not be consulted |
+
+"Anything else" covers a **non-zero exit** (a malformed task id exits `2`),
+empty output, and output matching neither shape above. It is **not** the same as
+"nothing was rejected": the producer emits every fresh concern and states that
+rejection suppression was skipped. The helper's own "all resolution outcomes
+exit 0" note scopes to *resolution* outcomes — missing, drained, or populated
+store — and says nothing about a bad argument, so a producer must never decide
+this on the exit status alone.
+
+**Fail-open.** When the agent is unsure whether a fresh concern matches a
+rejected one it **keeps** the concern and says why. That is the safe direction,
+and the same one `needs_addressing()` takes for an unspecified disposition.
+Suppression is also never silent: whenever N ≥ 1 concerns were dropped the
+producer reports `Suppressed N previously-rejected concern(s).` in the prose
+before the block.
+
+**The store can never become a block.** `add` accepts only lines beginning
+`- [`, so a fence can never be stored. `list` output echoed into the shadow pane
+therefore carries item lines with neither sentinel, and cannot be parsed as a
+forwardable block.
+
+Every producer listed under "Where it lives" states this rule inline **twice** —
+as a bolded pre-emit directive at the head of its emit step, and as an entry in
+its parser-rules list — and
+`tests/test_concern_parser.py::TestProducerRejectionSuppressionRule` fails the
+build if one drops either copy. Both placements are pinned because the directive
+is the high-attention one: a guard that could not tell them apart would stay
+green after it was deleted. The duplication is deliberate for the same reason
+the short-region rule is duplicated: these are prompt files read at runtime, and
+an extra file read is a rule the agent may skip.
 
 ## Where it lives
 

@@ -364,6 +364,13 @@ concern block it finds, so trailing commentary after the block (or forgetting to
 emit it) makes the picker fall back to an earlier/stale block. Print the review,
 then the block, then stop.
 
+**Consult the rejection store before emitting.** Using the source task id from
+your launch arguments or Step 2 — resolving one now if you have neither (it is
+inferable from the followed agent's window name, e.g. `agent-pick-635_3`) — run
+`./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop every
+fresh concern that is substantively the same as a previously-rejected entry,
+even when reworded. The full contract is in the rules list below.
+
 Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a closing
 `===END-CONCERNS===` line (those two exact literals; single source of truth:
 `.claude/skills/aitask-shadow/concern-format.md`), with one concern per line
@@ -409,16 +416,28 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   needing attention.
 - Order items to match the prose list: blocking partition first, then
   follow-up, then informational, severity-ordered within each partition.
+- **Suppress previously-rejected concerns.** Before emitting, run
+  `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>`. Exactly three
+  outcomes are defined: the single line `NO_REJECTIONS` means nothing is
+  rejected; a printed body is the user's previously-rejected concerns; and
+  **anything else** — a non-zero exit (a malformed task id exits `2`), empty
+  output, or output matching neither shape — means you could not consult the
+  store, so emit every fresh concern and state that rejection suppression was
+  skipped. Never read an error as "nothing was rejected". Drop a fresh concern
+  only when it is substantively the same as a rejected one; when unsure, **keep
+  it and say why** (fail-open). Whenever N ≥ 1 were dropped, report
+  `Suppressed N previously-rejected concern(s).` in the prose before the block.
+  When no task id can be resolved, say suppression was skipped.
 - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
   auto-offer only fires on a complete block.
 - Emit the block **only when you have at least one concern**. If the
-  implementation is genuinely clean, omit the block entirely.
+  implementation is genuinely clean, or suppression left you with nothing to
+  forward, omit the block entirely and say so.
 
 **What minimonitor does with it (current behavior):** the picker derives each
 finding's disposition from the trailer above and splits the list into a
 **Needs addressing** section (`blocking`, `follow-up`, and anything with no
-trailer) and an **Informational** section, which is dimmed and skipped by the
-bulk-select key. The trailer text itself is hidden from the row but kept in the
-forwarded payload, so the receiving agent still sees the disposition and verdict
-verbatim. Ordering *within* a section is yours — keep emitting items in the
-partition order above.
+trailer) and an **Informational** section, which is dimmed. The trailer text
+itself is hidden from the row but kept in the forwarded payload, so the
+receiving agent still sees the disposition and verdict verbatim. Ordering
+*within* a section is yours — keep emitting items in the partition order above.
