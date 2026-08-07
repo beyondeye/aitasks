@@ -1,12 +1,13 @@
 ---
 priority: low
 effort: low
-depends: [t635_22, 635_11, t635_19]
+depends: [t635_22, t635_11, t635_19]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [gates, claudeskills]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-06-16 19:06
-updated_at: 2026-07-01 07:20
+updated_at: 2026-08-07 11:52
 ---
 
 ## Context

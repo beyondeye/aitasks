@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
@@ -13,7 +15,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-07 10:40
-updated_at: 2026-08-07 11:02
+updated_at: 2026-08-07 11:03
 ---
 
 ## Problem
