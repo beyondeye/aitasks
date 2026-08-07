@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1446
+implemented_with: claudecode/opus5
 created_at: 2026-08-07 12:12
-updated_at: 2026-08-07 12:28
+updated_at: 2026-08-07 16:09
 ---
 
 ## Origin
@@ -77,3 +78,8 @@ or drop the guards if they are not wanted.
 
 For the hooks: route both call sites through the existing
 `attach_shadow_cleanup_hook` slot-safe helper instead of a bare `set-hook -p`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-07T13:10:11Z status=pass attempt=1 type=human
