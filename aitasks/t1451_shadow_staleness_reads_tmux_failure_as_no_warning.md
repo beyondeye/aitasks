@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, tmux, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1446
 created_at: 2026-08-07 12:12
-updated_at: 2026-08-07 12:12
+updated_at: 2026-08-07 12:28
 ---
 
 ## Origin
