@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1243_7]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, python, gitremote]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-07-28 01:15
-updated_at: 2026-07-28 01:15
+updated_at: 2026-08-07 10:37
 ---
 
 ## Context
