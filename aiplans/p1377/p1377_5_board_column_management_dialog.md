@@ -332,11 +332,178 @@ without changing the plan's shape. Code-health stays **medium** (risk 2, the
 sole-consumer reporting contract, and risk 5, t1445, are unchanged);
 goal-achievement stays **low**.
 
-## Notes for sibling tasks
+## Post-Review Changes
 
-*(fill in at Step 8 — record the final `e` binding + `check_action` predicate for
-t1210_5 to rebase onto and for t1377_6's docs, and the `_apply_column_edit`
-seam.)*
+### Change Request 1 (2026-08-07 04:30)
+
+- **Requested by user:** three review findings, all verified CONFIRMED against
+  source before being addressed.
+- **Changes made:**
+  1. **(high, blocking) The command palette bypassed the view gate.** The palette
+     resolves `action_*` by name and never calls `check_action`, so Ctrl+P →
+     "Manage Columns" / "Merge Columns" opened the persistent-column editor from
+     In-Flight / By-Topic / By-Trail even though `e` is hidden there. The finding
+     is exactly the lesson `action_move_to_column` already records at its own
+     re-check (t1243_7, `aitask_board.py:8547-8550`) — missed when this dialog was
+     written. Added the same base-filter rejection inside `_open_column_manage`,
+     the shared opener both actions route through, so it cannot be added to one
+     entry point and forgotten on the other. It **notifies** rather than
+     returning silently (unlike `m`): a palette command is deliberately clicked,
+     so a silent no-op reads as a bug. New `PaletteBypassTests` covers all three
+     derived views for both actions, plus the kanban-view positive control and
+     the `start_in_merge` routing. Verified live in tmux: the toast appears and
+     no dialog opens in By-Topic; the same command opens normally in All.
+  2. **(medium) The `<unverifiable>` message stated the blocker but not the
+     remedy.** It named the unreadable files and that the sources were kept, but
+     omitted the recovery direction the plan specified. Appended "— fix those
+     file(s) and re-run the merge to finish." and asserted both halves in
+     `MergeReportingTests`.
+  3. **(low) The synthetic lane was reported by raw id.** `_title_of` fell back to
+     `col_id` when `get_column_conf` returned None, which it always does for
+     `unordered` — so a merge from/into the inbox was confirmed and toasted as
+     "unordered" while the picker the user had just clicked said "Unsorted /
+     Inbox". Now delegates to the existing `KanbanApp._column_title` (`:9045`),
+     which already owns that mapping.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_column_dialog.py`.
+- **Verification:** each fix has a negative control with a named failing test —
+  removing the palette guard fails `test_manage_is_rejected_in_every_derived_view`
+  and `test_merge_is_rejected_in_every_derived_view`; restoring the raw-id
+  fallback fails `test_the_synthetic_lane_is_named_not_shown_as_its_raw_id`;
+  dropping the recovery sentence fails
+  `test_unverifiable_sentinel_names_the_files_AND_the_recovery`. Full Python
+  suite green.
+
+## Final Implementation Notes
+
+- **Actual work done:** `.aitask-scripts/board/aitask_board.py` — `ColumnManageScreen`
+  + `ColumnManageItem` + `MergeColumnsConfirmScreen`; `Binding("e",
+  "column_manage", "Columns")` (shown); the `column_manage` / `merge_columns`
+  branch in `check_action`; two `_COMMANDS` entries; `action_column_manage` /
+  `action_merge_columns` / `_open_column_manage` / `_merge_source_columns` /
+  `_report_merge`; the `_apply_column_edit` extraction; CSS for
+  `#column_manage_dialog`; `WorkReportColumnSelectScreen` generalised to
+  `ColumnMultiSelectScreen(columns, initial, prompt=…)`; and the corrected
+  `update_column` rename comment. `tests/test_board_column_dialog.py` — new,
+  40 tests. `tests/test_board_move_command.py` — one added declaration
+  assertion (extending t1243_7's guard as its sibling note instructed).
+  `tests/test_board_work_report.py` — 4 references retargeted to the renamed
+  class.
+
+- **Deviations from plan:**
+  1. **The `check_action` gate mirrors `move_col_*`, not `w`.** The plan said to
+     mirror `work_report`; verification showed `w` *additionally* requires a
+     focused column because it reports on one. Copying it would have made `e`
+     dead on an empty or filter-emptied board — the case that most needs "Add".
+     Pinned by `test_available_with_nothing_focused`, whose negative control
+     (restoring `w`'s gate) also breaks three live tests.
+  2. **Merge reporting branches on the sentinel, not on `complete` alone**, and
+     separates `refused` (nothing written → **error**, "nothing changed") from
+     `failed` (partial → **warning**). The plan's `complete`-only shape conflated
+     them.
+  3. **`ColumnMultiSelectScreen` reuse required a rename**, not just a call. The
+     plan said "reuse `WorkReportColumnSelectScreen`"; using a work-report-named
+     class for merge sources would have been dishonest, so it was parameterised
+     by `prompt` and renamed, with its 4 test references retargeted.
+  4. **A fifth "Close" button was designed and then removed** — see below.
+
+- **Issues encountered:** four defects, each fixed and pinned by a test whose
+  negative control reproduces it. **Three were invisible to unit tests.**
+  1. **My own harness hid a case.** `_apply_column_edit` was absent from the
+     mock's `_REAL_METHODS`, so it resolved to a truthy auto-MagicMock and
+     `_handle_column_edit_result`'s "changed?" branch always fired — the
+     cancelled-edit test was silently vacuous. Caught by the pre-phase
+     characterization the moment the extraction landed, which is exactly what
+     that mitigation was for. Same class of bug t1243_7 recorded for
+     `_focused_placeholder`.
+  2. **Button row clipped at 100 columns.** `#detail_buttons` is
+     `align: center middle` with no wrapping, so a five-button row was cut off —
+     "Close" was visible in the DOM but unreachable on screen. Found only in a
+     live tmux capture. Dropped the button (Esc is in the dialog's own hint line
+     and matches every other modal here) and added a width test comparing the
+     summed button widths against the dialog width.
+  3. **⚠ The board never refreshed after a merge — the sharpest bug in the
+     task.** `KanbanApp` binds `escape` with `priority=True`, so
+     `action_focus_board` wins over the modal's own binding and closes any active
+     modal with a bare `self.screen.dismiss()` — **discarding the result**. This
+     dialog is the first modal whose dismiss value carries meaning (the "did
+     anything change?" flag), so a merge closed with Escape left the board
+     rendering the merged-away column until the next manual `r`. Every unit test
+     passed; it was visible only because the board *behind* the dialog was stale
+     in a real terminal. Fixed via `handle_escape`, the hook
+     `action_focus_board` already checks for and which had **zero implementers**
+     before this task. The missing test (a *changed* dialog must refresh exactly
+     once) was written first and observed failing `0 != 1`.
+  4. **The command palette bypassed the view gate** — see Post-Review Changes
+     above. The palette resolves `action_*` by name and never consults
+     `check_action`; t1243_7 had already recorded this exact lesson at its own
+     re-check and it was missed here.
+
+  The recurring lesson: **the gate on a binding is not a gate on the action, and
+  a passing test suite says nothing about what the surface behind a modal is
+  showing.** Both of the worst defects needed a real terminal or a second entry
+  point to surface.
+
+- **Key decisions:**
+  - **Column rename stays unreachable** (user decision at planning). Ids are
+    auto-slugged, so re-slugging on a title edit would rewrite every member
+    task's `boardcol` as a side effect of a cosmetic change, and ids are also
+    referenced by the work-report protocol. t1377_4's comment claiming the path
+    was "dead until t1377_5 makes the rename reachable" was rewritten to say it
+    is dormant *by decision*, so the next reader does not treat it as an
+    unfinished handoff. Its collapsed-state migration fix is untouched.
+  - **Refresh is deferred to close, not per edit** — a modal that recomposed the
+    board under itself once per operation. Both halves are pinned (refresh
+    exactly once when changed; never when untouched).
+  - **The palette guard notifies; `m`'s equivalent returns silently.** A keypress
+    that does nothing is unremarkable; a palette entry the user deliberately
+    clicked doing nothing reads as a bug.
+  - **Live acceptance ran against a throwaway fixture tree**, never the real
+    board — the flow mutates column config, and a stray keypress on the real
+    board would have been destructive.
+
+- **Upstream defects identified:**
+  - `tests/lib/board_fixture.py:561-583 (PristineTreeMixin) — restores only
+    **/*.md, while snapshot() in the same module treats metadata/board_config*.json
+    as part of the tree. Any test class that mutates COLUMNS leaks board config
+    into the next test, and the leak is self-concealing: with the column already
+    dropped from config, merge_columns refuses it as unknown_column and writes
+    nothing, while a "the source column was removed" assertion still passes —
+    because the previous test removed it. Cost me a vacuous pair of assertions.
+    Worked around locally with a _PristineConfigMixin in
+    tests/test_board_column_dialog.py rather than editing a harness 31 modules
+    share.`
+  - `.aitask-scripts/board/aitask_board.py:8223-8230 (action_focus_board) — the
+    app's priority=True escape binding closes ANY active modal with a bare
+    self.screen.dismiss(), discarding the dismiss result. Every modal whose
+    dismiss value carries meaning silently loses it when closed with Escape;
+    it is benign only because every other board modal happens to treat None as
+    "cancelled". The handle_escape hook checked one line above is the escape
+    valve and had no implementers until this task. A modal author has no way to
+    discover this except by hitting it.`
+
+- **Notes for sibling tasks:**
+  - **t1210_5 (`Ready`, lands AFTER this)** — the plan assumed t1210_5 would land
+    first; it did not, so this task gated `bytrail` itself. The predicate to
+    rebase onto is `elif action in ("column_manage", "merge_columns"): if
+    self.base_filter in ("inflight", "bytopic", "bytrail"): return False`. `e` is
+    taken; `M` and `G` remain unbound. **When you add a palette entry, re-check
+    the gate inside the `action_*` too** — `check_action` alone is not a gate.
+  - **t1377_6 (docs)** — document: the `e` key ("Columns" in the footer), the
+    Manage Columns dialog (reorder via `shift+↑/↓`, Enter to edit, Esc to close,
+    Add/Edit/Delete/Merge buttons), the two palette entries "Manage Columns" and
+    "Merge Columns", that column management is unavailable in In-Flight /
+    By-Topic / By-Trail, and that merge accepts N sources including Unsorted /
+    Inbox (offered only when it holds tasks). Column **rename** is deliberately
+    not a feature — do not document it.
+  - **t1243_10** — `merge_columns` and the fixed `update_column` still need their
+    composite-group-key half when `collapsed_groups` lands; `_title_of` in
+    `ColumnManageScreen` delegates to `KanbanApp._column_title`, so a
+    group-aware title only needs changing there.
+  - **t1445** — the `e` dialog adds a second, more discoverable entry point into
+    `delete_column`, which still trusts `MoveResult` and can count a task as
+    moved that was never written. Not blocked on (user decision), but more users
+    can now reach it.
 
 - **t1445** — the `e` dialog adds a **second, more discoverable entry point**
   into `delete_column`, which still trusts `MoveResult` and can count a task as
