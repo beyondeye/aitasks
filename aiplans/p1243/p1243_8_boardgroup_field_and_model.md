@@ -612,3 +612,110 @@ Merge to `main`, archive per the standard flow.
   for editing"); `test_aitask_merge_boardgroup.sh` 14/14; `test_sync.sh` and
   `test_aitask_merge.sh` unchanged; shellcheck 22 findings before and after —
   zero new.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** The planned data model landed in full — `boardgroup`
+  appended to `BOARD_KEYS` (six consumers inherit it unedited); new pure
+  `lib/board_groups.py` (INV-R unit derivation + the `normalize_group_slug`
+  totality boundary); base-aware merge resolution in `aitask_merge.py`
+  (`_BASE_AWARE_FIELDS`, pre-loop block, `--base-file`); the merge base supplied
+  from git stage 1 by `aitask_sync.sh`; `--boardgroup` in `aitask_update.sh`
+  (update-only, reject-don't-coerce validation, `""` tombstone); a fold no-op
+  note; and the extension-points worked example. Plus the §0 gate described
+  below. 1050 lines of new tests across four files.
+
+- **Deviations from plan:**
+  - **`board_groups.py` does NOT re-export the filter match predicate.** The
+    task file asked for it, but verification found t1243_4 had already landed
+    `task_matches_filter(task, visible, search)` at `aitask_board.py:375-395` —
+    module-level, app-free, per-task. Re-exporting would have been a parallel
+    implementation of a canonical seam. Scope reduction, recorded at plan time.
+  - **The planned integration fixture was unusable.** "Clear `boardgroup` vs a
+    `status`-only edit" always reports PARTIAL — divergent non-`Implementing`
+    statuses are unresolvable by a *pre-existing* rule, so the case proved
+    nothing about `boardgroup`. Switched the unrelated edit to `labels`
+    (union-merged). Assertions now check the **parsed value and type** via the
+    real loader, not a quoting style: the Python writer emits `boardgroup: ''`
+    and the shell writer `boardgroup: ""`, and a bare colon yields `None`.
+  - **"Seven call sites" of `reload_and_save_board_fields` is now six** —
+    t1243_3 retired `swap_tasks` and renamed `normalize_indices` →
+    `respace_column`. No call site added here, so `EXPECTED_CALL_SITES` needed
+    no edit.
+
+- **Issues encountered:**
+  - **`try_auto_merge` had FOUR defects, not the one planned**, all from one
+    root cause: a function whose stdout is a data channel (the caller does
+    `remaining=$(try_auto_merge …)`) was being used as a place to print.
+    (1) `task_git add` is a mutating verb, so `assert_data_worktree_clean`
+    rejected it mid-rebase in **branch mode** — the framework's normal mode, and
+    this repo's; (2) `|| true` discarded that rejection while still counting the
+    file resolved and printing "Auto-merged"; (3) the merge driver's own stdout
+    (`RESOLVED` / `PARTIAL:…`) was never redirected; (4) `iinfo` progress lines
+    went to stdout in interactive mode. Combined, branch-mode auto-merge could
+    never succeed (`CONFLICT:RESOLVED`), and the interactive loop opened
+    `$EDITOR` on `RESOLVED`, on `Auto-merged: <file>` and on `PARTIAL:body`
+    while **never offering the genuinely conflicted file**. All four fixed; the
+    whole suite was blind to them because `tests/test_sync.sh` runs only in
+    legacy mode (where the state guard is a no-op) and only asserted `CONFLICT:`
+    as a substring.
+  - **The `""` tombstone was defeated by the shell writer.** `write_task_file`
+    emits board fields only when non-empty, and `echo "key: $v"` with an empty
+    `v` produces `key: `, which the real YAML loader reads back as `None`. Fixed
+    by emitting the quoted literal behind a `boardgroup_present` flag.
+  - **Two of three `write_task_file` call sites are preservation paths.** They
+    pass `$CURRENT_*` wholesale; omitting the new positionals there would have
+    silently dropped `boardgroup` whenever a parent's child list changed or an
+    interactive update ran.
+
+- **Key decisions:**
+  - **Base from git's conflicted index, not diff3 markers.** `merge.conflictStyle`
+    is configured nowhere, so git emits 2-way markers and the parsed-then-discarded
+    diff3 base is production-dead. `task_git show ":1:$f"` was measured working
+    while the rebase is wedged (`show` is on the read-only allowlist). Uses `$f`
+    (repo-relative), never `$file_path`.
+  - **Fail closed.** Both-sides-changed-differently and no-base both go to
+    unresolved/PARTIAL rather than a timestamp guess.
+  - **Reject, never coerce, at the CLI**; and **preserve verbatim, never strip,
+    at the boundary.** Group identity IS the slug, so any silent normalization
+    coalesces distinct groups — which the design requires to be confirmed, never
+    inferred. A quoted `"perf_work "` survives YAML with its space, so stripping
+    would both silently join `perf_work` and read as unchanged from base.
+  - **`AIT_GIT_SKIP_STATE_CHECK` scoped to one call**, rather than widening
+    `_ait_git_subcmd_is_readonly` (weakens the guard repo-wide) or switching to
+    `_ait_data_git` (whose contract is read-only probes + `task_push`).
+  - **A failed stage is an unresolved merge**, reported immediately with its
+    diagnostic preserved on stderr, instead of a success that cannot complete.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_merge.py:232-235 — anchor merges newer-wins on a task-wide, minute-resolution updated_at, so an unrelated edit on a stale checkout can win a field it never touched; the same causality weakness boardgroup avoids via base-aware detection. anchor could adopt _BASE_AWARE_FIELDS.`
+  - `.aitask-scripts/aitask_update.sh:657-658 — write_task_file regenerates updated_at on EVERY write, so a --boardidx-only shell update records a semantic modification while the board's own layout write is deliberately timestamp-neutral; the two writers disagree about whether a pure layout move is a change.`
+
+- **Notes for sibling tasks:**
+  - Membership writes use `reload_and_save_board_fields(fields=("boardgroup",))`
+    — there is **no** `semantic=True` bool. **t1243_11 must name
+    `("boardgroup",)` only**; naming `boardidx` too would discard a concurrent
+    move.
+  - **Never read `boardgroup` raw.** Go through
+    `board_groups.normalize_group_slug` — the persisted value can legally be
+    `None`, a list (unhashable: it would crash a keyed derivation), an int or a
+    bool, and `lib/task_yaml.py` deliberately leaves malformed input
+    type-honest for the consumer.
+  - **t1243_9/10:** `build_column_units(tasks)` returns `(slug, members)` in
+    render order; `slug == ""` is a singleton. A one-member group **keeps its
+    slug** so a group is never silently dissolved. `group_members(tasks, slug)`
+    gets a collapsed group's members as data. `task_matches_filter` is already
+    the data-level predicate — do not reimplement it.
+  - **Grouping writes no index**, and `boardidx` contiguity is explicitly not an
+    invariant. The two post-sync fixtures in `tests/test_board_groups.py` pin
+    that no reconciliation write is needed.
+  - **t1243_13 (docs)** inherits: every layer-5 surface, plus
+    `website/content/docs/commands/sync.md`'s merge-rules table (needs a
+    `boardgroup` row: base-aware, fails closed to PARTIAL) and the
+    `aitask-trail` `SKILL.md.j2` + three goldens. **t1243_12** owns layer 3
+    (`BoardGroupField`) and must normalize before calling the CLI, which rejects
+    non-slug input.
+  - **When writing a shell test for sync**, remember `try_auto_merge`'s stdout
+    is a data channel: use `warn`/`iinfo_err`, never `info`/`iinfo`, inside it.
