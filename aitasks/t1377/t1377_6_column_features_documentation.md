@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1377_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, web_site, aitask_board, aitask_monitormini]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1243
 created_at: 2026-08-04 09:56
-updated_at: 2026-08-04 09:56
+updated_at: 2026-08-07 12:13
 ---
 
 ## Context
