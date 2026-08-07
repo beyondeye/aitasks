@@ -6,9 +6,13 @@ issue_type: bug
 status: Implementing
 labels: [minimonitor, tmux, tui]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-07 10:03
-updated_at: 2026-08-07 10:16
+updated_at: 2026-08-07 10:17
 ---
 
 ## Symptom
