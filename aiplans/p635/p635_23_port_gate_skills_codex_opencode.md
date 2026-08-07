@@ -273,3 +273,80 @@ archival (child → `aitasks/archived/t635/`), and merge.
 - timing: post-phase | name: sweep_path_allowlist | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "rerender sweep drags unrelated churn / stale prerenders" | desc: after the Phase B6 rerender, reconcile `git status` against an explicit four-path allowlist and stage only those paths.
 - timing: after | name: cross_agent_gate_live_verify | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement "pointer stubs prove resolution, not agent behavior" | desc: drive aitask-gate-docs-updated end-to-end from a live Codex CLI session and a live OpenCode session — wrapper resolves, the tool mapping carries the AskUserQuestion confirmation step, aitask_resolve_config_path.sh runs unprompted, and the terminal ledger block lands. ACCEPTANCE-GATING: this task's end-to-end "runnable on Codex/OpenCode" claim is not established until this MV passes.
 - timing: after | name: wire_discover_into_verify | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement "recurrence — a skill absent from ALL wrapper trees is invisible to parity" | desc: wire `aitask_audit_wrappers.sh discover` into `aitask_skill_verify.sh` behind an explicit Claude-only exemption list (aitask-explorechat is deliberately unported), so the next plain Claude skill cannot silently ship without wrappers.
+
+## Final Implementation Notes
+
+- **Actual work done:** Generated the 9 missing wrapper surfaces via
+  `aitask_audit_wrappers.sh apply-wrapper` — `aitask-run-gates`,
+  `aitask-gate-template` and `aitask-gate-docs-updated` each now ship
+  `.agents/skills/<skill>/SKILL.md`, `.opencode/skills/<skill>/SKILL.md` and
+  `.opencode/commands/<skill>.md`. Retired the now-false Claude-only prose at its
+  canonical sources: `aitask-gate-template/SKILL.md` (the two hardcoded
+  `.claude/skills/aitask-gate-<name>/` references → agent-tree-agnostic), plus a new
+  Notes entry making "a new gate skill must also ship its three wrapper surfaces" a
+  durable authoring rule; `aitask-gate-docs-updated/SKILL.md` (t635_23 port ticket →
+  current-state description of the shipped surfaces); `task-workflow/SKILL.md`
+  Step-8 dispatch (dropped "Gate skills currently ship in the Claude tree…") with the
+  `SKILL-fast.md` golden regenerated; and the `docs_updated` verifier comment in both
+  `.aitask-scripts/gates_reference.yaml` and `aitasks/metadata/gates.yaml`.
+  Closed the helper-whitelist gaps the ported skills depend on:
+  `aitask_resolve_config_path.sh` (invoked by the docs gate, previously whitelisted in
+  **none** of the 5 touchpoints) and `aitask_run_gates.sh` (missing from touchpoint 1).
+
+- **Deviations from plan:** (1) **Scope-reducing** — the plan's Phase B6 assumed the
+  three rendered `task-workflow-fast-` closures were tracked files requiring
+  `aitask_skill_rerender.sh` across all three profiles. They are **gitignored
+  per-user artifacts** (`.gitignore` ignores `*-/` in all three skill roots; only the
+  `remote` headless prerenders are committed), and the edited clause is
+  `record_gates`-gated so only `fast` renders it — meaning the committed prerenders
+  are unaffected. Rendered via `aitask_skill_render.sh aitask-pick --profile fast
+  --agent {claude,codex,opencode}` instead, whose closure walk refreshes exactly the
+  three local fast closures. Tracked footprint of the closure edit is therefore the
+  Jinja source plus one golden, and the `sweep_path_allowlist` mitigation found **zero**
+  rerender churn to reconcile. (2) `aitask_skill_rerender.sh` could not have been
+  targeted at `task-workflow` directly anyway: it skips rendered dirs with no
+  authoring template, and `task-workflow` has no `SKILL.md.j2` — it is only reachable
+  through an entry-point skill's closure walk. (3) `test_gate_procedure_docs.sh` is
+  34 assertions now, not the 15 the archived p635_19 plan recorded; all pass.
+
+- **Issues encountered:** None blocking. The working tree carried an unrelated
+  concurrent session's in-flight work (board-groups / merge / sync: `aitask_sync.sh`,
+  `aitask_fold_mark.sh`, `aitask_update.sh`, `board/aitask_merge.py`,
+  `lib/task_yaml.py`, `lib/board_groups.py`, four `tests/*`, and
+  `aidocs/framework/aitasks_extension_points.md`). Per the post-phase mitigation's
+  non-destructive rule those were inspected, left untouched, reported to the user, and
+  excluded from this task's commit — nothing was reverted or stashed.
+
+- **Key decisions:** Ship **pure generator output** for all nine wrappers and
+  hand-edit none of them. The stubs are pointers, not copies — tool translation lives
+  in `.agents/skills/codex_tool_mapping.md` / `.opencode/skills/opencode_tool_mapping.md`,
+  which the stubs already reference — so any agent-specific wording belongs in the
+  canonical Claude body, where it propagates transitively. This keeps
+  `apply-wrapper --force` a safe refresh and avoids the drift that hand-editing
+  produced in `aitask-contribute`'s OpenCode surfaces. All three trees got all three
+  skills because `cmd_parity()` compares wrapper-set membership across trees; a
+  partial port would newly fail `aitask_skill_verify.sh`.
+
+- **Scope-honesty — what is and is not established:** Every check run here is
+  **static** (existence, cross-tree parity, generated body content, policy strings,
+  golden/prerender freshness). Nothing was executed in Codex CLI or OpenCode. The
+  verified claim is *"the wrapper surfaces exist, agree across trees, and the helpers
+  they invoke are permitted."* Whether a Codex or OpenCode agent can actually complete
+  `aitask-gate-docs-updated` end-to-end — tool mapping translating the
+  `AskUserQuestion` confirmation, `aitask_resolve_config_path.sh` running unprompted,
+  the terminal ledger block landing — remains gated on the
+  `cross_agent_gate_live_verify` MV created at Step 8d.
+
+- **Upstream defects identified:**
+  - .aitask-scripts/aitask_skill_verify.sh:212-244 — wires only `aitask_audit_wrappers.sh parity` (wrapper-tree vs wrapper-tree), never `discover` (Claude-tree vs wrappers), so a skill absent from ALL wrapper trees is invisible to the mandated pre-commit check; this is why these three skills sat unported. Tracked as the `wire_discover_into_verify` mitigation.
+  - .claude/settings.local.json:30 — missing the `aitask_gate_{build,fail,lint,log,pass,risk,record,tests_pass}.sh` verifier entries that `seed/claude_settings.local.json`, `.codex/rules/default.rules` and `seed/opencode_config.seed.json` all carry; the runtime Claude policy is a subset of its own seed mirror.
+  - .aitask-scripts/aitask_audit_wrappers.sh:226 — `discover` still reports the `aitask-explorechat` GAP triple. Deliberately out of scope here (machine-spawned chatlink gateway, not a gate skill), but it is the one remaining unported plain skill.
+
+- **Notes for sibling tasks:** Procedure gates are no longer Claude-only — the Step-8
+  dispatch's "resolve in your agent's skill tree" now succeeds in all three trees, so
+  **t635_29** (procedure-gate generalization) inherits a working wrapper layer and only
+  needs to make the *resolution* formally agent-aware plus add per-gate agent/model
+  selection. When authoring any future `aitask-gate-<name>` skill, follow the new
+  `aitask-gate-template` Notes rule: plain gate skills do not auto-render, so run
+  `apply-wrapper` for `agents` / `opencode-skill` / `opencode-command` in the same
+  change, and whitelist every helper the skill shells out to across all 5 touchpoints.
