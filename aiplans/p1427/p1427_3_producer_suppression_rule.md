@@ -398,10 +398,10 @@ suppress nothing. Do not add one.
   written without it inherits none of the rules and `test_producer_set_is_the_known_set`
   still passes on the original four — the suppression rule would be absent from
   a live producer with every guard green · severity: low ·
-  → mitigation: producer_manifest_independent_discovery
+  → mitigation: t1460
 
 ### Planned mitigations
-- timing: after | name: producer_manifest_independent_discovery | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — marker-keyed producer discovery cannot see a fifth producer written without the marker phrase, so every rule guard stays green while a live producer carries none of the rules | desc: give the shadow producer set an independent discovery signal (explicit manifest, or a broader scan flagging any aitask-shadow/*.md that instructs emitting a concern block but lacks the marker) so a new producer cannot be added silently; benefits the short-region and region-required guards equally, and is spawned rather than inlined because it re-opens the shared t1187 discovery contract and its KNOWN_PRODUCERS pin
+- timing: after | name: producer_manifest_independent_discovery | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — marker-keyed producer discovery cannot see a fifth producer written without the marker phrase, so every rule guard stays green while a live producer carries none of the rules | desc: give the shadow producer set an independent discovery signal (explicit manifest, or a broader scan flagging any aitask-shadow/*.md that instructs emitting a concern block but lacks the marker) so a new producer cannot be added silently; benefits the short-region and region-required guards equally, and is spawned rather than inlined because it re-opens the shared t1187 discovery contract and its KNOWN_PRODUCERS pin | created: t1460
 - timing: post-phase | name: goldens_regenerated_render_suite_green | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — six goldens invalidated by the edits, with the impl-challenge procedure goldens the easy miss | desc: regenerate the 3 entry-point and 3 impl-challenge goldens with the documented driver, review each diff for rule-text-and-bulk-select-fix content only, and run tests/test_skill_render_aitask_shadow.sh green before committing — all in the same commit as the edits
 
 ## Post-Review Changes
