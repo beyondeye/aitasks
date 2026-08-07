@@ -173,3 +173,5 @@ consider closing the full-monitor gap while here.
 > Note: deferred
 
 > **✅ gate:plan_approved** run=2026-08-07T08:03:04Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-08-07T09:08:14Z status=pass attempt=1 type=human
