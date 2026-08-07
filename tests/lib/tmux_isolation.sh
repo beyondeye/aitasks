@@ -89,7 +89,7 @@ if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
     # framework code reaching tmux **outside** the gateway — where
     # `require_isolated_tmux` is not a sufficient guarantee.
     #
-    # The motivating case is the shadow cleanup hook: `attach_shadow_cleanup_hook`
+    # The motivating case is the shadow cleanup hook: `attach_companion_cleanup_hook`
     # arms a persistent `remain-on-exit` + `pane-died` hook that later runs
     # `aitask_companion_cleanup.sh`, and that script issues raw `tmux` with no
     # socket flag BY DESIGN (it relies on `$TMUX` from the firing server's job

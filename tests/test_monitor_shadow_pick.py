@@ -183,7 +183,7 @@ class _SpawnMocks:
             patch.object(mc, "launch_in_tmux", return_value=self._launch),
             patch.object(mc, "resolve_pane_id_by_pid",
                          return_value=self._pane_id),
-            patch.object(mc, "attach_shadow_cleanup_hook",
+            patch.object(mc, "attach_companion_cleanup_hook",
                          return_value=self._hook_status),
             patch.object(mc, "load_project_tmux_config",
                          return_value=self._tmux_cfg),
@@ -584,7 +584,7 @@ class HookIdempotenceTests(unittest.TestCase):
             'pane-died[0] run-shell ".../aitask_companion_cleanup.sh %2 %3"\n'
         )
         self._install(tmux)
-        status = agent_launch_utils.attach_shadow_cleanup_hook("%2", "%9")
+        status = agent_launch_utils.attach_companion_cleanup_hook("%2", "%9")
         self.assertEqual(status, "existing")
         self.assertEqual(self._set_hooks(tmux), [], "no set-hook at all")
         self.assertEqual(len(self._remain_on_exit(tmux)), 1, "still ensured")
@@ -592,7 +592,7 @@ class HookIdempotenceTests(unittest.TestCase):
     def test_no_pane_died_hook_installs_at_index_0(self):
         tmux = _HookTmux("client-attached[0] display-message hi\n")
         self._install(tmux)
-        status = agent_launch_utils.attach_shadow_cleanup_hook("%2", "%9")
+        status = agent_launch_utils.attach_companion_cleanup_hook("%2", "%9")
         self.assertEqual(status, "installed")
         hooks = self._set_hooks(tmux)
         self.assertEqual(len(hooks), 1)
@@ -608,7 +608,7 @@ class HookIdempotenceTests(unittest.TestCase):
         """
         tmux = _HookTmux('pane-died[0] display-message custom-user-hook\n')
         self._install(tmux)
-        status = agent_launch_utils.attach_shadow_cleanup_hook("%2", "%9")
+        status = agent_launch_utils.attach_companion_cleanup_hook("%2", "%9")
         self.assertEqual(status, "installed")
         hooks = self._set_hooks(tmux)
         self.assertEqual(len(hooks), 1)
@@ -622,7 +622,7 @@ class HookIdempotenceTests(unittest.TestCase):
     def test_probe_failure_fails_closed(self):
         tmux = _HookTmux("", rc=1)
         self._install(tmux)
-        status = agent_launch_utils.attach_shadow_cleanup_hook("%2", "%9")
+        status = agent_launch_utils.attach_companion_cleanup_hook("%2", "%9")
         self.assertEqual(status, "unverified")
         self.assertEqual(self._set_hooks(tmux), [], "install nothing")
         self.assertEqual(len(self._remain_on_exit(tmux)), 1)
@@ -633,7 +633,7 @@ class HookIdempotenceTests(unittest.TestCase):
             "pane-died[2] display-message b\n"
         )
         self._install(tmux)
-        agent_launch_utils.attach_shadow_cleanup_hook("%2", "%9")
+        agent_launch_utils.attach_companion_cleanup_hook("%2", "%9")
         self.assertIn("pane-died[3]", self._set_hooks(tmux)[0])
 
 

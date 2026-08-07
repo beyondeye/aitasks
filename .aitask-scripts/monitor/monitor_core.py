@@ -42,7 +42,7 @@ from tmux_exec import TmuxClient, tmux_socket_args  # noqa: E402  (gateway: exec
 from agent_launch_utils import (  # noqa: E402
     AitasksSession,
     TmuxLaunchConfig,
-    attach_shadow_cleanup_hook,
+    attach_companion_cleanup_hook,
     discover_aitasks_sessions,
     discover_aitasks_sessions_async,
     launch_in_tmux,
@@ -513,6 +513,7 @@ async def compute_shadow_staleness(
     ==========================================  ===================
     no monitor / no ``get_pane_option``         ``(None, None)``
     ``get_pane_option`` raised                  ``(None, None)``
+    ``get_pane_option`` reported failure        ``(None, None)``
     stamp empty (shadow never analyzed)         ``(False, None)``
     stamp not a float                           ``(None, None)``
     followed pane not observed yet              ``(None, None)``
@@ -525,6 +526,15 @@ async def compute_shadow_staleness(
     clear a standing warning. Only an explicit ``False`` clears it. The caller
     owns ``eps`` (one refresh tick, absorbing detection lag) and the banner.
 
+    A *failed* option read is *unverifiable*, never "the shadow has not analyzed
+    anything" (t1451). :meth:`TmuxMonitor.get_pane_option` used to collapse
+    ``rc != 0`` into ``""``, which landed on the empty-stamp row below and so
+    let a tmux timeout **clear** a standing staleness warning — the same
+    unverifiable-read-as-a-negative-verdict bug t1446 fixed in
+    ``discover_window_panes``. It now returns ``(ok, value)`` and only an
+    ``ok`` read reaches the stamp rows; ``-q`` still makes a genuinely *unset*
+    option a verified ``(True, "")``, which is what "never analyzed" means.
+
     The empty-stamp branch returns **before** the last-change lookup: that
     ordering is a cost gate, not an accident — a shadow that never analyzed
     anything must not provoke a followed-pane query every tick.
@@ -532,9 +542,16 @@ async def compute_shadow_staleness(
     if monitor is None or not hasattr(monitor, "get_pane_option"):
         return None, None
     try:
-        stamp = await monitor.get_pane_option(shadow_pane, SHADOW_ANALYZED_AT_OPTION)
+        # Unpacked INSIDE the try on purpose: a stub still returning a bare
+        # string raises here and lands on the preserve branch, which is the
+        # only safe direction — `None` never clears a standing warning.
+        ok, stamp = await monitor.get_pane_option(
+            shadow_pane, SHADOW_ANALYZED_AT_OPTION
+        )
     except Exception:
         return None, None  # option read failed — preserve prior state
+    if not ok:
+        return None, None  # tmux could not answer — preserve prior state
     if not stamp:
         # Shadow has not analyzed anything yet: nothing to warn about.
         return False, None
@@ -1409,20 +1426,30 @@ class TmuxMonitor:
 
     async def get_pane_option(
         self, pane_id: str, option: str, timeout: float = 2.0
-    ) -> str:
-        """Read a pane-scoped tmux user-option's value, or "" on any failure.
+    ) -> tuple[bool, str]:
+        """Read a pane-scoped tmux user-option, discriminating failure from unset.
 
         Gateway-routed (``show-options -pqv``) so all tmux access stays inside
         the monitor per ``tmux_gateway.md``. ``-q`` keeps an unset option quiet
-        and ``-v`` prints just the value; a missing option yields "". Used by
-        minimonitor's shadow-freshness check (t1104).
+        and ``-v`` prints just the value. Used by minimonitor's shadow-freshness
+        check (t1104).
+
+        Returns ``(ok, value)``. ``ok`` is ``False`` only when tmux could not
+        answer (transport failure / timeout ``rc == -1``, or a tmux command
+        error ``rc == 1``); ``(True, "")`` is a *verified* "this option is not
+        set". The pair mirrors :func:`find_shadow_pane_status` and exists for
+        the reason t1446's ``(observed, panes)`` does: this used to return ``""``
+        on failure, and :func:`compute_shadow_staleness` read that as "the shadow
+        has never analyzed anything: nothing to warn about", so a tmux failure
+        *cleared* a standing staleness banner (t1451). A 2-tuple cannot be
+        consumed without binding the flag, whereas ``""`` is silently falsy.
         """
         rc, out = await self.tmux_run_async(
             ["show-options", "-pqv", "-t", pane_id, option], timeout=timeout
         )
         if rc != 0:
-            return ""
-        return out.strip()
+            return (False, "")
+        return (True, out.strip())
 
     def get_last_change_wall(self, pane_id: str) -> float | None:
         """Wall-clock epoch (approx) when ``pane_id``'s content last changed.
@@ -2786,7 +2813,7 @@ def spawn_shadow(
         return None
 
     # Ensure the followed agent auto-kills its bound shadow on exit.
-    hook_status = attach_shadow_cleanup_hook(
+    hook_status = attach_companion_cleanup_hook(
         followed_pane, companion_pane or shadow_pane
     )
     if hook_status == "unverified":

@@ -190,7 +190,7 @@ class ConfirmPathTests(TmuxSocketContainmentMixin, unittest.TestCase):
                           return_value=(999, None)) as mock_launch, \
              patch.object(mc, "resolve_pane_id_by_pid",
                           return_value="%9") as mock_resolve, \
-             patch.object(mc, "attach_shadow_cleanup_hook",
+             patch.object(mc, "attach_companion_cleanup_hook",
                           return_value="installed") as mock_hook, \
              patch.object(mc, "load_project_tmux_config", return_value={}):
             callback(TmuxLaunchConfig("s1", "w", new_session=False, new_window=False))
@@ -232,7 +232,7 @@ class ConfirmPathTests(TmuxSocketContainmentMixin, unittest.TestCase):
              patch.object(mc, "launch_in_tmux",
                           return_value=(999, None)) as mock_launch, \
              patch.object(mc, "resolve_pane_id_by_pid", return_value="%9"), \
-             patch.object(mc, "attach_shadow_cleanup_hook",
+             patch.object(mc, "attach_companion_cleanup_hook",
                           return_value="installed") as mock_hook, \
              patch.object(mc, "load_project_tmux_config", return_value={}):
             callback(TmuxLaunchConfig("s1", "w", new_session=False, new_window=False))

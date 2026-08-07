@@ -58,7 +58,7 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 import subprocess  # noqa: E402
-from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, tmux_session_target  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane  # noqa: E402
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
 from tmux_exec import TmuxClient  # noqa: E402
 
@@ -514,6 +514,7 @@ class MonitorApp(
         multi_session: bool = True,
         compare_mode_default: str = "stripped",
         rename_window: bool = False,
+        mark_pane: bool = False,
     ) -> None:
         super().__init__()
         self.current_tui_name = "monitor"
@@ -523,6 +524,10 @@ class MonitorApp(
         # inherits that pane's $TMUX_PANE and would relabel the agent's own
         # window as "monitor" (t1240).
         self._rename_window = rename_window
+        # Same production-launcher gate, for the @aitask_monitor_kind pane
+        # marker the single-instance guards read (t1451): a run_test() mount
+        # inherits the agent's $TMUX_PANE and must not stamp a live pane.
+        self._mark_pane = mark_pane
         self._session = session
         self._expected_session = expected_session
         self._refresh_seconds = refresh_seconds
@@ -693,6 +698,12 @@ class MonitorApp(
             except Exception:
                 pass
 
+        # Stamp our own pane so the single-instance guards can see us (t1451).
+        # The spawner never does this — see mark_monitor_pane's docstring.
+        if self._mark_pane:
+            with contextlib.suppress(Exception):
+                mark_monitor_pane("monitor")
+
         # Check if session name matches expected config. In multi-session
         # mode the attached session name is effectively "whichever aitasks
         # session you happen to be in"; the rename prompt is noise there.
@@ -828,6 +839,11 @@ class MonitorApp(
         self._schedule_shadow_fit_check()
 
     async def on_unmount(self) -> None:
+        # Clear our pane marker on the normal-exit path; an abnormal exit is
+        # covered by monitor_marker_state's stale classification (t1451).
+        if getattr(self, "_mark_pane", False):
+            with contextlib.suppress(Exception):
+                unmark_monitor_pane()
         if getattr(self, "_monitor", None) is not None:
             try:
                 await self._monitor.close_control_client()
@@ -3376,6 +3392,7 @@ def main() -> None:
         expected_session=expected_session,
         compare_mode_default=config.get("compare_mode_default", "stripped"),
         rename_window=True,
+        mark_pane=True,   # production launcher only — see MonitorApp.__init__
     )
     app.run()
 

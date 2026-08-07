@@ -349,13 +349,32 @@ The companion should persist until *every* primary-like pane is gone.
 How to apply:
 1. Capture the primary pane id (`tmux new-window -P -F "#{pane_id}"`) and
    companion pane id (same flags on `split-window`) at spawn time.
-2. Attach a pane-scoped `pane-died` hook to the primary (`tmux set-hook -p -t
-   <primary> pane-died …`) with `remain-on-exit on` so the hook fires.
-3. The hook calls a cleanup script that lists panes in the window, excluding
-   primary + companion. If zero other panes → kill both. If ≥1 → kill only
-   the primary and leave the companion alive.
+2. Arm the hook through `agent_launch_utils.attach_companion_cleanup_hook`,
+   which sets `remain-on-exit on` and appends the pane-scoped `pane-died` hook
+   at the first free index. **Never open-code `tmux set-hook -p -t <primary>
+   pane-died …`**: a bare `set-hook` writes index `[0]` and silently destroys
+   whatever hook already sits there.
+3. The hook calls a cleanup script that lists panes in the window and decides
+   whether any *real agent* sibling remains. If none → kill the primary and
+   every companion. If ≥1 → kill only the primary and leave companions alive.
 4. Do NOT use `tmux kill-window`.
 5. Do NOT use a global "kill companion on any pane-exit" approach.
+
+Every companion spawn path now arms the hook from that one helper:
+`maybe_spawn_minimonitor` (board / codebrowser / crew / syncer / monitor picks),
+`spawn_shadow`, and `tui_switcher`'s git-TUI branch. Before t1451 the first of
+those armed nothing at all, so board- and codebrowser-launched windows carried a
+companion with no hook.
+
+**Cleanup discovers companions by MARKER, not from the hook payload.** One
+`pane-died` hook carries exactly one `companion_pane`, and the helper never
+overwrites — so the argument can only ever name whichever companion armed the
+hook *first*. With a shadow-first ordering that argument is the *shadow's* pane,
+and a minimonitor sharing the window then reads as a real agent sibling, sparing
+both. So the `companion_pane` argument is a best-effort hint for panes predating
+the markers, and the authority is the pane options: `@aitask_monitor_kind`
+(monitor/minimonitor companions) and `@aitask_shadow_target` (shadows). Both
+orderings are pinned by `tests/test_companion_cleanup_ordering.sh`.
 
 Canonical helper lives at `.aitask-scripts/aitask_companion_cleanup.sh` (shell
 script, called via `tmux run-shell`, not from a code-agent skill — no
@@ -383,6 +402,45 @@ in an agent window must account for it on two fronts:
   the window; killing a *different* agent leaves an unrelated shadow alive. A
   shadow pane never keeps the minimonitor companion alive once the last real
   agent in the window is gone.
+
+### `@aitask_monitor_kind` — the monitor's own pane marker
+
+A running `ait monitor` / `ait minimonitor` stamps **its own** pane with
+`@aitask_monitor_kind`, the counterpart to the shadow's `@aitask_shadow_target`.
+Two consumers read it: the single-instance guards
+(`aitask_minimonitor.sh` and `agent_launch_utils.maybe_spawn_minimonitor`) and
+`aitask_companion_cleanup.sh`'s companion discovery.
+
+It exists because **`#{pane_current_command}` cannot identify a monitor** — a
+live minimonitor pane reports `python`, so the guards' old substring match
+against `minimonitor` / `monitor_app` could never fire. `#{pane_start_command}`
+is not a substitute either: it is only set for panes launched *with* a command,
+so a minimonitor typed into an existing shell pane would stay invisible.
+
+- **Format: `<kind>:<pid>`** (`minimonitor:41322` / `monitor:41890`), where the
+  pid is the marking process's. Without it a guard cannot tell a live monitor
+  from a marker left by a hard-killed one.
+- **Only the app writes it, on itself**, at mount, gated on a `mark_pane`
+  constructor flag that only `main()` sets (the same test-isolation precaution
+  as `MonitorApp`'s `rename_window`, t1240). The **spawner deliberately does
+  not** stamp the pane it creates: a minimonitor booting inside a pre-stamped
+  pane would find its own marker and refuse to start unless it could identify
+  its own pane from ambient state. Not stamping removes that self-deadlock by
+  construction, at the cost of a ~1 s boot-window race in which a second
+  `maybe_spawn_minimonitor` for the same window sees no marker.
+- **Cleared at unmount**; an abnormal exit is covered by the liveness rule.
+- **Liveness lives in exactly one place: `lib/monitor_marker.py`.** Python
+  imports it; `aitask_minimonitor.sh` execs its CLI (`state <value>`, verdict in
+  the exit status). Do not reimplement it in shell — `${marker##*:}` reads
+  `garbage:123` as a dead pid, and `kill -0` reports failure for another user's
+  live process where `os.kill`'s `PermissionError` means it exists.
+- **Unverifiable is not absence.** A non-empty value that does not parse
+  (unknown kind, missing/non-numeric pid, extra fields) classifies as *present*
+  and is never cleared; only a parseable marker whose pid is provably gone is
+  `stale`, and only that licenses a caller to clear it. The CLI's verdict codes
+  (`0` present, `10` stale, `11` absent) sit outside the range a failing
+  interpreter produces, and every other status must be treated as *present* —
+  mapping one to `stale` would make a crash clear a live marker.
 
 ## TUI footer must surface every operation on the affected tab/screen
 

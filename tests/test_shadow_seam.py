@@ -317,16 +317,21 @@ class CaptureShadowTextTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class _StaleMon:
-    def __init__(self, stamp="", last_change=None, raises=False):
+    """Stub monitor. ``get_pane_option`` follows the real ``(ok, value)``
+    contract (t1451) — ``ok=False`` is "tmux could not answer", distinct from
+    the verified ``(True, "")`` that means "the option is not set"."""
+
+    def __init__(self, stamp="", last_change=None, raises=False, ok=True):
         self._stamp = stamp
         self._last_change = last_change
         self._raises = raises
+        self._ok = ok
         self.lcw_calls: list = []
 
     async def get_pane_option(self, pane_id, option):
         if self._raises:
             raise RuntimeError("tmux said no")
-        return self._stamp
+        return (self._ok, self._stamp)
 
     def get_last_change_wall(self, pane_id):
         self.lcw_calls.append(pane_id)
@@ -366,6 +371,30 @@ class ComputeShadowStalenessTests(unittest.TestCase):
         self.assertIsNone(stale)
         self.assertIsNone(at)
 
+    def test_option_read_reporting_failure_preserves(self):
+        """t1451: `get_pane_option` answering `(False, "")` is *unverifiable*,
+        not "the shadow never analyzed anything". It used to collapse to `""`
+        and land on the empty-stamp row, so a tmux timeout CLEARED a standing
+        staleness banner — the same class of bug t1446 fixed in
+        `discover_window_panes`."""
+        mon = _StaleMon(ok=False, stamp="", last_change=1010.0)
+        stale, at = self._run(mon)
+        self.assertIsNone(stale)
+        self.assertIsNone(at)
+        # Cost gate: an unanswerable read must not provoke a followed-pane query.
+        self.assertEqual(mon.lcw_calls, [])
+
+    def test_read_failure_is_distinguishable_from_unset_option(self):
+        """The whole point of the `(ok, value)` pair: `(False, "")` (preserve)
+        and `(True, "")` (clear — verified "never analyzed") must not collapse
+        into the same verdict, exactly as `None` must not collapse into
+        `False`."""
+        preserve, _ = self._run(_StaleMon(ok=False, stamp=""))
+        clear, _ = self._run(_StaleMon(ok=True, stamp=""))
+        self.assertIsNone(preserve)
+        self.assertIs(clear, False)
+        self.assertIsNot(preserve, clear)
+
     def test_malformed_stamp_preserves(self):
         stale, at = self._run(_StaleMon(stamp="not-a-number", last_change=1010.0))
         self.assertIsNone(stale)
@@ -393,6 +422,38 @@ class ComputeShadowStalenessTests(unittest.TestCase):
         self.assertIsNone(preserve)
         self.assertIs(clear, False)
         self.assertIsNot(preserve, clear)
+
+
+class GetPaneOptionContractTests(unittest.TestCase):
+    """Pin the REAL `TmuxMonitor.get_pane_option`, not just the stubs (t1451).
+
+    The stubs above encode the contract, but only this class proves the
+    production method honours it — a stub-only suite stays green while the
+    method still collapses `rc != 0` into `""`.
+    """
+
+    def _read(self, rc: int, out: str) -> tuple[bool, str]:
+        mon = TmuxMonitor.__new__(TmuxMonitor)   # no tmux, no control client
+
+        async def _fake_async(args, timeout=5.0):
+            return (rc, out)
+
+        mon.tmux_run_async = _fake_async
+        return asyncio.run(mon.get_pane_option("%5", "@opt"))
+
+    def test_success_returns_ok_and_stripped_value(self):
+        self.assertEqual(self._read(0, "1000.0\n"), (True, "1000.0"))
+
+    def test_unset_option_is_a_VERIFIED_empty(self):
+        """`-q` makes an unset option print nothing at rc 0. That is a real
+        observation of absence, and must stay distinct from a failed read."""
+        self.assertEqual(self._read(0, ""), (True, ""))
+
+    def test_transport_failure_reports_not_ok(self):
+        self.assertEqual(self._read(-1, ""), (False, ""))
+
+    def test_tmux_command_error_reports_not_ok(self):
+        self.assertEqual(self._read(1, ""), (False, ""))
 
 
 class FormatStaleDurationTests(unittest.TestCase):

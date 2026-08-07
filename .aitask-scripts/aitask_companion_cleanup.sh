@@ -30,31 +30,57 @@ if [ -z "$window" ]; then
 fi
 session="$(tmux display-message -p -t "$primary" "#{session_id}" 2>/dev/null || true)"
 
+# `|` is the field separator throughout, not a space: a marker value contains
+# `:` and IFS=' ' collapses runs, which silently shifts fields whenever a middle
+# column is empty. With IFS='|' empty fields are preserved.
+
 # 1. Kill shadow panes bound to the dying agent. A shadow's
 #    @aitask_shadow_target holds the pane id of the agent it follows; match it
 #    against the dying primary. Scoped to the whole session so a separate-window
 #    shadow is reached too (falls back to the window if the session is unknown).
 shadow_scope="${session:-$window}"
-while IFS=' ' read -r pane target; do
+while IFS='|' read -r pane target; do
     if [ -n "$pane" ] && [ "$target" = "$primary" ]; then
         tmux kill-pane -t "$pane" 2>/dev/null || true
     fi
 done < <(tmux list-panes -s -t "$shadow_scope" \
-    -F '#{pane_id} #{@aitask_shadow_target}' 2>/dev/null)
+    -F '#{pane_id}|#{@aitask_shadow_target}' 2>/dev/null)
 
-# 2. Count real-agent siblings in the window. A pane keeps the companion alive
-#    only if it is neither the dying primary, nor the companion, nor a shadow
-#    helper (which carries @aitask_shadow_target).
+# 2. Count real-agent siblings in the window. A pane keeps companions alive only
+#    if it is neither the dying primary, nor a companion pane, nor a shadow
+#    helper.
+#
+#    Companion panes are DISCOVERED from @aitask_monitor_kind (t1451), not
+#    trusted from "$companion". One pane-died hook carries one companion id and
+#    the hook is append-only, so whichever companion armed it first is the only
+#    one the argument can ever name: with a shadow-first ordering the argument
+#    holds the shadow's pane, and a minimonitor sharing the window then counted
+#    as a live AGENT sibling — sparing itself and, worse, keeping the named
+#    companion alive on a bogus count. Job 1 already solved this shape for
+#    shadows by matching a marker instead of an argument; this does the same.
+#    "$companion" is still honoured as a fallback for a pane predating the
+#    marker.
+#
+#    Liveness is deliberately NOT consulted here: this runs at pane death and is
+#    killing panes, not deciding whether to launch. A stale-marked pane in a
+#    window whose last real agent just died should be closed regardless.
 others=0
-while IFS=' ' read -r pane target; do
-    if [ -n "$pane" ] && [ "$pane" != "$primary" ] && \
-       [ "$pane" != "$companion" ] && [ -z "$target" ]; then
-        others=$((others + 1))
+companions=""
+while IFS='|' read -r pane target kind; do
+    [ -n "$pane" ] || continue
+    [ "$pane" = "$primary" ] && continue
+    if [ -n "$kind" ] || [ "$pane" = "$companion" ]; then
+        companions="$companions $pane"
+        continue
     fi
+    [ -n "$target" ] && continue        # shadow helper
+    others=$((others + 1))
 done < <(tmux list-panes -t "$window" \
-    -F '#{pane_id} #{@aitask_shadow_target}' 2>/dev/null)
+    -F '#{pane_id}|#{@aitask_shadow_target}|#{@aitask_monitor_kind}' 2>/dev/null)
 
 if [ "$others" -eq 0 ]; then
-    tmux kill-pane -t "$companion" 2>/dev/null || true
+    for pane in $companions; do
+        tmux kill-pane -t "$pane" 2>/dev/null || true
+    done
 fi
 tmux kill-pane -t "$primary" 2>/dev/null || true

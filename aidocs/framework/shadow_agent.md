@@ -243,7 +243,7 @@ whose `@aitask_shadow_target` matches the dying agent, regardless of what
 A bare `set-hook -p … pane-died` writes index `[0]` and therefore *replaces*
 whatever sits there. Two panes can each be a companion of the same agent (a
 minimonitor arms it, then a monitor-side spawn arms it again), so
-`attach_shadow_cleanup_hook` (`lib/agent_launch_utils.py`) never overwrites. It
+`attach_companion_cleanup_hook` (`lib/agent_launch_utils.py`) never overwrites. It
 returns which of three things happened:
 
 - `"existing"` — a `pane-died` hook already invokes
@@ -259,6 +259,17 @@ returns which of three things happened:
 
 `remain-on-exit on` is set in every case (idempotent, and the pane should still
 fire `pane-died` for a hook someone else armed).
+
+Because the hook is append-only, its `companion_pane` argument is a
+**best-effort hint, not the cleanup authority** — it can only ever name whichever
+companion armed the hook first, and `spawn_shadow` passes
+`companion_pane or shadow_pane`, so from the full monitor (where `companion_pane`
+is `None`) it names the shadow's own pane. `aitask_companion_cleanup.sh`
+therefore discovers *both* companion kinds from their markers —
+`@aitask_shadow_target` for shadows, `@aitask_monitor_kind` for
+monitor/minimonitor companions — and falls back to the argument only for a pane
+predating the markers. See "Companion pane auto-despawn" in
+`tui_conventions.md`.
 
 ### Where these two rules are proven
 

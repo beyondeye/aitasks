@@ -24,6 +24,15 @@ from typing import NamedTuple
 
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
 from tmux_exec import TmuxClient
+# The monitor pane marker: rule + classification live in monitor_marker (one
+# implementation, also exec'd by aitask_minimonitor.sh); the writers live here,
+# where the tmux gateway client is. Re-exported so callers have a single import.
+from monitor_marker import (  # noqa: F401
+    MONITOR_KIND_OPTION,
+    MONITOR_KINDS,
+    monitor_marker_alive,
+    monitor_marker_state,
+)
 
 # Known git management TUIs in preference order
 KNOWN_GIT_TUIS = ["lazygit", "gitui", "tig"]
@@ -1368,6 +1377,48 @@ _PANE_DIED_RE = re.compile(r"^pane-died(?:\[(\d+)\])?\s")
 CLEANUP_SCRIPT_NAME = "aitask_companion_cleanup.sh"
 
 
+def mark_monitor_pane(kind: str) -> bool:
+    """Stamp this process's OWN pane as a running monitor (t1451).
+
+    Writes ``<kind>:<os.getpid()>`` to :data:`MONITOR_KIND_OPTION` on
+    ``$TMUX_PANE``. The pid is what lets a guard tell a live monitor from a
+    marker left behind by a hard-killed one.
+
+    **Only the app calls this, on itself.** The spawner deliberately does not
+    stamp the pane it creates: a minimonitor booting inside a pre-stamped pane
+    would find its own marker and refuse to start unless it could identify its
+    own pane from ambient state. Not stamping removes that self-deadlock by
+    construction — our own pane can never carry a marker before we start, so
+    neither guard needs a self-exclusion rule.
+
+    Returns True when the option was written. No-ops (False) outside tmux.
+    """
+    if kind not in MONITOR_KINDS:
+        raise ValueError(f"unknown monitor kind: {kind!r}")
+    pane = os.environ.get("TMUX_PANE")
+    if not pane:
+        return False
+    rc, _ = _TMUX.run(
+        ["set-option", "-p", "-t", pane, MONITOR_KIND_OPTION,
+         f"{kind}:{os.getpid()}"]
+    )
+    return rc == 0
+
+
+def unmark_monitor_pane() -> bool:
+    """Clear this process's own pane marker (``set-option -pu``).
+
+    The normal-exit counterpart to :func:`mark_monitor_pane`. An *abnormal*
+    exit is covered by :func:`monitor_marker_state`, which classifies a marker
+    whose pid is gone as ``stale`` so the guards ignore and self-heal it.
+    """
+    pane = os.environ.get("TMUX_PANE")
+    if not pane:
+        return False
+    rc, _ = _TMUX.run(["set-option", "-pu", "-t", pane, MONITOR_KIND_OPTION])
+    return rc == 0
+
+
 def _pane_died_hook_indices(hooks_out: str) -> tuple[list[int], bool]:
     """Parse ``show-hooks -p`` output into ``(pane_died_indices, has_cleanup)``.
 
@@ -1387,7 +1438,7 @@ def _pane_died_hook_indices(hooks_out: str) -> tuple[list[int], bool]:
     return indices, has_cleanup
 
 
-def attach_shadow_cleanup_hook(agent_pane: str, companion_pane: str) -> str:
+def attach_companion_cleanup_hook(agent_pane: str, companion_pane: str) -> str:
     """Wire the ``pane-died`` companion-cleanup hook onto a primary agent pane.
 
     Sets ``remain-on-exit on`` (so the pane fires ``pane-died`` instead of
@@ -1397,7 +1448,16 @@ def attach_shadow_cleanup_hook(agent_pane: str, companion_pane: str) -> str:
     ``@aitask_shadow_target``) and despawns ``companion_pane`` once no real
     agent sibling remains. Used by the shadow spawn glue so a shadowed agent
     that was not launched with this hook still auto-kills its bound shadow on
-    exit. Mirrors the git-TUI companion wiring in ``tui_switcher``. Gateway-only.
+    exit. Also armed by :func:`maybe_spawn_minimonitor` and called by
+    ``tui_switcher``'s git-TUI companion path, so every companion flow wires the
+    hook from here rather than open-coding it. Gateway-only.
+
+    ``companion_pane`` is a **best-effort hint, not the cleanup authority.** One
+    hook carries one companion id and this function never overwrites, so the
+    argument can only ever name whichever companion armed the hook *first*.
+    ``aitask_companion_cleanup.sh`` therefore discovers companions from the
+    ``@aitask_monitor_kind`` / ``@aitask_shadow_target`` markers and falls back
+    to the argument only for a pane predating the marker (t1451).
 
     **Never overwrites an existing hook.** A bare ``set-hook -p … pane-died``
     writes index ``[0]`` and so replaces whatever sits there. Two panes can each
@@ -1554,20 +1614,37 @@ def maybe_spawn_minimonitor(
         if win_index is None:
             return None
 
-    # Check existing panes for monitor/minimonitor and pane count. Shadow
-    # helper panes (t986) carry @aitask_shadow_target and must NOT count toward
-    # the overcrowding limit — a shadow following the agent should not block the
-    # companion minimonitor from spawning for that same agent.
+    # Check existing panes for monitor/minimonitor and pane count.
+    #
+    # A live monitor is recognised by the @aitask_monitor_kind marker it stamps
+    # on itself, NOT by #{pane_current_command} — that reports `python` for a
+    # running monitor, so the old substring match could never fire (t1451).
+    # Liveness comes from monitor_marker_state, the same implementation the
+    # shell guard in aitask_minimonitor.sh execs.
+    #
+    # Shadow helper panes (t986) carry @aitask_shadow_target and must NOT count
+    # toward the overcrowding limit — a shadow following the agent should not
+    # block the companion minimonitor from spawning for that same agent.
     rc, out = _TMUX.run(
         ["list-panes", "-t", tmux_window_target(session, win_index),
-         "-F", "#{pane_current_command}\t#{@aitask_shadow_target}"]
+         "-F", f"#{{pane_id}}|#{{{MONITOR_KIND_OPTION}}}|#{{@aitask_shadow_target}}"]
     )
     if rc == 0:
         real_panes = 0
         for line in out.strip().splitlines():
-            cmd_line, _, shadow_target = line.partition("\t")
-            if "minimonitor" in cmd_line or "monitor_app" in cmd_line:
-                return None
+            pane_id, _, rest = line.partition("|")
+            marker, _, shadow_target = rest.partition("|")
+            if marker:
+                if monitor_marker_alive(marker):
+                    return None
+                # Stale: the marking process is gone. Self-heal so the residue
+                # cannot block spawns in this window forever.
+                _TMUX.spawn(
+                    ["set-option", "-pu", "-t", pane_id, MONITOR_KIND_OPTION],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                # A monitor pane is a helper either way — never counted below.
+                continue
             if not shadow_target.strip():
                 real_panes += 1
         # Avoid overcrowding: skip if 3+ non-helper panes already exist
@@ -1594,6 +1671,16 @@ def maybe_spawn_minimonitor(
     if rc != 0:
         return None
     companion_pane = out.strip() or None
+    # Arm the pane-died cleanup hook so the companion is despawned when the
+    # agent exits. This used to be wired only by spawn_shadow and by
+    # tui_switcher's git path, so every board- / codebrowser- / crew-launched
+    # window carried a companion with no hook at all (t1451). `agent_pane` is ""
+    # when the display-message probe failed — never arm a hook against an
+    # unknown pane. The return value is ignored on purpose: unlike spawn_shadow
+    # this path has no notification surface, and the minimonitor's own
+    # auto-close (t1446) remains the backstop when nothing is installed.
+    if agent_pane and companion_pane:
+        attach_companion_cleanup_hook(agent_pane, companion_pane)
     # Refocus the agent pane captured above, falling back to pane .0.
     refocus_target = agent_pane or f"{tmux_window_target(session, win_index)}.0"
     _TMUX.spawn(

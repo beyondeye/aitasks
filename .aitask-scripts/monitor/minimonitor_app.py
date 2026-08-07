@@ -67,8 +67,10 @@ from agent_launch_utils import (  # noqa: E402
     TmuxLaunchConfig,
     launch_in_tmux,
     maybe_spawn_minimonitor,
+    mark_monitor_pane,
     tmux_session_target,
     tmux_window_target,
+    unmark_monitor_pane,
 )
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
 
@@ -235,9 +237,15 @@ class MiniMonitorApp(
         tui_names: set[str] | None = None,
         compare_mode_default: str = "stripped",
         target_width: int = 40,
+        mark_pane: bool = False,
     ) -> None:
         super().__init__()
         self.current_tui_name = "minimonitor"
+        # Only the production launcher (main()) passes mark_pane=True. Gating it
+        # keeps a Textual run_test() mount — which inherits the running agent's
+        # $TMUX_PANE — from stamping @aitask_monitor_kind on a live pane, the
+        # same hazard the monitor's rename_window flag exists for (t1240/t1451).
+        self._mark_pane = mark_pane
         self._session = session
         self._refresh_seconds = refresh_seconds
         self._capture_lines = capture_lines
@@ -331,6 +339,12 @@ class MiniMonitorApp(
                 "[bold red]Not inside tmux[/]"
             )
             return
+
+        # Stamp our own pane so the single-instance guards can see us (t1451).
+        # The spawner never does this — see mark_monitor_pane's docstring.
+        if self._mark_pane:
+            with contextlib.suppress(Exception):
+                mark_monitor_pane("minimonitor")
 
         # Detect own window ID, index, and name for auto-close, auto-selection,
         # and the "switch to full monitor" handoff.
@@ -449,6 +463,12 @@ class MiniMonitorApp(
         )
 
     async def on_unmount(self) -> None:
+        # Clear our pane marker on the normal-exit path. An abnormal exit is
+        # covered by monitor_marker_state, which classifies a marker whose pid
+        # is gone as stale so the guards ignore and self-heal it (t1451).
+        if getattr(self, "_mark_pane", False):
+            with contextlib.suppress(Exception):
+                unmark_monitor_pane()
         if getattr(self, "_monitor", None) is not None:
             try:
                 await self._monitor.close_control_client()
@@ -2361,6 +2381,7 @@ def main() -> None:
         tui_names=config.get("tui_names"),
         compare_mode_default=config.get("compare_mode_default", "stripped"),
         target_width=target_width,
+        mark_pane=True,   # production launcher only — see MiniMonitorApp.__init__
     )
     app.run()
 

@@ -1349,10 +1349,11 @@ class TuiSwitcherOverlay(ModalScreen):
     def _launch_git_with_companion(self) -> None:
         """Launch the git TUI in a new window with a companion minimonitor.
 
-        Wires a pane-scoped `pane-died` hook on the git pane so that when the
-        git tool exits, the companion is despawned only if no other sibling
-        pane (user-added shell, codeagent sharing the companion, etc.) is
-        still using the window.
+        Wires a pane-scoped `pane-died` hook on the git pane — via
+        `agent_launch_utils.attach_companion_cleanup_hook`, the one place that
+        does this — so that when the git tool exits, the companion is despawned
+        only if no other sibling pane (user-added shell, codeagent sharing the
+        companion, etc.) is still using the window.
         """
         project_root = self._selected_project_root()
         cmd = self._get_launch_command("git", project_root)
@@ -1371,23 +1372,19 @@ class TuiSwitcherOverlay(ModalScreen):
         )
 
         if companion_pane:
-            # Pane-scoped verbs: -t is a %pane id, passed through untouched
-            # (no session_target wrapping). Routed via the gateway for socket
-            # consistency.
-            _TMUX.spawn(
-                ["set-option", "-p", "-t", primary_pane,
-                 "remain-on-exit", "on"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            script_path = str(
-                Path(__file__).resolve().parent.parent / "aitask_companion_cleanup.sh"
-            )
-            hook_cmd = f"run-shell '{script_path} {primary_pane} {companion_pane}'"
-            _TMUX.spawn(
-                ["set-hook", "-p", "-t", primary_pane,
-                 "pane-died", hook_cmd],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
+            # Slot-safe: attach_companion_cleanup_hook probes show-hooks and
+            # appends at the first free pane-died index. This used to be an
+            # open-coded bare `set-hook -p … pane-died`, which writes index [0]
+            # and silently destroys whatever hook already sits there — the exact
+            # overwrite hazard that helper exists to avoid (t1451).
+            #
+            # Not redundant with the arming inside maybe_spawn_minimonitor
+            # above: that call derives its agent pane from display-message on
+            # the window, whereas primary_pane here is the git pane id captured
+            # directly from the spawn. When both fire with the same pair the
+            # second returns "existing" and installs nothing.
+            from agent_launch_utils import attach_companion_cleanup_hook
+            attach_companion_cleanup_hook(primary_pane, companion_pane)
 
         # Cross-session teleport is handled by `_switch_to` after this
         # helper returns — do not issue an additional `switch-client` here.

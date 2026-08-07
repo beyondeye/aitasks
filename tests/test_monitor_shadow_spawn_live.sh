@@ -4,7 +4,7 @@
 #
 # `tests/test_monitor_shadow_pick.py` pins the same contracts through MOCKS: it
 # patches `launch_in_tmux`, `resolve_pane_id_by_pid` and
-# `attach_shadow_cleanup_hook` on `monitor_core` and never issues a tmux call.
+# `attach_companion_cleanup_hook` on `monitor_core` and never issues a tmux call.
 # That can prove the ARGUMENTS the monitor passes; it cannot prove the EFFECT.
 # This test drives `MonitorApp.action_launch_shadow()` against a real throwaway
 # tmux server and asserts what only live tmux can answer:
@@ -34,7 +34,7 @@
 # Everything below the action is real — `_resolve_shadow_target` ->
 # `monitor_core.spawn_shadow` -> `agent_launch_utils.launch_in_tmux` -> tmux ->
 # `resolve_pane_id_by_pid` -> the `@aitask_shadow_target` stamp ->
-# `attach_shadow_cleanup_hook`. Binding->action wiring (`e`/`E`) is already
+# `attach_companion_cleanup_hook`. Binding->action wiring (`e`/`E`) is already
 # pinned by the mocked suite, so the live leg starts at the action.
 #
 # THIS TEST IS tmux-DESTRUCTIVE. It arms real `pane-died` hooks, and
@@ -279,7 +279,7 @@ def pane_ids_mentioned(text):
 def wait_hook_armed(pane, timeout=5.0):
     """Block until the cleanup hook is really visible on `pane`.
 
-    `attach_shadow_cleanup_hook` issues `set-option` / `set-hook` through the
+    `attach_companion_cleanup_hook` issues `set-option` / `set-hook` through the
     gateway's FIRE-AND-FORGET `_TMUX.spawn()` (`lib/tmux_exec.py`: a bare Popen
     with no wait), so it returns "installed" before the write is guaranteed to
     have landed. Harmless in production — an agent does not die microseconds
@@ -465,7 +465,7 @@ print(f"OK B separate-window placement (agent={agent_b} shadow={shadow_b})")
 select_home()
 agent_c, _ = new_agent_window("agent-C")
 companion_a, _ = split_into(agent_c)
-status = alu.attach_shadow_cleanup_hook(agent_c, companion_a)
+status = alu.attach_companion_cleanup_hook(agent_c, companion_a)
 if status != "installed":
     fail(f"C: fixture pre-arm returned {status!r}, want 'installed'")
 
@@ -563,7 +563,7 @@ print("OK G focus control (select_window=True does move the active window)")
 select_home()
 victim, _ = new_agent_window("victim-home")
 agent_f, agent_f_pid = new_agent_window("agent-F")
-status = alu.attach_shadow_cleanup_hook(agent_f, victim)
+status = alu.attach_companion_cleanup_hook(agent_f, victim)
 if status != "installed":
     fail(f"F: fixture pre-arm returned {status!r}, want 'installed'")
 wait_hook_armed(agent_f)

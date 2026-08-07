@@ -298,5 +298,49 @@ class SwitcherNarrowSeamTests(unittest.TestCase):
                 self.assertEqual(overlay._narrow, declared)
 
 
+class GitCompanionHookWiringTests(unittest.TestCase):
+    """`_launch_git_with_companion` must route through the slot-safe helper.
+
+    It used to open-code a bare `set-hook -p … pane-died`, which writes index
+    `[0]` and silently destroys whatever hook already sits there — the exact
+    overwrite hazard `attach_companion_cleanup_hook` was written to avoid
+    (t1451). Both halves are asserted: that the helper is called with the right
+    pair, AND that no raw `set-hook` reaches the gateway. Asserting only the
+    first would still pass if the open-coded call were left behind alongside it.
+    """
+
+    def _run(self, companion):
+        gateway = MagicMock()
+        ov = ts.TuiSwitcherOverlay(session="s1", narrow=False)
+        ov._selected_key = "s1"
+        ov._selected_project_root = MagicMock(return_value=Path("/p1"))
+        ov._get_launch_command = MagicMock(return_value="lazygit")
+        ov._spawn_in_session = MagicMock(return_value=(0, "%4\n"))
+        mock_app = MagicMock()
+        with patch.object(ts.TuiSwitcherOverlay, "app",
+                          new_callable=PropertyMock, return_value=mock_app), \
+             patch.object(ts, "_TMUX", gateway), \
+             patch.object(alu, "maybe_spawn_minimonitor",
+                          return_value=companion), \
+             patch.object(alu, "attach_companion_cleanup_hook",
+                          return_value="installed") as mock_hook:
+            ov._launch_git_with_companion()
+        raw_hooks = [
+            c.args[0] for c in gateway.spawn.call_args_list
+            if c.args and c.args[0] and c.args[0][0] == "set-hook"
+        ]
+        return mock_hook, raw_hooks
+
+    def test_routes_through_the_slot_safe_helper(self):
+        mock_hook, raw_hooks = self._run("%9")
+        mock_hook.assert_called_once_with("%4", "%9")
+        self.assertEqual(raw_hooks, [], "no open-coded set-hook may remain")
+
+    def test_no_hook_without_a_companion(self):
+        mock_hook, raw_hooks = self._run(None)
+        self.assertEqual(mock_hook.call_count, 0)
+        self.assertEqual(raw_hooks, [])
+
+
 if __name__ == "__main__":
     unittest.main()

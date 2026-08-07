@@ -719,13 +719,15 @@ class ShadowFreshnessTests(unittest.TestCase):
 
     # eps = max(2, refresh_seconds=3) = 3 for these apps.
     def _fresh_app(self, analyzed_at, last_change, capture="",
-                   async_list="%5\t%1"):
+                   async_list="%5\t%1", option_ok=True):
         app = _mk_app(_FakeMon(async_list=async_list))
         app._find_own_agent_snapshot = lambda: _snap("%1")
         _stub_capture(self, _async_return(capture))
         app._refresh_seconds = 3
         stamp = "" if analyzed_at is None else str(analyzed_at)
-        app._monitor.get_pane_option = _async_return(stamp)
+        # `(ok, value)` per the real contract (t1451): `option_ok=False` is
+        # "tmux could not answer", NOT a verified-unset option.
+        app._monitor.get_pane_option = _async_return((option_ok, stamp))
         # Spy the (sync) followed-pane last-change lookup so the cost gate and
         # the preserve-on-unobserved path are assertable.
         calls: list = []
@@ -786,6 +788,25 @@ class ShadowFreshnessTests(unittest.TestCase):
         asyncio.run(app._maybe_offer_concerns())
         self.assertIs(app._shadow_feedback_stale, True)
         self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+
+    def test_option_read_failure_preserves_prior_stale(self):
+        """t1451, on the user-visible surface. `get_pane_option` used to return
+        `""` on `rc != 0`, which `compute_shadow_staleness` read as "the shadow
+        has never analyzed anything: nothing to warn about" — so a tmux timeout
+        WIPED a standing staleness banner. An unverifiable read must preserve
+        whatever the user is already being shown.
+
+        Note the stamp is deliberately empty, exactly as the old failure path
+        produced it: this fails against the pre-fix code (the banner clears)
+        rather than merely re-asserting the fixed shape.
+        """
+        app = self._fresh_app(None, 1010.0, option_ok=False)
+        app._shadow_feedback_stale = True
+        app._shadow_stale_banner_text = "PRIOR-WARNING"
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, True)
+        self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+        self.assertEqual(app._lcw_calls, [])  # cost gate holds on this path too
 
     def test_auto_offer_notify_carries_stale_marker(self):
         app = self._fresh_app(1000.0, 1010.0, capture=_CLOSED_BLOCK)
