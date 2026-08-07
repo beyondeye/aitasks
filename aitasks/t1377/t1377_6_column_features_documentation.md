@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t1377_5]
 issue_type: documentation
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-08-04 09:56
-updated_at: 2026-08-07 12:13
+updated_at: 2026-08-07 12:26
 ---
 
 ## Context
@@ -99,3 +102,8 @@ cd website && hugo build --gc --minify
 Depends on t1377_5, so every documented surface exists by the time this runs.
 Re-read the landed implementations before writing — a doc written from the plan
 rather than the code is the specific failure mode this note exists to prevent.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-07T09:26:23Z status=pass attempt=1 type=human
