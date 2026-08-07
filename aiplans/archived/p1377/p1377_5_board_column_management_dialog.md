@@ -525,3 +525,4 @@ goal-achievement stays **low**.
   moved that was never written. This task deliberately does not block on it
   (user decision), but the fix is now reachable by more users; treat that as
   raising its priority rather than as new scope here.
+- **Manual-verification failure:** item "[t1377_5] Add, edit and delete a column through the new dialog and confirm each still works as it did from the command palette" failed; follow-up task t1454.
