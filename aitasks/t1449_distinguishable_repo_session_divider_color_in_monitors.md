@@ -161,3 +161,10 @@ consider closing the full-monitor gap while here.
   sites (`monitor_app.py` / `minimonitor_app.py` card text builders) but for a
   different purpose — escaping user-supplied titles in markup. Not overlapping
   in goal; watch for edit collisions if both are in flight.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-07T07:53:21Z status=pass attempt=1 type=human
+>
+> Note: deferred
