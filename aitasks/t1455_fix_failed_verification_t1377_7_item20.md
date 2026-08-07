@@ -30,6 +30,41 @@ updated_at: 2026-08-07 13:08
 - website/content/docs/tuis/board/reference.md
 - website/content/docs/tuis/minimonitor/how-to.md
 
+### Stale statements found (all in `website/content/docs/tuis/board/how-to.md`)
+
+`minimonitor/how-to.md` was checked line by line against live behaviour and
+is **accurate** — lines 135, 140 and 273 all match what ships. The board
+page has three wrong statements:
+
+1. **Line 91 — `| Delete column | **e** → focus the column → **Delete** →
+   confirm |`.** This path does not work: pressing the dialog's `Delete`
+   button always reports `Select a column to delete` and deletes nothing.
+   There is no other delete path inside the dialog, so the row documents an
+   operation the dialog cannot perform. See **t1454** for the underlying
+   defect — this doc row should be corrected in step with that fix (or the
+   fix lands first and the row becomes true).
+
+2. **Line 90 — `| Edit column | **e** → focus the column → **Enter** (or
+   **Edit**) |`.** The `Enter` path works; the parenthesised `(or **Edit**)`
+   button alternative does not (same root cause, `Select a column to edit`).
+
+3. **Line 85 — "reachable … from the command palette
+   (**Ctrl+Backslash**)".** The palette opens with **Ctrl+P**; the board's
+   own footer reads `^p palette`, and `Ctrl+Backslash` was verified live to
+   do nothing.
+
+### Also noticed (pre-existing, not introduced by t1377_6)
+
+- **Line 102** — "Collapse/expand state is saved in `board_config.json`".
+  It is saved in **`board_config.local.json`**: `collapsed_columns` lives
+  under `settings`, and `settings` is a USER key
+  (`board_columns.py:144` / `aitask_board.py` `_USER_KEYS`), so the layered
+  save routes it to the gitignored local file. Verified live: collapsing a
+  column left `board_config.json` byte-identical and wrote
+  `board_config.local.json`. Introduced by `633f73bc13` (2026-04-19), so it
+  is out of t1377_6's scope but worth fixing on the same pass.
+
 ### Next steps
 
-Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1377_7 item #20.
+Correct the statements above. Items 1 and 2 depend on how **t1454** is
+resolved — sequence them together.
