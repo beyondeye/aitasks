@@ -82,14 +82,15 @@ Child tasks move with their parent — move the parent instead.
 
 {{< static-img src="imgs/aitasks_board_customize_column.svg" alt="Column edit dialog with title input and color palette" caption="The column edit dialog lets you set a title and choose a color" >}}
 
-The column operations — add, edit, delete, reorder, collapse, expand — are all available via keyboard, mouse, or the command palette (**Ctrl+Backslash**).
+Press **e** to open the column management dialog — one place for add, edit, delete, reorder and merge. It lists every column with its position, color, ID and task count, and closes with **Esc**. The same operations are also reachable by mouse and from the command palette (**Ctrl+Backslash**); collapse and expand stay on the board itself.
 
 | Operation | Keyboard | Mouse | Command palette |
 |-----------|----------|-------|-----------------|
-| Add column | — | — | "Add Column" → enter title, pick color, Save |
-| Edit column | — | Click `✎` in column header | "Edit Column" → pick column |
-| Delete column | — | — | "Delete Column" → pick column → confirm (tasks move to Unsorted / Inbox) |
-| Reorder column | Focus any card in the column → **Ctrl+Right** / **Ctrl+Left** | — | — |
+| Add column | **e** → **Add** → enter title, pick color, Save | — | "Add Column" → enter title, pick color, Save |
+| Edit column | **e** → focus the column → **Enter** (or **Edit**) | Click `✎` in column header | "Edit Column" → pick column |
+| Delete column | **e** → focus the column → **Delete** → confirm | — | "Delete Column" → pick column → confirm (tasks move to Unsorted / Inbox) |
+| Reorder column | **e** → focus the column → **Shift+Up** / **Shift+Down**, or focus any card in the column → **Ctrl+Right** / **Ctrl+Left** | — | — |
+| Merge columns | **e** → **Merge** → pick the source columns → pick the destination → confirm | — | "Merge Columns" |
 | Collapse column | Focus any card in the column → **X** (Shift+X) | Click `▼` arrow in column header | "Collapse Column" → pick column |
 | Expand collapsed column | Focus the placeholder → **X** (Shift+X) | Click `▶` arrow in collapsed header | "Expand Column" → pick column |
 | Move marked tasks to a column | Mark with **Space** → **m** → review → pick column | — | "Move Tasks to Column" (and "Clear Selection" to unmark everything) |
@@ -100,6 +101,11 @@ Notes:
 - The "Unsorted / Inbox" column always appears on the far left when it contains tasks — it cannot be reordered.
 - Collapse/expand state is saved in `board_config.json` and persists across restarts. Tasks in collapsed columns are not rendered (improves performance on large boards).
 - Arrow-key navigation can reach collapsed columns (they show a focusable placeholder). Task movement (**Shift+Left/Right**) skips collapsed columns.
+- Column management applies to the columns you configure, so it is unavailable in the In-Flight, By-Topic and By-Trail views — those render lanes derived from task metadata rather than board columns.
+
+**Merging columns.** A merge moves every task out of one or more source columns into a destination column, then removes the sources. You need at least two columns to choose from. The tasks land at the **bottom** of the destination with fresh indices — they do not keep their old positions — while their relative order within each source is preserved, and the sources are processed in board order. The removed columns are also dropped from the saved collapse state. "Unsorted / Inbox" can be the destination, and can be a source when it holds tasks.
+
+> **Note:** A merge is not transactional. If it fails part-way, the source column stays on the board holding whatever did not move, and re-running the merge finishes the job. Two messages are exceptions worth reading: if a task file cannot be read the sources are kept deliberately (fix the named files, then re-run), and if only the collapsed state failed to save, the merge itself is already durable — that repairs itself on the next launch, so do not re-run it.
 
 ### How to Edit Task Metadata
 

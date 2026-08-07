@@ -67,6 +67,10 @@ depth: [advanced]
 
 | Key | Action | Context |
 |-----|--------|---------|
+| `e` | Open the column management dialog (add, edit, delete, reorder, merge) | Board (not In-Flight / By-Topic / By-Trail) |
+| `Shift+Up` | Move the focused column one position up (left on the board) | Column management dialog |
+| `Shift+Down` | Move the focused column one position down (right on the board) | Column management dialog |
+| `Enter` | Edit the focused column | Column management dialog |
 | `Ctrl+Right` | Move column one position right | Board |
 | `Ctrl+Left` | Move column one position left | Board |
 | `X` (Shift+X) | Toggle collapse/expand for focused card's column | Board (focused card) |
@@ -367,8 +371,12 @@ For details on the underlying lock mechanism, see the [`ait lock` command refere
 | Dialog | Trigger | Purpose |
 |--------|---------|---------|
 | **Task Detail** | `Enter` on card / double-click | View/edit task metadata, lock status, pull request link, contributor info, and content; access Pick, Lock, Unlock, Save, Revert, Edit, Delete, Close buttons |
-| **Column Edit** | Command palette "Add/Edit Column" / click `✎` in column header | Set column title and color |
+| **Column Manage** | `e` / command palette "Manage Columns" | List every column with its position, color, ID and task count; Add, Edit, Delete and Merge buttons, `Enter` to edit and `Shift+Up`/`Shift+Down` to reorder |
+| **Column Edit** | Command palette "Add/Edit Column" / click `✎` in column header / Add or Edit in Column Manage | Set column title and color |
 | **Column Select** | Command palette "Edit/Delete/Collapse/Expand Column" | Pick which column to act on |
+| **Column Multi-Select (Merge from)** | "Merge" in Column Manage / command palette "Merge Columns" | Pick one or more source columns to merge (Unsorted / Inbox is offered only when it holds tasks) |
+| **Column Select (Merge into)** | Confirming the merge sources | Pick the destination column (the chosen sources are omitted; Unsorted / Inbox is offered unless it is a source) |
+| **Merge Confirm** | Confirming the destination | Names the source columns, the destination, and how many tasks will move |
 | **Move Tasks to Column** | `m` with tasks marked / command palette "Move Tasks to Column" | Review which marked tasks will move, in board order, before a destination is chosen |
 | **Column Select (Move to)** | Confirming the review, or `m` on a single focused card | Pick the destination column (collapsed columns and the column the whole selection already occupies are omitted) |
 | **Delete Column Confirm** | After selecting column to delete | Confirm column deletion; warns about task count |

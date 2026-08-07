@@ -132,10 +132,12 @@ The pinned card's header names what it is following: `── this agent ──` 
 When an agent finishes it usually names the tasks it created, or the one to pick next, as bare numbers. Press **p** to act on one without leaving the window:
 
 1. Press **p** and type the task number (`1310`, or `1310_2` for a child task — a leading `t` is accepted)
-2. Press Enter; the task's details open, with **OK** / **Cancel** and a **kill followed agent** checkbox
-3. Confirm, and the usual launch dialog appears so you can pick the coding agent, model, and where the new window goes
+2. Press Enter; the task's details open, with **OK**, **Move to column** and **Cancel** buttons and a **kill followed agent** checkbox
+3. Choose **OK**, and the usual launch dialog appears so you can pick the coding agent, model, and where the new window goes
 
 The checkbox is unchecked by default. Tick it to close down the agent this minimonitor follows once the new one has launched — the new agent always starts first, so the window teardown can never strand it. Leave it unticked to run both side by side.
+
+**Moving the task to a board column instead.** Not every task you look up is one to start now. **Move to column** opens a picker listing the board's columns, including "Unsorted / Inbox", with the task's current column marked, plus a **`＋ New column…`** entry. Choosing an existing column moves the task to the bottom of it; choosing `＋ New column…` asks only for a title — the color is assigned automatically and the column is added at the right-hand end of the board — and then moves the task into it. The move is written straight to the task file, so it appears in `ait board` on its next refresh. The button is offered for parent tasks only: child tasks have no card on the board. When the [multi-session view](#how-to-toggle-the-multi-session-view) is on, the move targets the followed pane's **own** project, not the one this minimonitor was started in.
 
 Unlike **n**, which only offers the followed task's next *ready sibling*, **p** reaches any task. That includes tasks that are not cleanly pickable: if the target is not `Ready`, or is still waiting on an unfinished dependency, the dialog says so and the confirm button reads **Launch anyway** instead of **OK**. Minimonitor still lets you launch it — it just never does so silently. It also warns when an agent for that task is already running in this session.
 
@@ -268,7 +270,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `I` | Show task info for the followed agent (the one pinned at the top) |
 | `k` | Kill the followed agent (with a confirmation dialog) |
 | `n` | Launch the followed agent's next ready sibling task |
-| `p` | Pick any task by typing its number, then launch it |
+| `p` | Pick any task by typing its number, then launch it or move it to a board column |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker, `u` shows any lines that could not be parsed) |
