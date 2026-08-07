@@ -240,6 +240,17 @@ class CommandPaletteParityTests(_MoveTestBase):
         self.assertIn("Move Tasks to Column", declared)
         self.assertIn("Clear Selection", declared)
 
+    def test_the_column_management_commands_are_declared(self):
+        """t1377_5 extends this guard rather than adding a second one.
+
+        The three tests above derive from `_COMMANDS`, so they already cover any
+        new entry's discover/search parity; this only pins that the entries were
+        actually declared.
+        """
+        declared = {d for d, _, _ in self.ab.KanbanCommandProvider._COMMANDS}
+        self.assertIn("Manage Columns", declared)
+        self.assertIn("Merge Columns", declared)
+
 
 # --------------------------------------------------------------------------
 # 2. The two-stage chain

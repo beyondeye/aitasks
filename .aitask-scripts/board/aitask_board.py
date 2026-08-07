@@ -455,8 +455,8 @@ import board_ordering  # noqa: E402
 # and in the gatherer under a "keep in sync" comment. The board stays the
 # semantic owner — see that module's docstring.
 from board_columns import (  # noqa: E402
-    DEFAULT_COLUMNS, DEFAULT_ORDER, PALETTE_COLORS, UNORDERED_ID,
-    generate_col_id, project_columns_at,
+    DEFAULT_COLUMNS, DEFAULT_ORDER, PALETTE_COLORS, UNORDERED_COLOR,
+    UNORDERED_ID, UNORDERED_TITLE, generate_col_id, project_columns_at,
 )
 from board_columns import PROJECT_KEYS as _PROJECT_KEYS  # noqa: E402
 from board_columns import USER_KEYS as _USER_KEYS  # noqa: E402
@@ -1953,7 +1953,16 @@ class TaskManager:
             # Migrate collapsed state: a rename that moved column_order and every
             # member's boardcol but left `collapsed_columns` pointing at the old id
             # orphaned the entry, so the renamed column silently lost its collapse
-            # (t1377_4). Dead in the UI until t1377_5 makes the rename reachable.
+            # (t1377_4).
+            #
+            # This whole `col_id != new_id` branch is DORMANT BY DECISION, not by
+            # oversight (t1377_5): column ids are auto-slugged, so re-slugging on
+            # a title edit would rewrite every member task's `boardcol` as a side
+            # effect of a cosmetic change — and ids are also referenced by the
+            # work-report protocol. Both `_apply_column_edit` and the headless
+            # writer therefore pass the id unchanged. Keep the migration correct
+            # for the day a deliberate rename flow (with its own confirmation)
+            # wants it; do not treat it as an unfinished handoff.
             collapsed = list(self.collapsed_columns)
             if col_id in collapsed:
                 collapsed[collapsed.index(col_id)] = new_id
@@ -4876,23 +4885,32 @@ class IssueTypeFilterScreen(ModalScreen):
             event.stop()
 
 
-class WorkReportColumnSelectScreen(ModalScreen):
-    """Modal dialog to multi-select which board columns feed a work report."""
+class ColumnMultiSelectScreen(ModalScreen):
+    """Modal dialog to multi-select board columns.
+
+    Used by the work report (which columns feed it) and by the column-merge flow
+    (which columns are the merge sources). Parameterised by ``prompt`` rather
+    than forked: t1377's AC7 forbids a second column picker inside the board, and
+    a `SelectionList` over ``(col_id, title)`` pairs is exactly what both need.
+    """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
     ]
 
-    def __init__(self, columns: list, initial: str | None):
+    def __init__(self, columns: list, initial: str | None,
+                 prompt: str = "Work report columns"):
         """``columns``: ordered (col_id, title) pairs; ``initial``: pre-checked col_id."""
         super().__init__()
         self.columns = list(columns)
         self.initial = initial
+        self.prompt = prompt
 
     def compose(self):
         with Container(id="dep_picker_dialog"):
             yield Label(
-                "Work report columns — [dim]space to toggle, Enter to confirm, Esc to cancel[/]",
+                f"{self.prompt} — [dim]space to toggle, Enter to confirm, "
+                "Esc to cancel[/]",
                 id="dep_picker_title",
             )
             yield SelectionList[str](
@@ -6233,6 +6251,342 @@ class ColumnSelectScreen(ModalScreen):
         self.dismiss(None)
 
 
+class ColumnManageItem(PickerItem):
+    """One column row inside :class:`ColumnManageScreen`."""
+
+    def __init__(self, col_conf: dict, position: int, task_count: int):
+        super().__init__()
+        self.col_conf = col_conf
+        self.position = position
+        self.task_count = task_count
+
+    @property
+    def col_id(self) -> str:
+        return self.col_conf["id"]
+
+    def render(self) -> str:
+        n = self.task_count
+        return (f"  {self.position:>2}. [{self.col_conf['color']}]██[/] "
+                f"{self.col_conf['title']} ({self.col_id}) "
+                f"— {n} task{'' if n == 1 else 's'}")
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.screen.edit_column(self.col_id)
+            event.prevent_default()
+            event.stop()
+
+    def on_click(self):
+        self.focus()
+
+
+class MergeColumnsConfirmScreen(ModalScreen):
+    """Confirmation for an N->1 column merge, naming what actually moves."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, source_titles: list, dest_title: str, task_count: int):
+        super().__init__()
+        self.source_titles = list(source_titles)
+        self.dest_title = dest_title
+        self.task_count = task_count
+
+    def compose(self):
+        sources = ", ".join(f"'{t}'" for t in self.source_titles)
+        n = self.task_count
+        msg = (f"Merge {sources} into '{self.dest_title}'?\n\n"
+               f"{n} task{'' if n == 1 else 's'} will move to the bottom of "
+               f"'{self.dest_title}'.\n"
+               f"The source column{'' if len(self.source_titles) == 1 else 's'} "
+               "will be removed.")
+        with Container(id="dep_picker_dialog"):
+            yield Label(msg, id="dep_picker_title")
+            with Horizontal(id="detail_buttons"):
+                yield Button("Merge", variant="warning", id="btn_confirm_col_merge")
+                yield Button("Cancel", variant="default", id="btn_cancel_col_merge")
+
+    @on(Button.Pressed, "#btn_confirm_col_merge")
+    def confirm(self):
+        self.dismiss(True)
+
+    @on(Button.Pressed, "#btn_cancel_col_merge")
+    def cancel(self):
+        self.dismiss(False)
+
+    def action_cancel(self):
+        self.dismiss(False)
+
+
+class ColumnManageScreen(ModalScreen):
+    """One dialog behind one key for every column operation (t1377_5).
+
+    Add / edit / delete / reorder / collapse all existed before this screen, but
+    **no key was bound to any of them** — they were reachable only through the
+    Ctrl+P palette or the column-header pencil button. Merge did not exist at all
+    until t1377_4 landed the engine (with zero call sites; this screen is its
+    first consumer).
+
+    Every sub-flow reuses an existing modal — `ColumnEditScreen`,
+    `DeleteColumnConfirmScreen`, `ColumnMultiSelectScreen`, `ColumnSelectScreen`
+    — because t1377's AC7 forbids a second column picker inside the board.
+
+    Mutations are applied without refreshing the board per operation: the screen
+    tracks `_changed` and dismisses it, so the caller recomposes exactly once on
+    close instead of once per edit under a live modal.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close", show=False),
+        Binding("shift+up", "shift_up", "Move column up", show=False),
+        Binding("shift+down", "shift_down", "Move column down", show=False),
+    ]
+
+    def __init__(self, manager: TaskManager, start_in_merge: bool = False):
+        super().__init__()
+        self.manager = manager
+        self._changed = False
+        self._start_in_merge = start_in_merge
+
+    # --- composition -----------------------------------------------------
+
+    def compose(self):
+        with Container(id="column_manage_dialog", classes="picker-dialog"):
+            yield Label(
+                "Manage columns — [dim]shift+↑/↓ reorder, "
+                "Enter edit, Esc close[/]",
+                id="dep_picker_title",
+            )
+            yield VerticalScroll(id="column_manage_list")
+            # Four buttons, not five: `#detail_buttons` centers without
+            # wrapping, so anything past the dialog width is clipped rather
+            # than reflowed. A fifth "Close" button pushed the row over the
+            # edge at 100 columns — a visible control the user cannot click.
+            # Esc closes, `action_cancel` handles it, and the hint line above
+            # says so, matching every other modal in this file.
+            with Horizontal(id="detail_buttons"):
+                yield Button("Add", variant="primary", id="btn_colmgr_add")
+                yield Button("Edit", variant="default", id="btn_colmgr_edit")
+                yield Button("Delete", variant="error", id="btn_colmgr_delete")
+                yield Button("Merge", variant="warning", id="btn_colmgr_merge")
+
+    def on_mount(self):
+        self._rebuild()
+        if self._start_in_merge:
+            self.call_after_refresh(self.action_merge)
+
+    def _rows(self) -> list:
+        """`(col_conf, task_count)` for every column actually on the board.
+
+        A `column_order` entry with no matching `columns` definition is dropped
+        silently by both the renderer and `load_columns()`, so it is not offered
+        here either — listing it would let the user "reorder" a column that does
+        not render.
+        """
+        rows = []
+        for col_id in self.manager.column_order:
+            conf = self.manager.get_column_conf(col_id)
+            if conf:
+                rows.append((conf, len(self.manager.get_column_tasks(col_id))))
+        return rows
+
+    def _rebuild(self, focus_col_id: str = None):
+        listing = self.query_one("#column_manage_list", VerticalScroll)
+        listing.remove_children()
+        items = [ColumnManageItem(conf, pos, count)
+                 for pos, (conf, count) in enumerate(self._rows(), start=1)]
+        if items:
+            listing.mount_all(items)
+            target = focus_col_id or items[0].col_id
+            self.call_after_refresh(self._focus_col, target)
+
+    def _focus_col(self, col_id: str):
+        for item in self.query(ColumnManageItem):
+            if item.col_id == col_id:
+                item.focus()
+                return
+
+    def _focused_item(self):
+        focused = self.screen.focused
+        return focused if isinstance(focused, ColumnManageItem) else None
+
+    def _title_of(self, col_id: str) -> str:
+        """Display title, delegating so the synthetic lane is named correctly.
+
+        `get_column_conf` returns None for `unordered` (it is not in `columns`),
+        so a local fallback to the raw id would confirm and report a merge as
+        "unordered" while the picker the user just clicked said "Unsorted /
+        Inbox". `KanbanApp._column_title` already owns that mapping.
+        """
+        return self.app._column_title(col_id)
+
+    # --- reorder ---------------------------------------------------------
+
+    def _shift(self, direction: int):
+        item = self._focused_item()
+        if item is None:
+            return
+        visible = [conf["id"] for conf, _ in self._rows()]
+        pos = visible.index(item.col_id)
+        new_pos = pos + direction
+        if not (0 <= new_pos < len(visible)):
+            return
+        # Swap the two ids WHERE THEY SIT in column_order rather than swapping
+        # adjacent order slots: a stale (conf-less) entry can sit between two
+        # visible columns, and swapping raw slots would move the stale entry
+        # instead of the column the user is looking at.
+        order = self.manager.column_order
+        a, b = order.index(item.col_id), order.index(visible[new_pos])
+        order[a], order[b] = order[b], order[a]
+        self.manager.save_metadata()
+        self._changed = True
+        self._rebuild(focus_col_id=item.col_id)
+
+    def action_shift_up(self):
+        self._shift(-1)
+
+    def action_shift_down(self):
+        self._shift(1)
+
+    # --- add / edit / delete ---------------------------------------------
+
+    def _on_edit_result(self, result):
+        if self.app._apply_column_edit(result):
+            self._changed = True
+            col_id = result[1] if len(result) > 1 else None
+            self._rebuild(focus_col_id=col_id)
+
+    def action_add(self):
+        self.app.push_screen(
+            ColumnEditScreen(self.manager, mode="add"), self._on_edit_result)
+
+    def edit_column(self, col_id: str):
+        self.app.push_screen(
+            ColumnEditScreen(self.manager, col_id=col_id, mode="edit"),
+            self._on_edit_result)
+
+    def action_edit(self):
+        item = self._focused_item()
+        if item is None:
+            self.app.notify("Select a column to edit", severity="warning")
+            return
+        self.edit_column(item.col_id)
+
+    def action_delete(self):
+        item = self._focused_item()
+        if item is None:
+            self.app.notify("Select a column to delete", severity="warning")
+            return
+        col_id = item.col_id
+        conf = self.manager.get_column_conf(col_id)
+        count = len(self.manager.get_column_tasks(col_id))
+
+        def on_confirmed(confirmed):
+            if confirmed:
+                self.manager.delete_column(col_id)
+                self.app.notify(f"Deleted column: {conf['title']}",
+                                severity="information")
+                self._changed = True
+                self._rebuild()
+
+        self.app.push_screen(DeleteColumnConfirmScreen(conf, count), on_confirmed)
+
+    # --- merge -----------------------------------------------------------
+
+    def action_merge(self):
+        """sources (multi-select) -> destination -> confirm -> merge_columns."""
+        sources = self.app._merge_source_columns()
+        if len(sources) < 2:
+            self.app.notify(
+                "Merging needs at least two columns to choose from",
+                severity="warning")
+            return
+
+        def on_sources(chosen):
+            if not chosen:
+                return
+            self._pick_destination(chosen)
+
+        self.app.push_screen(
+            ColumnMultiSelectScreen(sources, None, prompt="Merge FROM"),
+            on_sources)
+
+    def _pick_destination(self, source_ids: list):
+        remaining = [conf for conf, _ in self._rows()
+                     if conf["id"] not in source_ids]
+        if UNORDERED_ID not in source_ids:
+            # Same hand-injection idiom as `action_collapse_column`: the lane is
+            # synthetic and absent from `columns`, but `merge_columns` accepts it
+            # as a destination (it is what `delete_column` already does).
+            remaining.append({"id": UNORDERED_ID, "title": UNORDERED_TITLE,
+                              "color": UNORDERED_COLOR})
+        if not remaining:
+            self.app.notify("No destination column left to merge into",
+                            severity="warning")
+            return
+
+        def on_destination(dest_id):
+            if dest_id:
+                self._confirm_merge(source_ids, dest_id)
+
+        self.app.push_screen(
+            ColumnSelectScreen(self.manager, "Merge into", columns=remaining),
+            on_destination)
+
+    def _confirm_merge(self, source_ids: list, dest_id: str):
+        attempted = sum(len(self.manager.get_column_tasks(c)) for c in source_ids)
+        titles = [self._title_of(c) for c in source_ids]
+
+        def on_confirmed(confirmed):
+            if not confirmed:
+                return
+            result = self.manager.merge_columns(source_ids, dest_id)
+            self.app._report_merge(result, self._title_of(dest_id), attempted)
+            if result.merged or result.sources_removed:
+                self._changed = True
+            self._rebuild()
+
+        self.app.push_screen(
+            MergeColumnsConfirmScreen(titles, self._title_of(dest_id), attempted),
+            on_confirmed)
+
+    # --- buttons / close --------------------------------------------------
+
+    @on(Button.Pressed, "#btn_colmgr_add")
+    def _btn_add(self):
+        self.action_add()
+
+    @on(Button.Pressed, "#btn_colmgr_edit")
+    def _btn_edit(self):
+        self.action_edit()
+
+    @on(Button.Pressed, "#btn_colmgr_delete")
+    def _btn_delete(self):
+        self.action_delete()
+
+    @on(Button.Pressed, "#btn_colmgr_merge")
+    def _btn_merge(self):
+        self.action_merge()
+
+    def handle_escape(self):
+        """Escape hook honoured by `KanbanApp.action_focus_board`.
+
+        The app binds `escape` with `priority=True`, so it wins over this
+        screen's own binding and closes any active modal with a bare
+        `self.screen.dismiss()` — i.e. a `None` result. Every other board modal
+        treats `None` as "cancelled", so the discarded value is harmless there;
+        here it is not, because the dismiss value is the "did anything change?"
+        flag the caller uses to decide whether to recompose. Without this hook a
+        merge or reorder closed with Escape left the board rendering the removed
+        column until the next manual refresh.
+        """
+        self.dismiss(self._changed)
+
+    def action_cancel(self):
+        self.dismiss(self._changed)
+
+
 # --- Command Palette Provider ---
 
 class KanbanCommandProvider(Provider):
@@ -6258,6 +6612,10 @@ class KanbanCommandProvider(Provider):
          "Move the marked task(s) — or the focused card — to a column"),
         ("Clear Selection", "action_clear_marks",
          "Unmark every marked task"),
+        ("Manage Columns", "action_column_manage",
+         "Reorder, add, edit, delete or merge columns"),
+        ("Merge Columns", "action_merge_columns",
+         "Merge one or more columns into another"),
         ("Settings", "action_open_settings",
          "Configure board settings (auto-refresh interval)"),
         ("Sync with Remote", "action_sync_remote",
@@ -6495,6 +6853,23 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         border: thick $accent;
         padding: 1 2;
     }
+    /* t1377_5 — the column-management dialog. Same chrome as the edit dialog;
+       the row list scrolls on its own so a board with many columns keeps the
+       button row docked and reachable. `.picker-dialog` supplies the t1366
+       focus/scroll contract for the ColumnManageItem rows. */
+    #column_manage_dialog {
+        width: 70%;
+        height: auto;
+        max-height: 70%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #column_manage_list {
+        height: auto;
+        max-height: 20;
+        width: 100%;
+    }
     #column_edit_title {
         text-align: center;
         padding: 0 0 1 0;
@@ -6632,6 +7007,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("ctrl+left", "move_col_left", "< Move Col"),
         # Column Collapse
         Binding("X", "toggle_column_collapsed", "Collapse Col"),
+        # Column management (t1377_5): add / edit / delete / reorder / merge.
+        # These all existed but had no key at all — only the Ctrl+P palette and
+        # the header pencil button reached them.
+        Binding("e", "column_manage", "Columns"),
         # Settings
         Binding("O", "open_settings", "Options"),
         # View filters: base radio (a/l/f/i) + add-on toggles (g/t)
@@ -6898,6 +7277,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # source column to scope the review to.
             return self._focused_placeholder() is not None
         elif action in ("move_col_right", "move_col_left", "toggle_column_collapsed"):
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
+                return False
+        elif action in ("column_manage", "merge_columns"):
+            # Board-scoped, not card-scoped: In-Flight / By-Topic / By-Trail
+            # render derived lanes rather than columns, so column management is
+            # meaningless there. Deliberately NOT `work_report`'s gate — that
+            # one ALSO demands a focused column because it reports on one,
+            # whereas this dialog edits the column LIST. Gating on focus would
+            # make it dead on an empty or filter-emptied board, which is exactly
+            # when the user needs "Add". It also keeps this branch free of any
+            # DOM query: check_action runs once per binding on every
+            # refresh_bindings(), and that path is measured (t1243_7).
             if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
         elif action == "trail_task":
@@ -8741,7 +9132,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.push_screen(WorkReportTaskSelectScreen(entries), on_tasks)
 
         self.push_screen(
-            WorkReportColumnSelectScreen(columns, focused_col), on_columns)
+            ColumnMultiSelectScreen(columns, focused_col), on_columns)
 
     def _launch_work_report(self, cols_csv: str, tasks_csv: str):
         """Resolve and launch /aitask-work-report with the reviewed selection."""
@@ -10000,10 +10391,23 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     # --- Column Customization ---
 
-    def _handle_column_edit_result(self, result):
-        """Callback for ColumnEditScreen dismiss."""
+    def _apply_column_edit(self, result) -> bool:
+        """Apply a ColumnEditScreen result. Returns True if anything changed.
+
+        Split out of `_handle_column_edit_result` (t1377_5) so `ColumnManageScreen`
+        can reuse the mutation without triggering `refresh_board()` per edit — a
+        recompose under a live modal, once per operation, when one refresh on
+        close is enough. The pencil-button and palette paths keep the wrapper
+        below, so all three entry points still run identical mutation code.
+
+        `update_column` is called with the id TWICE: column ids are auto-slugged,
+        so re-slugging on a title edit would rewrite every member task's
+        `boardcol` as a side effect of a cosmetic change. That keeps the rename
+        branch (and its collapsed-state migration, t1377_4 §4) dormant by
+        decision, not by oversight.
+        """
         if not result:
-            return
+            return False
         action = result[0]
         if action == "add":
             _, col_id, title, color = result
@@ -10013,7 +10417,14 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             _, col_id, title, color = result
             self.manager.update_column(col_id, col_id, title, color)
             self.notify(f"Updated column: {title}", severity="information")
-        self.refresh_board()
+        else:
+            return False
+        return True
+
+    def _handle_column_edit_result(self, result):
+        """Callback for ColumnEditScreen dismiss."""
+        if self._apply_column_edit(result):
+            self.refresh_board()
 
     def action_add_column(self):
         """Open the Add Column dialog."""
@@ -10056,6 +10467,91 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             ColumnEditScreen(self.manager, col_id=col_id, mode="edit"),
             self._handle_column_edit_result,
         )
+
+    # --- Column management dialog (t1377_5) ---
+
+    def _merge_source_columns(self) -> list:
+        """Ordered `(col_id, title)` options for the merge-source picker.
+
+        Reuses `_work_report_columns`, which already prepends the synthetic
+        Unsorted lane **only when it holds tasks** — exactly the rule merge needs
+        (an empty inbox is not a meaningful merge source) — and already drops a
+        stale `column_order` entry that has no `columns` definition.
+        """
+        return self._work_report_columns()
+
+    def _report_merge(self, result, dest_title: str, attempted: int) -> None:
+        """Turn a `MergeResult` into one honest toast.
+
+        Branching on `complete` alone is not enough: `refused` means NOTHING was
+        written (input validation), while `failed` means partial progress — and
+        two of the reserved sentinels change what the *retry* is. Reporting all
+        three the same way is the specific failure this method exists to prevent.
+        """
+        if result.refused:
+            reasons = ", ".join(f"{cid or '(none)'}: {why}"
+                                for cid, why in result.refused)
+            self.notify(f"Merge refused — nothing changed ({reasons})",
+                        severity="error")
+            return
+        landed = len(result.merged)
+        if result.complete:
+            self.notify(f"Merged {landed} task{'' if landed == 1 else 's'} "
+                        f"into {dest_title}", severity="information")
+            return
+        keys = dict(result.failed)
+        if MERGE_METADATA_LOCAL_KEY in keys:
+            # The merge LANDED and the sources are durably gone; only the
+            # user-local collapsed-state prune is pending. Re-running the merge
+            # would refuse with unknown_column, so never suggest it here.
+            msg = (f"Merged {landed} into {dest_title}; columns removed, but "
+                   "collapsed state was not saved — it self-heals on next launch.")
+        elif MERGE_METADATA_KEY in keys:
+            msg = (f"Merged {landed} task{'' if landed == 1 else 's'} into "
+                   f"{dest_title}, but the column list was not saved — "
+                   "re-run the merge to finish.")
+        elif MERGE_UNVERIFIABLE_KEY in keys:
+            msg = (f"Merged {landed} into {dest_title}; source columns kept "
+                   f"because {keys[MERGE_UNVERIFIABLE_KEY]} — fix those "
+                   "file(s) and re-run the merge to finish.")
+        else:
+            msg = (f"Merged {landed} of {attempted} into {dest_title} — "
+                   f"{len(result.failed)} failed, re-run to finish.")
+        self.notify(msg, severity="warning")
+
+    def _open_column_manage(self, start_in_merge: bool = False):
+        if self._modal_is_active():
+            return
+        # Re-check the view gate INSIDE the action, not only in check_action:
+        # the command palette resolves `action_*` by name and never consults it,
+        # so `check_action` hiding `e` in the derived views would otherwise leave
+        # Ctrl+P as an unguarded back door into the persistent-column editor.
+        # Same rule as `action_move_to_column` (t1243_7) — but this one explains
+        # itself rather than returning silently, because the palette entry is a
+        # thing the user deliberately clicked, and a no-op reads as a bug.
+        if self.base_filter in ("inflight", "bytopic", "bytrail"):
+            self.notify(
+                "Column management is unavailable in In-Flight / By-Topic / "
+                "By-Trail — those views render derived lanes, not columns.",
+                severity="warning")
+            return
+
+        def on_closed(changed):
+            if changed:
+                self.refresh_board()
+
+        self.push_screen(
+            ColumnManageScreen(self.manager, start_in_merge=start_in_merge),
+            on_closed,
+        )
+
+    def action_column_manage(self):
+        """`e` / palette: open the column-management dialog."""
+        self._open_column_manage()
+
+    def action_merge_columns(self):
+        """Palette shortcut: open the dialog straight into the merge sub-flow."""
+        self._open_column_manage(start_in_merge=True)
 
     # --- Column Collapse/Expand ---
 

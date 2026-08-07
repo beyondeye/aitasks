@@ -97,7 +97,7 @@ class WorkReportFlowTests(WorkReportTestBase):
         self.ab.KanbanApp.action_work_report(app)
         self.assertEqual(app.push_screen.call_count, 1)
         screen, callback = app.push_screen.call_args.args
-        self.assertIsInstance(screen, self.ab.WorkReportColumnSelectScreen)
+        self.assertIsInstance(screen, self.ab.ColumnMultiSelectScreen)
         return screen, callback
 
     def test_column_screen_gets_intersection_and_focused_default(self):
@@ -265,7 +265,7 @@ class WorkReportModalTests(WorkReportTestBase):
                 await pilot.pause()
                 results = []
                 app.push_screen(
-                    ab.WorkReportColumnSelectScreen(
+                    ab.ColumnMultiSelectScreen(
                         [("unordered", "Unsorted / Inbox"),
                          ("now", "Now"), ("next", "Next")], "now"),
                     results.append)
@@ -288,7 +288,7 @@ class WorkReportModalTests(WorkReportTestBase):
                 await pilot.pause()
                 results = []
                 app.push_screen(
-                    ab.WorkReportColumnSelectScreen(
+                    ab.ColumnMultiSelectScreen(
                         [("now", "Now"), ("next", "Next")], "next"),
                     results.append)
                 await pilot.pause()
@@ -482,7 +482,7 @@ class WorkReportFullColumnUnderSearchTests(WorkReportTestBase):
                 app.action_work_report()
                 await pilot.pause()
                 self.assertIsInstance(
-                    app.screen, ab.WorkReportColumnSelectScreen)
+                    app.screen, ab.ColumnMultiSelectScreen)
                 await pilot.press("enter")  # confirm default (focused col)
                 await pilot.pause()
                 self.assertIsInstance(
