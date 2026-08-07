@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, tmux, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1446
 implemented_with: claudecode/opus5
 created_at: 2026-08-07 12:12
-updated_at: 2026-08-07 16:10
+updated_at: 2026-08-07 17:13
+completed_at: 2026-08-07 17:13
 ---
 
 ## Origin
@@ -87,3 +88,14 @@ For the hooks: route both call sites through the existing
 > **✅ gate:plan_approved** run=2026-08-07T13:10:11Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-07T14:09:38Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-07T14:13:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2f131d6432f74c27
+
+> **✅ gate:risk_evaluated** run=2026-08-07T14:13:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1451/risk_evaluated_2026-08-07T14:13:06Z-risk_evaluated-a1.log`
