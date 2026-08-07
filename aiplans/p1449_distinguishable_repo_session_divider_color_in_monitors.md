@@ -181,3 +181,74 @@ rules stand out from the dim task-title lines and from the state colours.
 
 Merge target `main` (current-branch profile — no worktree), then archival per
 task-workflow Step 9.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-07 08:20)
+
+- **Requested by user:** the `── other (N) ──` section header should also get a
+  distinguishable colour, different from the repo divider's cyan.
+- **Changes made:** this **reverses the plan's recorded scope decision**, which
+  had deliberately kept that header `dim` so cyan would be the only structural
+  colour. New rationale: the two rows share the `── … ──` glyph shape, so the
+  header needs a colour of its own to stop reading as a repo boundary — but a
+  *different* one, so cyan still means "repo boundary" and nothing else.
+  Added `SECTION_HEADER_STYLE` / `format_section_header()` to `monitor_shared.py`
+  beside the divider pair; `minimonitor_app.py` uses it and `.mini-section-header`
+  lost both `color:` and `text-style: bold` (the markup carries them now).
+  Confirmed with the user: the docked own-panel header (`.mini-own-header`,
+  `── this agent ──`) stays `dim` — it is outside the pane list.
+- **Files affected:** `.aitask-scripts/monitor/monitor_shared.py`,
+  `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_monitor_session_divider.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned for the repo divider —
+  `SESSION_DIVIDER_STYLE = "bold cyan"` + `format_session_divider()` in
+  `monitor_shared.py`, consumed by both `monitor_app.mount_with_session_dividers()`
+  (which keeps its two-space indent) and `minimonitor_app.append_group()`, with
+  `color: $text-muted` deleted from `.mini-session-divider`. Plus the
+  post-review addition of the parallel `SECTION_HEADER_STYLE = "bold #af87ff"` /
+  `format_section_header()` seam for the `── other (N) ──` header. New
+  `tests/test_monitor_session_divider.py` (18 tests) and a style assertion added
+  to the existing structural test in `tests/test_minimonitor_other_section.py`.
+
+- **Deviations from plan:**
+  1. The sibling-header scope decision was reversed at user request — see
+     Post-Review Changes above.
+  2. **The plan's span-only test strategy was insufficient and had to be
+     extended.** The plan specified asserting style via
+     `Static.render() → Content.spans`. That catches a `dim` divider but is
+     blind to an *unresolvable* colour: a span stores the markup's style string
+     verbatim, whether or not the renderer can parse it. `CompositedColourTests`
+     was added — it mounts both rules under the real `MiniMonitorApp.CSS` and
+     asserts the resolved hex off `screen._compositor.render_strips()`.
+  3. The plan predicted `Span(0, 8, style='cyan')`; the real span carries the
+     whole style string (`'bold cyan'`), so the assertions test substring
+     membership.
+
+- **Issues encountered:** the first pass used `medium_purple1` (the name the
+  user picked from a preview swatch). It rendered as default foreground.
+  **Textual's markup parser resolves CSS colour names only — it does not know
+  Rich's xterm names**, and an unknown name fails *silently* rather than
+  raising. All 15 span-level tests passed while the header painted `#e0e0e0`.
+  Only the composited probe caught it. Fixed by spelling the colour as the hex
+  literal `#af87ff` (exactly the swatch previewed to the user) and by adding the
+  composited tier so the failure mode is caught mechanically from now on.
+
+- **Key decisions:**
+  - Colour spelled as hex, not a name, with the reason recorded at the constant
+    — a future edit that "tidies" it back to a name reintroduces the bug.
+  - Both `color:` and `text-style:` removed from `.mini-section-header` for the
+    same single-source-of-truth reason as the divider's `color:`; leaving them
+    would be dead config that reads as if the row were still muted.
+  - The full monitor's `AGENTS (N)` / `OTHER (N)` headers were **not** touched:
+    they are bold uppercase labels with no `── … ──` rule, so they are not
+    siblings of the recoloured rows and colouring them was not requested.
+  - Seven negative controls were run, one mutation each. The decisive one:
+    reverting to `medium_purple1` failed exactly the two composited tests while
+    every span test stayed green — confirming the new tier is load-bearing.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_shared.py:120 — "bold dodger_blue1" is a Rich xterm colour name Textual cannot parse; the COMPLETED/DONE state colour silently paints the default foreground (#e0e0e0) with no bold, so DONE has never rendered blue. Same string at monitor_shared.py:798, monitor_app.py:1261, monitor_app.py:1454, minimonitor_app.py:706. Pre-existing, unrelated to this task's change; found by the composited probe written for it. Fix is `dodgerblue` or a hex literal, plus a composited assertion per state colour.`
