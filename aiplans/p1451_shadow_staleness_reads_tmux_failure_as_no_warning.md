@@ -857,3 +857,123 @@ than a unit assertion.
 - timing: pre-phase | name: monitor_marker_liveness | type: bug | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a stale @aitask_monitor_kind marker silently blocks companion spawns | desc: stamp the marker as <kind>:<pid>, decide liveness in one shared module both guards call, clear a provably-dead marker, and treat an unverifiable value as present
 - timing: pre-phase | name: verify_marker_wiring | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — guard tests all assume an already-marked pane, so broken production wiring would leave them green | desc: mount-level and main()-level tests proving both apps receive mark_pane=True, stamp a parseable marker at mount, and clear it at unmount
 - timing: post-phase | name: verify_companion_lifecycle_live | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — remain-on-exit now set on every companion-bearing agent pane | desc: live-tmux acceptance that pane-died fires, the companion despawns, and no dead pane lingers
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All three defects landed as planned, plus the two fixes
+  the plan review added (marker-driven cleanup discovery, and no spawner-side
+  stamp). Files: `monitor_core.py` (`get_pane_option` -> `(ok, value)`, the new
+  contract-table row, `compute_shadow_staleness`'s `if not ok:` branch);
+  **new** `lib/monitor_marker.py` (marker constants, `parse_monitor_marker`,
+  `monitor_marker_state` / `_alive`, and the fail-safe CLI);
+  `lib/agent_launch_utils.py` (re-exports, `mark_monitor_pane` /
+  `unmark_monitor_pane`, marker-based guard B with stale self-heal, hook arming
+  in `maybe_spawn_minimonitor`, rename to `attach_companion_cleanup_hook`);
+  `aitask_minimonitor.sh` (marker guard calling the CLI, block-by-default);
+  `aitask_companion_cleanup.sh` (marker-driven job 2, `|` field separator);
+  `lib/tui_switcher.py` (bare `set-hook` replaced by the helper); both apps
+  (`mark_pane` flag, stamp at mount, clear at unmount, `main()` wiring).
+  Tests: 5 new files (`test_monitor_marker_liveness.py`,
+  `test_minimonitor_instance_guard.py`, `test_monitor_pane_marker_wiring.py`,
+  `test_minimonitor_single_instance_guard.sh`,
+  `test_companion_cleanup_ordering.sh`) plus stub/rename updates in 8 existing
+  files. Docs: `tui_conventions.md` (both companion sections + a new
+  `@aitask_monitor_kind` subsection), `shadow_agent.md`.
+
+- **Deviations from plan:**
+  - `test_monitor_pane_marker_wiring.py` was first written as a test-defining
+    base class with two subclasses, which trips
+    `tests/test_collection_structure.py`'s "no class inherits tests from a
+    same-module base" rule (both subclasses silently re-collect all 6 tests).
+    Restructured to a single class parameterizing over `APP_SPECS` with
+    `subTest`. Both arms were then re-proven live by mutating the *monitor* app
+    (not the minimonitor) and confirming the failure.
+  - `aitask_companion_cleanup.sh` uses a space-joined string rather than a bash
+    array for the companion list, sidestepping the `set -u` empty-array quirk
+    the plan flagged. Pane ids are `%N`, so neither word-splitting nor globbing
+    is a hazard.
+  - The plan's fallback for the shell test's negative control (`send-keys` +
+    `capture-pane`) was not needed: the `$AIT_PYTHON` delegating shim worked, so
+    every negative control is a direct assertion.
+  - A `AIT_TEST_LAUNCH_WITNESS` positive control was added beyond the plan.
+    States (ii)/(iv) assert the *absence* of a block message, which would also
+    pass if the script died before reaching the guard; the witness proves the
+    run actually reached its final `exec`.
+
+- **Issues encountered:**
+  - The plan's original test-harness design ("shim `PATH` so the resolved
+    interpreter is a no-op `true`") was wrong and was corrected during the plan
+    review: `resolve_python` reaches `$PATH` only after `$AIT_PYTHON`, the venv
+    and `~/.aitask/bin/python3`, and a bare `true` fails `require_ait_python`'s
+    version probe at `aitask_minimonitor.sh:14` before the guard runs. The shim
+    must delegate to the real interpreter and misbehave only for the call under
+    test.
+  - `tests/test_monitor_shadow_spawn_live.sh` **could not be run** in this
+    session: `require_clean_ait_server` refuses inside tmux by design, because
+    it arms real `pane-died` hooks and `aitask_companion_cleanup.sh` reaches
+    tmux with raw, un-flagged calls that no env override can sandbox. It was not
+    forced. Its assertions on the renamed helper are mirrored at unit level by
+    `tests/test_monitor_shadow_pick.py::HookIdempotenceTests`, which passes.
+    **Worth running from a non-tmux terminal before release.**
+
+- **Key decisions:**
+  - **One liveness implementation, called from both languages.** A shell rewrite
+    diverges silently in two ways (`${marker##*:}` reads `garbage:123` as a dead
+    pid; `kill -0` fails for another user's live process where `os.kill`'s
+    `PermissionError` means alive), so `monitor_marker.py` owns the rule and the
+    shell guard execs its CLI.
+  - **Verdict codes `0/10/11`, outside the interpreter-failure range.** With
+    `0/1/2`, an uncaught Python exception (exit 1) would have mapped to "stale"
+    and made the guard **clear a live marker** on a crash; a missing file (exit
+    2) would have mapped to "absent". Blocking is the shell guard's default arm,
+    and the shared `exit 0` sits after the `case` so a future arm must
+    `continue` explicitly to become non-blocking.
+  - **The spawner never stamps the marker.** A spawner-side stamp lands before
+    the child's own guard runs, so the child would see its own marker; removing
+    it eliminates the self-deadlock by construction instead of guarding against
+    it, at the cost of a documented ~1 s boot-window race.
+  - **Cleanup discovers companions by marker.** The `pane-died` hook is
+    append-only and carries one `companion_pane`, so the argument only ever
+    names the first companion to arm it; the argument is now a fallback hint.
+
+- **Live verification (post-phase mitigation `verify_companion_lifecycle_live`):**
+  Run against an isolated tmux server rather than the user's live `-L ait`
+  server, which gives the same evidence without risking real agents. Observed:
+  hook installed at `pane-died[0]` invoking `aitask_companion_cleanup.sh`;
+  `remain-on-exit on`; companion marker `minimonitor:<pid>` with that pid alive.
+  Killing the agent process closed the agent pane, despawned the companion and
+  closed the window, with **zero lingering dead panes** (`#{pane_dead}` = 1
+  anywhere in the session). With an extra plain pane present, the agent's exit
+  killed only the agent pane and left both the companion and the extra pane
+  alive. No rollback of Step 3c was needed.
+
+- **Negative controls (each mutation run, named test confirmed failing, source
+  restored):** staleness `if not ok:` removed -> 3 tests; guard B liveness
+  removed -> 3; hook arming removed -> 1; `mark_pane=True` dropped from `main()`
+  -> 1; `on_unmount` clear dropped -> 1; monitor-app stamp dropped (subTest arm
+  2) -> 2; cleanup marker discovery removed -> the shadow-first ordering case;
+  shell guard reimplementing liveness inline -> 11, including `garbage:123`
+  being *cleared* rather than blocking; shell guard default arm made
+  non-blocking -> 8; open-coded `set-hook` left beside the helper -> 1.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_minimonitor.sh:36` (pre-change) — the guard's
+    self-exclusion compared `#{pane_pid}` against `$$`. Those are different
+    processes whenever the script is not the pane's direct child, so the
+    self-skip never worked either. Moot now (the new guard needs no
+    self-exclusion, since only a booted app writes the marker), recorded because
+    the same `$$`-vs-`pane_pid` confusion could recur elsewhere.
+  - `.aitask-scripts/monitor/monitor_app.py:2926` — the `c`-hotkey picker passes
+    `stale=bool(stale)` to `ConcernPickerModal`, collapsing
+    `compute_shadow_staleness`'s tri-state so an *indeterminate* staleness
+    renders as "not stale". Behaviour is unchanged by this task (`False` and
+    `None` both coerce to `False`), and a one-shot modal has no prior state to
+    preserve — but it is the same conflation class this task is about, on a
+    surface that could later want to say "unknown".
+  - `.aitask-scripts/monitor/monitor_core.py:1779` — `discover_window_panes` is
+    still a **sync** `tmux_run` (5 s default timeout) reached from the async
+    `_refresh_data` via `_check_auto_close`, so a stalled tmux can freeze the
+    minimonitor UI for up to 5 s per tick. Already tracked as t1446's
+    `async_window_pane_discovery` follow-up; re-confirmed still present.
