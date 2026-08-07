@@ -224,3 +224,53 @@ Performed:
   `merge`, `merge2`, `liveboard`, `liveboard2` and driver scripts) removed.
 - No file under this repo's `aitasks/` or `aiplans/` was touched other than
   the checklist itself, the two generated follow-ups, and this plan.
+
+## Final Implementation Notes
+
+- **Actual work done:** Verification only — no production code was changed.
+  All 20 checklist items were driven to a terminal state (18 pass, 2 fail).
+  Two follow-up bug tasks were created: **t1454** (dead Edit/Delete buttons in
+  `ColumnManageScreen`) and **t1455** (stale board documentation).
+- **Deviations from plan:** None; the autonomous strategy covered every item,
+  so nothing fell through to the interactive loop and nothing was deferred.
+- **Issues encountered:**
+  - `ait minimonitor` auto-closes when it is the only pane in its window
+    (`_check_auto_close`, t1446). Correct behaviour, but it means a live
+    fixture must **split the companion into a window that already holds an
+    agent pane** rather than giving it its own window.
+  - Redirecting the TUI's stderr (`2>file`) makes the pane capture blank —
+    Textual's driver writes the rendered frame there. Live tmux fixtures for
+    these TUIs must leave both streams on the tty.
+  - Session discovery requires `aitasks/metadata/project_config.yaml` in the
+    fixture root; without it no session is "aitasks-like" and `target_root`
+    silently falls back to the companion's own project.
+  - The board's `p`-flow targets `_find_own_agent_snapshot()` — the agent in
+    the companion's **own window** — not the highlighted row. The first
+    multi-session attempt tested the wrong thing until this was pinned down.
+- **Key decisions:**
+  - Isolated the live TUI runs in a copied framework tree
+    (`ait` + `.aitask-scripts` + synthetic `aitasks/`) rather than running
+    against this repo, because items 14 and 18 mutate `board_config.json`.
+    `ait` roots itself at its own directory, which makes that copy a complete
+    project.
+  - Gave both fixture projects a task with the **same id** so item 6 could
+    distinguish "wrote to the right tree" from "wrote somewhere plausible".
+  - Read focus from `capture-pane -pe` SGR attributes rather than inferring
+    it from key counts — the tab order through the dialog is not what it
+    looks like, and two early readings were wrong.
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:6469,6475` — `action_edit` /
+    `action_delete` resolve their target via `self.screen.focused`, which the
+    button press itself overwrites, so the dialog's `Edit` and `Delete`
+    buttons can never act; `Delete` has no other in-dialog path. Tracked as
+    **t1454**.
+  - `website/content/docs/tuis/board/how-to.md:102` — claims collapse state
+    is saved in `board_config.json`; it is saved in
+    `board_config.local.json`. Pre-existing (`633f73bc13`), outside t1377's
+    scope; folded into **t1455** as a same-pass cleanup.
+- **Notes for sibling tasks:** All t1377 siblings are archived, so this is the
+  last of the group. The reusable finding for future board/minimonitor
+  verification is the live-fixture recipe above (isolated framework copy,
+  companion split beside an agent pane, no stderr redirect, SGR-based focus
+  reading) — and the reminder that a test calling `screen.action_x()`
+  directly proves nothing about the button wired to it.
