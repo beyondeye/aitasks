@@ -49,8 +49,9 @@ from monitor.monitor_shared import (  # noqa: E402
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
     TaskPickConfirmDialog, ShadowRejectionsMixin,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
-    format_shadow_glyph, format_stale_duration, format_state_dot,
-    is_task_completed, unparsed_concerns_msg,
+    format_section_header, format_session_divider, format_shadow_glyph,
+    format_stale_duration, format_state_dot, is_task_completed,
+    unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, block_region, build_clipboard_payload,
@@ -177,19 +178,20 @@ class MiniMonitorApp(
         color: $text;
     }
 
+    /* No `color:` — the divider's style is single-sourced in
+       monitor_shared.format_session_divider (t1449). */
     .mini-session-divider {
         height: 1;
         padding: 0 1;
-        color: $text-muted;
     }
 
-    /* Section header inside the pane list (currently only "other"). Bold, so it
-       reads as a section boundary rather than as another session divider. */
+    /* Section header inside the pane list (currently only "other"). No `color:`
+       or `text-style:` — both are single-sourced in
+       monitor_shared.format_section_header (t1449), which is what keeps this
+       rule and the session divider above deliberately different colours. */
     .mini-section-header {
         height: 1;
         padding: 0 1;
-        color: $text-muted;
-        text-style: bold;
     }
 
     #mini-key-hints {
@@ -1038,7 +1040,7 @@ class MiniMonitorApp(
                     current_session = snap.pane.session_name
                     label = current_session or "?"
                     widgets.append(Static(
-                        f"[dim]\u2500\u2500 {label} \u2500\u2500[/]",
+                        format_session_divider(label),
                         classes="mini-session-divider",
                     ))
                 widgets.append(MiniPaneCard(snap.pane.pane_id, text_fn(snap)))
@@ -1049,7 +1051,7 @@ class MiniMonitorApp(
             # has none \u2014 minimonitor never had one, and the session bar already
             # carries the agent count.
             widgets.append(Static(
-                f"[dim]\u2500\u2500 other ({len(others)}) \u2500\u2500[/]",
+                format_section_header(f"other ({len(others)})"),
                 classes="mini-section-header",
             ))
             append_group(others, self._other_card_text)

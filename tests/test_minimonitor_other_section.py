@@ -211,6 +211,14 @@ class OtherSectionRenderTests(unittest.TestCase):
         self.assertIn("other (2)", texts[0])
         self.assertTrue(any("sA" in t for t in texts), texts)
         self.assertTrue(any("sB" in t for t in texts), texts)
+        # The dividers emitted here carry the shared repo-boundary style, not
+        # the header's dim (t1449). Full style coverage — both TUIs, the scope
+        # negative controls — lives in tests/test_monitor_session_divider.py;
+        # this keeps the structural and style contracts sitting together.
+        for div in _statics(container.mounted)[1:]:
+            styles = [str(sp.style) for sp in div.render().spans]
+            self.assertTrue(any("cyan" in s for s in styles),
+                            f"divider is not the repo-boundary style: {styles!r}")
 
 
 class OtherCardTextTests(unittest.TestCase):

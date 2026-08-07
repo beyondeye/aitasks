@@ -43,8 +43,8 @@ from monitor.monitor_shared import (  # noqa: E402
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     ShadowRejectionsMixin,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
-    format_shadow_glyph, format_state_dot, is_task_completed,
-    unparsed_concerns_msg,
+    format_session_divider, format_shadow_glyph, format_state_dot,
+    is_task_completed, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS, block_head_truncated, block_region,
@@ -1638,10 +1638,12 @@ class MonitorApp(
         def mount_with_session_dividers(snaps, card_fn):
             """Mount PaneCards with a session divider before each new group.
 
-            In multi mode, emits a subtle `── sess_name ──` divider before the
-            first card of each session so users can see at a glance which
-            agents belong to which session, while still keeping the unified
-            single-list ordering.
+            In multi mode, emits a `── sess_name ──` divider before the first
+            card of each session so users can see at a glance which agents
+            belong to which session, while still keeping the unified
+            single-list ordering. The style comes from
+            `monitor_shared.format_session_divider`; only the two-column indent
+            belongs to this call site.
             """
             current_session = None
             for snap in snaps:
@@ -1650,7 +1652,7 @@ class MonitorApp(
                     current_session = sess
                     label = sess or "?"
                     container.mount(Static(
-                        f"  [dim]── {label} ──[/]",
+                        f"  {format_session_divider(label)}",
                         classes="session-divider",
                     ))
                 card = PaneCard(snap.pane.pane_id, card_fn(snap))

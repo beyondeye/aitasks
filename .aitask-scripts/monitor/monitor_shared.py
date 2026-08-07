@@ -190,6 +190,55 @@ def format_mark_glyph(marked: bool) -> str:
     return f"[dim]{MARK_EMPTY_GLYPH}[/]"
 
 
+# Repo/session divider (t1449): in multi-session mode each tmux session is one
+# repo/project, so this rule is the repo boundary in the agent list.
+#
+# Bold cyan, deliberately NOT `dim`: `dim` is what the task-title line under
+# every agent card uses, so a dim divider read as one more task title and the
+# repo grouping vanished. Cyan also belongs to no state in the ladder
+# (magenta / dodger_blue1 / yellow / green) and is not the ★ mark's white,
+# which is what makes it legible as *structure* rather than status.
+SESSION_DIVIDER_STYLE = "bold cyan"
+
+
+def format_session_divider(label: str) -> str:
+    """The ``── <session> ──`` repo-boundary rule, styled once for both TUIs.
+
+    Callers own their own leading indent (the full monitor indents by two
+    columns; minimonitor pads via CSS) but never the style — that is the point
+    of this seam.
+    """
+    return f"[{SESSION_DIVIDER_STYLE}]── {label} ──[/]"
+
+
+# Pane-list section header (t1449): the `── other (N) ──` rule that heads the
+# uncategorized section. Same glyph shape as the repo divider above, so it needs
+# its own colour or the two read as one kind of boundary — but a DIFFERENT one,
+# because cyan has to keep meaning "repo boundary" and nothing else.
+#
+# A light violet, free in both agent lists: it is not dodger_blue1 (DONE) and
+# sits far enough from magenta (PROMPT) to stay separable. Bold lives here
+# rather than in CSS so the whole style is one string.
+#
+# Spelled as a **hex literal, not a colour name**: these markup spans are parsed
+# by Textual, whose palette is CSS colour names — it does NOT know Rich's xterm
+# names. `[bold medium_purple1]` parses without error and then silently paints
+# default-foreground, which no span-level assertion can see (the span keeps the
+# unresolved string). Only a composited-screen check catches it; there is one in
+# tests/test_monitor_session_divider.py for exactly this reason.
+SECTION_HEADER_STYLE = "bold #af87ff"
+
+
+def format_section_header(label: str) -> str:
+    """The ``── other (N) ──`` section rule, styled once.
+
+    Deliberately NOT :data:`SESSION_DIVIDER_STYLE`: a section boundary and a
+    repo boundary are different things, and the shared ``── … ──`` shape is
+    exactly why they must not share a colour.
+    """
+    return f"[{SECTION_HEADER_STYLE}]── {label} ──[/]"
+
+
 #: The locked writer. Readers go straight to the JSON (see AgentMarksMixin).
 _MARKS_SH = _SCRIPT_DIR / "aitask_agent_marks.sh"
 
