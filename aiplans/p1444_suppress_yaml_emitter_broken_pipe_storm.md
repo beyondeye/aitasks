@@ -203,6 +203,29 @@ Test infrastructure must never fail the suite for environment reasons:
   are not shell at all. (`seq` needs no fallback — it is already used in 13
   test files here and ships on macOS; the bash producers use bash-3.2-safe
   `for ((…))` regardless.)
+- **The suite must not depend on the disposition it is LAUNCHED with.** This
+  suite may itself run under a harness that ignores SIGPIPE, which children
+  inherit — and two pin groups are meaningless there:
+  * a bash process that inherited `SIG_IGN` **cannot install a PIPE trap at
+    all** (`trap 'handler' PIPE` is silently a no-op; `trap -p PIPE` reports
+    `trap -- '' SIGPIPE`), so the three trap-restoration pins compared against a
+    disposition the test never managed to set — **observed 73/76, red purely
+    from the environment**;
+  * and an emitter under `SIG_IGN` is never killed, so the two not-killed pins
+    passed against the **unfixed** library — **vacuously green** (verified).
+
+  Fixed by forcing the disposition rather than branching the assertions:
+  `run_with_default_sigpipe` runs those five pins through a `python3` child with
+  `SIGPIPE` reset to `SIG_DFL`. Without `python3` an inherited ignore cannot be
+  reset from inside bash, so the group is **skipped with a notice** (detected
+  via a non-empty `trap -p PIPE` at suite start) instead of failing.
+
+  Acceptance is now two-dimensional and both directions are verified: the fixed
+  library is **76/76 under SIGPIPE=default AND under SIGPIPE=SIG_IGN**, and the
+  unfixed library is red under both (5 and 6 failures — the extra one under
+  `SIG_IGN` is the `set -e` smoke, whose combined output the storm itself
+  pollutes).
+
 - **bash 3.2 construct audit.** Everything added is already used in this file:
   `${var//pat/}`, the nested trim idiom `${x#"${x%%[![:space:]]*}"}`
   (lines 118, 156-163), and **unquoted** `=~` with `BASH_REMATCH`
@@ -370,6 +393,90 @@ left operand fails returns non-zero and, as the last command of a function or
 loop body, trips `set -e` in the ~40 scripts that source this lib via
 `task_utils.sh` / `agentcrew_utils.sh`.
 
+### 6. Each public reader ignores SIGPIPE for its own duration
+
+**AMENDED SCOPE — added during implementation, user-approved.** The approved
+plan covered only the stderr storm. Implementing it surfaced the other half of
+the same root cause, and the storm fix could not land without addressing it.
+
+Guarding the *write* only helps if the write is reached. Under the **default**
+SIGPIPE disposition the producer is not refused — it is **killed** (exit 141)
+before any `||` can run. In a pipeline the emitter is a subshell, so under
+`set -o pipefail` that 141 becomes the whole pipeline's status even though the
+reader succeeded. `aitask_fold_mark.sh:536,539` does exactly this:
+
+```bash
+if read_yaml_mappings "$_ff" artifacts 2>/dev/null | grep -q '^handle='; then
+```
+
+Measured against the **pre-t1444** reader: **60/60** correct detections for a
+task with 1 artifact record, **0/60** with 12. So folding a task with more than
+a handful of artifacts already skipped the whole attachment/artifact transfer,
+silently — a pre-existing bug, not one this task introduced. Steps 2-5 only
+lowered the threshold to 1 record (the `_yaml_emit` seam costs one function call
+per line, enough to lose a very tight race), which is what turned
+`tests/test_artifact_fold_transfer.sh` flaky and forced the diagnosis.
+
+Note step 4's fork removal *increases* exposure rather than reducing it: with
+`echo … | sed` gone, the SIGPIPE lands on the reader function's own shell
+instead of on a `sed` child, so `read_yaml_list … | head -1` under `pipefail`
+becomes killable where it previously was not. The pin below catches that.
+
+Fix: make each **public** reader a thin wrapper that ignores SIGPIPE before
+delegating to its `_*_impl`, converting the kill into the EPIPE write error
+`_yaml_emit` already handles cleanly — but only inside a subshell:
+
+```bash
+read_yaml_mappings() {
+    if [[ ${BASH_SUBSHELL:-0} -gt 0 ]]; then trap '' PIPE; fi
+    _read_yaml_mappings_impl "$@"
+}
+```
+
+Applied to all four public readers (`join_yaml_flow_lists` — which takes no
+arguments, so its wrapper forwards none — `read_yaml_field`, `read_yaml_list`,
+`read_yaml_mappings`), each renamed to a `_*_impl` body.
+
+**The `BASH_SUBSHELL` scoping is the whole design, not an optimization.** A
+first implementation used `_saved="$(trap -p PIPE)"` … `eval "$_saved"` to
+save and restore the caller's disposition. Review rejected it, correctly:
+a command substitution is **not guaranteed to report the caller's handler**
+on older bash, and this repo targets **bash 3.2** (`yaml_utils.sh` already
+carries a `bash-3.2 safe` note), so the restore could silently install the
+wrong disposition. Rather than make a fragile capture work, remove the need
+for it:
+
+- An early-exiting reader can **only** exist when the emitter is already in a
+  subshell. Measured: a pipeline element, `$(...)` and `<(...)` all report
+  `BASH_SUBSHELL > 0`; a bare top-level call reports `0`.
+- A subshell's trap change **cannot reach its parent** (measured for both `( )`
+  and a pipeline element), so it is discarded on exit — no restore is needed.
+- At `BASH_SUBSHELL == 0` nothing is touched at all, which makes leaking
+  `SIG_IGN` into a caller **structurally impossible** rather than contractually
+  undone.
+- It also removes the `$(trap -p PIPE)` **fork per call** on the framework's
+  hottest reader. With it, `read_yaml_field` cost +35%; without it, cost is at
+  parity with the original, and the realistic mixed workload (40 files × 7
+  reads) went from 302 ms to **224-235 ms — 24% faster than before this task**,
+  because step 4/4b's fork removal now dominates.
+- **Correctly inert under an inherited `SIG_IGN`**: bash cannot trap or reset a
+  signal ignored at shell entry, so the `trap` is a no-op there — the storm
+  path is unaffected.
+- **KNOWN LIMIT, documented in the header:** a bare top-level call whose stdout
+  is a pipe from the *parent process* is not protected. That is the historical
+  behaviour, and no in-tree call site is of that shape — every one is `$(...)`,
+  `<(...)` or a pipeline.
+
+Pinned by six assertions in `tests/test_yaml_utils.sh`: `| grep -q` under
+`pipefail` (12 records — 1 was inside the race window and passed by luck),
+`| head -1` under `pipefail`, the caller's PIPE trap byte-identical after every
+reader call, no reader call *firing* that trap, no trap left behind when the
+caller had none, and the trap surviving pipeline / command-substitution reader
+use. The three leak pins were negative-controlled against a variant that ignores
+SIGPIPE unconditionally: all three fail there. Pinning the exact `trap -p` line
+matters — an `assert_contains` on the handler's text would also pass if the trap
+merely *fired*, which is a different event.
+
 ### Post-phase (risk mitigations)
 
 Runs **after** steps 1–5, before final verification.
@@ -453,3 +560,93 @@ much reduced.*
 - timing: pre-phase | name: enforce_pipe_contract | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — write suppression masking a genuine ENOSPC as silent truncation | desc: Scope the write guard to non-regular-file stdout via a single _yaml_emit seam decided once per call, pin both directions with a test, and record the contract in the lib header.
 - timing: post-phase | name: set_e_source_smoke | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — new guard idioms tripping set -e in sourcing scripts | desc: Source the lib under set -euo pipefail and exercise all four readers on hit and miss paths, asserting exit 0.
 - timing: post-phase | name: non_truncation_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — guards truncating a complete read | desc: Assert the unpiped block, inline and mappings reads still yield full item counts, and that a regular-file redirect leaves the guard inactive and output complete.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** `.aitask-scripts/lib/yaml_utils.sh` (+225/−12) and
+  `tests/test_yaml_utils.sh` (+439). All four emitters route writes through one
+  `_yaml_emit` seam that stops on the first failed write; the block emitter
+  drops its per-item `sed` fork for the regex capture the loop already computes;
+  the inline branch drops its five-process pipeline for a pure-bash loop;
+  `read_yaml_mappings` short-circuits inside `_read_yaml_mappings_emit_field`
+  so a record's nine field writes stop at the first failure; the write guard is
+  scoped by stdout type (`[[ -f /dev/fd/1 ]]`) so a regular-file `ENOSPC` stays
+  loud; and each public reader ignores SIGPIPE **while in a subshell** so an
+  early-exiting reader can neither storm it nor kill it. Suite grew 23 → 76
+  assertions.
+
+- **Deviations from plan:**
+  1. **The task description's premise about the inline path was wrong.** It
+     called that branch "already clean" and asked only to lock it that way. At
+     volume it storms 6 lines from five processes (8/8 driving the pipeline
+     directly, 10/10 through the real entry point); the earlier verdict came
+     from a 2.3 KB fixture sitting inside a race window. Added as step 4b.
+  2. **Scope extended, user-approved, to the SIGPIPE *kill*** (step 6) — the
+     other half of the same root cause, and unavoidable: steps 2-5 could not
+     land without it (see below).
+  3. **Fixture sizing is per-case**, not the uniform ≥256 KB first drafted —
+     capped by the quadratic capture loop (see upstream defects).
+
+- **Issues encountered:**
+  - **A tight race made `tests/test_artifact_fold_transfer.sh` flaky (1 of 3
+    runs).** Diagnosis found a **pre-existing silent data bug**, not one this
+    task introduced: `aitask_fold_mark.sh:536,539` detects attachments/artifacts
+    via `read_yaml_mappings … | grep -q` under `set -o pipefail`; when the
+    producer outlives `grep -q` it is SIGPIPE-killed (141), `pipefail`
+    propagates that, detection goes false, and the fold **silently skips the
+    entire attachment/artifact transfer**. Measured with the **unmodified**
+    library: 60/60 correct at 1 artifact record, **0/60 at 12**. The
+    `_yaml_emit` seam costs one function call per line — enough to lose the race
+    at 1 record too, which is what surfaced it. Step 6 fixes it at the library
+    (now 20/20 at 12 records). Note step 4's fork removal *increases* exposure:
+    with `echo | sed` gone the SIGPIPE lands on the reader function's own shell
+    rather than on a `sed` child.
+  - **First kill-fix attempt was rejected in review and replaced.** It used
+    `_saved="$(trap -p PIPE)"` … `eval "$_saved"`. A command substitution is not
+    guaranteed to report the caller's handler on older bash and this repo
+    targets **bash 3.2**, so the restore could install the wrong disposition.
+    Replaced with a `BASH_SUBSHELL > 0` scope: an early-exiting reader can only
+    exist inside a subshell (pipeline element / `$( )` / `<( )` all measured at
+    `BASH_SUBSHELL > 0`; a bare call at `0`), and a subshell's trap change
+    cannot reach its parent — so nothing needs restoring and leaking is
+    structurally impossible. It also removed the `trap -p` fork.
+  - **The test suite was itself environment-dependent and partly vacuous** —
+    caught in review. A bash process that inherits `SIG_IGN` cannot install a
+    PIPE trap at all, so the three trap pins compared against a disposition the
+    test never set (**73/76**, red purely from the environment); and under
+    `SIG_IGN` the emitter is never killed, so the two not-killed pins passed
+    against the **unfixed** library — vacuously green. Fixed by forcing the
+    disposition (`run_with_default_sigpipe`, a `python3` child with
+    `SIGPIPE = SIG_DFL`) rather than branching the assertions, with a skip (not
+    a failure) when `python3` is absent and an inherited ignore cannot be reset.
+  - **One Python-suite failure is NOT from this task:**
+    `test_collection_structure.py::…test_no_class_inherits_tests_from_a_same_module_base`
+    (3,829 passed). It reproduces with **both** of this task's files reverted to
+    HEAD, and it flags a concurrent session's untracked
+    `tests/test_monitor_pane_marker_wiring.py`. That session also advanced HEAD
+    from `2346df23a` to `c66620dee` mid-implementation and left ~23 unrelated
+    working-tree entries, none of which were staged here.
+
+- **Key decisions:**
+  - **Acceptance is two-dimensional.** The suite is verified green under
+    `SIGPIPE=default` **and** `SIGPIPE=SIG_IGN` (76/76 both), and red against the
+    unfixed library under both (5 and 6 failures — the extra one under `SIG_IGN`
+    is the `set -e` smoke, whose combined output the storm itself pollutes).
+  - **Every pin was negative-controlled.** The four storm pins, the kill pins
+    and the three trap-leak pins were each shown to fail against the code that
+    lacks the corresponding fix (the leak pins against a deliberately
+    unconditional-`trap ''` variant).
+  - **A positive control guards against a vacuously green suite:** an unguarded
+    reference producer must storm, or the run fails with "harness cannot trigger
+    EPIPE".
+  - **`2>/dev/null` is bounded by stdout type, not by convention** — the in-tree
+    call-site survey cannot bind installer-synced downstream consumers.
+  - **Performance improved.** Removing six forks from the list readers outweighs
+    everything added: a realistic 40-file × 7-read workload went **302 ms →
+    224-235 ms (~24% faster)**, measured by within-run ablation because a
+    concurrent session was loading the box.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/yaml_utils.sh:110-113 — read_yaml_list's flow-list bracket counting (${value//[^\[]/}) is quadratic in the captured value's length: 2.1s at 70KB, 8.3s at 140KB, 34.5s at 324KB. Harmless for real task frontmatter but a latent cliff, and it is what caps this task's inline test fixture just above pipe capacity instead of at a comfortable multiple. Out of scope here.`
