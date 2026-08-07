@@ -564,3 +564,51 @@ Merge to `main`, archive per the standard flow.
   already the data-level predicate for t1243_10 — do not reimplement it. Any new
   consumer of `boardgroup` must read it through `normalize_group_slug`, never
   raw: the persisted value can legally be `None`, a list, or an int.
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-07 13:40)
+
+- **Requested by user:** Two concerns, both verified live and both valid.
+  (a) *blocking* — `normalize_group_slug` returned `raw.strip()`, so a
+  hand-edited `boardgroup: "perf_work "` silently joined the `perf_work` group
+  and read as UNCHANGED from an unspaced base in the merge driver. This
+  contradicted the module's own documented promise to preserve non-CLI-shaped
+  strings and the design's no-silent-coalescing rule.
+  (b) *follow-up* — in interactive mode `try_auto_merge` still wrote
+  `iinfo "Auto-merged …"` to stdout, which its caller parses as the
+  unresolved-file list.
+
+- **Changes made:**
+  - **(a)** `normalize_group_slug` now returns `raw if raw.strip() else ""` —
+    whitespace-only is ungrouped, everything else is **verbatim**. Confirmed by
+    probe that a *quoted* YAML scalar preserves its whitespace through the
+    loader (`'perf_work '`), while unquoted plain scalars are stripped by YAML
+    itself — so only the hand-edit case reaches the boundary, and stripping
+    there was silently destroying it. Added `test_whitespace_is_content_not_noise`,
+    `test_whitespace_bearing_slug_forms_its_own_group`, and two merge cases
+    (`test_whitespace_bearing_value_is_a_real_change`,
+    `test_whitespace_only_value_reads_as_ungrouped`).
+  - **(b)** Fixed rather than deferred, because a live probe showed it was worse
+    than a cosmetic leak: the interactive loop opened `$EDITOR` on `RESOLVED`,
+    on `Auto-merged: aitasks/t1_ok.md` and on `PARTIAL:body`, and the genuinely
+    conflicted file was **never offered at all**. Added `iinfo_err()` (stderr
+    variant of `iinfo`, same batch-mode suppression and colouring) and routed
+    all three informational lines inside `try_auto_merge` through it — that
+    function's stdout is a data channel. Added Test 5 to
+    `tests/test_sync_branch_mode_automerge.sh`, which needs a MIXED outcome
+    (one file resolving, one not) to expose the leak at all: when everything
+    resolves, `unresolved` is empty and the caller discards stdout.
+
+- **Files affected:** `.aitask-scripts/lib/board_groups.py`,
+  `.aitask-scripts/aitask_sync.sh`, `tests/test_board_groups.py`,
+  `tests/test_aitask_merge.py`, `tests/test_sync_branch_mode_automerge.sh`.
+
+- **Verification:** full Python suite PASSED (runner=pytest, exit=0);
+  `test_sync_branch_mode_automerge.sh` 15/15 with the fix and **7 failures**
+  against unmodified `HEAD` (including "the genuinely conflicted file IS offered
+  for editing"); `test_aitask_merge_boardgroup.sh` 14/14; `test_sync.sh` and
+  `test_aitask_merge.sh` unchanged; shellcheck 22 findings before and after —
+  zero new.
