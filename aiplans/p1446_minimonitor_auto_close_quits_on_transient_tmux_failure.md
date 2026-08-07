@@ -309,7 +309,7 @@ Step 9 (Post-Implementation) handles merge, gate verification, and archival.
   `_refresh_data` tick — so the same 5 s timeout still blocks Textual's event loop
   during a stall. This contradicts the t1111_3 invariant that
   `tests/test_monitor_refresh_no_sync_tmux.py` encodes (that suite does not reach this
-  call). · severity: medium · → mitigation: async_window_pane_discovery
+  call). · severity: medium · → mitigation: t1452
 - The completeness flag widens "unverifiable": a *persistently* unparseable record —
   e.g. a window renamed with a literal tab in it, which breaks the 8-field split for
   every row in that window — would disable auto-close permanently rather than
@@ -337,7 +337,7 @@ Step 9 (Post-Implementation) handles merge, gate verification, and archival.
 ### Planned mitigations
 
 - timing: post-phase | name: live_autoclose_verification | type: manual_verification | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a faked test cannot prove auto-close still fires against real tmux | desc: live tmux check that the companion stays open beside a live agent and closes within ~2 refresh cycles after the agent pane is killed
-- timing: after | name: async_window_pane_discovery | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: code-health — the sync tmux_run on the async refresh tick still blocks the event loop for up to 5 s during a stall | desc: move discover_window_panes onto tmux_run_async, await _check_auto_close from the tick, and extend tests/test_monitor_refresh_no_sync_tmux.py to cover the minimonitor refresh path
+- timing: after | name: async_window_pane_discovery | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: code-health — the sync tmux_run on the async refresh tick still blocks the event loop for up to 5 s during a stall | desc: move discover_window_panes onto tmux_run_async, await _check_auto_close from the tick, and extend tests/test_monitor_refresh_no_sync_tmux.py to cover the minimonitor refresh path | created: t1452
 
 **Post-inline reassessment:** the confirmed inline post-phase adds a verification-only
 step that touches no production code and cannot invalidate the plan. Both levels stand
