@@ -3,16 +3,15 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Ready
 labels: [aitask_monitor, minimonitor, tui, ui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-07 10:40
-updated_at: 2026-08-07 10:43
+updated_at: 2026-08-07 10:53
 ---
 
 ## Problem
