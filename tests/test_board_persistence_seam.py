@@ -72,9 +72,9 @@ import aitask_board as B  # noqa: E402
 
 BOARD_SRC = REPO_ROOT / ".aitask-scripts" / "board" / "aitask_board.py"
 
-# Synthetic stand-in for t1243_8's shared field: a board-owned key that is NOT
-# per-checkout layout. Testing the contract generally means it holds the day
-# `boardgroup` lands, instead of waiting for that child.
+# The shared board key: board-owned but NOT per-checkout layout. This was a
+# synthetic stand-in until t1243_8 landed `boardgroup` for real; it is now the
+# actual key, which is exactly what these tests were written ahead of.
 SEM = "boardgroup"
 SEM_KEYS = BOARD_LAYOUT_KEYS + (SEM,)
 
@@ -175,11 +175,18 @@ class _TreeCase(unittest.TestCase):
         return tree / "aitasks" / fixture_name(i)
 
     def allow_semantic_key(self) -> None:
-        """Teach `Task` about the synthetic shared key.
+        """Pin `Task`'s board-key vocabulary for these tests.
 
-        Patched on the CLASS, never on the module: `aitask_board.BOARD_KEYS` is
-        also read by `_is_phantom_stub`, `serialize_frontmatter` and
-        `aitask_merge._KEEP_LOCAL_FIELDS`, none of which should see it.
+        Now that t1243_8 has appended `boardgroup` to the real `BOARD_KEYS`,
+        `SEM_KEYS` equals it and this patch is a no-op — kept because it states
+        the precondition these tests depend on, and because it keeps them
+        meaningful for the NEXT shared key, before that key lands.
+
+        Patched on the CLASS, never on the module. When SEM was still synthetic
+        that was load-bearing (the module-level constant is also read by
+        `_is_phantom_stub`, `serialize_frontmatter` and
+        `aitask_merge._KEEP_LOCAL_FIELDS`, none of which should have seen a
+        fictional key). Keep it class-scoped for the same reason next time.
         `_BOARD_LAYOUT_KEYS` is deliberately left alone, which is what makes SEM
         semantic.
         """
@@ -701,9 +708,10 @@ class MergeFieldOwnershipTests(unittest.TestCase):
     `_KEEP_LOCAL_FIELDS` resolves a conflicted field local-wins *silently*. That
     is right for per-checkout layout and wrong for anything shared — a shared key
     inheriting it would discard another checkout's change with no signal.
-    Deriving it from `BOARD_KEYS` would do exactly that the moment t1243_8
-    appends `boardgroup`, so the ownership boundary is asserted here rather than
-    left as a comment.
+    Deriving it from `BOARD_KEYS` would do exactly that. t1243_8 has now
+    appended `boardgroup`, so `BOARD_KEYS - BOARD_LAYOUT_KEYS` is non-empty and
+    the assertion below is LIVE rather than vacuous — it was written ahead of
+    the key precisely so the boundary could never be crossed silently.
     """
 
     def test_keep_local_fields_is_exactly_the_layout_set(self):
@@ -716,6 +724,11 @@ class MergeFieldOwnershipTests(unittest.TestCase):
         fails if anyone re-points `_KEEP_LOCAL_FIELDS` at `BOARD_KEYS`."""
         import aitask_merge
         shared = set(BOARD_KEYS) - set(BOARD_LAYOUT_KEYS)
+        # Guard against silent vacuity: before t1243_8 this set was empty and
+        # the assertion below held trivially. If a future refactor collapses the
+        # two sets again, fail here rather than pass for no reason.
+        self.assertTrue(shared, "no shared board key exists — this test is "
+                                "vacuous; re-check the BOARD_KEYS split")
         self.assertEqual(shared & set(aitask_merge._KEEP_LOCAL_FIELDS), set(),
                          "a shared board key must opt in to its own merge rule, "
                          "never inherit silent local-wins")

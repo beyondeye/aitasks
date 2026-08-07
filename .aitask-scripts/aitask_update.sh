@@ -95,6 +95,8 @@ BATCH_BOARDCOL=""
 BATCH_BOARDCOL_SET=false
 BATCH_BOARDIDX=""
 BATCH_BOARDIDX_SET=false
+BATCH_BOARDGROUP=""
+BATCH_BOARDGROUP_SET=false
 BATCH_ISSUE=""
 BATCH_ISSUE_SET=false
 BATCH_PULL_REQUEST=""
@@ -133,6 +135,10 @@ CURRENT_ASSIGNED_TO=""
 CURRENT_ANCHOR=""
 CURRENT_BOARDCOL=""
 CURRENT_BOARDIDX=""
+# Presence is tracked separately from value: `boardgroup: ""` is a TOMBSTONE
+# (explicitly ungrouped), which is NOT the same as the key being absent.
+CURRENT_BOARDGROUP=""
+CURRENT_BOARDGROUP_PRESENT=false
 CURRENT_ISSUE=""
 CURRENT_PULL_REQUEST=""
 CURRENT_CONTRIBUTOR=""
@@ -225,6 +231,7 @@ Description options (batch mode):
 Board options (batch mode):
   --boardcol COL           Board column ID (e.g., now, next, backlog)
   --boardidx IDX           Board sort index (integer)
+  --boardgroup SLUG        In-column board group slug ([a-z0-9_]+); "" clears
 
 Issue tracking options (batch mode):
   --issue URL              Issue tracker URL (e.g., GitHub issue URL; use "" to clear)
@@ -349,6 +356,7 @@ parse_args() {
             --anchor) BATCH_ANCHOR="$2"; BATCH_ANCHOR_SET=true; shift 2 ;;
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
+            --boardgroup) BATCH_BOARDGROUP="$2"; BATCH_BOARDGROUP_SET=true; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; BATCH_ISSUE_SET=true; shift 2 ;;
             --pull-request) BATCH_PULL_REQUEST="$2"; BATCH_PULL_REQUEST_SET=true; shift 2 ;;
             --contributor) BATCH_CONTRIBUTOR="$2"; BATCH_CONTRIBUTOR_SET=true; shift 2 ;;
@@ -453,6 +461,8 @@ parse_yaml_frontmatter() {
     CURRENT_ANCHOR=""
     CURRENT_BOARDCOL=""
     CURRENT_BOARDIDX=""
+    CURRENT_BOARDGROUP=""
+    CURRENT_BOARDGROUP_PRESENT=false
     CURRENT_ISSUE=""
     CURRENT_FOLDED_TASKS=""
     CURRENT_FOLDED_INTO=""
@@ -550,6 +560,10 @@ parse_yaml_frontmatter() {
                 anchor) CURRENT_ANCHOR="$value" ;;
                 boardcol) CURRENT_BOARDCOL="$value" ;;
                 boardidx) CURRENT_BOARDIDX="$value" ;;
+                boardgroup)
+                    CURRENT_BOARDGROUP="$value"
+                    CURRENT_BOARDGROUP_PRESENT=true
+                    ;;
                 issue) CURRENT_ISSUE="$value" ;;
                 pull_request) CURRENT_PULL_REQUEST="$value" ;;
                 contributor) CURRENT_CONTRIBUTOR="$value" ;;
@@ -643,6 +657,12 @@ write_task_file() {
     local gates="${28:-}"
     local also_blocks_dependents="${29:-}"
     local anchor="${30:-}"
+    # APPENDED at the end rather than placed beside boardcol/boardidx: inserting
+    # mid-list would silently renumber all 18 positional reads above.
+    # `boardgroup_present` is what distinguishes the `""` tombstone (write the
+    # key) from an absent key (write nothing) -- omit != clear.
+    local boardgroup="${31:-}"
+    local boardgroup_present="${32:-false}"
 
     # Preserve the `attachments:` (t1030) and `artifacts:` (t1076_2) blocks
     # verbatim: write_task_file rebuilds frontmatter from a fixed field set and
@@ -805,6 +825,15 @@ write_task_file() {
         fi
         if [[ -n "$boardidx" ]]; then
             echo "boardidx: $boardidx"
+        fi
+        # A bare `echo "boardgroup: $v"` with an empty $v emits
+        # `boardgroup: `, which the YAML loader reads back as None -- NOT
+        # the empty string the tombstone contract requires. Emit the quoted
+        # literal so "cleared" round-trips as a str.
+        if [[ -n "$boardgroup" ]]; then
+            echo "boardgroup: $boardgroup"
+        elif [[ "$boardgroup_present" == true ]]; then
+            echo 'boardgroup: ""'
         fi
         echo "---"
         echo ""
@@ -1115,6 +1144,8 @@ handle_child_task_completion() {
     local saved_assigned_to="$CURRENT_ASSIGNED_TO"
     local saved_boardcol="$CURRENT_BOARDCOL"
     local saved_boardidx="$CURRENT_BOARDIDX"
+    local saved_boardgroup="$CURRENT_BOARDGROUP"
+    local saved_boardgroup_present="$CURRENT_BOARDGROUP_PRESENT"
     local saved_issue="$CURRENT_ISSUE"
     local saved_folded_tasks="$CURRENT_FOLDED_TASKS"
     local saved_folded_into="$CURRENT_FOLDED_INTO"
@@ -1135,7 +1166,8 @@ handle_child_task_completion() {
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS" \
-        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR"
+        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
+        "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1169,6 +1201,8 @@ handle_child_task_completion() {
     CURRENT_CHILDREN_TO_IMPLEMENT="$saved_children"
     CURRENT_BOARDCOL="$saved_boardcol"
     CURRENT_BOARDIDX="$saved_boardidx"
+    CURRENT_BOARDGROUP="$saved_boardgroup"
+    CURRENT_BOARDGROUP_PRESENT="$saved_boardgroup_present"
     CURRENT_ISSUE="$saved_issue"
     CURRENT_FOLDED_TASKS="$saved_folded_tasks"
     CURRENT_FOLDED_INTO="$saved_folded_into"
@@ -1650,7 +1684,8 @@ run_interactive_mode() {
         "$CURRENT_CONTRIBUTOR_EMAIL" "$CURRENT_IMPLEMENTED_WITH" "$CURRENT_FILE_REFERENCES" \
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS" \
-        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR"
+        "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
+        "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1761,6 +1796,7 @@ run_batch_mode() {
     [[ "$BATCH_ANCHOR_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
+    [[ "$BATCH_BOARDGROUP_SET" == true ]] && has_update=true
     [[ "$BATCH_ISSUE_SET" == true ]] && has_update=true
     [[ "$BATCH_PULL_REQUEST_SET" == true ]] && has_update=true
     [[ "$BATCH_CONTRIBUTOR_SET" == true ]] && has_update=true
@@ -1995,6 +2031,14 @@ run_batch_mode() {
     if [[ "$BATCH_BOARDIDX_SET" == true ]]; then
         new_boardidx="$BATCH_BOARDIDX"
     fi
+    # Setting the field -- including clearing it to "" -- makes the key present
+    # from now on, so a clear persists as a tombstone instead of vanishing.
+    local new_boardgroup="$CURRENT_BOARDGROUP"
+    local new_boardgroup_present="$CURRENT_BOARDGROUP_PRESENT"
+    if [[ "$BATCH_BOARDGROUP_SET" == true ]]; then
+        new_boardgroup="$BATCH_BOARDGROUP"
+        new_boardgroup_present=true
+    fi
 
     # Process issue
     local new_issue="$CURRENT_ISSUE"
@@ -2070,7 +2114,8 @@ run_batch_mode() {
         "$new_contributor_email" "$new_implemented_with" "$new_file_references" \
         "$new_verifies" "$new_xdeps" "$new_xdeprepo" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks" \
-        "$new_gates" "$new_abd" "$new_anchor"
+        "$new_gates" "$new_abd" "$new_anchor" \
+        "$new_boardgroup" "$new_boardgroup_present"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
@@ -2222,6 +2267,18 @@ main() {
     # `--project` redirect near the top of main() re-execs the sibling's own
     # aitask_update.sh, so a cross-repo update validates against the TARGET
     # project's board_config.json, not this one's.
+    # Validate --boardgroup (t1243_8). Same placement rule as --boardcol above.
+    # REJECT, never coerce: group identity IS the slug, so lowercasing or
+    # replacing separators would silently collapse two distinct inputs into one
+    # group — and merging groups is a destructive act the design requires to be
+    # confirmed, never silent. The board's group-create UI normalizes before
+    # calling. `--boardgroup ""` is the tombstone and skips validation.
+    if [[ "$BATCH_BOARDGROUP_SET" == true && -n "$BATCH_BOARDGROUP" ]]; then
+        if [[ ! "$BATCH_BOARDGROUP" =~ ^[a-z0-9_]+$ ]]; then
+            die "boardgroup '$BATCH_BOARDGROUP' is not a valid slug (expected [a-z0-9_]+)."
+        fi
+    fi
+
     if [[ "$BATCH_BOARDCOL_SET" == true && -n "$BATCH_BOARDCOL" ]]; then
         BATCH_BOARDCOL=$(normalize_board_column "$BATCH_BOARDCOL")
     fi

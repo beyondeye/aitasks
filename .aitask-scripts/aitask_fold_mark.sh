@@ -316,6 +316,12 @@ fi
 # on fold — the primary keeps its own anchor; the folded task's file is deleted
 # during archival, so its anchor simply disappears.
 
+# boardgroup (t1243_8) is a scalar board-group slug and follows the same rule:
+# NOT unioned/merged on fold. The primary keeps its own group membership. There
+# is nothing to union — group identity is (column, slug), so adopting a folded
+# task's slug could silently move the primary into a different group, and the
+# folded file is deleted at archival anyway.
+
 "$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \

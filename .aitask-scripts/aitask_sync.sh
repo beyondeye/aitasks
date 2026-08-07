@@ -128,6 +128,16 @@ iinfo() {
     fi
 }
 
+# Interactive info routed to STDERR. For use inside functions whose STDOUT is a
+# data channel — `try_auto_merge` returns the unresolved-file list on stdout, so
+# a progress line written there is parsed by the caller as a conflicted
+# filename and the interactive loop then opens $EDITOR on it.
+iinfo_err() {
+    if [[ "$BATCH_MODE" == false ]]; then
+        info "$1" >&2
+    fi
+}
+
 iwarn() {
     if [[ "$BATCH_MODE" == false ]]; then
         warn "$1"
@@ -218,11 +228,48 @@ try_auto_merge() {
             aitasks/*.md|aiplans/*.md)
                 local file_path merge_exit=0
                 file_path="$(_resolve_conflict_path "$f")"
-                PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR/board" "$_MERGE_PYTHON" "$_MERGE_SCRIPT" "$file_path" --batch --rebase 2>/dev/null || merge_exit=$?
+                # Supply the MERGE BASE from git's conflicted index (stage 1 =
+                # base, 2 = ours, 3 = theirs). The diff3 marker base is not an
+                # option: `merge.conflictStyle` is configured nowhere, so git
+                # emits 2-way markers and the parser has no ancestor to read.
+                # `$f` (repo-relative), never `$file_path` — a `:1:` pathspec is
+                # resolved against the repo, not the filesystem.
+                # `show` is on assert_data_worktree_clean's read-only allowlist,
+                # so this works while the rebase is wedged. An add/add conflict
+                # has no stage 1; the extraction fails, no flag is passed, and
+                # base-aware fields fail closed to PARTIAL.
+                local base_tmp base_args=()
+                base_tmp="$(mktemp)"
+                if task_git show ":1:$f" > "$base_tmp" 2>/dev/null; then
+                    base_args=(--base-file "$base_tmp")
+                else
+                    rm -f "$base_tmp"
+                    base_tmp=""
+                fi
+                # STDOUT of this function IS the unresolved-file list its caller
+                # parses, so the driver's own stdout ("RESOLVED" / "PARTIAL:...")
+                # must not leak into it — it was being reported as a conflicted
+                # filename (`CONFLICT:RESOLVED`). Only the exit status matters.
+                PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$SCRIPT_DIR/board" "$_MERGE_PYTHON" "$_MERGE_SCRIPT" "$file_path" --batch --rebase ${base_args[@]+"${base_args[@]}"} >/dev/null 2>&1 || merge_exit=$?
+                if [[ -n "$base_tmp" ]]; then rm -f "$base_tmp"; fi
                 if [[ $merge_exit -eq 0 ]]; then
-                    task_git add "$f" 2>/dev/null || true
-                    resolved_count=$((resolved_count + 1))
-                    iinfo "Auto-merged: $f"
+                    # The state-check guard rejects mutating verbs while the data
+                    # worktree is mid-rebase — but staging a resolved conflict is
+                    # exactly what this code path exists to do, and it owns that
+                    # rebase. Scope the documented bypass to this one call.
+                    local add_err add_rc=0
+                    add_err="$(AIT_GIT_SKIP_STATE_CHECK=1 task_git add "$f" 2>&1)" || add_rc=$?
+                    if [[ $add_rc -eq 0 ]]; then
+                        resolved_count=$((resolved_count + 1))
+                        iinfo_err "Auto-merged: $f"
+                    else
+                        # A file we could not stage is an UNRESOLVED merge, not a
+                        # resolved one: `rebase --continue` would fail later with
+                        # the diagnostic already discarded. warn() -> stderr,
+                        # never info()/iinfo(), which write to the data channel.
+                        warn "auto-merge could not stage $f (git add rc=$add_rc): ${add_err:-<no output>}"
+                        unresolved="${unresolved}${unresolved:+$'\n'}$f"
+                    fi
                 else
                     unresolved="${unresolved}${unresolved:+$'\n'}$f"
                 fi
@@ -234,10 +281,10 @@ try_auto_merge() {
     done <<< "$conflicted"
 
     if [[ -z "$unresolved" ]]; then
-        iinfo "Auto-merged $resolved_count file(s)"
+        iinfo_err "Auto-merged $resolved_count file(s)"
         return 0
     else
-        [[ $resolved_count -gt 0 ]] && iinfo "Auto-merged $resolved_count file(s), remaining conflicts need manual resolution"
+        [[ $resolved_count -gt 0 ]] && iinfo_err "Auto-merged $resolved_count file(s), remaining conflicts need manual resolution"
         echo "$unresolved"
         return 1
     fi

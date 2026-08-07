@@ -59,7 +59,14 @@ BOARD_LAYOUT_KEYS = ("boardcol", "boardidx")
 # otherwise it inherits both policies above. (It is not at risk of being written
 # back by unrelated layout moves either way: every caller names the exact fields
 # it mutated.)
-BOARD_KEYS = BOARD_LAYOUT_KEYS
+# `boardgroup` (t1243_8) is the first SHARED board key: in-column group
+# membership, keyed by slug. It is deliberately outside BOARD_LAYOUT_KEYS —
+# membership is task organization a user expects to travel between checkouts, so
+# it must neither merge silently local-wins nor be written without recording
+# `updated_at`. Its merge rule is base-aware change detection in
+# board/aitask_merge.py; read it through lib/board_groups.normalize_group_slug,
+# never raw (a persisted value can legally be None, a list, or an int).
+BOARD_KEYS = BOARD_LAYOUT_KEYS + ("boardgroup",)
 
 FRONTMATTER_RE = re.compile(r'\A---\n(.*?)\n---\n(.*)', re.DOTALL)
 
@@ -157,8 +164,9 @@ def serialize_frontmatter(metadata: dict, body: str, original_key_order: list) -
     """Serialize metadata and body back into a task file string.
 
     Keys are ordered: original order first, then new non-board keys,
-    board keys (boardcol, boardidx) always last — preserving the relative
-    order the file already used among the board keys it already had.
+    board keys (BOARD_KEYS — boardcol, boardidx, boardgroup) always last —
+    preserving the relative order the file already used among the board keys
+    it already had.
 
     Returns:
         str: Complete file content with ``---`` delimited frontmatter.

@@ -37,6 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from task_yaml import (  # noqa: E402
     parse_frontmatter, serialize_frontmatter, BOARD_LAYOUT_KEYS,
 )
+from board_groups import normalize_group_slug  # noqa: E402
 import gate_ledger  # noqa: E402  -- stdlib-only; sys.path set up just above
 from atomic_write import atomic_write_text  # noqa: E402
 
@@ -144,6 +145,23 @@ _PROMPTABLE_FIELDS = frozenset({"priority", "effort"})
 # profile ever produced) and resolved as ONE group in merge_frontmatter.
 _ACTIVE_TUPLE_FIELDS = ("active_gates", "active_gates_filtered",
                         "active_gates_profile", "active_gates_digest")
+# Base-aware fields (t1243_8): resolved by comparing each side against the MERGE
+# BASE rather than by presence or timestamp, and resolved BEFORE the loop so the
+# unconditional one-sided-presence branch never sees them.
+#
+# `boardgroup` is in-column group membership -- shared task organization, so
+# keep-local is wrong for it -- and neither of the generic rules can decide it:
+#   * one-sided presence resolves FIRST and unconditionally, so a side that
+#     clears the field loses to a side that still carries it: membership
+#     RESURRECTS on sync;
+#   * `updated_at` is task-wide and minute-resolution, so an unrelated `status`
+#     edit on a stale checkout can win a field it never touched, and bulk group
+#     operations tie constantly. A timestamp is a proxy for causality, not
+#     causality.
+# Comparing against the base decides on *who actually edited the field*, and
+# fails closed to unresolved/PARTIAL when both sides changed it differently or
+# when no base is available.
+_BASE_AWARE_FIELDS = ("boardgroup",)
 
 
 def _parse_timestamp(ts) -> str:
@@ -168,12 +186,60 @@ def _prompt_field_choice(field: str, local_val, remote_val, newer: str):
     return local_val if choice == "l" else remote_val
 
 
+def _resolve_base_aware(key, local_meta, remote_meta, base_meta):
+    """Resolve one base-aware field. Returns ``(present, value, is_unresolved)``.
+
+    ``present`` is False when neither side carries the key at all, in which case
+    the merged result must not invent it (mirroring the active-tuple block).
+
+    Values are compared through ``normalize_group_slug``, so an absent key, an
+    explicit ``None`` and the ``""`` tombstone all read as *ungrouped*. Without
+    that, a side that deletes the key and a side that writes the tombstone would
+    look like two different changes and a decidable merge would fail closed for
+    no reason. (The tombstone itself is written by ``aitask_update.sh``; this
+    normalization is defence in depth, not the persisted contract.)
+    """
+    in_local = key in local_meta
+    in_remote = key in remote_meta
+    if not in_local and not in_remote:
+        return (False, None, False)
+
+    local_val = normalize_group_slug(local_meta.get(key))
+    remote_val = normalize_group_slug(remote_meta.get(key))
+    if local_val == remote_val:
+        return (True, local_meta.get(key) if in_local else remote_meta.get(key),
+                False)
+
+    # Sides differ. Only the base can say which of them actually changed it.
+    if base_meta is None:
+        return (True, local_meta.get(key), True)   # fail closed -> PARTIAL
+
+    base_val = normalize_group_slug(base_meta.get(key))
+    local_changed = local_val != base_val
+    remote_changed = remote_val != base_val
+    if local_changed and not remote_changed:
+        return (True, local_meta.get(key), False)
+    if remote_changed and not local_changed:
+        return (True, remote_meta.get(key), False)
+    # Both changed to different values (they differ, checked above), or neither
+    # differs from a base that somehow differs from both -- genuinely concurrent
+    # regrouping. Surface it rather than guess.
+    return (True, local_meta.get(key), True)
+
+
 def merge_frontmatter(
     local_meta: dict,
     remote_meta: dict,
     batch: bool = False,
+    base_meta: dict | None = None,
 ) -> tuple[dict, list[str]]:
     """Apply auto-merge rules to two frontmatter dicts.
+
+    ``base_meta`` is the MERGE BASE's frontmatter (git stage 1), supplied by
+    ``aitask_sync.sh`` via ``--base-file``. It is used only by
+    ``_BASE_AWARE_FIELDS``; every other rule is unchanged, and passing ``None``
+    (the default) is behaviour-identical to the pre-t1243_8 three-argument call
+    for every field except those.
 
     Returns (merged_metadata, list_of_unresolved_field_names).
     """
@@ -199,9 +265,23 @@ def merge_frontmatter(
             if k in tuple_src:
                 merged[k] = tuple_src[k]
 
+    # Base-aware fields (t1243_8). Resolved HERE, ahead of the loop, because the
+    # loop's one-sided-presence branch is unconditional and would resurrect a
+    # value the other side deliberately cleared.
+    for key in _BASE_AWARE_FIELDS:
+        present, value, is_unresolved = _resolve_base_aware(
+            key, local_meta, remote_meta, base_meta)
+        if not present:
+            continue
+        merged[key] = value
+        if is_unresolved:
+            unresolved.append(key)
+
     for key in all_keys:
         if key in _ACTIVE_TUPLE_FIELDS:
             continue  # resolved as a group above
+        if key in _BASE_AWARE_FIELDS:
+            continue  # resolved against the merge base above
         in_local = key in local_meta
         in_remote = key in remote_meta
 
@@ -416,6 +496,13 @@ def main() -> int:
         help="Swap LOCAL/REMOTE sides (during git rebase, conflict marker "
              "sides are inverted: LOCAL=upstream, REMOTE=our commits)",
     )
+    parser.add_argument(
+        "--base-file", dest="base_file", default=None,
+        help="Path to the merge base's version of the file (git stage 1). "
+             "Used to resolve base-aware fields by detecting which side "
+             "actually changed them; omit it and those fields fail closed to "
+             "PARTIAL on divergence.",
+    )
     args = parser.parse_args()
 
     filepath = Path(args.file)
@@ -449,10 +536,30 @@ def main() -> int:
     local_meta, local_body, local_keys = local_parsed
     remote_meta, remote_body, remote_keys = remote_parsed
 
+    # 2b. Parse the merge base, when one was supplied (git stage 1).
+    #
+    # NO rebase swap here: `--rebase` inverts the two CONFLICT-MARKER sides,
+    # but stage 1 is the common ancestor of both regardless of which direction
+    # the rebase is replaying. Swapping it would be wrong in both directions.
+    #
+    # Best-effort by design: an add/add conflict genuinely has no stage 1, so
+    # `git show :1:` fails and no path is passed. Base-aware fields then fail
+    # closed to PARTIAL rather than guessing.
+    base_meta = None
+    if args.base_file:
+        try:
+            base_parsed = parse_frontmatter(
+                Path(args.base_file).read_text(encoding="utf-8"))
+        except OSError:
+            base_parsed = None
+        if base_parsed:
+            base_meta = base_parsed[0]
+
     # 3. Merge frontmatter
     merged_meta, unresolved = merge_frontmatter(
         local_meta, remote_meta,
         batch=args.batch,
+        base_meta=base_meta,
     )
 
     # 4. Merge body

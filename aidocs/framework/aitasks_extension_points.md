@@ -69,6 +69,39 @@ no-op comment in `aitask_fold_mark.sh` (scalar, primary wins); merge =
 newer-wins scalar branch (NOT in `_LIST_UNION_FIELDS`/`BOARD_KEYS`); docs =
 every surface in layer 5 above. (Board layer 3 + reference row ship separately.)
 
+**Worked example — `boardgroup` (t1243_8):** the first **shared** board key
+(in-column group membership, keyed by slug). It shows the two ways a board key
+differs from an ordinary scalar:
+
+- **Layer 4b:** added to `BOARD_KEYS` but deliberately **not** to
+  `BOARD_LAYOUT_KEYS`, so it inherits neither silent local-wins nor
+  timestamp-neutral writes.
+- **Layer 4:** it needed a merge rule of its own, because *neither* generic rule
+  can decide shared membership. One-sided presence resolves first and
+  unconditionally, so a side that CLEARS the field loses to a side still
+  carrying it — membership resurrects on sync. And `updated_at` is task-wide and
+  minute-resolution, so an unrelated edit on a stale checkout wins a field it
+  never touched. The rule is therefore **base-aware change detection**
+  (`_BASE_AWARE_FIELDS`), resolved in a pre-loop block ahead of the one-sided
+  branch, with the merge base read from **git's conflicted index** (stage 1) and
+  passed by `aitask_sync.sh` as `--base-file`. It fails closed to PARTIAL when
+  both sides changed it differently or no base exists. *The diff3 marker base is
+  not a usable source: `merge.conflictStyle` is configured nowhere, so git emits
+  2-way markers and the parser has no ancestor to read.*
+- **Deletion needs a value, not an absence:** clearing writes the `""`
+  **tombstone** rather than removing the key (omit ≠ clear). Note
+  `write_task_file` skips empty board fields, and a bare `echo "key: $v"` emits
+  `key: ` which the YAML loader reads back as `None` — so the tombstone is
+  written as the quoted literal and carries a `_PRESENT` flag.
+- **Persisted values are not trusted:** every consumer reads through
+  `lib/board_groups.normalize_group_slug`, because a hand edit or another
+  checkout can legally supply `None`, a list (unhashable — it would crash a
+  keyed derivation), an int or a bool.
+- Write path = `--boardgroup` in `aitask_update.sh` **only** (update-only,
+  mirroring `--boardidx`, which `aitask_create.sh` also lacks); fold = no-op
+  comment (scalar, primary wins); docs = layer 5 + the `sync.md` merge-rules
+  table. (Board layer 3 `BoardGroupField` ships separately in t1243_12.)
+
 ## Adding a new helper script
 
 Any new script under `.aitask-scripts/` invoked by a skill must be allowlisted

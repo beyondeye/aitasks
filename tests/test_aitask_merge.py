@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "board"))
 from aitask_merge import merge_body, merge_frontmatter, parse_conflict_file
+from board_groups import normalize_group_slug
 # Importing aitask_merge above also inserts ../lib on sys.path, so gate_ledger
 # (the canonical ledger parser/builder used to construct realistic fixtures) is
 # now importable.
@@ -506,6 +507,245 @@ class TestActiveGatesTupleMerge(unittest.TestCase):
         merged, _ = merge_frontmatter(local, remote, batch=True)
         self.assertEqual(merged["active_gates"], [])
         self.assertEqual(merged["active_gates_filtered"], ["risk_evaluated"])
+
+
+class TestBoardgroupBaseAwareMerge(unittest.TestCase):
+    """`boardgroup` is resolved against the MERGE BASE, not presence or time.
+
+    Two generic rules are both wrong for group membership:
+      * one-sided presence resolves FIRST and unconditionally, so a side that
+        clears the field loses to a side that still carries it — membership
+        RESURRECTS on sync;
+      * `updated_at` is task-wide and minute-resolution, so an unrelated edit on
+        a stale checkout wins a field it never touched.
+    """
+
+    def _merge(self, local, remote, base=None):
+        return merge_frontmatter(local, remote, batch=True, base_meta=base)
+
+    # --- the resolution table -------------------------------------------
+    def test_only_local_changed_local_wins(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "perf_work"}, {"boardgroup": "old"},
+            base={"boardgroup": "old"})
+        self.assertEqual(merged["boardgroup"], "perf_work")
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_only_remote_changed_remote_wins(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "old"}, {"boardgroup": "perf_work"},
+            base={"boardgroup": "old"})
+        self.assertEqual(merged["boardgroup"], "perf_work")
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_both_changed_to_same_value(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "same"}, {"boardgroup": "same"},
+            base={"boardgroup": "old"})
+        self.assertEqual(merged["boardgroup"], "same")
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_both_changed_differently_is_partial(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "mine"}, {"boardgroup": "theirs"},
+            base={"boardgroup": "old"})
+        self.assertIn("boardgroup", unresolved)
+
+    def test_no_base_and_divergent_fails_closed(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "mine"}, {"boardgroup": "theirs"}, base=None)
+        self.assertIn("boardgroup", unresolved)
+
+    def test_identical_values_need_no_base(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "same"}, {"boardgroup": "same"}, base=None)
+        self.assertEqual(merged["boardgroup"], "same")
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_absent_on_both_sides_is_not_invented(self):
+        merged, unresolved = self._merge({"status": "Ready"},
+                                         {"status": "Ready"})
+        self.assertNotIn("boardgroup", merged)
+        self.assertNotIn("boardgroup", unresolved)
+
+    # --- deletion, the defect one-sided presence caused ------------------
+    def test_local_cleared_beats_remote_still_carrying(self):
+        """The headline case: a clear must NOT be resurrected."""
+        merged, unresolved = self._merge(
+            {"boardgroup": ""}, {"boardgroup": "perf_work"},
+            base={"boardgroup": "perf_work"})
+        self.assertEqual(merged["boardgroup"], "")
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_remote_cleared_beats_local_still_carrying(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "perf_work"}, {"boardgroup": ""},
+            base={"boardgroup": "perf_work"})
+        self.assertEqual(merged["boardgroup"], "")
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_unrelated_edit_does_not_win_the_field(self):
+        """A `status`-only edit must not decide membership.
+
+        Machine A cleared the group; machine B edited only `status` while still
+        carrying the old value and has the NEWER timestamp. Newer-wins would
+        hand B a field it never touched.
+        """
+        merged, unresolved = self._merge(
+            {"boardgroup": "", "status": "Ready",
+             "updated_at": "2026-01-01 10:00"},
+            {"boardgroup": "perf_work", "status": "Editing",
+             "updated_at": "2026-01-01 12:00"},
+            base={"boardgroup": "perf_work", "status": "Ready",
+                  "updated_at": "2026-01-01 09:00"})
+        self.assertEqual(merged["boardgroup"], "")
+        self.assertNotIn("boardgroup", unresolved)
+
+    # --- canonicalisation: absent / None / "" all mean ungrouped ---------
+    def test_absent_and_tombstone_are_not_a_change(self):
+        """Deleting the key and writing "" are the same intent.
+
+        Comparing raw would call this two different changes and fail closed for
+        no reason.
+        """
+        merged, unresolved = self._merge(
+            {},                                  # local deleted the key
+            {"boardgroup": ""},                  # remote wrote the tombstone
+            base={"boardgroup": ""})
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_yaml_null_reads_as_ungrouped(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": None}, {"boardgroup": ""},
+            base={"boardgroup": ""})
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_whitespace_bearing_value_is_a_real_change(self):
+        """A quoted `"perf_work "` edit must NOT read as unchanged from base.
+
+        If the boundary stripped, local would compare equal to the base and the
+        user's edit would be silently discarded in favour of the other side.
+        """
+        merged, unresolved = self._merge(
+            {"boardgroup": "perf_work "},          # local hand-edited a space in
+            {"boardgroup": "perf_work"},           # remote untouched
+            base={"boardgroup": "perf_work"})
+        self.assertEqual(merged["boardgroup"], "perf_work ")
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_whitespace_only_value_reads_as_ungrouped(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": "   "}, {"boardgroup": ""},
+            base={"boardgroup": ""})
+        self.assertNotIn("boardgroup", unresolved)
+
+    def test_malformed_value_does_not_raise(self):
+        merged, unresolved = self._merge(
+            {"boardgroup": []}, {"boardgroup": "perf_work"},
+            base={"boardgroup": "perf_work"})
+        self.assertNotIn("boardgroup", unresolved)
+
+    # --- it must NOT inherit the layout rule ----------------------------
+    def test_boardgroup_is_not_keep_local(self):
+        import aitask_merge
+        self.assertNotIn("boardgroup", aitask_merge._KEEP_LOCAL_FIELDS)
+
+    def test_one_sided_presence_branch_cannot_see_it(self):
+        """Pre-loop resolution is what makes deletion decidable at all.
+
+        Without base_meta the divergence fails closed; the generic one-sided
+        rule would instead have silently taken the surviving side.
+        """
+        merged, unresolved = self._merge({}, {"boardgroup": "perf_work"},
+                                         base={"boardgroup": "perf_work"})
+        # Remote is unchanged from base, local cleared it -> local wins.
+        self.assertEqual(normalize_group_slug(merged.get("boardgroup")), "")
+
+
+class TestMergeBaselineCharacterization(unittest.TestCase):
+    """Characterization of every resolution rule t1243_8 does NOT change.
+
+    t1243_8 adds a fourth `base_meta` parameter to `merge_frontmatter` and a
+    pre-loop block for `_BASE_AWARE_FIELDS`. Both edits sit in the single
+    function where every checkout's task data converges, so a regression here
+    silently loses another machine's edit rather than failing loudly.
+
+    This table is the regression net, and it is deliberately written and run
+    green against the PRE-CHANGE function first — a characterization test that
+    has never passed against the old code characterizes nothing. Every case
+    below therefore uses the three-argument call that exists today.
+
+    `boardgroup` is intentionally ABSENT from this table: it is the field the
+    task changes, so pinning today's (generic-fallback) behaviour for it would
+    encode the bug being fixed.
+    """
+
+    # (name, local, remote, expected_key, expected_value, expect_unresolved)
+    CASES = [
+        ("boardcol_local_wins",
+         {"boardcol": "now"}, {"boardcol": "next"}, "boardcol", "now", False),
+        ("boardidx_local_wins",
+         {"boardidx": 10}, {"boardidx": 50}, "boardidx", 10, False),
+        ("updated_at_newer_wins",
+         {"updated_at": "2026-02-20 10:00"}, {"updated_at": "2026-02-24 15:00"},
+         "updated_at", "2026-02-24 15:00", False),
+        ("anchor_newer_wins",
+         {"anchor": "42", "updated_at": "2026-02-20 10:00"},
+         {"anchor": "99", "updated_at": "2026-02-24 15:00"},
+         "anchor", "99", False),
+        ("labels_union_sorted",
+         {"labels": ["ui", "backend"]}, {"labels": ["backend", "api"]},
+         "labels", ["api", "backend", "ui"], False),
+        ("depends_union_sorted",
+         {"depends": ["2"]}, {"depends": ["1"]}, "depends", ["1", "2"], False),
+        ("priority_remote_wins_in_batch",
+         {"priority": "high"}, {"priority": "low"}, "priority", "low", False),
+        ("effort_remote_wins_in_batch",
+         {"effort": "low"}, {"effort": "high"}, "effort", "high", False),
+        ("status_implementing_wins",
+         {"status": "Ready"}, {"status": "Implementing"},
+         "status", "Implementing", False),
+        ("status_both_other_unresolved",
+         {"status": "Ready"}, {"status": "Editing"}, "status", "Ready", True),
+        ("one_sided_local_included",
+         {"issue_type": "bug"}, {}, "issue_type", "bug", False),
+        ("one_sided_remote_included",
+         {}, {"issue_type": "bug"}, "issue_type", "bug", False),
+        ("same_value_kept",
+         {"priority": "high"}, {"priority": "high"}, "priority", "high", False),
+        ("unknown_scalar_divergence_unresolved",
+         {"custom": "a"}, {"custom": "b"}, "custom", "a", True),
+    ]
+
+    def test_baseline_resolution_table(self):
+        for name, local, remote, key, expected, expect_unresolved in self.CASES:
+            with self.subTest(case=name):
+                merged, unresolved = merge_frontmatter(
+                    dict(local), dict(remote), batch=True)
+                got = merged.get(key)
+                if isinstance(expected, list):
+                    self.assertEqual(sorted(got), expected)
+                else:
+                    self.assertEqual(got, expected)
+                if expect_unresolved:
+                    self.assertIn(key, unresolved)
+                else:
+                    self.assertNotIn(key, unresolved)
+
+    def test_one_sided_presence_resurrects_a_deleted_field(self):
+        """The defect `boardgroup` must escape — pinned so the escape is visible.
+
+        A side that clears a field by OMITTING the key loses to a side that
+        still carries it, unconditionally and ahead of every field rule. This is
+        correct-by-design for ordinary fields and is exactly why membership
+        needs base-aware resolution instead.
+        """
+        merged, unresolved = merge_frontmatter(
+            {"labels": ["ui"]},                      # local dropped `anchor`
+            {"labels": ["ui"], "anchor": "42"},      # remote still carries it
+            batch=True)
+        self.assertEqual(merged["anchor"], "42")
+        self.assertNotIn("anchor", unresolved)
 
 
 if __name__ == "__main__":
