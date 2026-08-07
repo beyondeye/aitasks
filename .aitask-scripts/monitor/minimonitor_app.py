@@ -79,6 +79,16 @@ from textual.timer import Timer  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
 
+# Consecutive *verified* empty-window observations required before the companion
+# closes itself (t1446). Any observation that is not a verified self-sighting —
+# a tmux failure, an incompletely parsed listing, or a window that still holds
+# another pane — resets the streak to 0, so the count only ever measures
+# back-to-back positive evidence. At the default 3 s refresh this costs ~3 s of
+# extra pane lifetime and buys immunity to a single-tick glitch. There is
+# deliberately NO opposite budget: repeated failures never close the pane.
+AUTO_CLOSE_CONFIRMATIONS = 2
+
+
 # -- Widgets ------------------------------------------------------------------
 
 class MiniPaneCard(Static, can_focus=True):
@@ -249,6 +259,9 @@ class MiniMonitorApp(
         # within a tick. See MonitorApp._compute_completed_panes.
         self._completed_pane_ids: frozenset[str] = frozenset()
         self._mount_time: float = 0.0
+        # Back-to-back verified-empty observations (t1446) — see
+        # AUTO_CLOSE_CONFIRMATIONS and _check_auto_close.
+        self._empty_window_streak: int = 0
         self._own_window_id: str | None = None
         self._own_window_index: str | None = None
         self._own_window_name: str | None = None
@@ -509,13 +522,40 @@ class MiniMonitorApp(
         await self._maybe_purge_marks()
 
     def _check_auto_close(self) -> None:
-        """Exit if no other panes remain in our window (besides ourselves)."""
+        """Exit only on a POSITIVELY OBSERVED empty window (t1446).
+
+        An observation the process could not actually make — a tmux timeout or
+        transport failure, a listing that did not parse completely, a listing
+        that does not even contain our own pane — is not evidence the window is
+        empty. Those paths never exit and reset the confirmation streak, so only
+        back-to-back positive sightings of solitude can close the companion.
+
+        The original code read `discover_window_panes()` returning `[]` as "no
+        other panes remain" and quit. On 2026-08-06 a machine-wide stall pushed
+        the 5 s tmux timeout over the edge in every minimonitor at once and they
+        all quit within the same second, abandoning the agents they were
+        watching.
+        """
         if self._monitor is None or self._own_window_id is None:
             return
-        panes = self._monitor.discover_window_panes(self._own_window_id)
+        observed, panes = self._monitor.discover_window_panes(self._own_window_id)
         own_pane = os.environ.get("TMUX_PANE")
-        other_panes = [p for p in panes if p.pane_id != own_pane]
-        if not other_panes:
+        if not observed or not own_pane:
+            # tmux failed, or the listing dropped a record (a truncated sibling
+            # row looks exactly like solitude), or we cannot identify our own
+            # pane at all — nothing was verified.
+            self._empty_window_streak = 0
+            return
+        pane_ids = {p.pane_id for p in panes}
+        if own_pane not in pane_ids:
+            # A complete listing that does not mention us is not a self-sighting.
+            self._empty_window_streak = 0
+            return
+        if pane_ids - {own_pane}:
+            self._empty_window_streak = 0  # other panes remain
+            return
+        self._empty_window_streak += 1
+        if self._empty_window_streak >= AUTO_CLOSE_CONFIRMATIONS:
             self.exit()
 
     def _update_own_window_info(self) -> None:

@@ -1749,11 +1749,27 @@ class TmuxMonitor:
             enum_sink.append(ok_sessions)
         return panes, shadows
 
-    def discover_window_panes(self, window_id: str) -> list[TmuxPaneInfo]:
+    def discover_window_panes(
+        self, window_id: str
+    ) -> tuple[bool, list[TmuxPaneInfo]]:
         """Discover panes in a specific window (not session-wide).
 
         Uses 'tmux list-panes -t window_id' (no -s flag).
         Does not filter by exclude_pane or update _pane_cache.
+
+        Returns ``(observed, panes)``. ``observed`` is ``True`` only when tmux
+        answered (``rc == 0``) **and** every non-blank record parsed. It is
+        ``False`` on a transport failure / timeout (``rc == -1``), on a tmux
+        command error (``rc == 1``), and on a listing with any unparseable
+        record — in which case the panes that *did* parse are still returned,
+        so a caller wanting a best-effort list can use them.
+
+        ``observed=False`` means **unverifiable**, never **empty** (t1446).
+        Collapsing the two is what let a 5-second tmux stall read as "no panes
+        left in my window" and quit every minimonitor companion at once; the
+        pair exists so no caller can make that mistake by omission. A dropped
+        record matters for the same reason: a truncated sibling row leaves a
+        listing that looks exactly like solitude.
         """
         fmt = "\t".join([
             "#{window_index}", "#{window_name}", "#{pane_index}",
@@ -1762,18 +1778,25 @@ class TmuxMonitor:
         ])
         rc, stdout = self.tmux_run(["list-panes", "-t", window_id, "-F", fmt])
         if rc != 0:
-            return []
+            return (False, [])
 
+        # Cleared by any dropped record — see the docstring. Blank lines are
+        # not records and never clear it.
+        complete = True
         panes: list[TmuxPaneInfo] = []
         for line in stdout.strip().splitlines():
+            if not line.strip():
+                continue
             parts = line.split("\t")
             if len(parts) != 8:
+                complete = False
                 continue
             try:
                 pane_pid = int(parts[4])
                 width = int(parts[6])
                 height = int(parts[7])
             except ValueError:
+                complete = False
                 continue
             window_name = parts[1]
             pane = TmuxPaneInfo(
@@ -1789,7 +1812,7 @@ class TmuxMonitor:
                 session_name=self.session,
             )
             panes.append(pane)
-        return panes
+        return (complete, panes)
 
     def get_compare_mode(self, pane_id: str) -> str:
         """Effective idle-detection compare mode for a pane.

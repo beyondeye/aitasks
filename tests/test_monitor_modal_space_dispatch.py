@@ -90,7 +90,9 @@ class _FakeMonitor:
     def commit_snapshots(self, gen, classified): return None
     async def capture_all_async(self): return None
     def invalidate_sessions_cache(self): pass
-    def discover_window_panes(self, window_id): return []
+    # (observed, panes) — this fake observes nothing, so it never looks like a
+    # verified empty window to the auto-close check (t1446).
+    def discover_window_panes(self, window_id): return (False, [])
 
 
 def snapshot(window="agent-t1", pane_id="%1", window_index="1") -> PaneSnapshot:
