@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1243_7]
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:15
-updated_at: 2026-08-07 10:37
+updated_at: 2026-08-07 13:00
 ---
 
 ## Context
@@ -233,3 +236,8 @@ and surface any layer this task does not cover as a note for t1243_13 (docs).
   seam (`fields=("boardgroup",)`), and is **not** written back by a plain layout
   move — extend `tests/test_board_persistence_seam.py`, whose synthetic `SEM`
   key becomes the real one here.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-07T10:00:38Z status=pass attempt=1 type=human
