@@ -496,6 +496,21 @@ goal-achievement stays **low**.
     By-Topic / By-Trail, and that merge accepts N sources including Unsorted /
     Inbox (offered only when it holds tasks). Column **rename** is deliberately
     not a feature — do not document it.
+  - **t1377_7 (manual verification)** — its checklist was written before this
+    task and predates three behaviours worth adding, each of which was a real
+    defect caught late here:
+    - Ctrl+P → "Manage Columns" / "Merge Columns" from In-Flight / By-Topic /
+      By-Trail must warn and open **nothing** (the palette bypasses
+      `check_action`; the binding being hidden is not sufficient).
+    - After a merge, closing the dialog **with Escape** (not a button) must
+      leave the board showing the new column set — the escape path discards the
+      dismiss result unless `handle_escape` is honoured.
+    - Merging from/into the inbox must say "Unsorted / Inbox" in the
+      confirmation and the toast, never the raw id `unordered`.
+    Also note the pre-existing startup quirk (t1418): the search `Input` holds
+    focus at launch and Textual drops every single-character binding from the
+    footer until Escape is pressed — press Escape before judging whether
+    `e Columns` is present.
   - **t1243_10** — `merge_columns` and the fixed `update_column` still need their
     composite-group-key half when `collapsed_groups` lands; `_title_of` in
     `ColumnManageScreen` delegates to `KanbanApp._column_title`, so a
