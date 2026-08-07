@@ -221,3 +221,75 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three pages edited as planned, nothing else touched.
+  `board/how-to.md` — "How to Customize Columns" lead rewritten around `e`, four
+  existing operation rows given their keyboard route, a **Merge columns** row
+  added, a sixth note on the derived-view restriction, plus a
+  `**Merging columns.**` paragraph and a non-transactional `> **Note:**`.
+  `board/reference.md` — three rows added to "Column Operations" (`e`,
+  `Shift+Up`, `Shift+Down`, `Enter`) and four to "Modal Dialogs Reference"
+  (Column Manage, Column Multi-Select (Merge from), Column Select (Merge into),
+  Merge Confirm), with the existing **Column Edit** trigger cell extended to
+  mention Add/Edit from the manage dialog. `minimonitor/how-to.md` — steps 2/3
+  of "How to Pick a Task by Number" rewritten, a
+  `**Moving the task to a board column instead.**` paragraph added, and the `p`
+  row of the quick reference updated. 25 insertions, 9 deletions.
+
+- **Deviations from plan:** none of substance. Two additions the plan did not
+  spell out: the reference "Column Operations" table also gained an `Enter`
+  row (edit the focused column) because the dialog's own hint line advertises
+  it, and the existing **Column Edit** modal row was amended rather than left
+  alone, since Add/Edit are now reachable from the manage dialog and the old
+  trigger cell would have been incomplete.
+
+- **Issues encountered:** the plan as written before this session was **stale in
+  four places**, because children 2/3/5 deviated during implementation. Verifying
+  against the landed source rather than the sibling plans is what caught them:
+  1. **The plan's blanket "re-run the merge to finish" advice was wrong for one
+     of the four outcomes.** `_report_merge` (`aitask_board.py:10483`) emits four
+     distinct messages, and the `<metadata:local>` one means the merge is already
+     durable — only the user-local collapsed-state prune is pending, it
+     self-heals at next launch, and re-running refuses with `unknown_column`.
+     Documenting the single retry rule would have sent users down a path the
+     code explicitly refuses.
+  2. **`<unverifiable>` — an unreadable task file blocks source removal
+     entirely** (`:2097`). Absent from the plan; without it the "source column
+     remains" prose looks like a bug rather than a deliberate refusal.
+  3. **Column management is unavailable in In-Flight / By-Topic / By-Trail**
+     (`check_action` :7282, re-checked in `_open_column_manage` :10532). Absent
+     from the plan and the single most likely "why doesn't `e` work?" question.
+  4. **"Move to column" is offered for parent tasks only** —
+     `offers_column_action` is `"_" not in task_id` (`monitor_shared.py`:1064).
+     Absent from the plan.
+
+  A fifth check retired a planned edit: the plan asked to "confirm the
+  `boardcol` / `boardidx` descriptions still read correctly after merge exists".
+  They do, unchanged — `merge_columns` composes `move_tasks_to_column` and gets
+  fresh appended indices from `indices_for_append_run`, which is the same
+  gap-indexing path the existing prose already describes. No edit made.
+
+- **Key decisions:**
+  - `e` is presented as the *primary* route in the how-to lead and in each
+    operation row, rather than as an extra column on the table. Before this
+    dialog no column operation had a key at all, so a reader scanning the
+    "Keyboard" column previously saw four em-dashes.
+  - The merge failure contract is split: the general non-transactional rule sits
+    in a `> **Note:**` blockquote (the page's admonition idiom), while the two
+    exceptions are named inside it rather than deferred to a table. A table of
+    four failure classes would out-weigh the feature on a how-to page.
+  - Collapse/expand deliberately stay documented as board-level operations —
+    they are not in the manage dialog, and the lead sentence says so.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:** t1377_7 (aggregate manual verification) should
+  check the four behaviours listed under "Issues encountered" against the live
+  TUIs — they are the ones no unit test asserts as *user-visible* and the ones
+  this documentation now commits to. In particular the `<metadata:local>` toast
+  wording ("self-heals on next launch") is hard to reach by hand; verifying the
+  other three is cheap. Anyone re-verifying a t1377 plan should read the landed
+  source, not the sibling plans: four of the five things this task documents
+  were introduced as deviations during implementation.
