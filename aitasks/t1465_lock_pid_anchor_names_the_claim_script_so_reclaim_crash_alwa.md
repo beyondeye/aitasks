@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [crash_recovery, aitask_pick, bash_scripts]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-09 13:01
-updated_at: 2026-08-09 13:01
+updated_at: 2026-08-09 13:09
 ---
 
 `get_lock_pid()` anchors a task lock to a process that is guaranteed to be dead
