@@ -403,5 +403,88 @@ approved, with the three confirmed inline phases included.
 - timing: post-phase | name: keys_match_source | type: documentation | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — picker r/R misdocumented as global keys; goal-achievement — paraphrased key/string drift | desc: check every documented key, glyph and quoted string — including R's three conditional outcomes and the post-confirm refusal — against current source, and confirm reference.md gained no new global rows
 - timing: post-phase | name: anchor_integrity | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a renamed heading silently breaks four inbound anchor links | desc: confirm both picker headings are unrenamed and all four inbound anchors still resolve
 
+## Pre-phase execution record (`stale_sweep_positive_control`)
+
+Run before any edit. The whole-tree pattern returned **28 hits**, including all
+three required targets — positive control satisfied:
+
+- `website/content/docs/tuis/minimonitor/how-to.md:165` — **picker (fix)**
+- `website/content/docs/tuis/monitor/how-to.md:195` — **picker (fix)**
+- `website/content/docs/workflows/shadow-agent.md:100` — **picker (fix, indirect)**
+
+Classification of the other 25 — all **intentional residual**, none picker-related:
+
+| count | surface | binding |
+|---|---|---|
+| 6 | brainstorm (`_index`, `how-to` ×3, `reference` ×3 → 6 total) | `A`/`a` Operations dialog |
+| 5 | settings (`how-to` ×2, `_index`, `reference` ×2) | `a` Agent Defaults tab |
+| 4 | board (`how-to` ×2, `reference` ×2) | `a` All-tasks filter |
+| 2 | syncer `_index` | `a` re-open failure modal |
+| 2 | codebrowser (`how-to`, `reference`) | `a` launch QA agent |
+| 2 | monitor (`how-to:234`, `reference:49`) | `a` auto-switch mode |
+| 1 | `skills/aitask-review.md:26` | `/aitask-review` findings "select all" |
+| 2 | `aidocs/unified_artifact_design.md:60`, `aidocs/framework/sed_macos_issues.md:255` | not keybindings (artifact table row; GNU `sed` `a` command) |
+
+No hit classified as picker-related beyond the three already in scope, so no
+Main-implementation step was added.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six planned surfaces edited (+122/−6). The three
+  stale picker passages were removed, the rejection feature documented on the
+  workflow page (new `### Reject a concern so it does not come back`) and both
+  TUI how-to pages, the two `c` keybinding-table rows extended to name `r`/`R`
+  as picker-internal, `minimonitor/_index.md` brought in line, and
+  `aidocs/framework/shadow_agent.md` gained a `## Concern rejection store`
+  section (+90) plus the Step 2 and sub-procedure-list sentences.
+
+- **Deviations from plan:** None in scope. The planned two deep links became
+  **three** — `minimonitor/_index.md` also links the new anchor, since Step 5
+  had it naming rejection anyway and a bare mention with no target would have
+  been the weakest of the five surfaces.
+
+- **Issues encountered:**
+  - The `list --machine` wire format is `REJECTED:r<id>|…` (ids `r`-prefixed),
+    but the helper's own header comment at `aitask_shadow_rejected.sh:61`
+    documents it as `REJECTED:<id>|…`. The aidocs draft followed the comment and
+    was corrected against the `printf` at `:339`. **The helper's header comment
+    is itself imprecise** — recorded under upstream defects.
+  - A verification grep for check 2b used BRE with literal `(a|b)` parens and
+    returned a false zero on all three pages. Re-run with `-E` it passed. The
+    plan's own rule — prove the pattern matches before trusting a zero — applied
+    to the checks as much as to the sweep.
+  - `grep -r` returns files in non-deterministic order, so a raw pre/post `diff`
+    of the sweep output showed spurious churn. Comparing **per-file hit counts**
+    instead gave the clean, meaningful result (3 lines gone, nothing else moved).
+
+- **Key decisions:**
+  - **`r`/`R` are documented as modal-scoped only, never as global table rows.**
+    `ait monitor` already binds `r` = refresh (`reference.md:45`) and `R` =
+    restart task (`:33`) globally; adding rows would have been factually wrong.
+    `monitor/how-to.md` carries an explicit callout about the overlap because it
+    is the one page where a reader can hit the confusion.
+  - **The two-stage write path is stated on every page that mentions `Enter`.**
+    The rejected-list modal writes nothing; only confirming the *picker*
+    persists, and cancelling discards both staged sets.
+  - **All three `R` outcomes are documented**, not just the happy path, so the
+    empty-store and no-task-id cases do not read as a dead key.
+  - **The aidocs section is framed as producer-side filtering, never a gate**,
+    with an explicit cross-reference to the file's own anti-gating principle.
+  - **The helper is documented as internal machinery in aidocs only** — no
+    user-facing CLI for `add`/`list`/`remove`/`prune` on the website.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_shadow_rejected.sh:61` — the usage/header comment documents the machine format as `REJECTED:<id>|<ts>|<producer>|<marker line>`, but `cmd_list` at `:339` emits `REJECTED:r%s|…` with an `r`-prefixed id. A consumer written against the comment would build the wrong entry ids for `remove`.
+
+- **Notes for sibling tasks:**
+  - **t1427_5 (manual verification):** the user-visible contract now documented
+    and worth exercising — `r` rejects (`✗`), `R` has **three** outcomes (list /
+    empty-store notice / no-task-id warning), marks are **staged** until the
+    picker is confirmed and discarded on `Esc`, and the next round reports
+    `Suppressed N previously-rejected concern(s).`
+  - The picker's `r`/`R` never collide with monitor's global `r`/`R` because
+    Textual does not dispatch App-level bindings under a `ModalScreen`
+    (pinned by `tests/test_monitor_modal_space_dispatch.py`).
+
 Post-implementation cleanup, archival, and merge follow **Step 9
 (Post-Implementation)** of the task workflow.
