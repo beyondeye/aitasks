@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1243_8]
 issue_type: feature
@@ -135,6 +137,32 @@ After a filter pass (off a hidden header, via the unit-aware `_refocus_column`);
 after collapsing (onto the header); after a block move (onto the header in the
 destination); after a member move (onto that card).
 
+### Scope decisions (settled at planning, confirmed with the user)
+
+Three boundaries this decomposition left open. Recorded here because t1243_10 and
+t1243_11 inherit them.
+
+1. **Minimal filter awareness lands in this child, not t1243_10.** A collapsed
+   group mounts a header and no member cards, so `cols_with_visible` omits the
+   column, the `EmptyColumnPlaceholder` flips visible, and `_column_focus_target`
+   returns the *placeholder* instead of the header — two focus anchors, breaking
+   the very invariant this child restates. So `GroupHeader` becomes a filter unit
+   here: visible iff ≥1 member **or ≥1 member's child** matches, counted toward
+   `cols_with_visible`, and added to the focus-rescue tuple. t1243_10 still owns
+   collapse **persistence**, the lifecycle owners, the prune sweep, the
+   match-count badge and the full filtering matrix.
+2. **Header movement is a dispatch seam.** t1243_11 owns the model write, so
+   "movement from a header moves the block" is not verifiable in this child. This
+   child lands the router (`_move_focused_group`) plus the `_apply_group_move`
+   seam and the focus contract; t1243_11 fills the seam. The Verification bullet
+   above was amended to match **before** implementation began.
+3. **Grouped columns fall back to recompose.** `_swap_adjacent_cards` and
+   `_transplant_block` assume a card-only column, and a member moved laterally
+   carries its `boardgroup` into the destination. When a move touches grouping
+   (`_move_needs_recompose`), fall back to `refresh_column(s)`, which re-derives
+   the DOM from `build_column_units`. Zero cost until a group exists; t1243_11
+   restores the fast path for group blocks.
+
 ## Verification
 
 Real Pilot throughout:
@@ -143,8 +171,10 @@ Real Pilot throughout:
   the case that motivated the abstraction, and which returns `None` today;
 - `↓` / `↑` enter and leave an expanded group correctly;
 - `←` / `→` preserve the positional index across columns;
-- movement from a header moves the block, from a member moves only that member,
-  from a child is refused;
+- movement from a header **dispatches** the block move — `_apply_group_move` is
+  called with the group's members in order and focus lands on the header
+  (t1243_11 implements the model write; see "Scope decision 2" below) — from a
+  member moves only that member, from a child is refused;
 - refocus lands correctly after collapse, after a block move, after a member move;
 - **integration case for a grouped parent with visible children**, pinning the
   header -> member -> children -> next-member -> next-unit sequence, lateral
