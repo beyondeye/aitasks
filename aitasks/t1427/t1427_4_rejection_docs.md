@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t1427_3]
 issue_type: documentation
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:18
-updated_at: 2026-08-09 09:26
+updated_at: 2026-08-09 10:26
 ---
 
 Documentation for the t1427 concern-rejection feature. Depends on t1427_1..3
@@ -58,3 +61,8 @@ implementation before writing.
 - `cd website && hugo build --gc --minify` builds clean.
 - Grep the docs tree for lingering references to the picker's `a`/`A`
   shortcuts and for "copy all" wording tied to the concern picker.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-09T07:26:34Z status=pass attempt=1 type=human
