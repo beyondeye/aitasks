@@ -1,11 +1,12 @@
 {
   "backend": "local",
   "created_at": 1785646785,
-  "current": "sha256:be3bb589ded1306eaa42dd0766418dd4ef5ffdf5afc02cf3d0cfbc2564bcabe3",
+  "current": "sha256:041072c1a7930a54d76b2c71736343a0f7680ad54e471502814d3b07c6a902aa",
   "handle": "art:trail-shadow-review-loop",
-  "updated_at": 1785922018,
+  "updated_at": 1786257752,
   "versions": [
     "sha256:3ba4b0a9945dfb5f70d4f57e8ff2c4007298023c1576dab6574fd8bbbd7ee8b6",
-    "sha256:be3bb589ded1306eaa42dd0766418dd4ef5ffdf5afc02cf3d0cfbc2564bcabe3"
+    "sha256:be3bb589ded1306eaa42dd0766418dd4ef5ffdf5afc02cf3d0cfbc2564bcabe3",
+    "sha256:041072c1a7930a54d76b2c71736343a0f7680ad54e471502814d3b07c6a902aa"
   ]
 }

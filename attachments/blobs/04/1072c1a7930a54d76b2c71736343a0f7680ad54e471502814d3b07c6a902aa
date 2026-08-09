@@ -1,0 +1,822 @@
+{
+  "schema_version": "1.0.0",
+  "trail_id": "trail-shadow-review-loop",
+  "title": "Shadow review-loop automation: landing order",
+  "owner": "aitasks#1159",
+  "scope": {
+    "kind": "ad_hoc",
+    "initiating_task": "aitasks#1159",
+    "topics": [
+      "aitasks#1159"
+    ],
+    "selection_note": "Invoked on t1159 and widened from topic aitasks#1159, whose topic group had exactly one member at creation time, so a topic trail would have been a single entry with no sequencing value. The original set was the 'injection-safety core': t1159 plus five live tasks sitting on the surfaces it rewrites. Four of those five (t1294, t1289, t1319, t1293) have since landed and are archived; their entries are retained as a landed record but they are NOT in generation.inputs, because the gatherer resolves member ids against the active tree only (a snapshot including them returns ERROR:unknown_task) and leaving them in inputs would make the drift check report task_completed forever. Refresh of 2026-08-05 added two new members, both anchored to aitasks#1159 and both surfaced by the topic scan: t1420 (advisory workflow-phase signal), caught by the opening drift check, and t1427 (reject shadow concerns, suppress next round), which was created while this refresh was being authored and was caught only by the pre-write re-validation. Live membership is therefore aitasks#1116, aitasks#1159, aitasks#1420, aitasks#1427, pinned by generation.inputs. t1116 keeps its own root; t1420 is anchored to 1159. The landed members' canonical roots were aitasks#1037 (t1293, t1294), aitasks#1111 (t1289) and aitasks#1307 (t1319), recorded per-entry in `topic`; this trail never reassigned them. Those borrowed roots are deliberately still absent from scope.topics: that field drives a topic-wide new-task scan, and listing three large unrelated topics would drown the signal. The cost of that trade is now demonstrated rather than theoretical — see obs-single-member-topic. Refresh of 2026-08-09: t1427 decomposed into five children (spike-first ordering); three (t1427_1 store helper, t1427_2 picker tri-state, t1427_3 producer suppression rule) are archived Done, and the remaining two (t1427_4 docs, t1427_5 aggregate manual verification) were pulled into scope automatically because the gatherer's `--scope task` resolution follows an included parent's active children — this is the same mechanic noted above for t1116/t1159/t1420/t1427 itself, now exercised for the first time. generation.inputs grew from 4 to 6 task_file refs plus 2 plan_file refs accordingly; t1427 the parent stays a member in its own right (still Ready, still the coordination point t1159's notes reference)."
+  },
+  "generation": {
+    "generated_at": "2026-08-09T06:16:00Z",
+    "generator": {
+      "agent_string": "claudecode/sonnet5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {
+      "aitasks": "51eec2429"
+    },
+    "input_digest": "8795a13a589d2241",
+    "inputs": [
+      { "ref": "aitasks:aiplans/p1427_reject_shadow_concerns_suppress_next_round.md", "kind": "plan_file" },
+      { "ref": "aitasks:aiplans/p1427/p1427_4_rejection_docs.md", "kind": "plan_file" },
+      { "ref": "aitasks#1116", "kind": "task_file" },
+      { "ref": "aitasks#1159", "kind": "task_file" },
+      { "ref": "aitasks#1420", "kind": "task_file" },
+      { "ref": "aitasks#1427", "kind": "task_file" },
+      { "ref": "aitasks#1427_4", "kind": "task_file" },
+      { "ref": "aitasks#1427_5", "kind": "task_file" }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-08-09T06:16:00Z",
+    "drift_reasons": [],
+    "refresh_recommended_because": "Refresh before acting on this trail, not merely on a schedule. Specific triggers: when t1427_4 or t1427_5 land (closing out t1427 entirely); when t1420 lands, since its design decisions are facts wave 4 rests on (which channel it uses to pass the phase, and whether prompt_patterns.py gets sharpened as part of it); when t1159's own architecture-brainstorm plan first appears (still the most consequential unplanned item — t1420 and t1116 also remain unplanned); when t1116 is un-postponed; or if the loop-direction re-weighting in obs-loop-direction-reweighted is revised again. Watch t1448 (excluded here as a downstream consumer, see obs-t1448-downstream-consumer) — once it starts, its own planning may surface constraints on t1159/t1420's shape that this trail should absorb. Note what a CURRENT verdict does NOT prove: the drift check does not hash task-file content, so a member's reasoning can change under a clean verdict — diff the member task files on refresh (obs-task-content-invisible-to-drift); this refresh did that for t1159/t1420/t1116 via `./ait git log --since` and found no undisclosed changes."
+  },
+  "narrative": {
+    "problem_statement": "t1159 is a high-effort feature that reworks how the shadow agent, the concern block, and minimonitor interact. Its own topic group contained a single task, so the useful question was never 'what order within the topic' but 'what should already be true about these surfaces before the loop is built on them'. The first four answers have landed: the concern accessor contract is enforced structurally, minimonitor's transitional shadow delegators are gone, the shadow-to-followed pane binding is authoritative, and a malformed concern block is inspectable. Two more tasks arrived in t1159's own topic that are not surfaces the loop merely touches but pieces the loop is supposed to consume: t1427 owns where per-round concern state lives, and t1420 owns the signal that picks a round's mode. A user clarification on 2026-08-05 re-weighted t1159's two directions, changing what the loop's critical path actually is. As of this refresh, t1427's substance has itself landed — the store, the picker's tri-state reject action and the producer-side suppression rule are archived Done, leaving only documentation and an aggregate manual check under t1427's own name. What remains open across the whole trail is: closing out t1427's two remaining children (non-blocking for t1159), t1420 (still fully open), the loop itself, and the postponed question about stale running instances.",
+    "recommendation_summary": "Waves 1 and 2 are complete — treat their four members as settled ground rather than as pending work. Wave 3 (t1427, t1420) has partially landed: t1427_1/_2/_3 — the rejection store, the picker's reject action, and the producer suppression rule inlined in all four concern producers — are archived Done, so the concrete artifact t1159 was told not to duplicate (the store layout and its locking discipline) is now a shipped fact rather than a design intent stated in two task files. What remains under t1427 is documentation (t1427_4) and an aggregate manual-verification checklist (t1427_5); neither blocks t1159 and both are recorded here only so a later refresh does not lose the connection. t1420 is unchanged and still the wave's open item: it derives the followed agent's workflow phase (and whether it is waiting inside it) as an advisory signal, which t1159 prefers to consume rather than derive a second time, and which sharpens the prompt-pattern detection the loop's now-critical auto-recheck direction triggers from — not a blocker, but a cost-and-duplication argument. Then build t1159, scoped by the 2026-08-05 clarification: the followed-agent-to-shadow auto-recheck direction is the time-optimization target and the safe one; concern forwarding into the followed pane is explicitly a convenience whose human review should be kept, so an architecture that automates recheck well and leaves forwarding as today's confirmed pick-and-paste is a complete answer. Finally revisit t1116, whose stale-instance question now attaches to t1420 as well as to t1159. A downstream consumer has already appeared — t1448 hard-depends on both t1159 and t1420 (see obs-t1448-downstream-consumer) — which is a sign this ordering is being relied on outside the trail itself, but t1448 lands after this wave and is excluded from membership.",
+    "method_note": "Live membership, status, priority, effort, boardcol, labels, depends and pending gates come solely from `aitask_trail_gather.sh snapshot --scope task --owner 1159 1116 1159 1420 1427` (this refresh's run additionally returned t1427_4 and t1427_5, pulled in as t1427's active children); the landed-vs-live split comes from `aitask_trail_gather.sh drift --trail art:trail-shadow-review-loop`. No board was free-read to build the member set. Completion of t1427_1/_2/_3 (and the earlier four) is established by the drift verdict plus the archived task files' frontmatter (status: Done, completed_at, risk_code_health); their entry snapshots record status Done and gates_pending [] on that basis. New-related-task candidates t1434, t1448 and t1460 were read in full and dispositioned by the user via propose-and-confirm (t1434, t1460 excluded; t1448 recorded as an observation only) rather than silently excluded. The belt-and-braces sweep (outgoing risk_mitigation_tasks on t1427_1/_2/_3, incoming verifies: grep over aitasks/) found nothing beyond what the topic-wide scan already surfaced — t1427_3's children share anchor 1159 with this trail's own scope.topics, unlike the earlier four landed members' borrowed roots, so no gap opened this time (see obs-single-member-topic). Rationale comes from reading the two newly-archived children in full (t1427_1, t1427_2 were already summarized at the 2026-08-05 refresh via t1427's own coordination text; t1427_3's archived file and the parent plan `aiplans/p1427_reject_shadow_concerns_suppress_next_round.md` were read fresh this refresh), the two new live children (t1427_4, t1427_5) and their plan `aiplans/p1427/p1427_4_rejection_docs.md`, plus `./ait git log --since` diffs of t1159/t1420/t1116's bodies (no undisclosed changes found — see freshness.refresh_recommended_because). NOT VERIFIED: no application source file was opened in this refresh either — not `monitor_shared.py`, not the new `aitask_shadow_rejected.sh`, not `concern_parser.py`'s `concern_marker_line()`. Every statement about what t1427_1/_2/_3 actually shipped is quoted or paraphrased from their archived task-file bodies (which record `implemented_with` and a passed `risk_evaluated` gate, not code review), not confirmed by reading the diffs. Every statement about `minimonitor_app.py`, `monitor_core.py`, `gate_ledger.py`, `registry_lock.sh`, `atomic_write.*`, `aitask_shadow_capture.sh` or `prompt_patterns.py` remains task-text-derived and unconfirmed against code, including t1420's line-number citations, taken on trust as before. No tests were run and no baseline health was checked. It was NOT verified that any landed member — the original four or t1427_1/_2/_3 — achieved its stated acceptance criteria; the trail records archived Done, not that it works. Wave 5's placement still rests on an inference, not an observation: that a running minimonitor process which predates a change cannot contain it.",
+    "caveats": [
+      "Every ordering edge in this trail is advisory. No live member declares a `depends` edge on any other member, so nothing here is topologically forced; the trail records a preference and its reasoning, not a constraint.",
+      "This trail changes no task metadata. Wave positions are not board positions, and t1116's Postponed status is untouched — placing it last is a recorded connection, not a scheduling decision.",
+      "Waves 1 and 2 are shown as landed for the record of why that order was chosen. Their entry rationales are preserved as written at creation time and are now history, not advice; one of them (t1294's) leaned on t1159's forward-surface, which the 2026-08-05 re-weighting has since demoted. That does not retroactively weaken the guard — it just means the argument that motivated it reads stronger than it would today.",
+      "Both live predecessor edges are declared independent by t1159 itself, so neither is a blocker; what differs is how expensive taking them out of order is. t1427 → t1159 is high confidence, and stronger than at the 2026-08-05 refresh: the substrate/loop split was then asserted by both task files in matching words, and is now additionally a shipped fact for the store, tri-state picker and suppression rule (t1427_1/_2/_3 archived Done). t1420 → t1159 remains medium because t1159 states that preference conditionally ('if t1420 lands first, consume its phase seam') while stating the independence unconditionally, and nothing about t1420 changed this refresh.",
+      "The user re-confirmed on refresh that t1425, t1426 and t1411 stay out of scope, alongside the applink branch (t1118 and children), the two soaks (t1288, t1347), t1350 and t1203; all are recorded as exclusions so a later refresh does not re-litigate them.",
+      "2026-08-09 refresh: the user was asked propose-and-confirm on three new-related-task candidates. t1434 (evaluate_aitask_gates_pruning, a tangential chore spawned during t1427's own planning) and t1460 (t1427_3's Step 8d risk-mitigation follow-up, same shape as the already-excluded t1426/t1411) were excluded. t1448 (shadow_concern_badge_currency, hard-depends on t1159 and t1420) was recorded as an observation only, not a member — it is a downstream consumer of this trail's core members, not a predecessor of them, so it does not affect landing order."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-contract-and-seam",
+      "ordinal": 1,
+      "title": "Lock the concern contract and the minimonitor seam (LANDED)",
+      "purpose": "Land the two low-effort structural cleanups while the surfaces they guard still had a single consumer. Both were invariant-only work with no user-visible change, and both would have become materially harder once t1159 added a second forward surface and a large block of new minimonitor code. COMPLETE: t1294 archived Done 2026-08-02, t1289 archived Done 2026-08-03, in the order this wave recommended. Later waves now modify surfaces whose rules are enforced structurally rather than remembered — t1294 shipped an AST guard over the whole `monitor/` package (t1426's task text describes it scanning for unclassified `Concern.body` reads), so any new display surface must register itself there rather than rely on reviewer attention.",
+      "why_now": "t1289's own scope note said 'Do not start until t1216_2 and t1216_3 have landed'; both were archived, so it was unblocked for the first time. t1294 said to prefer a guard that 'keeps working when t1216_3 lands the full monitor's copy of the picker — that second consumer is exactly the scenario this guard exists for'; writing the guard before t1159's further consumers was the intended sequence rather than a retrofit.",
+      "consequence_of_delay": "Avoided. Had t1159 landed first, its concern-forwarding path would have been written against a rule enforced only by prose, and its new minimonitor call sites would have bound to the transitional delegators — realizing exactly the risk t1289 was created to prevent, and enlarging t1289's migration to cover t1159's call sites as well.",
+      "entries": [
+        {
+          "entry_id": "e-1294",
+          "task": "aitasks#1294",
+          "topic": "aitasks#1037",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1159 introduces both a new forward surface (minimonitor pasting picked concerns directly into the followed pane) and a new display surface (concern rows carrying round and timestamp metadata). t1294's guard exists precisely so that a newly added surface cannot silently reach for the wrong accessor. The coupling is tighter for t1159 than it was for the original t1274 split: t1159's steerability requirement routes each concern to 'address in plan now' / 'spin off as a separate task' / 'dismiss', and that disposition travels in the same trailer that `Concern.body` preserves verbatim and `display_body()` strips.",
+          "expected_outcome": "A structural guard — source-level enumeration or behavioural drive of every surface — that fails when a display surface reads `.body` or a forward surface reads `display_body()`, so t1159's injection path is covered by construction rather than by reviewer attention.",
+          "why_order_matters": "Both failure modes are silent by design of the split. If t1159's forwarding path picks the wrong accessor before the guard exists, the `Disposition:` metadata is dropped from what the followed agent receives and no test fails — which is the exact loss t1274 avoided and t1294 was created to make impossible.",
+          "confidence": "high",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-02, implemented_with claudecode/opus5, risk_code_health low). It shipped `tests/test_concern_body_display_contract.py`, an AST guard over the `monitor/` package that surfaces any unclassified `Concern.body` read — so the obligation it created now falls on every later surface, including t1159's and t1426's.",
+            "This rationale is preserved as written on 2026-08-02. The forward surface it leans on most (direct injection into the followed pane) was demoted by the 2026-08-05 scope clarification recorded in obs-loop-direction-reweighted; the display-surface half of the argument is unaffected."
+          ],
+          "evidence_refs": ["ev-t1294", "ev-t1159", "ev-archived-members", "ev-drift"]
+        },
+        {
+          "entry_id": "e-1289",
+          "task": "aitasks#1289",
+          "topic": "aitasks#1111",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1159 will add substantial new code to minimonitor around the shadow helpers — pane capture, staleness reads, concern picking and forwarding. Removing the four transitional delegators now means that new code is written against the shared `monitor_core` / `monitor_shared` functions directly. Doing it afterwards means migrating t1159's fresh call sites too, on top of the five test classes across four test files that t1289 already has to move onto the shared seam.",
+          "expected_outcome": "No MiniMonitorApp method whose body is solely a call to a shared function, and the shadow test suite bound to the shared names — so t1159 has exactly one name per implementation to build against.",
+          "why_order_matters": "Order here is a cost preference rather than a correctness constraint: t1289 is a pure de-duplication that must not change behaviour, so nothing breaks if it runs later. What changes is scope — every t1159 call site written against a delegator is another site t1289 must migrate, and the more sites exist the likelier the seams simply stay.",
+          "confidence": "high",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-03, implemented_with claudecode/opus5, risk_code_health low). Its cost-avoidance argument is now realized rather than predicted: t1159 and t1420 both add minimonitor call sites and neither has delegators to bind to.",
+            "It named `tests/test_minimonitor_concern_smoke.py` as needing the most care because it deliberately drives the real capture path unstubbed; that test remains the closest existing harness to what t1159 will need."
+          ],
+          "evidence_refs": ["ev-t1289", "ev-archived-members", "ev-drift"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-harden-driven-surfaces",
+      "ordinal": 2,
+      "title": "Harden what the loop will drive (LANDED)",
+      "purpose": "Make the shadow-to-followed pane binding authoritative and give the concern picker a way to show what a malformed block lost, before an automated loop starts producing concern blocks unattended and moving keystrokes between panes. This wave converted two surfaces from 'works when a human is watching' to 'diagnosable when nobody is'. COMPLETE: t1319 archived Done 2026-08-04, t1293 archived Done 2026-08-05, in the order this wave recommended. Both spawned Step 8d risk-mitigation follow-ups that are still live (t1411, t1426) and t1293 also spawned a manual-verification task (t1425); all three were offered as members on refresh and deliberately excluded, so this wave's guarantees are landed-and-unverified rather than landed-and-confirmed.",
+      "why_now": "Both members touched surfaces t1159 rewrites — the capture helper's pane resolution and `ConcernPickerModal` — so landing them first meant t1159 builds on the hardened version instead of racing them in the same files. Both were also low effort and unblocked.",
+      "consequence_of_delay": "Avoided for the loop's two worst failure modes: a mis-bound pane and an unreadable parse failure. Each would have been far harder to diagnose once it occurred inside an automated round, where the user sees a result rather than the sequence of actions that produced it.",
+      "entries": [
+        {
+          "entry_id": "e-1319",
+          "task": "aitasks#1319",
+          "topic": "aitasks#1307",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1319 records a concrete constraint that an automated loop meets far more often than a human-paced workflow does: `minimonitor_app.py::_spawn_shadow` stamps `@aitask_shadow_target` after `launch_in_tmux()` returns, so a very early capture races the stamp. A loop that issues its first challenge immediately after spawning the shadow sits directly on that race. Its second mitigation — warn or refuse when an explicit pane id conflicts with the pane's own binding — is also the only check that catches a truncated id which happens to name a live pane, because that path produces a successful capture and no error.",
+          "expected_outcome": "An argument-free capture path that resolves the followed pane from `@aitask_shadow_target` (so the id never crosses the model's token stream), a loud conflict warning on the explicit-argument path, and a clean degradation when the option is unset — with each guard proven able to fail, not merely proven not to regress.",
+          "why_order_matters": "In the manual workflow a wrong-pane capture surfaces immediately because the user is reading the shadow's output against the agent they are watching. Inside a loop the same mis-binding produces a plausible-looking review of another agent's work, and the recheck round then forwards that review's concerns into a pane, compounding the error before anyone reads it.",
+          "confidence": "medium",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-04, implemented_with claudecode/opus5, risk_code_health medium — the highest of the four). Per t1411's origin section it closed the hazard on the capture path only: the shadow's Step 1 and every `--deep` sub-procedure now run argument-free and refuse a contradicting explicit id with exit 2, and `aidocs/framework/shadow_agent.md` now carries the rule 'the validated pane binding, not the argument, is the source of truth'.",
+            "Two open items were carried out of it: t1411 (the learner-spawn path still has no argument-free form) and t1410, a manual verification that is itself archived Done. t1411 is excluded from this trail — the learner path is not the loop's path.",
+            "t1319 instructed verifying the `_spawn_shadow` stamp ordering before designing; whether that verification happened is not established here (no source was read in either generation of this trail)."
+          ],
+          "evidence_refs": ["ev-t1319", "ev-t1411", "ev-archived-members", "ev-drift"]
+        },
+        {
+          "entry_id": "e-1293",
+          "task": "aitasks#1293",
+          "topic": "aitasks#1037",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1159 extends the concern block with round number and review timestamp — a parser-aware change to a format whose fence literals are exact. t1293 adds the affordance behind the 'N line(s) in this block could not be parsed' banner that shows the offending lines, which is the tool needed to tell an over-bound split from a producer typo when the producer has just started emitting a new field, once per round, without supervision. t1293 also settles the picker's contract below 40 columns, and the loop turns the picker into a recurring surface rather than an occasional one.",
+          "expected_outcome": "A raw-block inspection path reachable both beside the banner and in the all-malformed no-rows case, plus a decided and tested layout contract at 30 and 24 columns — so a round-metadata parse regression is visible and attributable rather than a silent row loss.",
+          "why_order_matters": "Today an unparsed line costs one manual re-read. Once rounds are automatic, the same defect repeats every round and the user sees only a count; without the inspection affordance there is no way to attribute it to the new metadata field rather than to the shadow's prose.",
+          "confidence": "medium",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-05, implemented_with claudecode/opus5, risk_code_health low; commit e2db6e3f6 'Show what a concern block's parse lost, down to 24 columns'). Per t1426's origin section it shipped `ConcernBlockInspectModal`, a scrollable `markup=False` read-only viewer reachable with `u` via `action_inspect_unrecovered`, pushed over the picker so the selection survives underneath.",
+            "It closed the lost-lines half only. t1426 records the measured residue: `_ConcernRow` renders a fixed-height row, so a long PARSED body is silently truncated at every width (a 43-character body shows as 'The picker drops the body' at 40 columns and 'The picker' at 24). A user deciding whether to forward a finding still chooses from a preview they cannot expand. t1426 and the manual verification t1425 are both excluded from this trail by the user."
+          ],
+          "evidence_refs": ["ev-t1293", "ev-t1426", "ev-t1425", "ev-archived-members", "ev-drift"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2b-loop-inputs",
+      "ordinal": 3,
+      "title": "Build the two things the loop is written to consume",
+      "purpose": "Land the substrate and the signal that t1159's own text delegates to other tasks: a durable per-task concern-rejection store with a producer-side suppression rule (t1427), and an advisory workflow-phase seam that also sharpens the live completion detection (t1420). This wave is qualitatively different from waves 1 and 2, which hardened surfaces the loop merely touches. These two own scope the loop is explicitly told not to re-implement, so the wave boundary is about avoiding duplicate implementations, not about de-risking a shared file. As of 2026-08-09, t1427's core (t1427_1/_2/_3) has landed; what remains under its name (t1427_4 docs, t1427_5 manual verification) no longer carries the ordering argument — it is recorded so the connection is not lost, not because it gates t1159.",
+      "why_now": "t1427 and t1420 both arrived after this trail was created and both landed in the trail's own topic. Each was placed before t1159 on a preference t1159 itself records: for t1427, 'this loop consumes it rather than re-implementing rejection … t1427's store layout must not be duplicated here'; for t1420, 'if t1420 lands first, consume its phase seam instead of adding a second phase derivation here'. The 2026-08-05 re-weighting adds a second argument for t1420 specifically — the loop's critical direction is now auto-recheck, whose trigger is 'the followed agent has finished addressing the concerns', and t1420's blind spot 3 puts sharpening that detection (`prompt_patterns.py`) inside its scope. t1427's own sequencing note ('Land after t1293') was already satisfied, and its architecture work is now done rather than merely unblocked — t1427_1, t1427_2 and t1427_3 landed 2026-08-05 through 2026-08-07, in the order t1427's own decomposition plan specified (store-first, spike-first).",
+      "consequence_of_delay": "Both costs are duplication rather than breakage. Taken after t1159, the dismiss arm of the loop's triage either ships with nowhere durable to persist to or grows a private store that t1427 then has to reconcile with, and the loop derives a second phase inside loop code rather than behind a `lib/` seam the board, monitor and shell can all reach. Both duplicates would sit in the same files the real implementations target.",
+      "entries": [
+        {
+          "entry_id": "e-1427",
+          "task": "aitasks#1427",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "This was the strongest ordering claim in the trail among live work, and the only one asserted by both task files rather than inferred; it is now also the only one that has substantially SHIPPED. t1427_1 (rejection store helper), t1427_2 (picker tri-state reject action, RejectedStoreModal, ConcernPickResult) and t1427_3 (producer-side suppression rule inlined in all four concern producers) are archived Done 2026-08-05 through 2026-08-07. t1159's coordination note says the loop 'consumes it rather than re-implementing rejection', drawing the line as 't1427 owns where per-round concern state lives, this task owns when a round starts and how it is driven' — that store layout, its locking discipline (`registry_lock.sh` + atomic-write RMW) and the picker's dismiss-contract shape (`ConcernPickResult`) are no longer a plan t1159 must trust; they are code t1159 must read and build against. t1159's dismiss triage is not optional — it is a first-class acceptance criterion folded in from t1017 — so t1159's plan now has a concrete contract to consume rather than a design to coordinate with. What remains under t1427's own name (t1427_4 docs, t1427_5 manual verification, see the following two entries) does not carry this ordering claim.",
+          "expected_outcome": "LANDED for the parts that mattered to t1159: a per-row tri-state in the picker (`☐`/`[bold yellow]☑[/]`/`[red]✗[/]`) replacing `_selected`, with the `a`/`A` bulk shortcuts removed entirely; a rejection store at `.aitask-shadow/<task_id>/rejected.md` mirroring `.aitask-gates/`, git-ignored, written through `lib/registry_lock.sh` plus `ait_atomic_render`; a suppression rule the shadow applies semantically before emitting a block, reporting `Suppressed N previously-rejected concern(s).` and keeping anything it is unsure about (fail-open); a reversible un-reject path via the `R` rejected-store view; and `ConcernPickResult(forwarded, rejected, unrejected)` replacing the bare list on modal dismiss. Still open: the documentation pass (t1427_4) and the aggregate manual-verification checklist (t1427_5).",
+          "why_order_matters": "The loop's triage arm and the rejection store are the same feature seen from two ends. This risk is now retired rather than merely mitigated: t1427 shipped first, so t1159's plan reads a real store layout and a real dismiss contract instead of inventing a provisional one that would need migrating. That is a stronger position than any ordering argument in waves 1 and 2, all of which were behaviour-preserving or additive rather than substrate t1159 directly consumes.",
+          "confidence": "high",
+          "caveats": [
+            "SUBSTANTIALLY LANDED 2026-08-09: t1427_1 (archived Done 2026-08-05 23:48, risk_code_health medium), t1427_2 (archived Done 2026-08-06 09:28, risk_code_health medium) and t1427_3 (archived Done 2026-08-07 16:11, risk_code_health low, risk_mitigation_tasks [1460] — excluded from this trail, see exclusions) landed in the order t1427's own decomposition plan specified. t1427_1 and t1427_2's risk_code_health (medium) is the highest recorded for any wave-3 or wave-4 work; not established here whether that risk materialized, only that it was assessed.",
+            "The parent t1427 stays a member (still Ready, status unchanged) because two children remain: t1427_4 (rejection_docs) and t1427_5 (manual verification) — see the following two entries. t1159's coordination note referenced 't1427' as a whole; this trail keeps the parent entry as the anchor for that reference rather than retiring it while children remain open.",
+            "It shares `ConcernPickerModal` and `_ConcernRow` with the excluded t1426 (picker full-body view) — t1427_2's landing means t1426, if ever taken up, must now build against the shipped `ConcernPickResult`/`RejectedStoreModal` contract rather than the pre-t1427 modal (see the updated obs-shared-surface).",
+            "A parent plan, `aiplans/p1427_reject_shadow_concerns_suppress_next_round.md`, appeared and was read this refresh (flagged by drift as plan_changed); its 'Architecture' section is binding for all children and matches what the task files already described — no premise invalidation found.",
+            "Independence was stated explicitly on both sides — 'a loop can run without rejection' — so this remains a preferred predecessor, not a hard prerequisite, even now that it has landed."
+          ],
+          "evidence_refs": ["ev-t1427", "ev-t1159-live", "ev-snapshot", "ev-p1427", "ev-t1427-children"]
+        },
+        {
+          "entry_id": "e-1427_4",
+          "task": "aitasks#1427_4",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": ["aitasks#1427_3"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Documentation for the now-landed concern-rejection feature: the website's shadow-agent and TUI how-to/reference pages, plus `aidocs/framework/shadow_agent.md`'s new 'Concern rejection store' section, framed explicitly as producer-side filtering rather than a gate (the doc's own no-gating principle). Recorded here as a member only because it is a pinned child of t1427, which this trail's `--scope task` resolution always includes; it does not gate t1159's build in either direction — t1159 does not read t1427's docs to build against its store/picker contract, it reads the shipped code and t1427's own task/plan text.",
+          "expected_outcome": "Four pages updated and re-read for coherence with the landed behaviour (not the plan): the shadow-agent workflow doc, both TUI how-to pages plus monitor's reference.md, and the framework doc's new section. A repo-wide sweep for the removed `a`/`A` picker shortcuts wherever mentioned.",
+          "why_order_matters": "Mild. Documentation drifting behind landed code is a user-facing gap, not a build-order risk for t1159 — nothing in t1159's plan reads these pages as a source of truth (its own task file and t1427's shipped code are).",
+          "confidence": "medium",
+          "caveats": [
+            "New entry, added this refresh — pulled in automatically as t1427's active child, not offered as a scope-expansion candidate (the gatherer's `--scope task` resolution always follows a parent's active children; this is not a topic-scan new_related_task).",
+            "Its own task text warns to document CURRENT SOURCE, not the plan — behaviour may have drifted during t1427_1/_2/_3's implementation. This trail did not verify that warning was heeded; no source or docs diff was read."
+          ],
+          "evidence_refs": ["ev-t1427_4", "ev-p1427_4", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-1427_5",
+          "task": "aitasks#1427_5",
+          "topic": "aitasks#1159",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#1427_4"],
+            "gates_pending": []
+          },
+          "rationale": "Aggregate manual-verification checklist covering all four implemented t1427 children (t1427_1 through t1427_4) end to end: store round-trips and archive-time pruning, the picker's reject/un-reject flow in both minimonitor and monitor, the no-task-id refusal notice, live two-round suppression with the 'Suppressed N' report, and the docs build. It verifies t1427's own children, not t1159 — recorded so a later refresh does not lose the connection, and because it is the closest thing to confirmation that t1427_1/_2/_3 actually work (their gate ledgers record a passed `risk_evaluated`, not a functional check).",
+          "expected_outcome": "Each checklist item reaches Pass/Fail/Skip; a Defer creates a carry-over task per the manual-verification module's contract.",
+          "why_order_matters": "None for t1159. Its value is closing out t1427 with actual confirmation rather than an archived-Done status that this trail has repeatedly flagged (obs-waves-1-2-landed) as unverified.",
+          "confidence": "medium",
+          "caveats": [
+            "New entry, added this refresh — pulled in automatically as t1427's active child (t1427_4 depends on t1427_3; t1427_5 depends on t1427_4), same mechanism as e-1427_4 above.",
+            "Until this runs, the claim that t1427_1/_2/_3 'work' rests on their archived Done status and passed risk_evaluated gate, not on functional confirmation — the same caveat this trail already records for the original four landed members in obs-waves-1-2-landed."
+          ],
+          "evidence_refs": ["ev-t1427_5", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-1420",
+          "task": "aitasks#1420",
+          "topic": "aitasks#1159",
+          "position": 4,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "t1420 builds the input the loop needs and nothing else: a phase-derivation seam under `lib/` returning phase (`PLAN`/`IMPLEMENT`/`POSTIMPL`/`UNKNOWN`) plus provenance plus whether the agent appears to be waiting, wired into the shadow's existing tier-resolution ladder as its middle rung (explicit user wording > detected phase > ask). Two things make it a predecessor rather than a peer. First, t1159's coordination note explicitly prefers consuming its seam over adding a second phase derivation. Second, t1420 owns the two signals the loop's now-critical auto-recheck direction rides on: it stops `monitor_core.py` discarding `TaskGateState.resume_point`, and its blind spot 3 puts sharpening `prompt_patterns.py` — whose own comment says plan-mode and tool-permission confirmations are today indistinguishable — inside its scope. A loop that decides 'the agent has finished, start round N+1' from that same detection is better off with it sharpened first.",
+          "expected_outcome": "A phase seam under `lib/` beside `gate_ledger.py` with a CLI verb mirroring `aitask_gate.sh resume-point`, returning a rich result rather than a bare enum; `UNKNOWN` explicitly distinguished from `PLAN` (the ledger is empty under every profile except `fast`, so a naive consumer would report 'planning' forever); the phase surfaced on the followed-agent card; a chosen channel for passing the phase to the shadow at spawn time (bare-token argv or an `@aitask_shadow_*` pane option); and `aidocs/framework/shadow_agent.md`'s 'Phase detection (deferred)' section rewritten to describe a shipped, advisory-only signal.",
+          "why_order_matters": "Order here is a preference, not a constraint — t1159 states plainly that it must not wait on t1420, and a loop driven with an explicit mode is a working loop. What taking it out of order costs is a second phase derivation in loop code, and a loop built on the un-sharpened detection it triggers from.",
+          "confidence": "medium",
+          "caveats": [
+            "New member, added on the 2026-08-05 refresh with the user's confirmation; it did not exist at creation time.",
+            "Confidence is medium — lower than t1427's high — because t1159 pins the independence unconditionally and the preference conditionally. If scheduling puts t1159 first, nothing here breaks; the coordination note simply fires in the other direction.",
+            "Placed second within this wave. It is the smaller of the two (medium effort against t1427's high) and could reasonably run first on cost grounds; the ordering reflects that t1427's duplication cost is a persisted store layout while t1420's is a derivation function, and the former is more expensive to unwind.",
+            "Its shape is constrained more tightly than most tasks: `aidocs/framework/shadow_agent.md:360-367` deferred this feature advisory-only, and t1311 removed an earlier gate that inspected followed-agent state to decide what the user was permitted to do. t1420 must ship a hint that changes a default, never a check that changes what is permitted — and its stated discriminating test is a negative control that forces a WRONG phase and asserts nothing is refused.",
+            "It carries its own coordination notes to t1116 (a long-running minimonitor keeps the old `prompt_patterns.py`), t1323 (the same 'already parsed then discarded' seam at `monitor_core.py:2905`), t1357 (an unbuilt finer-grained event spool its seam should be able to accept later as an extra provenance source) and t1389 (pane→task binding moving to stamped pane options). None of those are members of this trail.",
+            "Its line-number citations into `gate_ledger.py`, `monitor_core.py` and the profile YAMLs were taken on trust; no source was read in this refresh."
+          ],
+          "evidence_refs": ["ev-t1420", "ev-t1159", "ev-t1159-reweight", "ev-snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-the-loop",
+      "ordinal": 4,
+      "title": "The loop",
+      "purpose": "Build the review-loop automation itself on top of a guarded concern accessor contract, a de-duplicated minimonitor, an authoritative pane binding, an inspectable parse surface, a durable rejection store and an advisory phase signal. This is the wave that delivers the loop; every earlier wave exists either to remove a variable from its design or to own scope it is told not to re-implement. As of 2026-08-09 the rejection-store half of that foundation (t1427_1/_2/_3) is shipped code, not a design; only the phase signal (t1420) remains open.",
+      "why_now": "t1159 asks its plan to brainstorm three candidate architectures (minimonitor-orchestrated, self-driving shadow, hybrid) and to author a pane-injection safety contract. Each of the six preceding tasks settles one question that would otherwise have to be decided inside that plan. The 2026-08-05 clarification narrows the design budget further: the critical seam is followed-agent → shadow auto-recheck, and an architecture that automates that direction while leaving concern forwarding as today's confirmed pick-and-paste is a complete answer to the priority requirement, not a partial one.",
+      "consequence_of_delay": "The manual loop — watch for the agent to finish, challenge, pick, focus the main pane, paste, type 'refetch and recheck round N', repeat — stays in place. The clarification identifies the watching-and-retyping half as where the time actually goes, so the cost of delay is concentrated there rather than spread across the whole feature. The concern block also keeps no round metadata, so the auto-offer dedup continues to suppress a round-2 review whose concerns match round 1.",
+      "entries": [
+        {
+          "entry_id": "e-1159",
+          "task": "aitasks#1159",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "boardcol": "now",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only member of this trail that delivers the loop itself; the others are here because t1159 lands on their surfaces or owns something it consumes. It is placed after the predecessors not because anything blocks it — every one of them is declared independent — but because its plan must weigh three architectures and author an injection safety contract, and those decisions get cheaper once the accessor rule and the pane binding are structural rather than remembered, once there is a durable place for rejected concerns to live, and once the phase signal exists as a seam to consume.",
+          "expected_outcome": "Automated refetch-and-recheck rounds driven by the existing staleness stamp and awaiting-input detection — the direction the user named critical; round number and review time carried in the concern block (which also lifts the auto-offer dedup suppression on a repeat round, and is the key-space t1427's per-round suppression is expected to scope against); per-concern triage routing whose dismiss arm consumes t1427's store rather than re-implementing it; and, as an explicitly optional/later part, forwarding picked concerns into the followed pane under confirmation.",
+          "why_order_matters": "Taken first, t1159 would define the new display and forward surfaces before the guard that constrains them existed, write its call sites against seams scheduled for removal, and inherit an unresolved spawn-stamp race in the binding it depends on. Those three costs are now paid. Taken before t1427 it would have either duplicated or improvised the per-round concern store its own dismiss triage needs — that risk is now retired, since t1427_1/_2/_3 shipped first. What remains of the order argument is narrower still: taken before t1420 it derives its own phase and builds on un-sharpened completion detection.",
+          "confidence": "high",
+          "caveats": [
+            "PREMISE CHANGED since this trail was created — see obs-loop-direction-reweighted. t1159 now carries a '## Scope priority — the two directions are NOT equal' section: auto-recheck is the critical, safe, time-saving seam; concern forwarding into the followed pane is a convenience whose human review should be deliberately kept, and its safety contract must not dominate the design budget. Any planning that treats the two directions symmetrically is working from the pre-2026-08-05 reading.",
+            "Its coordination notes name t1158 (shadow impl-review modes and tiers), t1311 (impl-review gate premise and profile tier default) and, added on 2026-08-05, t1420 and t1427. t1158 and t1311 are archived, so those constraints are discharged — but the plan must re-read the landed behaviour of the review entry conditions and tier defaults rather than the task text, which describes work that has since changed.",
+            "The advisory-only guardrail binding the shadow is load-bearing and unchanged by this trail: any pane injection is performed by minimonitor upon explicit user confirmation, never by the shadow. The re-weighting strengthens rather than relaxes this — it says the human review of what gets forwarded is to be kept on purpose.",
+            "t1159 folds t1017, so its steerability requirement is a first-class acceptance criterion and not an optional extra — the triage routing is what keeps the loop from bloating plans, and its dismiss arm is precisely what t1427 built the substrate for. 2026-08-09: that substrate (store, tri-state reject action, suppression rule) is now archived Done — t1159's plan should read `aitask_shadow_rejected.sh`'s contract and `ConcernPickResult` directly rather than coordinate with a design.",
+            "A real downstream consumer has appeared: t1448 (shadow_concern_badge_currency) hard-depends on both t1159 and t1420 and is explicitly out of scope here (see obs-t1448-downstream-consumer) — it lands after this wave, but its existence is a signal this trail's ordering is already being built on."
+          ],
+          "evidence_refs": ["ev-t1159", "ev-t1159-live", "ev-t1159-reweight", "ev-t1420", "ev-t1427", "ev-snapshot", "ev-t1448"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-stale-instance-drift",
+      "ordinal": 5,
+      "title": "After the loop exists: stale-instance drift",
+      "purpose": "Revisit stale minimonitor code drift once minimonitor sends keys and once its prompt patterns have been sharpened, at the point where an outdated running process stops being a display inconsistency and starts being a question about which code is authorized to act in a pane.",
+      "why_now": "Placed last deliberately. A minimonitor instance that predates t1159 cannot run the loop at all — the keybinding does not exist in its code — so before t1159 a stale instance can mis-report a pane as PROMPT but cannot act on that verdict. The task's value therefore rises when the loop lands, not before. The refresh adds a nuance rather than moving it: t1420 also intends to sharpen `prompt_patterns.py`, and its own t1116 coordination note says a long-running minimonitor keeps the old patterns — so the moment when stale instances start actively misleading arrives with t1420, one wave earlier than this trail originally assumed. It is still not a blocker for either.",
+      "consequence_of_delay": "Contradictory monitor state across panes in one tmux session persists after any monitor code update. After t1420 a stale companion silently keeps the un-sharpened patterns while the user believes the sharpened ones are in effect; after t1159 the question 'which minimonitor is this pane's companion actually running' has no answer short of comparing captures by hand.",
+      "entries": [
+        {
+          "entry_id": "e-1116",
+          "task": "aitasks#1116",
+          "topic": "aitasks#1116",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Included so the connection to the loop is recorded rather than rediscovered. t1116 is not about the prompt-detection algorithm — its own evidence shows the checked-in code classifies the disputed pane correctly — but about already-running minimonitor processes continuing on older code until restarted. Both remaining live members give that consequences it does not have today: t1420 sharpens the very patterns a stale instance would not have, and t1159 relies on awaiting-input detection to decide when the followed agent has settled enough to re-challenge.",
+          "expected_outcome": "A way to identify or recover a stale minimonitor without comparing captures across panes by hand — a version/revision mismatch surfaced in the TUI, a restart hint, or reuse/restart at companion launch.",
+          "why_order_matters": "Order here is mild. The argument for last is that stale code cannot contain a feature that postdates it; the argument for earlier — now slightly stronger than at creation time, since t1420 explicitly touches the patterns t1116 is about — is that a stale companion misleads the user about readiness. Neither blocks the other.",
+          "confidence": "low",
+          "caveats": [
+            "t1116 is Postponed. This trail does not change that and must not be read as scheduling it — un-postponing is a separate user decision.",
+            "The placement rests on an unverified inference about running processes, not on an observation: no minimonitor process was inspected in either generation of this trail.",
+            "If t1159's chosen architecture puts loop state anywhere shared between instances, this ordering should be revisited — that would make instance drift a correctness concern at the same time as the loop, not after it.",
+            "Refresh nuance: t1420 carries its own t1116 coordination note, so if t1420's plan ends up sharpening `prompt_patterns.py` substantially, the case for pulling t1116 forward should be re-examined at that point rather than left to this wave."
+          ],
+          "evidence_refs": ["ev-t1116", "ev-t1159", "ev-t1420", "ev-snapshot"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "aitasks#1294",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "SATISFIED (t1294 archived Done 2026-08-02). The accessor guard now exists before t1159 adds a new forward surface and a new display surface, both of whose wrong-accessor mistakes are silent."
+    },
+    {
+      "from": "aitasks#1289",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "SATISFIED (t1289 archived Done 2026-08-03). The transitional delegators are gone, so t1159's new minimonitor call sites have only the shared names to bind to."
+    },
+    {
+      "from": "aitasks#1319",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "SATISFIED (t1319 archived Done 2026-08-04) for the capture path. The shadow-to-followed binding is authoritative before an automated loop starts capturing immediately after spawn; the learner-spawn path remains open as t1411, excluded here."
+    },
+    {
+      "from": "aitasks#1293",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "SATISFIED (t1293 archived Done 2026-08-05) for unrecovered lines. Malformed concern blocks are inspectable before the producer starts emitting a new round-metadata field unattended; full parsed bodies remain unreadable in the picker (t1426, excluded here)."
+    },
+    {
+      "from": "aitasks#1293",
+      "to": "aitasks#1427",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "SATISFIED (t1293 archived Done 2026-08-05). t1427's own '## Sequencing' section says to land after t1293 because t1293 was actively editing ConcernPickerModal in the working tree — including a constant rename mid-exploration — and instructs re-reading monitor_shared.py from HEAD at planning time rather than trusting its recorded line numbers."
+    },
+    {
+      "from": "aitasks#1427",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "SUBSTANTIALLY SATISFIED (t1427_1/_2/_3 archived Done 2026-08-05 through 2026-08-07). The strongest live predecessor edge, once asserted by both task files, is now also a shipped fact: t1427 owns where per-round concern state lives; t1159 owns when a round starts and how it is driven. t1159's coordination note says the loop consumes t1427 rather than re-implementing rejection and that t1427's store layout must not be duplicated in the loop — while stating the loop can run without rejection, so this remained a preference, not a constraint, even after landing. Only t1427_4 (docs) and t1427_5 (manual verification) remain under t1427, and neither carries this edge."
+    },
+    {
+      "from": "aitasks#1427",
+      "to": "aitasks#1159",
+      "type": "informs",
+      "provenance": "advisory",
+      "note": "Beyond ordering: t1427 supplies the durable substrate behind t1159's 'dismiss' triage arm, which t1159 inherits as a first-class acceptance criterion from folded t1017. The influence runs both ways — t1159's round-number requirement is, per both files, the natural key-space for scoping suppression per round, so whichever lands second must re-check the other on that point. t1427 landed first, so t1159's plan is the one that must now do the re-checking against shipped code."
+    },
+    {
+      "from": "aitasks#1420",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "The second live predecessor edge. t1159's own coordination note asks the loop to consume t1420's phase seam rather than add a second phase derivation, while stating the loop must not wait on it — so this is a preference, not a constraint."
+    },
+    {
+      "from": "aitasks#1420",
+      "to": "aitasks#1159",
+      "type": "informs",
+      "provenance": "advisory",
+      "note": "Beyond ordering: t1420's rich phase result (phase + provenance + whether the agent is waiting) is the input a loop uses to select plan-challenge vs impl-challenge per round, and its sharpening of prompt_patterns.py feeds the auto-recheck trigger the 2026-08-05 clarification named critical."
+    },
+    {
+      "from": "aitasks#1159",
+      "to": "aitasks#1116",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Stale-instance drift becomes a correctness question only once minimonitor acts on its own verdicts; a process predating the loop cannot run it."
+    },
+    {
+      "from": "aitasks#1420",
+      "to": "aitasks#1116",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "t1420's own coordination note: a long-running minimonitor keeps the old prompt_patterns.py, so any sharpening it ships does not reach instances that predate it. This is the same stale-instance problem t1116 exists for, arriving one wave earlier than this trail originally placed it."
+    },
+    {
+      "from": "aitasks#1293",
+      "to": "aitasks#1294",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "DISCHARGED — both landed (t1294 first, t1293 second). Both were Step 8d follow-ups of t1274 over the same picker and parser surfaces; t1293 landed second and its shipped inspect modal is registered against t1294's display-contract guard."
+    },
+    {
+      "from": "aitasks#1319",
+      "to": "aitasks#1289",
+      "type": "coordinates_with",
+      "provenance": "advisory",
+      "note": "DISCHARGED — both landed (t1289 first, t1319 second). t1319 changed the capture helper's pane resolution while t1289 moved minimonitor's callers of the shadow helpers onto the shared seam; the two met at the shadow capture call path."
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-loop-direction-reweighted",
+      "kind": "stale_premise",
+      "statement": "t1159's scope changed after this trail was created and the change is not visible to the drift check (the gatherer records a task file's status, depends and gates, not its content). Commit bd6a10817 added a '## Scope priority — the two directions are NOT equal (user clarification, 2026-08-05)' section stating that followed-agent → shadow auto-recheck is the critical, safe and time-saving seam, while shadow → followed-agent concern forwarding is 'a convenience, not a bottleneck' whose human review 'should be kept deliberately' — and that its safety contract must not dominate the design budget. It concludes that an architecture automating recheck while leaving forwarding as today's confirmed pick-and-paste is a COMPLETE answer. This re-weights the trail in three places: t1294's original rationale leaned hardest on the now-demoted forward surface (harmless — it landed); the loop's critical path moves onto completion/awaiting-input detection, which is what promotes t1420 to a predecessor; and the pane-injection safety contract, previously described here as a gating design problem, is no longer one.",
+      "affects": ["aitasks#1159", "aitasks#1420"],
+      "evidence_refs": ["ev-t1159-reweight", "ev-t1159"]
+    },
+    {
+      "observation_id": "obs-waves-1-2-landed",
+      "kind": "other",
+      "statement": "All four members of waves 1 and 2 landed between 2026-08-02 and 2026-08-05, in the order this trail recommended, each archived Done with implemented_with claudecode/opus5 and a recorded risk assessment (risk_code_health low for t1294, t1289 and t1293; medium for t1319). What is established is that they are archived Done — NOT that they achieved their acceptance criteria, which was not verified here. Two of them left live residue: t1319 closed the wrong-pane hazard on the capture path only (t1411 covers the learner-spawn path) and t1293 made only the unrecovered lines readable, not long parsed bodies (t1426). t1293 also has an unrun manual verification, t1425, whose checklist covers exactly the inspect affordance and the 30/24-column picker contract that wave 2 argued the loop needs. The user excluded all three on refresh, so wave 2's guarantees are landed-and-unverified.",
+      "affects": ["aitasks#1289", "aitasks#1293", "aitasks#1294", "aitasks#1319"],
+      "evidence_refs": ["ev-drift", "ev-archived-members", "ev-t1411", "ev-t1426", "ev-t1425"]
+    },
+    {
+      "observation_id": "obs-coordination-discharged",
+      "kind": "stale_premise",
+      "statement": "t1159 carries coordination notes instructing whichever task lands second to re-check the other's assumptions: t1158 (shadow impl-review modes and tiers from /code-review prompts) and t1311 (impl-review gate premise plus a profile tier default). Both are archived, so t1159 is unambiguously the second to land and the coordination obligation falls entirely on it. Because both have shipped, the planner must re-read the landed behaviour of the review entry conditions and the default tier rather than the descriptions in those task files. t1311 matters twice over now: t1420 cites its removed 'too early to review' gate as the scar defining its own advisory-only shape constraint.",
+      "affects": ["aitasks#1159", "aitasks#1420"],
+      "evidence_refs": ["ev-t1159", "ev-t1420", "ev-archived-members"]
+    },
+    {
+      "observation_id": "obs-shared-surface",
+      "kind": "shared_surface_collision",
+      "statement": "The collision map changed as waves 1 and 2 landed, then changed again as t1427_2 landed. `ConcernPickerModal` / `_ConcernRow` in `monitor_shared.py` was contested by t1427 (tri-state reject action, changed dismiss contract), t1159 (round display, triage routing) and the excluded t1426 (full-body view); t1427's dismiss-contract change has now shipped, touching `_on_concerns_picked` in BOTH `monitor_app.py` and `minimonitor_app.py` plus four test modules — the widest blast radius any wave-3 member had. Consequence for what's still live: t1159's plan builds against the LANDED `ConcernPickResult`/`RejectedStoreModal` contract, not a hypothetical one, which removes a coordination risk rather than merely documenting it; if t1426 (full-body view, excluded) is ever taken up, it too must now target that landed contract. Separately, t1159 and t1420 both add minimonitor code around the shadow call sites and both touch the shadow skill's argument surface (t1420 must choose between a new bare-token argv and an `@aitask_shadow_*` pane option; t1159 adds loop keybindings). t1420 and the excluded t1411 both touch shadow pane-binding resolution. The remaining practical rule: t1159 and t1420 should be sequenced rather than parallelised within wave 3, and nothing in wave 4 should run beside either.",
+      "affects": ["aitasks#1159", "aitasks#1420", "aitasks#1427"],
+      "evidence_refs": ["ev-t1159", "ev-t1420", "ev-t1427", "ev-t1426", "ev-t1411", "ev-t1427-children"]
+    },
+    {
+      "observation_id": "obs-t1427-decomposed-and-landed",
+      "kind": "other",
+      "statement": "t1427 was decomposed into five children at planning time (spike-first ordering per its parent plan `aiplans/p1427_reject_shadow_concerns_suppress_next_round.md`) rather than implemented as one task. Three landed sequentially — t1427_1 (rejection store helper, Done 2026-08-05 23:48, risk_code_health medium), t1427_2 (picker reject tri-state, Done 2026-08-06 09:28, risk_code_health medium) and t1427_3 (producer suppression rule, Done 2026-08-07 16:11, risk_code_health low) — and two remain open: t1427_4 (rejection docs, depends t1427_3) and t1427_5 (aggregate manual verification, depends t1427_4, verifies all four). This is not visible to the drift check as task_completed, because the drift check compares the ORIGINAL member (t1427, the parent, still status Ready) against its recorded snapshot — decomposition changes children_to_implement in the parent's frontmatter, a field the gatherer does not track, so a CURRENT digest on the parent alone would have missed it entirely. What made it visible this refresh was the gatherer's own scope-task child-pulling behaviour: re-snapshotting `--scope task ... 1427` against the active tree returned MEMBER records for t1427_4 and t1427_5 that a snapshot restricted to the stored input list would not have surfaced. The operational rule: when a decomposed parent stays in generation.inputs, always re-run the scope snapshot (not just the drift digest check) to catch children_to_implement changes — the digest alone is not sufficient for a decomposed member the way it is for an atomic one.",
+      "affects": ["aitasks#1427", "aitasks#1427_4", "aitasks#1427_5", "aitasks#1159"],
+      "evidence_refs": ["ev-t1427-children", "ev-p1427", "ev-snapshot", "ev-drift"]
+    },
+    {
+      "observation_id": "obs-t1448-downstream-consumer",
+      "kind": "external_dependency",
+      "statement": "t1448 (shadow_concern_badge_currency, medium/medium, anchor 1159, created 2026-08-07) hard-depends on BOTH aitasks#1159 and aitasks#1420 — the first real successor task this trail has seen, as opposed to a predecessor or a coordination-only peer. It wants to clear the shadow-concern badge (`!`) on a real workflow-phase transition rather than only when the user opens the picker, and is explicitly chartered to consume t1420's phase signal rather than deriving its own, and to key its 'freshness' notion off the round metadata t1159 is adding to the concern block — so it is a genuine, verified consumer of both open predecessors' designs, not a speculative one. It also cross-references t1427 directly ('check whether a fully-rejected block should also clear the badge; do not duplicate its store'), extending the same do-not-duplicate discipline this trail has tracked for t1159 itself. Excluded from membership because it lands strictly after t1159 and t1420 and cannot affect their landing order; recorded because a later refresh, once t1159/t1420 land, should check whether t1448 is ready to be its own trail's first member rather than re-discovering it from a topic scan. Recording aitasks#1448 itself in `affects` (not just the tasks it depends on) is deliberate: it is what keeps this refresh's drift check from re-flagging it as new_related_task on every future run, now that the user has dispositioned it.",
+      "affects": ["aitasks#1159", "aitasks#1420", "aitasks#1427", "aitasks#1448"],
+      "evidence_refs": ["ev-t1448"]
+    },
+    {
+      "observation_id": "obs-t1427-arrived-mid-refresh",
+      "kind": "other",
+      "statement": "t1427 was created at 2026-08-05 12:04, after this refresh's opening drift check had already run and while the new version was being authored. It was caught only by the mandatory pre-write re-validation, which returned STALE with a single new_related_task reason — the trail would otherwise have been written already obsolete, missing the member with the strongest ordering claim in it. Two things follow. First, the pre-write validation step is load-bearing here, not ceremonial. Second, t1159's topic is currently moving fast: three tasks (t1420, t1425, t1427) appeared against this trail's members within four days of its creation, and t1159's own file was edited twice in that window. A trail over this topic should be treated as short-lived and refreshed before it is acted on, not consulted from memory.",
+      "affects": ["aitasks#1159", "aitasks#1427"],
+      "evidence_refs": ["ev-revalidate", "ev-t1427", "ev-drift"]
+    },
+    {
+      "observation_id": "obs-task-content-invisible-to-drift",
+      "kind": "other",
+      "statement": "The drift check cannot see task-file content. The gatherer's task_file input record carries exists, status, depends and gates — no content hash — whereas plan_file records do carry one. Both content changes that matter most to this refresh were therefore invisible to it: the 2026-08-05 loop-direction re-weighting and the t1427/t1420 coordination notes were all added to t1159's body without touching any recorded field, and were found only by running git log on the member file and re-reading it. The operational rule this implies, alongside the risk_mitigation_tasks rule in obs-single-member-topic: on refresh, diff the member task files themselves rather than trusting a CURRENT verdict to mean the reasoning still holds. A trail whose rationale rests on task prose — as this one's entirely does, since no member has a plan — can be silently wrong while reading CURRENT.",
+      "affects": ["aitasks#1159"],
+      "evidence_refs": ["ev-t1159-reweight", "ev-t1159-live", "ev-drift"]
+    },
+    {
+      "observation_id": "obs-no-plan-files",
+      "kind": "other",
+      "statement": "t1116, t1159 and t1420 remain unplanned — every classification and ordering judgment about them still rests on task descriptions and the source files they name, not on reviewed implementation plans. t1427 no longer belongs in that list: this refresh's gatherer run returned two plan_file INPUT records, `aiplans/p1427_reject_shadow_concerns_suppress_next_round.md` (the decomposition plan, binding on all five children) and `aiplans/p1427/p1427_4_rejection_docs.md` (t1427_4's plan), both read in full this refresh (ev-p1427, ev-p1427_4). The parent plan's 'Architecture' section matched what t1427's task text already described — no premise invalidation found, so this is confirmation, not a surprise. t1427_1/_2/_3's own archived plans (p1427_1, p1427_2, p1427_3) exist under `aiplans/archived/p1427/` but were not read; the landed entries' caveats rest on the archived task files' bodies, not the plans. The first live plan to be written for the remaining unplanned members is still the most likely event to invalidate a wave rationale here: t1159's architecture brainstorm (still the most consequential, since it decides the three-way architecture question) and t1420's choice of phase-passing channel.",
+      "affects": ["aitasks#1116", "aitasks#1159", "aitasks#1420", "aitasks#1427"],
+      "evidence_refs": ["ev-snapshot", "ev-archived-members", "ev-p1427", "ev-p1427_4"]
+    },
+    {
+      "observation_id": "obs-1116-postponed",
+      "kind": "other",
+      "statement": "t1116 is the only live member not in Ready state — it is Postponed. It appears in the last wave to record its connection to the loop, not to schedule it; acting on that wave requires an explicit decision to un-postpone, which this trail does not make and cannot make (it never mutates task metadata).",
+      "affects": ["aitasks#1116"],
+      "evidence_refs": ["ev-snapshot", "ev-t1116"]
+    },
+    {
+      "observation_id": "obs-single-member-topic",
+      "kind": "other",
+      "statement": "The cost of listing only aitasks#1159 in scope.topics is demonstrated twice now, with opposite outcomes. At the 2026-08-05 refresh the topic-wide scan missed t1426 and t1411 — Step 8d follow-ups of t1293 and t1319, anchored to the UNLISTED topics 1037/1307 — and they were found only by reading `risk_mitigation_tasks:` frontmatter by hand. At this 2026-08-09 refresh the same style of follow-up, t1460 (Step 8d of t1427_3), WAS caught automatically by the topic scan, because t1427's children inherit anchor 1159 — the trail's own listed topic — rather than a borrowed root. The belt-and-braces sweep (outgoing risk_mitigation_tasks on t1427_1/_2/_3, incoming verifies: grep over aitasks/) confirmed no gap this time: it found only t1427_5, already a scope member. The operational rule stands and is now more precise: the manual sweep is required whenever a landed member's canonical topic differs from scope.topics (as with the original four), and is redundant — but still cheap enough to run as a check — when it doesn't (as with t1427's children).",
+      "affects": ["aitasks#1159"],
+      "evidence_refs": ["ev-drift", "ev-topic-snapshot", "ev-archived-members", "ev-t1426", "ev-t1411", "ev-sweep", "ev-t1460"]
+    },
+    {
+      "observation_id": "obs-landed-members-not-in-inputs",
+      "kind": "other",
+      "statement": "The four landed members are recorded as wave entries but are absent from generation.inputs, and this is deliberate rather than a membership drop. Two reasons: the snapshot verb resolves member ids against the active tree only, so `snapshot --scope task --owner 1159 1116 1159 1289 1293 1294 1319` returns four ERROR:unknown_task lines and no records at all; and even if it could, keeping a completed task in inputs would make the drift verb report task_completed for it on every future check, so the trail could never read CURRENT again. The consequence to be aware of: because refresh replays generation.inputs, a future refresh will not re-examine the landed four. Their entries are frozen history from here on, and anything that later invalidates what they shipped has to be noticed by a human.",
+      "affects": ["aitasks#1289", "aitasks#1293", "aitasks#1294", "aitasks#1319"],
+      "evidence_refs": ["ev-snapshot-landed-attempt", "ev-snapshot", "ev-drift"]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#1425",
+      "reason_code": "deferred_by_user",
+      "reason": "Manual verification of t1293 (issue_type manual_verification, depends [1293], verifies [1293], Ready). Its nine-item checklist is precisely wave 2's claim made testable: the '[u] inspect' banner rendering with brackets intact, the all-malformed direct-raw-view path in both minimonitor and the full monitor, the picker's 30- and 24-column contract including live re-application on resize, and that a normal block still forwards its Disposition trailers. Offered as a member on refresh and declined. Not blocking — t1159 can be planned against what t1293 shipped — but until it runs, wave 2's 'diagnosable when nobody is watching' guarantee is asserted rather than confirmed."
+    },
+    {
+      "task": "aitasks#1426",
+      "reason_code": "deferred_by_user",
+      "reason": "Step 8d risk-mitigation follow-up of t1293 (Ready, low effort, anchor 1037): the picker still shows no concern's full body at any width, so a user deciding what to forward chooses from a preview they cannot expand. It shares `ConcernPickerModal` with t1159 and must register any new display surface against t1294's AST guard. Offered as a member on refresh and declined. Its relevance is reduced — though not removed — by the 2026-08-05 re-weighting, which makes forwarding the non-critical direction."
+    },
+    {
+      "task": "aitasks#1411",
+      "reason_code": "deferred_by_user",
+      "reason": "Step 8d risk-mitigation follow-up of t1319 (Ready, low effort, anchor 1307): closes the same transcribed-pane-id hazard on the learner-spawn path (`aitask_shadow_spawn_learner.py`) that t1319 closed on the capture path, and notes the asymmetry that the spawner creates an agent rather than reading a pane. Offered as a member on refresh and declined — the learner path is not the loop's path. Whoever takes it should reuse `shadow_self_target()`'s four-state classification rather than reinventing it."
+    },
+    {
+      "task": "aitasks#1118",
+      "reason_code": "deferred_by_user",
+      "reason": "Mobile shadow-agent driving over applink, with children t1118_1 through t1118_5 (all still active). t1118_4 adds the `shadow_concerns` RPC and a `send_keys` paste mode — a second consumer of concern forwarding over a different transport. Offered as a scope expansion at creation and declined; re-confirmed on refresh. The 2026-08-05 re-weighting lowers the urgency of the overlap, since forwarding is now the explicitly non-critical direction, but whichever lands second should still re-check the other's assumptions about how a concern payload reaches a pane."
+    },
+    {
+      "task": "aitasks#1347",
+      "reason_code": "deferred_by_user",
+      "reason": "Concern-signature reflow soak (Ready; its dependency t1216_3 is archived, so it is unblocked). It verifies existing concern-signature behaviour under reflow rather than gating t1159, though t1159's round metadata changes what a signature covers — worth reconsidering at t1159's planning time."
+    },
+    {
+      "task": "aitasks#1288",
+      "reason_code": "deferred_by_user",
+      "reason": "Shadow refresh concurrency soak (Ready; its dependency t1216_2 is archived, so it is unblocked). It exercises concurrent refresh behaviour, which an automated loop will exercise harder, but it verifies rather than blocks."
+    },
+    {
+      "task": "aitasks#1350",
+      "reason_code": "deferred_by_user",
+      "reason": "Monitor modal binding guard audit (Ready) — adjacent to the picker modal bindings t1159 extends with round display and triage routing, and to whatever key t1426 would add, but an audit of existing bindings rather than a prerequisite for new ones."
+    },
+    {
+      "task": "aitasks#1203",
+      "reason_code": "non_blocking",
+      "reason": "Shadow default-tier recall reassessment (Ready): it concerns the content and volume of a review's findings, not the mechanics of the review loop. t1159 explicitly draws the same line against t1158 ('t1158 reworks review content; this task reworks loop mechanics')."
+    },
+    {
+      "task": "aitasks#1158",
+      "reason_code": "already_landed",
+      "reason": "Named in t1159's first coordination note; archived, so the constraint is discharged. Retained here so a refresh does not re-open it as a candidate."
+    },
+    {
+      "task": "aitasks#1311",
+      "reason_code": "already_landed",
+      "reason": "Named in t1159's second coordination note (impl-review gate premise plus profile tier default); archived, so the constraint is discharged, but its landed behaviour is what t1159's plan must read — and t1420 cites its removed gate as the scar defining its own advisory-only shape constraint."
+    },
+    {
+      "task": "aitasks#1434",
+      "reason_code": "non_blocking",
+      "reason": "evaluate_aitask_gates_pruning (Ready, chore, anchor 1159): a standalone follow-up requested during t1427's planning, using t1427_1's archive-time `.aitask-shadow/` prune as prior art to decide a pruning policy for the unrelated `.aitask-gates/` directory. Tangential to the loop's landing order — it neither blocks nor is blocked by t1159, t1420 or any remaining t1427 child. Offered as a member on refresh (new_related_task drift) and declined."
+    },
+    {
+      "task": "aitasks#1460",
+      "reason_code": "deferred_by_user",
+      "reason": "producer_manifest_independent_discovery (Ready, test, anchor 1159): Step 8d risk-mitigation follow-up of the now-landed t1427_3, closing a pre-existing gap where a new concern-producer skill lacking the marker phrase is invisible to `test_producer_set_is_the_known_set`. Same shape as the already-excluded t1426/t1411, and the same disposition: offered as a member on refresh (new_related_task drift, and independently confirmed as t1427_3's risk_mitigation_tasks entry) and declined. Not blocking t1159 — it hardens a test guard, not the suppression rule's runtime behaviour."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1159 1116 1159 1420 1427",
+      "observed_at": "2026-08-09T06:15:00Z",
+      "summary": "Authoritative live-member snapshot for this 2026-08-09 refresh, re-run against the stored generation.inputs task ids per Step 3.3: six MEMBER records — the four stored ids (aitasks#1116 Postponed/medium/medium, aitasks#1159 Ready/high/high/now, aitasks#1420 Ready/medium/medium, aitasks#1427 Ready/high/high) plus two auto-pulled active children of t1427 (aitasks#1427_4 Ready/high/low, depends aitasks#1427_3; aitasks#1427_5 Ready/medium/medium, depends aitasks#1427_4) — six INPUT:task_file records and two INPUT:plan_file records (p1427_4, p1427 parent), OWNER aitasks#1159, SCOPE topics aitasks#1116,aitasks#1159, DIGEST 8795a13a589d2241 (changed from the stored 45f3be1068630701 because the input set itself grew, not because any pinned member's own status/depends/gates changed). No task_file member declares a depends edge on another TRAIL member; t1427_4/_5 depend only on their own t1427 siblings."
+    },
+    {
+      "evidence_id": "ev-drift-refresh2",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh drift --trail art:trail-shadow-review-loop",
+      "observed_at": "2026-08-09T06:15:20Z",
+      "summary": "Opening drift check for this refresh returned STALE against the loaded version (input_digest 45f3be1068630701, unchanged from stored — the pinned four inputs' status/depends/gates had not moved), with six reasons: new_related_task for aitasks#1427_4, aitasks#1427_5, aitasks#1434, aitasks#1448 and aitasks#1460 (all 'new task in topic aitasks#1159'), and plan_changed for aitasks#1427 ('plan appeared: aiplans/p1427_reject_shadow_concerns_suppress_next_round.md'). All six reasons are consumed by this refresh: t1427_4/t1427_5 became members (Step 2a's parent-pulls-children mechanic, not scope expansion); t1434 and t1460 were excluded by user decision; t1448 was recorded as an observation only; the plan was read (ev-p1427)."
+    },
+    {
+      "evidence_id": "ev-revalidate",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh drift --trail <authored-draft>.json",
+      "observed_at": "2026-08-05T09:05:30Z",
+      "summary": "HISTORICAL (2026-08-05 refresh): mandatory pre-write validation of that version's first draft returned schema-valid but STALE, with one reason: new_related_task|aitasks#1427|new task in topic aitasks#1159. t1427 had been created at 12:04 local, after that refresh's opening drift check. The draft's digest cd65f8dd5b84be23 matched live state at authoring time; the re-validation is what caught the change and forced the re-snapshot recorded historically."
+    },
+    {
+      "evidence_id": "ev-revalidate2",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh drift --trail <authored-draft>.json",
+      "observed_at": "2026-08-09T06:22:00Z",
+      "summary": "This refresh's mandatory pre-write validation (Step 2e.3/3.5). First pass was schema-valid but flagged a self-inflicted plan_changed false positive: the draft's generation.inputs listed t1427_4's plan before t1427's parent plan, and the drift tool's per-member plan-glob regex for a parentless bare id ('p1427_[^/]*.md', with an optional leading path component) also matches the child's 'p1427/p1427_4_...md' relpath, so list order decided which plan attributed to which member. Reordering to parent-then-child in generation.inputs (parent's tighter regex is unambiguous either way; the loose parent regex needed the parent listed first to win the tie) resolved it. Second pass returned STALE with new_related_task|aitasks#1448 only, expected since t1448 was deliberately recorded as observation-only rather than membership/exclusion; adding aitasks#1448 to obs-t1448-downstream-consumer's affects list (which feeds the drift tool's baseline set) suppressed it. Final pass: CURRENT, digest 8795a13a589d2241 — matches generation.input_digest exactly."
+    },
+    {
+      "evidence_id": "ev-t1427",
+      "source_type": "task_file",
+      "ref": "aitasks/t1427_reject_shadow_concerns_suppress_next_round.md",
+      "observed_at": "2026-08-05T09:05:45Z",
+      "summary": "Read in full: why rejection cannot be a UI toggle (the picker is pure-UI with zero persistence, dedup is per-block and in-memory only, Concern has no cross-round identity and concern-format.md forbids region as a key, and no shadow sub-procedure has any notion of round memory), hence that matching must be semantic and performed by the shadow; six required behaviours including a tri-state picker row, persistence across TUI restarts, visible-not-silent suppression, reversibility and coverage of all four producers; and the design constraints — the delivery seam must be inlined per producer because shadow Step 2 is optional (a context-fetch-only rule has an unreachable trigger), a `.aitask-shadow/<task_id>/` store mirroring `.aitask-gates/`, registry_lock.sh plus atomic-write because appending is a read-modify-write two TUIs can race, no second bash regex for task-id resolution, a named modal-dismiss result replacing the bare list, and an explicit lifetime decision. Also its '## Sequencing' (land after t1293, re-read monitor_shared.py from HEAD) and its '## Coordination — t1159' section drawing the substrate/loop line."
+    },
+    {
+      "evidence_id": "ev-t1159-live",
+      "source_type": "task_file",
+      "ref": "aitasks/t1159_shadow_review_loop_automation.md (coordination-note block, lines 88-106 at revision e2db6e3f6)",
+      "observed_at": "2026-08-05T09:05:50Z",
+      "summary": "Re-read live at HEAD to confirm the reverse pointer rather than trust t1427's claim of it: t1159 carries a coordination note stating t1427 'builds the **substrate** for this task's dismiss triage arm — a durable per-task rejection store, a producer-side suppression rule inlined in all four concern producers, and the reject action in the picker', that 'this loop consumes it rather than re-implementing rejection', that 't1427 owns where per-round concern state lives, this task owns when a round starts and how it is driven', that t1427 is 'deliberately independent (a loop can run without rejection)', and that this task's round-number requirement is the natural key-space for scoping suppression per round. The adjacent t1420 note is present in the same block."
+    },
+    {
+      "evidence_id": "ev-drift",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh drift --trail art:trail-shadow-review-loop",
+      "observed_at": "2026-08-05T09:00:00Z",
+      "summary": "STALE against the previous version (input_digest 893963fe75d16697), with six named reasons: task_completed for aitasks#1289, #1293, #1294 and #1319 ('completed and archived'), and new_related_task for aitasks#1420 ('new task in topic aitasks#1159') and aitasks#1425 ('new task depends on [aitasks#1293]'). Live digest at that point was 62544dff65abf4d9. All six reasons are consumed by this refresh."
+    },
+    {
+      "evidence_id": "ev-snapshot-landed-attempt",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1159 1116 1159 1289 1293 1294 1319",
+      "observed_at": "2026-08-05T09:00:30Z",
+      "summary": "Replaying the previous version's full generation.inputs returned exit 0 with four ERROR lines and nothing else: unknown_task for aitasks#1289, #1293, #1294 and #1319. Establishes that the snapshot verb resolves member ids against the active tree only, and is the basis for dropping the landed four from generation.inputs while retaining their wave entries."
+    },
+    {
+      "evidence_id": "ev-archived-members",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1289_shadow_seam_wrapper_removal.md, aitasks/archived/t1293_concern_block_parse_diagnostics.md, aitasks/archived/t1294_concern_body_display_contract_guard.md, aitasks/archived/t1319_shadow_pane_id_structural_binding_resolution.md",
+      "observed_at": "2026-08-05T09:00:45Z",
+      "summary": "Frontmatter of the four landed members read directly: all status Done with implemented_with claudecode/opus5 and recorded risk assessments (risk_code_health low for t1289/t1293/t1294, medium for t1319); completed_at 2026-08-02 (t1294), 2026-08-03 (t1289), 2026-08-04 (t1319), 2026-08-05 (t1293, updated_at). t1293 records risk_mitigation_tasks [1426]; t1319 records risk_mitigation_tasks [1411, 1410]. Archived plans p1289, p1293, p1294 and p1319 exist under aiplans/archived/ but were not read."
+    },
+    {
+      "evidence_id": "ev-t1159-reweight",
+      "source_type": "command_output",
+      "ref": "./ait git show bd6a10817 -- aitasks/t1159_shadow_review_loop_automation.md",
+      "observed_at": "2026-08-05T09:02:00Z",
+      "summary": "Commit 'ait: Record loop direction priority and t1420 link on t1159' (2026-08-05, after this trail was created) adds two sections to t1159: the '## Scope priority — the two directions are NOT equal' user clarification naming auto-recheck critical and concern forwarding a deliberately human-reviewed convenience, and a coordination note on t1420 asking the loop to consume its phase seam if it lands first while stating the loop must not wait on it. Found by git log on the member file, not by the drift check, which does not hash task-file content."
+    },
+    {
+      "evidence_id": "ev-t1420",
+      "source_type": "task_file",
+      "ref": "aitasks/t1420_advisory_workflow_phase_signal_for_shadow.md",
+      "observed_at": "2026-08-05T09:02:30Z",
+      "summary": "Read in full: the advisory-only shape constraint quoted from aidocs/framework/shadow_agent.md:360-367 and the t1311 scar; the existing signals (gate_ledger.resume_point, aitask_gate.sh resume-point, TaskGateState.resume_point discarded at monitor_core.py:2905, get_task_id_for_pane); four blind spots including the empty-ledger-reads-as-PLAN problem under non-record_gates profiles, the two in-conversation moments that leave no durable trace, the weakness of prompt_patterns.py, and the shadow's argument surface admitting no free text; the explicit user wording > detected phase > ask ladder copied from impl-challenge.md; five deliverables; the negative-control verification requiring a wrong phase to refuse nothing; and coordination notes to t1159, t1311, t1116, t1323, t1357 and t1389."
+    },
+    {
+      "evidence_id": "ev-t1159",
+      "source_type": "task_file",
+      "ref": "aitasks/t1159_shadow_review_loop_automation.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full at creation time: the manual five-step loop, the exploration findings on minimonitor's send_keys machinery and the t1104 staleness stamp plus awaiting_input detection, three candidate architectures, the requirement for a pane-injection safety contract, the steerability requirement folded in from t1017, the load-bearing contracts to preserve, and the coordination notes naming t1158 and t1311. Superseded in part by ev-t1159-reweight, which records the two sections added on 2026-08-05."
+    },
+    {
+      "evidence_id": "ev-t1425",
+      "source_type": "task_file",
+      "ref": "aitasks/t1425_manual_verification_concern_block_parse_diagnostics_followup.md",
+      "observed_at": "2026-08-05T09:03:00Z",
+      "summary": "Read in full: a nine-item manual-verification checklist for t1293 covering the '[u] inspect' banner with brackets unswallowed, the inspect view's recognisable over-bound split marker, q/Esc both returning to the picker with ticks intact, the all-malformed direct-raw-view path in minimonitor and in the full monitor (including the pick guard releasing for a second 'c'), the ~30- and ~24-column dialog contracts, live re-application of the width tier on resize, and an unchanged fully-parseable block still forwarding Disposition trailers."
+    },
+    {
+      "evidence_id": "ev-t1426",
+      "source_type": "task_file",
+      "ref": "aitasks/t1426_picker_full_body_view.md",
+      "observed_at": "2026-08-05T09:03:15Z",
+      "summary": "Read in full: Step 8d risk follow-up of t1293 recording that _ConcernRow's fixed-height row truncates a long parsed body at every width (measured at 40 and 24 columns during t1293), that t1293's ConcernBlockInspectModal and its modal-over-modal push are the pattern to reuse, and the two pinned contracts it must respect — t1294's AST guard in tests/test_concern_body_display_contract.py and markup=False on captured text."
+    },
+    {
+      "evidence_id": "ev-t1411",
+      "source_type": "task_file",
+      "ref": "aitasks/t1411_shadow_learner_pane_id_binding_resolution.md",
+      "observed_at": "2026-08-05T09:03:30Z",
+      "summary": "Read in full: Step 8d risk follow-up of t1319 recording what t1319 actually shipped (argument-free Step 1 and --deep sub-procedures resolving from @aitask_shadow_target, an explicit contradicting id refused with exit 2, scope limited to aitask_shadow_capture.sh), the remaining learner-spawn hazard, shadow_self_target()'s four-state classification with its load-bearing $TMUX socket comparison, and the note that t1319 shipped a collapsed recovery ladder in review that livelocks the agent."
+    },
+    {
+      "evidence_id": "ev-topic-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic 1159",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Topic-scope snapshot at creation time returned a single MEMBER (aitasks#1159), establishing that the topic group had no children or other anchored tasks and motivating the ad_hoc widening. Superseded as a membership statement by t1420's arrival in that topic (see ev-drift), but retained as the basis for the ad_hoc scope choice."
+    },
+    {
+      "evidence_id": "ev-archived-ls",
+      "source_type": "command_output",
+      "ref": "ls aitasks/archived/ and ls aitasks/archived/t1216/",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Creation-time listing confirming t1158, t1311 and t1307 archived at the top level and t1216_1 through t1216_5 archived under aitasks/archived/t1216/ — the basis for treating t1289's start gate and t1159's two coordination notes as discharged."
+    },
+    {
+      "evidence_id": "ev-t1319",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1319_shadow_pane_id_structural_binding_resolution.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full at creation time (then at aitasks/t1319_...md): the silent wrong-pane case t1307 left open, the two candidate mitigations (binding self-resolution, conflict warning), and the stated constraint that _spawn_shadow stamps @aitask_shadow_target after launch_in_tmux() returns so an early capture can race the stamp."
+    },
+    {
+      "evidence_id": "ev-t1289",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1289_shadow_seam_wrapper_removal.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full at creation time (then at aitasks/t1289_...md): the four named delegators on MiniMonitorApp, the explicit 'do not start until t1216_2 and t1216_3 have landed' gate with its rationale, the four affected test files and five test classes, and the acceptance requiring behaviour to be unchanged."
+    },
+    {
+      "evidence_id": "ev-t1293",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1293_concern_block_parse_diagnostics.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full at creation time (then at aitasks/t1293_...md): the residual risk that over-bound split markers are reported but not recovered and that widths below 40 columns are unverified; the two goals (a raw-block inspection affordance reachable including the no-rows case, and rendered-viewport tests at 30 and 24 columns) with the _SENTINEL_SAFE_COLS width-floor precedent."
+    },
+    {
+      "evidence_id": "ev-t1294",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1294_concern_body_display_contract_guard.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full at creation time (then at aitasks/t1294_...md): the asymmetric canonical-body vs display-body rule enforced only by prose, both silent failure modes, the two candidate guard designs, the instruction to prefer a guard that survives a second consumer of the picker, and the verification demanding the guard be shown to fail when either surface is switched."
+    },
+    {
+      "evidence_id": "ev-t1116",
+      "source_type": "task_file",
+      "ref": "aitasks/t1116_detect_stale_minimonitor_prompt_detection.md",
+      "observed_at": "2026-08-02T04:56:02Z",
+      "summary": "Read in full: live evidence that the checked-in code classifies the disputed pane IDLE while several older running minimonitor panes report PROMPT; the framing that the problem is stale running processes rather than the detection algorithm; and acceptance criteria about identifying or recovering a stale instance."
+    },
+    {
+      "evidence_id": "ev-p1427",
+      "source_type": "plan_file",
+      "ref": "aiplans/p1427_reject_shadow_concerns_suppress_next_round.md",
+      "observed_at": "2026-08-09T06:17:00Z",
+      "summary": "Read in full: the binding architecture for all five t1427 children — store path/format at `.aitask-shadow/<task_id>/rejected.md`, the `aitask_shadow_rejected.sh` subcommand contract (add/list/remove/prune) with its lock-coordinated prune, the picker tri-state and `ConcernPickResult` dismiss contract with bulk shortcuts removed entirely, the producer-side suppression rule text and its drift-guard test class, and the archive-time lifetime decision. Matches what t1427's task file already described — no premise invalidation found. Lists the four children plus the standalone `evaluate_aitask_gates_pruning` follow-up (t1434) and the aggregate manual-verification sibling (t1427_5) as things created 'also at decomposition time', confirming both were intentional rather than scope creep."
+    },
+    {
+      "evidence_id": "ev-p1427_4",
+      "source_type": "plan_file",
+      "ref": "aiplans/p1427/p1427_4_rejection_docs.md",
+      "observed_at": "2026-08-09T06:17:15Z",
+      "summary": "Read in full: the four documentation surfaces (shadow-agent workflow doc, two TUI how-to/reference pages, aidocs framework doc) and the constraint to document current source rather than the plan, re-verifying keybindings/output lines/store paths against landed code before writing. Confirms un-reject stays TUI-only and that the doc must frame the store as producer-side filtering, never a gate."
+    },
+    {
+      "evidence_id": "ev-t1427-children",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1427/t1427_1_rejection_store_helper.md, aitasks/archived/t1427/t1427_2_picker_reject_tristate.md, aitasks/archived/t1427/t1427_3_producer_suppression_rule.md",
+      "observed_at": "2026-08-09T06:17:30Z",
+      "summary": "Frontmatter and body of the three landed t1427 children read directly: all status Done, implemented_with claudecode/opus5, gate:risk_evaluated passed. t1427_1 (completed_at 2026-08-05 23:48, risk_code_health medium, risk_goal_achievement medium) shipped `aitask_shadow_rejected.sh` and `tests/test_shadow_rejected.sh` with a two-writer contention negative control. t1427_2 (completed_at 2026-08-06 09:28, risk_code_health medium) shipped the tri-state `_ConcernRow`, removed the `a`/`A` bulk actions, and added `ConcernPickResult`/`RejectedStoreModal`. t1427_3 (completed_at 2026-08-07 16:11, risk_code_health low, risk_mitigation_tasks [1460]) shipped the inlined suppression rule across all four producers plus `TestProducerRejectionSuppressionRule`. None of the three's actual source diffs were read — only their task-file bodies, which describe intent and a passed gate, not a code review."
+    },
+    {
+      "evidence_id": "ev-t1427_4",
+      "source_type": "task_file",
+      "ref": "aitasks/t1427/t1427_4_rejection_docs.md",
+      "observed_at": "2026-08-09T06:17:45Z",
+      "summary": "Read in full: depends on t1427_3 (satisfied); lists the four documentation surfaces and their sections, the a/A-scrub sweep, and the un-reject-is-TUI-only constraint — matches p1427_4 exactly."
+    },
+    {
+      "evidence_id": "ev-t1427_5",
+      "source_type": "task_file",
+      "ref": "aitasks/t1427/t1427_5_manual_verification_reject_shadow_concerns_suppress_next_rou.md",
+      "observed_at": "2026-08-09T06:18:00Z",
+      "summary": "Read in full: manual-verification checklist item, depends on t1427_4, verifies [1427_1, 1427_2, 1427_3, 1427_4]. Thirteen checklist items spanning all four implemented children: store round-trip and archive-time pruning, minimonitor and monitor reject/un-reject flows, the no-task-id refusal notice, live two-round suppression with the 'Suppressed N' report, and the docs build."
+    },
+    {
+      "evidence_id": "ev-t1434",
+      "source_type": "task_file",
+      "ref": "aitasks/t1434_evaluate_aitask_gates_pruning.md",
+      "observed_at": "2026-08-09T06:18:15Z",
+      "summary": "Read in full: chore requesting a pruning/GC policy decision for `.aitask-gates/` (which grows monotonically today), using t1427_1's `.aitask-shadow/` archive-time prune as prior art but explicitly evaluating whether a different policy (age-based GC, like `aitask_explain_cleanup.sh`) fits better given gate logs' post-archival value. No depends edge on any trail member; anchor 1159 only because it was spawned during t1427's planning."
+    },
+    {
+      "evidence_id": "ev-t1448",
+      "source_type": "task_file",
+      "ref": "aitasks/t1448_shadow_concern_badge_currency.md",
+      "observed_at": "2026-08-09T06:18:30Z",
+      "summary": "Read in full: depends [1159, 1420] (hard edge, both trail members). Wants the shadow-concern badge to clear on a workflow-phase transition rather than only when the user opens the picker, explicitly chartered to consume t1420's phase signal rather than deriving one, and to key currency off t1159's round metadata. Cross-references t1427 directly ('check whether a fully-rejected block should also clear the badge; do not duplicate its store') and t1351 (a row-width budget it must coordinate with). Adopts the tri-state 'cannot tell' discipline from `compute_shadow_staleness` and is barred from ever gating (advisory-only, same shape constraint as t1420)."
+    },
+    {
+      "evidence_id": "ev-t1460",
+      "source_type": "task_file",
+      "ref": "aitasks/t1460_producer_manifest_independent_discovery.md",
+      "observed_at": "2026-08-09T06:18:45Z",
+      "summary": "Read in full: Step 8d risk-mitigation follow-up of t1427_3, per its origin section quoting `aiplans/archived/p1427/p1427_3_producer_suppression_rule.md`'s '## Risk'. Closes a marker-keyed producer-discovery gap pre-existing since t1187 (a fifth producer without the marker phrase is invisible to `test_producer_set_is_the_known_set`), shared by all three rule guards, not specific to the suppression rule. No depends edge on any trail member."
+    },
+    {
+      "evidence_id": "ev-sweep",
+      "source_type": "command_output",
+      "ref": "grep -rl --include='t*.md' '^verifies:' aitasks | (per-file grep for each of 1427_1, 1427_2, 1427_3, with rc propagation)",
+      "observed_at": "2026-08-09T06:19:00Z",
+      "summary": "Belt-and-braces incoming-verifies sweep for the three members that completed since the loaded version (t1427_1, t1427_2, t1427_3), run separately for each bare id, all exit 0. Each returned exactly one hit: `aitasks/t1427/t1427_5_manual_verification_reject_shadow_concerns_suppress_next_rou.md` — already a scope member via the parent-pulls-children mechanic, not a new candidate. Outgoing risk_mitigation_tasks was checked by direct frontmatter read (ev-t1427-children): only t1427_3 declares one (t1460), already surfaced by the topic-wide new_related_task scan and dispositioned as an exclusion."
+    }
+  ],
+  "rendering_hints": {
+    "collapse_landed_waves": true
+  }
+}
