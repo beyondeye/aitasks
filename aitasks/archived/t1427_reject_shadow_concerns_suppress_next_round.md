@@ -3,17 +3,17 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [shadow, aitask_monitormini, aitask_monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1427_5]
 anchor: 1159
 created_at: 2026-08-05 12:04
-updated_at: 2026-08-09 10:45
+updated_at: 2026-08-09 12:23
+completed_at: 2026-08-09 12:23
 ---
 
 In the concern picker (`c` in `ait monitor` / `ait minimonitor`) the user can
