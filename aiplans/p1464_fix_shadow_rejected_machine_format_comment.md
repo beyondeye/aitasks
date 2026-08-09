@@ -131,3 +131,88 @@ Current-branch mode — no worktree/branch cleanup. Merge target is `main`
 - None identified. The defect is a known, exactly-located string mismatch
   against a verified emitter (`:339`); the fix is that string, and the added
   assertion has a stated negative control proving it discriminates.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-09 11:31)
+
+- **Requested by user:** The plan's test change (an output-only assertion on
+  `list --machine`) did not deliver the task's stated objective that the emitted
+  format and its documentation "cannot drift again". Nothing reads
+  `aitask_shadow_rejected.sh:61` or `monitor_shared.py:1852`, so either comment
+  could revert to `REJECTED:<id>` with all 124 tests still green. Add explicit
+  assertions for both documentation strings, or narrow the task. **Verdict:
+  confirmed** — the original plan's Step-3 rationale over-claimed.
+- **Changes made:** Kept the scope (the drift property is the task's own
+  "Suggested fix") and added the documentation half.
+  - New **Test 2b** in `tests/test_shadow_rejected.sh`: for each documentation
+    site it asserts (a) the file contains `REJECTED:r<id>|` at least once and
+    (b) it contains **no** `REJECTED:<id>|`. Per-file so a failure names the
+    site that drifted; the "at least once" half is the vacuity guard — a file
+    that merely *deletes* its format spec must not read as clean. The tail is
+    unpinned on purpose (`REJECTED:r<id>|`, not the full spec): rewording
+    `<marker line>` is not drift, dropping the `r` is. Only prose can match
+    these patterns — the awk emitter writes `REJECTED:r%s` and the Python
+    parser slices the bare literal `REJECTED:`.
+  - Sites covered: `.aitask-scripts/aitask_shadow_rejected.sh`,
+    `.aitask-scripts/monitor/monitor_shared.py`, and — beyond the two the
+    review named — `aidocs/framework/shadow_agent.md`, which is the *third*
+    party to the original disagreement (t1427_4 corrected it against the
+    emitter) and is now held to the same rule.
+  - Rewrote the over-claiming comment above the Test 2 assertion: it now says
+    what that assertion actually pins (the emitted line) and points at Test 2b
+    for the documentation half.
+- **Files affected:** `tests/test_shadow_rejected.sh` (Test 2 comment + new
+  Test 2b). The two source-comment fixes are unchanged.
+- **Verification:** `bash tests/test_shadow_rejected.sh` → **130/130 passed**
+  (was 124). Two negative controls, each reverted after:
+  - reverting `aitask_shadow_rejected.sh:61` to `REJECTED:<id>|…` → 128/130,
+    failing *both* of that file's new assertions by name;
+  - deleting the spec from the `monitor_shared.py` docstring (replacing it with
+    prose) → 129/130, failing only `documents the r-prefixed wire spec` —
+    proving the vacuity guard fires rather than passing silently.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the two one-token comment corrections the task
+  named — `.aitask-scripts/aitask_shadow_rejected.sh:61` and (found during
+  implementation) `.aitask-scripts/monitor/monitor_shared.py:1852`, both now
+  reading `REJECTED:r<id>|<ts>|<producer>|<marker line>` in agreement with the
+  awk emitter at `:339`. On the test side the plan's single output-shape
+  assertion grew, after review, into two complementary pins: Test 2's
+  `^REJECTED:r[0-9]+|` line check (what the helper *prints*) and a new Test 2b
+  (what the three documentation sites *say*). `tests/test_shadow_rejected.sh`
+  goes 124 → 130 assertions.
+- **Deviations from plan:** One, driven by the Step-8 review. The plan asserted
+  its test change would make "the emitter and its documentation fail together";
+  it would not — nothing read either comment, so both could silently revert with
+  every test green, which is the exact property the task asked for. Test 2b was
+  added to close that (see Post-Review Changes above), and it also covers
+  `aidocs/framework/shadow_agent.md`, the third party to the original
+  disagreement, which the plan had listed as out of scope on the grounds that it
+  was already correct — correct today is not the same as pinned.
+- **Issues encountered:** The plan's premise that the test suite did not pin the
+  `r` prefix was wrong — `:99` already asserted field 1 == `r1`. That made the
+  planned assertion partly redundant on the emitter side, which is what left the
+  documentation side (the actual gap) unaddressed until review. Also worth
+  recording: the reason this class of bug survives review is `cmd_remove`'s
+  `${a#r}` normalization at `:377` — it accepts `rN` and `N` alike, so code
+  written from the wrong comment works, and no test fails, until that tolerance
+  is ever tightened.
+- **Key decisions:**
+  - Scope kept rather than narrowed. The review offered "narrow the task and
+    comment to pinning the emitter only" as an alternative; the task's own
+    Suggested fix says "so the emitted format and its documentation cannot drift
+    again", so narrowing would have been an unstated AC change.
+  - Test 2b pins `REJECTED:r<id>|` and not the full spec. Rewording
+    `<marker line>` is not drift; dropping the `r` is. Pinning the whole string
+    would fail on legitimate prose edits and train people to weaken the guard.
+  - Each site is checked with a *pair* of assertions (spec present ≥1 AND
+    prefix-less spec absent). The presence half is the vacuity guard: without
+    it, deleting a file's format documentation would make the guard pass.
+  - Checked per file rather than with one repo-wide grep, so a failure names the
+    site that drifted.
+  - `remove`'s verb comment (`:64-66`) does not say its `REMOVED:` /
+    `NOT_FOUND:` csv is `r`-prefixed. Left alone: underspecified, not wrong, and
+    outside the reported defect.
+- **Upstream defects identified:** None.
