@@ -13,7 +13,7 @@ verifies: [t1427_1, t1427_2, t1427_3, t1427_4]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-05 17:22
-updated_at: 2026-08-09 10:50
+updated_at: 2026-08-09 12:01
 ---
 
 ## Manual Verification Task
@@ -26,10 +26,10 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] [t1427_1] bash tests/test_shadow_rejected.sh passes; shellcheck on aitask_shadow_rejected.sh clean
-- [ ] [t1427_1] audit-helper-whitelist aitask_shadow_rejected.sh reports no MISSING touchpoints
-- [ ] [t1427_1] Manual smoke: add/list/list --machine/remove/prune round-trip on a scratch task id; .aitask-shadow/ stays git-ignored (git status clean) throughout
-- [ ] [t1427_1] Archive a scratch task that has a rejection store and confirm .aitask-shadow/<id>/ is pruned
+- [x] [t1427_1] bash tests/test_shadow_rejected.sh passes; shellcheck on aitask_shadow_rejected.sh clean — PASS 2026-08-09 12:00 auto: tests/test_shadow_rejected.sh 130/130; shellcheck clean apart from the repo-baseline SC1091 source notices (sibling aitask_shadow_context.sh has the same 3)
+- [x] [t1427_1] audit-helper-whitelist aitask_shadow_rejected.sh reports no MISSING touchpoints — PASS 2026-08-09 12:00 auto: audit-helper-whitelist reports no MISSING; positive control on an unwhitelisted name emits 5 MISSING lines, so the empty result is a real clean
+- [x] [t1427_1] Manual smoke: add/list/list --machine/remove/prune round-trip on a scratch task id; .aitask-shadow/ stays git-ignored (git status clean) throughout — PASS 2026-08-09 12:00 auto: add/list/list --machine/remove/prune round-trip on scratch id 9999 in the live repo; pipe-laden body round-trips, id r1 removed then re-add issued r3 (no reuse), prefix-less remove accepted, prune then PRUNED:absent; git status byte-identical to baseline throughout and git check-ignore confirms .gitignore:22
+- [x] [t1427_1] Archive a scratch task that has a rejection store and confirm .aitask-shadow/<id>/ is pruned — PASS 2026-08-09 12:00 auto: tests/test_archive_shadow_prune.sh 26/26, plus a hands-on archive in a throwaway repo -- real aitask_archive.sh on scratch t42 with a seeded store returned COMMITTED, .aitask-shadow/42/ gone, decoy .aitask-shadow/77/ intact
 - [ ] [t1427_2] In minimonitor: press c on a shadow concern block, mark a concern with r (red mark + dimmed row), confirm; .aitask-shadow/<task_id>/rejected.md gains the canonical marker line
 - [ ] [t1427_2] Re-open the picker, press R: rejected-store view lists the persisted entry; un-reject it and confirm; entry removed from the store file
 - [ ] [t1427_2] Same reject/un-reject flow in full monitor (non-narrow layout)
