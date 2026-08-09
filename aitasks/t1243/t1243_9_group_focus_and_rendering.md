@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:16
-updated_at: 2026-08-09 09:25
+updated_at: 2026-08-09 12:45
 ---
 
 ## Context
@@ -152,3 +153,8 @@ Real Pilot throughout:
 - a single-member group renders as a plain card with no header;
 - `ctrl+left` / `ctrl+right` still resolve the focused column when focus is on a
   header.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-09T09:45:40Z status=pass attempt=1 type=human
