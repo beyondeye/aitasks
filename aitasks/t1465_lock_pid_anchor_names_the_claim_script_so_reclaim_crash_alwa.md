@@ -80,9 +80,21 @@ false crash story that makes "reclaim" the obvious answer.
 
 Observed live: a `/aitask-pick 1427` session was told a still-running sibling
 session had crashed, reclaimed t1427_5, and duplicated roughly 15 minutes of
-verification work while the original session was still committing. See the
-companion task on the acquire-path liveness gate, which is the other half of
-that outcome.
+verification work while the original session was still committing.
+
+## Coordination — t1466 (acquire-path liveness gate)
+
+**t1466** is the other half of that outcome. There the acquire path takes a
+same-email lock without consulting liveness at all, so a live holder is
+displaced silently; the human confirmation prompt is the only real gate. This
+task is what makes that prompt lie — it reports a crash that did not happen,
+which is the framing most likely to get "reclaim and continue" chosen.
+
+Fixing this task alone makes the verdict truthful but still leaves the lock
+takeable from a live session; fixing t1466 alone removes the double-claim but
+leaves the misleading verdict. Whichever lands second re-checks the other's
+assumptions about where the liveness decision is made. A reverse pointer is
+recorded in t1466.
 
 ## Test gap
 
