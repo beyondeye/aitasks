@@ -1,0 +1,1734 @@
+{
+  "schema_version": "1.0.0",
+  "trail_id": "trail-gates-framework-landing",
+  "title": "Gate framework landing order (t635 topic)",
+  "owner": "aitasks#635",
+  "scope": {
+    "kind": "ad_hoc",
+    "topics": ["aitasks#635"],
+    "initiating_task": "aitasks#635",
+    "selection_note": "Membership is an explicit pinned id set replayed from generation.inputs, not recomputed from anchors. Origin: invoked on task 635 with whole-topic scope (v1); t1076_4 admitted by explicit user decision in v2 despite its foreign topic (anchored to 1065); four defects from the t635_27 run admitted in v3; owner aitasks#635 removed from the member id list in v3 while staying the artifact owner via --owner (restores residual content attribution, see obs-trail-shape-attribution). v4 admitted five new members (635_38, 1269, 1270, 1271, 1272) and dropped four archived ones (1220, 1264, 1265, 635_34, retained as landed historical entries). This version (v5) is the largest membership change yet: eight more members landed and archived (1109, 1224, 1262, 1269, 1270, 1271, 1272, 635_23 -- all retained as landed historical entries, no longer in generation.inputs) and thirteen new members were admitted by explicit user decision after a scope-expansion question distinguishing eight gate-framework-direct continuations (1416, 1417, 1437, 1438, 1443, 1456, 1457, 1458 -- three of them, 1437/1438/1443, extend chains from members that landed in this same refresh) from five task-workflow-infrastructure tasks sharing the anchor but touching no gate code (1381, 1390, 1392, 1393, 1394 -- new wave 8). Tracked scope topic remains aitasks#635 ALONE: the gatherer's SCOPE line for this member set reports three topics (aitasks#635, aitasks#1065, aitasks#1438), the latter two only because t1076_4 (anchor 1065, hand-picked in v2) and t1438 (no anchor, so it is its own topic root, same shape as v4's t1271) are foreign or absent-anchor members. Neither is added to scope.topics, since that field alone drives new_related_task detection and tracking either would surface false candidates (all of topic 1065's unified-artifact tasks, or nothing at all for a single-task root). Both entries preserve their canonical topic on the entry itself."
+  },
+  "generation": {
+    "generated_at": "2026-08-09T06:11:43Z",
+    "generator": {
+      "agent_string": "claudecode/sonnet5",
+      "skill": "aitask-trail (refresh)"
+    },
+    "project_revision": {
+      "aitasks": "380cbeba6"
+    },
+    "input_digest": "09fe7eb726add75a",
+    "inputs": [
+      { "kind": "plan_file", "ref": "aitasks:aiplans/p635/p635_30_task_gate_editing_surface.md" },
+      { "kind": "task_file", "ref": "aitasks#1076_4" },
+      { "kind": "task_file", "ref": "aitasks#1263" },
+      { "kind": "task_file", "ref": "aitasks#1381" },
+      { "kind": "task_file", "ref": "aitasks#1390" },
+      { "kind": "task_file", "ref": "aitasks#1392" },
+      { "kind": "task_file", "ref": "aitasks#1393" },
+      { "kind": "task_file", "ref": "aitasks#1394" },
+      { "kind": "task_file", "ref": "aitasks#1416" },
+      { "kind": "task_file", "ref": "aitasks#1417" },
+      { "kind": "task_file", "ref": "aitasks#1437" },
+      { "kind": "task_file", "ref": "aitasks#1438" },
+      { "kind": "task_file", "ref": "aitasks#1443" },
+      { "kind": "task_file", "ref": "aitasks#1456" },
+      { "kind": "task_file", "ref": "aitasks#1457" },
+      { "kind": "task_file", "ref": "aitasks#1458" },
+      { "kind": "task_file", "ref": "aitasks#635_16" },
+      { "kind": "task_file", "ref": "aitasks#635_17" },
+      { "kind": "task_file", "ref": "aitasks#635_18" },
+      { "kind": "task_file", "ref": "aitasks#635_24" },
+      { "kind": "task_file", "ref": "aitasks#635_26" },
+      { "kind": "task_file", "ref": "aitasks#635_28" },
+      { "kind": "task_file", "ref": "aitasks#635_29" },
+      { "kind": "task_file", "ref": "aitasks#635_30" },
+      { "kind": "task_file", "ref": "aitasks#635_31" },
+      { "kind": "task_file", "ref": "aitasks#635_32" },
+      { "kind": "task_file", "ref": "aitasks#635_37" },
+      { "kind": "task_file", "ref": "aitasks#635_38" }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-08-09T06:11:43Z",
+    "drift_reasons": [],
+    "refresh_recommended_because": "Next refresh: immediately after t1457 runs (it will settle whether t635_28's activation precondition list needs a fourth strengthening or is finally sufficient); after e-1438 or e-1437 lands, since whichever lands second should re-verify against what the other actually shipped; and whenever t1443, t1416, or t1417's plan-time decisions are made, since this trail records ordering, not the decisions themselves. Also refresh if any of wave 8's five task-workflow-reliability entries land, purely to confirm no unexpected new anchor:635 members were spawned from them -- none of the five is a manual_verification or Step-8d-follow-up pattern task, so none is individually expected to spawn one, but t1381's broad audit sweep is the closest thing to an exception worth watching."
+  },
+  "narrative": {
+    "problem_statement": "The t635 gate framework's substrate has continued landing steadily: since v4 (2026-07-31), eight more members archived, bringing wave 1 to full completion and wave 2 to two of five entries done. The pattern v3 and v4 both predicted -- verification and repair work in this topic reliably files more work than it closes -- repeated at larger scale: the eight landings produced thirteen new members. Most consequentially, the wave-1 manual verification of async human gates (t1109) found a real defect: once a review_approved gate recorded pass, its witness was never re-validated against the code, so a task could archive carrying code the reviewer never actually saw. The auto-filed fix (t1409) closed the hole; two residual follow-ups (t1416, t1417) are now members. Separately, t635_23's Codex/OpenCode port landed statically verified only, and its own risk register named exactly that gap -- t1457, now a member, is the live proof still outstanding. Eight of the thirteen new members continue chains from just-landed work; the remaining five are task-workflow reliability bugs (worktree reuse, merge-target staleness, lock-file corruption, a broader pipefail sweep) that share this topic's anchor but touch no gate code, admitted as full members by explicit user decision to keep the trail's membership consistent with how prior refreshes treated topically-adjacent-but-anchor-tagged work.",
+    "recommendation_summary": "Eight waves. Wave 1 is now fully landed (eleven of eleven original entries done) and gains four new closing entries of its own: t1417 and t1416 close the two residual gaps from the async-human-gate witness hole t1109 found; t1438 is the live proof that t1272's documented no-verifier-warning contract actually changes agent behaviour; t1437 hardens that same contract against future drift, ordered after t1438 so it restructures a proven-working baseline rather than a guessed one. Wave 2 is two-fifths landed (t1262, t635_23); three new entries -- t1457, t1456, t1458 -- insert immediately after t635_23's landing, because that landing turned 'the skills are ported' from a settled prerequisite into a claim this trail itself now flags as unproven until t1457 runs live in both Codex and OpenCode; t1443, an independently-discovered gate-ledger-merge defect (fail-safe, non-blocking), slots in near the end. Activation (t635_28) keeps its terminal position in the wave, now waiting behind seven predecessors instead of four. Waves 3-7 are unchanged from v4 -- no dependency drift was reported for any of them, and all their members remain Ready. Wave 8 is new: five task-workflow reliability fixes (t1390's corrupt-lock crash, t1381's broader pipefail sweep, t1392's worktree-reuse gap, t1393's merge-target staleness question, t1394's live proof that the re-entry stop/re-pick loop actually terminates) placed last because nothing in this trail depends on them and they depend on nothing gate-related -- a placement judgement, not a priority ranking, since three of the five are cheap and independent.",
+    "method_note": "Membership, status, priority, effort, board column, depends and gate declarations come solely from the gatherer snapshot (two runs this refresh: the initial 14-member re-snapshot dropping the 8 newly-archived ids, then the final 27-member snapshot after the scope-expansion confirmation). Rationale comes from reading each new and newly-landed member's task file in full, plus the p635_34/p1265 plans already on file from earlier refreshes and the newly-read t1409 task file (not a trail member; read only to trace the t1109 -> t1416/t1417 lineage). The belt-and-braces follow-up sweep ran for all eight newly-landed members: the outgoing half (each member's own risk_mitigation_tasks field) found exactly one populated list (t635_23: [1457, 1458]); the incoming half (grep for verifies: across aitasks/, confirmed by reading each candidate) found exactly one real edge (t1438 verifies t1272) after discarding two false-positive substring matches from an unrelated MV (t1377_7, whose own verifies list names none of the eight). This refresh's headline finding -- the async-human-gate witness hole t1109 found and t1409 fixed -- was established by reading t1109's and t1409's own recorded diagnosis and command-output table, not by re-executing the sequence independently; the same is true for all eight landed members' PASS/FAIL outcomes, which are taken from their own recorded checklist annotations and Gate Runs blocks. NOT independently re-verified in this refresh: whether t1409's fix actually holds today (no fresh live drive of the stale-signature sequence was performed -- that would duplicate t1109's own now-landed checklist item); the aidocs/gates/ design documents (still unread by any version of this trail); and no tests were run. Carried forward from earlier refreshes: the 2026-07-25/26 live-source and ceiling-model audits, and the 2026-07-27 trail-shape audit explaining this trail's own drift-attribution mechanics -- the latter is reconfirmed a second time by this refresh's clean 21-reason drift check (13 new_related_task + 8 task_completed, zero DRIFT:other).",
+    "caveats": [
+      "Every ordering that is not a recorded `depends` edge is agent judgement, not a recorded constraint. The trail is advisory: no task metadata was read back or modified.",
+      "No time estimates, throughput claims, or completion forecasts are made anywhere in this document. Wave membership says nothing about how long a wave takes.",
+      "Eleven members are externally-numbered tasks in scope by `anchor: 635` or by explicit decision (t1076_4, anchored to topic 1065). Several touch no gate code at all -- t1269 (v4) and the five wave-8 members are topically adjacent at best.",
+      "Wave 8's five members are all products of unrelated task-workflow enhancement work (t1370, t1378, t1380) that happened to be anchored to this topic. Their severity is taken from their own task text; none was independently reproduced here.",
+      "The now-fourteen landed entries retained across waves 1-2 will not be refreshed again: they are archived, so the gatherer rejects them under --scope task and they are no longer in generation.inputs. Their snapshots are historical records.",
+      "t635_18's initial content map is explicitly marked 'refine at planning time' by its own author, so its wave-5 placement assumes a sweep whose exact page list is still open -- and t635_38 then audits whatever that sweep produced.",
+      "t1409 (the intermediate task that fixed the async-human-gate witness hole t1109 found) is not and never was a trail member -- it was created and archived entirely within this refresh's gap, invisible to the drift check's new_related_task scan (see obs-transient-task-invisible-to-drift). It is retained only in exclusions and evidence, as a lineage pointer."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-verify-and-repair",
+      "ordinal": 1,
+      "title": "Close verification debt on landed substrate, repair the tooling that records it -- now fully landed, with a second debt cycle from its own verifications",
+      "purpose": "All eleven original entries in this wave have now landed. Five landed by v4 (the docs_updated verification and the three defects/upgrade-check it surfaced, plus the registry reconcile); the remaining six landed since: the two documentation-contract entries (t1272, plus t1269's silent-push fixes), the CLI help fix (t1270), and -- most consequentially -- the three remaining manual verifications (t1271, t1224, t1109). t1109 found a real defect: async human gates never re-validate their witness once a `pass` is recorded, so a stale-signed gate could archive code the reviewer never saw. Its auto-filed fix (t1409) closed the hole and spawned two residual follow-ups. t1272's landing likewise spawned two follow-ups of its own. The wave's remaining work is therefore this second debt cycle, not the original one.",
+      "why_now": "This is now a closing wave rather than an opening one: everything gate-framework-facing that this wave originally set out to verify has verified, cleanly or not. What remains -- t1417, t1416, t1438, t1437 -- is cheap (three low/low-medium entries and one medium MV) and each either closes a correctness gap the previous cycle's verification exposed or proves what the previous cycle's fix actually shipped. Landing them here, before wave 2's remaining reach work, keeps the pattern the trail has now observed twice: verification finds real defects, and those defects are cheapest to close immediately, while the context is fresh.",
+      "consequence_of_delay": "t1416 and t1417 both trace to a hole that let an approved task archive with code the human reviewer never reviewed -- the closest thing to a security-relevant defect this trail has traced. The core fix (t1409) already landed; what remains is consistency (t1416) and clarity (t1417), lower stakes than the original hole but still worth closing before more of the framework leans on the human-gate witness model. t1438 is the only remaining proof that t1272's shipped contract works end-to-end rather than merely existing as text.",
+      "entries": [
+        {
+          "entry_id": "e-635-27",
+          "task": "aitasks#635_27",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_19"],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-07-27 -- PASSED on all six checklist axes. This was the one recorded hard prerequisite in wave 1 (t635_28 declares `depends: [t635_27]`) and the only check that the docs_updated gate's value proposition -- agent inference plus user confirmation, which unit tests cannot exercise -- produces acceptable signal-to-noise before activation. It is retained as a landed record because five of the trail's live ordering arguments derive from what it found.",
+          "expected_outcome": "Achieved. Recorded per-item evidence: needs-agent deferral with zero ledger appends and exit 0; full Step 8 dispatch on t1252; the `_index.md` manual-list footgun flagged and fixed on t1253; a test-only change recorded as `skip`, terminal and distinct from pass; a user-rejected doc change recorded as `fail` with archival refused (exit 2) and then resolved by re-dispatch; and the archive fail-safe confirmed on a declared-but-unrun gate.",
+          "why_order_matters": "Its recorded `depends` edge to t635_28 is satisfied, so the activation switch in wave 2 is metadata-unblocked. Shipping the activation before this MV would have enabled an unproven work-gate on every pick.",
+          "confidence": "high",
+          "caveats": [
+            "Its pass is a judgement that the gate's inference is good enough to be always-on IN AN ATTENDED SESSION. The run also recorded that the change surface had to be filtered by agent judgement -- see e-1263, the follow-up that makes that judgement unnecessary.",
+            "Archived, so no longer in generation.inputs; this snapshot is a historical record."
+          ],
+          "evidence_refs": ["ev-t635_27-outcome", "ev-p635_27", "ev-t635_28"]
+        },
+        {
+          "entry_id": "e-1264",
+          "task": "aitasks#1264",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-07-27 -- and this is the trail's most consequential v4 finding, because it did NOT close the gap that put it in wave 1. It shipped what it was filed for: a `convert` verb on aitask_verification_parse.py (option 2 from its own fix list, preserving authored bullet text) and templates that emit `- [ ]`. The template half demonstrably works -- t1271 parsed TOTAL:7. The convert half did not reach t1109/t1224 (see obs-mv-checklist-tracking-gap): both were hand-converted before running, which is how they landed with proper checklists in this refresh.",
+          "expected_outcome": "Partially achieved. Verified by independent execution, not by reading the diff: `aitask_verification_parse.py summary` returned TOTAL:0 for both t1109 and t1224 as authored, and running the new `convert` verb against scratch copies of each exited with `error: verification checklist section not found`. The fix addressed the case where the heading DOES match SECTION_RE -- t635_27's stuck state -- and t1109/t1224 failed one step earlier, at heading recognition.",
+          "why_order_matters": "Its landing is why e-1224 and e-1109 had no automated predecessor to wait on. Both were hand-converted and then ran successfully, confirming the practical workaround this trail recommended in v4.",
+          "confidence": "high",
+          "caveats": [
+            "The residual gap (SECTION_RE heading recognition) has no task filed against it as of this refresh either -- obs-mv-checklist-tracking-gap stays open.",
+            "This is not a criticism of the task as scoped -- its own Problem section describes only the matching-heading case.",
+            "Archived, so no longer in generation.inputs."
+          ],
+          "evidence_refs": ["ev-t1264-outcome", "ev-mv-parse-rerun", "ev-p635_27"]
+        },
+        {
+          "entry_id": "e-1265",
+          "task": "aitasks#1265",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-07-27. `task_push` was best-effort by design and silent by accident -- it returned 0 after three attempts with both helpers' stderr suppressed, so a fully failed push was byte-for-byte indistinguishable from a successful one. It fired for real at the end of the t635_27 run, leaving three commits unpushed with no signal.",
+          "expected_outcome": "Achieved as planned. Its plan's Final Implementation Notes record the `_ait_data_git` seam plus `TASK_PUSH_STATUS` / `TASK_PUSH_REASON` / `TASK_PUSH_UNPUSHED` outcome globals and a `--batch` structured status line, keeping the non-fatal contract. No upstream defects identified during its own run.",
+          "why_order_matters": "Retained because it is the direct parent of e-1269: the two remaining silent-failure sites were identified while implementing it and deliberately left out of its scope, and its `_task_push_classify` / `_task_push_reason_hint` helpers are what t1269 was instructed to reuse rather than fork.",
+          "confidence": "high",
+          "caveats": [
+            "Its fix was deliberately scoped to visibility, not to resolving branch divergence; reconciling a diverged aitask-data branch stays the syncer's job.",
+            "Archived, so no longer in generation.inputs."
+          ],
+          "evidence_refs": ["ev-t1265-outcome", "ev-p1265", "ev-t1269-outcome"]
+        },
+        {
+          "entry_id": "e-1220",
+          "task": "aitasks#1220",
+          "topic": "aitasks#635",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-07-27 -- PASSED on all ten checklist items. Verification debt on a shipped upgrade path that could destroy user files: its risk register named a prefix glob deleting a live skill and silent deletion of the user's own untracked work, both high severity, with only a temp-dir fixture covering them in-task.",
+          "expected_outcome": "Achieved, on a real copy of an installed project (framework 0.27.0 -> 0.29.0). Recorded per-item: no `/aitask-pickn` in Claude Code, OpenCode or Codex completion; `/aitask-pick` still resolving in all three; zero authoring or wrapper directories left across all six roots; rendered closures reported KEPT and still present; the deletions carried in the upgrade's git commit; no `pickn` row in the settings project tab. The preservation case passed too -- a hand-edited retired wrapper AND a hand-edited rendered closure both survived byte-identical with the KEPT warning naming them.",
+          "why_order_matters": "It shared no surface with any other member, so its ordering was always a mild preference. It is retained as the wave's clearest datum that a manual verification can also come back clean: unlike t635_27, it filed no defects.",
+          "confidence": "high",
+          "caveats": [
+            "Its pass is recorded from its own checklist annotations; this refresh did not independently re-run the upgrade.",
+            "Archived, so no longer in generation.inputs."
+          ],
+          "evidence_refs": ["ev-t1220-outcome"]
+        },
+        {
+          "entry_id": "e-635-34",
+          "task": "aitasks#635_34",
+          "topic": "aitasks#635",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_33"],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-07-27. It was the only member describing a breakage users were hitting rather than a capability that was missing. Its plan corrected the task's own premise honestly and at source: `ait upgrade` already fills absent registry keys via deep_merge, so the real deficiencies were narrower -- the merge destroys the registry's 113-line comment header, requires a full version upgrade, reports nothing when a project's value genuinely diverges, and needs PyYAML in exactly the environments where the gate system is meant to work stdlib-only.",
+          "expected_outcome": "Achieved. `ait gates sync-registry` shipped as the targeted, comment-preserving, conflict-reporting, stdlib-only reconcile, plus the early no-verifier warning emitted from `aitask_gate.sh materialize-active` on stderr. Its plan records an end-to-end drive on a real stale install: a blocked task reaching `pass (attempt 1)` and `ALL_PASS` with no manual gate append, a customised `verifier:` reported as CONFLICT and left intact, and project comments surviving byte-for-byte. e-1271 (this refresh) confirmed all of this live on a second real install.",
+          "why_order_matters": "Retained because it is the source of three of the trail's v4 new members and because its landing changed a recorded edge: t635_18's `depends` names it (satisfied) alongside t635_37.",
+          "confidence": "high",
+          "caveats": [
+            "The warning surface was deliberately stderr-only to take zero render/goldens blast radius -- a decision its plan justifies twice over. e-1272 promoted that decision into a documented contract (now landed); e-1271 is its live verification (now landed, PASSED 7/7).",
+            "Archived, so no longer in generation.inputs."
+          ],
+          "evidence_refs": ["ev-p635_34", "ev-t1271-outcome", "ev-t1272-outcome", "ev-snapshot"]
+        },
+        {
+          "entry_id": "e-1272",
+          "task": "aitasks#1272",
+          "topic": "aitasks#635",
+          "position": 6,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "low",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-05. Shipped exactly as scoped, then extended in-session (scope item 1b, agreed with the user at planning time): the same stderr-warning bullet was added to `aitask-pickrem/materialize-active.md` as well as task-workflow's Step 4, because t635_34's recorded risk was that the warning 'reaches every lane', and task-workflow alone would have left the remote lane uncovered. All three profile goldens plus six committed remote prerenders (3 task-workflow-remote-*/SKILL.md + 3 aitask-pickrem-remote-*/materialize-active.md) were regenerated and staged against an explicit 11-path allowlist rather than a blanket git add.",
+          "expected_outcome": "Achieved, plus the extension: the bullet renders in all three profile goldens, all six prerenders carry it, the staging gate exited 0 against exactly the 11 allowlisted paths, and the exit-code contract stayed advisory.",
+          "why_order_matters": "Its landing is what makes e-1438 (the live proof) and e-1437 (the duplication its own extension surfaced) possible; both are new entries in this wave.",
+          "confidence": "high",
+          "caveats": [
+            "The scope-1b extension is exactly what left the framework with two hand-maintained, no-drift-guard copies of the same parse contract -- the gap e-1437 exists to close.",
+            "Archived, so no longer in generation.inputs."
+          ],
+          "evidence_refs": ["ev-t1272-outcome", "ev-p635_34", "ev-t1437", "ev-t1438"]
+        },
+        {
+          "entry_id": "e-1269",
+          "task": "aitasks#1269",
+          "topic": "aitasks#635",
+          "position": 7,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-02. Both sites fixed as scoped: `task_sync()` now classifies and reports pull-rebase failures via the reused `_task_push_classify`/`_task_push_reason_hint` helpers rather than forked copies, and `chatlink/task_create.py` passes `--batch` and parses the structured PUSHED/NOTHING/NO_REMOTE/FAILED:<reason>:<count> line, keeping the return-code branch only for genuine process errors.",
+          "expected_outcome": "Achieved as planned; gate runs show a clean plan_approved -> review_approved -> risk_evaluated pass sequence with no recorded upstream defects.",
+          "why_order_matters": "Confirms the trail's wave-1 sequencing argument held: it landed while the t1265 seam it reuses was still fresh.",
+          "confidence": "high",
+          "caveats": [
+            "Archived, so no longer in generation.inputs.",
+            "Like t1265, it touched no gate code -- it was in this topic by anchor:635 and lineage only. Its clean landing is a data point that anchor-only members are not automatically lower-value; this refresh leaned on that precedent when recommending inclusion of all 13 new anchor-635 members, five of which (the wave-8 cluster) are the same shape."
+          ],
+          "evidence_refs": ["ev-t1269-outcome", "ev-p1265", "ev-t1265-outcome"]
+        },
+        {
+          "entry_id": "e-1271",
+          "task": "aitasks#1271",
+          "topic": "aitasks#1271",
+          "position": 8,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_34"],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-04 -- PASSED all 7 items, on a REAL stale downstream install (aitasks_mobile, framework 0.27.0, zero verifier keys), not a fixture. Confirmed every property p635_34 named as the honest justification for t635_34: dry-run byte-identical to the applying run, every gates.yaml comment line surviving byte-for-byte (comments had previously been destroyed by the old merge_yaml upgrade path on every downstream install checked), a locally-customized verifier reported as CONFLICT and left untouched, a previously no-verifier-blocked task (t33, a real task) running its verifier and archiving with zero manual gate append, the pick-time stderr warning appearing and clearing after reconcile, a second run reporting exactly NOOP, and the registry left uncommitted with the ./ait git add hint.",
+          "expected_outcome": "Achieved in full -- the strongest positive result of any MV in this trail's history: no partial passes, no filed defects.",
+          "why_order_matters": "This trail recommended landing e-1272 before e-1271 so the MV would verify a documented Step-4 contract rather than a bare stderr line. The recorded dates show the reverse happened (e-1271 completed 2026-08-04, e-1272 completed 2026-08-05) -- see caveat. Item 5 still passed, so no harm resulted this time, but the sequencing argument was not actually tested as designed.",
+          "confidence": "high",
+          "caveats": [
+            "ORDERING NOTE: e-1271 landed one day before e-1272, the reverse of this trail's own recommended sequence. Item 5's PASS annotation confirms the warning fired correctly regardless -- a useful data point on how much this ordering advice actually matters in practice, not evidence the advice was wrong.",
+            "Archived, so no longer in generation.inputs."
+          ],
+          "evidence_refs": ["ev-t1271-outcome", "ev-p635_34"]
+        },
+        {
+          "entry_id": "e-1224",
+          "task": "aitasks#1224",
+          "topic": "aitasks#635",
+          "position": 9,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-04 -- PASSED both items. Confirmed pickrem Step 5 materializes active_gates: [] end-to-end (status line MATERIALIZED:(empty), active_gates_profile stamp 'remote', clean archival with no manual gate append and a held negative control), and confirmed the web-merge materialization sub-step (WEBMAT_OK:MATERIALIZED:(empty), WEBMAT_OK:NOOP:unchanged on re-run) plus the profile-not-found failure stop (WEBMAT_INVALID:profile-not-found, archival correctly refused with GATE_PENDING and exit 2).",
+          "expected_outcome": "Achieved in full, settling the empty-ceiling materialization question wave 1 always said it would.",
+          "why_order_matters": "Its landing is what unblocked e-1109: e-1109's own premise section records that t1224's result confirmed empty-ceiling filtering is correct behaviour rather than a defect, retiring the pre-2026-07-26 ambiguity and letting e-1109 run under a purpose-built non-empty-ceiling profile instead.",
+          "confidence": "high",
+          "caveats": [
+            "Source-verified wiring rather than a fully live agent-driven pickrem loop for item 1 (noted on the task itself as 'live pickrem agent loop not driven') -- a narrower caveat than the trail's earlier 'cannot be exercised end-to-end in automated tests' framing, since the actual commands were run live, just not through a driven agent session.",
+            "Archived, so no longer in generation.inputs."
+          ],
+          "evidence_refs": ["ev-t1224-outcome", "ev-mv-parse-rerun"]
+        },
+        {
+          "entry_id": "e-1109",
+          "task": "aitasks#1109",
+          "topic": "aitasks#635",
+          "position": 10,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "low",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-04 -- 6 of 7 items PASSED; item 5 FAILED, and that failure is the single most consequential finding in this trail's four versions. Its premise was resolved first: t1224 (item above) settled that empty-ceiling filtering is correct, so this MV ran under a purpose-built throwaway headless profile (`local/gatetest_async_human.yaml`, rendered_gates: [review_approved]) to genuinely exercise the dual-transport review_approved gate. Setup, precondition, stop-clean-at-pending-human, sign-and-record, re-sign-and-archive, and cleanup all PASSED. Item 5 -- 'stale signature re-pends' -- FAILED: after signing, mutating a code file, and re-running, `ait gates run` reported 'All gates satisfied' and `archive-ready` reported `ALL_PASS` instead of re-pending on the stale witness.",
+          "expected_outcome": "Partially achieved, in the informative sense wave 1's own framing anticipated: the FAIL auto-generated t1409 (the framework's manual-verification-failure auto-filing convention, exercised here for the first time in this trail's history), which diagnosed the exact mechanism -- `gate_orchestrator.run()` and `compute_unlocked()` both short-circuit on ledger status alone once a gate is already 'pass', so `_signal_state()`'s digest comparison (the code that actually detects staleness, and whose logic and message text were confirmed correct) is unreachable after the first sign-off except via the `--gate <name>` force path. t1409 landed the fix -- re-validate signal-bearing human gates even when ledger-satisfied, at both `gates run` and `archive-ready` -- and itself spawned e-1416 and e-1417 as residual follow-ups, both now new entries in this wave.",
+          "why_order_matters": "Its author's own coordination note with t635_17 (this MV owns stop-clean/sign/record/re-pend; t635_17 owns auto-completion policy) is now empirically load-bearing rather than theoretical: t635_17's whole auto-completion premise -- archiving a headless run once every gate reads satisfied -- would have silently trusted the exact hole this MV found, on every future headless run with a human gate, until t1409 closed it. Landing this MV before t635_17 is what caught it in time.",
+          "confidence": "high",
+          "caveats": [
+            "The hole existed from t635_15's original landing until t1409's fix (2026-08-04) -- every review_approved pass recorded in that window should be treated as unverified against subsequent code changes, though this trail has no record of any real headless run exercising that exact sequence in production during the gap.",
+            "t1409's fix explicitly preserves the unstamped-witness backward-compatibility acceptance (gate_orchestrator.py:406-408,419) -- an unstamped witness still passes. That is a recorded, deliberate scope boundary, not an oversight t1409 left open.",
+            "Archived, so no longer in generation.inputs.",
+            "The checklist that actually ran used a proper '## Verification Checklist' heading with `- [x]`/`- [fail]` items, confirming obs-mv-checklist-tracking-gap's predicted hand-conversion workaround was used here too -- the underlying SECTION_RE gap itself remains unfixed by any task in scope (see that observation)."
+          ],
+          "evidence_refs": ["ev-t1109-outcome", "ev-t1409", "ev-mv-parse-rerun"]
+        },
+        {
+          "entry_id": "e-1270",
+          "task": "aitasks#1270",
+          "topic": "aitasks#635",
+          "position": 11,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "low",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-02. One-line fix landed exactly as scoped: `gate pass` added to show_usage's 'Gates:' block matching the 15-character verb padding.",
+          "expected_outcome": "Achieved; ./ait --help now lists it, alignment matches, tests/test_gate_cli_wiring.sh stayed green.",
+          "why_order_matters": "Confirmed as free as predicted -- no dependents, nothing blocked on it.",
+          "confidence": "high",
+          "caveats": ["Archived, so no longer in generation.inputs."],
+          "evidence_refs": ["ev-t1270-outcome"]
+        },
+        {
+          "entry_id": "e-1417",
+          "task": "aitasks#1417",
+          "topic": "aitasks#635",
+          "position": 12,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Direct residual of t1409's fix (risk_mitigation_tasks entry, alongside t1416): `gate_ledger.archive_status()` now correctly blocks archival on a stale-signed human gate, but reports it through the same bare `BLOCKED:<gate>` channel used for a gate that simply never passed -- so `aitask_archive.sh`'s message tells the user to wait rather than to re-sign, and today the only way to tell the two situations apart is to run `ait gates run <id>` and read the note.",
+          "expected_outcome": "archive_status() distinguishes the stale set from the non-pass set, aitask_gate.sh archive-ready emits a STALE_SIGNATURE:<csv> line alongside the existing BLOCKED:<csv> (unchanged, so aitask_query_files.sh inflight and task-workflow Step 3 Check 4 keep parsing it), and aitask_archive.sh gate_guard() prints the re-sign instruction naming the offending gate.",
+          "why_order_matters": "Cheap and independent -- it only touches archive_status()'s already-checked surface (t1409's fix), not the four ledger-only surfaces t1416 addresses. No reason to wait on t1416; ordered first here only because it is the lower-effort of the two and closes the more user-visible gap.",
+          "confidence": "high",
+          "caveats": [
+            "Its own verification requires the negative control (a genuinely-pending gate still produces the ordinary GATE_PENDING wording) to hold, or the fix has widened the wrong case.",
+            "Existing parsers of BLOCKED:<csv> (aitask_query_files.sh inflight, task-workflow Step 3 Check 4) must keep working unchanged -- this is a strict addition, not a reshape."
+          ],
+          "evidence_refs": ["ev-t1417", "ev-t1409"]
+        },
+        {
+          "entry_id": "e-1416",
+          "task": "aitasks#1416",
+          "topic": "aitasks#635",
+          "position": 13,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The other residual of t1409's fix. Two surfaces (gate_orchestrator._read_state and gate_ledger.archive_status) now re-validate a human gate's witness against the live code digest; four more (archive_status_from_text -- read by stats_data.py and this trail's own gatherer; read_task_gate_state -- the board/monitor badge; deps-unblock; unlocked) still read the ledger status alone, because each runs per-task across many tasks per refresh and the freshness check costs a git subprocess. A board badge or ait ls row can therefore show green on a task whose human-gate signature has actually gone stale.",
+          "expected_outcome": "Either a once-per-refresh digest threaded through the four surfaces (stale_signed_gates() already accepts an explicit current_digest for this), measured against the board-refresh cost budget, or a ratified ledger-only decision backed by a drift guard that fails when a new archival-readiness consumer is added without picking a side. deps-unblock gets its own explicit decision given review_approved's blocks_dependents: true.",
+          "why_order_matters": "After e-1417 (cheaper, ships first) and ahead of e-1438/e-1437 (unrelated concern, no ordering constraint either way -- placed after only because it belongs to the same origin chain as the wave's closing pair).",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium because the two directions (thread the digest vs. ratify ledger-only with a guard) are a genuine cost/consistency trade-off the task defers to plan time, and this trail records ordering, not the decision.",
+            "This trail's own gatherer (trail_gather.py) is one of the two documented consumers of archive_status_from_text -- a decision here has a direct, if narrow, effect on this trail's own snapshot cost."
+          ],
+          "evidence_refs": ["ev-t1416", "ev-t1409"]
+        },
+        {
+          "entry_id": "e-1438",
+          "task": "aitasks#1438",
+          "topic": "aitasks#635",
+          "position": 14,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#1272"],
+            "gates_pending": []
+          },
+          "rationale": "The end-to-end proof of what t1272 shipped, not merely that the text landed. Its own checklist is explicit that items 1-6 (goldens render, prerenders carry the bullet, tests green, staging gate clean) only prove the text shipped -- item 7 is the substantive one: point a task at an unverifiable gate, pick it, and confirm the agent actually notices the stderr warning, surfaces it, and suggests `ait gates sync-registry`, in both the attended and remote lanes. Item 8 is the negative control (no warning on a healthy gate set); item 9 confirms the exit-code contract stays advisory.",
+          "expected_outcome": "Confirmation that the documented Step-4 contract changes real agent behaviour, in both lanes, with the negative control holding and the exit-code contract unchanged.",
+          "why_order_matters": "Its recorded `depends: [1272]` is satisfied; placed ahead of e-1437 deliberately, so that if e-1437 restructures the contract into a shared include, it does so against a proven-working baseline rather than an unverified one.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium, not high, because half its checklist (items 7-8) requires driving a live agent session in both an attended and a remote lane -- the same category of item that made e-1109 and e-1224 the two most consequential MVs in this trail's history.",
+            "Item 6's staging-discipline check (worktree-modified aitask-trail files left unstaged) is itself a live instance of obs-goldens-dir-concurrent-dirty's successor condition -- a concurrent session's in-flight work sitting in the same directory a gated task must regenerate."
+          ],
+          "evidence_refs": ["ev-t1438", "ev-t1272-outcome"]
+        },
+        {
+          "entry_id": "e-1437",
+          "task": "aitasks#1437",
+          "topic": "aitasks#635",
+          "position": 15,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Found by accident, not by design: while verifying an unrelated concern during t1272's own planning, a grep for the warning bullet's text across `.claude/skills/` turned up a SECOND copy in `aitask-pickrem/materialize-active.md` that t1272's original scope (task-workflow SKILL.md only) had not named. t1272's scope item 1b covered both lanes in the end, but nothing prevents the next change to this contract from landing in only one lane again -- t635_34, which introduced the warning, had documented it in neither.",
+          "expected_outcome": "Either a token-set parity drift guard (cheap, tolerates the legitimate per-lane wording and step-number differences already present -- Step 5 vs Step 6, Step 9 vs Step 10, 'surface to the user' vs 'display in the run output') or a canonical shared include with lane-specific template parameters (more invasive). The task also flags a third possible instance (aitask-web-merge/materialize-gates.md) as needing a scoping check, not an assumed hit.",
+          "why_order_matters": "Last in the wave, after e-1438: the MV proves the current (duplicated-but-consistent) contract works, so hardening it against future drift is safe to attempt only once that baseline is confirmed rather than guessed at.",
+          "confidence": "high",
+          "caveats": [
+            "The two copies are explicitly NOT byte-identical and must not be naively merged -- differing line width, abort-step numbers and interactive-vs-display voice are legitimate per-lane variation the fix must preserve.",
+            "Whichever direction is chosen changes the site e-1438 just verified; re-verification is not automatically triggered by this trail and would need a fresh MV or a targeted re-check if e-1437 lands materially after e-1438."
+          ],
+          "evidence_refs": ["ev-t1437", "ev-t1272-outcome", "ev-t1438"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-procedure-gate-reach",
+      "ordinal": 2,
+      "title": "Make the procedure gate correct and reachable everywhere, then switch it on",
+      "purpose": "Today `docs_updated` runs in exactly one place, records a mis-numbered attempt count (now fixed), and infers its change surface from the whole dirty tree. Two of this wave's five original entries have landed: t1262 (the attempt-count fix) and t635_23 (the Codex/OpenCode port). t635_23's landing did not close the reach gap it was aimed at -- it proved the wrapper surfaces exist and agree across trees, but nothing yet proves the port is FUNCTIONALLY complete in a live cross-agent session, which is exactly what its own risk register flagged and what three new members (t1457, t1456, t1458) now exist to close.",
+      "why_now": "Placing the activation before the remaining surface work is still the single highest-leverage structural choice in this trail. Wave 1 having fully landed t635_27 means the activation's recorded prerequisite is satisfied; what remains before the switch has grown, not shrunk, since v4: the two original reach fixes (t635_29, t1263) plus the live proof and cleanup that t635_23's landing itself demanded (t1457, t1456, t1458), plus a low-urgency ledger-merge fix (t1443) discovered along the way.",
+      "consequence_of_delay": "Every wave that lands before activation adds to the t635_18 backlog. Leaving t635_29 undone keeps the autonomous lanes deferring procedure gates as needs-agent. Activating before t1457 runs means trusting a cross-agent port that has only ever been checked statically -- the same category of gap t1109's FAIL just demonstrated is not merely theoretical in this framework.",
+      "entries": [
+        {
+          "entry_id": "e-1262",
+          "task": "aitasks#1262",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-06. Fixed as scoped: attempt now counted off terminal markers, bash and Python sides agree. Landing revealed one thing the task itself did not anticipate: t1443 (new member below) found that the run-id shape change needed to fix this (from a bare ISO stamp to the orchestrator's `<iso>-<gate>-a<N>` form) shifted, but did not cause, a pre-existing gate-ledger-merge fast-path defect.",
+          "expected_outcome": "Achieved; gate runs show a clean pass sequence.",
+          "why_order_matters": "Landed before activation as planned, so the mis-numbered attempt field never spread across the fast-profile population activation will create.",
+          "confidence": "high",
+          "caveats": [
+            "Archived, so no longer in generation.inputs.",
+            "Its own note that the doubled-count issue was 'ledger accuracy and reporting, not gating correctness' held throughout -- no correctness regression is attributed to this fix."
+          ],
+          "evidence_refs": ["ev-t1262-outcome", "ev-t635_26", "ev-t1443"]
+        },
+        {
+          "entry_id": "e-635-23",
+          "task": "aitasks#635_23",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "low",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_11", "aitasks#635_19", "aitasks#635_22"],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-07. All three plain gate skills (aitask-run-gates, aitask-gate-template, aitask-gate-docs-updated) ported to Codex CLI and OpenCode trees as scoped. Landing surfaced three follow-ups: two formally recorded via risk_mitigation_tasks: [1457, 1458], plus a third noted informally at the same Step 8b review (1456) -- a permission-policy gap in this repo's own .claude/settings.local.json (a strict subset of its seed mirror, so verifiers prompt here that run cleanly in a freshly-seeded consumer project), and the structural discover-vs-verify gap that let all three skills ship Claude-only for months undetected in the first place.",
+          "expected_outcome": "Achieved for the file-port scope as written. Whether the port is FUNCTIONALLY complete -- the tool mapping actually carrying the AskUserQuestion confirmation step in a live Codex/OpenCode session -- is explicitly NOT proven by this landing; that is e-1457's job, new in this wave.",
+          "why_order_matters": "Confirms the trail's own prior warning (v1-v4's advisory_precedes edge to e-635-28): activation must not land while the skills are Claude-only. That edge now needs strengthening rather than retiring -- the port existing is necessary but this refresh found it is not sufficient; e-1457's live proof is the harder bar the original edge did not anticipate.",
+          "confidence": "high",
+          "caveats": [
+            "Archived, so no longer in generation.inputs.",
+            "Verified STATICALLY ONLY at landing time (existence, cross-tree parity, generated body content, policy strings, golden/prerender freshness) -- its own risk register said as much, naming exactly the gap e-1457 exists to close."
+          ],
+          "evidence_refs": ["ev-t635_23-outcome", "ev-t1456", "ev-t1457", "ev-t1458"]
+        },
+        {
+          "entry_id": "e-1457",
+          "task": "aitasks#1457",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t635_23 shipped the wrapper surfaces and verified them statically only. This MV is the acceptance condition for its end-to-end claim: drive aitask-gate-docs-updated from a live Codex CLI session and a live OpenCode session on a scratch task declaring gates: [docs_updated], and confirm the wrapper resolves, the AskUserQuestion confirmation step survives the tool-mapping translation (functions.request_user_input under Codex, ask under OpenCode -- a silently-skipped confirmation is a FAIL, since the gate's whole value rests on it), the permitted helpers run unprompted, the terminal ledger block lands, and the skip path (no docs needed) still reaches ALL_PASS.",
+          "expected_outcome": "Per-agent PASS/FAIL recorded for both Codex CLI and OpenCode. A failure here means the wrapper layer exists but the port is not functionally complete, to be filed as its own follow-up rather than loosening this checklist.",
+          "why_order_matters": "Directly after t635_23 and ahead of e-635-28 (activation): landing activation before this MV runs means every fast-profile pick under Codex or OpenCode would depend on a cross-agent contract that has only ever been checked statically. This strengthens, rather than merely repeats, the trail's original t635_23-precedes-t635_28 advisory edge.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium for the same reason e-1109 and e-1224 carried medium confidence before they ran: it requires driving two separate live agent sessions, not just asserting file state.",
+            "It also asks to confirm the installed OpenCode config (not just the seed mirror) actually carries the permission entries t635_23 added -- if it does not, that is explicitly flagged as its own follow-up rather than something this MV should paper over.",
+            "The .opencode/commands slash-command surface is a secondary check -- the gate is normally reached via task-workflow dispatch, not by a user typing the command directly."
+          ],
+          "evidence_refs": ["ev-t1457", "ev-t635_23-outcome"]
+        },
+        {
+          "entry_id": "e-1456",
+          "task": "aitasks#1456",
+          "topic": "aitasks#635",
+          "position": 4,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Found while auditing the helper whitelist for t635_23's own two dependencies (aitask_resolve_config_path.sh, aitask_run_gates.sh): .claude/settings.local.json -- this repo's own runtime Claude permission policy -- is systematically behind its seed mirror for the entire aitask_gate_*.sh verifier family, not just the two helpers t635_23 needed. Every machine-gate verifier prompts for permission in this dev repo while a freshly-seeded consumer project runs them cleanly, the inverse of the intended relationship. It also carries the discover-vs-verify coordination note for aitask-explorechat, the last plain aitask-* skill with no wrapper surface anywhere, which needs a deliberate port-or-exempt decision shared with e-1458.",
+          "expected_outcome": "The full aitask_gate_*.sh family (and ideally every helper discover-helpers reports) audited and whitelisted via aitask_audit_wrappers.sh audit-helper-whitelist / apply-helper-whitelist, plus a decision -- port or document-exempt -- for aitask-explorechat, landed consistently with e-1458's exemption mechanism.",
+          "why_order_matters": "After e-1457 (the live proof matters more than the permission-policy cleanup on its own), but ahead of e-635-29 and e-1263: both later entries touch dispatch/attribution paths that also invoke gate helpers, and a clean permission baseline avoids conflating a policy prompt with a real defect while debugging them.",
+          "confidence": "high",
+          "caveats": [
+            "The aitask-explorechat decision is explicitly deferred to coordinate with e-1458 -- 'land them consistently' is the task's own instruction, not this trail inventing a coupling.",
+            "This is a permission-policy and coordination fix, not a functional gap in the Codex/OpenCode ports themselves -- it does not substitute for e-1457's live proof."
+          ],
+          "evidence_refs": ["ev-t1456", "ev-t635_23-outcome", "ev-t1458"]
+        },
+        {
+          "entry_id": "e-1458",
+          "task": "aitasks#1458",
+          "topic": "aitasks#635",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Closes the structural hole that let three gate skills ship Claude-only for months undetected: aitask_skill_verify.sh's only plain-skill check (cmd_parity) builds its comparison universe from the wrapper trees themselves, so a skill absent from ALL wrapper trees -- precisely t635_23's starting state -- is invisible to it. cmd_discover already walks .claude/skills/aitask-* and emits GAP:<tree>:<skill>, but nothing calls it automatically. Requires an exemption mechanism, since aitask-explorechat (a machine-spawned chatlink gateway, not a user command) would otherwise fail the newly-strict check immediately -- the task recommends a discoverable, at-the-skill exemption over an out-of-band list, since the latter rots.",
+          "expected_outcome": "discover wired into aitask_skill_verify.sh alongside parity, fail-closed on a non-zero exit in the same shape as the existing parity findings; a negative control (a scratch skill with no wrappers) proven to fail the check and then pass once exempted; a consumer project with no .agents/ or .opencode/ roots (Claude-only install) not newly broken.",
+          "why_order_matters": "Coordinates with e-1456 on the aitask-explorechat decision -- 'land them consistently' -- so it is kept adjacent. Landing this before e-635-29 and e-1263 means any future Claude-only skill in this topic's remaining work is caught immediately rather than repeating t635_23's months-long gap.",
+          "confidence": "high",
+          "caveats": [
+            "The exemption mechanism's design (sidecar file vs. frontmatter key) is left to plan time; the task states a preference (at-the-skill, since an out-of-band list rots) but does not mandate it.",
+            "Must not newly break a Claude-only consumer install with no .agents/ or .opencode/ roots -- mirroring the existing tree-presence rule that already drops absent trees from cmd_parity's comparison."
+          ],
+          "evidence_refs": ["ev-t1458", "ev-t635_23-outcome", "ev-t1456"]
+        },
+        {
+          "entry_id": "e-635-29",
+          "task": "aitasks#635_29",
+          "topic": "aitasks#635",
+          "position": 6,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_19"],
+            "gates_pending": []
+          },
+          "rationale": "This is the deliberately-narrowed ripe core of procedure-gate generalization: its author split three concerns out to t635_31 and t635_32 specifically so this piece would have no hard blocker beyond the archived t635_19, and its body already carries a pre-explored design map naming the exact call sites to change. It closes the autonomous gap (pickrem/pickweb currently skip Step 8, so the gate never fires there) and replaces the soft 'in your agent's skill tree' prose with real resolution through `agent_skill_dir`.",
+          "expected_outcome": "Procedure gates run non-interactively in the autonomous lanes and on aitask-resume re-entry, and dispatch resolves the verifier skill in the running agent's tree with a fail-safe unmet report -- never a silent pass -- when the skill is absent.",
+          "why_order_matters": "Ahead of activation because activation makes the gate mandatory in the fast profile; ahead of wave 4's t635_17 because auto-completion cannot be honest while procedure gates still defer as needs-agent in autonomous runs. Ahead of t1263 because t1263's preferred fix needs the seam this task formalizes.",
+          "confidence": "high",
+          "caveats": [
+            "Its pre-explored design map cites specific line numbers in gate_ledger.py, gate_orchestrator.py and aitask_gate.sh; those should be re-confirmed at plan time given t635_34's read_registry refactor.",
+            "Its scope explicitly leaves external/plugin gate kinds as a documented extension point with nothing built.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): the deferral gap is real but latent under remote.yaml's rendered_gates [], which filters a declared procedure gate before it ever reaches the orchestrator -- correct behaviour, not a defect, by t635_33's ceiling invariant. A genuine scope decision left to planning.",
+            "It has a downstream consumer it did not have when written: t1263's option 1 wants the dispatch seam to hand the gate skill the task's known change scope.",
+            "New since this refresh: e-1456, if it lands first, will already have cleaned up this repo's own gate-helper permission policy, so any permission prompt encountered while implementing this task's dispatch changes is more likely a genuine new gap than pre-existing drift."
+          ],
+          "evidence_refs": ["ev-t635_29", "ev-t635_23-outcome", "ev-t635_33", "ev-profiles", "ev-t1263", "ev-p635_34"]
+        },
+        {
+          "entry_id": "e-1443",
+          "task": "aitasks#1443",
+          "topic": "aitasks#635",
+          "position": 7,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Independently discovered (not filed from any wave-2 member), but directly relevant to it: aitask_merge._union_gate_runs, the fast path that unions two sides' Gate Runs sections during a task-data merge, returns None -- falling back to human conflict resolution -- for essentially every gated task in the framework today. Two guards cause it: guard 1's run-id regex rejects the orchestrator's own <iso>-<gate>-a<N> format outright; guard 2b rejects a running block and its terminal closer sharing the same (name, run, attempt) key, which is the documented ledger shape, not a violation. Verified empirically by calling the function with identical bodies on both sides -- the trivially-mergeable case -- and getting None.",
+          "expected_outcome": "Guard 1 matches the grammar the framework actually emits (an ISO-8601-Z stamp with an optional -<gate>-a<N> suffix); guard 2b's identity key distinguishes a running block from its terminal closer (via status or by excluding non-terminal blocks from the ambiguity check) so it catches genuine append-only violations instead of normal lifecycle. A genuine two-different-texts ambiguity must still return None.",
+          "why_order_matters": "Not blocking -- correctness is unaffected today, since returning None defers safely to human resolution. Placed here, late in wave 2, because concurrent gate-ledger writes become more common as activation (e-635-28) approaches, and the cost of the never-firing optimization only grows once every fast pick carries a docs_updated run.",
+          "confidence": "high",
+          "caveats": [
+            "Its own text is explicit that this is not a t1262 regression: t1262's run-id format change moved procedure gates from failing guard 2b to failing guard 1, but the outcome (None) was already the same before that change under guard 2b, for machine gates.",
+            "Fail-safe by construction -- worth fixing for cost, not correctness."
+          ],
+          "evidence_refs": ["ev-t1443", "ev-t1262-outcome"]
+        },
+        {
+          "entry_id": "e-1263",
+          "task": "aitasks#1263",
+          "topic": "aitasks#635",
+          "position": 8,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "The docs_updated skill gathers its change surface from `git log -F --grep=\"(t<id>)\"` for committed work -- correctly task-scoped -- plus `git diff --name-only HEAD` and `git ls-files --others` for uncommitted work, which returns the entire dirty tree with no attribution. Procedure gates run at Step 8 BEFORE the review and commit, so the unattributed half is the primary signal. During the t635_27 run this surfaced four unrelated pre-existing dirty paths plus a concurrent session's syncer edits, all filtered by agent judgement.",
+          "expected_outcome": "The gate reasons over the gated task's change only -- ideally by the dispatch seam passing a known change scope or a claim-time HEAD baseline, and at minimum by presenting the gathered surface for confirmation when it contains paths outside the task's plan.",
+          "why_order_matters": "Immediately before activation, and after t635_29, for one reason: today an attended user filters the surface by judgement, which is how t635_27 passed. t635_29 removes that user from the autonomous lanes and t635_28 makes the gate mandatory on every fast pick -- between them they turn a judgement call into an unsupervised inference over another task's files.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium because it is a judgement about how much attribution activation requires, not a recorded constraint.",
+            "If e-635-23 has already ported the skill to the other agent trees, this fix has to be applied in all three copies.",
+            "The concurrent-dirty-tree condition this task exists to handle is not hypothetical: this refresh's own e-1438 checklist item 6 re-confirmed the same class of condition."
+          ],
+          "evidence_refs": ["ev-t1263", "ev-p635_27", "ev-t635_27-outcome", "ev-t635_29", "ev-goldens-dirty"]
+        },
+        {
+          "entry_id": "e-635-28",
+          "task": "aitasks#635_28",
+          "topic": "aitasks#635",
+          "position": 9,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_27"],
+            "gates_pending": []
+          },
+          "rationale": "A one-line profile change with framework-wide consequences: adding docs_updated to fast.yaml's default_gates turns it from a dormant registry entry into the always-on per-task documentation checkpoint the framework was designed around. Its recorded prerequisite t635_27 has passed on all six axes.",
+          "expected_outcome": "Every fast-profile pick from this point carries a documentation checkpoint, so later waves update their own docs as they land.",
+          "why_order_matters": "Last in the wave by construction. Since v4, three more entries were added ahead of it (e-1457, e-1456, e-1458) -- all downstream of t635_23's landing, which turned 'port the skills' from a recorded prerequisite into a claim this trail itself flagged as unproven until e-1457 runs live. Activation's advisory position did not move, but the set of work it waits behind grew from four entries to seven.",
+          "confidence": "medium",
+          "caveats": [
+            "Its recorded `depends: [t635_27]` is satisfied. Nothing in its metadata holds it; its position in this wave is advisory.",
+            "Scope is fast.yaml only. remote.yaml declares rendered_gates: [], so the remote/autonomous lane is unaffected.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): activation flows entirely through machinery that is already rendered; the rendered task-workflow-fast-/SKILL.md is byte-identical and re-rendering is a harmless no-op.",
+            "Blast radius: default.yaml and remote.yaml render nothing here. This flip touches only the fast profile.",
+            "The advisory ordering behind t635_23, t635_29, t1262, t1263, t1457, t1456 and t1458 is PROSE only. Its `depends` was deliberately not touched -- that would change the DAG, which this trail never does."
+          ],
+          "evidence_refs": ["ev-t635_28", "ev-profiles", "ev-t635_18", "ev-t635_33", "ev-gate-ledger-seam", "ev-p635_27", "ev-t635_27-outcome", "ev-t1272-outcome", "ev-t1457"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-gate-config-surfaces",
+      "ordinal": 3,
+      "title": "Land the three gate-configuration surfaces as one composed design",
+      "purpose": "Three separate members build human-facing gate configuration -- per-task `gates:` editing (t635_30), profile/registry-level settings config as part of retiring the legacy verify_build path (t635_24), and a registry-driven picker for the profile list keys (t635_37). All three warn in their own text about composing rather than duplicating. This wave treats them as one design landed in three commits rather than three designs discovered in sequence. No drift was reported for any of these three since v4.",
+      "why_now": "The user-facing gate story is the framework's largest remaining gap. Landing them adjacently, starting with the one that already has an approved plan resolving the boundary, is what keeps them from colliding. It comes after wave 2 so each of these doc-heavy changes carries its own documentation. t635_18 records a hard `depends` on t635_37, so wave 5 cannot start until this wave's third entry lands.",
+      "consequence_of_delay": "t635_30's plan is written and its plan_approved gate has already passed; the longer it sits, the more likely its design decays. Delay also keeps t635_24's dead legacy verify_build fallback alive, leaves wave 4's t635_31 unreachable, and directly blocks wave 5's documentation sweep.",
+      "entries": [
+        {
+          "entry_id": "e-635-30",
+          "task": "aitasks#635_30",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#1183", "aitasks#635_11"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only member of the topic that is already planned: an unarchived plan sits at aiplans/p635/p635_30_task_gate_editing_surface.md, its plan_approved gate recorded a pass, and its frontmatter carries a materialized active_gates tuple -- so the design work is done and its approval is a decaying asset. That plan also names both siblings and draws the three-way boundary explicitly.",
+          "expected_outcome": "A discoverable way for a human to declare a task's gating intent -- board add/remove on the focused task plus `ait gate add` / `ait gate remove` with registry validation.",
+          "why_order_matters": "First in the wave because it is the only one with an approved plan, and because that plan already fixes the boundary the other two must respect.",
+          "confidence": "high",
+          "caveats": [
+            "The plan was written 2026-07-20 and must be re-validated against current main before implementation. t635_34 landed a `read_registry` refactor that its own plan describes as sitting under every gate consumer, and registry validation is exactly what this task's `ait gate add` performs.",
+            "It declares risk_evaluated, and its frontmatter already carries a materialized active_gates tuple from an earlier claim.",
+            "The plan remains byte-unchanged as of this refresh: no plan_changed drift reason was reported and the gatherer still reports content hash c857a1dbc87a6ad8."
+          ],
+          "evidence_refs": ["ev-t635_30", "ev-p635_30", "ev-snapshot", "ev-trail-shape-audit", "ev-p635_34"]
+        },
+        {
+          "entry_id": "e-635-24",
+          "task": "aitasks#635_24",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_14"],
+            "gates_pending": []
+          },
+          "rationale": "Carries the widest blast radius of the three and the only pure-subtraction win in the topic: removing the legacy inline verify_build fallback from task-workflow Step 9 leaves `ait gates run` as the single verify path. Its blocker t635_14 is archived. It also absorbs t635_25's Step-9 gate-run extraction.",
+          "expected_outcome": "One verify path instead of two, the transitional fallback and its dead configuration field gone, and profile/registry-level gate configuration living in the settings TUI where verify_build used to be.",
+          "why_order_matters": "Its `depends` are satisfied, so ordering is advisory -- but it must not be planned in isolation from t635_37, whose scope covers the same settings-TUI profile keys.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium only because its section 2 overlaps t635_37 and the two tasks do not reference each other.",
+            "It rewrites task-workflow's Jinja source, so per-profile variants must be re-rendered and goldens regenerated in the same commit -- the same directory e-1438 (wave 1) re-confirmed carries concurrent-session hazards.",
+            "Recommended resolution (a proposal for planning, not a decision this trail made): cede profile gate-LIST editing to t635_37 and narrow section 2 to registry-level per-gate settings plus removal of the orphaned verify_build field.",
+            "Scope-shrinking discovery: profile_editor.py already carries a 'Gates' PROFILE_FIELD_GROUPS entry with record_gates, default_gates and rendered_gates, edited today as free comma-separated text."
+          ],
+          "evidence_refs": ["ev-t635_24", "ev-t635_37", "ev-t635_30", "ev-t635_33", "ev-gate-ledger-seam", "ev-goldens-dirty"]
+        },
+        {
+          "entry_id": "e-635-37",
+          "task": "aitasks#635_37",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Closes the correctness hole the other two leave open: default_gates and rendered_gates are edited today as free comma-separated text, so a well-formed but wrong gate name silently declares a gate the registry cannot run. It is the newest of the three and the only one written against the post-t635_33 rendered_gates model.",
+          "expected_outcome": "Registry-driven multi-select for both profile list keys with the three rendered_gates states preserved, unknown names flagged rather than dropped, and a read-only effective-interplay summary computed from the canonical seam rather than a forked copy.",
+          "why_order_matters": "t635_18 and t635_38 both record a hard `depends` on this task, so it is no longer only a wave-internal preference -- it gates wave 5 entirely.",
+          "confidence": "medium",
+          "caveats": [
+            "It never mentions t635_24 -- it references only t635_30 -- so the overlap with t635_24's section 2 has to be reconciled by whoever plans them.",
+            "Its own scope points at the canonical `gate_ledger._read_profile_rendered_gates` semantics; forking those instead of reusing them is the failure mode to watch.",
+            "t635_34's plan addresses this task by name, offering `gate_ledger.registry_layout` and `gate_registry_sync.scan_profiles` as reusable seams, and left profile REPAIR to this task.",
+            "Any task adding a key to `gates_reference.yaml` must extend `_GATE_FIELD_KEYS` in the same change."
+          ],
+          "evidence_refs": ["ev-t635_37", "ev-t635_24", "ev-p635_34", "ev-t635_18", "ev-t635_38"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-compose-and-autonomy",
+      "ordinal": 4,
+      "title": "Compose onto the settled surfaces, and make the autonomous lanes rigorous",
+      "purpose": "With the gate-configuration surfaces settled and procedure gates reachable, this wave adds per-gate agent/model selection and autonomous-lane rigor, plus the analytics leaf that reads what all of it records. Unchanged since v4 -- no drift reported.",
+      "why_now": "t635_31 cannot start earlier: it records hard `depends` on both t635_24 and t635_30. t635_17 could technically have run any time since its blockers archived, but placing it after wave 2's t635_29 is what lets its auto-completion policy actually reach a terminal state on tasks that declare procedure gates.",
+      "consequence_of_delay": "Deferring t635_17 leaves the autonomous lanes trustworthy only by convention. Deferring t635_26 costs nothing structural.",
+      "entries": [
+        {
+          "entry_id": "e-635-31",
+          "task": "aitasks#635_31",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_24", "aitasks#635_30"],
+            "gates_pending": []
+          },
+          "rationale": "It records hard `depends` on two wave-3 members, and its text says why: it was split out of t635_29 specifically because building it before those two settings surfaces existed would have duplicated or collided with them.",
+          "expected_outcome": "A per-gate agent/model field in the registry that dispatch honours, with a settings-TUI editor that reuses the existing agent/model picker and slots into the wave-3 panels.",
+          "why_order_matters": "Recorded hard `depends` on both t635_24 and t635_30 -- this is a fact, not a preference.",
+          "confidence": "high",
+          "caveats": [
+            "Its own scope notes that running a different agent than the session means spawning a sub-agent through the skillrun seam, which it flags as heavy and leaves to plan time.",
+            "It records that the agy CLI has no model flag and should be treated as base-model only.",
+            "Adding a per-gate field to the registry brings it under t635_34's rule: any task adding a key to `gates_reference.yaml` must extend `_GATE_FIELD_KEYS` and the sync path in the same change."
+          ],
+          "evidence_refs": ["ev-t635_31", "ev-t635_24", "ev-t635_30", "ev-snapshot", "ev-p635_34"]
+        },
+        {
+          "entry_id": "e-635-17",
+          "task": "aitasks#635_17",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_12", "aitasks#635_15"],
+            "gates_pending": []
+          },
+          "rationale": "The payoff item for the whole framework in headless use: it makes `ait gates run` the verify step the autonomous lanes cannot skip, makes the archive guard profile-enforced for headless profiles, and adds the profile flag that lets an autonomous run finalize only when every declared gate passes. Both of its blockers are archived.",
+          "expected_outcome": "Autonomous runs that verify rather than assert: gates run as a hard step, human gates stop the lane without self-signalling, and archival of a task with non-pass gates becomes impossible for headless profiles.",
+          "why_order_matters": "After t635_29 because auto_complete_on_all_gates_pass can never fire honestly for a task declaring a procedure gate while those still defer as needs-agent. After t1109 (now landed) because that MV owns verifying the stop-clean behaviour this task's policy sits on.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium because its correct position depends on how much of the autonomous procedure-gate path t635_29 actually delivers.",
+            "It inherits two coordination notes -- register the new profile flag the way t635_2 established, and respect the archival guard and escape-hatch split t635_4 shipped.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): its stale scope bullets were reworded in place from 'declared gates' to 'enforced active set'.",
+            "STRENGTHENED SINCE V4: t1109 (this refresh) not only verified the stop-clean behaviour this task's policy sits on, it found and closed a real hole in the human-gate witness model that auto-completion would otherwise have silently trusted. This task's dependency on t1109's result is no longer theoretical -- it is now dependent on a fix (t1409) that has actually landed."
+          ],
+          "evidence_refs": ["ev-t635_17", "ev-t635_29", "ev-t1109-outcome", "ev-t1409", "ev-t635_33", "ev-profiles", "ev-mv-parse-rerun"]
+        },
+        {
+          "entry_id": "e-635-26",
+          "task": "aitasks#635_26",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_20"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "A true leaf: its blocker t635_20 is archived, nothing in the topic depends on it, and its two metrics are already fully specified in the design document t635_20 left behind.",
+          "expected_outcome": "Per-gate pass/fail/retry rates and pending-human wait times in both the CLI report and a stats TUI pane, derived from the shared ledger parser rather than a forked one.",
+          "why_order_matters": "It has one real predecessor: t1262 (now landed) fixed the ledger `attempt=` field, and 'retry rates' is one of this task's two headline metrics.",
+          "confidence": "high",
+          "caveats": [
+            "Its own text flags the pending-human metric as data-sparse today and requires reporting its N honestly.",
+            "A gate can be absent from a task's runs because its PROFILE filtered it, not because it passed or was skipped -- tasks carry active_gates_profile for exactly this partition.",
+            "obs-ledger-attempt-miscount: any historical run recorded before t1262 landed carries the doubled `attempt=` value, so the archived population stays mixed even after the fix.",
+            "This task should also account for t1443's gate-ledger-merge fast-path defect if it lands first: a task whose gate runs were merged via the human-conflict path rather than the (currently broken) fast path may have a slightly different history shape, though the ledger content itself is unaffected either way."
+          ],
+          "evidence_refs": ["ev-t635_26", "ev-t635_28", "ev-t635_33", "ev-t1262-outcome", "ev-p635_27", "ev-t1265-outcome"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-documentation",
+      "ordinal": 5,
+      "title": "Website documentation sweep, then the final gate-documentation audit",
+      "purpose": "Document the gate framework across every affected website surface as one coherent pass over a settled feature set, then audit every gate-related documentation surface against the landed implementation. Unchanged since v4 -- no drift reported.",
+      "why_now": "t635_18's `depends` gained t635_37 in v4, so it is metadata-blocked until wave 3 finishes. The audit follows immediately because its own depends (t635_18, t635_34, t635_37) are satisfied at exactly that point.",
+      "consequence_of_delay": "The website understates a framework that is largely built. With wave 2's activation in place, each later wave carries its own page updates, so the sweep shrinks to the cross-cutting pages rather than growing.",
+      "entries": [
+        {
+          "entry_id": "e-635-18",
+          "task": "aitasks#635_18",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_7", "aitasks#635_9", "aitasks#635_10", "aitasks#635_12", "aitasks#635_14", "aitasks#635_34", "aitasks#635_37"],
+            "gates_pending": []
+          },
+          "rationale": "The gate framework changes how tasks are worked, and none of that is on the website today. This is the only member that owns the cross-cutting pages -- the Gates concept page, the working-with-gates and human-review workflows, the resume skill page, the `ait gates` / `ait gate` command reference, the gates.yaml and profile configuration reference.",
+          "expected_outcome": "A website that describes the gate framework as it actually is, with the per-child incremental updates from earlier waves folded into a coherent structure.",
+          "why_order_matters": "Its `depends` gained t635_34 (satisfied) and t635_37 (open, wave 3) in v4, converting the wave-5 placement from judgement into recorded fact.",
+          "confidence": "high",
+          "caveats": [
+            "Its content map is explicitly marked 'refine at planning time' by its author -- and it must now also cover t1109's async-human-gate stale-signature fix (t1409/t1416/t1417), t635_23's cross-agent port, and t1272's Step-4 warning contract, none of which existed when the map was written.",
+            "Its own conventions checklist applies: current-state-only prose, generic placeholder project names, 'autonomous' rather than 'auto-execution', no 'sister repo' terminology, and a hand-added bullet in the workflows index for every new page.",
+            "PREMISE REFRESHED 2026-07-26 (obs-ceiling-model-drift): the corrected documentation targets are the two profile keys with their three presence states, declared intent versus the enforced set, the four active_gates* fields, the ceiling invariant, and record_gates as a third and separate knob.",
+            "Wave 2 lands docs_updated activation plus per-task change attribution, so by the time this sweep runs the docs_updated gate is a documented user-facing behaviour with its own semantics."
+          ],
+          "evidence_refs": ["ev-t635_18", "ev-t635_24", "ev-t635_30", "ev-t635_27-outcome", "ev-t1263", "ev-snapshot", "ev-p635_34"]
+        },
+        {
+          "entry_id": "e-635-38",
+          "task": "aitasks#635_38",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_18", "aitasks#635_34", "aitasks#635_37"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only member that audits rather than builds: it takes the landed CLI, registry schema, profile semantics, task-workflow behaviour, ledger/orchestrator, verifier skills and TUI surfaces as a source-of-truth inventory, then reconciles every gate documentation surface against it -- including aidocs/gates/, registry header comments and CLI help.",
+          "expected_outcome": "Every documented gate command, configuration key, registry field, workflow step and UI surface verified against the landed implementation or updated; the internal design docs agreeing with current behaviour; and a recorded inventory of reviewed surfaces plus deliberate deferrals.",
+          "why_order_matters": "Directly after t635_18 because all three of its recorded `depends` are met exactly at that point. It is deliberately NOT placed last: from wave 2's activation onward, every task carries its own documentation, which is the mechanism that makes a mid-trail audit hold rather than decay.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium because of the placement trade-off the user was asked to decide in v4: running it after wave 6/7 would see every landed gate surface, but would make a medium-priority audit hostage to the topic's lowest-priority track.",
+            "Its own text calls it 'a final coherence pass, not a substitute for the incremental documentation owned by each user-facing task'.",
+            "It now has considerably more surface to reconcile than when written: this refresh alone landed eight members and admitted thirteen new ones, several with their own documentation obligations (t1416/t1417's message-clarity work, t1272's Step-4 contract, t635_23's cross-agent skill trees)."
+          ],
+          "evidence_refs": ["ev-t635_38", "ev-t635_18", "ev-p635_34", "ev-snapshot"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w6-remote-projection",
+      "ordinal": 6,
+      "title": "Remote projection and comment-driven gates",
+      "purpose": "Extend gate state beyond the repository. Unchanged since v4 -- no drift reported.",
+      "why_now": "Last of the build waves by the members' own weighting -- both are the topic's only low-priority, high-effort pairing, and t635_32 records a hard `depends` on t635_16.",
+      "consequence_of_delay": "Gate state stays repository-local, a capability gap rather than a defect.",
+      "entries": [
+        {
+          "entry_id": "e-635-16",
+          "task": "aitasks#635_16",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_15"],
+            "gates_pending": []
+          },
+          "rationale": "Delivers the infrastructure the rest of the wave needs -- the label mirror, the singleton status comment and notable-event comments, comment-signal human gates with authorization allow-lists, and the dispatcher backend gaps those require.",
+          "expected_outcome": "Gate state visible on the linked issue and scoped, authorized sign-offs accepted from issue comments, with graceful degradation where a platform lacks a backend.",
+          "why_order_matters": "t635_32 records a hard `depends` on this task and needs its dispatcher backends and authorization allow-lists.",
+          "confidence": "high",
+          "caveats": [
+            "Its author suggests splitting it at planning time, since the label mirror needs no new backends.",
+            "The comment-signal read-back carve-out carries a verbatim autonomy rule in Appendix A, still unread by any version of this trail.",
+            "PREMISE NOTE (obs-ceiling-model-drift), unchanged: its scope speaks of projecting 'gate state' without distinguishing declared intent from the enforced active set."
+          ],
+          "evidence_refs": ["ev-t635_16", "ev-t635_32", "ev-snapshot", "ev-t635_38"]
+        },
+        {
+          "entry_id": "e-635-32",
+          "task": "aitasks#635_32",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#635_16"],
+            "gates_pending": []
+          },
+          "rationale": "The last piece of the procedure-gate story: it needs remote-projection infrastructure that did not exist, and it closes a distinction the rest of the framework leaves open -- a human comment signal only observes a sign-off, whereas a procedure gate must actually be dispatched and run.",
+          "expected_outcome": "Procedure-gate terminal state participating in the remote label and comment projection, and an authorized comment signal that dispatches the verifier skill non-interactively.",
+          "why_order_matters": "Recorded hard `depends` on t635_16, and it builds on the non-interactive run policy wave 2's t635_29 settles.",
+          "confidence": "high",
+          "caveats": [
+            "Its verification section is explicitly deferred to pick time.",
+            "It dispatches a verifier from a remote signal with no attended user in the loop -- whatever t1263 settles about task-scoped change surfaces applies here in its strongest form."
+          ],
+          "evidence_refs": ["ev-t635_32", "ev-t635_16", "ev-t635_29", "ev-t1263"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w7-third-gate-family",
+      "ordinal": 7,
+      "title": "The third gate family: artifact-producing gates",
+      "purpose": "Build the gate family the framework named but never implemented. Unchanged since v4 -- no drift reported.",
+      "why_now": "Strictly last: t1076_4 records `depends: [t1076_3, 635]`, and the umbrella cannot complete until every child above has landed.",
+      "consequence_of_delay": "None within this trail. The cost lands on t774's planning-mode-write blocker.",
+      "entries": [
+        {
+          "entry_id": "e-1076-4",
+          "task": "aitasks#1076_4",
+          "topic": "aitasks#1065",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": ["aitasks#1076_3", "aitasks#635"],
+            "gates_pending": []
+          },
+          "rationale": "The only member that completes the framework's own stated design rather than extending it: the artifact-producing gate archetype is the third gate family the gates roadmap names and leaves unbuilt.",
+          "expected_outcome": "A post-approval verifier whose pass condition is 'artifact produced or explicitly waived', with the handle-binding lifecycle.",
+          "why_order_matters": "Its dependency on t635 is a recorded fact, and t635 is the umbrella that only archives when children_to_implement empties -- so every wave above is effectively its prerequisite, and this refresh's admission of thirteen new anchor-635 members makes that umbrella's practical distance larger, not smaller.",
+          "confidence": "high",
+          "caveats": [
+            "Its placement in this trail does not decide whether it lands as a t635 child or stays under t1076.",
+            "Its design spec is section 8 of the unified artifact design document, still unread by any version of this trail.",
+            "It carries a standing instruction to add a bidirectional coordination note with t635.",
+            "The umbrella's children_to_implement moved substantially between v4 and v5: eight children landed, but this refresh's thirteen new admissions (eight gate-direct plus five task-workflow-infra) more than replace them in count, even though most of the new members are lower-effort than the ones that left."
+          ],
+          "evidence_refs": ["ev-t1076_4", "ev-t635-parent", "ev-snapshot", "ev-t635_38"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w8-task-workflow-reliability",
+      "ordinal": 8,
+      "title": "Task-workflow re-entry, worktree, and lock reliability",
+      "purpose": "Five reliability fixes for the task-workflow pick/re-entry/merge mechanics, surfaced incidentally by unrelated enhancement work (t1370, t1378, t1380) and carrying this topic's anchor even though none of them touches gate code. Admitted as full trail members by explicit user decision at this refresh, consistent with how earlier refreshes treated anchor-635 members that touched no gate code (t1269 in v4).",
+      "why_now": "Placed last, which is a positional judgement, not a priority ranking: nothing in this wave blocks or is blocked by any other wave, three of its five members are dormant on both shipped profiles that record gates, and bundling them at the end avoids disturbing the trail's established critical-path ordering (waves 1-7) with an unrelated concern. Three of the five (e-1390, e-1392, e-1394) have no dependencies and modest effort, so a reader who weights general framework reliability above strict adherence to this trail's ordering could reasonably pull some or all of them forward -- that judgement is explicitly left open here rather than decided.",
+      "consequence_of_delay": "Bounded and non-gate: e-1390's corrupt-lock abort and e-1392's worktree-reuse failure are both real but currently reachable only under conditions no shipped gate-recording profile creates. e-1393's merge-target staleness is silent until a push is rejected, inconvenient but not silent-data-loss. Delaying e-1394 leaves the loop-termination argument for t1380's re-entry fix resting on structural guards alone, unproven live -- the same category of risk wave 1 carried for t1109 and t1224 before they ran.",
+      "entries": [
+        {
+          "entry_id": "e-1390",
+          "task": "aitasks#1390",
+          "topic": "aitasks#635",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The last known unfixed instance of a defect class t1370 and t1378 already fixed twice elsewhere in the same file: lock_task()'s 'lock already exists' branch extracts three fields via unguarded grep pipelines under set -euo pipefail, so a corrupt or truncated existing lock file makes acquiring ANY lock fail outright with a shell abort, rather than reporting the ordinary 'already locked' outcome. The adjacent lines (172-173) already carry the `|| true` guard with a comment naming the exact hazard; these three lines sit immediately above and lack it.",
+          "expected_outcome": "The already-added, file-scoped _lock_field() helper (from t1378) reused for all three fields, with a test asserting a different email's lock attempt against a pre-planted corrupt lock blob reports LOCK_FAILED cleanly rather than aborting -- proven to fail first by restoring one grep form.",
+          "why_order_matters": "Cheapest and most acute bug in the wave -- a shell abort on lock acquisition, not a latent/dormant one like e-1392 or e-1393. Ordered first for that reason alone.",
+          "confidence": "high",
+          "caveats": ["Coordinates with e-1381's broader sweep: if that lands first, this specific instance may already be fixed and this task should verify and close as merged rather than double-fixing (its own text)."],
+          "evidence_refs": ["ev-t1390"]
+        },
+        {
+          "entry_id": "e-1381",
+          "task": "aitasks#1381",
+          "topic": "aitasks#635",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "A risk-mitigation follow-up for t1370, which found two live instances of the same pipefail/grep-assignment abort class inside cleanup_locks() plus a third already confirmed in the same file (t1378's list_locks() fix, now landed) -- enough repetition to justify a repo-wide sweep of .aitask-scripts/ for the shape, rather than fixing instances one at a time as they are individually discovered (as e-1390 does).",
+          "expected_outcome": "Every command-substitution assignment whose pipeline contains a grep-like exit-1-on-no-match command, fixed structurally (awk pattern-match or parameter expansion, not `|| true`), each with a behavioral test proving the empty-match case exits 0 and fails when the fix is reverted. A source-scan guard alone is explicitly disallowed unless paired with per-case behavioral tests.",
+          "why_order_matters": "After e-1390: if e-1390 lands first, this sweep's enumeration step will find it already fixed and move on rather than double-fixing, per t1390's own coordination note.",
+          "confidence": "high",
+          "caveats": [
+            "`local x=$(...)` forms mask the failure via the local builtin's own exit status and are explicitly ranked lower -- latent, not active.",
+            "The two suppression cases the task names (assignment inside an if/while condition or &&/|| list; the enclosing function invoked in a condition context, which disables set -e for the whole function body) are exactly the trap t1370 hit and reverted from."
+          ],
+          "evidence_refs": ["ev-t1381"]
+        },
+        {
+          "entry_id": "e-1392",
+          "task": "aitasks#1392",
+          "topic": "aitasks#635",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "task-workflow Step 5's plain worktree-creation path has no reuse check, unlike Re-entry Routing which already carries one. Any 'stop, don't abort' exit reverts the task to Ready, which routes the re-pick through plain Step 5 instead of Re-entry Routing, and `git worktree add -b` then fails outright because the branch/worktree already exist. Currently dormant: neither shipped profile that records gates creates worktrees.",
+          "expected_outcome": "Step 5's 'If Yes' branch gains the same one-sentence reuse rule Re-entry Routing already states, ideally derived from one shared sentence rather than duplicated.",
+          "why_order_matters": "No ordering constraint against e-1393 or e-1394 -- different code paths, same general area. Placed here only because it is the cheaper of the two design-question entries in this wave.",
+          "confidence": "high",
+          "caveats": [
+            "Dormant on both shipped profiles that record gates -- its cost is latent, not active, unlike e-1390.",
+            "A test covering pick -> stop -> re-pick on a create_worktree: true profile is required and must be proven to fail before the fix."
+          ],
+          "evidence_refs": ["ev-t1392"]
+        },
+        {
+          "entry_id": "e-1393",
+          "task": "aitasks#1393",
+          "topic": "aitasks#635",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Step 9 never fetches before merging: only local branch existence and worktree-lock state are checked, so when origin/<output_branch> has advanced past the local branch, the merge succeeds cleanly and the divergence surfaces later as a push rejection. t1380 already built the fix (fetch + fast-forward-only sync) but wired it into Re-entry Routing's POSTIMPL route only, deliberately declining to make it unconditional because that adds a network fetch and possible prompt to every task's merge.",
+          "expected_outcome": "A recorded decision (always vs. profile-gated, and where in Step 9 relative to the merge-approval question) written into both the plan and aidocs/gates/ledger-driven-reentry.md, with the POSTIMPL special case simplified or removed if Step 9 ends up running the same pre-flight unconditionally.",
+          "why_order_matters": "The most design-open entry in the wave (four explicit open questions, no default recommended) -- ordered after the two more mechanical fixes (e-1390, e-1392), though nothing formally blocks it from landing first.",
+          "confidence": "medium",
+          "caveats": [
+            "Confidence is medium specifically because the task defers a real UX trade-off to plan time rather than prescribing an answer.",
+            "tests/test_remote_drift_check.sh Test 12 already pins the underlying git behaviour and is named as the base to build the new end-to-end Step-9 test on."
+          ],
+          "evidence_refs": ["ev-t1393"]
+        },
+        {
+          "entry_id": "e-1394",
+          "task": "aitasks#1394",
+          "topic": "aitasks#635",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "Every guard shipped for t1380's IMPLEMENT re-entry loop-termination argument is structural -- it asserts that SKILL.md states the argument, not that the live loop actually terminates. A future edit that changed the stop branch to leave the task Implementing (instead of reverting to Ready) would keep every existing guard green while producing an infinite stop-to-re-pick loop.",
+          "expected_outcome": "The live loop confirmed to terminate exactly once, plan_approved recorded exactly once across the two picks (the recorded-pass guard holding, not duplicating), and a separate abort check confirming ait gate status shows the demotion and resume-point reports PLAN.",
+          "why_order_matters": "Last in the wave, closing it the same way wave 1's MVs closed their own debt -- an independent, structural-guards-are-not-enough verification, placed after the two design/mechanical entries it does not depend on but conceptually follows.",
+          "confidence": "medium",
+          "caveats": [
+            "Requires driving a real scratch-repo pick/kill/re-pick/re-pick sequence, the same live-session category that made e-1109, e-1224 and now e-1457 the highest-value but least certain entries across this trail.",
+            "tests/test_gate_plan_approval_transitions.sh already proves the ledger transitions in isolation; this MV is specifically what that test cannot prove -- that the live workflow reaches them in the documented order."
+          ],
+          "evidence_refs": ["ev-t1394"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "aitasks#635_27", "to": "aitasks#635_28", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends. SATISFIED 2026-07-27: t635_27 completed and archived with all six checklist items passing." },
+    { "from": "aitasks#635_24", "to": "aitasks#635_31", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: per-gate agent/model composes into the profile/registry settings surface." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_31", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: per-gate agent/model must not duplicate the per-task gate editor." },
+    { "from": "aitasks#635_16", "to": "aitasks#635_32", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: procedure-gate remote signalling needs the Appendix A projection infrastructure." },
+    { "from": "aitasks#635_37", "to": "aitasks#635_18", "type": "hard_depends", "provenance": "fact", "note": "Observed 2026-07-31 (v4). t635_18's depends gained t635_37, upgrading what v1-v3 recorded as advisory_precedes into a recorded fact." },
+    { "from": "aitasks#635_34", "to": "aitasks#635_18", "type": "hard_depends", "provenance": "fact", "note": "Observed 2026-07-31 (v4), already SATISFIED: t635_18's depends gained t635_34, which archived the same day it was added." },
+    { "from": "aitasks#635_18", "to": "aitasks#635_38", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: the audit reconciles what the comprehensive website sweep produced." },
+    { "from": "aitasks#635_37", "to": "aitasks#635_38", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: the audit needs the registry-driven profile gate-picker semantics settled." },
+    { "from": "aitasks#635_34", "to": "aitasks#635_38", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends, SATISFIED: the audit covers sync-registry and the no-verifier warning, both shipped by t635_34." },
+    { "from": "aitasks#635_34", "to": "aitasks#1271", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends, SATISFIED 2026-07-27: the live verification could not run before the reconcile it verifies had shipped. Both are now landed." },
+    { "from": "aitasks#1271", "to": "aitasks#635_34", "type": "verifies", "provenance": "fact", "note": "Recorded in t1271 frontmatter (verifies: [635_34]). t1271 landed 2026-08-04, PASSED 7/7." },
+    { "from": "aitasks#635", "to": "aitasks#1076_4", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends: t1076_4 depends on the t635 umbrella itself, which archives only when children_to_implement empties -- so every wave of this trail precedes it." },
+    { "from": "aitasks#1076_4", "to": "aitasks#635", "type": "coordinates_with", "provenance": "advisory", "note": "Both task bodies record the artifact-producing gate family as t635's unbuilt third family, with the child-versus-umbrella placement left open at planning time." },
+    { "from": "aitasks#1264", "to": "aitasks#1224", "type": "informs", "provenance": "fact", "note": "RETIRED as an ordering edge in v4, since t1264's convert verb did not reach t1224's heading-recognition failure. Both t1264 and t1224 are now landed; t1224 was hand-converted before it ran." },
+    { "from": "aitasks#1264", "to": "aitasks#1109", "type": "informs", "provenance": "fact", "note": "RETIRED as an ordering edge in v4, same reason as t1224. Both t1264 and t1109 are now landed; t1109 was hand-converted before it ran and its FAIL item became this refresh's headline finding." },
+    { "from": "aitasks#1264", "to": "aitasks#1271", "type": "informs", "provenance": "fact", "note": "The template half of t1264's fix DID land: t1271 was created afterwards and parsed TOTAL:7 PENDING:7, later landing PASS 7/7." },
+    { "from": "aitasks#635_27", "to": "aitasks#1262", "type": "informs", "provenance": "fact", "note": "t1262 was filed from the t635_27 verification run; ATTEMPT observed as 1 -> 3 -> 5 on scratch task t1255. t1262 has since landed." },
+    { "from": "aitasks#635_27", "to": "aitasks#1263", "type": "informs", "provenance": "fact", "note": "t1263 was filed from the t635_27 run, where the change-surface gather returned four unrelated dirty paths plus a concurrent session's edits." },
+    { "from": "aitasks#1265", "to": "aitasks#1269", "type": "informs", "provenance": "fact", "note": "t1269 was filed during t1265's Step 8b review. Both are now landed." },
+    { "from": "aitasks#635_34", "to": "aitasks#1270", "type": "informs", "provenance": "fact", "note": "Found while adding `gates sync-registry` to the same show_usage block; recorded in p635_34's upstream-defects list. t1270 has since landed." },
+    { "from": "aitasks#635_34", "to": "aitasks#1272", "type": "informs", "provenance": "fact", "note": "Step 8d risk-mitigation follow-up: p635_34 records the warning being stderr-only as a goal-achievement risk. t1272 has since landed." },
+    { "from": "aitasks#1272", "to": "aitasks#1271", "type": "advisory_precedes", "provenance": "advisory", "note": "t1271's fifth checklist item verifies the pick-time no-verifier warning. NOT FOLLOWED IN PRACTICE: t1271 landed 2026-08-04, one day before t1272 (2026-08-05). Item 5 still PASSED, so no harm resulted, but the sequencing was not actually tested as designed." },
+    { "from": "aitasks#635_34", "to": "aitasks#635_37", "type": "informs", "provenance": "fact", "note": "p635_34's 'Notes for sibling tasks' addresses t635_37 directly: reuse gate_ledger.registry_layout and gate_registry_sync.scan_profiles." },
+    { "from": "aitasks#1262", "to": "aitasks#635_28", "type": "advisory_precedes", "provenance": "advisory", "note": "Activation multiplies procedure-gate runs framework-wide. t1262 has since landed." },
+    { "from": "aitasks#1262", "to": "aitasks#635_26", "type": "advisory_precedes", "provenance": "advisory", "note": "Retry rate is one of t635_26's two headline metrics and reads the attempt field t1262 fixes." },
+    { "from": "aitasks#1263", "to": "aitasks#635_28", "type": "advisory_precedes", "provenance": "advisory", "note": "Activation makes the gate mandatory on every fast pick, so an unattributed change surface becomes an unsupervised inference over other tasks' files." },
+    { "from": "aitasks#635_29", "to": "aitasks#1263", "type": "advisory_precedes", "provenance": "advisory", "note": "t1263's preferred fix threads the task's change scope through the dispatch seam that t635_29 formalizes." },
+    { "from": "aitasks#1263", "to": "aitasks#635_32", "type": "advisory_precedes", "provenance": "advisory", "note": "A comment-triggered verifier dispatch has neither a session nor a user to filter the dirty tree." },
+    { "from": "aitasks#635_23", "to": "aitasks#635_28", "type": "advisory_precedes", "provenance": "advisory", "note": "Activation before the port leaves docs_updated unrunnable under Codex CLI and OpenCode. t635_23 has since landed, but see the new e-1457 edge below -- landing is necessary but this refresh found it is not sufficient." },
+    { "from": "aitasks#635_29", "to": "aitasks#635_28", "type": "advisory_precedes", "provenance": "advisory", "note": "Activation before agent-aware dispatch leaves the gate reachable only from the attended Step 8 path." },
+    { "from": "aitasks#635_29", "to": "aitasks#635_17", "type": "advisory_precedes", "provenance": "advisory", "note": "auto_complete_on_all_gates_pass cannot fire while procedure gates defer as needs-agent in autonomous lanes." },
+    { "from": "aitasks#635_28", "to": "aitasks#635_24", "type": "advisory_precedes", "provenance": "advisory", "note": "Activating the docs gate first makes waves 3-6 carry their own documentation." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_24", "type": "coordinates_with", "provenance": "advisory", "note": "Per-task gates: editing versus profile/registry settings configuration -- both tasks name the boundary explicitly." },
+    { "from": "aitasks#635_24", "to": "aitasks#635_37", "type": "coordinates_with", "provenance": "advisory", "note": "Overlapping profile-side settings-TUI gate configuration; neither task references the other." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_37", "type": "coordinates_with", "provenance": "advisory", "note": "Task-side versus profile-side gate editing over the same registry; t635_37 names this split." },
+    { "from": "aitasks#635_24", "to": "aitasks#635_18", "type": "advisory_precedes", "provenance": "advisory", "note": "The doc sweep should describe the post-removal verify_build configuration state, not the transitional one." },
+    { "from": "aitasks#635_30", "to": "aitasks#635_18", "type": "advisory_precedes", "provenance": "advisory", "note": "The commands and board pages in the sweep depend on the gate editing surface existing." },
+    { "from": "aitasks#1270", "to": "aitasks#635_38", "type": "advisory_precedes", "provenance": "advisory", "note": "The audit's scope covers CLI help as a documentation surface. t1270 has since landed." },
+    { "from": "aitasks#1109", "to": "aitasks#635_17", "type": "coordinates_with", "provenance": "advisory", "note": "t1109 owns verifying stop-clean/sign/record/re-pend; t635_17 owns the auto-completion policy. t1109 has since landed and found a real defect (item 5 FAIL) in exactly the surface t635_17 would have silently trusted -- see obs-async-gate-witness-hole." },
+    { "from": "aitasks#1109", "to": "aitasks#635_15", "type": "verifies", "provenance": "fact", "note": "Recorded in t1109 frontmatter (verifies: ['635_15']); t635_15 is archived. t1109 landed 6/7 PASS, 1 FAIL." },
+    { "from": "aitasks#635_27", "to": "aitasks#635_19", "type": "verifies", "provenance": "advisory", "note": "Live end-to-end verification of the docs_updated gate shipped by the archived t635_19. Completed 2026-07-27, all six axes pass." },
+    { "from": "aitasks#1109", "to": "aitasks#1416", "type": "informs", "provenance": "fact", "note": "t1109's item 5 FAIL auto-generated t1409, which fixed the stale-signature short-circuit and itself recorded risk_mitigation_tasks: [1416, 1417] at Step 8d. t1409 is not a trail member (it lived and completed entirely within this refresh's gap); see obs-transient-task-invisible-to-drift." },
+    { "from": "aitasks#1109", "to": "aitasks#1417", "type": "informs", "provenance": "fact", "note": "Same chain as the edge to t1416, via the intermediate t1409." },
+    { "from": "aitasks#1272", "to": "aitasks#1437", "type": "informs", "provenance": "fact", "note": "Spawned from t1272 during Step 8b review: a grep for the warning bullet's text, run for an unrelated reason, found a second undocumented copy of the same parse contract in aitask-pickrem/materialize-active.md." },
+    { "from": "aitasks#1272", "to": "aitasks#1438", "type": "verifies", "provenance": "fact", "note": "Recorded in t1438 frontmatter (verifies: [1272], depends: [1272])." },
+    { "from": "aitasks#635_23", "to": "aitasks#1456", "type": "informs", "provenance": "fact", "note": "Spawned from t635_23 during Step 8b review, while auditing the helper whitelist for its two own dependencies." },
+    { "from": "aitasks#635_23", "to": "aitasks#1457", "type": "informs", "provenance": "fact", "note": "Recorded in t635_23 frontmatter (risk_mitigation_tasks: [1457, 1458])." },
+    { "from": "aitasks#635_23", "to": "aitasks#1458", "type": "informs", "provenance": "fact", "note": "Recorded in t635_23 frontmatter (risk_mitigation_tasks: [1457, 1458])." },
+    { "from": "aitasks#1262", "to": "aitasks#1443", "type": "informs", "provenance": "advisory", "note": "Not filed-from and not a regression -- t1443's own text is explicit on this -- but t1262's run-id format change shifted which of t1443's two guards is the dominant cause of the same pre-existing None result." },
+    { "from": "aitasks#1457", "to": "aitasks#635_28", "type": "advisory_precedes", "provenance": "advisory", "note": "Strengthens the existing t635_23 -> t635_28 edge: t635_23 verified the port statically only; this is the live proof the port works, which this refresh judges the stronger precondition for making the gate mandatory under Codex/OpenCode." },
+    { "from": "aitasks#1438", "to": "aitasks#1437", "type": "advisory_precedes", "provenance": "advisory", "note": "Verify the current (duplicated-but-consistent) contract before restructuring it, so the drift-guard/dedup fix lands against a proven-working baseline." },
+    { "from": "aitasks#1390", "to": "aitasks#1381", "type": "coordinates_with", "provenance": "advisory", "note": "t1390's own text: 'close it as merged if the audit [t1381] lands first.' Either order is valid; if t1381 lands first it will find and fix t1390's instance as part of its sweep." }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-async-gate-witness-hole",
+      "kind": "baseline_risk",
+      "statement": "RESOLVED 2026-08-04, this refresh's headline finding. t1109's item 5 ('stale signature re-pends') FAILED: once a review_approved human gate recorded `pass`, `gate_orchestrator.run()` and `compute_unlocked()` both short-circuited on ledger status alone, so `_signal_state()`'s digest-comparison logic -- confirmed correct in isolation, both in behaviour and message text -- was unreachable except via the `--gate <name>` force path. Live, on a real profile: sign, mutate a code file, re-run -- `ait gates run` reported 'All gates satisfied' and `archive-ready` reported `ALL_PASS`, both wrongly. The auto-generated fix (t1409, not a trail member) re-validates signal-bearing human gates even when ledger-satisfied, at both `gates run` and `archive-ready`, while explicitly preserving the unstamped-witness backward-compatibility acceptance. Two residual follow-ups are new trail members: t1416 (four other ledger-only surfaces still do not re-validate) and t1417 (the block message does not distinguish stale-signature from never-passed). This is the closest thing to a security-relevant defect this trail has traced across four versions: a task could archive carrying code the reviewer never actually reviewed.",
+      "affects": ["aitasks#1109", "aitasks#1416", "aitasks#1417", "aitasks#635_17"],
+      "evidence_refs": ["ev-t1109-outcome", "ev-t1409", "ev-t1416", "ev-t1417"]
+    },
+    {
+      "observation_id": "obs-transient-task-invisible-to-drift",
+      "kind": "other",
+      "statement": "t1409 -- the task that fixed obs-async-gate-witness-hole -- carries `anchor: 635` and was created 2026-08-04, but never appeared in this refresh's drift output as a `new_related_task`, because it was also archived (2026-08-04, the same day) before this refresh ran. The gatherer's new_related_task scan only surfaces currently-open topic members; a task that arrives and completes entirely within the gap between two refreshes is structurally invisible to it, discoverable only by reading the content of a task (here, t1109's own recorded checklist and t1416/t1417's Origin sections) that happens to reference it. This is a genuine blind spot in the trail's own detection mechanics, distinct from but related to obs-trail-shape-attribution's finding about how membership exclusions affect drift attribution -- that one was about a false DRIFT:other; this one is about a drift reason that never fires at all.",
+      "affects": ["aitasks#1109", "aitasks#1416", "aitasks#1417"],
+      "evidence_refs": ["ev-t1409", "ev-drift-v5"]
+    },
+    {
+      "observation_id": "obs-t635_23-port-unverified-live",
+      "kind": "baseline_risk",
+      "statement": "t635_23 landed and was verified STATICALLY ONLY -- existence, cross-tree parity, generated body content, policy strings, golden/prerender freshness -- and its own risk register said as much. Nothing was executed in a live Codex CLI or OpenCode session. The wave's original advisory edge (t635_23 must land before t635_28's activation) treated 'the port exists' as sufficient; this refresh found that it is necessary but not sufficient, and added t1457 (the live cross-agent MV, explicitly called 'the acceptance condition for t635_23's end-to-end claim' in its own text) plus a new advisory_precedes edge from t1457 to t635_28, strengthening rather than retiring the original one.",
+      "affects": ["aitasks#635_23", "aitasks#1457", "aitasks#635_28"],
+      "evidence_refs": ["ev-t635_23-outcome", "ev-t1457"]
+    },
+    {
+      "observation_id": "obs-gate-ledger-merge-fast-path-disabled",
+      "kind": "baseline_risk",
+      "statement": "aitask_merge._union_gate_runs, the fast path meant to auto-merge two sides' Gate Runs sections during a task-data merge, has returned None -- deferring to human conflict resolution -- for essentially every gated task since the function's guards were written, not since any recent change. Verified empirically by calling the function with identical bodies on both sides (the trivially-mergeable case) and getting None. Two independent guard defects cause it: an anchored run-id regex that never matches the orchestrator's own `<iso>-<gate>-a<N>` format, and an identity-key collision between a `running` block and its own terminal closer, which share `(name, run, attempt)` by design. Fail-safe (correctness unaffected; the fallback is the documented human-resolution path), so no data has been at risk -- but the cost of the never-firing optimization grows as concurrent gate-ledger writes become more common with activation approaching.",
+      "affects": ["aitasks#1443", "aitasks#1262"],
+      "evidence_refs": ["ev-t1443", "ev-t1262-outcome"]
+    },
+    {
+      "observation_id": "obs-mv-checklist-tracking-gap",
+      "kind": "baseline_risk",
+      "statement": "CONFIRMED, workaround used successfully, systemic gap still open. v4 found that t1264's `convert` fix did not reach t1109 or t1224 because their steps sat under a `## Goal` heading that `aitask_verification_parse.py`'s SECTION_RE does not recognize, and predicted the practical remedy was the same hand-conversion t635_27 performed. This refresh confirms that is exactly what happened: both t1109 and t1224 landed with a proper `## Verification Checklist` heading and `- [x]`/`- [fail]` items, not the numbered-list-under-`## Goal` shape both were originally authored with. No task in scope (including the eight newly-admitted gate-direct members) fixes the underlying SECTION_RE heading-recognition gap itself -- it remains latent for any future manual_verification task authored with a non-standard heading.",
+      "affects": ["aitasks#1109", "aitasks#1224", "aitasks#1264", "aitasks#1271"],
+      "evidence_refs": ["ev-mv-parse-rerun", "ev-t1264-outcome", "ev-t1109-outcome", "ev-t1224-outcome"]
+    },
+    {
+      "observation_id": "obs-verification-debt",
+      "kind": "baseline_risk",
+      "statement": "All five manual verifications this trail has ever tracked for the topic have now run. Two ran and passed cleanly by v4 (t1220, and t635_27 with four filed defects). This refresh ran the remaining three: t1271 (PASS 7/7, no defects filed -- the strongest clean result of any MV in this trail), t1224 (PASS 2/2, no defects filed), and t1109 (6/7 PASS, 1 FAIL -- the single most consequential finding across all four versions of this trail, see obs-async-gate-witness-hole). The honest reading, now with a full population to judge from: three of five MVs found nothing; two found real defects, and one of those two (t1109) found a defect serious enough to warrant an auto-generated fix task of its own. Manual verification in this topic is neither reliably cheap nor reliably expensive -- it is where untested seams surface, and whether they surface depends entirely on the seam, not on any pattern this trail can predict in advance.",
+      "affects": ["aitasks#1109", "aitasks#1224", "aitasks#1271", "aitasks#1262", "aitasks#1263"],
+      "evidence_refs": ["ev-t635_27-outcome", "ev-t1220-outcome", "ev-t1271-outcome", "ev-t1224-outcome", "ev-t1109-outcome"]
+    },
+    {
+      "observation_id": "obs-docs-gate-attribution",
+      "kind": "baseline_risk",
+      "statement": "Unchanged in substance since v4: the docs_updated gate still cannot tell whose changes it is looking at for uncommitted work, and t1263 (still open, wave 2) is still the fix. The concurrent-dirty-tree condition this task exists to handle recurred again during this refresh's own reading: t1438's checklist item 6 names worktree-modified aitask-trail files present at t1272's own staging time, the same class of hazard obs-goldens-dir-concurrent-dirty first recorded for t1272's goldens directory.",
+      "affects": ["aitasks#1263", "aitasks#635_28", "aitasks#635_29", "aitasks#635_32", "aitasks#635_23"],
+      "evidence_refs": ["ev-t1263", "ev-p635_27", "ev-t635_27-outcome", "ev-goldens-dirty"]
+    },
+    {
+      "observation_id": "obs-goldens-dir-concurrent-dirty",
+      "kind": "environment",
+      "statement": "t1272 landed with the staging discipline this observation recommended: goldens were regenerated and staged against an explicit 11-path allowlist rather than a blanket git add, and t1438's own checklist (item 6, not yet run) is designed to confirm that discipline held even with worktree-modified aitask-trail files present at staging time -- a second live instance of the same concurrent-session hazard, in a different directory. The pattern -- a shared goldens/artifact directory carrying another session's in-flight work at exactly the moment a gated task must regenerate it -- has now recurred at least twice in this topic and looks structural rather than incidental.",
+      "affects": ["aitasks#1272", "aitasks#635_24", "aitasks#1263", "aitasks#635_28", "aitasks#1438"],
+      "evidence_refs": ["ev-goldens-dirty", "ev-t1272-outcome", "ev-t1263", "ev-t1438"]
+    },
+    {
+      "observation_id": "obs-verification-debt-recursion",
+      "kind": "other",
+      "statement": "NEW pattern, confirmed twice now. v4 first observed that verification and repair work in this topic reliably files more work than it closes. This refresh shows the pattern recurring at the level of the pattern itself: the eight members that landed since v4 -- three of them themselves manual verifications or documentation-contract fixes born from the FIRST debt cycle -- produced thirteen new members, eight of which continue the SAME debt-begets-debt chain a second time (t1109's FAIL -> t1409 -> t1416/t1417; t1272's extension -> t1437/t1438; t635_23's port -> t1456/t1457/t1458). No task in this trail's history has yet landed without eventually spawning at least one follow-up when it touched verification, documentation contracts, or cross-agent surface parity.",
+      "affects": ["aitasks#1109", "aitasks#1272", "aitasks#635_23"],
+      "evidence_refs": ["ev-t1109-outcome", "ev-t1272-outcome", "ev-t635_23-outcome"]
+    },
+    {
+      "observation_id": "obs-installed-registry-breakage",
+      "kind": "baseline_risk",
+      "statement": "RESOLVED IN CODE 2026-07-27, AND NOW VERIFIED LIVE 2026-08-04. t635_34 landed ait gates sync-registry plus the early no-verifier warning; t1271's live MV, on a real stale downstream install (aitasks_mobile, framework 0.27.0), confirmed all seven properties the plan named as the task's honest justification, with zero partial results. t1272 (also landed) documented the warning in the Step-4 parse contract, in both the attended and remote lanes.",
+      "affects": ["aitasks#1271", "aitasks#1272", "aitasks#635_37"],
+      "evidence_refs": ["ev-p635_34", "ev-t1271-outcome", "ev-t1272-outcome"]
+    },
+    {
+      "observation_id": "obs-settings-collision",
+      "kind": "shared_surface_collision",
+      "statement": "Unchanged since v4: t635_24 and t635_37 both build profile-side gate configuration in the settings TUI without referencing each other, and t635_31 composes a third editor into whatever they produce. No drift was reported for any of the three since v4, so the collision remains exactly as documented: real, better-documented than in v3 thanks to t635_34's reusable seams, but not yet reconciled.",
+      "affects": ["aitasks#635_24", "aitasks#635_37", "aitasks#635_30", "aitasks#635_31"],
+      "evidence_refs": ["ev-t635_24", "ev-t635_37", "ev-t635_30", "ev-t635_31", "ev-p635_34"]
+    },
+    {
+      "observation_id": "obs-registry-refactor-under-consumers",
+      "kind": "in_flight_conflict",
+      "statement": "Unchanged since v4: t635_34's read_registry refactor sits under every gate consumer, and three live members (t635_29, t635_30, t635_37) carry pre-explored design maps or plans citing line numbers that predate it. No drift was reported for any of the three since v4.",
+      "affects": ["aitasks#635_29", "aitasks#635_30", "aitasks#635_37"],
+      "evidence_refs": ["ev-p635_34", "ev-t635_29", "ev-t635_30", "ev-p635_30"]
+    },
+    {
+      "observation_id": "obs-ceiling-model-drift",
+      "kind": "stale_premise",
+      "statement": "RESOLVED AT SOURCE 2026-07-26, unchanged since, and now confirmed correct in live practice a second and third time. t1224's live run confirmed the empty-ceiling case materializes active_gates: [] exactly as the model documents; t1109's live run confirmed a non-empty ceiling genuinely enters active_gates and exercises the dual-transport review_approved gate as documented. Both are now landed. The eight new gate-direct members admitted this refresh were all authored 2026-08-03 or later, well after the model landed, so none inherits the pre-2026-07-19 drift either.",
+      "affects": ["aitasks#635_17", "aitasks#635_28", "aitasks#635_29", "aitasks#635_24", "aitasks#635_18", "aitasks#635_16", "aitasks#635_26", "aitasks#1109"],
+      "evidence_refs": ["ev-t635_33", "ev-gate-ledger-seam", "ev-profiles", "ev-t1224-outcome", "ev-t1109-outcome"]
+    },
+    {
+      "observation_id": "obs-t1109-premise-conflict",
+      "kind": "stale_premise",
+      "statement": "RESOLVED 2026-08-04. t1109's premise refresh (2026-07-26) recommended running under a purpose-built non-empty-ceiling profile once t1224 settled the empty-ceiling question; that is exactly what happened. The MV ran, 6 of 7 items passed, and item 5's FAIL became this refresh's headline finding (obs-async-gate-witness-hole). This observation is retained as a closed historical record of the premise conflict that made the eventual run possible.",
+      "affects": ["aitasks#1109", "aitasks#1224", "aitasks#635_17", "aitasks#1264"],
+      "evidence_refs": ["ev-t1109-outcome", "ev-t1224-outcome", "ev-profiles", "ev-t635_33"]
+    },
+    {
+      "observation_id": "obs-approved-plan-in-flight",
+      "kind": "in_flight_conflict",
+      "statement": "Unchanged since v4: t635_30's approved plan (p635_30, dated 2026-07-20) remains byte-unchanged, confirmed again by this refresh's drift check (no plan_changed reason, content hash c857a1dbc87a6ad8). The decay pressure from t635_34's read_registry refactor remains real but has not yet materialized into an actual conflict.",
+      "affects": ["aitasks#635_30", "aitasks#635_24", "aitasks#635_37"],
+      "evidence_refs": ["ev-p635_30", "ev-t635_30", "ev-snapshot", "ev-trail-shape-audit", "ev-p635_34"]
+    },
+    {
+      "observation_id": "obs-trail-shape-attribution",
+      "kind": "other",
+      "statement": "CONFIRMED WORKING a second time. v4 was the first live test of the v3 owner-removal fix and behaved correctly. This refresh's drift check is the second: 21 drift reasons emitted (13 new_related_task, 8 task_completed), every one attributed to a specific task, none unattributable as DRIFT:other, and p635_30 was again correctly reported as unchanged. The fix has now held across two consecutive refreshes under different drift-reason mixes.",
+      "affects": ["aitasks#635", "aitasks#635_30"],
+      "evidence_refs": ["ev-trail-shape-audit", "ev-drift-v5", "ev-snapshot"]
+    },
+    {
+      "observation_id": "obs-no-board-signal",
+      "kind": "other",
+      "statement": "The open-member set grew from 22 (v4) to 27 (v5) -- 14 carried forward plus 13 new admissions, after 8 v4-era members landed. boardcol remains unknown for effectively all open members; only the umbrella parent t635 sits in a column. Recorded hard edges inside the open set are unchanged in count from v4 (the same six plus t1076_4's umbrella dependency); none of the thirteen new members carries a depends edge to another open member except t1438 (-> t1272, satisfied since t1272 landed). Ordering here remains predominantly advisory judgement, now over a substantially larger open set.",
+      "affects": ["aitasks#635"],
+      "evidence_refs": ["ev-snapshot", "ev-drift-v5"]
+    },
+    {
+      "observation_id": "obs-third-gate-family-placement",
+      "kind": "external_dependency",
+      "statement": "Unchanged since v4: t1076_4 remains downstream of the entire t635 umbrella rather than of any specific child, forming its own terminal wave. The umbrella's practical distance grew this refresh (13 admissions against 8 departures), though most of the net-new members are lower-effort than the ones that left.",
+      "affects": ["aitasks#1076_4", "aitasks#635", "aitasks#635_38"],
+      "evidence_refs": ["ev-t1076_4", "ev-t635-parent", "ev-snapshot", "ev-t635_38"]
+    },
+    {
+      "observation_id": "obs-doc-sweep-tension",
+      "kind": "other",
+      "statement": "RESOLVED BY METADATA 2026-07-31, unchanged since. t635_18's depends on t635_34 (satisfied) and t635_37 (open, wave 3) remain the recorded constraint pinning its wave-5 placement; no further drift was reported against it this refresh.",
+      "affects": ["aitasks#635_18", "aitasks#635_37", "aitasks#635_24", "aitasks#635_30", "aitasks#635_38"],
+      "evidence_refs": ["ev-t635_18", "ev-drift-v5", "ev-snapshot", "ev-t635_38"]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#635",
+      "reason_code": "other",
+      "reason": "Umbrella parent and owner of this trail artifact. It carries no implementation scope of its own -- its body is a phase map over the children -- and it archives when children_to_implement empties, so placing it in a wave would be meaningless. It is the trail's owner rather than a member of its ordering. Not in the pinned member id set since v3: keeping it there gave it an input record with no entry snapshot, which permanently disabled the gatherer's residual content attribution (obs-trail-shape-attribution). It remains in the drift baseline through this exclusion, so it cannot be reported as a new task -- confirmed again in v5, where thirteen new_related_task reasons were emitted and t635 was not among them."
+    },
+    {
+      "task": "aitasks#1409",
+      "reason_code": "other",
+      "reason": "Auto-generated from t1109's item-5 verification failure, implemented, and archived entirely within the gap between v4 (2026-07-31) and this refresh (2026-08-09) -- it never appeared as an open member the gatherer's new_related_task scan could catch, since that scan only surfaces currently-open topic members (see obs-transient-task-invisible-to-drift). Not a trail member at any point; retained here only as an evidence pointer for the t1109 -> t1416/t1417 lineage."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 635 1076_4 1263 1381 1390 1392 1393 1394 1416 1417 1437 1438 1443 1456 1457 1458 635_16 635_17 635_18 635_24 635_26 635_28 635_29 635_30 635_31 635_32 635_37 635_38",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Deterministic membership snapshot for v5: 27 open members across topics 635, 1065 and 1438 (owner aitasks#635), digest 09fe7eb726add75a. Supersedes v4's run (digest c1faf9904dc134f3, 22 members) by two changes: eight archived ids dropped (1109, 1224, 1262, 1269, 1270, 1271, 1272, 635_23 -- the gatherer returns ERROR:unknown_task for archived ids under --scope task), and thirteen new ids admitted by confirmed scope expansion (1381, 1390, 1392, 1393, 1394, 1416, 1417, 1437, 1438, 1443, 1456, 1457, 1458). SCOPE line reports three topics (635, 1065, 1438) because two members carry a foreign or absent anchor; the trail records only aitasks#635 in scope.topics. Source of all membership and metadata in this trail."
+    },
+    {
+      "evidence_id": "ev-drift-v5",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh drift --trail art:trail-gates-framework-landing",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "STALE with 21 reasons: 13 new_related_task (1381, 1390, 1392, 1393, 1394, 1416, 1417, 1437, 1438, 1443, 1456, 1457, 1458) and 8 task_completed (1109, 1224, 1262, 1269, 1270, 1271, 1272, 635_23). Every reason attributed to a named task, none unattributable as DRIFT:other. Digest at check time 4caeabb4cde28924 against the v4 recorded digest c1faf9904dc134f3."
+    },
+    {
+      "evidence_id": "ev-verifies-sweep-v5",
+      "source_type": "command_output",
+      "ref": "grep -rl --include='t*.md' '^verifies:' aitasks | confirmed by reading each candidate for each of the 8 newly-landed members",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Belt-and-braces incoming sweep. Substring prefilter surfaced two false positives (t1377_7, matched for both member 1109 and 1224 via unrelated body text; its own verifies list names only t1377_2/3/5/6) and one confirmed real edge (t1438, verifies: [1272]). No candidates surfaced for 1262, 1269, 1270, 1271, 635_23."
+    },
+    {
+      "evidence_id": "ev-risk-mitigation-sweep-v5",
+      "source_type": "command_output",
+      "ref": "grep -m1 '^risk_mitigation_tasks:' over the 8 newly-archived task files",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Belt-and-braces outgoing sweep. Only t635_23 carries a populated risk_mitigation_tasks field: [1457, 1458]. The other seven landed members carry none."
+    },
+    {
+      "evidence_id": "ev-t1109-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1109_async_human_gate_live_verify.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-04 13:10. Read in full. 6 of 7 checklist items PASS (setup, precondition, stop-clean, sign-and-record, re-sign-and-archive, cleanup); item 5 ('stale signature re-pends') FAIL, noted as 'follow-up t1409'. Ran under a purpose-built throwaway headless profile after t1224 settled the empty-ceiling question. This is the source of obs-async-gate-witness-hole."
+    },
+    {
+      "evidence_id": "ev-t1224-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1224_remote_lane_gate_live_verify.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-04 12:36. Read in full. Both checklist items PASS: pickrem Step 5 materialization to active_gates: [] confirmed end-to-end with a held negative control; web-merge materialization sub-step and the profile-not-found failure stop both confirmed."
+    },
+    {
+      "evidence_id": "ev-t1262-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1262_beginprocedure_attempt_counter_advances_by_2_per_attempt.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-06 10:52, implemented_with claudecode/opus5. Read in full. Gate Runs show clean plan_approved -> review_approved -> risk_evaluated pass sequence. Fix landed as scoped: attempt counted off terminal markers only."
+    },
+    {
+      "evidence_id": "ev-t1269-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1269_report_silent_git_failures_in_sync_and_chatlink.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-02 21:33, implemented_with claudecode/opus5. Read in full. Both sites (task_sync, chatlink/task_create.py) fixed as scoped, reusing t1265's classify/reason-hint helpers. Clean gate-run sequence, no recorded upstream defects."
+    },
+    {
+      "evidence_id": "ev-t1270-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1270_ait_help_missing_gate_pass.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-02 10:42, implemented_with claudecode/opus5. Read in full. One-line fix landed exactly as scoped; clean gate-run sequence."
+    },
+    {
+      "evidence_id": "ev-t1271-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1271_manual_verification_gates_sync_registry_live.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-04 11:51. Read in full. All 7 checklist items PASS, run against a real stale downstream install (aitasks_mobile, framework 0.27.0). No defects filed -- the cleanest MV result in this trail's history. Landed one day before t1272, the reverse of this trail's recommended sequence (see the retired advisory_precedes relation note)."
+    },
+    {
+      "evidence_id": "ev-t1272-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1272_promote_no_verifier_warning_to_step4.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-05 18:07, implemented_with claudecode/opus5. Read in full. Scope extended in-session (item 1b) to also cover aitask-pickrem/materialize-active.md, not just task-workflow's Step 4, after the sibling copy was found by accident. Six prerenders + three goldens regenerated and staged against an explicit 11-path allowlist. This extension is what left two hand-maintained copies of the same contract -- the gap e-1437 addresses."
+    },
+    {
+      "evidence_id": "ev-t635_23-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t635/t635_23_port_gate_skills_codex_opencode.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-07 15:51, implemented_with claudecode/opus5. Read in full. All three plain gate skills ported to Codex CLI and OpenCode trees. risk_mitigation_tasks: [1457, 1458] recorded in frontmatter; 1456 spawned informally at the same Step 8b review. Verified statically only (existence, cross-tree parity, generated content, policy strings, golden/prerender freshness) -- no live agent session driven."
+    },
+    {
+      "evidence_id": "ev-t1409",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1409_fix_failed_verification_t1109_item5.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Archived, status Done, completed 2026-08-04 18:36, implemented_with claudecode/opus5, risk_mitigation_tasks: [1416, 1417]. Read in full. Auto-generated from t1109 item 5's FAIL. Diagnosis: gate_orchestrator.run() and compute_unlocked() short-circuit on ledger status alone once a gate reads 'pass', making _signal_state()'s digest comparison unreachable after first sign-off except via --gate force. Live command-output table on scratch task t1408 confirms the hole (sign -> mutate code -> 'All gates satisfied' / ALL_PASS, both wrong) and the fix (force path shows correct stale-detection note; plain re-run then correctly re-pends). Fix preserves the unstamped-witness backward-compatibility acceptance. Not a trail member (see exclusions); read only to trace this lineage."
+    },
+    {
+      "evidence_id": "ev-t1381",
+      "source_type": "task_file",
+      "ref": "aitasks/t1381_audit_pipefail_grep_assignment_aborts.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Chore, medium/medium, depends [], gates [risk_evaluated], anchor 635, created 2026-08-03. Read in full. Risk-mitigation follow-up for t1370. Repo-wide audit of .aitask-scripts/ for command-substitution assignments piped through grep that abort under set -euo pipefail on empty match. Names one known instance already filed separately (t1390) and one already fixed in t1370."
+    },
+    {
+      "evidence_id": "ev-t1390",
+      "source_type": "task_file",
+      "ref": "aitasks/t1390_fix_lock_task_pipefail_grep_on_corrupt_lock.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Bug, medium/low, depends [], gates [risk_evaluated], anchor 635, created 2026-08-03. Read in full. Spawned from t1378. lock_task()'s 'lock already exists' branch extracts three fields via unguarded grep pipelines, aborting the whole script on a corrupt existing lock file. Suggests reusing t1378's _lock_field() helper."
+    },
+    {
+      "evidence_id": "ev-t1392",
+      "source_type": "task_file",
+      "ref": "aitasks/t1392_step5_worktree_reuse_on_repick.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Bug, medium/low, depends [], gates [risk_evaluated], labels task_workflow+claudeskills, created 2026-08-03. Read in full. task-workflow Step 5's plain worktree-creation path lacks the reuse check Re-entry Routing already has, so any 'stop, don't abort' exit followed by re-pick fails on git worktree add. Dormant on both shipped gate-recording profiles. Surfaced while implementing t1380."
+    },
+    {
+      "evidence_id": "ev-t1393",
+      "source_type": "task_file",
+      "ref": "aitasks/t1393_merge_target_sync_on_non_resumed_step9.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Bug, medium/medium, depends [], gates [risk_evaluated], labels task_workflow+claudeskills, created 2026-08-03. Read in full. Step 9 never fetches before merging, so a merge target that advanced upstream diverges silently until a later push rejection. t1380's fix (merge-target-sync.md) is wired only into Re-entry Routing's POSTIMPL route; four open questions on whether/how to make it unconditional."
+    },
+    {
+      "evidence_id": "ev-t1394",
+      "source_type": "task_file",
+      "ref": "aitasks/t1394_verify_reentry_drift_loop_terminates.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "manual_verification, medium/low, depends [], no gates field, labels task_workflow+gates+claudeskills, created 2026-08-03. Read in full. Risk-mitigation follow-up for t1380. All guards for the IMPLEMENT re-entry loop-termination argument are structural (assert SKILL.md states it); this MV drives the real pick/kill/re-pick/re-pick sequence in a scratch repo as the actual termination proof."
+    },
+    {
+      "evidence_id": "ev-t1416",
+      "source_type": "task_file",
+      "ref": "aitasks/t1416_gate_stale_witness_surface_parity.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Enhancement, medium/medium, depends [], gates [risk_evaluated], labels verification+backend, created 2026-08-04. Read in full. Risk-mitigation follow-up for t1409. Four surfaces (archive_status_from_text, read_task_gate_state, deps-unblock, unlocked) remain ledger-only after t1409's fix, for per-task-cost reasons documented in each function's docstring and aidocs/gates/gate-guarded-archival.md. Offers two directions: thread a once-per-refresh digest, or ratify ledger-only with a drift guard."
+    },
+    {
+      "evidence_id": "ev-t1417",
+      "source_type": "task_file",
+      "ref": "aitasks/t1417_gate_stale_signature_archive_message.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Enhancement, low/low, depends [], gates [risk_evaluated], labels verification+backend, created 2026-08-04. Read in full. Risk-mitigation follow-up for t1409. archive_status()'s stale-signature block reuses the ordinary BLOCKED:<csv> channel, so the user cannot tell 'wait' from 'go re-sign' without running ait gates run separately. Proposes a STALE_SIGNATURE:<csv> companion line, keeping BLOCKED:<csv> unchanged for existing parsers."
+    },
+    {
+      "evidence_id": "ev-t1437",
+      "source_type": "task_file",
+      "ref": "aitasks/t1437_dedupe_materialize_active_parse_contract.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Bug, medium/low, depends [], gates [risk_evaluated], labels gates+task_workflow, created 2026-08-05. Read in full. Spawned from t1272 during Step 8b review. The Step-4 stderr-warning parse contract is duplicated verbatim-in-substance between task-workflow/SKILL.md and aitask-pickrem/materialize-active.md, hand-maintained with no drift guard. Two copies are NOT byte-identical (line width, abort-step numbers, interactive-vs-display voice differ legitimately). Proposes a token-set parity drift guard or a canonical shared include."
+    },
+    {
+      "evidence_id": "ev-t1438",
+      "source_type": "task_file",
+      "ref": "aitasks/t1438_manual_verification_promote_no_verifier_warning_to_step4_fol.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "manual_verification, medium/medium, depends [1272], verifies [1272], labels verification+manual, created 2026-08-05. Read in full. Nine-item checklist; items 1-6 confirm the text/goldens/staging shipped (including a note that 8 worktree-modified aitask-trail files were correctly left unstaged at t1272's own staging time); item 7 is the substantive end-to-end proof (agent notices and surfaces the warning in both attended and remote lanes); item 8 is the negative control; item 9 confirms the exit-code contract stayed advisory."
+    },
+    {
+      "evidence_id": "ev-t1443",
+      "source_type": "task_file",
+      "ref": "aitasks/t1443_gate_ledger_union_fast_path_always_disabled.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Bug, medium/medium, depends [], gates [risk_evaluated], labels gates, created 2026-08-06. Read in full. aitask_merge._union_gate_runs returns None for essentially every gated task due to two guard defects (run-id regex anchored to a bare ISO stamp; running/terminal-closer key collision), verified empirically with an identical-bodies call. Explicit that this is not a t1262 regression, only a shift in which guard is the dominant cause. Fail-safe; correctness unaffected."
+    },
+    {
+      "evidence_id": "ev-t1456",
+      "source_type": "task_file",
+      "ref": "aitasks/t1456_close_agent_policy_and_wrapper_gaps.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Bug, medium/low, depends [], gates [risk_evaluated], labels gates+claudeskills, created 2026-08-07. Read in full. Spawned from t635_23 during Step 8b review. .claude/settings.local.json is systematically behind its own seed mirror for the entire aitask_gate_*.sh verifier family. Also carries the aitask-explorechat discover-vs-verify coordination note shared with t1458."
+    },
+    {
+      "evidence_id": "ev-t1457",
+      "source_type": "task_file",
+      "ref": "aitasks/t1457_cross_agent_gate_live_verify.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "manual_verification, medium/low, depends [], no gates field, labels gates+claudeskills, created 2026-08-07. Read in full. Risk-mitigation follow-up for t635_23, and its own text calls it 'the acceptance condition for t635_23's end-to-end claim'. Five-item checklist driving a live Codex CLI session and a live OpenCode session against a scratch task declaring gates: [docs_updated]: wrapper resolves, tool mapping carries the AskUserQuestion confirmation, helpers run unprompted, terminal block lands, skip path reaches ALL_PASS."
+    },
+    {
+      "evidence_id": "ev-t1458",
+      "source_type": "task_file",
+      "ref": "aitasks/t1458_wire_discover_into_verify.md",
+      "observed_at": "2026-08-09T06:11:43Z",
+      "summary": "Enhancement, medium/medium, depends [], gates [risk_evaluated], labels gates+claudeskills, created 2026-08-07. Read in full. Risk-mitigation follow-up for t635_23. aitask_skill_verify.sh's only plain-skill check (cmd_parity) compares wrapper trees to each other, so a skill absent from ALL wrapper trees is invisible -- exactly t635_23's starting state. Wires cmd_discover in alongside it, requiring an exemption mechanism for aitask-explorechat, coordinated with t1456."
+    },
+    {
+      "evidence_id": "ev-t635_27-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t635/t635_27_docs_updated_live_verify.md",
+      "observed_at": "2026-07-27T08:59:52Z",
+      "summary": "Archived, status Done, completed_at 2026-07-27 08:18. All six checklist items PASS. Also records the ATTEMPT 1->3->5 anomaly that became t1262."
+    },
+    {
+      "evidence_id": "ev-p635_27",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p635/p635_27_manual_verification_auto.md",
+      "observed_at": "2026-07-27T08:59:52Z",
+      "summary": "Archived plan for t635_27. 'Upstream defects identified' section is the authoritative source for t1262, t1263 and t1264; t1265's push failure recorded in the run's closing notes."
+    },
+    {
+      "evidence_id": "ev-trail-shape-audit",
+      "source_type": "command_output",
+      "ref": "reads of .aitask-scripts/lib/trail_gather.py (_reconstruct_old_task_records, residual attribution, new_related_task scan, _doc_task_refs); snapshot re-run with 635 omitted from the id list",
+      "observed_at": "2026-07-27T08:59:52Z",
+      "summary": "Established why v2's DRIFT:other was permanent and unresolvable, and that removing the owner from the member list is safe. Confirmed working in v4 and again in v5 (ev-drift-v5): every drift reason attributed, none unattributable."
+    },
+    {
+      "evidence_id": "ev-t1264-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1264_manualverification_checklist_with_plain_bullets_is_unrecover.md",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "Archived, status Done, completed 2026-07-27 17:53. Shipped a convert verb and templates emitting `- [ ]`, but the fix only reaches the case where SECTION_RE matches the heading; t1109/t1224 failed one step earlier, at heading recognition -- confirmed unresolved by any task through v5."
+    },
+    {
+      "evidence_id": "ev-t1265-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1265_ait_git_push_silently_reports_success_when_it_pushed_nothing.md",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "Archived, status Done, completed 2026-07-27 23:09. Its Gate Runs block shows a running marker superseded by a terminal one on the same run id -- the shape t1262 (now landed) fixed the miscount for."
+    },
+    {
+      "evidence_id": "ev-p1265",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p1265_ait_git_push_silently_reports_success_when_it_pushed_nothing.md",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "Final Implementation Notes: the _ait_data_git seam plus TASK_PUSH_STATUS/TASK_PUSH_REASON/TASK_PUSH_UNPUSHED globals. t1269's two sites recorded during Step 8b review, not as upstream defects of this implementation."
+    },
+    {
+      "evidence_id": "ev-t1220-outcome",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1220_pickn_retirement_reference_sweep_verify.md",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "Archived, status Done, completed 2026-07-27 19:12. All ten checklist items PASS, run on a real installed-project upgrade. No defects filed."
+    },
+    {
+      "evidence_id": "ev-p635_34",
+      "source_type": "plan_file",
+      "ref": "aiplans/archived/p635/p635_34_reconcile_installed_gate_registry.md",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "Archived plan for the landed t635_34. Records the premise correction, the stderr-only warning decision, the read_registry refactor risk (mitigated by a characterization test), Step 8d follow-ups (t1271, t1272) and Notes for sibling tasks addressing t635_37."
+    },
+    {
+      "evidence_id": "ev-t635_38",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_38_final_gate_documentation_audit.md",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "Documentation, medium/medium, depends [t635_18, t635_34, t635_37], gates [risk_evaluated], created 2026-07-27. Five scope items building a source-of-truth inventory and reconciling every gate documentation surface against it."
+    },
+    {
+      "evidence_id": "ev-mv-parse-rerun",
+      "source_type": "test_run",
+      "ref": "./.aitask-scripts/aitask_verification_parse.py summary aitasks/t1109_*.md aitasks/t1224_*.md aitasks/t1271_*.md; convert against scratch copies",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "Independent execution against the live parser after t1264 landed. summary returned TOTAL:0 for t1109 and t1224 as originally authored, TOTAL:7 for t1271. Both t1109 and t1224 were subsequently hand-converted before running, per obs-mv-checklist-tracking-gap."
+    },
+    {
+      "evidence_id": "ev-goldens-dirty",
+      "source_type": "command_output",
+      "ref": "git status --porcelain .claude/skills/task-workflow/SKILL.md tests/golden/procs/task-workflow/",
+      "observed_at": "2026-07-31T08:12:01Z",
+      "summary": "SKILL.md and SKILL-*.md goldens clean; three satisfaction-feedback-*.md goldens dirty from a concurrent session. Basis for obs-goldens-dir-concurrent-dirty, now recurred a second time per ev-t1438."
+    },
+    {
+      "evidence_id": "ev-profiles",
+      "source_type": "command_output",
+      "ref": "grep -n gates aitasks/metadata/profiles/*.yaml",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "fast.yaml: record_gates true, default_gates [risk_evaluated], no rendered_gates key. remote.yaml: rendered_gates [] with no default_gates and no record_gates."
+    },
+    {
+      "evidence_id": "ev-t635_33",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t635/t635_33_gate_activation_render_time.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Archived (completed 2026-07-19). Adopts the ceiling model: a profile-filtered gate is invisible or reported skipped, never a hard error."
+    },
+    {
+      "evidence_id": "ev-gate-ledger-seam",
+      "source_type": "command_output",
+      "ref": "grep -n 'rendered_gates' .aitask-scripts/lib/gate_ledger.py",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Confirms presence semantics in _read_profile_rendered_gates: rendered_gates used whenever the key is present, even []."
+    },
+    {
+      "evidence_id": "ev-t635-parent",
+      "source_type": "task_file",
+      "ref": "aitasks/t635_gates_framework.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Umbrella parent: phase-to-children map and children_to_implement listing the open children. Not re-read in v5; its list has moved substantially since (8 departures, 13 admissions this refresh alone)."
+    },
+    {
+      "evidence_id": "ev-p635_30",
+      "source_type": "plan_file",
+      "ref": "aiplans/p635/p635_30_task_gate_editing_surface.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Unarchived plan dated 2026-07-20 (head read only). Confirmed byte-unchanged again in v5 (content hash c857a1dbc87a6ad8, no plan_changed drift reason)."
+    },
+    {
+      "evidence_id": "ev-t635_16",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_16_remote_projection_appendix_a.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Appendix A remote projection scope: label mirror, comment mirror, comment-signal human gates, dispatcher backend gaps."
+    },
+    {
+      "evidence_id": "ev-t635_17",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_17_autonomous_lane_rigor.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Autonomous-lane rigor: gates as the non-skippable verify step, profile-enforced archive guard, auto_complete_on_all_gates_pass."
+    },
+    {
+      "evidence_id": "ev-t635_18",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_18_website_documentation.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Website sweep: content map across concepts, workflows, skills, TUIs, commands and configuration marked 'refine at planning time'."
+    },
+    {
+      "evidence_id": "ev-t635_23",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_23_port_gate_skills_codex_opencode.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Pre-landing read: port of three plain gate skills to Codex CLI and OpenCode trees. See ev-t635_23-outcome for the landed record."
+    },
+    {
+      "evidence_id": "ev-t635_24",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_24_remove_legacy_verify_build_path.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Removal of the legacy inline verify_build fallback plus profile/registry-level gate configuration; states the scope boundary against t635_30 and t635_31, never mentions t635_37."
+    },
+    {
+      "evidence_id": "ev-t635_26",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_26_stats_gate_outcome_analytics.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Two ledger-enabled metrics: per-gate pass/fail/retry rates and pending-human wait."
+    },
+    {
+      "evidence_id": "ev-t635_28",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_28_docs_updated_activation.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Adds docs_updated to fast.yaml default_gates; activation gated on t635_27 passing -- satisfied."
+    },
+    {
+      "evidence_id": "ev-t635_29",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_29_procedure_gate_generalization.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Narrowed ripe core: autonomous lanes skip Step 8; agent-aware resolution via agent_skill_dir with a fail-safe unmet report."
+    },
+    {
+      "evidence_id": "ev-t635_30",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_30_task_gate_editing_surface.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Per-task gates: editing via the board and new ait gate add/remove commands; already has an approved plan."
+    },
+    {
+      "evidence_id": "ev-t635_31",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_31_per_gate_agent_model_selection.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Per-gate agent/model in the registry; records depends on t635_24 and t635_30."
+    },
+    {
+      "evidence_id": "ev-t635_32",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_32_procedure_gate_remote_signal.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Procedure-gate participation in remote label/comment projection; hard depends on t635_16."
+    },
+    {
+      "evidence_id": "ev-t635_37",
+      "source_type": "task_file",
+      "ref": "aitasks/t635/t635_37_settings_registry_gate_picker.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Registry-driven picker for default_gates/rendered_gates; cites t635_30, never mentions t635_24."
+    },
+    {
+      "evidence_id": "ev-t1076_4",
+      "source_type": "task_file",
+      "ref": "aitasks/t1076/t1076_4_artifact_producing_gate_archetype.md",
+      "observed_at": "2026-07-25T21:30:31Z",
+      "summary": "Artifact-producing gate archetype; anchored to topic 1065, depends [t1076_3 (archived), 635]."
+    },
+    {
+      "evidence_id": "ev-t1263",
+      "source_type": "task_file",
+      "ref": "aitasks/t1263_docs_updated_gate_changesurface_has_no_pertask_attribution.md",
+      "observed_at": "2026-07-27T08:59:52Z",
+      "summary": "Change-surface attribution gap in the docs_updated skill's uncommitted-work gather. Three fix options in preference order."
+    }
+  ],
+  "rendering_hints": {
+    "collapse_landed_entries": true
+  }
+}
