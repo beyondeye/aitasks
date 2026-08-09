@@ -162,7 +162,13 @@ When the shadow agent interrogates a plan, reviews an implementation, or diagnos
 
 Minimonitor reads the shadow pane, parses its concern block, and opens a checklist modal of the concerns — each tagged with a priority (`high`, `medium`, or `low`) and the plan region it targets. Tick the ones you want, confirm, and minimonitor copies them — with a short preamble — to your clipboard, ready to paste into the followed agent. Nothing is written to the clipboard until you confirm, and minimonitor never types into the agent itself: you stay the driver.
 
-For an implementation review, the modal splits the list into **Needs addressing** and **Informational**. The second section holds findings the shadow reports for your judgement without asking for a change; they are dimmed and **a** (select all) skips them, while **A** (copy all) still takes everything. A review with no informational findings shows no section headers at all. If some lines in the block could not be parsed, a warning above the list says how many, so a short list is never mistaken for a complete one. If *none* of them could be parsed, minimonitor says the shadow emitted a block that yielded nothing forwardable — rather than reporting no concerns at all.
+For an implementation review, the modal splits the list into **Needs addressing** and **Informational**. The second section holds findings the shadow reports for your judgement without asking for a change; they are dimmed so what needs attention reads first, and you tick them individually like any other row. A review with no informational findings shows no section headers at all. If some lines in the block could not be parsed, a warning above the list says how many, so a short list is never mistaken for a complete one. If *none* of them could be parsed, minimonitor says the shadow emitted a block that yielded nothing forwardable — rather than reporting no concerns at all.
+
+**Rejecting a concern.** Each row carries one of three dispositions, and they are mutually exclusive: unmarked (`☐`), marked to forward with **Space** (`☑`), or marked **rejected** with **r** (`✗`, and the row dims). Rejecting says *stop raising this for this task*, so the shadow drops it from later review rounds — see [Reject a concern so it does not come back]({{< relref "/docs/workflows/shadow-agent" >}}#reject-a-concern-so-it-does-not-come-back) for what the shadow does with it.
+
+Press **R** to review what is already rejected for this task: **Space** marks an entry to bring back, **Enter** hands those marks to the picker, and **q** or **Esc** closes the view. **R** does not always open a list — if nothing is rejected for this task yet it says so, and if the pane has no task id it warns that the rejection store is unavailable, which tells you *before* you confirm that rejections made here cannot be kept.
+
+**Nothing is written until you confirm the picker.** Rejections and un-rejections are staged while you work; confirming with **Enter** or **OK** is what saves them, and cancelling with **Esc** discards both. When the pane has no resolvable task id, minimonitor warns that the rejections were not persisted rather than dropping them quietly. A busy or unusable store is reported too, so a rejection never fails silently.
 
 **Seeing what was lost.** When that warning appears, press **u** to open a read-only view of the exact lines the parser could not use, together with the raw block they came from. That is what lets you tell a marker the shadow wrapped across too many rows from a genuine mistake in what it wrote — and report the latter. When *no* line parsed there is no checklist to show the warning beside, so **u**'s view opens straight away instead. Press **q** or **Esc** to close it and return to the checklist with your ticks intact.
 
@@ -273,7 +279,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `p` | Pick any task by typing its number, then launch it or move it to a board column |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
-| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker, `u` shows any lines that could not be parsed) |
+| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
 | `Space` | Toggle the prioritized mark (`★`) on the **followed** agent (the one pinned at the top) — shared across all your projects |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |

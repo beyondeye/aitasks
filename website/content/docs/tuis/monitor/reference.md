@@ -32,7 +32,7 @@ depth: [advanced]
 | `n` | Pick the next ready sibling task for the focused agent pane | Pane list zone |
 | `R` | Restart the task running in the focused agent pane | Pane list zone |
 | `L` | Open the log for the focused pane in a separate viewer | Pane list zone |
-| `c` | Pick the shadow's concerns for the focused agent and copy the selected ones to the clipboard (inside the picker, `u` shows any lines that could not be parsed) | Pane list zone |
+| `c` | Pick the shadow's concerns for the focused agent and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `R` reviews the rejected list, `u` shows any lines that could not be parsed) | Pane list zone |
 | `e` | Launch a shadow companion agent for the focused agent pane | Pane list zone |
 | `E` | Launch a shadow companion agent, choosing the code agent and model first | Pane list zone |
 | `Space` | Toggle the prioritized mark (`★`) on the focused agent — stored per user and shared across all your projects | Pane list zone |

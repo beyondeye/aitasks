@@ -108,6 +108,9 @@ free-form ask once it is running decides which capability applies:
   explicitly **not** a workflow-phase classifier and never gates what the user
   can ask — it is one advisory suggestion they can take or ignore.
 - **Step 2 — context-fetch** as described above, only when the request needs it.
+  It is also where a source task id is picked up when the launch arguments did
+  not carry one — the id the rejection store is keyed by (see "Concern rejection
+  store").
 - **Step 3 — serve.** Simple, free-form-expressible asks are handled **inline**
   (explain the output / "what is the agent doing?"; help answer an
   `AskUserQuestion` by laying out the options and *suggesting* an answer the user
@@ -140,6 +143,12 @@ free-form ask once it is running decides which capability applies:
     pick from, and offer to spin chosen ones into `/aitask-explore` fix-tasks.
     On-request only — never offered proactively. (Detailed signal list lives in
     the sub-procedure, not here.)
+
+  Every sub-procedure that emits a concern block —
+  `plan-challenge.md`, `plan-assumptions.md`, `plan-diagnose-errors.md` and
+  `impl-challenge.md` — first consults the per-task rejection store and drops
+  concerns the user already rejected, reporting how many it suppressed (see
+  "Concern rejection store").
 
   A broad ask ("review this plan") runs several sub-procedures in sequence.
 
@@ -348,6 +357,87 @@ character reads as "stale" even when the agent is idle).
 An idle agent (e.g. sitting at a plan-approval prompt the shadow just read) has not
 changed since the stamp, so it correctly reads **current**; an agent that emits new
 output after the shadow read it reads **stale**.
+
+## Concern rejection store
+
+A per-task record of the concerns the user has rejected, so the shadow can drop
+them from later review rounds instead of re-raising the same items every time.
+
+**This is producer-side filtering, never a gate.** It changes only what the
+shadow puts in its *own* output; it never inspects the followed agent's state,
+never decides whether the user may proceed, and has no refusal path. The store
+also cannot become a block: `add` accepts only canonical `- [` marker lines, so
+a `===AITASK-CONCERNS===` fence can never be written into it, and echoing `list`
+output carries item lines with neither sentinel. See the anti-gating rule under
+"Phase detection (deferred)" for the shape this deliberately avoids.
+
+**Store.** `.aitask-shadow/<task_id>/rejected.md`, mirroring `.aitask-gates/`:
+bare task id (no `t` prefix), lazily created by the writer, git-ignored, never
+committed. The gitignore rule is installed by `setup_shadow_store_gitignore()`
+in `aitask_setup.sh`. Records are markdown so they can be handed to an agent as
+prompt context verbatim:
+
+```markdown
+<!-- next_id: 3 -->
+
+### r1 | 2026-08-05T14:02:11Z | producer: plan-challenge
+- [high | Step 7 guard] The guard double-commits when the lock was held.
+```
+
+The header is a never-decreasing high-water mark: entry ids are assigned from it
+and never reused, which is what makes a pre-fetched id safe to act on. Removing
+the last entry keeps a header-only file rather than deleting it.
+
+**Helper — `aitask_shadow_rejected.sh`, internal machinery, not a user CLI.**
+Invoked by path. `add <task_id> [--producer <name>]` (markers on stdin),
+`list <task_id> [--machine]`, `remove <task_id> <id>...`, `prune <task_id>`.
+Exit codes are load-bearing and must stay distinct: `0` success, `2` bad request,
+`3` `LOCK_BUSY` (another writer — retryable), `4` the store is unusable (do
+**not** retry; it will not fix itself). Every mutation holds the
+`registry_lock.sh` mutex and lands through the atomic-write helper — appending a
+rejection is a read-modify-write, which atomic-write alone does not serialize.
+`list` takes no lock. Because `registry_lock_acquire` cannot tell "busy" from
+"impossible", every path validates the store path before acquiring.
+
+**TUI write path.** Both apps mix in `ShadowRejectionsMixin`. The picker's `r`
+marks a row rejected and `R` opens the rejected-store view; both are **staged**
+— the modals write nothing. The store is touched only when the *picker* is
+confirmed (`ConcernPickResult` carries `forwarded` / `rejected` / `unrejected`;
+`None` is the sole cancel signal), at which point rejections go in via
+`add … --producer picker` and un-rejections via `remove`. Cancelling the picker
+discards both staged sets. Outcomes are always visible: a success toast per
+operation, a warning when the pane has no task id (`Rejections not persisted`),
+and distinct messages for exit 3 vs. exit 4 — conflating them would turn a
+permanent misconfiguration into an endless retry. `list --machine` emits
+`REJECTED:r<id>|<ts>|<producer>|<marker line>` — ids are `r`-prefixed on the
+wire; parse with `split('|', 3)`, the marker last because it may itself contain
+`|`. The empty signal is the single line `NO_REJECTIONS`, for a missing store and
+a drained one alike, so check for it before parsing.
+
+**Producer consult path.** Every emitting sub-procedure runs plain
+`list <task_id>` before emitting a block. Exactly three outcomes are defined: the
+single line `NO_REJECTIONS` means nothing is rejected; a printed body is the
+rejected set; **anything else** — non-zero exit, empty output, or unrecognized
+output — means the store could not be consulted, so the producer emits every
+fresh concern and states that suppression was skipped. An error is never read as
+"nothing was rejected", and the decision is never made on exit status alone.
+Matching is **semantic**, performed by the agent: concerns have no stable
+identity across rounds and the shadow re-words bodies, so no consumer-side hash
+could serve. Whenever N ≥ 1 were dropped the producer reports
+`Suppressed N previously-rejected concern(s).` in the prose before the block;
+when unsure whether a fresh concern matches a rejected one it **keeps** the
+concern and says why (fail-open, matching `needs_addressing()`'s treatment of an
+unspecified disposition). The rule is stated in `concern-format.md` and inlined
+**twice** in each producer — a bolded pre-emit directive and a parser-rules entry
+— because producers are prompt files read at runtime and an extra file read is a
+rule the agent may skip; `tests/test_concern_parser.py` fails the build if either
+copy is dropped. There is deliberately **no producer filter**: rejection is a
+judgement about the concern, not about which round raised it.
+
+**Lifetime.** Pruned at archive by `prune_shadow_rejections()` in
+`aitask_archive.sh`, wired at every `release_lock` site. Prune is
+lock-coordinated, guards that the directory resolves under its own root, removes
+regular files and then `rmdir`s — never `rm -rf`.
 
 ## Configuration
 
