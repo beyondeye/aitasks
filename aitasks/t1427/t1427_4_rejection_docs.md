@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: [t1427_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, aitask_monitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-05 17:18
-updated_at: 2026-08-05 17:18
+updated_at: 2026-08-09 09:26
 ---
 
 Documentation for the t1427 concern-rejection feature. Depends on t1427_1..3
