@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-09 10:44
-updated_at: 2026-08-09 10:49
+updated_at: 2026-08-09 11:17
 ---
 
 ## Origin
@@ -53,3 +54,8 @@ Update the comment at `.aitask-scripts/aitask_shadow_rejected.sh:61` to
 `tests/test_shadow_rejected.sh` pins the `r` prefix on the `list --machine`
 output; if not, add an assertion so the emitted format and its documentation
 cannot drift again.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-09T08:17:42Z status=pass attempt=1 type=human
