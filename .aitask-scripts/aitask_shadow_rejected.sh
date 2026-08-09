@@ -58,7 +58,7 @@
 #                         stdin, one per line. Prints ADDED:<n>.
 #   list <task_id> [--machine]
 #                       - Default: the store body, header stripped. --machine:
-#                         REJECTED:<id>|<ts>|<producer>|<marker line> per entry
+#                         REJECTED:r<id>|<ts>|<producer>|<marker line> per entry
 #                         (marker LAST — it contains `|`; split('|', 3)).
 #                         NO_REJECTIONS when empty or missing.
 #   remove <task_id> <id>...

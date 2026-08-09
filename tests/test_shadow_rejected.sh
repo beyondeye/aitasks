@@ -90,17 +90,54 @@ printf '%s\n' '- [medium | parser] Multi-block accum | undefined | really.' \
     | "$H" add 77 --producer impl-challenge >/dev/null
 mout="$("$H" list 77 --machine)"
 assert_eq "one REJECTED line per entry" "1" "$(printf '%s\n' "$mout" | grep -c '^REJECTED:')"
+# Emitter-side format pin: entry ids are `r`-prefixed ON THE WIRE. `remove`
+# tolerates both `rN` and `N`, so a consumer built against a prefix-less spec
+# would work by luck of that tolerance rather than by contract, and the day the
+# tolerance is tightened it breaks. Test 2b pins the documentation half — this
+# assertion alone cannot see a comment drifting away from what is printed here.
+assert_eq "machine line matches the documented REJECTED:r<id>|… shape" "1" \
+    "$(printf '%s\n' "$mout" | grep -c '^REJECTED:r[0-9][0-9]*|')"
 # The marker line is LAST precisely because it contains `|`; consumers split
 # into exactly 4 fields and keep the remainder whole.
 id_f="$(printf '%s' "$mout" | sed 's/^REJECTED://' | cut -d'|' -f1)"
 ts_f="$(printf '%s' "$mout" | sed 's/^REJECTED://' | cut -d'|' -f2)"
 pr_f="$(printf '%s' "$mout" | sed 's/^REJECTED://' | cut -d'|' -f3)"
 mk_f="$(printf '%s' "$mout" | sed 's/^REJECTED://' | cut -d'|' -f4-)"
-assert_eq "field 1 is the entry id" "r1" "$id_f"
+assert_eq "field 1 is the r-prefixed entry id" "r1" "$id_f"
 assert_contains "field 2 is an ISO-8601 UTC stamp" "T" "$ts_f"
 assert_eq "field 3 is the producer" "impl-challenge" "$pr_f"
 assert_eq "remainder is the marker line, |-chars intact" \
     '- [medium | parser] Multi-block accum | undefined | really.' "$mk_f"
+
+echo
+echo "=== Test 2b: the DOCUMENTED format tracks the emitter (t1464) ==="
+# Test 2 pins what the emitter PRINTS. This pins what the callers' documentation
+# SAYS, because the two drifting apart IS the defect t1464 fixed: the helper's
+# own header comment read `REJECTED:<id>|…` while the emitter had always printed
+# `REJECTED:r%s|…`. Without this test either comment can silently revert and
+# every other assertion in this file still passes.
+#
+# Only PROSE can match these patterns: the emitter writes `REJECTED:r%s` (awk
+# format string) and the Python parser slices the bare literal `REJECTED:`, so
+# no executable line can satisfy or trip either count.
+#
+# Checked per file so a failure names the site that drifted, and each file must
+# carry the correct spec at least once — a file that merely deleted its format
+# documentation must not read as clean. The tail is deliberately unpinned
+# (`REJECTED:r<id>|` only): rewording `<marker line>` is not drift, dropping the
+# `r` is.
+for doc in \
+    ".aitask-scripts/aitask_shadow_rejected.sh" \
+    ".aitask-scripts/monitor/monitor_shared.py" \
+    "aidocs/framework/shadow_agent.md"
+do
+    docf="$PROJECT_DIR/$doc"
+    n_ok="$(grep -cF 'REJECTED:r<id>|' "$docf")"
+    n_bad="$(grep -cF 'REJECTED:<id>|' "$docf")"
+    assert_eq "$doc documents the r-prefixed wire spec" "yes" \
+        "$([ "${n_ok:-0}" -gt 0 ] && echo yes || echo no)"
+    assert_eq "$doc carries no prefix-less REJECTED:<id> spec" "0" "${n_bad:-0}"
+done
 
 echo
 echo "=== Test 3: NO_REJECTIONS sentinel ==="

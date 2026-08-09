@@ -1849,7 +1849,7 @@ _CONCERN_BADGE = {
 class RejectedEntry(NamedTuple):
     """One row of the per-task rejection store, as pre-fetched by the caller.
 
-    Mirrors a single ``REJECTED:<id>|<ts>|<producer>|<marker line>`` line from
+    Mirrors a single ``REJECTED:r<id>|<ts>|<producer>|<marker line>`` line from
     ``aitask_shadow_rejected.sh list --machine``. The marker line comes **last**
     on the wire precisely because it contains ``|``, so the parse is a 3-way
     split — see :func:`parse_rejected_machine_lines`.
