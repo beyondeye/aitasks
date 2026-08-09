@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [t1427_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini, aitask_monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:18
-updated_at: 2026-08-09 10:26
+updated_at: 2026-08-09 10:45
+completed_at: 2026-08-09 10:45
 ---
 
 Documentation for the t1427 concern-rejection feature. Depends on t1427_1..3
@@ -68,3 +69,14 @@ implementation before writing.
 > **✅ gate:plan_approved** run=2026-08-09T07:26:34Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-09T07:39:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-09T07:44:57Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6a2fbac7d7d7809b
+
+> **✅ gate:risk_evaluated** run=2026-08-09T07:44:57Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1427_4/risk_evaluated_2026-08-09T07:44:57Z-risk_evaluated-a1.log`
