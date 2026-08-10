@@ -476,3 +476,142 @@ Per `aidocs/framework/aitasks_extension_points.md:42-63`:
 - `aidocs/framework/aitasks_extension_points.md`'s "markerless" claim about
   `.codex` / `.opencode` instructions is corrected here — later children can
   trust the doc.
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-10 19:05)
+- **Requested by user:** The interactive write path in `aitask_update.sh` writes
+  `new_type` alongside `CURRENT_FOLLOWUP_KIND` but never called
+  `enforce_manual_verification_kind_invariant` — only the batch path did. A user
+  could interactively retype a task carrying `followup_kind: manual_verification`
+  to `issue_type: feature` and persist the forbidden pair. Blocking.
+- **Verdict:** CONFIRMED. The plan specified the helper be called from *both*
+  write paths; only the batch path was wired. This is the exact type-only
+  violation the resulting-pair design exists to catch, left reachable on one of
+  the two seams.
+- **Changes made:** Added the call at `aitask_update.sh:1706`, immediately before
+  the interactive `write_task_file`, passing `"$new_type" "$CURRENT_FOLLOWUP_KIND"`
+  (interactive mode can edit the type but not the kind, so the type-only
+  violation is the reachable one there). Added three guards to
+  `tests/test_followup_kind_roundtrip.sh`: the count of type-changing write
+  paths must equal the count of enforcement calls; a non-vacuity assertion that
+  there are still two such paths; and an ordering assertion that the interactive
+  check precedes its write. The parent children-cleanup path is deliberately
+  excluded — it rewrites `$CURRENT_TYPE` unchanged, so it cannot introduce a
+  violation, and dying there would block an unrelated parent update on a file
+  already inconsistent from a hand edit ("enforce at the write seams, tolerate at
+  read").
+- **Negative control:** removing only the interactive call fails exactly the two
+  new guards (`expected '2', got '1'` and the ordering check); source restored
+  byte-identical afterwards.
+- **Files affected:** `.aitask-scripts/aitask_update.sh`,
+  `tests/test_followup_kind_roundtrip.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Registered `followup_kind:` end-to-end — vocabulary,
+  create, update, merge, fold, docs — exactly as planned, with the two design
+  corrections the re-planning verification produced (vocabulary home; deletion-
+  aware merge). 19 files modified, 4 added.
+  - **Vocabulary:** `lib/followup_kinds.py` (single source of truth: 8 kinds ×
+    glyph/colour/label, `normalize_followup_kind`, `followup_kinds_pipe`) +
+    `lib/followup_kinds_sh.sh` (lazy, memoising, fail-closed shell bridge, plus
+    the shared `enforce_manual_verification_kind_invariant`).
+  - **`aitask_create.sh`:** global, usage, `--followup-kind`, enum + invariant
+    validation before any file is written, emit in all three serializers.
+  - **`aitask_update.sh`:** all registration sites incl. positional **33**
+    (appended after `boardgroup_present`), the read-`case` arm, the reset block,
+    and all three call sites; `has_update` gating; batch merge; flag validation.
+  - **`aitask_merge.py`:** `_resolve_base_aware` is now normaliser-parameterised
+    and deletion-aware; the caller records `unresolved` independently of presence.
+  - **Docs:** 8 surfaces, plus two corrections to stale framework guidance.
+- **Deviations from plan:**
+  - **Vocabulary home** changed from the task file's `followup_kinds.tsv` to the
+    `launch_modes` bridge seam (user-approved during planning): no repo precedent
+    exists for a dual-parser data file, and deriving makes drift impossible
+    rather than merely detectable. The bridge is **lazy** where
+    `launch_modes_sh.sh` is eager, because sourcing sits on the hot path of every
+    `ait create` / `ait update` and t1468_6 loops update over ~171 tasks.
+  - **`aitasks/metadata/aitasks_agent_instructions.seed.md` does not exist** in
+    this repo, so the "edit both copies" step collapsed to `seed/` alone.
+  - **Test-scaffold registration was required and not in the plan.** Because the
+    bridge is sourced on startup, `tests/lib/test_scaffold.sh` had to copy *both*
+    halves (`.sh` + `.py`) or every scaffolded test crashes — the rule in
+    `shell_conventions.md`, whose stale baseline list was refreshed here too.
+- **Issues encountered:**
+  - `ait setup` **auto-commits `AGENTS.md`** (`ec49f6fde "ait: Add aitask
+    framework"`), so that mirror landed in its own commit rather than the task's.
+  - `ait setup` **silently skipped** `.codex/instructions.md` and
+    `.opencode/instructions.md` ("No … staging files found — skipping") because
+    neither CLI is installed on this machine, even though both are tracked and
+    marker-wrapped. The generated block was mirrored out of `AGENTS.md` verbatim,
+    and the trap is now documented in `aitasks_extension_points.md`.
+  - **Another session is working in the same tree.** ~577 lines of uncommitted
+    t1243_10 board work (`aitask_board.py`, `board_groups.py`, 4 board test
+    files) are present and were left untouched; only this task's files were
+    staged. The full Python suite therefore reports 4 failures in
+    `test_board_columns_reconcile.py`; running that module at HEAD plus only this
+    task's files in a throwaway worktree passes 18/18, proving they are foreign.
+    Main also advanced mid-session (t1472, t1474).
+  - `--parent` and plain `--batch` both create a *draft*; the child/parent
+    serializers only run at `--finalize`. Test fixtures were retargeted
+    accordingly.
+- **Key decisions:**
+  - **Base-aware and deletion-aware are two separate decisions.** Reusing
+    `_resolve_base_aware` unchanged would have written `followup_kind: null`,
+    because its `present` flag is False only when *neither* side has the key and
+    `serialize_frontmatter` gates on key membership, not truthiness. Verified by
+    mutation: with `deletion_aware=False` the merge yields
+    `{'followup_kind': None}`.
+  - **The invariant must see the RESULTING pair, on every type-changing path.**
+    `main()`'s flag validation cannot host it (`run_batch_mode` computes
+    `new_type` later), and the interactive path needed it too (Change Request 1).
+  - **Colour families** (colour = severity class, glyph = kind) per user
+    decision, so follow-ups read as a group while staying distinguishable.
+  - Enforce at write seams, **tolerate at read** — renderers must not crash on a
+    hand-edited inconsistency (t1468_7 verifies this).
+- **Verification results:**
+  - `negctrl_field_destruction`: RED before implementation — failing assertion
+    `unrelated --status update preserves followup_kind (expected
+    'risk_mitigation', got '')` in `tests/test_followup_kind_roundtrip.sh` — and
+    GREEN after, with the assertion **byte-unchanged**.
+  - `boardgroup_resolver_regression_guard`: baseline recorded before the
+    signature change (shell 14/14; Python `TestBoardgroupBaseAwareMerge` 17 OK)
+    and **passes unchanged afterwards with zero test edits** (shell now 18/18,
+    Python 78 OK).
+  - `phantom_stub_visibility_probe`: 9 assertions across all four
+    `_is_phantom_stub` readers, each with a board-keys-only negative control.
+  - `tests/test_followup_kind_roundtrip.sh`: 31/31.
+  - Neighbouring suites green: gate-frontmatter-roundtrip 14/14, anchor-update
+    8/8, anchor-create 20/20, fold-risk-mitigation-drop 5/5.
+  - `shellcheck`: no new findings (the single SC2034 is pre-existing).
+  - `aitask_skill_verify.sh`: OK (13 templates, 3 agents, 4 stub surfaces).
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:2352-2358,2502-2509 — setup regenerates the
+    tracked, marker-wrapped .codex/instructions.md and .opencode/instructions.md
+    only when the corresponding agent CLI is installed locally; otherwise it
+    prints "No … staging files found — skipping" and leaves them stale, so a seed
+    change silently reaches AGENTS.md alone. Documented here as a trap, but the
+    skip is a genuine drift source for any machine without both CLIs.`
+- **Notes for sibling tasks:**
+  - Vocabulary lives in `lib/followup_kinds.py` (+ `lib/followup_kinds_sh.sh`
+    bridge), **not** a `.tsv`. t1468_3 imports the module directly for
+    glyph/colour; t1468_4's bash surfaces source the bridge and must treat a
+    non-zero `followup_kinds_pipe` as "reject", never "accept".
+  - **Clearing is key removal — no tombstone.** Any sibling reading the field
+    must treat *absent* as "not a follow-up", and must not assert `== None`.
+  - `_resolve_base_aware` now takes `(key, local, remote, base, normalize,
+    deletion_aware)` and `_BASE_AWARE_FIELDS` is a **dict** of
+    `field -> (normalizer, deletion_aware)`. A sibling touching `aitask_merge.py`
+    should read that contract first; `unresolved` is now appended independently
+    of presence.
+  - Editing `task-creation-batch.md` produces **nine** rendered outputs (3
+    profiles × 3 agent trees) of which exactly **three are tracked** (the
+    `remote` copy per tree). Rerender for `default`, `fast` *and* `remote`, then
+    stage canonical + those three by explicit path allowlist.
+  - After any `ait setup`, `grep` the new field in all three instruction mirrors —
+    `.codex` / `.opencode` are skipped when their CLI is absent.
+  - `--parent` and `--batch` create drafts; the child/parent serializers run at
+    `--finalize`. Write create-side tests accordingly.
