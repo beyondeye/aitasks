@@ -308,8 +308,10 @@ still show pane A's claim.
 - Two new exit codes and two new structured outcomes must be handled at every
   consumer; blast radius spans three shell files, three skill trees plus
   rendered variants, and three website pages, and a partial sweep leaves the
-  documented contract untrue · severity: medium · → mitigation: t<id> (spawned
-  port_live_holder_gate_other_agents)
+  documented contract untrue · severity: medium · → mitigation: dropped (was
+  port_live_holder_gate_other_agents) — the risk was retired by verification
+  rather than left unmitigated: every rendered closure in all three agent trees
+  was swept for the new strings and none was stale
 
 ### Goal-achievement risk: low
 
@@ -327,7 +329,16 @@ still show pane A's claim.
 ### Planned mitigations
 - timing: pre-phase | name: baseline_lock_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "wrong self-identity breaks picking" | desc: Record the pass/fail baseline of the four lock/anchor suites before any edit, so a retargeted assertion is distinguishable from a regression.
 - timing: post-phase | name: negctrl_live_holder_gate | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "wider refusal surface" + goal "no-anchor locks still acquire" | desc: Revert only the gate hunk and prove both the live-holder and unverifiable tests fail, then restore and re-run to green.
-- timing: after | name: port_live_holder_gate_other_agents | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health "partial sweep across skill trees" | desc: Port the LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER handling from the Claude Code skills to the Codex (.agents/skills/) and OpenCode (.opencode/skills/) task-workflow and aitask-pickrem surfaces. | created: dropped(premise-false)
+- timing: dropped-after | name: port_live_holder_gate_other_agents | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health "partial sweep across skill trees" | desc: Port the LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER handling from the Claude Code skills to the Codex (.agents/skills/) and OpenCode (.opencode/skills/) task-workflow and aitask-pickrem surfaces.
+
+*(On the `timing: dropped-after` marker: this mitigation was confirmed at
+planning time and dropped at Step 8d, before any task existed. The documented
+`created: dropped(t<old>)` marker is deliberately **not** used — that one is the
+stale-witness remedy and its parser re-collects the embedded ID into
+`dropped_stale_ids`, so a non-ID there would feed garbage to a real consumer.
+Retiring the timing instead keeps the line out of Part 3's `timing: after`
+filter for the correct reason — it is no longer a spawn candidate — while
+preserving the full record of what was proposed and agreed.)*
 
 **`port_live_holder_gate_other_agents` was dropped at Step 8d — its premise was
 false.** The design assumed Codex and OpenCode carry their own authoring copies
