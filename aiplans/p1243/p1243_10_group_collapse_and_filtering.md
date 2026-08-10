@@ -443,3 +443,118 @@ a prerequisite, but a latent harness gap that would have bitten any
 config-persisting board test); and the five pre-existing settings-only saves that
 had drifted onto `save_metadata()` in violation of `tui_conventions.md:198` — fixed
 here, and the reason the drift guard exists.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All five plan deliverables landed as designed.
+  `lib/board_groups.py` gained the pure key algebra (`GROUP_KEY_SEP`,
+  `group_key`, `parse_group_key`, `remap_group_keys`, `column_remap`).
+  `TaskManager` gained `collapsed_groups` as the single in-memory truth,
+  `_reset_collapsed_groups` (the never-rebind guard), the `load_metadata` load
+  end, `_settings_for_save` / `_config_layers` / `_write_user_layer` /
+  `save_settings`, `is_group_collapsed` / `toggle_group_collapsed`, the
+  `remap_collapsed_groups` seam wired into `update_column` / `delete_column` /
+  `merge_columns` (incl. the four-element rollback snapshot restored **in
+  place**), and `_prune_orphan_collapsed_groups` at the end of `load_tasks()`.
+  `KanbanApp.collapsed_groups` became an alias; `action_toggle_group` routes
+  through the model behind a narrow `except MetadataWriteError`. `GroupHeader`
+  gained `match_count` / `set_match_count`, and `apply_filter` gained
+  `_group_match_count` behind a once-per-pass `narrowing` guard. All five
+  pre-existing settings-only save sites were retrofitted to `save_settings()`.
+  Verification: `tests/test_board_group_filtering.py` (new, 57 tests) plus the
+  drift guard in `tests/test_board_columns_reconcile.py`.
+
+- **Deviations from plan:**
+  1. **`PristineConfigMixin` was folded into `PristineTreeMixin` rather than
+     promoted as a second mixin.** Board config is part of the fixture tree —
+     `bf.snapshot()` always treated it that way — and one mixin removes the
+     "which do I pick?" decision that produced the duplicate in the first place.
+     Restoring is a no-op when nothing changed, and no consumer depended on the
+     leak. `test_board_column_dialog.py` keeps `_PristineConfigMixin` as an alias
+     so its class still reads as "this one needs config restored".
+  2. **The AST guard uses IMMEDIATE-enclosing attribution, not outermost.** The
+     plan's caveat was inverted: immediate is the *stricter* rule, because a
+     nested `on_dismiss` is flagged under its own (never allow-listed) name,
+     whereas outermost attribution would let a nested call inherit its parent
+     method's exemption. Recorded in `_callers_of_name`'s docstring.
+  3. **`test_destination_key_wins_when_it_already_exists` is labelled a
+     specification pin, not a guard.** Under a presence-set representation an
+     expanded arriving group has no key at all, so no key-remapping
+     implementation can violate that direction; two negative controls leave it
+     green. Kept (the design states the rule in two directions) but explicitly
+     marked, per the plan's own anti-padding rule.
+
+- **Issues encountered:**
+  1. **Two of the first five negative controls PASSED under mutation.** The
+     merge control was unreachable: with nothing draining, `merge_columns`
+     returns at `if not drained:` *before* the remap, so `drained` vs
+     `source_ids` cannot differ. Rewritten as a **partial** merge (c0 drains, c2
+     is blocked by a selective write fault), which now fails correctly under the
+     mutation. The second was the presence-set case above.
+  2. **The retrofit exposed six pre-existing vacuous or gesture-coupled tests.**
+     Seven call sites across `test_board_column_manage.py` (2) and
+     `test_board_columns_reconcile.py` (5) used `toggle_column_collapsed` purely
+     as "now issue a project-layer save". Four failed loudly once it stopped
+     writing that layer; **two had been passing either way** — `written()` reads
+     the project file from disk, where `bc.create_column` has already written the
+     external column, so "the external column survived an ordinary board save"
+     passed whether or not the board saved at all. Only its negative control
+     carried weight. Retargeted to one canonical `_ReconcileCase.project_save_gesture()`
+     (an Edit Column commit — `update_column` with the id unchanged), which
+     preserves the original intent that a direct `save_metadata()` call would not
+     prove a user-reachable path.
+  3. `Task.load_ok` is False only on a genuine read/decode failure; malformed
+     YAML still parses to `metadata == {}`. The unreadable-file test needed an
+     invalid-UTF-8 payload (`b"\xff\xfe …"`), matching `test_board_column_manage.py`.
+
+- **Key decisions:**
+  - **The manager owns the set; the app aliases it.** This removes the sync
+    problem rather than managing it — a lifecycle remap has already updated the
+    board's rendering source when it returns. The rejected alternative
+    (re-seeding inside `refresh_board`) would have lagged a whole modal session,
+    because `ColumnManageScreen` refreshes only in `on_closed`.
+  - **Counting is a separate function from `_group_header_matches`, sharing the
+    same two per-member primitives.** Making visibility `count > 0` would kill
+    the short-circuit and put a `_children_by_parent()` walk on the
+    per-keystroke path.
+  - **The prune is member-based only**, and "no members" is literal: a group at
+    exactly one member keeps its key (the renderer stops drawing a header, which
+    makes the key inert, not stale). Column liveness is deliberately not a second
+    criterion, so two criteria can never disagree.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:1321 — the `if user_data:` guard in
+    `save_metadata` is vacuous; `data` always carries the `"settings"` key, so
+    `split_config` always returns a truthy `user_data` and the local file is
+    always written. Harmless today, but it reads as a conditional that can skip
+    the local write, which it cannot.
+  - `.aitask-scripts/board/aitask_board.py:1329-1334 — the
+    `auto_refresh_minutes` property setter has **zero callers**;
+    `_handle_settings_result` writes the key through `settings.update()` instead.
+    Dead code of the same class as the `Task._BOARD_KEYS` assignment t1243_2
+    retired.
+
+- **Notes for sibling tasks:**
+  - **`TaskManager.remap_collapsed_groups(remap)` is the ONE seam** for t1243_11
+    (group move) and t1243_12 (group rename / dissolve). Ready-made rule shapes
+    are in `board_groups.remap_group_keys`'s docstring, and
+    `_apply_group_move`'s docstring carries the exact lateral-move call.
+  - **Call it AFTER the member writes, in the same synchronous block.** A reload
+    between the two would observe the new key with no members and prune it.
+  - **Coalescing needs no code.** The remap is a set union, so a move or a
+    confirmed rename onto an existing same-slug group combines automatically;
+    the vacated key is dropped by the rewrite. This holds *only* because the key
+    carries no value — a future value-carrying view key must revisit it.
+  - **Never rebind `collapsed_groups`.** `KanbanApp` and every mounted
+    `KanbanColumn` alias the manager's set; replace contents via
+    `_reset_collapsed_groups`, never `self.collapsed_groups = {...}`.
+  - **Use `save_settings()` for anything confined to `self.settings`.** The AST
+    guard in `tests/test_board_columns_reconcile.py::SavePathContainmentTests`
+    fails the build otherwise, and names the remedy in its message.
+  - **`GroupHeader.members` staleness is still untested** (t1243_9's note stands):
+    the board has no `boardgroup` write path until t1243_11/_12, so a header can
+    only go stale once one of them lands. **Whichever lands first owes that test.**
+  - **`t1377_4`'s `merge_columns` is wired**; the collapse-key lifecycle table in
+    the parent plan now has six owners, three live and three seams.
