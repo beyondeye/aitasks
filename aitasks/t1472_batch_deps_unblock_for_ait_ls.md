@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [backend, verification]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 635
 created_at: 2026-08-10 14:56
-updated_at: 2026-08-10 14:56
+updated_at: 2026-08-10 16:25
 ---
 
 ## Origin
