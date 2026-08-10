@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: performance
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 635
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 14:56
-updated_at: 2026-08-10 16:25
+updated_at: 2026-08-10 17:54
 ---
 
 ## Origin
@@ -78,3 +81,8 @@ parity on it, and other callers use it as a single-task decision.
 - Before/after timing of `ait ls` on a repo with a few hundred gated tasks,
   measured within one run (this box runs concurrent agents, so cross-run absolute
   numbers are not comparable).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T14:54:20Z status=pass attempt=1 type=human
