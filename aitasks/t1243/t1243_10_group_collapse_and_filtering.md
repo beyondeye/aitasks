@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1243
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:16
-updated_at: 2026-08-10 17:30
+updated_at: 2026-08-10 18:37
 ---
 
 ## Context
@@ -160,3 +161,8 @@ and `settings.collapsed_columns`:
 See `aiplans/p1377/p1377_4_column_merge_engine.md` (or its archived form) for
 `merge_columns`'s full contract, including the non-transactional partial-merge and
 convergent-retry semantics.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T15:38:07Z status=pass attempt=1 type=human
