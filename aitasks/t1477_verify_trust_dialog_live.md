@@ -10,6 +10,30 @@ created_at: 2026-08-10 18:42
 updated_at: 2026-08-10 18:42
 ---
 
+## Origin
+
+Risk-mitigation ("after") follow-up for t1474, created at Step 8d after implementation landed.
+
+## Risk addressed
+
+Goal-achievement — the workspace-trust dialog cannot be reproduced in the implementing
+session (it only appears on first run in an untrusted folder), so `claude_trust_folder`
+ships **unverified against the real widget**: the pattern could be right in wording and
+still never fire. The matching regex was additionally tightened to eliminate prose
+false-positives (line anchor, `❯`-only marker, paired adjacent cancel label), which
+trades away tolerance — a rendering that puts anything else on an option line, or
+separates the two options by a blank line, would now miss.
+
+## Goal
+
+Confirm, against a real first-run workspace-trust dialog, that `ait monitor` /
+`ait minimonitor` report the pane as PROMPT with `awaiting_input_kind:
+claude_trust_folder` — across every label variant the pattern claims — and that the
+accompanying OSC strip does not disturb live idle detection. If a variant is missed,
+the fix is to relax the corresponding anchor in
+`.aitask-scripts/monitor/prompt_patterns.py` (`_TRUST_YES` / `_TRUST_NO`) and extend
+`tests/test_prompt_detection.py` with the observed geometry.
+
 ## Manual Verification Task
 
 This task is handled by the manual-verification module: run
