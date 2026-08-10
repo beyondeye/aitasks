@@ -1020,6 +1020,116 @@ recorded decomposition, only now an explicit and reviewed one.
 - **Files affected:** `.aitask-scripts/board/aitask_board.py`,
   `tests/test_board_group_focus.py`.
 
+## Final Implementation Notes
+
+- **Actual work done:** `.aitask-scripts/board/aitask_board.py` (+474/−32) and a
+  new `tests/test_board_group_focus.py` (30 cases, real Pilot on
+  `tests/lib/board_fixture.py`). `GroupHeader` (focusable `Static`, carries
+  `column_id` and its members as **data**) + `.group-header` CSS;
+  `KanbanApp.collapsed_groups` held by reference in every `KanbanColumn`;
+  `KanbanColumn.compose` emits units via `build_column_units` (single-member
+  group → plain card, collapsed group → header alone); the focus-unit
+  abstraction (`_UNIT_SELECTOR`, `_focused_unit`, `_get_column_units` /
+  `_visible_column_units`, unit-aware `_column_focus_target` and
+  `_get_focused_col_id`); `↑↓←→` over units; the `x` duplicate-key pair
+  (`toggle_children` / `toggle_group`) with `action_toggle_group` and
+  `_refocus_group_header`; child-aware indexed header filtering
+  (`_filter_group_headers`, `_children_by_parent`, `_group_header_matches`) plus
+  `GroupHeader` in the focus-rescue tuple; and the movement dispatch
+  (`_dispatch_group_move` → `_move_focused_group` → the `_apply_group_move`
+  seam), the `_move_needs_recompose` fallback, the move-to-top anchor fix and the
+  `action_move_to_column` gateway guard.
+
+- **Deviations from plan:**
+  1. **Movement dispatch moved from the three `_move_task_*` helpers into the six
+     actions.** With a header focused `_focused_card()` is already `None`, so the
+     helpers early-return harmlessly and need no group branch at all. This also
+     keeps `_move_task_vertical` **synchronous**, which `test_board_movement`'s
+     probe depends on (it reads `iscoroutinefunction` off each helper to decide
+     where to stamp `sync_end`). Strictly smaller blast radius than the plan's
+     shape. `action_move_task_up` / `_down` became `async`; the other four
+     already were.
+  2. **`_column_has_group(col_id)` → `_column_widget_has_group(col_widget)`**
+     after review (see Post-Review Changes). The planned model-derived predicate
+     regressed the very hot path the fallback exists to protect.
+  3. **A planned `check_action` guard turned out to be dead code.** The
+     `toggle_children` branch does not need an explicit `GroupHeader` check —
+     `_focused_card()` is a `TaskCard` isinstance read, so a header already
+     yields `None` at the existing `if not focused`. A negative control proved
+     the check never changed the answer; it was removed and the reason recorded
+     inline so it is not re-added.
+  4. `action_toggle_group` gained an `isinstance` re-resolve **in addition to**
+     its `check_action` re-assert. Verified mutually redundant (removing either
+     alone leaves the tests green) and kept deliberately: the failure it prevents
+     is an `AttributeError` into Textual's message pump, which kills the app.
+
+- **Issues encountered:**
+  - The plan's `_focused_unit()` as `query("TaskCard:focus, GroupHeader:focus")`
+    would have undone t1243_7's measured fix (27 whole-board walks per footer
+    sweep, 59 ms). Implemented as a `screen.focused` isinstance read instead.
+  - Two test cases were written asserting things that cannot hold yet, and were
+    corrected rather than the code: (a) "focus lands on the destination header"
+    is unreachable while `_apply_group_move` is a stub that moves nothing — it is
+    now a spy on the refocus *request*, which keeps passing once t1243_11 fills
+    the seam; (b) `ctrl+left` on `c0` is a no-op because `c0` is leftmost, so the
+    case moved to `c1`.
+  - Two fixtures were not discriminating until reshaped: the collapse-refocus
+    case needed a column whose group is **not** first (otherwise
+    `_column_focus_target` lands on the header for free), and the ungrouped
+    lateral had to go **left** (c3's right neighbour holds a group).
+  - `MarkedSelection` has `toggle()`, not `add()`.
+
+- **Key decisions:**
+  - **Header filtering could not be deferred to t1243_10.** A collapsed group
+    mounts no cards, so the column contributed nothing to `cols_with_visible`,
+    the `EmptyColumnPlaceholder` turned visible, and `_column_focus_target`
+    returned the placeholder instead of the header — two focus anchors, breaking
+    the invariant this child restates.
+  - **The header rule is child-aware from the start.** A parent's
+    `search_haystack` is `"<filename> <metadata>"` and does not contain its
+    children's text, so a member-only rule hid the header above a still-visible
+    `↳` row.
+  - **The child index is built once per pass and only when a header is in
+    scope**, so ungrouped boards pay nothing.
+  - **Grouped columns fall back to recompose**; t1243_11 restores the fast path.
+  - Ten of eleven negative controls discriminate; the eleventh is the documented
+    mutual redundancy above.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:231,7873 — apply_filter can leave an expanded child card visible under a parent it hid, because Task.search_haystack is "<filename> <metadata>" and a parent's corpus never contains its children's text; the result is an orphaned "↳" row with no parent above it. Predates groups and is independent of them — fixing it would change apply_filter semantics for every ungrouped board.`
+
+- **Notes for sibling tasks:**
+  - **t1243_10 inherits a working filter half.** `GroupHeader` is already a
+    filter unit, already counts toward `cols_with_visible`, and is already in the
+    focus-rescue tuple; `_group_header_matches` is already child-aware. Build the
+    `· N match` badge **on that helper** rather than writing a second predicate —
+    `task_matches_filter` is per-task and countable for exactly this reason. Keep
+    `_children_by_parent` built once per pass and behind the `if headers` guard.
+    What remains yours: collapse **persistence** (`settings.collapsed_groups`, the
+    user layer), the lifecycle owners, the prune-on-load sweep and the full
+    matrix.
+  - **Collapse state already has an owner.** `KanbanApp.collapsed_groups`
+    (`"<col_id>/<slug>"`) is held **by reference** in every `KanbanColumn`, which
+    is what lets `_recompose_column` observe a toggle with no propagation step.
+    Replace only the load/save ends; do not restructure the data flow.
+  - **`merge_columns` (t1377_4) is a SIXTH `collapsed_groups` lifecycle owner**,
+    landed after t1243 was designed and absent from the parent plan's five-row
+    staleness table. Merging column A into B must re-point the col half of every
+    `"A/<slug>"` key, combining per the coalesce rule.
+  - **t1243_11 fills `_apply_group_move(header, members, axis, direction)`** —
+    return the destination `col_id` to trigger the header refocus there, `None`
+    to decline. Dispatch lives in the six actions, not the three helpers; keep
+    `_move_task_vertical` synchronous. Removing the `_move_needs_recompose`
+    fallback requires **both** directions tested — grouped → recompose, ungrouped
+    → transplant *and* zero unit derivations — or t1243_5's lateral win is
+    silently lost. Keep any presence check off the model: deriving units there
+    was the review-blocking regression.
+  - **Anyone adding a column-scoped action:** `_get_focused_col_id` now resolves
+    from a `GroupHeader` too. The command palette calls `action_*` directly and
+    never consults `check_action`, so a "no card is focused ⇒ a placeholder is
+    focused" assumption must be guarded **in the action body** —
+    `action_move_to_column` is the worked example.
+
 ## Step 9 (Post-Implementation)
 
 Merge, archival and cleanup follow `task-workflow` Step 9. Output branch is
