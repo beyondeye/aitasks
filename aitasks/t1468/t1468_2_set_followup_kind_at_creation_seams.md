@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1468_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, task_metadata]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 created_at: 2026-08-10 16:28
-updated_at: 2026-08-10 16:28
+updated_at: 2026-08-10 22:19
 ---
 
 ## Context
