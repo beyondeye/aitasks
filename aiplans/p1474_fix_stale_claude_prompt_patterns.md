@@ -430,3 +430,89 @@ Current-branch mode: no worktree or branch cleanup. Merge target is `main`
 - timing: pre-phase | name: pin_osc_fixture_from_live_tmux | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a broadened strip_ansi on the monitor hot path could swallow visible text | desc: Capture a real OSC-8-bearing pane with tmux capture-pane -p -e and freeze those exact bytes as the tests/test_ansi_utils.py fixture, asserting both markup removal and visible-text survival, and confirming the check fails against the current CSI-only strip first.
 - timing: post-phase | name: parity_test_shadow_strip_mirror | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the bash sed mirror of strip_ansi has no automated coverage and can drift from the Python implementation silently | desc: Add tests/test_shadow_strip_ansi.sh driving the aitask_shadow_capture.sh - stdin seam over the shared real-tmux fixture plus BEL/unterminated/CSI cases, asserting parity against the live Python strip_ansi and absolute properties on the fixture. Confirmed by the user in chat.
 - timing: after | name: verify_trust_dialog_live | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement — the workspace-trust dialog cannot be reproduced in this session, so claude_trust_folder ships unverified against the real widget | desc: Run a code agent for the first time in an untrusted scratch folder inside the framework tmux session and confirm ait monitor / ait minimonitor render PROMPT for that pane with awaiting_input_kind claude_trust_folder.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three defects addressed, plus both confirmed inline
+  mitigations. `monitor/ansi_utils.py` gained `ANSI_OSC_RE` and `strip_ansi` now runs
+  OSC-then-CSI; `monitor/prompt_patterns.py` gained `claude_trust_folder` (built from
+  the `_TRUST_YES` / `_TRUST_NO` fragments) and a corrected `claude_proceed` comment with
+  its regex unchanged; `aitask_shadow_capture.sh::shadow_strip_ansi` mirrors both
+  regexes as separate BREs. Drift guards updated in `lib/workflow_phase.py` and
+  `tests/test_workflow_phase_prompt_drift.sh`. Docs updated in
+  `aidocs/framework/monitor_idle_and_prompt_detection.md`. New tests:
+  `tests/test_ansi_utils.py` (6 checks), `tests/test_shadow_strip_ansi.sh` (9), and
+  5 added to `tests/test_prompt_detection.py` (12 total), against the shared real-tmux
+  fixture `tests/fixtures/osc8_capture_pane.txt`.
+
+- **Deviations from plan:**
+  - Added `.gitattributes` (not in the plan) marking the fixture `-text`. The repo had
+    no `.gitattributes` at all, and the fixture holds raw ESC bytes; without this, EOL
+    normalisation could silently alter the bytes both tests compare against.
+  - The planned `_check_osc_wrapped_prompt_still_matches` was **replaced**, not just
+    written. As specified it wrapped the hyperlink *around* the whole footer, which
+    leaves the pattern's text contiguous — it passed against the pre-fix stripper too,
+    so it proved nothing. Split into `_check_osc_inside_prompt_footer_still_matches`
+    (escape lands mid-phrase, the case that genuinely fails without the fix) and
+    `_check_osc_url_churn_does_not_defeat_idle` (same visible text, changing link
+    target, must still reach idle — the defect the task reports most directly). Both
+    were confirmed to discriminate against the pre-t1474 stripper before being kept.
+  - Negative controls grew from the planned 5 groups to 10 cases while implementing
+    (numbered list and blank-line-between were folded in as separate entries).
+
+- **Issues encountered:**
+  - `(?m)` repeated in the second alternative is a hard `re.error: global flags not at
+    the start of the expression` on Python 3.14 — caught by compiling the pattern during
+    planning rather than by reading it. Single leading `(?m)` covers both alternatives.
+  - The settings-trust dialog's cancel label is `No, exit Claude Code`; with `[ \t]*$`
+    closing the line, a bare `exit` alternative never matched it, so the
+    `Yes, I trust these settings` arm would have shipped dead. Fixed with
+    `exit(?: Claude Code)?`.
+  - `assert_not_contains` in `tests/lib/asserts.sh` takes `(desc, needle, haystack)`;
+    the first draft of the parity test passed haystack and needle inverted, which makes
+    the assertion **vacuous rather than wrong** — it passes forever and silently. Only
+    running the parity test against a deliberately broken mirror exposed it. The
+    argument order is now called out in a comment at that call site.
+
+- **Key decisions:**
+  - **`claude_proceed` kept, not retired** (user-confirmed). The task's premise that the
+    wording is dead is incorrect: `Do you want to proceed?` is the permission dialog's
+    default question in 2.1.226, used by the command/Bash prompt and the Read/Edit
+    fallback. What makes it near-dead is structural — it renders above the option list
+    and so falls outside `_PROMPT_DETECTION_TAIL_LINES`, leaving the bottom-anchored
+    `claude_help_bar` to match those dialogs. The comment now says exactly that.
+  - **Trust pattern anchors on option-line geometry, not on a phrase.** Successive
+    review rounds killed three weaker forms: a bare `Quick safety check` arm (this task
+    writes that phrase into its own plan and docs), an ASCII `>` in the marker class
+    (Markdown blockquote prefix), and a `[\s\S]{0,120}?` gap between the labels (prose
+    fits in 120 characters). The shipped form requires both labels on adjacent lines
+    holding nothing else, in either order.
+  - **The irreducible false positive is asserted, not hidden.** A verbatim,
+    geometry-faithful reproduction of the option block is indistinguishable from the
+    dialog to any text matcher. `_check_trust_pattern_known_false_positive` pins it, and
+    the mitigation is a documentation rule (describe labels inline in prose, never as a
+    copied option block) now recorded in the pattern comment and the framework doc.
+  - **`ANSI_OSC_RE` uses a bounded body**, unlike `applink/content.py::_OSC_SEQ`'s
+    non-greedy `.*?`. The two are intentionally different: `content.py` *parses* the
+    body into hyperlink spans and needs to capture it, whereas this one only strips, so
+    it takes the fail-safe bound — an unterminated OSC is left intact rather than
+    reaching forward and deleting the visible text in between (which, for a footer,
+    would turn a blocked pane back into a silently idle one).
+  - **The parity test drives `aitask_shadow_capture.sh -`**, the documented stdin seam,
+    rather than sourcing `shadow_strip_ansi`, and computes its expectation by running
+    the live Python module through a `python -c` adapter (not a heredoc — that would
+    occupy the stdin the fixture needs). An oracle self-check aborts before any
+    comparison if the adapter cannot import, so a broken oracle can never read as
+    agreement.
+
+- **Upstream defects identified:** None.
+
+- **Build verification:** `bash tests/run_all_python_tests.sh --test-dir tests` →
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)` (3953 passed, 2 skipped, plus the
+  2-test serial carve-out). `bash tests/test_no_raw_tmux.sh` 5/5.
+  `bash tests/test_workflow_phase_prompt_drift.sh` 13/13. shellcheck on the changed and
+  new shell files reports only pre-existing SC1091 (unfollowed `source`), identical in
+  count to the committed version. Note: the working tree also carried unrelated
+  in-progress changes from a concurrent session (`aitask_gate.sh`, `aitask_ls.sh`,
+  `lib/gate_ledger.py`, `aidocs/gates/*`), so the suite run covered a mixed tree; none
+  of those files were touched or staged by this task.
