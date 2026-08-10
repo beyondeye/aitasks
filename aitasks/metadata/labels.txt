@@ -102,6 +102,7 @@ stats_ui
 task-archive
 task-planning
 task_attachments
+task_metadata
 task_workflow
 test
 test_marker
