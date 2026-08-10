@@ -45,6 +45,7 @@ claudecode
 claudeskills
 codeagent
 codebrowser
+codex
 codexcli
 crash_recovery
 custom_shortcuts
@@ -72,6 +73,7 @@ memories
 minimonitor
 model_selection
 modelvrapper
+monitor
 opencode
 openshell
 performance
