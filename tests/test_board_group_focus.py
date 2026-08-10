@@ -730,8 +730,9 @@ class GroupFilteringTests(_GroupFocusBase, unittest.TestCase):
     def test_fixture_facts(self):
         """The child's text must be absent from its parent's search corpus.
 
-        This is the precondition the child-only-match case rests on; if it ever
-        becomes false that case stops discriminating.
+        This is the precondition BOTH child-aware rules rest on — the header's
+        and, since t1469, the parent card's. If it ever becomes false, the
+        child-only-match case below stops discriminating for either.
         """
         seen = {}
 
@@ -782,8 +783,16 @@ class GroupFilteringTests(_GroupFocusBase, unittest.TestCase):
     def test_child_only_match_keeps_the_header_visible(self):
         """Case 14b: no header hidden above a still-visible `↳` row.
 
-        The control is the parent card: it IS hidden by this same search, which
-        proves a member-only rule would have hidden the header too.
+        Since t1469 the parent card follows the SAME child-aware rule — both
+        `_group_header_matches` and `apply_filter`'s unit loop call
+        `_any_child_matches` — so the parent is expected visible here too, and
+        the pair moving together is the point rather than a weakened case.
+
+        What keeps this discriminating is `test_fixture_facts`: the search term
+        is absent from the parent's own corpus, so neither the header nor the
+        card can be visible except through the child. A member-only rule hides
+        both (verified by negative control: stubbing `_any_child_matches` to
+        False fails this case).
         """
         seen = {}
 
@@ -801,9 +810,9 @@ class GroupFilteringTests(_GroupFocusBase, unittest.TestCase):
 
         self._run(go())
         self.assertNotEqual(seen["child"], "none", "the matching child stays visible")
-        self.assertEqual(seen["parent"], "none",
-                         "control: the parent does NOT match — a member-only header "
-                         "rule would therefore have hidden the header")
+        self.assertNotEqual(seen["parent"], "none",
+                            "the parent card must be shown by its matching child — "
+                            "the same rule that keeps the header visible (t1469)")
         self.assertNotEqual(seen["header"], "none",
                             "the header must stay visible above its visible child")
 
@@ -846,8 +855,14 @@ class GroupFilteringTests(_GroupFocusBase, unittest.TestCase):
         self.assertNotEqual(seen["untouched"], "none",
                             "a scoped pass must not flip an untouched column's header")
 
-    def test_child_index_is_built_once_per_pass_and_not_at_all_without_headers(self):
-        """Case 14c: the per-keystroke hot path stays O(children), not O(members x children)."""
+    def test_child_index_is_built_at_most_once_per_pass(self):
+        """Case 14c: the per-keystroke hot path stays O(children), not O(members x children).
+
+        Since t1469 the unit loop needs the index too, so the build is no longer
+        header-gated — it is lazy, and the two loops SHARE one build. The
+        "never built" control is therefore a pass with no filter active, where
+        every card matches its own corpus and nothing reaches a child lookup.
+        """
         seen = {}
 
         async def go():
@@ -865,21 +880,25 @@ class GroupFilteringTests(_GroupFocusBase, unittest.TestCase):
                 app.apply_filter()
                 await self._settle(pilot)
                 seen["two_passes"] = len(calls)
-                # Control: a scope with no header in it must not build the index.
+                # Control: with no filter active every card and every member
+                # matches its own corpus, so no decision needs the index.
+                app.search_filter = ""
                 calls.clear()
-                app.apply_filter({"c3"})
+                app.apply_filter()
                 await self._settle(pilot)
-                seen["no_headers"] = len(calls)
+                seen["idle"] = len(calls)
 
         self._run(go())
         self.assertEqual(seen["one_pass"], 1,
-                         "the index must be built ONCE per pass, not once per member")
+                         "the index must be built ONCE per pass — not once per "
+                         "member, and not once for the unit loop plus once for "
+                         "the header loop")
         self.assertEqual(seen["two_passes"], 2,
                          "control: a second pass raises the count — a '1' above was "
                          "not a dead spy")
-        self.assertEqual(seen["no_headers"], 0,
-                         "control: with no header in scope the index is never built, "
-                         "so today's ungrouped boards pay nothing")
+        self.assertEqual(seen["idle"], 0,
+                         "control: a pass where everything matches its own corpus "
+                         "must never build the index")
 
 
 # --- 15-19, 21-22: movement and action gateways ------------------------------

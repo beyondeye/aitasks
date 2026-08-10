@@ -137,6 +137,8 @@ The current option is highlighted with bold reverse text. Arrows (◀ ▶) on ei
 
 The search is case-insensitive and matches against both the task filename and the entire metadata dictionary. This means you can search by task number (e.g., "t47"), title words, labels, status, assigned person, or any other metadata value.
 
+**Parent cards follow their children.** A parent card stays visible whenever one of its child tasks matches the active filter, even though the parent's own filename and metadata do not. Searching for text that only a child carries therefore shows you the parent, so you can expand it and reach the child — and an expanded child row is never left dangling under a hidden parent. Only the parent is pulled in; sibling children that do not match stay hidden.
+
 > **Note:** View mode filters (described below) combine with text search using AND logic. A task must match both the active view mode and the search text to be visible.
 
 ### How to Filter by View Mode
@@ -191,6 +193,8 @@ advice may be stale, which **R** fixes.
 **Combining with text search:**
 
 View modes combine with the search box using AND logic. For example, if you are in Locked view and type "auth", you see only locked tasks that also match "auth". Clear the search box to show all tasks matching the current view mode.
+
+The parent-follows-child rule described under [How to Search and Filter Tasks](#how-to-search-and-filter-tasks) applies to this combined result, not to the search alone. A parent is shown whenever a child passes everything currently active — base view, add-on toggles and search together. One visible consequence: in Free view a parent that is itself in flight still appears above its free children, because those children are what the view is showing you.
 
 ### How to Commit Changes from the Board
 

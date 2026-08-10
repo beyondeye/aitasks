@@ -350,6 +350,415 @@ class ScopedFilterTests(bf.FixtureBoardTestBase, _PristineTreeMixin, unittest.Te
         self._run(go())
 
 
+PARENT = "t9000_parent.md"
+CHILD_1 = "t9000_1_childone.md"
+CHILD_2 = "t9000_2_childtwo.md"
+NO_MATCH = "zzz_no_such_task_zzz"
+
+
+class ChildAwareParentFilterTests(bf.FixtureBoardTestBase, _PristineTreeMixin,
+                                  unittest.TestCase):
+    """A parent card is shown when one of its CHILDREN passes the filter (t1469).
+
+    `Task.search_haystack` is `"<filename> <metadata>"`, so a parent's corpus
+    never contains its children's text — and the base sets are computed per task.
+    Either way `apply_filter` used to hide a parent while leaving its expanded
+    child card visible, rendering a bare `↳` row under nothing. t1243_9 fixed only
+    the group-header consequence; this class pins the ungrouped parent card, which
+    is why the topology here carries **no** `boardgroup` at all.
+
+    The rule reads the COMPOSED predicate (base set ∩ add-ons ∩ search), not the
+    search alone, so the dimension sweep below is the real contract — a rescue
+    wired to any single dimension passes the search case and fails there.
+    """
+
+    FIXTURE_TASKS = bf.DEFAULT_TOPOLOGY
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.KanbanApp = cls.ab.KanbanApp
+        cls.TaskCard = cls.ab.TaskCard
+        cls._snapshot_pristine()
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    # --- oracles -------------------------------------------------------------
+
+    def _card(self, app, filename):
+        return next((c for c in app.query(self.TaskCard)
+                     if not c.is_child and c.task_data.filename == filename), None)
+
+    def _child_card(self, app, filename):
+        return next((c for c in app.query(self.TaskCard)
+                     if c.is_child and c.task_data.filename == filename), None)
+
+    def _app_with_expanded_parent(self):
+        app = self.KanbanApp()
+        app.expanded_tasks.add(PARENT)
+        return app
+
+    def _spy_child_index(self):
+        calls: list[int] = []
+        original = self.ab.KanbanApp._children_by_parent
+
+        def wrapper(inner):
+            calls.append(1)
+            return original(inner)
+
+        patcher = mock.patch.object(self.ab.KanbanApp, "_children_by_parent",
+                                    wrapper)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return calls
+
+    def _orphans(self, app):
+        """Visible `.child-wrapper` rows whose parent card is hidden.
+
+        The DOM is the ground truth: a wrapper's parent card is the nearest
+        preceding non-child `TaskCard` among its column's children, which is
+        exactly the widget a user sees (or does not see) above the `↳`.
+        """
+        found = []
+        for column in app.query(self.ab.KanbanColumn):
+            parent_card = None
+            for widget in column.children:
+                if isinstance(widget, self.TaskCard) and not widget.is_child:
+                    parent_card = widget
+                elif (isinstance(widget, self.ab.Horizontal)
+                        and widget.has_class("child-wrapper")
+                        and widget.styles.display != "none"):
+                    if parent_card is None or parent_card.styles.display == "none":
+                        found.append((column.col_id,
+                                      parent_card.task_data.filename
+                                      if parent_card else None))
+        return found
+
+    # --- cases ---------------------------------------------------------------
+
+    def test_fixture_facts(self):
+        """Preconditions: the child's token is child-only, and its row is mounted.
+
+        If the parent's corpus ever contained the child's text, or the child card
+        never mounted, every case below would pass without exercising the rule.
+        """
+        seen = {}
+
+        async def go():
+            app = self._app_with_expanded_parent()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                seen["parent_has"] = "childone" in \
+                    app.manager.task_datas[PARENT].search_haystack
+                seen["child_has"] = "childone" in \
+                    app.manager.child_task_datas[CHILD_1].search_haystack
+                seen["child_mounted"] = self._child_card(app, CHILD_1) is not None
+                seen["wrappers"] = len(list(app.query(".child-wrapper")))
+                seen["headers"] = len(list(app.query(self.ab.GroupHeader)))
+
+        self._run(go())
+        self.assertFalse(seen["parent_has"],
+                         "a parent's haystack must NOT contain its child's text — "
+                         "that is the whole reason the rule has to be child-aware")
+        self.assertTrue(seen["child_has"])
+        self.assertTrue(seen["child_mounted"], "the expanded child card must mount")
+        self.assertEqual(seen["wrappers"], 2,
+                         "both children must mount inside `.child-wrapper` rows")
+        self.assertEqual(seen["headers"], 0,
+                         "this topology must be UNGROUPED — otherwise the group "
+                         "rule could be what keeps the parent visible")
+
+    def test_parent_key_derivations_agree(self):
+        """The index key and the lookup key come from two independent derivations.
+
+        `_children_by_parent` keys by `get_parent_num_for_child` (the child
+        filepath's DIRECTORY name); `_any_child_matches` looks up by
+        `TaskCard._parse_filename` on the PARENT FILENAME (a regex). A divergence
+        fails **open** — every lookup misses, every parent stays hidden, and the
+        orphan row returns with nothing failing. This is the only case that would
+        notice.
+        """
+        seen = {}
+
+        async def go():
+            app = self._app_with_expanded_parent()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                index = app._children_by_parent()
+                seen["keys"] = set(index)
+                seen["from_parent_filenames"] = {
+                    self.TaskCard._parse_filename(fn)[0]
+                    for fn in app.manager.task_datas
+                }
+                seen["per_child"] = {
+                    child.filename: (
+                        app.manager.get_parent_num_for_child(child),
+                        self.TaskCard._parse_filename(
+                            child.filepath.parent.name + "_x.md")[0],
+                    )
+                    for child in app.manager.child_task_datas.values()
+                }
+
+        self._run(go())
+        self.assertTrue(seen["keys"],
+                        "the fixture must produce a non-empty index, else a "
+                        "subset assertion below is vacuously true")
+        self.assertTrue(
+            seen["keys"].issubset(seen["from_parent_filenames"]),
+            f"index keys {seen['keys'] - seen['from_parent_filenames']} match no "
+            f"parent filename — `_any_child_matches` would never find them")
+        for filename, (dir_key, parsed_key) in seen["per_child"].items():
+            self.assertEqual(dir_key, parsed_key,
+                             f"{filename}: directory-derived key {dir_key!r} and "
+                             f"filename-parsed key {parsed_key!r} disagree")
+
+    def test_child_only_search_shows_the_parent(self):
+        """The headline case: no bare `↳` row for a child-only search."""
+        seen = {}
+
+        async def go():
+            app = self._app_with_expanded_parent()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                app.search_filter = "childone"
+                app.apply_filter()
+                await pilot.pause()
+                seen["child"] = self._child_card(app, CHILD_1).styles.display
+                seen["parent"] = self._card(app, PARENT).styles.display
+                seen["sibling"] = self._child_card(app, CHILD_2).styles.display
+                seen["orphans"] = self._orphans(app)
+
+                # Control: a term nothing matches hides all three, so the
+                # assertions above are not simply "everything is visible".
+                app.search_filter = NO_MATCH
+                app.apply_filter()
+                await pilot.pause()
+                seen["nomatch_child"] = self._child_card(app, CHILD_1).styles.display
+                seen["nomatch_parent"] = self._card(app, PARENT).styles.display
+
+        self._run(go())
+        self.assertNotEqual(seen["child"], "none", "the matching child stays visible")
+        self.assertNotEqual(seen["parent"], "none",
+                            "the parent must be shown by its matching child — "
+                            "otherwise the `↳` row is orphaned")
+        self.assertEqual(seen["sibling"], "none",
+                         "the non-matching sibling is still hidden; the rule shows "
+                         "the PARENT, it does not un-filter the whole family")
+        self.assertEqual(seen["orphans"], [])
+        self.assertEqual(seen["nomatch_child"], "none",
+                         "control: with nothing matching the child hides")
+        self.assertEqual(seen["nomatch_parent"], "none",
+                         "control: …and so does the parent")
+
+    def test_child_match_rescues_a_parent_across_every_filter_dimension(self):
+        """The rule reads the COMPOSED `visible` set, not one favoured dimension.
+
+        Every case makes the CHILD qualify and the PARENT not, then asserts the
+        parent card is shown; the paired control revokes the child's
+        qualification and asserts it is hidden again. Fixture tasks are all
+        `issue_type: chore` with no `issue:` (tests/lib/board_fixture.py), so only
+        the child needs setting up.
+        """
+        def free(app, qualified):
+            app.base_filter = "free"
+            app.manager.task_datas[PARENT].metadata["status"] = "Implementing"
+            app.manager.child_task_datas[CHILD_1].metadata["status"] = (
+                "Ready" if qualified else "Implementing")
+            # The sibling must be busy in BOTH arms: left free it would rescue
+            # the parent by itself and the control would measure nothing. The
+            # Git / Type setups need no equivalent — there the sibling never
+            # carries the qualifying metadata in the first place.
+            app.manager.child_task_datas[CHILD_2].metadata["status"] = "Implementing"
+
+        def git(app, qualified):
+            app.git_filter_active = True
+            child = app.manager.child_task_datas[CHILD_1]
+            if qualified:
+                child.metadata["issue"] = "https://example.invalid/issues/9"
+            else:
+                child.metadata.pop("issue", None)
+
+        def type_(app, qualified):
+            app.type_filter_active = True
+            app.manager.settings["filter_issue_types"] = ["bug"]
+            app.manager.child_task_datas[CHILD_1].metadata["issue_type"] = (
+                "bug" if qualified else "chore")
+
+        def git_and_type(app, qualified):
+            git(app, qualified)
+            type_(app, qualified)
+
+        cases = {"free": free, "git": git, "type": type_,
+                 "git+type": git_and_type}
+
+        for label, setup in cases.items():
+            for qualified in (True, False):
+                with self.subTest(dimension=label, child_qualifies=qualified):
+                    seen = {}
+
+                    async def go(setup=setup, qualified=qualified):
+                        app = self._app_with_expanded_parent()
+                        async with app.run_test(size=(160, 48)) as pilot:
+                            await pilot.pause()
+                            setup(app, qualified)
+                            # The corpus memo stringifies `metadata`; invalidate
+                            # so no case can read a stale one if a search term is
+                            # ever added here.
+                            for task in list(app.manager.task_datas.values()) + \
+                                    list(app.manager.child_task_datas.values()):
+                                task._invalidate_search_haystack()
+                            app.apply_filter()
+                            await pilot.pause()
+                            seen["parent"] = self._card(app, PARENT).styles.display
+                            seen["child"] = \
+                                self._child_card(app, CHILD_1).styles.display
+                            seen["orphans"] = self._orphans(app)
+
+                    self._run(go())
+                    if qualified:
+                        self.assertNotEqual(
+                            seen["child"], "none",
+                            f"{label}: the setup must make the CHILD qualify, "
+                            f"else the case proves nothing")
+                        self.assertNotEqual(
+                            seen["parent"], "none",
+                            f"{label}: a qualifying child must show its parent")
+                        self.assertEqual(seen["orphans"], [])
+                    else:
+                        self.assertEqual(
+                            seen["parent"], "none",
+                            f"{label}: control — with the child disqualified the "
+                            f"parent must stay hidden")
+
+    def test_rescue_reads_the_intersection_not_a_single_dimension(self):
+        """The sharp control: a child passing Git but failing Type rescues nobody.
+
+        `apply_filter` intersects the add-on sets. A rescue wired to any ONE
+        dimension would see the Git hit and show the parent here; the composed
+        predicate must not.
+        """
+        seen = {}
+
+        async def go():
+            app = self._app_with_expanded_parent()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                child = app.manager.child_task_datas[CHILD_1]
+                child.metadata["issue"] = "https://example.invalid/issues/9"
+                child.metadata["issue_type"] = "chore"       # fails the Type set
+                app.manager.settings["filter_issue_types"] = ["bug"]
+                app.git_filter_active = True
+                app.type_filter_active = True
+                app.apply_filter()
+                await pilot.pause()
+                seen["child"] = self._child_card(app, CHILD_1).styles.display
+                seen["parent"] = self._card(app, PARENT).styles.display
+
+                # Control: make the child pass BOTH and the parent is rescued,
+                # proving the setup above is one flag away from a visible pair.
+                child.metadata["issue_type"] = "bug"
+                app.apply_filter()
+                await pilot.pause()
+                seen["both_child"] = self._child_card(app, CHILD_1).styles.display
+                seen["both_parent"] = self._card(app, PARENT).styles.display
+
+        self._run(go())
+        self.assertEqual(seen["child"], "none",
+                         "a child outside the intersection is hidden")
+        self.assertEqual(seen["parent"], "none",
+                         "…and must not rescue its parent — that would mean the "
+                         "rule consulted Git alone")
+        self.assertNotEqual(seen["both_child"], "none")
+        self.assertNotEqual(seen["both_parent"], "none",
+                            "control: passing both sets DOES rescue the parent")
+
+    def test_no_visible_child_wrapper_without_a_visible_parent(self):
+        """The invariant, swept over filter states rather than point-asserted."""
+        states = [("", "all"), ("childone", "all"), ("childtwo", "all"),
+                  (NO_MATCH, "all"), ("", "free"), ("childone", "free")]
+        seen = {}
+
+        async def go():
+            app = self._app_with_expanded_parent()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                # One child busy so the "free" states exercise the parent
+                # cascade rather than repeating the "all" states.
+                app.manager.child_task_datas[CHILD_2].metadata["status"] = \
+                    "Implementing"
+                orphans = {}
+                for search, base in states:
+                    app.search_filter = search
+                    app.base_filter = base
+                    app.apply_filter()
+                    await pilot.pause()
+                    orphans[(search, base)] = self._orphans(app)
+                seen["orphans"] = orphans
+
+                # Negative control: with the child-aware half disabled the very
+                # same sweep MUST find an orphan. A sweep that stays clean here
+                # is not testing the rule.
+                with mock.patch.object(self.ab.KanbanApp, "_any_child_matches",
+                                       lambda *a, **k: False):
+                    control = {}
+                    for search, base in states:
+                        app.search_filter = search
+                        app.base_filter = base
+                        app.apply_filter()
+                        await pilot.pause()
+                        control[(search, base)] = self._orphans(app)
+                    seen["control"] = control
+
+        self._run(go())
+        self.assertEqual(
+            {k: v for k, v in seen["orphans"].items() if v}, {},
+            "a visible `↳` row was left under a hidden parent")
+        self.assertTrue(
+            any(seen["control"].values()),
+            "control: with `_any_child_matches` stubbed to False the sweep found "
+            "no orphan either — it is not exercising the rule")
+
+    def test_child_index_is_built_at_most_once_per_pass(self):
+        """The per-keystroke path stays O(cards + children), and idles for free."""
+        seen = {}
+
+        async def go():
+            app = self._app_with_expanded_parent()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                calls = self._spy_child_index()
+
+                # Worst case: nothing matches, so every parent card reaches a
+                # child lookup.
+                app.search_filter = NO_MATCH
+                calls.clear()
+                app.apply_filter()
+                await pilot.pause()
+                seen["one_pass"] = len(calls)
+                app.apply_filter()
+                await pilot.pause()
+                seen["two_passes"] = len(calls)
+
+                # Control: with no filter active every card matches its own
+                # corpus, so no decision ever needs the index.
+                app.search_filter = ""
+                calls.clear()
+                app.apply_filter()
+                await pilot.pause()
+                seen["idle"] = len(calls)
+
+        self._run(go())
+        self.assertEqual(seen["one_pass"], 1,
+                         "the index must be built ONCE per pass, not once per card")
+        self.assertEqual(seen["two_passes"], 2,
+                         "control: a second pass raises the count — a '1' above "
+                         "was not a dead spy")
+        self.assertEqual(seen["idle"], 0,
+                         "a pass where every card matches its own corpus must "
+                         "never build the index")
+
+
 class MovementSideEffectTests(bf.FixtureBoardTestBase, _PristineTreeMixin,
                               unittest.TestCase):
     """No movement family spawns a subprocess, and each still marks what it wrote."""
