@@ -1070,6 +1070,54 @@ onto the header in the destination; after a member move, onto that card.
 All of the above is pinned with real Pilot tests, including the
 column-of-only-collapsed-groups case that motivated it.
 
+#### LANDED in t1243_9 — boundary shifts t1243_10 and t1243_11 inherit
+
+Recorded here, not only in the child's plan, because both later children
+re-verify their anchors against *this* document.
+
+1. **Header filtering landed early, in t1243_9.** It could not be deferred: a
+   collapsed group mounts a header and no cards, so `cols_with_visible` omitted
+   the column, the `EmptyColumnPlaceholder` turned visible, and
+   `_column_focus_target` returned the *placeholder* instead of the header —
+   two focus anchors, breaking the invariant this section restates. So
+   `GroupHeader` is already a filter unit (`_filter_group_headers`), already
+   counts as column content, and is already in the focus-rescue tuple. Its
+   visibility rule (`_group_header_matches`) is already **child-aware** — a
+   parent's `search_haystack` does not contain its children's text, so a
+   member-only rule hid the header above a still-visible `↳` row.
+   **t1243_10 keeps:** collapse *persistence*, the lifecycle owners, the
+   prune-on-load sweep, the `· N match` badge (build it on
+   `_group_header_matches`, do not write a second predicate), and the full
+   filtering matrix. The per-pass child index (`_children_by_parent`) is built
+   once and only when a header is in scope — do not move it inside a loop.
+2. **Collapse state has an in-memory owner already.** `KanbanApp.collapsed_groups`
+   (keys `"<col_id>/<slug>"`) is held **by reference** in every `KanbanColumn`,
+   which is what lets `_recompose_column` see a toggle with no propagation step.
+   **t1243_10 replaces only the load/save ends** against
+   `settings.collapsed_groups`; it should not restructure that data flow.
+3. **Header movement is a dispatch seam.** `_dispatch_group_move` (in the six
+   movement *actions*, deliberately not in the three `_move_task_*` helpers —
+   that keeps `_move_task_vertical` synchronous, which `test_board_movement`'s
+   probe depends on) → `_move_focused_group` → **`_apply_group_move`**, which
+   t1243_11 fills. Returning a destination `col_id` is what triggers the header
+   refocus there; returning `None` declines the move.
+4. **Grouped columns currently recompose instead of transplanting.**
+   `_move_needs_recompose(task, *col_widgets)` gates the in-place DOM fast paths
+   off whenever a move touches grouping. It answers "is this column grouped?"
+   from the column **widget's** direct children (`_column_widget_has_group`), NOT
+   from `build_column_units(get_column_tasks(...))` — the latter filters every
+   task on the board and sorts twice, which put real work on the card-only
+   movement path for up to two columns per move even on a board with no groups
+   at all. Keep any future variant off the model. **t1243_11 restores the fast
+   path** by generalising `_card_block` to group blocks — and must keep BOTH
+   directions of the predicate tested (grouped → recompose, ungrouped →
+   transplant *and* zero unit derivations), or the t1243_5 lateral win is
+   silently lost.
+5. **`merge_columns` (t1377_4) is a SIXTH `collapsed_groups` lifecycle owner**,
+   landed after this design was written and absent from the five-row staleness
+   table below. t1243_10 must add it: merging column A into B has to re-point
+   the col half of every `"A/<slug>"` key, combining per the coalesce rule.
+
 ### Filtering must become unit-level — a collapsed group mounts no cards
 
 `apply_filter` evaluates **mounted `TaskCard`s**, derives `cols_with_visible`

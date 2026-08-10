@@ -977,6 +977,49 @@ recorded decomposition, only now an explicit and reviewed one.
 
 ---
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-10)
+
+- **Requested by user:** `_move_needs_recompose` regressed the card-only movement
+  hot path the plan explicitly promised to preserve. Its `_column_has_group(col_id)`
+  ran `build_column_units(get_column_tasks(col_id))` — filtering every task on the
+  board and sorting **twice** (`get_column_tasks` sorts, then the derivation sorts
+  again) — for up to two columns on every lateral move, *even when no task carries
+  `boardgroup`*. Determine group presence without deriving or sorting, and add a
+  performance-shaped assertion for the ungrouped path. Confirmed and blocking.
+
+- **Changes made:**
+  - `_column_has_group(col_id)` → **`_column_widget_has_group(col_widget)`**: a
+    scan of the column widget's direct children for a `GroupHeader`. No model
+    lookup, no derivation, no sort. Headers are flat siblings of the cards, so
+    the scan is exact rather than an approximation. Deliberately not
+    `query(GroupHeader)` either — Textual 8.2.7 walks the whole tree wherever a
+    query is rooted, and every movement path already holds the widget (the
+    reasoning `_find_parent_card` documents).
+  - `_move_needs_recompose(task, *col_widgets)` now takes column **widgets**;
+    every caller already holds them, so taking ids would force the lookup this
+    must not pay for.
+  - In `_move_task_lateral` the check **moved** to after `src_col` / `dst_col`
+    are resolved (it previously sat beside the `unordered` early return, before
+    any widget existed).
+  - New case `test_ungrouped_move_derives_no_units`: an ungrouped vertical move
+    and an ungrouped lateral move each derive **zero** units, with a grouped move
+    as the live-spy control. Asserted as a call count, not a duration — a
+    wall-clock threshold on a shared box is a flake, while "zero derivations" is
+    exact and is the property that actually bounds the cost. A precondition
+    assertion pins that the lateral move really happened, so the zero cannot be
+    vacuous.
+  - Fixture note: the ungrouped lateral must go **left** (c3 → c2, whose
+    single-member group draws no header). c3's right neighbour c4 holds a group,
+    so that move correctly falls back and would derive — the first draft of the
+    case failed for exactly that reason.
+  - New negative control "presence check goes back to deriving units" —
+    **CAUGHT**, so the new assertion discriminates.
+
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_group_focus.py`.
+
 ## Step 9 (Post-Implementation)
 
 Merge, archival and cleanup follow `task-workflow` Step 9. Output branch is
