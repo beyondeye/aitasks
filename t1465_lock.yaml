@@ -1,6 +1,7 @@
 task_id: 1465
 locked_by: dario-e@beyond-eye.com
-locked_at: 2026-08-09 13:09
+locked_at: 2026-08-10 11:50
 hostname: omg16
-pid: 754197
-pid_starttime: 1932119
+pid: 750488
+pid_starttime: 1928051
+pid_starttime_kind: proc
