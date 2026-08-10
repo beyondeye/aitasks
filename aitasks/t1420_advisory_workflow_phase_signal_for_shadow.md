@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 10:42
-updated_at: 2026-08-09 12:50
+updated_at: 2026-08-10 14:55
 ---
 
 ## Goal
@@ -204,3 +205,8 @@ with no `## Gate Runs` section under a non-`record_gates` profile must not repor
 - **t1389** — moves pane→task binding from window-name regex to stamped pane
   options. The phase signal depends on that binding; it should read it through
   the existing `get_task_id_for_pane` accessor so t1389 remains a drop-in change.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T11:56:05Z status=pass attempt=1 type=human
