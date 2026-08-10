@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task_metadata, bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:28
-updated_at: 2026-08-10 18:29
+updated_at: 2026-08-10 19:08
+completed_at: 2026-08-10 19:08
 ---
 
 ## Context
@@ -216,3 +217,14 @@ Per `aitasks_extension_points.md:42-60`:
 > **✅ gate:plan_approved** run=2026-08-10T15:29:36Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-10T16:04:49Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-10T16:07:50Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a79788ea2043c4af
+
+> **✅ gate:risk_evaluated** run=2026-08-10T16:07:50Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1468_1/risk_evaluated_2026-08-10T16:07:50Z-risk_evaluated-a1.log`
