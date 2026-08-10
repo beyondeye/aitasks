@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, tui, gates]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-10 19:14
-updated_at: 2026-08-10 19:14
+updated_at: 2026-08-10 22:07
 ---
 
 ## Context
