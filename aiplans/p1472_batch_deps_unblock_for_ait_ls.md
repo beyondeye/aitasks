@@ -583,3 +583,110 @@ reduce the chance a defect goes *undetected*; they do not remove the compromise.
 ### Planned mitigations
 - timing: pre-phase | name: ls_output_characterization | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — silent mis-decision of Blocked-vs-Ready across ls/board | desc: Capture ait ls output and the per-task deps-unblock decision vector before any code change; diff byte-for-byte after.
 - timing: post-phase | name: batch_failure_diagnosability | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — except-Exception boundary masking a systematic bug as 190 quiet NO_GATES | desc: Assert the isolation boundary's stderr diagnostic names the offending path, cover the all-rows-fail case, and document that aitask_ls.sh discards stderr.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, all five sections plus both inline
+  risk-mitigation phases.
+  - `gate_ledger.py`: extracted `_dependents_status_for_text` as the shared
+    decision core; added `_DigestMemo`, `dependents_status_batch` returning
+    `(rows, setup_error)`, and the `deps-unblock-batch` CLI verb.
+  - `aitask_gate.sh`: `cmd_deps_unblock_batch`, dispatch entry, help block, header
+    verb list + python-only exceptions, and corrected the stale "batching is
+    tracked separately" comment above `cmd_deps_unblock`.
+  - `aitask_ls.sh`: `build_dep_satisfied_set()` now makes ONE batch call.
+  - `tests/test_deps_unblock_batch.sh`: new, 46 assertions (T1–T10).
+  - `aidocs/gates/dependency-unblock-semantics.md` + `gate-guarded-archival.md`.
+
+- **Measured result (within one run, per the task's Verification):**
+
+  | measurement | before | after |
+  |---|---|---|
+  | `deps-unblock` fan-out, 191 candidates | 9926 ms | **56 ms** (~177×) |
+  | `ait ls 15` end-to-end | 18.9 s | **4.1 s** |
+  | processes | 191 gate + 191 `basename` | **1** |
+
+  The task predicted "~12.5 s → well under 1 s" for the fan-out; 56 ms clears it.
+  `ait ls` overall lands at 4.1 s, not <1 s, because the remaining ~4 s is
+  unrelated work in `aitask_ls.sh` — the Context section called this out before
+  implementation so it would not read as a miss.
+
+- **Deviations from plan:** Two, both additive.
+  1. Removed the 191 `basename` forks as well (`${f##*/}`, and only on SATISFIED
+     rows). Planned as a minor side-benefit; it is part of why the end-to-end win
+     exceeded the predicted ~9 s.
+  2. Added a T7 assertion pinning the CLI's blank-line contract (below).
+
+- **Issues encountered:**
+  - *Two T-case expectations were wrong on first run (fixture, not invariant).*
+    T10's "unsigned control" declared `build_verified`, absent from the signed
+    fixture's registry, so it returned `NO_GATES` — correct, but indistinguishable
+    from an isolated row, making it a weak control. Fixed by adding a MACHINE-typed
+    `build` gate to that registry: `stale_signed_gates`' pre-filter only considers
+    `type: human`, so the control row provably never resolves the digest and
+    returns a distinctive `SATISFIED`. T9 asserted a task with `status:
+    Implementing` would be listed; `aitask_ls.sh:79` sets `STATUS_FILTER="Ready"`,
+    so it never is — retargeted to the dependent. In both cases the assertion's
+    intent was preserved and only the fixture moved.
+  - *The live characterization is weaker than the plan assumed.* All 191 live rows
+    are `NO_GATES`, because the only gate tasks declare is `risk_evaluated`
+    (`blocks_dependents: false`). The golden therefore detects a false-`SATISFIED`
+    regression but cannot confirm `SATISFIED`/`BLOCKED` reproduction on live data —
+    that weight rests entirely on T1/T3's fixtures, which makes them load-bearing
+    rather than belt-and-braces. Worth knowing before anyone trims them.
+  - *A false alarm worth recording.* The first before/after decision-vector diff
+    looked like a decision change but was pure reordering: this machine's
+    interactive `grep` is a shell function wrapping **ugrep 7.5.0**, which
+    parallelizes and returns non-deterministic `-l` order even for a fixed sorted
+    arg list. Framework scripts get GNU grep 3.12 via `/usr/bin/grep` (fresh
+    `#!/usr/bin/env bash`), so `aitask_ls.sh`'s enumeration IS stable and nothing
+    in the repo is affected. Comparisons were redone against an explicitly sorted
+    path list.
+
+- **Key decisions:**
+  - *One core, two surfaces.* Both verbs route through
+    `_dependents_status_for_text`; neither holds decision logic. Structural, not
+    conventional — the drift the task warned about is impossible rather than
+    merely tested against.
+  - *Echo the path, not a derived id.* Keeps `aitask_ls.sh`'s basename
+    normalization the single place a task file maps to a dep-set key, so no
+    id-canonicalization agreement is needed across the Python/bash boundary.
+  - *`(rows, setup_error)` rather than a generator.* The CLI needs both the rows
+    and the setup verdict; a generator would have forced either a second registry
+    parse or a `StopIteration.value` dance — the former defeating the point.
+  - *A failed digest provider is memoized as the FAILURE and re-raised.* Caught in
+    plan review. Caching a bare `None` would let `witness_state` read it as
+    `unstamped` = accept, releasing dependents on signatures nobody re-validated —
+    the exact t1416 fail-open, reintroduced one layer up from where
+    `_resolve_digest` forbids it. T10 is the regression test and **was
+    demonstrated failing** against the naive memo: it produced
+    `decisions=NO_GATES,SATISFIED,SATISFIED,SATISFIED` with only **1** diagnostic
+    instead of 3 — rows 2–3 failing open, silently.
+  - *Blank stdin lines produce no row.* Caught in Step 8 review. The alternative
+    (emitting `NO_GATES\t`) would hand `aitask_ls.sh` an empty basename to
+    normalize, so the docs were corrected instead: the one-to-one guarantee is per
+    NON-EMPTY input line, and callers should key off the echoed path. Qualified at
+    all five CLI claim sites; the `dependents_status_batch` docstring claim was
+    left (it is accurate for the function, which receives a pre-filtered list) but
+    sharpened to name where filtering happens.
+  - *`NO_GATES` as the conservative fallback everywhere.* It routes the caller
+    back to file-existence, so a dependent stays blocked until the upstream
+    archives. Never fail-open. A partial `registry={}` decision was explicitly
+    rejected: it would honor `also_blocks_dependents` while silently dropping
+    registry-flagged gates.
+
+- **Upstream defects identified:** None.
+
+- **Verification performed:**
+  - All four characterization diffs **empty** (3 `ait ls` variants + the 191-row
+    decision vector vs. the pristine pre-change baseline).
+  - Batch ≡ per-task verb, same sorted input, same run, order included.
+  - `tests/test_deps_unblock_batch.sh` 46/46, with the T2 and T10 negative
+    controls both demonstrated failing when they should.
+  - `tests/test_dependency_unblock.sh` 12/12 (incl. the `:111` parity assertion);
+    `test_gate_active_gates.sh` and `test_gate_stale_witness_parity.sh` PASSED.
+  - `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest,
+    exit=0)`.
+  - `shellcheck`: finding counts identical to baseline on both edited scripts
+    (4 and 7, all SC1091/SC2010/SC2034 pre-existing); zero warnings or errors on
+    the new test.
