@@ -687,3 +687,81 @@ path are all load-bearing for every pick on every machine.
     to `echo "$PPID"`): failures rose from 9 to 11, the three new ones being
     Test 11's tightened assertions — so the tightening strictly increased the
     suite's power to detect the original defect.
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan sections landed as designed. `get_lock_pid()`
+  now delegates to a new `get_session_anchor_pid()` in `lib/pid_anchor.sh`
+  (`AIT_AGENT_PID` → tmux pane process → explicit UNKNOWN `-`); a new
+  `ait_tmux_self_pane_pid()` in `lib/tmux_exec.sh` provides the shell-side
+  `#{pane_pid}` query with the same-server socket guard; `lock_holder_liveness()`
+  replaces the boolean `is_lock_holder_alive()` as the primary reader with an
+  `alive | dead | unknown` verdict, and `is_lock_holder_alive()` survives as a
+  thin wrapper (contract unchanged, so the backfill script's sentinel self-test
+  still holds). `_pid_exists()` decides existence via `/proc` → `ps` → `kill`'s
+  errno. `get_pid_starttime()` gained a `ps -o lstart=` fallback and a sibling
+  `get_pid_starttime_kind()`; the kind is persisted as a new lock field and as a
+  fifth `PRIOR_LOCK:` component. `aitask_pick_own.sh` branches on the tri-state.
+  Tests 8-18 added to `test_crash_recovery_pid_anchor.sh` (74 assertions total),
+  new live-tmux file `test_lock_anchor_tmux_live.sh` (11), three no-wrapper
+  assertions added to `test_launch_in_tmux_pane_pid.py` (25), plus the two
+  inline mitigation phases and the website rewrite.
+
+- **Deviations from plan:** Two additions the plan did not anticipate, both
+  forced by evidence rather than preference.
+  1. `lock_holder_liveness()` must re-derive the current identity token from
+     the SAME source the lock recorded. The plan had it call the generic
+     `get_pid_starttime()`, which prefers `/proc` — so on any host with both
+     sources a `ps`-kind lock compared a proc token against a ps token and read
+     as `dead`. That is a false crash, i.e. the bug being fixed, reintroduced
+     through the weak-token path. Found by probing the verdict table by hand
+     before the tests existed; the plan's own Test 15 row would have caught it.
+  2. `aitask_pick_own.sh::acquire_lock()` now forwards `warning:` lines from the
+     lock script to stderr. It captures the child's `2>&1` and forwarded only
+     `LOCK_RECLAIM:` / `PRIOR_LOCK:`, so the new "AIT_AGENT_PID does not name a
+     live process" notice was captured and discarded — a broken launcher anchor
+     would have failed completely invisibly. Found by Test 13 failing.
+
+- **Issues encountered:**
+  - The live-tmux fixture initially passed `PATH='<dir>/bin:$PATH'` into the
+    pane; `$PATH` sits inside single quotes in the inner shell and never
+    expands, so the pane could not find `bash` (rc 127). Fixed by resolving the
+    full PATH in the outer shell.
+  - Review iteration: Test 11 originally accepted "UNKNOWN **or** a live PID",
+    which made its outcome depend on whichever pane the runner sat in. Now runs
+    with `TMUX`/`TMUX_PANE` cleared and pins the exact UNKNOWN result — see
+    Post-Review Changes above.
+
+- **Key decisions:**
+  - **Token strength is recorded, not re-derived.** `pid_starttime_kind` is
+    provenance stored beside the value it describes, and it is what makes the
+    weak-token branch plantable — hence testable on Linux — rather than only
+    reachable on a platform this project cannot run its suite on.
+  - **`unknown` and `alive` both map to `RECLAIM_STATUS` in this task.** They are
+    genuinely different states (which is why the helper reports three), but
+    giving a verifiably-live holder its own signal and a prompt that does not
+    default to taking the lock is t1466's declared scope; it names this anchor
+    as its discriminator. Splitting it here would have meant editing
+    `.claude/skills/task-workflow/crash-recovery.md` + `SKILL.md`, forcing a
+    rerender across every profile and a port to `.agents/` and `.opencode/`.
+  - **Existence is never inferred from a single probe.** A `/proc` miss under a
+    `hidepid` mount is indistinguishable from absence, so only an explicit
+    ESRCH is believed; EPERM is read as positive proof of existence.
+  - **Out-of-tmux claims record UNKNOWN** (user-confirmed during planning),
+    rather than adding an agent-CLI-name process-tree walk. The framework
+    classifies agents only by tmux window-name prefix and has no process-name
+    list to reuse, so that rung would have introduced a duplicated list needing
+    its own drift guard.
+
+- **Verification highlights:** the fix was demonstrated on this session's own
+  lock — anchor moved from a dead `754197` (the claim script) to the live pane
+  process `750488`, verdict `alive`. Negative control (single mutation
+  restoring `echo "$PPID"`) produced 11 failures, including the named
+  `t1465 defect` assertion; restored and re-verified green. The crash-recovery
+  suite is byte-identical with and without `TMUX`/`TMUX_PANE` in the runner.
+  Pre-phase audit result: 14 test fixtures copy `lib/pid_anchor.sh`, 0 lacked
+  `tmux_exec.sh` coverage. Only the platform *dispatch* of the `ps` token
+  fallback remains unexercised (no non-`/proc` host available); the generator
+  itself is covered by Test 16.
+
+- **Upstream defects identified:** None
