@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, aitask_board, bash_scripts, task_metadata]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-10 08:56
-updated_at: 2026-08-10 08:56
+updated_at: 2026-08-10 09:20
 ---
 
 ## Goal
