@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [crash_recovery, aitask_pick, bash_scripts, robustness]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-09 13:01
-updated_at: 2026-08-09 13:01
+updated_at: 2026-08-10 14:57
 ---
 
 A task lock held by a **live** agent session is handed to a second session
