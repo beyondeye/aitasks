@@ -141,14 +141,31 @@ Read-only with respect to the followed pane: never sends input to it.
 EOF
 }
 
-# shadow_strip_ansi - remove CSI escape sequences from stdin -> stdout.
-# Portable: builds a literal ESC byte (GNU and BSD sed both match a literal
-# byte; the \x1b shorthand is GNU-only). Pattern mirrors monitor_core.py
-# _ANSI_CSI_RE = \x1b\[[0-?]*[ -/]*[@-~].
+# shadow_strip_ansi - remove OSC and CSI escape sequences from stdin -> stdout.
+# Portable: builds literal ESC / BEL bytes (GNU and BSD sed both match a literal
+# byte; the \x1b shorthand is GNU-only). Mirrors monitor/ansi_utils.py —
+# ANSI_OSC_RE = \x1b\][^\x07\x1b]*(?:\x07|\x1b\\) then
+# ANSI_CSI_RE = \x1b\[[0-?]*[ -/]*[@-~] — and tests/test_shadow_strip_ansi.sh
+# asserts the two implementations agree, so this is a checked mirror rather than
+# a hand-maintained one.
+#
+# The OSC pass earns its keep on the `-` stdin form, whose input is whatever the
+# user pasted: a `capture-pane -e` transcript carries OSC 8 hyperlinks verbatim
+# (ESC]8;;<url>ESC\ text ESC]8;;ESC\). The tmux path here omits `-e` and so sees
+# none — the pass is harmless there.
+#
+# Two expressions rather than one alternation: `\|` in a BRE is a GNU extension
+# that BSD sed rejects (aidocs/framework/sed_macos_issues.md). Bracketing the
+# body as [^BEL ESC]* keeps each substitution inside a single sequence, so an
+# unterminated OSC is left intact instead of swallowing the visible text after
+# it — same fail-safe direction the Python side documents.
 shadow_strip_ansi() {
-    local esc
+    local esc bel
     esc=$(printf '\033')
-    sed "s|${esc}\[[0-?]*[ -/]*[@-~]||g"
+    bel=$(printf '\007')
+    sed -e "s|${esc}\][^${bel}${esc}]*${bel}||g" \
+        -e "s|${esc}\][^${bel}${esc}]*${esc}\\\\||g" \
+        -e "s|${esc}\[[0-?]*[ -/]*[@-~]||g"
 }
 
 # shadow_clean - normalize captured text from stdin -> stdout: strip ANSI,

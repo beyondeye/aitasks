@@ -110,8 +110,10 @@ _QUESTION_HEADER_RE = re.compile(r"^\s*[\u2610\u2611]\s+\S")
 #
 # NATIVE_KIND_PHASE: Tier B. A generic confirmation carries NO phase and is
 # therefore a deliberately ABSENT key (`claude_proceed`, `claude_help_bar`,
-# `codex_yes_proceed`): absence-safety is a property of the table, not of a code
-# path that must remember to check.
+# `claude_trust_folder`, `codex_yes_proceed`): absence-safety is a property of
+# the table, not of a code path that must remember to check. A workspace-trust
+# dialog is a pre-work gate, not a workflow phase, which is why
+# `claude_trust_folder` joins that list rather than getting a row (t1474).
 #
 # Codex/OpenCode rows are empty by design — t1467 owns inventorying their real
 # prompt surfaces. An agent with neither entry degrades to the ledger-derived

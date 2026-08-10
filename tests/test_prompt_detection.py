@@ -11,6 +11,16 @@ Exercises _finalize_capture directly — no tmux required. Covers:
   6. Prompt text higher in scrollback does not create awaiting-input false
      positives after the active pane content has moved on.
   7. all_patterns() flattens the per-agent groups deterministically.
+  8. The workspace-trust dialog is detected as claude_trust_folder, in every
+     focus/label variant (t1474).
+  9. Prose that merely *quotes* the trust dialog is NOT detected — the negative
+     controls for quoting, blockquotes, bullets, numbering, a lone confirm
+     label, a blank line between the options, and the sibling terms dialog.
+ 10. The one irreducible false positive — a verbatim reproduction of the option
+     block — is asserted, so the known limit is a pinned decision, not a belief.
+ 11. An OSC 8 hyperlink *inside* a prompt footer does not defeat matching, and a
+     hyperlink target churning between ticks does not defeat idle detection —
+     the two behavioural links to the strip_ansi OSC fix.
 
 Run:
   python3 tests/test_prompt_detection.py
@@ -168,7 +178,180 @@ def _check_all_patterns_flattens_per_agent_groups() -> None:
     # At least one claude pattern and one codex pattern exist today.
     names = {p.name for p in flat}
     assert "claude_proceed" in names
+    assert "claude_trust_folder" in names
     assert "codex_yes_proceed" in names
+
+
+# --- workspace-trust dialog (t1474) ------------------------------------------
+#
+# The first-run trust dialog blocks the agent before it has produced any output,
+# so without a pattern it reads as idle and the user is never told it is waiting.
+# Matching anchors on the two option lines; see prompt_patterns.claude_trust_folder
+# for why the geometry (adjacency, `❯`-only marker, nothing else on the line) is
+# what makes it structural rather than a phrase match.
+
+
+def _trust_snap(content: str):
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    return mon._finalize_capture(make_pane(pane_id="%trust"), content)
+
+
+def _check_trust_dialog_detected() -> None:
+    variants = {
+        "focus on confirm": (
+            "❯ Yes, I trust this folder\n"
+            "  No, exit\n"
+        ),
+        "focus on cancel": (
+            "  Yes, I trust this folder\n"
+            "❯ No, exit\n"
+        ),
+        "settings-trust sibling": (
+            "❯ Yes, I trust these settings\n"
+            "  No, exit Claude Code\n"
+        ),
+        "cancel keeps session": (
+            "❯ Yes, I trust this folder\n"
+            "  No, continue without these permissions\n"
+        ),
+        # Embedded in a realistic pane tail so this exercises the
+        # _PROMPT_DETECTION_TAIL_LINES windowing, not just the regex. The
+        # question line is deliberately far enough up to fall OUTSIDE the
+        # window — which is exactly why the options, not the question, are the
+        # anchor.
+        "realistic pane tail": (
+            "Accessing workspace:\n"
+            "/home/user/project\n"
+            "Quick safety check: Is this a project you created or one you\n"
+            "trust? (Like your own code, a well-known open source project, or\n"
+            "work from your team).\n"
+            "Claude Code will be able to read, edit, and execute files here.\n"
+            "\n"
+            "❯ Yes, I trust this folder\n"
+            "  No, exit\n"
+        ),
+    }
+    for label, content in variants.items():
+        snap = _trust_snap(content)
+        assert snap.awaiting_input, f"trust dialog ({label}) must mark awaiting_input"
+        assert snap.awaiting_input_kind == "claude_trust_folder", (
+            f"trust dialog ({label}): expected claude_trust_folder, "
+            f"got {snap.awaiting_input_kind!r}"
+        )
+
+
+def _check_trust_pattern_negative_controls() -> None:
+    """Prose ABOUT the dialog must never be classified AS the dialog.
+
+    Panes routinely display plans, docs and test files, so a pattern that is
+    merely a quotable phrase eventually fires on text describing the widget.
+    Each case below is a distinct way that could happen; a match here means the
+    regex is too loose, and a matcher that fires on prose is worse than the
+    missing pattern it replaces.
+    """
+    cases = {
+        # The phrase this very task writes into its plan, docs and fixtures.
+        "quick-safety phrase in prose":
+            "Quick safety check: Is this a project you created or one you trust?\n",
+        "confirm label quoted mid-sentence":
+            'the button reads "Yes, I trust this folder" so we anchor on it\n',
+        # Both labels present, but as prose rather than option geometry.
+        "both labels quoted in one sentence":
+            'the options are "Yes, I trust this folder" and "No, exit"\n',
+        "both labels as a bullet list":
+            "- Yes, I trust this folder\n- No, exit\n",
+        "both labels as a numbered list":
+            "1. Yes, I trust this folder\n2. No, exit\n",
+        # The case ASCII `>` in the marker class would have let through.
+        "both labels as a Markdown blockquote":
+            "> Yes, I trust this folder\n> No, exit\n",
+        "confirm label with trailing commentary":
+            "Yes, I trust this folder   <- the confirm option\nNo, exit\n",
+        # Proves the paired-label requirement is load-bearing.
+        "confirm label with no cancel label":
+            "❯ Yes, I trust this folder\n",
+        "options separated by a blank line":
+            "❯ Yes, I trust this folder\n\n  No, exit\n",
+        # Scope control: a different widget must not be claimed under this name.
+        "sibling terms-acceptance dialog":
+            "❯ Yes, I accept\n  No, exit\n",
+    }
+    for label, content in cases.items():
+        snap = _trust_snap(content)
+        assert snap.awaiting_input_kind != "claude_trust_folder", (
+            f"{label}: prose about the trust dialog must not be classified as "
+            f"the dialog (got {snap.awaiting_input_kind!r})"
+        )
+
+
+def _check_trust_pattern_known_false_positive() -> None:
+    """The one irreducible limit, asserted so it stays a decision.
+
+    No text matcher can separate the live dialog from a verbatim,
+    geometry-faithful reproduction of it: to the capture, they are the same
+    bytes. This is accepted — the signal is advisory and the badge clears once
+    the text scrolls — and the mitigation is a documentation rule (describe
+    these labels inline in prose, never as a copied option block), not a
+    tighter regex. Pinning it here means a future reader sees it was weighed.
+    """
+    snap = _trust_snap("    ❯ Yes, I trust this folder\n      No, exit\n")
+    assert snap.awaiting_input_kind == "claude_trust_folder", (
+        "the known-limit case changed behaviour; if this is now rejected the "
+        "matcher was tightened — update the documented limit to match"
+    )
+
+
+def _check_osc_inside_prompt_footer_still_matches() -> None:
+    """An OSC 8 sequence INSIDE a footer must not defeat prompt matching (t1474).
+
+    Placement is what makes this a real control. A hyperlink wrapped *around*
+    the whole footer leaves the pattern's text contiguous, so the match survives
+    even without the OSC strip — such a test passes before and after and proves
+    nothing. tmux emits the escape at the point the link starts, so a partially
+    hyperlinked line puts the bytes mid-phrase: that is the case that fails with
+    a CSI-only strip. Verified to discriminate against the pre-t1474 stripper.
+
+    Runs through _finalize_capture, so it exercises the wiring, not just the regex.
+    """
+    esc = "\x1b"
+    footer = (
+        f"Enter to {esc}]8;;https://docs.example.com/keys{esc}\\"
+        f"select{esc}]8;;{esc}\\ · ↑/↓ to navigate"
+    )
+    snap = _trust_snap(f"Which option?\n  1. Yes\n  2. No\n\n{footer}\n")
+    assert snap.awaiting_input, (
+        "a footer containing an OSC 8 hyperlink must still mark awaiting_input"
+    )
+    assert snap.awaiting_input_kind == "claude_askuserquestion", (
+        f"expected claude_askuserquestion, got {snap.awaiting_input_kind!r}"
+    )
+
+
+def _check_osc_url_churn_does_not_defeat_idle() -> None:
+    """Idle detection must ignore a hyperlink target that changes under it (t1474).
+
+    This is the defect t1474 reports most directly: `compare_value` is the
+    ANSI-stripped capture, and with OSC surviving the strip, two ticks whose
+    *visible* text is identical but whose link target differs compare as
+    "changed" — so the pane never reaches idle. Asserting on `is_idle` rather
+    than on the stripped string keeps this a behavioural check at the same seam
+    the monitor uses.
+    """
+    esc = "\x1b"
+
+    def line(run: int) -> str:
+        return (f"checking {esc}]8;;https://ci.example.com/run/{run}{esc}\\"
+                f"build log{esc}]8;;{esc}\\ ...\n")
+
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane(pane_id="%osc")
+    mon._finalize_capture(pane, line(1))
+    time.sleep(0.1)
+    snap = mon._finalize_capture(pane, line(2))
+    assert snap.is_idle, (
+        "only the hyperlink target changed — the visible text is identical, so "
+        "the pane must still read as idle"
+    )
 
 
 def main() -> int:
@@ -187,6 +370,15 @@ def main() -> int:
          _check_old_prompt_text_in_scrollback_is_not_awaiting),
         ("_check_all_patterns_flattens_per_agent_groups",
          _check_all_patterns_flattens_per_agent_groups),
+        ("_check_trust_dialog_detected", _check_trust_dialog_detected),
+        ("_check_trust_pattern_negative_controls",
+         _check_trust_pattern_negative_controls),
+        ("_check_trust_pattern_known_false_positive",
+         _check_trust_pattern_known_false_positive),
+        ("_check_osc_inside_prompt_footer_still_matches",
+         _check_osc_inside_prompt_footer_still_matches),
+        ("_check_osc_url_churn_does_not_defeat_idle",
+         _check_osc_url_churn_does_not_defeat_idle),
     ]
     failures = 0
     for name, fn in tests:

@@ -1,0 +1,4 @@
+# Terminal-capture fixtures hold raw ESC bytes recorded from `tmux capture-pane -e`.
+# `-text` disables all EOL/text normalisation so the bytes a test compares against are
+# byte-for-byte what tmux produced (tests/test_ansi_utils.py, tests/test_shadow_strip_ansi.sh).
+tests/fixtures/osc8_capture_pane.txt -text

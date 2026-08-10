@@ -123,7 +123,8 @@ for agent, row in wp.NATIVE_KIND_PHASE.items():
 print("MISSING:" + (",".join(missing) if missing else "-"))
 
 # A generic confirmation must never carry a phase — absence is the safety.
-generic = ["claude_proceed", "claude_help_bar", "codex_yes_proceed"]
+generic = ["claude_proceed", "claude_help_bar", "claude_trust_folder",
+           "codex_yes_proceed"]
 leaked = [g for agent, row in wp.NATIVE_KIND_PHASE.items() for g in generic if g in row]
 print("LEAKED:" + (",".join(leaked) if leaked else "-"))
 

@@ -37,12 +37,55 @@ Add the new wording as a `PromptPattern(name=..., regex=re.compile(r"..."))`
 under the matching code-agent group (`claude`, `codex`, `opencode`,
 `gemini`, or `all` for cross-agent text). `name` is surfaced via
 `PaneSnapshot.awaiting_input_kind`, so make it human-readable (e.g.
-`claude_proceed`, `codex_yes_proceed`).
+`claude_proceed`, `codex_yes_proceed`). The claude group ships
+`claude_askuserquestion`, `claude_plan_approval`, `claude_trust_folder`,
+`claude_proceed` and `claude_help_bar`; codex ships `codex_yes_proceed`.
 
 Then add a unit test in
 [`tests/test_prompt_detection.py`](../../tests/test_prompt_detection.py)
 asserting that a representative captured pane snippet sets
 `awaiting_input is True` and `awaiting_input_kind == "<your_name>"`.
+
+### Three rules for the regex itself
+
+These are the lessons from patterns that shipped and did not work (t1420,
+t1474). Each one costs a line to follow and a release to discover.
+
+- **Bottom-anchor it.** Matching runs against the last
+  `_PROMPT_DETECTION_TAIL_LINES` (6) lines of the stripped capture, so anchor
+  on text that renders at the very *bottom* of the dialog — the footer, or the
+  option labels — never on the question line. A question rendered above an
+  option list normally falls outside the window. `claude_proceed` is the worked
+  example: its wording (`Do you want to proceed?`) is live and correct, it is
+  the permission dialog's default question, and it still almost never fires,
+  because it renders above the options and the bottom-anchored
+  `claude_help_bar` matches those dialogs first.
+
+- **Anchor on dialog structure, not on a quotable phrase.** Panes display
+  plans, docs and test files, so any pattern that is a single phrase eventually
+  fires on text *about* the dialog instead of the dialog. Prefer a line anchor
+  plus a second element that only ever co-occurs in the real widget —
+  `claude_trust_folder` requires the confirm *and* cancel labels on adjacent
+  lines, each holding nothing else — and ship a negative control for every way
+  prose could reproduce the anchor: quoted inline, blockquoted, bulleted,
+  numbered, and both labels present but not in option geometry.
+
+- **A verbatim reproduction is indistinguishable, so do not write one.**
+  Whatever the matcher, a doc or fixture that reproduces a dialog *with its
+  exact line geometry* is that dialog as far as the captured text is concerned,
+  and will be flagged when displayed in a pane. This is irreducible, not a bug
+  to fix. Describe dialog labels inline in prose (as this page does); never
+  paste an option block into this document, a task, or a plan.
+
+### What the capture actually contains
+
+The refresh tick captures with `capture-pane -p -e`, which re-emits **SGR
+colour runs and OSC 8 hyperlinks**. `strip_ansi`
+([`monitor/ansi_utils.py`](../../.aitask-scripts/monitor/ansi_utils.py))
+removes both, and everything that matches on pane text goes through it —
+including `compare_value`, which is why a hyperlink whose target changes
+between ticks used to keep a pane out of idle forever. A pattern written
+against raw capture bytes rather than stripped text will not match.
 
 ## What NOT to do
 
@@ -116,7 +159,11 @@ Consumers of these signals:
   and shows **no** status, including COMPLETED.
 - `applink/pusher.py` — the `pane_status` push carries `idle_seconds`,
   `is_idle`, `awaiting_input`, `awaiting_input_kind` plus the optional
-  `title` / `status` fields for the mobile client.
+  `title` / `status` fields for the mobile client. `awaiting_input_kind` is an
+  **open** string on the wire: adding a pattern adds a value, which needs no
+  protocol `v` bump (`aidocs/applink/protocol.md` "Versioning" — clients ignore
+  what they don't recognise). *Renaming or removing* one is the breaking edit,
+  because a client keying off a specific value silently stops matching.
 - `applink/router.py` — the `not_idle` restart gate reads `is_idle` only.
 
 The summary bars partition agents on the same ladder the badges use, so each
