@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [crash_recovery, aitask_pick, bash_scripts, robustness]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-09 13:01
-updated_at: 2026-08-10 16:30
+updated_at: 2026-08-10 17:21
+completed_at: 2026-08-10 17:21
 ---
 
 A task lock held by a **live** agent session is handed to a second session
@@ -125,3 +126,14 @@ the `LOCK_HOLDER:` refusal), `.aitask-scripts/aitask_pick_own.sh` (lines
 > **✅ gate:plan_approved** run=2026-08-10T13:30:06Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-10T14:11:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-10T14:20:53Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:86c1138ab72c3195
+
+> **✅ gate:risk_evaluated** run=2026-08-10T14:20:53Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1466/risk_evaluated_2026-08-10T14:20:53Z-risk_evaluated-a1.log`
