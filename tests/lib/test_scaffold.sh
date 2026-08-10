@@ -38,5 +38,11 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # aitask_query_files.sh, and aitask_find_by_file.sh; its only dep
         # (terminal_compat.sh) is already copied above.
         cp "$PROJECT_DIR/.aitask-scripts/lib/cross_repo_reexec.sh" "$repo_dir/.aitask-scripts/lib/"
+        # followup_kinds_sh.sh is sourced at startup by aitask_create.sh and
+        # aitask_update.sh (t1468_1), and it shells out to its Python sibling to
+        # derive the vocabulary -- so BOTH must be present or the bridge fails
+        # closed and every --followup-kind validation rejects.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds_sh.sh" "$repo_dir/.aitask-scripts/lib/"
+        cp "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds.py"    "$repo_dir/.aitask-scripts/lib/"
     }
 fi

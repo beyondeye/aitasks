@@ -30,19 +30,25 @@ TOTAL=0
 # Report a file's `boardgroup` as "<type>:<repr>" using the REAL loader, so an
 # assertion pins presence AND type. A bare `boardgroup:` parses to None, which
 # no string match on the file text would distinguish from the "" tombstone.
-parsed_boardgroup() {
+# Parameterised over the key (t1468_1) so `followup_kind`, which shares the
+# base-aware resolver, can be pinned the same way. `parsed_boardgroup` stays as
+# the boardgroup-specific wrapper so every existing call site is unchanged.
+parsed_field() {
     PYTHONPATH="$PROJECT_DIR/.aitask-scripts/lib" python3 -c "
 import sys, task_yaml as ty
 parsed = ty.parse_frontmatter(open(sys.argv[1]).read())
 if not parsed:
     print('UNPARSEABLE'); raise SystemExit
 md = parsed[0]
-if 'boardgroup' not in md:
+key = sys.argv[2]
+if key not in md:
     print('ABSENT'); raise SystemExit
-v = md['boardgroup']
+v = md[key]
 print(f'{type(v).__name__}:{v!r}')
-" "$1"
+" "$1" "$2"
 }
+
+parsed_boardgroup() { parsed_field "$1" boardgroup; }
 
 # `labels` and `boardgroup` are ADJACENT so the two sides' single-line edits
 # necessarily collide in one hunk.
@@ -265,6 +271,58 @@ far_unmerged=$(cd "$TMP5/local" && git diff --name-only --diff-filter=U 2>/dev/n
 assert_eq "Non-adjacent edits produce NO unmerged path" "" "$far_unmerged"
 
 rm -rf "$TMP5"
+
+# --- Test 6: followup_kind shares the resolver but DELETES, not tombstones ---
+echo "--- Test 6: followup_kind clear removes the key end-to-end (t1468_1) ---"
+# boardgroup persists "" to mean "deliberately ungrouped", so its resolved file
+# keeps `boardgroup: ''` (Test 2). followup_kind has NO tombstone: a clear must
+# leave no line at all. Same driver, same --base-file mechanism -- the contrast
+# with Test 2's `str:''` is the point.
+TMP6="$(mktemp -d)"
+mkdir -p "$TMP6/aitasks"
+cat > "$TMP6/aitasks/t1_sample.md" <<'EOF'
+---
+priority: high
+effort: medium
+depends: []
+issue_type: feature
+status: Ready
+<<<<<<< remote
+labels: [ui, backend]
+followup_kind: risk_mitigation
+=======
+labels: [ui, perf]
+>>>>>>> local
+updated_at: 2026-01-01 12:00
+---
+Body stays the same
+EOF
+cp "$TMP6/aitasks/t1_sample.md" "$TMP6/with_base.md"
+cat > "$TMP6/base.md" <<'EOF'
+---
+priority: high
+effort: medium
+depends: []
+issue_type: feature
+status: Ready
+labels: [ui]
+followup_kind: risk_mitigation
+updated_at: 2026-01-01 09:00
+---
+Body stays the same
+EOF
+
+out6=$(cd "$PROJECT_DIR/.aitask-scripts/board" && \
+    PYTHONDONTWRITEBYTECODE=1 python3 aitask_merge.py "$TMP6/with_base.md" \
+    --batch --rebase --base-file "$TMP6/base.md" 2>/dev/null); rc6=$?
+assert_eq "Local clear of followup_kind resolves against the base (exit 0)" "0" "$rc6"
+assert_contains "Driver reports RESOLVED for the cleared kind" "RESOLVED" "$out6"
+assert_eq "Cleared followup_kind is ABSENT, not a null or empty string" \
+    "ABSENT" "$(parsed_field "$TMP6/with_base.md" followup_kind)"
+assert_not_contains "Resolved file carries no followup_kind line at all" \
+    "followup_kind" "$(cat "$TMP6/with_base.md")"
+
+rm -rf "$TMP6"
 
 # --- Summary ---
 echo ""

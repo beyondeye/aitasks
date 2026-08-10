@@ -322,6 +322,12 @@ fi
 # task's slug could silently move the primary into a different group, and the
 # folded file is deleted at archival anyway.
 
+# followup_kind (t1468_1) is a scalar carrying instance-specific provenance and
+# follows the same rule: NOT unioned/merged on fold. It answers "how was THIS
+# task spawned", so adopting a folded task's kind would attribute the primary's
+# origin to a task it merely absorbed — and the primary keeps its own. The
+# folded file is deleted at archival anyway.
+
 "$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \

@@ -123,6 +123,9 @@ boardidx: 50
 folded_tasks: [2, 4]     # merged child tasks
 folded_into: 1            # parent task ID if folded
 anchor: 130               # topic-group key = root task id (absent ⇒ task is its own root)
+followup_kind: risk_mitigation   # auto-spawned follow-up provenance; absent ⇒ genuine
+                                 # new work. Orthogonal to issue_type — vocabulary in
+                                 # .aitask-scripts/lib/followup_kinds.py
 issue: https://...        # linked issue tracker URL
 gates: [risk_evaluated]   # declared gate set (intent; [] = opt-out)
 active_gates: [risk_evaluated]   # + _filtered/_profile/_digest: framework-derived

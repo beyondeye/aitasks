@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 source "$SCRIPT_DIR/lib/archive_utils.sh"
 # shellcheck source=lib/atomic_write.sh
 source "$SCRIPT_DIR/lib/atomic_write.sh"
+# shellcheck source=lib/followup_kinds_sh.sh
+source "$SCRIPT_DIR/lib/followup_kinds_sh.sh"
 
 TASK_DIR="aitasks"
 ARCHIVED_DIR="aitasks/archived"
@@ -47,6 +49,7 @@ BATCH_NO_SIBLING_DEP=false
 BATCH_ASSIGNED_TO=""
 BATCH_ANCHOR=""
 BATCH_FOLLOWUP_OF=""
+BATCH_FOLLOWUP_KIND=""
 BATCH_ISSUE=""
 BATCH_PULL_REQUEST=""
 BATCH_CONTRIBUTOR=""
@@ -93,6 +96,12 @@ Batch mode (for automation):
                          reads ID's anchor (or, for an anchorless child source,
                          its parent; else ID itself). Flattened — never chains.
                          Mutually exclusive with --anchor; rejected with --parent.
+  --followup-kind KIND   Mark this task as an auto-spawned follow-up of KIND
+                         (provenance, orthogonal to --type). One of:
+                         manual_verification, risk_mitigation, upstream_defect,
+                         verification_failure, carry_over, qa_test_gap,
+                         review_finding, docs_gap. Omit for genuine new work.
+                         "manual_verification" requires --type manual_verification.
   --issue URL            Issue tracker URL (e.g., GitHub issue URL)
   --labels, -l LABELS    Comma-separated labels. Each is sanitized (lowercased;
                          invalid chars -> "_"); a label that sanitizes to
@@ -190,6 +199,7 @@ parse_args() {
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; shift 2 ;;
             --anchor) BATCH_ANCHOR="$2"; shift 2 ;;
             --followup-of) BATCH_FOLLOWUP_OF="$2"; shift 2 ;;
+            --followup-kind) BATCH_FOLLOWUP_KIND="$2"; shift 2 ;;
             --issue) BATCH_ISSUE="$2"; shift 2 ;;
             --pull-request) BATCH_PULL_REQUEST="$2"; shift 2 ;;
             --contributor) BATCH_CONTRIBUTOR="$2"; shift 2 ;;
@@ -557,6 +567,10 @@ create_child_task_file() {
         if [[ -n "$RESOLVED_ANCHOR" ]]; then
             echo "anchor: $RESOLVED_ANCHOR"
         fi
+        # Only write followup_kind (auto-spawned follow-up provenance) if present
+        if [[ -n "$BATCH_FOLLOWUP_KIND" ]]; then
+            echo "followup_kind: $BATCH_FOLLOWUP_KIND"
+        fi
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
@@ -693,6 +707,10 @@ create_draft_file() {
         # Only write anchor (topic group key) if present
         if [[ -n "$RESOLVED_ANCHOR" ]]; then
             echo "anchor: $RESOLVED_ANCHOR"
+        fi
+        # Only write followup_kind (auto-spawned follow-up provenance) if present
+        if [[ -n "$BATCH_FOLLOWUP_KIND" ]]; then
+            echo "followup_kind: $BATCH_FOLLOWUP_KIND"
         fi
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
@@ -1893,6 +1911,10 @@ create_task_file() {
         if [[ -n "$RESOLVED_ANCHOR" ]]; then
             echo "anchor: $RESOLVED_ANCHOR"
         fi
+        # Only write followup_kind (auto-spawned follow-up provenance) if present
+        if [[ -n "$BATCH_FOLLOWUP_KIND" ]]; then
+            echo "followup_kind: $BATCH_FOLLOWUP_KIND"
+        fi
         # Only write issue if present
         if [[ -n "$issue" ]]; then
             echo "issue: $issue"
@@ -2011,6 +2033,21 @@ run_batch_mode() {
     # Validate cross-repo dependency pair (xdeps + xdeprepo): both-or-neither,
     # repo must resolve, IDs must exist cross-repo. Normalize empty strings.
     validate_xdeps_pair
+
+    # Validate --followup-kind (t1468_1) BEFORE any file is written, so an
+    # invalid value never produces a partial task. REJECT, never coerce: the
+    # value is provenance identity, and the vocabulary is framework-semantic
+    # (lib/followup_kinds.py), not user-extensible like labels/task_types.
+    if [[ -n "$BATCH_FOLLOWUP_KIND" ]]; then
+        if ! is_valid_followup_kind "$BATCH_FOLLOWUP_KIND"; then
+            die "Invalid followup_kind: $BATCH_FOLLOWUP_KIND (must be one of: $(followup_kinds_pipe 2>/dev/null | tr '|' ' '))"
+        fi
+        # Cross-field invariant: the manual_verification KIND requires the
+        # manual_verification TYPE, so a task can never show the MV glyph while
+        # taking the bug/feature workflow. The converse is NOT required -- an MV
+        # task may legitimately be a carry_over.
+        enforce_manual_verification_kind_invariant "$BATCH_TYPE" "$BATCH_FOLLOWUP_KIND"
+    fi
 
     # Resolve the topic-anchor (--anchor/--followup-of/--parent) into
     # RESOLVED_ANCHOR before any file is created; validates the target exists.

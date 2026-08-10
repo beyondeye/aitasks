@@ -38,6 +38,7 @@ from task_yaml import (  # noqa: E402
     parse_frontmatter, serialize_frontmatter, BOARD_LAYOUT_KEYS,
 )
 from board_groups import normalize_group_slug  # noqa: E402
+from followup_kinds import normalize_followup_kind  # noqa: E402
 import gate_ledger  # noqa: E402  -- stdlib-only; sys.path set up just above
 from atomic_write import atomic_write_text  # noqa: E402
 
@@ -161,7 +162,26 @@ _ACTIVE_TUPLE_FIELDS = ("active_gates", "active_gates_filtered",
 # Comparing against the base decides on *who actually edited the field*, and
 # fails closed to unresolved/PARTIAL when both sides changed it differently or
 # when no base is available.
-_BASE_AWARE_FIELDS = ("boardgroup",)
+#
+# `followup_kind` (t1468_1) needs the same base comparison for the same reason —
+# a misclassification must be correctable, including by CLEARING the field, and
+# only base comparison lets a clear survive sync. It differs from `boardgroup`
+# in two ways that the resolver has to be told about:
+#   * it has NO tombstone. `boardgroup` persists `""` to mean "deliberately
+#     ungrouped", so it is always *present*; clearing `followup_kind` removes the
+#     key. A resolver that only reports "some side had it" would hand back
+#     ``None`` and `serialize_frontmatter` — which gates on key membership, not
+#     truthiness — would write a literal `followup_kind: null` instead of
+#     dropping the line. `deletion_aware` makes the winning side's *absence* win.
+#   * it must not compare through `normalize_group_slug`: that is boardgroup's
+#     tombstone vocabulary, not this field's.
+#
+# field -> (comparison normalizer, deletion_aware). Membership (`key in
+# _BASE_AWARE_FIELDS`) and iteration both still yield the field names.
+_BASE_AWARE_FIELDS = {
+    "boardgroup": (normalize_group_slug, False),
+    "followup_kind": (normalize_followup_kind, True),
+}
 
 
 def _parse_timestamp(ts) -> str:
@@ -186,45 +206,61 @@ def _prompt_field_choice(field: str, local_val, remote_val, newer: str):
     return local_val if choice == "l" else remote_val
 
 
-def _resolve_base_aware(key, local_meta, remote_meta, base_meta):
+def _resolve_base_aware(key, local_meta, remote_meta, base_meta,
+                        normalize=normalize_group_slug, deletion_aware=False):
     """Resolve one base-aware field. Returns ``(present, value, is_unresolved)``.
 
     ``present`` is False when neither side carries the key at all, in which case
     the merged result must not invent it (mirroring the active-tuple block).
 
-    Values are compared through ``normalize_group_slug``, so an absent key, an
-    explicit ``None`` and the ``""`` tombstone all read as *ungrouped*. Without
-    that, a side that deletes the key and a side that writes the tombstone would
-    look like two different changes and a decidable merge would fail closed for
-    no reason. (The tombstone itself is written by ``aitask_update.sh``; this
-    normalization is defence in depth, not the persisted contract.)
+    Values are compared through ``normalize`` — for ``boardgroup`` that is
+    ``normalize_group_slug``, so an absent key, an explicit ``None`` and the
+    ``""`` tombstone all read as *ungrouped*. Without that, a side that deletes
+    the key and a side that writes the tombstone would look like two different
+    changes and a decidable merge would fail closed for no reason. (The
+    tombstone itself is written by ``aitask_update.sh``; this normalization is
+    defence in depth, not the persisted contract.) A field with a different
+    vocabulary passes its own normalizer.
+
+    ``deletion_aware`` (t1468_1) additionally reports the *winning side's*
+    presence rather than "either side had it". For a field with no tombstone,
+    a resolved-empty value means the key must be **absent**, not written as
+    ``None`` — ``serialize_frontmatter`` gates on key membership, so a ``None``
+    would land in the file as a literal ``<key>: null``. Left False, the
+    boardgroup behaviour is byte-identical to before.
     """
+    def _resolved(value, is_unresolved):
+        """Package a decided value, collapsing empty to absent when asked."""
+        if deletion_aware and normalize(value) == "":
+            return (False, None, is_unresolved)
+        return (True, value, is_unresolved)
+
     in_local = key in local_meta
     in_remote = key in remote_meta
     if not in_local and not in_remote:
         return (False, None, False)
 
-    local_val = normalize_group_slug(local_meta.get(key))
-    remote_val = normalize_group_slug(remote_meta.get(key))
+    local_val = normalize(local_meta.get(key))
+    remote_val = normalize(remote_meta.get(key))
     if local_val == remote_val:
-        return (True, local_meta.get(key) if in_local else remote_meta.get(key),
-                False)
+        return _resolved(local_meta.get(key) if in_local else remote_meta.get(key),
+                         False)
 
     # Sides differ. Only the base can say which of them actually changed it.
     if base_meta is None:
-        return (True, local_meta.get(key), True)   # fail closed -> PARTIAL
+        return _resolved(local_meta.get(key), True)   # fail closed -> PARTIAL
 
-    base_val = normalize_group_slug(base_meta.get(key))
+    base_val = normalize(base_meta.get(key))
     local_changed = local_val != base_val
     remote_changed = remote_val != base_val
     if local_changed and not remote_changed:
-        return (True, local_meta.get(key), False)
+        return _resolved(local_meta.get(key), False)
     if remote_changed and not local_changed:
-        return (True, remote_meta.get(key), False)
+        return _resolved(remote_meta.get(key), False)
     # Both changed to different values (they differ, checked above), or neither
     # differs from a base that somehow differs from both -- genuinely concurrent
     # regrouping. Surface it rather than guess.
-    return (True, local_meta.get(key), True)
+    return _resolved(local_meta.get(key), True)
 
 
 def merge_frontmatter(
@@ -268,14 +304,18 @@ def merge_frontmatter(
     # Base-aware fields (t1243_8). Resolved HERE, ahead of the loop, because the
     # loop's one-sided-presence branch is unconditional and would resurrect a
     # value the other side deliberately cleared.
-    for key in _BASE_AWARE_FIELDS:
+    for key, (normalize, deletion_aware) in _BASE_AWARE_FIELDS.items():
         present, value, is_unresolved = _resolve_base_aware(
-            key, local_meta, remote_meta, base_meta)
-        if not present:
-            continue
-        merged[key] = value
+            key, local_meta, remote_meta, base_meta, normalize, deletion_aware)
+        # `unresolved` is recorded independently of presence: a deletion-aware
+        # field can fail closed to PARTIAL *and* resolve to absent, and skipping
+        # the append on `not present` would silently drop that PARTIAL. (For a
+        # non-deletion-aware field the two orders are equivalent -- `present` is
+        # False only when neither side had the key, which is never unresolved.)
         if is_unresolved:
             unresolved.append(key)
+        if present:
+            merged[key] = value
 
     for key in all_keys:
         if key in _ACTIVE_TUPLE_FIELDS:

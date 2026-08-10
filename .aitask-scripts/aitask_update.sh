@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/atomic_write.sh
 source "$SCRIPT_DIR/lib/atomic_write.sh"
+# shellcheck source=lib/followup_kinds_sh.sh
+source "$SCRIPT_DIR/lib/followup_kinds_sh.sh"
 
 TASK_DIR="aitasks"
 # Consumed by labels_file_path() in lib/task_utils.sh; also staged by variable
@@ -91,6 +93,8 @@ BATCH_ASSIGNED_TO=""
 BATCH_ASSIGNED_TO_SET=false
 BATCH_ANCHOR=""
 BATCH_ANCHOR_SET=false
+BATCH_FOLLOWUP_KIND=""
+BATCH_FOLLOWUP_KIND_SET=false
 BATCH_BOARDCOL=""
 BATCH_BOARDCOL_SET=false
 BATCH_BOARDIDX=""
@@ -133,6 +137,7 @@ CURRENT_DESCRIPTION=""
 CURRENT_CHILDREN_TO_IMPLEMENT=""
 CURRENT_ASSIGNED_TO=""
 CURRENT_ANCHOR=""
+CURRENT_FOLLOWUP_KIND=""
 CURRENT_BOARDCOL=""
 CURRENT_BOARDIDX=""
 # Presence is tracked separately from value: `boardgroup: ""` is a TOMBSTONE
@@ -241,6 +246,12 @@ Assignment options (batch mode):
   --anchor ID            Topic-anchor task id / group key (use "" to clear).
                          Accepts N / N_M (leading "t" stripped); validated to
                          exist when non-empty.
+  --followup-kind KIND   Auto-spawned follow-up provenance (use "" to clear).
+                         One of: manual_verification, risk_mitigation,
+                         upstream_defect, verification_failure, carry_over,
+                         qa_test_gap, review_finding, docs_gap.
+                         "manual_verification" requires issue_type
+                         "manual_verification" (checked on the RESULTING pair).
 
 Agent tracking options (batch mode):
   --implemented-with STR Agent string that implemented this task (e.g., "claudecode/opus4_6"; use "" to clear)
@@ -354,6 +365,7 @@ parse_args() {
             --children) BATCH_CHILDREN="$2"; BATCH_CHILDREN_SET=true; shift 2 ;;
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; BATCH_ASSIGNED_TO_SET=true; shift 2 ;;
             --anchor) BATCH_ANCHOR="$2"; BATCH_ANCHOR_SET=true; shift 2 ;;
+            --followup-kind) BATCH_FOLLOWUP_KIND="$2"; BATCH_FOLLOWUP_KIND_SET=true; shift 2 ;;
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --boardgroup) BATCH_BOARDGROUP="$2"; BATCH_BOARDGROUP_SET=true; shift 2 ;;
@@ -459,6 +471,7 @@ parse_yaml_frontmatter() {
     CURRENT_CHILDREN_TO_IMPLEMENT=""
     CURRENT_ASSIGNED_TO=""
     CURRENT_ANCHOR=""
+    CURRENT_FOLLOWUP_KIND=""
     CURRENT_BOARDCOL=""
     CURRENT_BOARDIDX=""
     CURRENT_BOARDGROUP=""
@@ -558,6 +571,7 @@ parse_yaml_frontmatter() {
                 created_at) CURRENT_CREATED_AT="$value" ;;
                 assigned_to) CURRENT_ASSIGNED_TO="$value" ;;
                 anchor) CURRENT_ANCHOR="$value" ;;
+                followup_kind) CURRENT_FOLLOWUP_KIND="$value" ;;
                 boardcol) CURRENT_BOARDCOL="$value" ;;
                 boardidx) CURRENT_BOARDIDX="$value" ;;
                 boardgroup)
@@ -663,6 +677,10 @@ write_task_file() {
     # key) from an absent key (write nothing) -- omit != clear.
     local boardgroup="${31:-}"
     local boardgroup_present="${32:-false}"
+    # Appended for the same reason as boardgroup above (t1468_1). No
+    # `_present` companion: followup_kind has no tombstone -- clearing it
+    # removes the key, so empty means absent and the emit below skips it.
+    local followup_kind="${33:-}"
 
     # Preserve the `attachments:` (t1030) and `artifacts:` (t1076_2) blocks
     # verbatim: write_task_file rebuilds frontmatter from a fixed field set and
@@ -792,6 +810,10 @@ write_task_file() {
         # Only write anchor (topic group key) if present
         if [[ -n "$anchor" ]]; then
             echo "anchor: $anchor"
+        fi
+        # Only write followup_kind (auto-spawned follow-up provenance) if present
+        if [[ -n "$followup_kind" ]]; then
+            echo "followup_kind: $followup_kind"
         fi
         # Only write issue if present
         if [[ -n "$issue" ]]; then
@@ -1167,7 +1189,8 @@ handle_child_task_completion() {
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS" \
         "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
-        "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT"
+        "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
+        "$CURRENT_FOLLOWUP_KIND"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1675,6 +1698,13 @@ run_interactive_mode() {
     # Validate parent completion
     validate_parent_completion "$task_num" "$new_status" "$CURRENT_CHILDREN_TO_IMPLEMENT"
 
+    # Cross-field invariant on the RESULTING pair (t1468_1), same rule the batch
+    # path applies. Interactive mode can edit issue_type but not followup_kind,
+    # so the type-only violation is the reachable one here: retyping a task that
+    # carries followup_kind: manual_verification would otherwise persist the
+    # forbidden pair. The kind is whatever the file already holds.
+    enforce_manual_verification_kind_invariant "$new_type" "$CURRENT_FOLLOWUP_KIND"
+
     # Write updated file (preserve children_to_implement, assigned_to, board fields, issue, folded_tasks)
     write_task_file "$final_path" "$new_priority" "$new_effort" "$new_deps" \
         "$new_type" "$new_status" "$new_labels" "$CURRENT_CREATED_AT" "$new_description" \
@@ -1685,7 +1715,8 @@ run_interactive_mode() {
         "$CURRENT_VERIFIES" "$CURRENT_XDEPS" "$CURRENT_XDEPREPO" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS" \
         "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
-        "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT"
+        "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
+        "$CURRENT_FOLLOWUP_KIND"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1794,6 +1825,7 @@ run_batch_mode() {
     [[ "$BATCH_CHILDREN_SET" == true ]] && has_update=true
     [[ "$BATCH_ASSIGNED_TO_SET" == true ]] && has_update=true
     [[ "$BATCH_ANCHOR_SET" == true ]] && has_update=true
+    [[ "$BATCH_FOLLOWUP_KIND_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDGROUP_SET" == true ]] && has_update=true
@@ -2022,6 +2054,22 @@ run_batch_mode() {
         new_anchor="$BATCH_ANCHOR"
     fi
 
+    # Process followup_kind (auto-spawned follow-up provenance). Clearing is key
+    # removal -- there is no tombstone, so `--followup-kind ""` simply yields an
+    # empty value and the emit omits the line.
+    local new_followup_kind="$CURRENT_FOLLOWUP_KIND"
+    if [[ "$BATCH_FOLLOWUP_KIND_SET" == true ]]; then
+        new_followup_kind="$BATCH_FOLLOWUP_KIND"
+    fi
+
+    # Cross-field invariant on the RESULTING pair (t1468_1). It MUST be checked
+    # here rather than beside the flag validation in main(): new_type is not
+    # computed until this function runs, so a check up there cannot see the
+    # resulting issue_type and would miss the type-only violation -- changing
+    # only --type on a task that already carries followup_kind:
+    # manual_verification, which orphans the kind.
+    enforce_manual_verification_kind_invariant "$new_type" "$new_followup_kind"
+
     # Process board fields
     local new_boardcol="$CURRENT_BOARDCOL"
     if [[ "$BATCH_BOARDCOL_SET" == true ]]; then
@@ -2115,7 +2163,8 @@ run_batch_mode() {
         "$new_verifies" "$new_xdeps" "$new_xdeprepo" \
         "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks" \
         "$new_gates" "$new_abd" "$new_anchor" \
-        "$new_boardgroup" "$new_boardgroup_present"
+        "$new_boardgroup" "$new_boardgroup_present" \
+        "$new_followup_kind"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then
@@ -2256,6 +2305,17 @@ main() {
     # (--anchor "") clears the field and skips validation. Mirrors create.sh.
     if [[ "$BATCH_ANCHOR_SET" == true && -n "$BATCH_ANCHOR" ]]; then
         BATCH_ANCHOR=$(normalize_anchor_id "$BATCH_ANCHOR")
+    fi
+
+    # Validate --followup-kind against the framework vocabulary. REJECT, never
+    # coerce: the value is provenance identity. `--followup-kind ""` clears the
+    # field and skips validation. The manual_verification cross-field invariant
+    # is NOT checked here -- it needs the resulting issue_type (see
+    # run_batch_mode).
+    if [[ "$BATCH_FOLLOWUP_KIND_SET" == true && -n "$BATCH_FOLLOWUP_KIND" ]]; then
+        if ! is_valid_followup_kind "$BATCH_FOLLOWUP_KIND"; then
+            die "Invalid followup_kind: $BATCH_FOLLOWUP_KIND (must be one of: $(followup_kinds_pipe 2>/dev/null | tr '|' ' '))"
+        fi
     fi
 
     # Validate --boardcol against the configured columns (t1377_1). An unknown

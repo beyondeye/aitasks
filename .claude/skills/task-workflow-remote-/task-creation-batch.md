@@ -17,6 +17,7 @@ Creates a task using `aitask_create.sh` in batch mode.
 | `no_sibling_dep` | optional | Set `true` to skip auto-dependency on previous sibling (for parallel child tasks). Default: `false` (sequential). |
 | `anchor` | optional | Explicit topic-root task id (the board's group key). Accepts `N` / `N_M` (a leading `t` is stripped); validated to exist. Mutually exclusive with `followup_of`; rejected with `parent_num`. See **Topic anchoring** below. |
 | `followup_of` | optional | Anchor this task to the **topic root** of source task `N` (provenance for a follow-up). Mutually exclusive with `anchor`; rejected with `parent_num`. See **Topic anchoring** below. |
+| `followup_kind` | optional | Marks the task as an **auto-spawned follow-up** and records which seam spawned it: `manual_verification`, `risk_mitigation`, `upstream_defect`, `verification_failure`, `carry_over`, `qa_test_gap`, `review_finding`, `docs_gap`. Omit for genuine new work. Orthogonal to `issue_type`, which keeps the task's real type (an upstream defect is still a `bug`). `manual_verification` requires `issue_type: manual_verification`. |
 | `issue_url` | optional | Issue tracker URL |
 | `pull_request_url` | optional | Pull request URL |
 | `contributor` | optional | Contributor name (for PR/issue imports) |

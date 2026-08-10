@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "board"))
 from aitask_merge import merge_body, merge_frontmatter, parse_conflict_file
+from task_yaml import serialize_frontmatter
 from board_groups import normalize_group_slug
 # Importing aitask_merge above also inserts ../lib on sys.path, so gate_ledger
 # (the canonical ledger parser/builder used to construct realistic fixtures) is
@@ -746,6 +747,115 @@ class TestMergeBaselineCharacterization(unittest.TestCase):
             batch=True)
         self.assertEqual(merged["anchor"], "42")
         self.assertNotIn("anchor", unresolved)
+
+
+class TestFollowupKindBaseAwareMerge(unittest.TestCase):
+    """`followup_kind` (t1468_1) is base-aware AND deletion-aware.
+
+    It shares `boardgroup`'s reason for base comparison — a misclassification
+    must be correctable, including by clearing the field, and only the base can
+    tell a clear from a stale carrier. It differs in having **no tombstone**:
+    clearing removes the key. `serialize_frontmatter` gates on key membership,
+    not truthiness, so a resolver that returned `None` would write a literal
+    `followup_kind: null` line. These tests therefore assert key ABSENCE, never
+    `== None`.
+    """
+
+    def _merge(self, local, remote, base=None):
+        return merge_frontmatter(local, remote, batch=True, base_meta=base)
+
+    # --- the resolution table -------------------------------------------
+    def test_only_local_changed_local_wins(self):
+        merged, unresolved = self._merge(
+            {"followup_kind": "risk_mitigation"}, {"followup_kind": "carry_over"},
+            base={"followup_kind": "carry_over"})
+        self.assertEqual(merged["followup_kind"], "risk_mitigation")
+        self.assertNotIn("followup_kind", unresolved)
+
+    def test_only_remote_changed_remote_wins(self):
+        merged, unresolved = self._merge(
+            {"followup_kind": "carry_over"}, {"followup_kind": "upstream_defect"},
+            base={"followup_kind": "carry_over"})
+        self.assertEqual(merged["followup_kind"], "upstream_defect")
+        self.assertNotIn("followup_kind", unresolved)
+
+    def test_both_changed_differently_is_partial(self):
+        merged, unresolved = self._merge(
+            {"followup_kind": "risk_mitigation"}, {"followup_kind": "docs_gap"},
+            base={"followup_kind": "carry_over"})
+        self.assertIn("followup_kind", unresolved)
+
+    def test_no_base_available_fails_closed_to_partial(self):
+        merged, unresolved = self._merge(
+            {"followup_kind": "risk_mitigation"}, {"followup_kind": "docs_gap"},
+            base=None)
+        self.assertIn("followup_kind", unresolved)
+
+    def test_identical_values_need_no_base(self):
+        merged, unresolved = self._merge(
+            {"followup_kind": "qa_test_gap"}, {"followup_kind": "qa_test_gap"},
+            base=None)
+        self.assertEqual(merged["followup_kind"], "qa_test_gap")
+        self.assertNotIn("followup_kind", unresolved)
+
+    def test_absent_on_both_sides_is_not_invented(self):
+        merged, unresolved = self._merge({"status": "Ready"}, {"status": "Ready"})
+        self.assertNotIn("followup_kind", merged)
+        self.assertNotIn("followup_kind", unresolved)
+
+    # --- deletion: the key must be REMOVED, never written as null --------
+    def test_local_cleared_beats_remote_still_carrying(self):
+        """The headline case: a clear must NOT be resurrected."""
+        merged, unresolved = self._merge(
+            {}, {"followup_kind": "risk_mitigation"},
+            base={"followup_kind": "risk_mitigation"})
+        self.assertNotIn("followup_kind", merged,
+                         "a cleared kind must be absent, not None")
+        self.assertNotIn("followup_kind", unresolved)
+
+    def test_remote_cleared_beats_local_still_carrying(self):
+        merged, unresolved = self._merge(
+            {"followup_kind": "risk_mitigation"}, {},
+            base={"followup_kind": "risk_mitigation"})
+        self.assertNotIn("followup_kind", merged)
+        self.assertNotIn("followup_kind", unresolved)
+
+    def test_cleared_key_does_not_serialize_a_null_line(self):
+        """Absence in the dict is only half the contract — pin the FILE too."""
+        merged, _ = self._merge(
+            {}, {"followup_kind": "risk_mitigation"},
+            base={"followup_kind": "risk_mitigation"})
+        text = serialize_frontmatter(merged, "body\n", list(merged))
+        self.assertNotIn("followup_kind", text,
+                         "a removed key must leave no line at all")
+
+    def test_a_null_valued_side_is_treated_as_cleared(self):
+        """A hand-edited bare `followup_kind:` parses to None; it is not a kind."""
+        merged, _ = self._merge(
+            {"followup_kind": None}, {"followup_kind": "risk_mitigation"},
+            base={"followup_kind": "risk_mitigation"})
+        self.assertNotIn("followup_kind", merged)
+
+    def test_unrelated_edit_does_not_win_the_field(self):
+        """Neither side touched the kind; an unrelated edit must not move it."""
+        merged, unresolved = self._merge(
+            {"followup_kind": "carry_over", "status": "Editing"},
+            {"followup_kind": "carry_over", "status": "Ready"},
+            base={"followup_kind": "carry_over", "status": "Ready"})
+        self.assertEqual(merged["followup_kind"], "carry_over")
+        self.assertNotIn("followup_kind", unresolved)
+
+    # --- guards ----------------------------------------------------------
+    def test_followup_kind_is_not_keep_local(self):
+        import aitask_merge
+        self.assertNotIn("followup_kind", aitask_merge._KEEP_LOCAL_FIELDS)
+        self.assertNotIn("followup_kind", aitask_merge._LIST_UNION_FIELDS)
+
+    def test_boardgroup_is_still_base_aware(self):
+        """The shared resolver kept its original member when it gained a spec."""
+        import aitask_merge
+        self.assertIn("boardgroup", aitask_merge._BASE_AWARE_FIELDS)
+        self.assertIn("followup_kind", aitask_merge._BASE_AWARE_FIELDS)
 
 
 if __name__ == "__main__":

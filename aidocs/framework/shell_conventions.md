@@ -66,7 +66,11 @@ portability quirks (BSD vs GNU tooling) live in
   entry crashes every one of them with `No such file or directory` the next
   time `./ait` (or a helper that learns to source the new lib) is invoked
   from the fake repo. Current baseline: `aitask_path.sh`, `terminal_compat.sh`,
-  `python_resolve.sh`, `yaml_utils.sh`, `cross_repo_reexec.sh`.
+  `tmux_exec.sh`, `python_resolve.sh`, `yaml_utils.sh`, `atomic_write.sh`,
+  `atomic_write.py`, `cross_repo_reexec.sh`, `followup_kinds_sh.sh`,
+  `followup_kinds.py`. A lib with a runtime sibling in another language (the
+  bridge pattern — `followup_kinds_sh.sh` shells out to `followup_kinds.py`)
+  must have **both** copied, or it fails closed inside every scaffolded test.
 - **Avoid `claude -p` / `claude --print` (headless print mode) in scripts and
   skills.** Claude Code bills headless print mode at a higher per-token rate
   than interactive invocations against an existing session. Default to
