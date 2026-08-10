@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-09 13:01
-updated_at: 2026-08-09 13:09
+updated_at: 2026-08-10 11:44
 ---
 
 `get_lock_pid()` anchors a task lock to a process that is guaranteed to be dead
@@ -136,3 +137,8 @@ decision), `.aitask-scripts/lib/pid_anchor.sh`,
 `.aitask-scripts/aitask_backfill_pid_anchor.sh`,
 `tests/test_crash_recovery_pid_anchor.sh`,
 `.claude/skills/task-workflow/crash-recovery.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T08:44:40Z status=pass attempt=1 type=human
