@@ -9,7 +9,7 @@ ledger-only for reasons that are **contractual, not merely cost**:
   no registry, no task id), whose verdict ``trail_gather.task_record`` hashes into
   the trail's ``input_digest``. Making it code-state-dependent would flip every
   trail's staleness result on unrelated commits.
-* ``monitor_core.GateSummaryCache.summary_for`` — calls ``read_task_gate_state``
+* ``monitor_core.GateSummaryCache._entry_for`` — calls ``read_task_gate_state``
   with **no registry**, so it cannot classify a human gate at all. Its cache is
   keyed on the *task file*'s ``(st_mtime_ns, st_size)``; a code change does not
   touch that file, so a digest-sensitive verdict would need the digest in the
@@ -95,11 +95,14 @@ LEDGER_ONLY_CONSUMERS: dict[tuple[str, str], str] = {
         "Feeds task_record()['gates_pending'], which is HASHED into the trail's "
         "input_digest staleness key. A code-state-dependent verdict would flip "
         "every trail's staleness result on unrelated commits."),
-    ("monitor/monitor_core.py", "GateSummaryCache.summary_for"): (
+    ("monitor/monitor_core.py", "GateSummaryCache._entry_for"): (
         "Passes no registry, so it cannot classify a human gate. Its cache is "
         "keyed on the TASK FILE's (st_mtime_ns, st_size); a code change does not "
         "touch that file, so re-validating would require the digest in the cache "
-        "key on every 3s tick, undoing t1111_1."),
+        "key on every 3s tick, undoing t1111_1. (Was summary_for until t1420 "
+        "split the shared read into _entry_for so the advisory phase reuses the "
+        "same parse instead of adding a second one; the ledger-only rationale is "
+        "unchanged.)"),
 }
 
 

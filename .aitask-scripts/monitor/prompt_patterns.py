@@ -7,6 +7,11 @@ pattern is applied to every AGENT pane regardless of which CLI is running
 This file is the only place to edit when a new prompt wording shows up.
 There is intentionally no project_config.yaml surface — these patterns are
 treated like TUI_NAMES / DEFAULT_AGENT_PREFIXES (framework constants).
+
+Workflow-*phase* meaning is NOT assigned here: `lib/workflow_phase.py` maps
+these `name`s to a phase (`NATIVE_KIND_PHASE`) and uses `claude_askuserquestion`
+as its currency marker. Codex/OpenCode prompt surfaces are inventoried and added
+by **t1467** — the single Claude row below is not cross-agent coverage.
 """
 from __future__ import annotations
 
@@ -24,6 +29,24 @@ class PromptPattern:
 # wording has not been observed/needed yet.
 PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
     "claude": [
+        # Numbered-option question widget (the AskUserQuestion tool). Measured
+        # against Claude Code 2.1.226 (t1420): this was matched by NOTHING, so an
+        # agent parked on a question — the single most common "waiting on you"
+        # state, and every task-workflow checkpoint — read as idle.
+        # Listed FIRST because matching is first-wins: this is the specific
+        # widget, `claude_help_bar` below is the tool-permission one.
+        PromptPattern("claude_askuserquestion",
+                      re.compile(r"Enter to select\s+·\s+↑/↓ to navigate")),
+        # ExitPlanMode's plan-approval dialog. Also previously unmatched; its
+        # wording is "Would you like to proceed?", which is why `claude_proceed`
+        # below never covered it.
+        # MUST stay bottom-anchored: matching happens against the last
+        # _PROMPT_DETECTION_TAIL_LINES (6) lines only, and this dialog's question
+        # text renders ~7 lines up — outside the window. The alternation below is
+        # measured at distance 0 and 5 respectively, so either rendering lands
+        # inside it.
+        PromptPattern("claude_plan_approval",
+                      re.compile(r"ctrl\+g to edit in|Yes, auto-accept edits")),
         # Plan-mode and tool-permission confirmation prompt.
         PromptPattern("claude_proceed", re.compile(r"Do you want to proceed\?")),
         # Bottom-of-pane help bar shown whenever Claude Code blocks on input

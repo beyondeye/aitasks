@@ -148,6 +148,26 @@ classifier, and it never gates what the user can ask: it is one advisory
 suggestion they can take or ignore. Stay suggestion-only — never run a
 sub-procedure or send anything to the followed agent on your own.
 
+**Read the advisory workflow phase alongside each capture.** Run:
+
+```bash
+./.aitask-scripts/aitask_shadow_capture.sh --phase [<source_task_id>]
+```
+
+It always prints exactly one line and always exits 0. Parse the `|`-delimited
+`KEY:value` fields; the ones you use are `PHASE`
+(`PLAN` / `IMPLEMENT` / `POSTIMPL` / `UNKNOWN`), `WAITING`, and `SOURCE` (which
+evidence answered). Re-read it on **every** refetch — the followed agent moves,
+and the value is re-stamped to match.
+
+`UNKNOWN` is a real answer meaning "cannot tell", not a failure, and it is the
+normal answer for agents whose prompt surfaces are not yet mapped. When the
+phase is known you may *cite* it in the proactive offer ("the plan checkpoint is
+on screen — want me to challenge the plan?"). That is all it does: **the phase
+never removes a capability. Every capability in Step 3 is available at every
+phase, including a phase you believe is wrong or cannot determine. If the user
+names one, run it and do not comment on the phase.**
+
 ## Step 2 — Resolve the source task (only when you need source context)
 
 You do **not** always need the task/plan files. Skip this step for a request you
@@ -195,6 +215,24 @@ Read what the user asked and route. Handle the simple, free-form-expressible
 asks **inline**; for the structured analyses, **read and follow** the matching
 sub-procedure file (each carries a defined methodology so the user doesn't have
 to spell it out).
+
+**Phase-driven default (advisory).** When the user's ask does not itself name
+which analysis they want — a bare "review this", "have a look" — resolve the
+default with the same ladder `impl-challenge.md` uses for its effort tier:
+**explicit user wording > detected phase > ask.**
+
+| detected `PHASE` | default sub-procedure |
+|---|---|
+| `PLAN` | `plan-challenge.md` |
+| `IMPLEMENT` / `POSTIMPL` | `impl-challenge.md` |
+| `UNKNOWN` | **ask** — today's behaviour, unchanged |
+
+When the phase picked the default, **say so in one line and name the override**,
+exactly as the tier resolution does: *"Reviewing the implementation — the phase
+signal says IMPLEMENT (from the ledger); say 'challenge the plan' for a
+plan-level review instead."* A user must never have to infer which analysis they
+got. Wording in the ask always wins over the phase, and a wrong phase therefore
+costs one short sentence, never a refusal.
 
 **Inline (handle directly here):**
 

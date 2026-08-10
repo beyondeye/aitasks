@@ -24,6 +24,10 @@
 #                                                (t635_4; python-only)
 #   resume-point <task-id>                       Derive task-workflow re-entry
 #                                                stage (t635_5; python-only)
+#   workflow-phase <task-id> [--screen <f>]      Advisory workflow-phase signal
+#     [--awaiting-input yes|no|unknown]          for the shadow (t1420;
+#     [--kind <k>] [--agent <a>]                 python-only). Advisory ONLY —
+#     [--profiles-dir <d>]                       never gate on it.
 #   effective-gates <task-id> [--profile <f>]    Resolved declared set (t635_14)
 #   has-gates-field <task-id>                    Exit 0 if `gates:` is present
 #   should-self-record <task-id> <gate>          Exit 0 if the workflow (not the
@@ -42,7 +46,8 @@
 # documented fallback (drop-in, identical output): used when AIT_GATES_BACKEND=python
 # or when the awk scan fails. Keep the two output formats byte-identical.
 # EXCEPTIONS — python-only verbs (no bash path exists): deps-unblock,
-# archive-ready, resume-point, effective-gates, procedure-gates, sync-registry.
+# archive-ready, resume-point, workflow-phase, effective-gates, procedure-gates,
+# sync-registry.
 #
 # append keys: run, status, attempt, duration, type (marker line);
 #              verifier, result, log, note (body lines). Others are ignored.
@@ -63,6 +68,7 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 
 TASK_DIR="${TASK_DIR:-aitasks}"
 GATE_LEDGER_PY="$SCRIPT_DIR/lib/gate_ledger.py"
+WORKFLOW_PHASE_PY="$SCRIPT_DIR/lib/workflow_phase.py"
 REGISTRY="${TASK_DIR}/metadata/gates.yaml"
 # Canonical gate registry shipped with the framework. Overridable so tests can
 # exercise sync-registry against a doctored reference: the test fixtures symlink
@@ -156,6 +162,15 @@ delegate_python() {
     py="$(resolve_python 2>/dev/null || true)"
     [[ -z "$py" ]] && return 1
     "$py" "$GATE_LEDGER_PY" "$@"
+}
+
+# Second delegator: delegate_python is hardwired to gate_ledger.py, and the
+# phase seam is its own module (t1420).
+delegate_python_phase() {
+    local py
+    py="$(resolve_python 2>/dev/null || true)"
+    [[ -z "$py" ]] && return 1
+    "$py" "$WORKFLOW_PHASE_PY" "$@"
 }
 
 # Return 0 iff the LAST marker carrying run=<run-id> has status=running — i.e. no
@@ -632,6 +647,28 @@ cmd_resume_point() {
     local file
     file="$(resolve_task_file "$task_id")"
     delegate_python resume-point "$file" || echo "PLAN"
+}
+
+# workflow-phase: the ADVISORY workflow-phase signal for the shadow companion
+# (t1420). Python-only. Prints ONE `|`-delimited status line; see
+# lib/workflow_phase.py format_signal. A stdout-token verb like resume-point —
+# NOT one of gate-cli.md's exit-code decision verbs.
+#
+# This is a HINT that changes a default, never a check that changes what is
+# permitted: no caller may refuse an action because of the value it reads here.
+#
+# Screen tiers are suppressed unless the caller asserts currency with
+# --awaiting-input yes, so the bare `workflow-phase <id>` form is purely
+# ledger-derived and cannot be poisoned by stale scrollback. Degrades to an
+# all-UNKNOWN line when python is unavailable.
+cmd_workflow_phase() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh workflow-phase <task-id> [--screen <f>] [--awaiting-input yes|no|unknown] [--kind <k>] [--agent <a>] [--profiles-dir <d>]"
+    shift
+    local file
+    file="$(resolve_task_file "$task_id")"
+    delegate_python_phase signal "$file" "$@" \
+        || echo "PHASE:UNKNOWN|WAITING:UNKNOWN|SOURCE:none|CONSULTED:-|RECORDING:unknown|DETAIL:phase signal unavailable"
 }
 
 # effective-gates: resolve a task's effective gate set (t635_14). The task's
@@ -1219,6 +1256,23 @@ Commands:
         post-implementation). Keys off the recorded plan_approved/review_approved
         runs, not the declared `gates:` field.
 
+  workflow-phase <task-id> [--screen <file>] [--awaiting-input yes|no|unknown]
+                 [--kind <awaiting_input_kind>] [--agent <name>]
+                 [--profiles-dir <dir>]
+        ADVISORY workflow-phase signal for the shadow companion (t1420). Prints
+        one `|`-delimited line: PHASE (PLAN|IMPLEMENT|POSTIMPL|UNKNOWN), WAITING,
+        SOURCE (which tier answered), CONSULTED, RECORDING, DETAIL.
+
+        This is a HINT, not a gate: it may never be used to refuse an action.
+        UNKNOWN is a real answer meaning "cannot tell" — distinct from PLAN.
+
+        --awaiting-input defaults to `unknown`, which SUPPRESSES the screen
+        tiers, so the bare form is purely ledger-derived and cannot be poisoned
+        by an answered prompt still sitting in scrollback. Only a caller that can
+        observe the pane's input state should pass `yes`. --kind/--agent add the
+        per-agent native-dialog tier; without them only the agent-neutral
+        workflow-prompt tier applies.
+
   effective-gates <task-id> [--profile <file>]
         Resolve the task's effective gate set (t635_14). The literal `gates:`
         field wins when present (even `[]`); otherwise fall back to the profile's
@@ -1343,6 +1397,7 @@ main() {
         deps-unblock) shift; cmd_deps_unblock "$@" ;;
         archive-ready) shift; cmd_archive_ready "$@" ;;
         resume-point) shift; cmd_resume_point "$@" ;;
+        workflow-phase) shift; cmd_workflow_phase "$@" ;;
         effective-gates) shift; cmd_effective_gates "$@" ;;
         has-gates-field) shift; cmd_has_gates_field "$@" ;;
         should-self-record) shift; cmd_should_self_record "$@" ;;

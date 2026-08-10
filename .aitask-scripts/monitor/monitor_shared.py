@@ -23,6 +23,10 @@ import agent_marks  # noqa: E402
 # `PaneSnapshot` + the task-context symbols moved to monitor_core (t822_6);
 # re-exported here so `from monitor.monitor_shared import TaskInfo, …` keeps
 # working for monitor_app / minimonitor_app / tests.
+# The advisory phase seam (t1420) — re-exported so both TUIs reach it the same
+# way they reach the caches, without each re-deriving lib/ on sys.path.
+from monitor.monitor_core import workflow_phase  # noqa: E402,F401
+
 from monitor.monitor_core import (  # noqa: E402,F401
     PaneCategory,
     PaneSnapshot,

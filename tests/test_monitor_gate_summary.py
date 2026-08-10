@@ -95,6 +95,30 @@ class GateSummaryCacheTest(unittest.TestCase):
         )
         self.assertEqual(gc.summary_for(info), "")  # no exception
 
+    def test_malformed_ledger_fails_closed(self):
+        # Characterization (t1420): a body whose gate markers pass the cheap
+        # has_gate_markers prefilter but carry garbage fields must still produce
+        # a string, never an exception. Pinned before GateSummaryCache's stored
+        # value grew a phase half, so that change is provably summary-neutral.
+        malformed = (
+            "## Gate Runs\n\n"
+            "> **✅ gate:plan_approved** this is not a field list at all\n\n"
+            "> **✅ gate:review_approved** run= status= attempt=\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "aitasks" / "t10_demo.md"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "---\npriority: medium\neffort: low\nstatus: Implementing\n"
+                "issue_type: feature\n---\n\n# Demo task\n\n" + malformed,
+                encoding="utf-8",
+            )
+            info = TaskInfoCache(Path(d)).get_task_info("10")
+            self.assertIsNotNone(info)
+            gc = GateSummaryCache()
+            summary = gc.summary_for(info)
+            self.assertIsInstance(summary, str)
+
     def test_caches_and_clears(self):
         with tempfile.TemporaryDirectory() as d:
             info = self._resolve(Path(d), gated=True)

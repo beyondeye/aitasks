@@ -18,10 +18,10 @@ Three layers, deliberately separated so each negative control breaks exactly one
 1. **Resolution** — the followed agent wins over focus. Driven with a *real*
    `MiniPaneCard` focused, because that is the arrangement the old code passes
    and the new code must not.
-2. **Render state matrix** — `_refresh_own_mark` in isolation, including the
+2. **Render state matrix** — `_refresh_own_live_state` in isolation, including the
    agent → renamed transition that must *remove* the glyph rather than strand
    a stale ★ on a pane whose `space` now refuses.
-3. **Wiring** — layer 2 calls `_refresh_own_mark()` directly and would pass with
+3. **Wiring** — layer 2 calls `_refresh_own_live_state()` directly and would pass with
    the production call missing from `_refresh_data`, or ordered before
    `_refresh_marks()` / `_set_session_root_map()`. So the AC-level proof drives a
    real refresh cycle on a mounted app and touches nothing else.
@@ -53,6 +53,7 @@ os.environ.pop("TMUX", None)
 os.environ.pop("TMUX_PANE", None)
 
 import agent_marks  # noqa: E402
+from monitor import monitor_core  # noqa: E402
 from monitor import minimonitor_app as mm  # noqa: E402
 from monitor.minimonitor_app import MiniMonitorApp  # noqa: E402
 from monitor.monitor_core import (  # noqa: E402
@@ -397,7 +398,7 @@ class PanelRenderTests(_StoreFixture):
         self.write_mark(OWN_WINDOW)
         app._marks_view.invalidate()
         app._refresh_marks()
-        app._refresh_own_mark()
+        app._refresh_own_live_state()
 
         self.assertIn(MARK_GLYPH, self.card_text(panel))
 
@@ -413,7 +414,7 @@ class PanelRenderTests(_StoreFixture):
                         age_days=agent_marks.DEFAULT_TTL_DAYS + 1.0)
         app._marks_view.invalidate()
         app._refresh_marks()
-        app._refresh_own_mark()
+        app._refresh_own_live_state()
 
         self.assertIn(MARK_EMPTY_GLYPH, self.card_text(panel))
         self.assertNotIn(MARK_GLYPH, self.card_text(panel))
@@ -435,7 +436,7 @@ class PanelRenderTests(_StoreFixture):
         # tmux rename-window: the pane re-categorizes to OTHER.
         renamed = own_snapshot(category=PaneCategory.OTHER, window="noam_bugs")
         app._snapshots = {renamed.pane.pane_id: renamed}
-        app._refresh_own_mark()
+        app._refresh_own_live_state()
 
         text = self.card_text(panel)
         self.assertNotIn(MARK_GLYPH, text)
@@ -448,12 +449,12 @@ class PanelRenderTests(_StoreFixture):
         # Renamed back: the glyph returns.
         back = own_snapshot()
         app._snapshots = {back.pane.pane_id: back}
-        app._refresh_own_mark()
+        app._refresh_own_live_state()
         self.assertEqual(self.card_text(panel), frozen)
 
     def test_repaint_is_a_no_op_before_the_panel_is_built(self):
         app, _ = self.app([own_snapshot()])
-        app._refresh_own_mark()  # must not raise
+        app._refresh_own_live_state()  # must not raise
         self.assertIsNone(app._own_card)
 
     def test_static_panel_contract_survives_the_new_glyph(self):
@@ -475,7 +476,7 @@ class PanelRenderTests(_StoreFixture):
         self.write_mark(OWN_WINDOW)
         app._marks_view.invalidate()
         app._refresh_marks()
-        app._refresh_own_mark()
+        app._refresh_own_live_state()
         after = self.card_text(panel)
 
         self.assertNotEqual(before, after)
@@ -512,7 +513,7 @@ class KeyHintsTests(unittest.TestCase):
 class RefreshCycleWiringTests(_StoreFixture):
     """Drive `_refresh_data` itself; touch no mark method between assertions.
 
-    Layer 2 would pass with `_refresh_own_mark()` missing from `_refresh_data`,
+    Layer 2 would pass with `_refresh_own_live_state()` missing from `_refresh_data`,
     or placed before `_refresh_marks()` / `_set_session_root_map()`. These
     cannot: everything between the two reads of the mounted card is one real
     tick.
@@ -580,6 +581,79 @@ class RefreshCycleWiringTests(_StoreFixture):
             "a mark set elsewhere did not reach the docked panel through "
             "_refresh_data — the repaint is missing or misordered",
         )
+
+    def test_the_advisory_phase_repaints_via_one_refresh_cycle(self):
+        """t1420 post-phase mitigation: the docked panel's phase line must be
+        LIVE, not frozen at panel build.
+
+        A unit test of `_own_card_text` cannot distinguish a correct builder
+        wired to a repaint that never re-runs from a correct one — both return
+        the right string. So this drives two real `_refresh_data` ticks, changes
+        only the task file on disk between them, and reads the text off the
+        MOUNTED widget (`render().plain`). If the panel were still one-shot,
+        `seen[1]` would keep `seen[0]`'s phase.
+        """
+        task_file = self.here / "aitasks" / "t777_demo.md"
+        task_file.parent.mkdir(parents=True, exist_ok=True)
+
+        def write_ledger(*runs: str) -> None:
+            body = ("---\npriority: medium\neffort: low\nstatus: Implementing\n"
+                    "issue_type: feature\n---\n\n# Demo\n\n")
+            if runs:
+                body += "## Gate Runs\n\n" + "\n".join(runs)
+            task_file.write_text(body, encoding="utf-8")
+
+        plan_run = ("> **✅ gate:plan_approved** run=2026-01-01T00:00:00Z "
+                    "status=pass attempt=1 type=human")
+        review_run = ("> **✅ gate:review_approved** run=2026-01-01T00:01:00Z "
+                      "status=pass attempt=1 type=human")
+        write_ledger(plan_run)
+
+        class _PhaseTaskCache(_FakeTaskCache):
+            """Resolves every pane to t777, reading the CURRENT file each call —
+            so the second tick sees the mutation exactly as the real cache
+            (file-identity keyed) would."""
+
+            def get_task_id_for_pane(self, pane):
+                return "777"
+
+            def get_task_info(self, task_id, session=None):
+                return monitor_core.TaskInfo(
+                    task_id="777", task_file=str(task_file), title="Demo",
+                    priority="", effort="", issue_type="", status="Implementing",
+                    body=task_file.read_text(encoding="utf-8"),
+                    plan_content=None, task_file_abs=str(task_file),
+                )
+
+        seen: list[str] = []
+
+        async def runner():
+            app = MiniMonitorApp(session=SESSION, project_root=self.here)
+            async with app.run_test(size=(60, 30)) as pilot:
+                self._instrument(app, [own_snapshot(), list_snapshot()])
+                app._task_cache = _PhaseTaskCache()
+                await app._refresh_data()
+                await pilot.pause()
+                seen.append(self._card_text(app))
+
+                # Only the ledger on disk changes — nothing in the app is
+                # called, exactly as when the followed agent records a gate.
+                write_ledger(plan_run, review_run)
+
+                await app._refresh_data()
+                await pilot.pause()
+                seen.append(self._card_text(app))
+
+        asyncio.run(runner())
+        self.assertIn(
+            "IMPLEMENT", seen[0],
+            "the docked panel never showed the initial phase")
+        self.assertIn(
+            "POSTIMPL", seen[1],
+            "the phase did not repaint through _refresh_data — the docked panel "
+            "is frozen at build time, which is exactly the failure a builder-only "
+            "unit test cannot see")
+        self.assertNotIn("IMPLEMENT", seen[1], "stale phase left on the panel")
 
     def test_an_expired_mark_clears_via_one_refresh_cycle(self):
         self.write_mark(OWN_WINDOW)

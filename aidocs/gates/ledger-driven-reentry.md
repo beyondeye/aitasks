@@ -54,6 +54,24 @@ the three stages above.
 Surfaced as `aitask_gate.sh resume-point <task-id>` (python-delegated, degrades
 to `PLAN` if Python is absent — safe: plan from scratch as today).
 
+### Finer-grained consumers must not redefine re-entry
+
+The advisory workflow-phase signal (`lib/workflow_phase.py`, t1420) reuses this
+derivation through the public `gate_ledger.resume_point_from_text`, but it is a
+**different question** and must stay one:
+
+- it adds a fourth value, `UNKNOWN`, for "no ledger at all" — a distinction
+  re-entry does not need (an empty ledger correctly resumes at `PLAN`) but a
+  display surface does, since under a profile without `record_gates` the ledger
+  is *always* empty and reporting `PLAN` would be a confident fabrication;
+- it composes a **live** half from the followed pane, which re-entry has no
+  access to and no use for.
+
+Neither changes the three-state re-entry contract above. A consumer that wants a
+finer phase reads the phase signal; the workflow's resume decision keeps reading
+`resume-point`, and the two stay separate functions for the same reason
+`archive_status` and `resume_point` do.
+
 ## Re-entry flow (task-workflow)
 
 1. **Step 3 Check 5** reads `status`; if `Implementing`, runs `resume-point`.

@@ -1747,8 +1747,33 @@ def resume_point(task_file: str) -> str:
         (merge / build / archive pending).
     """
     with open(task_file, encoding="utf-8") as fh:
-        state = derive_gate_runs(fh.read())
-    return _resume_point_from_state(state)
+        return resume_point_from_text(fh.read())
+
+
+def resume_point_from_text(text: str) -> str:
+    """Content-level twin of :func:`resume_point` — no filesystem open.
+
+    **Supported cross-module API** (t1420): consumed by
+    ``lib/workflow_phase.py``, which must not reach into the private
+    ``_resume_point_from_state``. Same three-state contract as
+    :func:`resume_point`; see its docstring. Keep this name and return values
+    stable — ``tests/test_gate_ledger_public_api.py`` pins them.
+    """
+    return _resume_point_from_state(derive_gate_runs(text))
+
+
+def read_active_gates_profile_from_text(text: str) -> str:
+    """The profile name stamped into ``active_gates_profile`` at claim time
+    (``materialize-active``), or ``""`` when the task was never materialized.
+
+    **Supported cross-module API** (t1420): ``lib/workflow_phase.py`` uses it to
+    say *why* a phase is ``UNKNOWN`` — a profile without ``record_gates`` never
+    writes a ledger, so "no checkpoints yet" and "recording is off" are different
+    states. Deliberately a *named* reader for this one field rather than an
+    exported general scalar reader: a general escape hatch would re-create the
+    private-helper coupling this exists to remove.
+    """
+    return _read_frontmatter_scalar_from_text(text, "active_gates_profile")
 
 
 def _resume_point_from_state(state: dict[str, GateRun]) -> str:

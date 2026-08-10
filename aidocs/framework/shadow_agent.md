@@ -26,8 +26,10 @@ picker to hang the banner on — that view opens directly instead.
 
 ## Pipeline: capture → context-fetch → skill
 
-The shadow is built from three composable pieces. There is no workflow-phase
-detection stage (that idea is deferred — see "Phase detection" below).
+The shadow is built from three composable pieces. Workflow-phase detection is
+**not** one of them: it is an advisory signal read alongside the capture, never a
+pipeline stage the shadow must pass through — see "Phase detection (advisory)"
+below.
 
 1. **Capture** — `.aitask-scripts/aitask_shadow_capture.sh` reads the
    followed agent's current screen through the tmux gateway and emits cleaned,
@@ -369,7 +371,7 @@ never decides whether the user may proceed, and has no refusal path. The store
 also cannot become a block: `add` accepts only canonical `- [` marker lines, so
 a `===AITASK-CONCERNS===` fence can never be written into it, and echoing `list`
 output carries item lines with neither sentinel. See the anti-gating rule under
-"Phase detection (deferred)" for the shape this deliberately avoids.
+"Phase detection (advisory)" for the shape this deliberately avoids.
 
 **Store.** `.aitask-shadow/<task_id>/rejected.md`, mirroring `.aitask-gates/`:
 bare task id (no `t` prefix), lazily created by the writer, git-ignored, never
@@ -464,14 +466,105 @@ regular files and then `rmdir`s — never `rm -rf`.
     shadow: fast
   ```
 
-## Phase detection (deferred)
+- `@aitask_shadow_phase` — pane option on the **shadow** pane carrying the
+  advisory workflow-phase signal (t1420), written at spawn by
+  `monitor_core.spawn_shadow` and re-stamped every tick by both monitor TUIs via
+  `refresh_shadow_phase_stamp`. Not user configuration: it is machinery, listed
+  here beside the other `@aitask_shadow_*` options so the family is discoverable.
+  Read with `aitask_shadow_capture.sh --phase`.
 
-Detecting the followed agent's *workflow phase* (planning / review /
-AskUserQuestion / …) was scoped out: the shadow's value is to spawn fast, be
-immediately available, and answer any question without needing to know the
-phase. Phase autodetection remains a possible future advisory-only enhancement;
-it must never become a flow step, a prerequisite, or a gate on what the user can
-ask.
+## Phase detection (advisory)
+
+Detecting the followed agent's *workflow phase* was deferred for a long time,
+and shipped in t1420 **in the sanctioned shape only**: a hint that changes a
+*default*, never a check that changes what is *permitted*. The rule the deferral
+protected is now a live constraint:
+
+> Phase detection must never become a flow step, a prerequisite, or a gate on
+> what the user can ask. Every shadow capability is available at every phase,
+> including `UNKNOWN` and a phase that is simply wrong. A wrong or unavailable
+> phase costs the user at most one extra keystroke.
+
+It is enforced, not merely stated: `tests/test_shadow_phase_advisory.sh` sweeps
+every rendered shadow closure for a phase-conditioned refusal and drives every
+phase value — including a deliberately wrong one — through the read path.
+
+### The signal
+
+`lib/workflow_phase.py` is the seam; `PhaseSignal` carries a phase
+(`PLAN` / `IMPLEMENT` / `POSTIMPL` / `UNKNOWN`), a separate `waiting` state, the
+`source` that answered, and the provenance behind it. `UNKNOWN` is a **first
+class answer** meaning "cannot tell" — deliberately distinct from `PLAN`,
+because `resume_point`'s empty-ledger default is `PLAN` and a consumer that
+inherited it would confidently report "planning" for every task forever under a
+profile that does not set `record_gates`.
+
+Three sources, in precedence order:
+
+1. **Tier A — workflow prompts** (agent-neutral). The checkpoint questions
+   task-workflow authors itself ("Plan saved to …", "Implementation complete.
+   Please review and test the changes.", …). These read identically under every
+   code agent because the framework, not the agent, writes them.
+2. **Tier B — native dialogs** (per-agent), keyed on the monitor's
+   `awaiting_input_kind`. A *generic* confirmation is deliberately not a key, so
+   it contributes nothing.
+3. **The ledger** — `gate_ledger.resume_point_from_text` over the recorded
+   `## Gate Runs` checkpoints, plus `has_gate_markers` to tell "no ledger" from
+   "in planning".
+
+### Currency: why the screen tiers are gated
+
+`capture-pane -S -<n>` reads **scrollback**, so an *answered* checkpoint sits in
+the tail long after the agent moved on — measured at 26 stale occurrences in one
+real session's history, against zero live prompt markers (a live prompt exists
+only in the visible region; answered ones collapse to a summary line). Matching
+a bare anchor would therefore be almost entirely false positives.
+
+So the screen tiers require **both**: the pane is blocked on input, **and** the
+anchor sits inside the **current question block**. `awaiting_input` alone is not
+enough — it proves *a* prompt is live, not that the matched one is.
+
+The block boundary is structural, not a distance: an `AskUserQuestion` renders a
+header chip (`` ☐ <Header> ``) directly above its question text, exactly once,
+and only while it is live. Everything above that chip belongs to an earlier,
+already-answered prompt. A proximity bound cannot do this job — the widget's own
+inner rule sits *below* its question, and a stale anchor can fall within any
+fixed number of lines of the bottom once a later, unrelated question renders
+under it. Anything ambiguous (no block, no anchor in it, a different prompt kind)
+suppresses in favour of the ledger and says which condition failed.
+
+### Per-agent availability — do not read more coverage than exists
+
+Tier A's *anchors* are agent-neutral, but establishing that a prompt is
+**current** needs per-agent markers, and those are not uniform:
+
+| agent | ledger half | Tier A (live) | Tier B (native) |
+|---|---|---|---|
+| Claude Code | yes | yes | yes (`claude_plan_approval`) |
+| Codex CLI | yes | no markers yet — **t1467** | no — **t1467** |
+| OpenCode | yes | no markers at all — **t1467** | no — **t1467** |
+
+An agent without markers degrades to the ledger-derived phase, or `UNKNOWN` —
+never to a guess. Ask `workflow_phase.live_tiers_available(agent)` rather than
+assuming; the signal's own `detail` names t1467 when that is the reason.
+
+### Transport and consumption
+
+The monitor TUIs compose the signal per tick and stamp it on the shadow pane's
+`@aitask_shadow_phase` (see Configuration). It is written **inside**
+`spawn_shadow`, before control returns to the app — the per-tick re-stamp alone
+would leave a window in which a user launches a shadow, it reads `--phase`
+before the next tick, and it misses the very checkpoint it was spawned for. A **pane option, not argv**: argv
+would freeze at spawn, while the shadow re-reads on every refetch.
+`monitor_core.refresh_shadow_phase_stamp` is shared because *both* TUIs spawn
+shadows — and unlike the `@aitask_shadow_target` stamp, which kills the pane on
+failure, it is best-effort: an advisory hint must never be able to destroy a
+shadow.
+
+The shadow reads it with `aitask_shadow_capture.sh --phase [<task_id>]` — one
+line, always exit 0, never refusing — and uses it as the middle rung of
+**explicit user wording > detected phase > ask**, announcing what it resolved
+and how to override.
 
 **The same principle removed `impl-challenge`'s "too early to review" gate.**
 That gate refused to start a review until the plan carried a

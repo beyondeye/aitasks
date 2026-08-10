@@ -53,6 +53,7 @@ from agent_launch_utils import (  # noqa: E402
 )
 from task_yaml import parse_frontmatter  # noqa: E402
 import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
+import workflow_phase  # noqa: E402  (advisory phase seam, t1420 — never a gate)
 
 try:
     from .prompt_patterns import PromptPattern, all_patterns
@@ -288,6 +289,14 @@ SHADOW_TARGET_OPTION = "@aitask_shadow_target"
 # current. A timestamp (not a content hash) is used because an exact snapshot
 # hash of a live terminal is too brittle. Set by aitask_shadow_capture.sh.
 SHADOW_ANALYZED_AT_OPTION = "@aitask_shadow_analyzed_at"
+
+# Pane-scoped user-option carrying the ADVISORY workflow-phase signal for the
+# followed agent (t1420), in ``workflow_phase.format_signal`` form. Written on
+# the SHADOW pane at spawn and re-stamped every tick by
+# :func:`refresh_shadow_phase_stamp`, so the shadow reads a value that is current
+# at every refetch rather than frozen at spawn — the property argv could not
+# offer. Advisory only: nothing may refuse an action because of what it holds.
+SHADOW_PHASE_OPTION = "@aitask_shadow_phase"
 
 
 def is_shadow_target(shadow_target: str) -> bool:
@@ -2694,6 +2703,7 @@ def spawn_shadow(
     select_window: bool,
     notify: Callable[..., None],
     schedule_refresh: Callable[[], None],
+    phase_signal=None,
 ) -> str | None:
     """Place, launch, and lifecycle-wire a shadow companion pane.
 
@@ -2824,8 +2834,53 @@ def spawn_shadow(
         )
     else:
         notify("Launched shadow agent")
+    # Stamp the advisory phase BEFORE handing control back (t1420). The per-tick
+    # re-stamp is not sufficient on its own: the user can launch a shadow and
+    # have it read `--phase` before the next UI tick, and it would then miss the
+    # very checkpoint they spawned it for and fall back to the ledger. Callers
+    # pass the signal because only they hold the followed pane's live half.
+    # Best-effort by contract — see refresh_shadow_phase_stamp.
+    if phase_signal is not None:
+        refresh_shadow_phase_stamp(monitor, shadow_pane, phase_signal)
     schedule_refresh()
     return shadow_pane
+
+
+def refresh_shadow_phase_stamp(monitor, shadow_pane: str, signal) -> bool:
+    """Write the advisory phase onto a shadow pane's ``@aitask_shadow_phase``.
+
+    Shared rather than living in one app: **both** TUIs spawn shadows
+    (``minimonitor_app.action_launch_shadow`` and
+    ``monitor_app.action_launch_shadow``), so a refresh wired into only one would
+    leave the other's shadows frozen at their launch value — exactly the
+    staleness the pane-option channel was chosen over argv to avoid. Callers pass
+    it from whatever per-tick path already resolved a bound shadow pane; the
+    comparison/mutation lives here and the display stays theirs, the same split
+    :func:`compute_shadow_staleness` uses.
+
+    **Best-effort, and deliberately NOT fatal** — the opposite of the
+    ``@aitask_shadow_target`` stamp in :func:`spawn_shadow`, which kills the pane
+    when it fails because an unclassifiable shadow is worse than none. An
+    advisory hint must never be able to destroy or disturb a shadow, so every
+    failure here is swallowed and the previous value simply stands.
+    """
+    if not shadow_pane or signal is None:
+        return False
+    # Built OUTSIDE the guard on purpose. ``format_signal`` is total — it
+    # validates every field against its vocabulary and cannot raise on a
+    # PhaseSignal — so anything that blows up here is a programming error, and a
+    # broad ``except`` around it would turn that into a silent no-op. (It did
+    # exactly that once: a missing SHADOW_PHASE_OPTION became a swallowed
+    # NameError and the stamp never wrote, with every test still green.)
+    line = workflow_phase.format_signal(signal)
+    args = ["set-option", "-p", "-t", shadow_pane, SHADOW_PHASE_OPTION, line]
+    try:
+        rc, _ = monitor.tmux_run(args)
+    except Exception:
+        # Only the transport is tolerated: tmux may be gone, the pane may have
+        # died between resolution and write, or a duck-typed monitor may raise.
+        return False
+    return rc == 0
 
 
 # -- Task context --------------------------------------------------------------
@@ -2917,21 +2972,58 @@ class GateSummaryCache:
     directory.
 
     ``clear()`` is retained for minimonitor, which still clears each refresh.
+
+    **Also carries the ledger half of the workflow-phase signal (t1420).** The
+    full ``TaskGateState`` was already being derived here and thrown away; the
+    phase seam extends this cache's stored value rather than adding a second
+    parse of the same file (the t1323 seam). Only the FILE-derived half is
+    cached — its key is file identity, whereas the live half changes every tick,
+    so :meth:`phase_for` composes that at call time.
     """
 
     def __init__(self) -> None:
-        # abs task-file path -> ((st_mtime_ns, st_size), summary).
-        self._cache: dict[str, tuple[tuple[int, int], str]] = {}
+        # abs task-file path -> ((st_mtime_ns, st_size), summary,
+        #                        (phase, detail), (recording, detail)).
+        self._cache: dict[
+            str, tuple[tuple[int, int], str, tuple[str, str], tuple[str, str]]
+        ] = {}
 
     def clear(self) -> None:
         self._cache.clear()
 
     def summary_for(self, info: "TaskInfo | None") -> str:
+        return self._entry_for(info)[0]
+
+    def ledger_phase_for(self, info: "TaskInfo | None") -> tuple[str, str]:
+        """``(phase, detail)`` — the file-derived half of the phase signal."""
+        entry = self._entry_for(info)
+        return entry[1]
+
+    def phase_for(self, info: "TaskInfo | None", *,
+                  screen_text: str | None = None,
+                  awaiting_input: bool | None = None,
+                  awaiting_input_kind: str = "",
+                  agent: str = "") -> "workflow_phase.PhaseSignal":
+        """Compose the cached ledger half with this tick's live observation.
+
+        Advisory only: the returned phase may never gate what a caller does.
+        """
+        entry = self._entry_for(info)
+        return workflow_phase.compose(
+            entry[1], screen_text=screen_text, awaiting_input=awaiting_input,
+            awaiting_input_kind=awaiting_input_kind, agent=agent,
+            recording=entry[2])
+
+    def _entry_for(
+        self, info: "TaskInfo | None"
+    ) -> tuple[str, tuple[str, str], tuple[str, str]]:
         # Key + parse off the ABSOLUTE path, never the relative ``task_file`` —
         # the relative form is cwd-dependent and resolves wrong in cross-session
         # monitor mode.
+        _EMPTY = ("", (workflow_phase.UNKNOWN_PHASE, "no task file"),
+                  ("unknown", ""))
         if info is None or not info.task_file_abs:
-            return ""
+            return _EMPTY
         key = info.task_file_abs
         # File-identity key: ns mtime + size. ns granularity (not float
         # ``st_mtime``) catches two ledger edits within the same wall-clock
@@ -2941,12 +3033,16 @@ class GateSummaryCache:
             st = os.stat(key)
         except OSError:
             self._cache.pop(key, None)
-            return ""
+            return _EMPTY
         identity = (st.st_mtime_ns, st.st_size)
         cached = self._cache.get(key)
         if cached is not None and cached[0] == identity:
-            return cached[1]
+            return cached[1], cached[2], cached[3]
         summary = ""
+        # Derived from the already-loaded body, so an unreadable path still
+        # yields an honest UNKNOWN rather than a fabricated PLAN (t1420).
+        phase = workflow_phase.phase_from_ledger_text(info.body or "")
+        recording = ("unknown", "")
         try:
             # Cheap prefilter on the already-loaded body before the full parse;
             # the full state re-reads the file (matches the board: has_ledger
@@ -2956,8 +3052,14 @@ class GateSummaryCache:
                 summary = gate_ledger.compact_gate_summary(state)
         except Exception:
             summary = ""
-        self._cache[key] = (identity, summary)
-        return summary
+        try:
+            recording = workflow_phase.recording_from_text(
+                info.body or "",
+                workflow_phase.default_profiles_dir(info.task_file_abs))
+        except Exception:
+            recording = ("unknown", "")
+        self._cache[key] = (identity, summary, phase, recording)
+        return summary, phase, recording
 
 
 @dataclass

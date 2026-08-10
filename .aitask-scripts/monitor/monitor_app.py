@@ -31,6 +31,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     load_project_tmux_config,
     capture_shadow_text,
     compute_shadow_staleness,
+    refresh_shadow_phase_stamp,
     find_shadow_pane_status,
     spawn_shadow,
     _SHADOW_DEEP_RETRY_LINES,
@@ -39,6 +40,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
+    workflow_phase,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     ShadowRejectionsMixin,
@@ -1577,6 +1579,28 @@ class MonitorApp(
                 gates = self._gate_cache.summary_for(info)
                 if gates:
                     text += f"  [dim]gates: {gates}[/]"
+                # Advisory workflow phase (t1420) — a hint beside the gate
+                # counts, never a gate on anything. Composed per tick because
+                # its live half tracks the pane, not the file.
+                signal = self._gate_cache.phase_for(
+                    info,
+                    screen_text=snap.content,
+                    awaiting_input=snap.awaiting_input,
+                    awaiting_input_kind=snap.awaiting_input_kind,
+                    agent=workflow_phase.agent_key_from_command(
+                        snap.pane.current_command),
+                )
+                phase = workflow_phase.render_phase(signal)
+                if phase:
+                    text += f"  [dim]{phase}[/]"
+                # Re-stamp the bound shadow from the SAME signal. The full
+                # monitor spawns shadows too, so without this its shadows would
+                # keep their launch-time value forever (t1420). Best-effort:
+                # `refresh_shadow_phase_stamp` swallows every failure, so an
+                # advisory hint can never disturb the card render.
+                if shadow_snap is not None and self._monitor is not None:
+                    refresh_shadow_phase_stamp(
+                        self._monitor, shadow_snap.pane.pane_id, signal)
                 text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
         return text
 
@@ -2849,7 +2873,35 @@ class MonitorApp(
             select_window=False,
             notify=self.notify,
             schedule_refresh=lambda: self.call_later(self._refresh_data),
+            # Stamped before spawn_shadow returns, so a shadow that reads
+            # `--phase` before the first refresh tick still sees the checkpoint
+            # it was launched for (t1420).
+            phase_signal=self._phase_signal_for_pane(snap),
         )
+
+    def _phase_signal_for_pane(self, snap: PaneSnapshot):
+        """Advisory phase for a pane, or ``None`` when it cannot be resolved.
+
+        ``None`` simply leaves the pane option unwritten; the per-tick re-stamp
+        in ``_format_agent_card_text`` fills it in shortly after.
+        """
+        try:
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if not task_id:
+                return None
+            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+            if info is None:
+                return None
+            return self._gate_cache.phase_for(
+                info,
+                screen_text=snap.content,
+                awaiting_input=snap.awaiting_input,
+                awaiting_input_kind=snap.awaiting_input_kind,
+                agent=workflow_phase.agent_key_from_command(
+                    snap.pane.current_command),
+            )
+        except Exception:
+            return None
 
     async def action_pick_concerns(self) -> None:
         """Forward the selected agent's shadow concerns via the clipboard (t1216_3).

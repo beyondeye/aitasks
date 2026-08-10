@@ -37,6 +37,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     find_shadow_pane_async,
     capture_shadow_text,
     compute_shadow_staleness,
+    refresh_shadow_phase_stamp,
     spawn_shadow,
     _SHADOW_DEEP_RETRY_LINES,
     _SHADOW_TRUNCATED_MSG,
@@ -44,6 +45,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
+    workflow_phase,
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ColumnPickerModal, NewColumnTitleModal,
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
@@ -279,7 +281,7 @@ class MiniMonitorApp(
         # per-cycle status refresh) — see _maybe_build_own_agent_panel.
         self._own_panel_built: bool = False
         # The docked card widget and the identity string frozen at build time,
-        # so the per-tick mark repaint (t1383, _refresh_own_mark) never needs a
+        # so the per-tick repaint (t1383/t1420, _refresh_own_live_state) never needs a
         # snapshot it may no longer have.
         self._own_card: Static | None = None
         self._own_identity_text: str = ""
@@ -290,6 +292,8 @@ class MiniMonitorApp(
         # agent → renamed transition is an ordinary state change rather than a
         # case the repaint has to special-case.
         self._own_mark_state: bool | None = None
+        # Rendered phase line currently painted on the docked panel (t1420).
+        self._own_phase_state: str = ""
         # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
         # pane id, so a re-detected *unchanged* block does not re-fire the hint.
         self._last_concern_block_payload: dict[str, str] = {}
@@ -529,7 +533,7 @@ class MiniMonitorApp(
         # The one live element of that otherwise-static panel (t1383). Must run
         # after `_set_session_root_map` and `_refresh_marks` above, which
         # `_is_marked` reads, and after the build so there is a card to update.
-        self._refresh_own_mark()
+        self._refresh_own_live_state()
         await self._rebuild_pane_list()
 
         self._restore_focus(saved_pane_id)
@@ -829,13 +833,25 @@ class MiniMonitorApp(
                 if len(title) > 30:
                     title = title[:29] + "…"
                 line1 += f"\n  [dim]{title}[/]"
-                # General pane list only — the docked followed-agent panel
-                # (_own_agent_identity_text) is intentionally static and is left
-                # untouched. Shown only for tasks that have a gate ledger.
+                # Shown only for tasks that have a gate ledger.
                 gates = self._gate_cache.summary_for(info)
                 if gates:
                     line1 += f"\n  [dim]gates: {gates}[/]"
+                phase = workflow_phase.render_phase(self._phase_for_snap(snap, info))
+                if phase:
+                    line1 += f"\n  [dim]{phase}[/]"
         return line1
+
+    def _phase_for_snap(self, snap: PaneSnapshot, info) -> "workflow_phase.PhaseSignal":
+        """Advisory phase for one pane: cached ledger half + this tick's live
+        observation. Never gates anything — see aidocs/framework/shadow_agent.md."""
+        return self._gate_cache.phase_for(
+            info,
+            screen_text=snap.content,
+            awaiting_input=snap.awaiting_input,
+            awaiting_input_kind=snap.awaiting_input_kind,
+            agent=workflow_phase.agent_key_from_command(snap.pane.current_command),
+        )
 
     def _other_card_text(self, snap: PaneSnapshot) -> str:
         """One-line card for an uncategorized (``PaneCategory.OTHER``) pane.
@@ -906,17 +922,25 @@ class MiniMonitorApp(
                     line += f"\n  [dim]{wline}[/]"
         return line
 
-    def _own_card_text(self, marked: bool | None) -> str:
-        """Docked-panel card text: the frozen identity line, plus the mark glyph.
+    def _own_card_text(self, marked: bool | None, phase: str = "") -> str:
+        """Docked-panel card text: the frozen identity line, the mark glyph, and
+        the advisory workflow phase.
 
-        The mark is the ONE thing this panel refreshes (t1383). That is not a
-        breach of the static-panel contract (t944 / t1133 / t1322), which
-        excludes live *agent status* — the state dot, the compare-mode and
-        shadow glyphs, the COMPLETED badge. A mark is a durable **user
-        annotation**, not status: ``format_mark_glyph``'s docstring already
-        places it outside the live-state cluster, and it can change without the
-        agent changing at all (set from ``ait monitor`` or another repo, or
-        expired by TTL).
+        The mark and the phase are the ONLY things this panel refreshes (t1383,
+        t1420). That is a **narrowed** static-panel contract (t944 / t1133 /
+        t1322), not an abandoned one: what stays excluded is live *agent status*
+        — the state dot, the compare-mode and shadow glyphs, the COMPLETED
+        badge. A mark is a durable **user annotation**, not status:
+        ``format_mark_glyph``'s docstring already places it outside the
+        live-state cluster, and it can change without the agent changing at all
+        (set from ``ait monitor`` or another repo, or expired by TTL).
+
+        The phase is admitted deliberately (t1420): this panel *is* the followed
+        agent, and the shadow companion spawned from it picks its review mode
+        from the phase — showing it only on the general list rows, which exclude
+        the followed agent by construction, would put it everywhere except the
+        one place it is for. It is advisory: it never gates a key, a spawn, or
+        anything the user can ask the shadow.
 
         ``marked is None`` ⇒ there is nothing markable here (the window was
         never an agent, or was renamed off the ``agent-`` prefix after the panel
@@ -935,12 +959,14 @@ class MiniMonitorApp(
         panel exists to show — so the fold is accepted. Row-width tuning for
         this pane belongs to t1351.
         """
-        if marked is None:
-            return self._own_identity_text
-        return f"{format_mark_glyph(marked)} {self._own_identity_text}"
+        line = (self._own_identity_text if marked is None
+                else f"{format_mark_glyph(marked)} {self._own_identity_text}")
+        if phase:
+            line += f"\n  [dim]{phase}[/]"
+        return line
 
-    def _refresh_own_mark(self) -> None:
-        """Repaint the docked panel's ★/☆ when the mark state changes.
+    def _refresh_own_live_state(self) -> None:
+        """Repaint the docked panel's ★/☆ and advisory phase when either changes.
 
         One set lookup per tick when nothing changed, and a single
         ``Static.update`` when something did. Four sources converge on this one
@@ -957,12 +983,33 @@ class MiniMonitorApp(
             return
         snap = self._find_own_agent_snapshot()
         marked = self._is_marked(snap) if snap is not None else None
+        phase = self._own_phase_text(snap)
         # Tri-state compare: False (unmarked agent) and None (nothing markable)
-        # are distinct, so the transition between them repaints.
-        if marked == self._own_mark_state:
+        # are distinct, so the transition between them repaints. The phase is
+        # compared as its RENDERED string, so a provenance change that does not
+        # alter what the user sees costs no repaint.
+        if marked == self._own_mark_state and phase == self._own_phase_state:
             return
         self._own_mark_state = marked
-        self._own_card.update(self._own_card_text(marked))
+        self._own_phase_state = phase
+        self._own_card.update(self._own_card_text(marked, phase))
+
+    def _own_phase_text(self, snap) -> str:
+        """Rendered advisory phase for the followed agent, or ``""``.
+
+        Fails soft: any resolution problem yields no phase line rather than a
+        stale or fabricated one, because this panel must never be broken by an
+        advisory signal.
+        """
+        if snap is None:
+            return ""
+        task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+        if not task_id:
+            return ""
+        info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+        if info is None:
+            return ""
+        return workflow_phase.render_phase(self._phase_for_snap(snap, info))
 
     async def _maybe_build_own_agent_panel(self) -> None:
         """Populate the docked panel for the agent this minimonitor follows —
@@ -981,7 +1028,7 @@ class MiniMonitorApp(
         than looking like a missing agent. A window renamed *after* the panel
         built keeps the old header and name: the panel is one-shot by design and
         is not re-read. The prioritized-mark glyph is the sole exception — it is
-        repainted per tick by ``_refresh_own_mark`` (t1383).
+        repainted per tick by ``_refresh_own_live_state`` (t1383, t1420).
         """
         if self._own_panel_built:
             return
@@ -993,8 +1040,10 @@ class MiniMonitorApp(
         # Freeze the identity here; only the mark glyph tracks reality after.
         self._own_identity_text = self._own_agent_identity_text(own_snap)
         self._own_mark_state = self._is_marked(own_snap) if is_agent else None
+        self._own_phase_state = self._own_phase_text(own_snap)
         card = Static(
-            self._own_card_text(self._own_mark_state), classes="mini-own-card"
+            self._own_card_text(self._own_mark_state, self._own_phase_state),
+            classes="mini-own-card"
         )
         panel = self.query_one("#mini-own-agent", VerticalScroll)
         await panel.remove_children()
@@ -1926,7 +1975,28 @@ class MiniMonitorApp(
             select_window=True,
             notify=self.notify,
             schedule_refresh=lambda: self.call_later(self._refresh_data),
+            # Stamped before spawn_shadow returns, so a shadow that reads
+            # `--phase` before the first refresh tick still sees the checkpoint
+            # it was launched for (t1420).
+            phase_signal=self._phase_signal_for_pane(snap),
         )
+
+    def _phase_signal_for_pane(self, snap: PaneSnapshot):
+        """Advisory phase for a pane, or ``None`` when it cannot be resolved.
+
+        ``None`` is a legitimate answer that simply leaves the pane option
+        unwritten — the per-tick re-stamp fills it in shortly after.
+        """
+        try:
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if not task_id:
+                return None
+            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+            if info is None:
+                return None
+            return self._phase_for_snap(snap, info)
+        except Exception:
+            return None
 
     # -- Shadow concern picker (t1037_4) ---------------------------------------
 
@@ -1941,6 +2011,24 @@ class MiniMonitorApp(
         self._shadow_stale_banner_text = text
         with contextlib.suppress(Exception):
             self.query_one("#mini-shadow-stale", Static).update(text)
+
+    def _restamp_shadow_phase(self, shadow_pane: str, snap: PaneSnapshot) -> None:
+        """Push the followed agent's current advisory phase onto its shadow.
+
+        Resolves the task the same way every display site does
+        (``get_task_id_for_pane``), so t1389's move to stamped pane options stays
+        a drop-in. A pane with no resolvable task, or any failure at all, simply
+        leaves the previous stamp standing.
+        """
+        with contextlib.suppress(Exception):
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if not task_id:
+                return
+            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
+            if info is None:
+                return
+            refresh_shadow_phase_stamp(
+                self._monitor, shadow_pane, self._phase_for_snap(snap, info))
 
     async def _update_shadow_freshness(
         self, shadow_pane: str, followed_pane: str
@@ -2094,6 +2182,11 @@ class MiniMonitorApp(
         ) + 1
         if self._shadow_freshness_tick % 2 == 1:
             await self._update_shadow_freshness(shadow_pane, snap.pane.pane_id)
+        # Re-stamp the advisory phase on the same pass (t1420). Every tick, not
+        # throttled with the freshness check: the shadow re-reads it on every
+        # refetch, and a frozen hint is the one failure mode the pane-option
+        # channel exists to avoid. Best-effort inside; never raises here.
+        self._restamp_shadow_phase(shadow_pane, snap)
         text = await capture_shadow_text(shadow_pane)
         if text is None:
             return

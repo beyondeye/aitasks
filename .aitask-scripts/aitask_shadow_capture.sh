@@ -101,6 +101,7 @@ show_help() {
 Usage: aitask_shadow_capture.sh                    (resolve from this pane's binding)
        aitask_shadow_capture.sh <pane_id>
        aitask_shadow_capture.sh --deep <pane_id>   (deeper plan-review capture)
+       aitask_shadow_capture.sh --phase [<task_id>] (advisory workflow phase; one line, always exit 0)
        aitask_shadow_capture.sh -                  (clean a raw capture from stdin)
 
 Capture a followed agent's tmux pane as clean, escape-free text on stdout.
@@ -179,6 +180,12 @@ shadow_capture_pane() {
 # that jitter.
 SHADOW_TARGET_OPTION="@aitask_shadow_target"
 SHADOW_ANALYZED_AT_OPTION="@aitask_shadow_analyzed_at"
+# Advisory workflow-phase signal stamped on THIS pane by the monitor TUIs
+# (monitor_core.SHADOW_PHASE_OPTION, t1420). Read-only here.
+SHADOW_PHASE_OPTION="@aitask_shadow_phase"
+# Emitted by --phase when nothing can be resolved. Mirrors
+# lib/workflow_phase.format_signal so the skill parses one shape either way.
+SHADOW_PHASE_UNKNOWN_LINE="PHASE:UNKNOWN|WAITING:UNKNOWN|SOURCE:none|CONSULTED:-|RECORDING:unknown|DETAIL:no phase stamp and no task id"
 
 # shadow_self_target - classify THIS pane's shadow binding (t1319). Echoes one
 # of four states on stdout:
@@ -271,6 +278,52 @@ shadow_wait_self_target() {
 # on another tmux server can no longer be mistaken for our own.
 #   $1 = captured pane id
 #   $2 = optional pre-resolved shadow_self_target state (main resolves it once)
+# Read the advisory phase stamped on our own pane. Prints the raw line or
+# nothing. Same single display-message round-trip idiom as shadow_self_target,
+# and the same socket check: a stamp we cannot vouch for is not used.
+shadow_self_phase() {
+    local own_pane="${TMUX_PANE:-}"
+    [[ -n "$own_pane" ]] || return 0
+    local own_sock="" out sock="" value=""
+    own_sock="$(ait_tmux display-message -p "#{socket_path}" 2>/dev/null || true)"
+    [[ -n "$own_sock" ]] || return 0
+    out="$(ait_tmux display-message -p -t "$own_pane" \
+        "#{socket_path}"$'\t'"#{${SHADOW_PHASE_OPTION}}" 2>/dev/null || true)"
+    if [[ "$out" == *$'\t'* ]]; then
+        sock="${out%%$'\t'*}"
+        value="${out#*$'\t'}"
+    fi
+    [[ "$own_sock" == "$sock" ]] || return 0
+    printf '%s' "$value"
+}
+
+# --phase: print ONE advisory status line on stdout and nothing else; always
+# exit 0. Deliberately unlike the capture path, which refuses (die_code 2) on an
+# unverifiable binding: the phase is a hint, so "cannot tell" is a legitimate
+# answer that must never cost the user a capture or a keystroke.
+#
+# Terminating ladder: the monitor's stamp (current, includes the live tiers) →
+# the ledger-only CLI when a task id is known → all-UNKNOWN.
+shadow_report_phase() {
+    local task_id="${1:-}"
+    local stamped
+    stamped="$(shadow_self_phase || true)"
+    if [[ -n "$stamped" && "$stamped" == PHASE:* ]]; then
+        printf '%s|VIA:pane-option\n' "$stamped"
+        return 0
+    fi
+    if [[ -n "$task_id" ]]; then
+        local line
+        if line="$("$SCRIPT_DIR/aitask_gate.sh" workflow-phase "$task_id" 2>/dev/null)" \
+                && [[ -n "$line" ]]; then
+            printf '%s|VIA:ledger-cli\n' "$line"
+            return 0
+        fi
+    fi
+    printf '%s|VIA:none\n' "$SHADOW_PHASE_UNKNOWN_LINE"
+    return 0
+}
+
 shadow_stamp_analyzed_at() {
     local pane="$1"
     local state="${2-}"
@@ -285,10 +338,11 @@ shadow_stamp_analyzed_at() {
 }
 
 main() {
-    local pane="" deep=0 any_pane=0
+    local pane="" deep=0 any_pane=0 phase_mode=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help)  show_help; exit 0 ;;
+            --phase)    phase_mode=1; shift ;;
             --deep)     deep=1; shift ;;
             --any-pane) any_pane=1; shift ;;
             -)          pane="-"; shift ;;
@@ -298,6 +352,13 @@ main() {
                 pane="$1"; shift ;;
         esac
     done
+
+    # --phase short-circuits: it addresses no pane content and captures nothing,
+    # so it runs before the binding checks the capture path needs.
+    if [[ "$phase_mode" -eq 1 ]]; then
+        shadow_report_phase "${pane:-}"
+        return 0
+    fi
 
     # --deep selects the deeper plan-review scrollback; default stays cheap.
     # (No effect on the stdin path — there is no scrollback to deepen.)
