@@ -51,6 +51,13 @@ from task_yaml import (
     FRONTMATTER_RE, BOARD_KEYS, BOARD_LAYOUT_KEYS,
     normalize_board_idx, parse_frontmatter, serialize_frontmatter,
 )
+# The board is the SEMANTIC OWNER of grouping (see lib/board_groups.py); it
+# consumes the INV-R derivation rather than re-deriving it. Never read
+# `boardgroup` raw — `task_group_slug` is the totality boundary that keeps an
+# unhashable hand-edited value (`boardgroup: []`) from taking the board down.
+from board_groups import (
+    build_column_units, group_display_title, group_members, task_group_slug,
+)
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
@@ -2304,6 +2311,62 @@ class EmptyColumnPlaceholder(Static):
         self.column_id = col_id
 
 
+class GroupHeader(Static):
+    """A focusable in-column task-group header: `▾ perf work (3)` (t1243_9).
+
+    Carries `column_id` — NOT `col_id` like `ColumnHeader` below — because it is
+    a first-class focus and filter UNIT: `apply_filter`'s visible-content
+    accumulator, the focus rescue, `_column_focus_target` and
+    `_get_focused_col_id` all key off `column_id`, exactly as `TaskCard` and the
+    two placeholders do. Naming it `col_id` here would make a header invisible to
+    every one of them.
+
+    `members` is a list of `Task` DATA, not widgets, and that is load-bearing: a
+    COLLAPSED group mounts no member cards at all, so a filter pass has nothing
+    to evaluate unless the header carries its members itself. t1243_10 reads the
+    same list to count matches for its `· 2 match` badge.
+    """
+
+    can_focus = True
+
+    def __init__(self, col_id: str, slug: str, members: list, collapsed: bool):
+        super().__init__(classes="group-header")
+        self.column_id = col_id
+        self.slug = slug
+        self.members = members
+        self.collapsed = collapsed
+        self.update(self._label())
+
+    def _label(self) -> str:
+        glyph = "▸" if self.collapsed else "▾"
+        return f"{glyph} {group_display_title(self.slug)} ({len(self.members)})"
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Flip the glyph in place — no recompose.
+
+        The same in-place repaint idiom `_repaint_card_mark` uses for the ☑/☐:
+        one widget's content changes, so rebuilding the column would be pure
+        waste. (Collapse itself DOES recompose, because members mount/unmount;
+        this is for a header whose glyph alone is stale.)
+        """
+        if self.collapsed != collapsed:
+            self.collapsed = collapsed
+            self.update(self._label())
+
+
+#: The board's NAVIGATION STOPS: every focusable content widget, in DOM order.
+#: A Textual comma selector matches any of its selector sets and `query()` walks
+#: the DOM in order, so one query returns headers and cards correctly
+#: interleaved — which two separate queries could not. Type selectors match the
+#: whole MRO, so the `TaskCard` half also covers InFlightTaskCard / TrailTaskCard
+#: / TrailGhostCard, exactly as the pre-existing `query(TaskCard)` did.
+#:
+#: Distinct from a MOVEMENT unit: a movement key acts on a header (the whole
+#: group), a parent card (its `_card_block()`), or refuses a child card. See
+#: `_move_focused_group`.
+_UNIT_SELECTOR = "TaskCard, GroupHeader"
+
+
 class ColumnHeader(Static):
     """A composite column header with title, collapse toggle, and edit button."""
 
@@ -3389,7 +3452,8 @@ class KanbanColumn(VerticalScroll):
     """A vertical column of tasks."""
 
     def __init__(self, col_id: str, title: str, color: str, manager: TaskManager,
-                 expanded_tasks: set = None, collapsed: bool = False):
+                 expanded_tasks: set = None, collapsed: bool = False,
+                 collapsed_groups: set = None):
         super().__init__()
         self.col_id = col_id
         self.col_title = title
@@ -3397,6 +3461,16 @@ class KanbanColumn(VerticalScroll):
         self.manager = manager
         self.expanded_tasks = expanded_tasks if expanded_tasks is not None else set()
         self.collapsed = collapsed
+        # Held BY REFERENCE, exactly like `expanded_tasks` above: the app mutates
+        # its own set and every column sees it, so a collapse toggle needs no
+        # per-column propagation — `_recompose_column` re-composes THIS instance,
+        # which still points at the app's set. `collapsed_groups` is appended
+        # last so no existing positional argument shifts (t1243_9).
+        self.collapsed_groups = collapsed_groups if collapsed_groups is not None else set()
+
+    def is_group_collapsed(self, slug: str) -> bool:
+        """Whether `(this column, slug)` is collapsed. Key: `"<col_id>/<slug>"`."""
+        return f"{self.col_id}/{slug}" in self.collapsed_groups
 
     def compose(self):
         # Header
@@ -3422,8 +3496,25 @@ class KanbanColumn(VerticalScroll):
             if tasks:
                 placeholder.styles.display = "none"
             yield placeholder
-            for task in tasks:
-                yield from self.task_block(task)
+            # Units, not bare tasks (t1243_9). `build_column_units` is the INV-R
+            # derivation: it sorts by (boardidx, filename) itself, so the render
+            # order is a pure function of the persisted state however this caller
+            # ordered its input. Never re-derive grouping here.
+            for slug, members in build_column_units(tasks):
+                # A single-member group renders as a plain card. board_groups
+                # deliberately KEEPS its slug (so a member moving away never
+                # silently dissolves the group) and leaves the draw-a-header
+                # decision to us — mirroring how `_build_topic_lanes` collapses
+                # singleton lanes.
+                if slug and len(members) > 1:
+                    yield GroupHeader(self.col_id, slug, members,
+                                      self.is_group_collapsed(slug))
+                    if self.is_group_collapsed(slug):
+                        # Members AND their `.child-wrapper` rows stay unmounted:
+                        # `task_block` emits both, so skipping it drops both.
+                        continue
+                for task in members:
+                    yield from self.task_block(task)
 
     def task_block(self, task):
         """The widgets one task contributes to this column.
@@ -6776,6 +6867,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .collapsed-placeholder:focus { background: $primary 30%; }
     .empty-placeholder { height: 1; width: 100%; text-align: center; color: $text-muted; }
     .empty-placeholder:focus { background: $primary 30%; }
+    /* In-column task-group header (t1243_9). `$primary 30%` on :focus is the
+       board's own idiom, shared with the two placeholders above. `:focus:hover`
+       must repeat the focus colour: :hover would otherwise override :focus at
+       equal specificity and drop a focused header into the gray hover family —
+       the same rule TaskCard.markable-card:focus:hover exists for. */
+    .group-header { height: 1; width: 100%; padding: 0 1; color: $accent; text-style: bold; }
+    .group-header:focus { background: $primary 30%; }
+    .group-header:hover { background: $surface-lighten-1; }
+    .group-header:focus:hover { background: $primary 30%; }
     #dep_picker_dialog {
         width: 60%;
         height: auto;
@@ -6991,6 +7091,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("#", "open_cross_repo", "Cross-repo"),
         # Expand/Collapse children (shown conditionally via check_action)
         Binding("x", "toggle_children", "Toggle Children"),
+        # Duplicate-key pair on `x` (t1243_9), the same shape the By-Trail `r`/`s`
+        # pairs use: `check_action` cannot RELABEL a binding, so a truthful footer
+        # ("Toggle Group" on a header, "Toggle Children" on a card) needs two
+        # bindings gated mutually exclusively rather than one relabelled binding.
+        Binding("x", "toggle_group", "Toggle Group"),
         # Multi-select marking (t1243_6; hidden in the derived views by check_action)
         Binding("space", "toggle_mark", "Mark"),
         # Bulk move to a column (t1243_7). This was `show=False` because the
@@ -7036,6 +7141,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.type_filter_active = False
         self._view_auto_expanded: set = set()
         self.expanded_tasks: set = set()
+        # Collapsed in-column task groups, keyed "<col_id>/<slug>" (t1243_9).
+        # SESSION-ONLY here, exactly like `expanded_tasks` above. t1243_10 adds
+        # load/save against `settings.collapsed_groups` in the USER layer of
+        # board_config (alongside `collapsed_columns`) — it replaces only those
+        # two ends, not this attribute or anything downstream of it.
+        self.collapsed_groups: set = set()
         # Multi-select marks (t1243_6), keyed by task filename like the two sets
         # above. Session-only; cleared on view switch, pruned on refresh.
         self.marked = MarkedSelection()
@@ -7192,12 +7303,27 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 return False
             focused = self._focused_card()
             if not focused:
+                # This also hides the action on a focused `GroupHeader`, which is
+                # what makes the `x` duplicate-key pair exclusive: `_focused_card`
+                # is a `TaskCard` isinstance read, so a header yields None here.
+                # An explicit `isinstance(..., GroupHeader)` check above would be
+                # dead code — a negative control proved it never changes the
+                # answer (t1243_9). The `toggle_group` branch below owns the
+                # positive half.
                 return False
             if focused.is_child:
                 return True  # Always show for child cards (they have a parent)
             task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
             if not self.manager.get_child_tasks_for_parent(task_num):
                 return False
+        elif action == "toggle_group":
+            # The GroupHeader half of the `x` duplicate-key pair (t1243_9). Live
+            # ONLY on a header, so exactly one of the two is ever shown. The
+            # derived views render no group headers, but gate them anyway so the
+            # exclusion does not depend on that staying true.
+            if self.base_filter in ("inflight", "bytopic", "bytrail"):
+                return False
+            return isinstance(self._focused_unit(), GroupHeader)
         elif action == "pick_task":
             focused = self._focused_card()
             if not focused:
@@ -7666,6 +7792,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             container.mount(KanbanColumn(
                 "unordered", "Unsorted / Inbox", "gray", self.manager,
                 self.expanded_tasks, collapsed=is_collapsed,
+                collapsed_groups=self.collapsed_groups,
             ))
 
         # 2. Configured Columns
@@ -7676,6 +7803,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 container.mount(KanbanColumn(
                     conf["id"], conf["title"], conf["color"], self.manager,
                     self.expanded_tasks, collapsed=is_collapsed,
+                    collapsed_groups=self.collapsed_groups,
                 ))
 
         # Defer until after Textual processes pending mounts so the freshly
@@ -7840,6 +7968,67 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if cols is None or placeholder.column_id in cols:
                 yield placeholder
 
+    def _filter_group_headers(self, cols):
+        """`GroupHeader`s a filter pass may flip, scoped like `_filter_units` (t1243_9).
+
+        A SEPARATE generator rather than an extension of `_filter_units`, because
+        `apply_filter`'s unit loop reads `unit.task_data` and a header has no
+        such attribute — it carries `members` instead. Same single-query,
+        filter-by-`column_id` shape, so the scoping rules are identical.
+        """
+        for header in self.query(GroupHeader):
+            if cols is None or header.column_id in cols:
+                yield header
+
+    def _children_by_parent(self) -> dict:
+        """`{parent_num: [child Task, …]}` for the whole board, built in ONE pass.
+
+        Deliberately not `TaskManager.get_child_tasks_for_parent` per parent:
+        that helper re-scans `child_task_datas`, regex-matches every child
+        against an f-string-built pattern and `sorted()`s the result — and the
+        sort is meaningless for a membership test. Calling it once per
+        non-matching grouped member would make a filter pass
+        O(members x children) with a regex per pair, on a path that runs on every
+        search keystroke. `get_parent_num_for_child` is an O(1)
+        `filepath.parent.name`, so the whole index costs one linear walk.
+
+        Keyed by the same form `TaskCard._parse_filename(parent.filename)[0]`
+        yields — the pairing `KanbanColumn.task_block` already relies on.
+        """
+        index = {}
+        for child in self.manager.child_task_datas.values():
+            index.setdefault(
+                self.manager.get_parent_num_for_child(child), []).append(child)
+        return index
+
+    def _group_header_matches(self, header, visible, search: str,
+                              child_index) -> bool:
+        """A header is visible iff >= 1 member — or >= 1 member's CHILD — matches.
+
+        ONE formula for both states, which is what keeps a collapsed group
+        findable by exactly the text that would find it expanded: an expanded
+        group's members mount cards (decided in the unit loop) and a collapsed
+        group's mount none, but the member DATA answers either way.
+
+        CHILD-AWARE because `Task.search_haystack` is `"<filename> <metadata>"` —
+        a parent's corpus does NOT contain its children's text. `_filter_units`
+        includes expanded child cards, so a member-only rule would hide the
+        header while leaving a matching `↳` child row visible underneath it.
+
+        `child_index` is built at most once per pass by the caller. Members are
+        tested first and short-circuit, so the child lookups only run for a group
+        whose own members all failed.
+        """
+        members = header.members
+        if any(task_matches_filter(m, visible, search) for m in members):
+            return True
+        for member in members:
+            num, _ = TaskCard._parse_filename(member.filename)
+            if num and any(task_matches_filter(c, visible, search)
+                           for c in child_index.get(num, ())):
+                return True
+        return False
+
     def apply_filter(self, cols: set | None = None):
         """Apply base filter ∩ active add-ons ∩ search.
 
@@ -7876,6 +8065,24 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if v:
                 cols_with_visible.add(unit.column_id)
 
+        # Group headers (t1243_9). MUST run before the placeholder loop below,
+        # which reads `cols_with_visible`: a collapsed group mounts a header and
+        # no member cards, so without this a column holding only collapsed groups
+        # would contribute nothing, wrongly show its EmptyColumnPlaceholder, and
+        # end up with TWO focus anchors.
+        #
+        # Materialized so the child index is built AT MOST ONCE per pass, and
+        # only when a header is actually in scope — no board renders a header
+        # until some task carries `boardgroup`, so this block is free until then.
+        headers = list(self._filter_group_headers(cols))
+        child_index = self._children_by_parent() if headers else {}
+        for header in headers:
+            v = self._group_header_matches(header, visible, self.search_filter,
+                                           child_index)
+            set_unit_display(header, v)
+            if v:
+                cols_with_visible.add(header.column_id)
+
         # A column showing no content falls back to its focusable placeholder.
         for placeholder in self._filter_placeholders(cols):
             set_unit_display(placeholder,
@@ -7887,7 +8094,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # `cols`; anything already hidden elsewhere was rescued by the pass that
         # hid it.
         focused = self.screen.focused if self.screen else None
-        if (isinstance(focused, (TaskCard, EmptyColumnPlaceholder))
+        if (isinstance(focused, (TaskCard, GroupHeader, EmptyColumnPlaceholder))
                 and (cols is None or focused.column_id in cols)
                 and focused.styles.display == "none"):
             self._refocus_column(focused.column_id)
@@ -8276,6 +8483,22 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         focused = self.screen.focused if self.screen else None
         return focused if isinstance(focused, TaskCard) else None
 
+    def _focused_unit(self):
+        """The focused navigation UNIT — a `TaskCard` or a `GroupHeader` (t1243_9).
+
+        An attribute read, NOT a query, for exactly the reason `_focused_card`
+        documents above: `check_action` runs its gates once per binding on every
+        `refresh_bindings()`, i.e. on every focus change during a move. The
+        obvious `query("TaskCard:focus, GroupHeader:focus").first()` would walk
+        the whole board to find what `screen.focused` already names, undoing
+        t1243_7's measured 27-walks-per-sweep fix.
+
+        `_focused_card()` survives as the narrow "focused *task*" accessor that
+        the task-level gates genuinely need; this is its unit-level sibling.
+        """
+        focused = self.screen.focused if self.screen else None
+        return focused if isinstance(focused, (TaskCard, GroupHeader)) else None
+
     def _get_column_cards(self, col_id: str) -> list:
         """Return TaskCard widgets belonging to a column, in DOM order."""
         return [c for c in self.query(TaskCard) if c.column_id == col_id]
@@ -8284,6 +8507,26 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """`_get_column_cards` filtered to cards the active filter left visible."""
         return [c for c in self._get_column_cards(col_id)
                 if c.styles.display != "none"]
+
+    def _get_column_units(self, col_id: str) -> list:
+        """`TaskCard`s AND `GroupHeader`s of a column, in DOM order (t1243_9).
+
+        ONE union query rather than two: a comma selector yields nodes in DOM
+        order, which is what makes header -> member -> its children a single
+        walk. Two separate queries would lose the relative order between headers
+        and cards, and vertical navigation is exactly that order.
+
+        Filtered on the `column_id` ATTRIBUTE, not DOM containment — the same
+        rule `_get_column_cards` uses, which is why an expanded child card
+        (mounted inside a `.child-wrapper`) is included here too. That is
+        deliberate: children are navigation stops today and must stay so.
+        """
+        return [w for w in self.query(_UNIT_SELECTOR) if w.column_id == col_id]
+
+    def _visible_column_units(self, col_id: str) -> list:
+        """`_get_column_units` filtered to units the active filter left visible."""
+        return [w for w in self._get_column_units(col_id)
+                if w.styles.display != "none"]
 
     def _column_widgets(self) -> list:
         """Every board column widget currently mounted, in board order.
@@ -8398,15 +8641,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         """Return the widget to focus when entering `col_id`, or None.
 
         Every board column owns exactly one focus anchor: a placeholder when it
-        shows no cards, otherwise a card. The `display` checks are load-bearing —
-        `Widget.focus()` does not refuse a hidden widget.
+        shows no UNITS, otherwise its first visible unit. The `display` checks
+        are load-bearing — `Widget.focus()` does not refuse a hidden widget.
+
+        Restated over units by t1243_9. It previously read "cards", and a column
+        of only COLLAPSED GROUPS — which mounts headers and no cards at all —
+        therefore returned `None`: `_refocus_column` then silently did nothing
+        and focus was lost. That case is why the unit abstraction exists.
         """
         placeholder = self._column_placeholder(col_id)
         if placeholder is not None and placeholder.styles.display != "none":
             return placeholder
-        cards = self._visible_column_cards(col_id)
-        if cards:
-            return cards[min(preferred_pos, len(cards) - 1)]
+        units = self._visible_column_units(col_id)
+        if units:
+            return units[min(preferred_pos, len(units) - 1)]
         return None
 
     def _refocus_column(self, col_id: str):
@@ -8594,6 +8842,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # by the filter). Scope the review to that column, read straight
             # from task_datas so filtered-away tasks are exactly what becomes
             # visible again.
+            #
+            # A `GroupHeader` also names a column since t1243_9, but pointing at
+            # a GROUP is not pointing at the column — acting on every task in it
+            # would be a destructive surprise. `check_action` already hides `m`
+            # here, yet that is only the BINDING gate: the command palette calls
+            # `action_*` directly (see the view-gate re-check at the top of this
+            # method), so the guard has to live in the action body.
+            if isinstance(self._focused_unit(), GroupHeader):
+                self.notify("Select tasks, or a column, to move — moving a whole "
+                            "group as a block is not implemented yet (t1243_11).",
+                            severity="warning")
+                return
             col_id = self._get_focused_col_id()
             if col_id is None:
                 return
@@ -8636,36 +8896,38 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if self._modal_is_active():
             self.screen.focus_previous()
             return
-        focused = self._focused_card()
+        # Units, not cards (t1243_9): `↑`/`↓` step through every navigation stop
+        # — group headers, parent cards and expanded child cards — in DOM order.
+        focused = self._focused_unit()
         if not focused:
             # If on a column placeholder, up/down is a no-op
             if self._focused_placeholder():
                 return
             self.action_focus_board()
             return
-        cards = self._visible_column_cards(focused.column_id)
-        if self._reanchor_to_viewport(focused, cards):
+        units = self._visible_column_units(focused.column_id)
+        if self._reanchor_to_viewport(focused, units):
             return
-        idx = next((i for i, c in enumerate(cards) if c is focused), -1)
+        idx = next((i for i, c in enumerate(units) if c is focused), -1)
         if idx > 0:
-            cards[idx - 1].focus()
+            units[idx - 1].focus()
 
     def action_nav_down(self):
         if self._modal_is_active():
             self.screen.focus_next()
             return
-        focused = self._focused_card()
+        focused = self._focused_unit()
         if not focused:
             if self._focused_placeholder():
                 return
             self.action_focus_board()
             return
-        cards = self._visible_column_cards(focused.column_id)
-        if self._reanchor_to_viewport(focused, cards):
+        units = self._visible_column_units(focused.column_id)
+        if self._reanchor_to_viewport(focused, units):
             return
-        idx = next((i for i, c in enumerate(cards) if c is focused), -1)
-        if idx < len(cards) - 1:
-            cards[idx + 1].focus()
+        idx = next((i for i, c in enumerate(units) if c is focused), -1)
+        if idx < len(units) - 1:
+            units[idx + 1].focus()
 
     def action_nav_left(self):
         if self._modal_is_active():
@@ -8691,8 +8953,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._nav_lateral(1)
 
     def _get_focused_col_id(self):
-        """Return the column ID of the currently focused element (card or placeholder)."""
-        focused = self._focused_card()
+        """Return the column ID of the focused element (unit or placeholder).
+
+        Unit-level since t1243_9, so a focused `GroupHeader` names its column
+        instead of returning `None`. Every caller inherits that: lateral nav,
+        `_shift_column`, the column-collapse actions, the work-report flow and
+        the refresh refocus fallbacks all become reachable from a header, which
+        is intended. The ONE caller for which it is not is
+        `action_move_to_column`, whose no-card branch means "a column
+        PLACEHOLDER is focused" — it carries its own explicit guard.
+        """
+        focused = self._focused_unit()
         if focused:
             return focused.column_id
         placeholder = self._focused_placeholder()
@@ -8709,16 +8980,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if cur_col not in col_ids:
             return
         cur_idx = col_ids.index(cur_col)
-        focused = self._focused_card()
+        focused = self._focused_unit()
         # Try to land on the same vertical position in the target column —
         # measured from what is ON SCREEN. After a wheel scroll the focused card
         # can be far off-screen, and carrying its index across would teleport the
         # target column to a position the user never looked at (t1248).
-        old_cards = self._visible_column_cards(cur_col)
+        # Indexed over NAVIGATION STOPS (t1243_9), so a group header occupies a
+        # position like any other unit and `←`/`→` preserve it unchanged.
+        old_units = self._visible_column_units(cur_col)
         source = focused
         if source is not None and not self._card_fully_visible(source):
-            source = self._viewport_anchor(old_cards, source) or source
-        old_pos = next((i for i, c in enumerate(old_cards) if c is source), 0) if source else 0
+            source = self._viewport_anchor(old_units, source) or source
+        old_pos = next((i for i, c in enumerate(old_units) if c is source), 0) if source else 0
         # Find the next column with a focus anchor
         new_idx = cur_idx + direction
         while 0 <= new_idx < len(col_ids):
@@ -10052,12 +10325,109 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         self._toggle_expand()
 
+    def _refocus_group_header(self, col_id: str, slug: str) -> None:
+        """Focus the `(col_id, slug)` header if it is mounted and visible.
+
+        Deferred through `call_after_refresh` by every caller: a recompose
+        replaces the header WIDGET, so the instance that was focused before is
+        gone and focus must be re-resolved by identity, never by reference.
+        """
+        header = next((h for h in self.query(GroupHeader)
+                       if h.column_id == col_id and h.slug == slug), None)
+        if header is not None and header.styles.display != "none":
+            header.focus()
+
+    def action_toggle_group(self):
+        """`x` on a `GroupHeader`: collapse / expand the group (t1243_9).
+
+        The GroupHeader half of the `x` duplicate-key pair. Re-asserts its own
+        gate for the same reason `action_toggle_children` does — the command
+        palette calls `action_*` directly and never consults `check_action`.
+        """
+        if self.check_action("toggle_group", None) is not True:
+            return
+        header = self._focused_unit()
+        if not isinstance(header, GroupHeader):
+            # Re-resolve, do not trust the gate. A binding gate is not an action
+            # guard: `action_*` is reachable directly (command palette, tests),
+            # and a `TaskCard` reaching the `header.column_id` below would raise
+            # AttributeError straight into Textual's message pump.
+            return
+        key = f"{header.column_id}/{header.slug}"
+        if key in self.collapsed_groups:
+            self.collapsed_groups.discard(key)
+        else:
+            self.collapsed_groups.add(key)
+        # Recompose: members and their `.child-wrapper` rows mount/unmount
+        # together, which only `compose` can express. The column widget holds the
+        # app's `collapsed_groups` BY REFERENCE, so it reads the mutation above
+        # with no propagation step.
+        col_id, slug = header.column_id, header.slug
+        self.refresh_column(col_id, refocus_col_id=col_id)
+        # Land focus back on the header — never leave it on an unmounted member.
+        # Queued after the recompose for the same reason `_refocus_card` is.
+        self.call_after_refresh(self._refocus_group_header, col_id, slug)
+
     # --- Task Movement ---
 
+    async def _dispatch_group_move(self, axis: str, direction: int) -> bool:
+        """Route a movement key to the group block move; True when handled.
+
+        Dispatch lives in the six ACTIONS rather than inside the three
+        `_move_task_*` helpers (t1243_9). Two reasons, both structural:
+
+        * the helpers stay pure task-movers — with a header focused
+          `_focused_card()` is already `None`, so each early-returns harmlessly
+          and needs no group branch at all; and
+        * `_move_task_vertical` stays SYNCHRONOUS. `test_board_movement`'s probe
+          reads `iscoroutinefunction` off each helper to decide where to stamp
+          `sync_end`, and the recorded vertical baseline (t1243_1) depends on
+          that shape.
+        """
+        unit = self._focused_unit()
+        if not isinstance(unit, GroupHeader):
+            return False
+        await self._move_focused_group(unit, axis, direction)
+        return True
+
+    async def _move_focused_group(self, header, axis: str, direction: int):
+        """Move a whole group as a block.
+
+        t1243_9 owns the DISPATCH and the focus contract; the model write and the
+        DOM placement are t1243_11's (`Block moves`: N writes, relative order
+        preserved, the neighbouring unit never touched). `_apply_group_move` is
+        that seam.
+        """
+        members = group_members(
+            self.manager.get_column_tasks(header.column_id), header.slug)
+        if not members:
+            return
+        moved_to = await self._apply_group_move(header, members, axis, direction)
+        if moved_to is None:
+            return
+        # Focus lands on the header in the DESTINATION column. Deferred because
+        # the move recomposes, replacing the header widget.
+        self.call_after_refresh(self._refocus_group_header, moved_to, header.slug)
+
+    async def _apply_group_move(self, header, members, axis: str, direction: int):
+        """Commit a group block move; return the destination `col_id`, or None.
+
+        SEAM — t1243_11 implements the model write and the DOM placement, and
+        returns the destination column so the caller can refocus the header
+        there. Until then the move is REPORTED rather than silently dropped, so
+        `shift`/`ctrl` + arrow on a header is never a dead key.
+        """
+        self.notify(
+            f"Moving the group '{group_display_title(header.slug)}' as a block "
+            f"is not implemented yet (t1243_11).", severity="information")
+        return None
+
     async def action_move_task_right(self):
+        if await self._dispatch_group_move("lateral", 1): return
         await self._move_task_lateral(1)
 
     async def action_move_task_left(self):
+        if await self._dispatch_group_move("lateral", -1): return
         await self._move_task_lateral(-1)
 
     async def _move_task_lateral(self, direction):
@@ -10117,6 +10487,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 _full_refresh()
                 return
 
+            # A grouped move joins `unordered` on the recompose path (t1243_9):
+            # a transplant cannot express "this card belongs inside that group's
+            # block", and only a recompose re-derives the column's unit order.
+            # Checked HERE, after the widgets are resolved, so the test costs a
+            # scan of two already-held children lists rather than a model lookup.
+            if self._move_needs_recompose(task, src_col, dst_col):
+                _full_refresh()
+                return
+
             # Append: `move_task_to_column` places past the destination maximum,
             # so the task sorts last there.
             if await self._transplant_block(task, src_col, dst_col,
@@ -10129,11 +10508,60 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.apply_filter({current_col_id, new_col})
                 self.call_after_refresh(self._refocus_card, filename, new_col)
 
-    def action_move_task_up(self):
+    async def action_move_task_up(self):
+        if await self._dispatch_group_move("vertical", -1): return
         self._move_task_vertical(-1)
 
-    def action_move_task_down(self):
+    async def action_move_task_down(self):
+        if await self._dispatch_group_move("vertical", 1): return
         self._move_task_vertical(1)
+
+    @staticmethod
+    def _column_widget_has_group(col_widget) -> bool:
+        """True when this column WIDGET currently renders a `GroupHeader`.
+
+        Reads the DOM the move is about to mutate — no model lookup, no
+        derivation, no sort. Deliberately not `build_column_units(get_column_tasks(...))`:
+        that filters every task on the board and then sorts TWICE (once in
+        `get_column_tasks`, once inside the derivation), which would put real
+        work on the card-only movement hot path this fallback exists to leave
+        alone. And deliberately not `query(GroupHeader)`: Textual 8.2.7 walks the
+        whole tree wherever a query is rooted (see `_filter_units`), while a
+        movement path already holds the column widget — the same reasoning
+        `_find_parent_card` documents.
+
+        Headers are DIRECT children of `KanbanColumn` (flat siblings of the
+        cards), so scanning `children` is exact, not an approximation.
+        """
+        return any(isinstance(w, GroupHeader) for w in col_widget.children)
+
+    def _move_needs_recompose(self, task, *col_widgets) -> bool:
+        """True when a single-task move touches grouping (t1243_9).
+
+        The in-place DOM paths (`_swap_adjacent_cards`, `_transplant_block`)
+        assume a card-only column: they swap or append CARD blocks, while a
+        grouped column's DOM has to follow INV-R's unit order — and a member
+        moved laterally CARRIES its `boardgroup`, so it must land inside a
+        same-slug group in the destination rather than at the end. Recomposing
+        re-derives the column from `build_column_units`, which is correct by
+        construction.
+
+        Both tests are cheap by construction: `task_group_slug` is one dict get,
+        and the column check is one pass over a column's direct children. No
+        board renders a group until some task carries `boardgroup`, so on an
+        ungrouped board this is a slug miss plus a short isinstance scan — the
+        movement path already iterates the same list in `_find_parent_card` — and
+        t1243_5's measured lateral win is untouched.
+
+        Takes column WIDGETS, not ids: every caller already holds them, and
+        taking ids would force a lookup this must not pay for.
+
+        t1243_11 removes the fallback by generalising `_card_block` to group
+        blocks; it must keep BOTH directions of this predicate tested.
+        """
+        if task_group_slug(task):
+            return True
+        return any(self._column_widget_has_group(w) for w in col_widgets)
 
     def _card_block(self, col_widget, card) -> list:
         """A parent card plus the `.child-wrapper` rows that belong to it.
@@ -10294,7 +10722,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         target_card = card
                         break
 
-            if col_widget is not None and target_card is not None:
+            # A grouped column takes the recompose path (t1243_9): the in-place
+            # swap reorders CARD blocks, but the DOM has to follow INV-R's unit
+            # order, which only a recompose re-derives.
+            if (col_widget is not None and target_card is not None
+                    and not self._move_needs_recompose(focused.task_data, col_widget)):
                 if direction == -1:  # moving up: focused was below, target above
                     self._swap_adjacent_cards(col_widget, target_card, focused)
                 else:  # moving down: focused was above, target below
@@ -10305,9 +10737,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                                     refocus_col_id=col_id)
 
     async def action_move_task_top(self):
+        if await self._dispatch_group_move("extreme", -1): return
         await self._move_task_to_extreme(-1)
 
     async def action_move_task_bottom(self):
+        if await self._dispatch_group_move("extreme", 1): return
         await self._move_task_to_extreme(1)
 
     async def _move_task_to_extreme(self, direction):
@@ -10336,19 +10770,27 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         col_widget = next((c for c in self.query(KanbanColumn)
                            if c.col_id == col_id), None)
-        if col_widget is None:
+        # A grouped column takes the recompose path (t1243_9) — see
+        # `_move_needs_recompose`.
+        if col_widget is None or self._move_needs_recompose(task, col_widget):
             self.refresh_column(col_id, refocus_filename=filename,
                                 refocus_col_id=col_id)
             return
 
         # Resolve the anchor BEFORE the removal. Moving to the top mounts before
-        # the column's first parent card — a different widget, guaranteed by the
+        # the column's first FOCUS UNIT — a different widget, guaranteed by the
         # `current_idx == 0` early return above, and one that sits after the
         # header and the placeholder. Moving to the bottom appends.
+        #
+        # `GroupHeader` is in the isinstance tuple as defence in depth: a grouped
+        # column already recomposed above, but anchoring on the first *card*
+        # would otherwise mount the moved task BETWEEN a header and its members,
+        # splitting the block, if that guard were ever narrowed.
         before = None
         if direction == -1:
             before = next((w for w in col_widget.children
-                           if isinstance(w, TaskCard) and not w.is_child), None)
+                           if isinstance(w, (GroupHeader, TaskCard))
+                           and not getattr(w, "is_child", False)), None)
 
         # A same-column move: `move_child` would be cheaper, but it preserves
         # the widget and so would leave the dirty `*` that this write just
