@@ -1248,6 +1248,18 @@ def launch_in_tmux(command: str, config: TmuxLaunchConfig) -> tuple[int | None, 
     ``None`` if the launch succeeded but the pid could not be captured.
     ``error`` is ``None`` on success, otherwise a human-readable message
     describing the tmux failure.
+
+    **``command`` is handed to tmux UNWRAPPED on purpose.** Because every
+    branch below passes the bare agent command line, tmux's ``sh -c`` execs
+    straight into the agent binary and the pane's pid *is* the agent process.
+    Task locks depend on that: ``lib/pid_anchor.sh::get_session_anchor_pid``
+    anchors a lock to the pane's pid (resolved by
+    ``lib/tmux_exec.sh::ait_tmux_self_pane_pid``) precisely because it dies
+    exactly when the agent does. Introducing a wrapper that OUTLIVES the agent
+    — a supervising shell, a ``; read`` tail, a retry loop — would make a dead
+    agent's lock keep reading as "alive", i.e. a crash that is never detected.
+    That is a quieter failure than the false-crash bug this replaced (t1465),
+    so change the launch shape only with that contract in mind.
     """
     cwd_args = ["-c", config.cwd] if config.cwd else []
     if config.new_session:

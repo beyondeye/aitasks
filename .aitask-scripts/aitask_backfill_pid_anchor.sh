@@ -3,12 +3,19 @@
 # onto pre-existing locks for tasks currently in `status: Implementing`.
 #
 # Why: t723 added pid:/pid_starttime: to lock YAML so re-pick can detect
-# tmux/host-shell crashes via the new RECLAIM_CRASH: signal. Locks that
-# existed before this change lack the fields, so re-pick falls back to
-# the legacy RECLAIM_STATUS: branch (no PID-based crash signal). This
-# script writes pid: 0 + pid_starttime: - into each pre-anchor lock so
-# the next re-pick fires RECLAIM_CRASH: instead — a sharper signal that
-# carries through to the case-specific crash-recovery prompt.
+# tmux/host-shell crashes via the RECLAIM_CRASH: signal. Locks that existed
+# before that change lack the fields. This script writes pid: 0 +
+# pid_starttime: - into each pre-anchor lock so every lock has the same shape.
+#
+# NOTE (t1465) — this no longer changes which signal a re-pick emits.
+# The sentinel originally existed to force RECLAIM_CRASH: on the theory that an
+# unknown anchor should be read as a crash. That theory is what made the signal
+# meaningless: "we never recorded an anchor" is not evidence that anything
+# crashed. `pid: 0` is now an explicit UNKNOWN marker (lib/pid_anchor.sh
+# treats it exactly like the "-" sentinel), so a backfilled lock re-picks as
+# RECLAIM_STATUS: — the honest verdict, and the same one it would get with no
+# fields at all. Running this script is therefore optional and signal-neutral;
+# it only normalizes the field shape.
 #
 # Usage: ./.aitask-scripts/aitask_backfill_pid_anchor.sh
 #
@@ -35,10 +42,10 @@ TASK_DIR="${TASK_DIR:-aitasks}"
 ARCHIVED_DIR="${ARCHIVED_DIR:-aitasks/archived}"
 
 # --- Sentinel self-test ---
-# We use pid: 0 as the "unknown / crashed" sentinel. is_lock_holder_alive
-# explicitly rejects "0" via its leading guard, so this would always be
-# treated as crashed regardless of `kill -0 0` behavior. The guard exists
-# so we don't depend on platform-specific `kill -0 0` semantics.
+# We use pid: 0 as the "unknown" sentinel. lock_holder_liveness rejects "0" in
+# its leading numeric guard and reports `unknown` (never `alive`, never
+# `dead`), so the value can't depend on platform-specific `kill -0 0`
+# semantics. is_lock_holder_alive is the boolean view of that verdict.
 SENTINEL_PID="0"
 if is_lock_holder_alive "$SENTINEL_PID" "-"; then
     die "PID-anchor sentinel self-test failed: pid:0 reports alive. Aborting."

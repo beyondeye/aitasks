@@ -122,3 +122,39 @@ ait_tmux_session_target() {
 ait_tmux_window_target() {
     printf '=%s:%s' "$1" "$2"
 }
+
+# ait_tmux_self_pane_pid
+# Echo the PID of the tmux pane THIS process is running in; return 1 when it
+# cannot be established (not in a pane, unreadable pane, foreign server).
+#
+# Why this is worth a helper: the framework launches every agent as the pane's
+# OWN process — lib/agent_launch_utils.py::launch_in_tmux hands new-window /
+# split-window the bare `claude …` / `codex …` / `opencode …` command string,
+# with no wrapper — so a pane's pid IS the agent CLI process. It is therefore
+# the one PID reachable at task-claim time whose lifetime tracks the agent
+# session, which is what makes it usable as the task-lock anchor
+# (lib/pid_anchor.sh::get_session_anchor_pid, t1465).
+#
+# Same-server guard: pane ids (%N) are per-server and collide across servers,
+# so an inherited or stale $TMUX_PANE could name a stranger's pane on another
+# socket. $TMUX is "<socket-path>,<server-pid>,<session-index>" and
+# `#{socket_path}` is the queried server's socket; asking for both the socket
+# and the pid in ONE display-message keeps this to a single round-trip.
+# (aitask_shadow_capture.sh::shadow_self_target applies the same guard for the
+# shadow binding; it keeps its own copy because its return contract is a
+# classification string, not a pid.)
+ait_tmux_self_pane_pid() {
+    local own_pane="${TMUX_PANE:-}" own_sock="${TMUX:-}"
+    [[ -n "$own_pane" ]] || return 1
+    own_sock="${own_sock%%,*}"
+    [[ -n "$own_sock" ]] || return 1
+    local out sock pid
+    out="$(ait_tmux display-message -p -t "$own_pane" \
+        "#{socket_path}"$'\t'"#{pane_pid}" 2>/dev/null || true)"
+    [[ "$out" == *$'\t'* ]] || return 1
+    sock="${out%%$'\t'*}"
+    pid="${out#*$'\t'}"
+    [[ "$sock" == "$own_sock" ]] || return 1
+    [[ "$pid" =~ ^[0-9]+$ ]] && (( pid > 1 )) || return 1
+    printf '%s' "$pid"
+}

@@ -231,6 +231,13 @@ acquire_lock() {
         # and PRIOR_LOCK: (PID anchor info from prior lock — used by main()
         # to decide RECLAIM_CRASH vs. RECLAIM_STATUS) to our caller.
         echo "$lock_output" | grep -E '^(LOCK_RECLAIM|PRIOR_LOCK):' || true
+        # Our stdout is a machine contract, so the lock script's chatter is
+        # dropped — but a WARNING is a diagnostic the user must still see.
+        # It goes to stderr, which cannot corrupt that contract. Without this
+        # the "AIT_AGENT_PID does not name a live process" notice from
+        # lib/pid_anchor.sh was captured into $lock_output and silently
+        # discarded, i.e. a broken launcher anchor failed invisibly (t1465).
+        echo "$lock_output" | grep -i 'warning:' >&2 || true
         return 0
     fi
 
@@ -389,13 +396,17 @@ main() {
     fi
 
     # Parse PRIOR_LOCK: from acquire output (one line; format
-    # PRIOR_LOCK:<pid>|<starttime>|<host>|<locked_at>). Empty fields are "-".
+    # PRIOR_LOCK:<pid>|<starttime>|<host>|<locked_at>|<starttime_kind>).
+    # Empty fields are "-". A 4-field line from a writer that predates the
+    # kind field leaves prior_starttime_kind empty, which the ${…:-proc}
+    # default below resolves the same way aitask_lock.sh does.
     local prior_pid="-" prior_starttime="-" prior_lock_host="-" prior_locked_at="-"
+    local prior_starttime_kind=""
     local prior_line
     prior_line=$(echo "$acquire_stdout" | grep '^PRIOR_LOCK:' | head -1 || true)
     if [[ -n "$prior_line" ]]; then
         IFS='|' read -r prior_pid prior_starttime prior_lock_host prior_locked_at \
-            <<<"${prior_line#PRIOR_LOCK:}"
+            prior_starttime_kind <<<"${prior_line#PRIOR_LOCK:}"
     fi
 
     # Step 4: Update task metadata
@@ -408,18 +419,25 @@ main() {
     echo "OWNED:$TASK_ID"
 
     # Post-claim: emit a reclaim signal when the task was already
-    # Implementing by this same email. Three cases:
-    #   RECLAIM_CRASH  — same host, prior PID anchor is dead (tmux crash etc.)
-    #   RECLAIM_STATUS — anomaly fallback (lock missing or pre-anchor lock)
+    # Implementing by this same email. Two cases:
+    #   RECLAIM_CRASH  — same host, prior PID anchor is PROVABLY dead
+    #   RECLAIM_STATUS — anomaly fallback (anything else)
     # LOCK_RECLAIM: (cross-host) is emitted separately by aitask_lock.sh
     # and forwarded above; we still emit one of the below for completeness —
     # task-workflow's dispatcher prefers LOCK_RECLAIM > CRASH > STATUS.
     if [[ "$prev_status" == "Implementing" && -n "$EMAIL" \
           && "$prev_assigned" == "$EMAIL" ]]; then
-        local current_host
+        local current_host liveness
         current_host=$(hostname 2>/dev/null || echo "unknown")
-        if [[ "$prior_lock_host" == "$current_host" ]] \
-           && ! is_lock_holder_alive "$prior_pid" "$prior_starttime"; then
+        liveness=$(lock_holder_liveness "$prior_pid" "$prior_starttime" \
+                                        "${prior_starttime_kind:-proc}")
+        # ONLY a provably dead same-host anchor is a crash. `alive` and
+        # `unknown` both route to the RECLAIM_STATUS anomaly path: the two are
+        # genuinely different states (that is why lock_holder_liveness reports
+        # three), but giving a verifiably-live holder its own signal and a
+        # prompt that does not default to taking the lock is t1466's scope —
+        # it names this anchor as its discriminator. Do not split it here.
+        if [[ "$prior_lock_host" == "$current_host" && "$liveness" == "dead" ]]; then
             echo "RECLAIM_CRASH:${prior_locked_at}|${prior_lock_host}|${prior_pid}"
         else
             echo "RECLAIM_STATUS:${prev_status}|${prev_assigned}"

@@ -6,7 +6,17 @@ description: "Resume a task whose prior agent died mid-implementation, with a su
 depth: [intermediate]
 ---
 
-When tmux or the host shell crashes mid-implementation, the agent process dies but the task's `status: Implementing` and its [lock](../../concepts/locks/) persist on the `aitask-locks` branch. On the next `/aitask-pick <N>`, the workflow notices that the prior agent's PID is gone, surveys uncommitted work in the worktree, and asks whether to **Reclaim and continue** here or **Pick a different task**. The PID liveness signal is binary — alive or dead — so there is no time threshold to tune and no false positives from a still-running agent.
+When tmux or the host shell crashes mid-implementation, the agent process dies but the task's `status: Implementing` and its [lock](../../concepts/locks/) persist on the `aitask-locks` branch. On the next `/aitask-pick <N>`, the workflow notices that the prior agent's process is gone, surveys uncommitted work in the worktree, and asks whether to **Reclaim and continue** here or **Pick a different task**.
+
+There is no time threshold to tune: the decision is made from the process the lock was anchored to. That anchor has **three** states, not two, and the distinction is what makes the signal trustworthy:
+
+| State | Meaning | Outcome |
+|---|---|---|
+| **dead** | The anchored process is provably gone, or the PID now belongs to a different process | `RECLAIM_CRASH:` — the headline case |
+| **alive** | The anchored process is provably still the one that took the lock | No crash is reported |
+| **unknown** | The lock never named a session process, or its liveness cannot be established | No crash is reported |
+
+Only a *provably* dead anchor is reported as a crash. "We cannot tell" is never rounded up to "it crashed" — a recovery prompt that says an agent crashed has to be right, because reclaiming while the other session is still working duplicates its work.
 
 ## When the Recovery Path Fires
 
@@ -14,7 +24,19 @@ Three triggers route through the same Crash Recovery procedure. Their prompt wor
 
 ### Same-host crash (headline case)
 
-When a task is claimed, [`aitask_lock.sh`](../../commands/lock/) records `pid:` and `pid_starttime:` in the lock metadata alongside the existing `locked_by` / `locked_at` / `hostname` fields. On re-pick, [`/aitask-pick`](../../skills/aitask-pick/) checks the prior PID with `kill -0` and (Linux only) compares `pid_starttime` against `/proc/<pid>/stat` to defend against PID recycling. If the prior PID is gone, or if it is alive but the starttime no longer matches, AND the recorded hostname is the current host, the picker emits a `RECLAIM_CRASH:` signal — the headline case this feature was built for.
+When a task is claimed, [`aitask_lock.sh`](../../commands/lock/) records `pid:`, `pid_starttime:` and `pid_starttime_kind:` in the lock metadata alongside the existing `locked_by` / `locked_at` / `hostname` fields.
+
+**What the `pid:` points at.** It is the **agent session's own process** — specifically the process of the tmux pane the agent runs in. The framework launches every agent as its pane's own process, so the pane's pid *is* the agent CLI, and it dies exactly when the agent or the pane dies. Resolution order at claim time:
+
+1. `AIT_AGENT_PID`, if set — an explicit override for launchers that start an agent outside tmux, and for tests. It must name a process that exists; a stale value is refused with a warning rather than trusted.
+2. The tmux pane's process, resolved from `$TMUX_PANE`. The lookup is checked against the pane's own tmux server, so an inherited or stale `$TMUX_PANE` from a different server can never name a stranger's pane.
+3. Otherwise **unknown**, written as `pid: -`. There is deliberately no further fallback: recording some other, short-lived PID is exactly how the anchor stops meaning anything.
+
+**How liveness is decided on re-pick.** [`/aitask-pick`](../../skills/aitask-pick/) looks the PID up through `/proc`, then `ps`, then `kill`'s error code. It treats the PID as gone **only** on an explicit "No such process". A "not permitted" answer is positive proof the process exists, and a lookup that is blocked outright — for example under a `hidepid` procfs mount, which hides another user's live process from both `/proc` and `ps` — resolves to *unknown*, not *dead*. (A bare `kill -0` cannot distinguish those two: it returns the same failure for both.)
+
+The PID alone is not an identity, because PIDs are recycled, so the lock also stores a start-time token and the source it came from (`pid_starttime_kind`). A *dead* verdict needs the process to be confirmed absent or the token to prove a different process now holds the number; an *alive* verdict needs a matching token from a high-resolution source. Anything less is unknown.
+
+If — and only if — the verdict is **dead** and the recorded hostname is the current host, the picker emits a `RECLAIM_CRASH:` signal: the headline case this feature was built for.
 
 ### Multi-PC reclaim
 
@@ -22,7 +44,13 @@ You started a task on PC_A, walked over to PC_B, and ran `/aitask-pick` on the s
 
 ### Lock anomaly fallback
 
-The task is `Implementing` and `assigned_to` matches you, but no PID anchor matches your environment — typically a legacy lock written before the PID-anchor change shipped, or a lock that went missing entirely. The picker emits `RECLAIM_STATUS:`. After upgrading, running `./.aitask-scripts/aitask_backfill_pid_anchor.sh` once retroactively tags pre-anchor locks with a `pid: 0` sentinel, so subsequent re-picks route through the headline `RECLAIM_CRASH:` path instead of this fallback.
+The task is `Implementing` and `assigned_to` matches you, but the anchor does not establish a crash. The picker emits `RECLAIM_STATUS:`. This covers everything that is not a proven same-host crash:
+
+- the anchored process is **alive** — most often a second agent on this machine that is still working the task;
+- the lock records **no session process** (`pid: -` or `pid: 0`) — a claim made outside tmux with no `AIT_AGENT_PID`, a legacy lock predating the PID anchor, or a lock that went missing entirely;
+- the process **cannot be inspected**, or carries no usable identity token, so neither "alive" nor "dead" can be shown.
+
+All of these land here rather than in the crash path, because the one thing this prompt must not do is tell you an agent crashed when it did not.
 
 ## The In-Progress Work Survey
 
@@ -72,7 +100,7 @@ The prompt header is `Reclaim`. The question text is case-specific; the two opti
   >
   > Reclaim and continue here?
 
-- **`RECLAIM_STATUS`** (lock anomaly):
+- **`RECLAIM_STATUS`** (lock anomaly — the anchor is alive, absent, or unverifiable):
 
   > Task t\<N\> shows status `Implementing` already assigned to you, but no PID anchor matches your environment.
   >
@@ -90,9 +118,9 @@ The prompt header is `Reclaim`. The question text is case-specific; the two opti
 
 The headline `RECLAIM_CRASH` case as a single narrative:
 
-1. The user runs `/aitask-pick 42`. The picker claims the lock (recording `pid: <agent-pid>` + `pid_starttime: <jiffies>`), enters plan mode, and starts implementing in `aiwork/t42_add_login`.
-2. tmux crashes (or `tmux kill-server`, or the laptop loses power). The bash/Claude PID dies. Task `t42` is still `status: Implementing`, lock still pinned to this host.
-3. The user opens a fresh terminal and re-runs `/aitask-pick 42`. The picker reads the lock, sees the recorded hostname matches, runs `kill -0 <dead-pid>` → ESRCH. The PID liveness check fails → emits `RECLAIM_CRASH:`.
+1. The user runs `/aitask-pick 42`. The picker claims the lock — recording the **agent pane's** pid plus its start-time token — enters plan mode, and starts implementing in `aiwork/t42_add_login`.
+2. tmux crashes (or `tmux kill-server`, or the laptop loses power). The agent's pane process dies with it. Task `t42` is still `status: Implementing`, lock still pinned to this host.
+3. The user opens a fresh terminal and re-runs `/aitask-pick 42`. The picker reads the lock, sees the recorded hostname matches, and looks the anchored PID up: not in `/proc`, not in `ps`, and `kill` reports "No such process". That is a confirmed absence → `RECLAIM_CRASH:`.
 4. The Crash Recovery procedure surveys the `aiwork/t42_add_login` worktree, prints a "Prior in-progress work" block (3 modified files, partial plan progress), and asks the case-specific prompt.
 5. The user picks **Reclaim and continue**. The picker writes a new lock with the resumed agent's PID, the workflow proceeds to Step 5, and prior changes are intact and visible to the resumed agent.
 
@@ -121,9 +149,10 @@ The sync only ever fast-forwards. If your local merge target has commits the rem
 
 ## Tips
 
-- **Backfill once after upgrading past t723.** Pre-existing `Implementing` locks written before the PID-anchor change lack `pid:` / `pid_starttime:`. Running `./.aitask-scripts/aitask_backfill_pid_anchor.sh` once tags them with the `pid: 0` sentinel so future re-picks of those tasks route through `RECLAIM_CRASH:` rather than the legacy `RECLAIM_STATUS:` fallback.
+- **Claims made outside tmux record no anchor.** If you start an agent in a plain terminal rather than a tmux pane, the lock records `pid: -` and re-picks report the anomaly fallback instead of a crash. Set `AIT_AGENT_PID` to the agent's own PID when launching it if you want crash detection there.
+- **The backfill script is no longer needed.** `./.aitask-scripts/aitask_backfill_pid_anchor.sh` tags pre-anchor locks with a `pid: 0` sentinel. That sentinel now means *unknown*, so a backfilled lock re-picks as `RECLAIM_STATUS:` — the same, honest outcome it would get with no fields at all. Running the script is optional and changes no signal.
 - **Decline does not touch your worktree.** "Pick a different task" reverts task metadata and releases the lock. Uncommitted files in the worktree, and the worktree directory itself, are left alone. Decide explicitly whether to keep them.
-- **macOS portability.** PID-recycling defense via `pid_starttime` is Linux-only (it reads `/proc/<pid>/stat` field 22). On macOS the recovery falls back to PID liveness alone (`kill -0`) — the rare PID-recycling case is a documented minor edge there.
+- **macOS portability.** The identity token comes from `/proc/<pid>/stat` on Linux and from `ps -o lstart=` elsewhere, so macOS/BSD gets PID-recycling defense too — but only at one-second resolution. Because that cannot rule out a PID recycled within the same second, a *matching* token there yields "unknown" rather than "alive"; it is recorded as such in `pid_starttime_kind`. Crash detection itself is unaffected on macOS: a crashed agent's PID is absent, which is decided before any token is compared.
 - **Cross-host reclaim is the same procedure.** Multi-PC reclaim (`LOCK_RECLAIM:`) shares the survey block, the option list, and the decline cleanup with same-host crash recovery. Only the question wording differs.
 
 ## See also

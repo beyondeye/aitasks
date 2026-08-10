@@ -259,6 +259,85 @@ class TestLaunchInTmuxNewSession(unittest.TestCase):
         self.assertIn("tmux new-session failed", err or "")
 
 
+class TestLaunchCommandIsUnwrapped(unittest.TestCase):
+    """The agent command must reach tmux as its own, verbatim argv element.
+
+    This pins the contract task locks depend on (t1465): because nothing wraps
+    the command, tmux's ``sh -c`` execs into the agent binary and the pane's
+    pid IS the agent process, which is what
+    ``lib/pid_anchor.sh::get_session_anchor_pid`` anchors a lock to. A wrapper
+    that outlives the agent (a supervising shell, a ``; read`` tail) would keep
+    a dead agent's lock reading as "alive" — a crash silently never detected.
+
+    A wrapped launch would necessarily pass a DIFFERENT string (e.g.
+    ``sh -c 'claude …; read'``), so exact-element membership is what catches it.
+    """
+
+    COMMAND = "claude --model opus '/aitask-pick 42'"
+
+    def _assert_verbatim(self, argv):
+        self.assertIn(
+            self.COMMAND, argv,
+            f"agent command was not passed verbatim to tmux; argv={argv!r}",
+        )
+
+    def test_new_window_passes_command_verbatim(self):
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            return _FakeRunResult(0, "1\n", "")
+
+        config = TmuxLaunchConfig(
+            session="s", window="w", new_session=False, new_window=True,
+        )
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            launch_in_tmux(self.COMMAND, config)
+        self._assert_verbatim(captured["argv"])
+        # tmux takes the shell-command as the trailing operand.
+        self.assertEqual(captured["argv"][-1], self.COMMAND)
+
+    def test_split_window_passes_command_verbatim(self):
+        captured = {}
+
+        def fake_run(argv, **kwargs):
+            captured["argv"] = argv
+            return _FakeRunResult(0, "1\n", "")
+
+        config = TmuxLaunchConfig(
+            session="s", window="w", new_session=False, new_window=False,
+        )
+        with patch.object(subprocess, "run", side_effect=fake_run), \
+             patch.object(subprocess, "Popen"):
+            launch_in_tmux(self.COMMAND, config)
+        self._assert_verbatim(captured["argv"])
+        self.assertEqual(captured["argv"][-1], self.COMMAND)
+
+    def test_new_session_passes_command_verbatim(self):
+        captured = {}
+
+        class _FakePopen:
+            returncode = 0
+            stderr = None
+
+            def __init__(self, argv, **kwargs):
+                captured["argv"] = argv
+
+            def wait(self):
+                pass
+
+        config = TmuxLaunchConfig(
+            session="s", window="w", new_session=True, new_window=True,
+        )
+        with patch.object(subprocess, "Popen", _FakePopen), \
+             patch.object(subprocess, "run",
+                          return_value=_FakeRunResult(0, "1\n", "")):
+            with patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("TMUX", None)
+                launch_in_tmux(self.COMMAND, config)
+        self._assert_verbatim(captured["argv"])
+
+
 # NOTE: the new-session persistence ladder (systemd-run → setsid → plain) and
 # `_systemd_user_available` now live in `lib/tmux_exec.py` (t952_1) and are
 # covered by `tests/test_tmux_exec.py::TestNewSessionArgv` + the socket tests.

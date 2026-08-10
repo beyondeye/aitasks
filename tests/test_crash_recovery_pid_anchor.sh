@@ -1,8 +1,18 @@
 #!/usr/bin/env bash
-# test_crash_recovery_pid_anchor.sh - Tests for PID-anchor crash recovery
-# (t723). Covers RECLAIM_CRASH: signal emitted when the prior agent's PID
-# is dead, PID-recycling defense via pid_starttime, and backward compat
-# for pre-anchor locks.
+# test_crash_recovery_pid_anchor.sh - Tests for PID-anchor crash recovery.
+#
+# Tests 1-7 (t723) cover the READER contract with hand-planted anchors:
+# RECLAIM_CRASH: when the prior agent's PID is dead, PID-recycling defense via
+# pid_starttime, and backward compat for pre-anchor locks.
+#
+# Tests 8-18 (t1465) cover what those could not: the WRITER's choice of PID,
+# and the three-state liveness verdict. Every anchor in tests 1-7 is planted,
+# so `get_lock_pid()` returning $PPID — the claim script itself, dead seconds
+# later — kept the whole suite green while RECLAIM_CRASH fired on every
+# same-host re-pick.
+#
+# Live-tmux coverage of the default anchor rung lives in a separate file
+# (tests/test_lock_anchor_tmux_live.sh) so this one stays boot-free.
 #
 # Run: bash tests/test_crash_recovery_pid_anchor.sh
 
@@ -107,6 +117,23 @@ plant_lock() {
     )
 }
 
+# Read one field out of the lock YAML on origin/aitask-locks.
+lock_field() {
+    local tmpdir="$1" task_id="$2" key="$3"
+    (cd "$tmpdir/local" && git fetch origin aitask-locks --quiet 2>/dev/null \
+        && git show "origin/aitask-locks:t${task_id}_lock.yaml" 2>/dev/null) \
+        | awk -v k="^${key}:" '$0 ~ k { sub(/^[^:]*: */, ""); print; exit }'
+}
+
+# Run a real claim through aitask_pick_own.sh inside a fixture. Extra
+# `VAR=value` assignments may be passed before the task id via `env`-style
+# arguments in $3.. — they are applied to the claim only.
+run_claim() {
+    local tmpdir="$1" task_id="$2"; shift 2
+    (cd "$tmpdir/local" && env "PATH=$tmpdir/local/bin:$PATH" TEST_HOSTNAME=pc-A "$@" \
+        ./.aitask-scripts/aitask_pick_own.sh "$task_id" --email "alice@test.com" 2>&1)
+}
+
 # Set the test task's status + assigned_to inline (no aitask_update.sh
 # needed; we just rewrite the YAML frontmatter).
 set_task_implementing() {
@@ -136,7 +163,12 @@ TASK
 
 set +e
 
-echo "=== Crash Recovery PID Anchor Tests (t723) ==="
+# The anchor lib itself, for the unit-level assertions in Tests 15/16 and the
+# liveness checks the signal-level tests make about their own fixtures.
+# shellcheck source=../.aitask-scripts/lib/pid_anchor.sh
+. "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
+
+echo "=== Crash Recovery PID Anchor Tests (t723, t1465) ==="
 echo ""
 
 # --- Test 1: Lock writes pid + pid_starttime fields ---
@@ -245,17 +277,16 @@ hostname: pc-A"
 output5=$(cd "$TMPDIR_5/local" && PATH="$TMPDIR_5/local/bin:$PATH" TEST_HOSTNAME=pc-A \
     ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
 
-# A pre-anchor lock has prior_pid="-" → is_lock_holder_alive returns false →
-# RECLAIM_CRASH would fire. That's actually the desired behavior for the
-# backfill flow (we treat unknown PID as crashed). Verify either CRASH or
-# STATUS is emitted (the dispatcher handles both as reclaim-with-survey).
-TOTAL=$((TOTAL + 1))
-if echo "$output5" | grep -qE '^(RECLAIM_CRASH|RECLAIM_STATUS):'; then
-    PASS=$((PASS + 1))
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: pre-anchor lock should emit a reclaim signal (got: $output5)"
-fi
+# A pre-anchor lock has prior_pid="-", so its liveness is UNKNOWN — and t1465
+# made that its own state rather than a synonym for "crashed". "This lock never
+# recorded an anchor" is not evidence that anything died, so the honest verdict
+# is the RECLAIM_STATUS anomaly path.
+#
+# This assertion used to accept CRASH *or* STATUS, from a time when an unknown
+# anchor was deliberately reported as a crash. Do not loosen it back: the whole
+# point of the fix is that RECLAIM_CRASH means something.
+assert_contains "Pre-anchor lock → RECLAIM_STATUS" "RECLAIM_STATUS:" "$output5"
+assert_not_contains "Pre-anchor lock is not reported as a crash" "RECLAIM_CRASH" "$output5"
 
 rm -rf "$TMPDIR_5"
 
@@ -274,6 +305,300 @@ assert_not_contains "No RECLAIM_STATUS on fresh pick" "RECLAIM_STATUS" "$output6
 assert_not_contains "No LOCK_RECLAIM on fresh pick" "LOCK_RECLAIM" "$output6"
 
 rm -rf "$TMPDIR_6"
+
+# =====================================================================
+# t1465 — the WRITER's anchor, and the three-state liveness verdict.
+# =====================================================================
+
+# --- Tests 8-10: the writer, driven through the AIT_AGENT_PID seam ---
+# One fixture, one long-lived "agent" process, three consecutive real claims:
+# claim it, re-pick while the agent lives, re-pick after it dies.
+
+echo "--- Test 8: Real claim anchors to the session PID (no planted state) ---"
+
+TMPDIR_8="$(setup_paired_repos)"
+init_lock_branch "$TMPDIR_8" pc-A
+
+# Stand-in for the agent session: a process that outlives the claim script.
+sleep 300 &
+ANCHOR_PID_8=$!
+
+output8=$(run_claim "$TMPDIR_8" 1 "AIT_AGENT_PID=$ANCHOR_PID_8")
+
+assert_contains "Claim succeeds" "OWNED:1" "$output8"
+
+rec_pid_8=$(lock_field "$TMPDIR_8" 1 pid)
+rec_tok_8=$(lock_field "$TMPDIR_8" 1 pid_starttime)
+rec_kind_8=$(lock_field "$TMPDIR_8" 1 pid_starttime_kind)
+
+assert_eq "Anchor is the session PID (not the claim script)" "$ANCHOR_PID_8" "$rec_pid_8"
+assert_eq "Recorded token matches the live process" "$(get_pid_starttime "$ANCHOR_PID_8")" "$rec_tok_8"
+if [[ "$(uname)" == "Linux" ]]; then
+    assert_eq "Token kind recorded as proc (Linux)" "proc" "$rec_kind_8"
+fi
+assert_eq "Recorded anchor reads back as alive" \
+    "alive" "$(lock_holder_liveness "$rec_pid_8" "$rec_tok_8" "$rec_kind_8")"
+
+echo "--- Test 9: Re-pick while the holder is ALIVE → no false crash ---"
+
+# The task is already Implementing/alice from Test 8's claim — this is exactly
+# the innocent same-host re-pick that used to report a crash.
+output9=$(run_claim "$TMPDIR_8" 1 "AIT_AGENT_PID=$ANCHOR_PID_8")
+
+assert_contains "Re-pick succeeds" "OWNED:1" "$output9"
+assert_not_contains "No RECLAIM_CRASH for a live holder" "RECLAIM_CRASH" "$output9"
+assert_contains "Routes to the anomaly path instead" "RECLAIM_STATUS" "$output9"
+
+echo "--- Test 10: Positive control — a real crash is still detected ---"
+
+# Kill the "agent" and reap it, so its PID is genuinely absent.
+kill "$ANCHOR_PID_8" 2>/dev/null
+wait "$ANCHOR_PID_8" 2>/dev/null
+assert_eq "Killed anchor now reads as dead" \
+    "dead" "$(lock_holder_liveness "$ANCHOR_PID_8" "$rec_tok_8" "$rec_kind_8")"
+
+sleep 300 &
+ANCHOR_PID_10=$!
+output10=$(run_claim "$TMPDIR_8" 1 "AIT_AGENT_PID=$ANCHOR_PID_10")
+
+assert_contains "Dead prior anchor → RECLAIM_CRASH" "RECLAIM_CRASH:" "$output10"
+assert_contains "RECLAIM_CRASH names the dead session PID" "|${ANCHOR_PID_8}" "$output10"
+
+kill "$ANCHOR_PID_10" 2>/dev/null
+wait "$ANCHOR_PID_10" 2>/dev/null
+rm -rf "$TMPDIR_8"
+
+# --- Test 11: negative control for the defect itself ---
+# The no-override, NO-TMUX rung: with nothing left to resolve, the writer must
+# record the explicit UNKNOWN sentinel. This is the assertion the pre-fix
+# writer fails — `echo "$PPID"` recorded the claim script, a real (and by now
+# dead) PID, never "-".
+#
+# TMUX and TMUX_PANE are cleared alongside AIT_AGENT_PID and the outcome is
+# pinned exactly. Leaving them inherited would make the result depend on the
+# runner's environment — a pane in one place, nothing in another — in a test
+# whose whole value is being boot-free and deterministic. The pane rung is not
+# lost: tests/test_lock_anchor_tmux_live.sh proves it against a real server,
+# which is the only place it can be proven honestly.
+
+echo "--- Test 11: With nothing to resolve, the anchor is UNKNOWN (never a dead PID) ---"
+
+TMPDIR_11="$(setup_paired_repos)"
+init_lock_branch "$TMPDIR_11" pc-A
+
+output11=$(cd "$TMPDIR_11/local" && env -u AIT_AGENT_PID -u TMUX -u TMUX_PANE \
+    "PATH=$TMPDIR_11/local/bin:$PATH" TEST_HOSTNAME=pc-A \
+    ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+assert_contains "Claim succeeds without an override" "OWNED:1" "$output11"
+
+rec_pid_11=$(lock_field "$TMPDIR_11" 1 pid)
+assert_eq "Unresolvable anchor is the UNKNOWN sentinel" \
+    "$AIT_PID_ANCHOR_UNKNOWN" "$rec_pid_11"
+assert_eq "Unresolvable anchor records no token kind" \
+    "none" "$(lock_field "$TMPDIR_11" 1 pid_starttime_kind)"
+# Stated as its own check: the defect wrote a PID here, and any PID — alive or
+# dead — means the writer picked a process it had no business anchoring to.
+TOTAL=$((TOTAL + 1))
+if [[ "$rec_pid_11" =~ ^[0-9]+$ ]]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: writer recorded pid $rec_pid_11 with no session process to name (the t1465 defect)"
+else
+    PASS=$((PASS + 1))
+fi
+
+rm -rf "$TMPDIR_11"
+
+# --- Tests 12-14, 17: reader verdicts, via planted anchors ---
+# One fixture; each case plants a lock, re-picks, and asserts the signal.
+
+echo "--- Test 12: UNKNOWN anchor is not a crash ---"
+
+TMPDIR_12="$(setup_paired_repos)"
+init_lock_branch "$TMPDIR_12" pc-A
+set_task_implementing "$TMPDIR_12" "alice@test.com"
+
+for sentinel in "-" "0"; do
+    plant_lock "$TMPDIR_12" 1 "task_id: 1
+locked_by: alice@test.com
+locked_at: 2026-01-01 00:00
+hostname: pc-A
+pid: $sentinel
+pid_starttime: -"
+    out12=$(run_claim "$TMPDIR_12" 1)
+    assert_not_contains "pid: $sentinel → not a crash" "RECLAIM_CRASH" "$out12"
+    assert_contains "pid: $sentinel → RECLAIM_STATUS" "RECLAIM_STATUS" "$out12"
+done
+
+echo "--- Test 13: AIT_AGENT_PID never fails open ---"
+
+out13=$(run_claim "$TMPDIR_12" 1 "AIT_AGENT_PID=4000000")
+assert_contains "Dead override is reported" "AIT_AGENT_PID=4000000" "$out13"
+assert_contains "Dead override is refused, not used" "does not name a live process" "$out13"
+assert_eq "Dead override never becomes the anchor" \
+    "" "$(lock_field "$TMPDIR_12" 1 pid | grep -x 4000000)"
+
+echo "--- Test 14: live PID with no identity token ⇒ unknown, not crash ---"
+
+sleep 300 &
+ANCHOR_PID_14=$!
+plant_lock "$TMPDIR_12" 1 "task_id: 1
+locked_by: alice@test.com
+locked_at: 2026-01-01 00:00
+hostname: pc-A
+pid: $ANCHOR_PID_14
+pid_starttime: -"
+out14=$(run_claim "$TMPDIR_12" 1 "AIT_AGENT_PID=$ANCHOR_PID_14")
+assert_not_contains "Untokened live PID is not a crash" "RECLAIM_CRASH" "$out14"
+assert_contains "Untokened live PID → RECLAIM_STATUS" "RECLAIM_STATUS" "$out14"
+
+echo "--- Test 17: weak (second-granular) token cannot prove liveness ---"
+
+if [[ "$(uname)" == "Linux" ]]; then
+    ps_tok_17=$(_pid_starttime_ps "$ANCHOR_PID_14")
+    proc_tok_17=$(_pid_starttime_proc "$ANCHOR_PID_14")
+
+    assert_eq "kind=ps + matching token ⇒ unknown (weak)" \
+        "unknown" "$(lock_holder_liveness "$ANCHOR_PID_14" "$ps_tok_17" ps)"
+    assert_eq "kind=proc + matching token ⇒ alive (strong)" \
+        "alive" "$(lock_holder_liveness "$ANCHOR_PID_14" "$proc_tok_17" proc)"
+
+    # Neither verdict is a crash — the strength gate changes the VERDICT
+    # without changing this task's SIGNAL, which is what leaves t1466 a clean
+    # discriminator to build its acquire gate on.
+    for pair in "ps:$ps_tok_17" "proc:$proc_tok_17"; do
+        kind_17="${pair%%:*}"; tok_17="${pair#*:}"
+        plant_lock "$TMPDIR_12" 1 "task_id: 1
+locked_by: alice@test.com
+locked_at: 2026-01-01 00:00
+hostname: pc-A
+pid: $ANCHOR_PID_14
+pid_starttime: $tok_17
+pid_starttime_kind: $kind_17"
+        out17=$(run_claim "$TMPDIR_12" 1 "AIT_AGENT_PID=$ANCHOR_PID_14")
+        assert_not_contains "kind=$kind_17 live holder → not a crash" "RECLAIM_CRASH" "$out17"
+        assert_contains "kind=$kind_17 live holder → RECLAIM_STATUS" "RECLAIM_STATUS" "$out17"
+    done
+else
+    echo "  (skipped on non-Linux: needs both token sources on one host)"
+fi
+
+kill "$ANCHOR_PID_14" 2>/dev/null
+wait "$ANCHOR_PID_14" 2>/dev/null
+rm -rf "$TMPDIR_12"
+
+# --- Test 15: _pid_exists / lock_holder_liveness verdict table (unit) ---
+
+echo "--- Test 15: liveness verdict table ---"
+
+sleep 300 &
+UNIT_PID=$!
+unit_tok=$(get_pid_starttime "$UNIT_PID")
+unit_kind=$(get_pid_starttime_kind "$UNIT_PID")
+
+_pid_exists "$UNIT_PID";  assert_eq "_pid_exists: live self-owned PID" "0" "$?"
+_pid_exists 4000000;      assert_eq "_pid_exists: confirmed absent (ESRCH)" "1" "$?"
+_pid_exists abc;          assert_eq "_pid_exists: non-numeric is undecidable" "2" "$?"
+# PID 1 exists but cannot be signalled by a normal user: `kill -0` reports
+# EPERM with the SAME exit status as ESRCH, and a hidepid procfs hides it from
+# /proc and ps alike. Calling that "absent" is how a live holder gets reported
+# as crashed, so it must resolve to "exists".
+_pid_exists 1;            assert_eq "_pid_exists: EPERM means exists, not absent" "0" "$?"
+
+assert_eq "live + matching strong token ⇒ alive" \
+    "alive"   "$(lock_holder_liveness "$UNIT_PID" "$unit_tok" "$unit_kind")"
+assert_eq "live + wrong token ⇒ dead" \
+    "dead"    "$(lock_holder_liveness "$UNIT_PID" "99999999" proc)"
+assert_eq "live + no token ⇒ unknown" \
+    "unknown" "$(lock_holder_liveness "$UNIT_PID" "-" proc)"
+assert_eq "live + unrecognised kind ⇒ unknown" \
+    "unknown" "$(lock_holder_liveness "$UNIT_PID" "$unit_tok" bogus)"
+assert_eq "absent pid ⇒ dead" \
+    "dead"    "$(lock_holder_liveness 4000000 99999999 proc)"
+assert_eq "pid '-' ⇒ unknown" "unknown" "$(lock_holder_liveness - - proc)"
+assert_eq "pid 0 ⇒ unknown"   "unknown" "$(lock_holder_liveness 0 - proc)"
+assert_eq "pid 'abc' ⇒ unknown" "unknown" "$(lock_holder_liveness abc - proc)"
+
+is_lock_holder_alive 0 -
+assert_eq "is_lock_holder_alive rejects the pid:0 sentinel" "1" "$?"
+is_lock_holder_alive "$UNIT_PID" "$unit_tok" "$unit_kind"
+assert_eq "is_lock_holder_alive accepts a proven live holder" "0" "$?"
+
+# --- Test 16: the `ps` token generator (BSD/macOS implementation) ---
+# Linux `ps` supports lstart too, so the implementation is exercisable here
+# even though its DISPATCH (no /proc) is not.
+
+echo "--- Test 16: ps-derived identity token ---"
+
+ps_tok_a=$(_pid_starttime_ps "$UNIT_PID")
+ps_tok_b=$(_pid_starttime_ps "$UNIT_PID")
+
+TOTAL=$((TOTAL + 1))
+if [[ -n "$ps_tok_a" && "$ps_tok_a" != *[[:space:]]* ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: ps token should be non-empty and whitespace-free (got: '$ps_tok_a')"
+fi
+assert_eq "ps token is stable across reads" "$ps_tok_a" "$ps_tok_b"
+
+_pid_starttime_ps 4000000
+assert_eq "ps token generator fails for an absent pid" "1" "$?"
+
+sleep 1.2
+sleep 300 &
+UNIT_PID_2=$!
+TOTAL=$((TOTAL + 1))
+if [[ "$(_pid_starttime_ps "$UNIT_PID_2")" != "$ps_tok_a" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: processes started >1s apart should get different ps tokens"
+fi
+
+kill "$UNIT_PID" "$UNIT_PID_2" 2>/dev/null
+wait "$UNIT_PID" "$UNIT_PID_2" 2>/dev/null
+
+# --- Test 18: an unreachable tmux server degrades, it does not block ---
+# The anchor's default rung now spawns a `tmux display-message` on the lock
+# critical path. A wedged or absent server must produce UNKNOWN — not a hang,
+# and not an abort under `set -euo pipefail`. Driven through the gateway's own
+# socket selector (AITASKS_TMUX_SOCKET), not a test-only override.
+
+echo "--- Test 18: claim survives an unreachable tmux server ---"
+
+TMPDIR_18="$(setup_paired_repos)"
+init_lock_branch "$TMPDIR_18" pc-A
+
+start_18=$SECONDS
+output18=$(cd "$TMPDIR_18/local" && timeout 30 env -u AIT_AGENT_PID \
+    "PATH=$TMPDIR_18/local/bin:$PATH" TEST_HOSTNAME=pc-A \
+    TMUX_PANE="%999" TMUX="/nonexistent/ait-sock-$$,1,0" \
+    "AITASKS_TMUX_SOCKET=ait-nonexistent-$$" \
+    ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+rc18=$?
+elapsed_18=$((SECONDS - start_18))
+
+assert_eq "Unreachable tmux does not abort the claim" "0" "$rc18"
+assert_contains "Claim still succeeds" "OWNED:1" "$output18"
+assert_eq "Anchor degrades to the UNKNOWN sentinel" \
+    "$AIT_PID_ANCHOR_UNKNOWN" "$(lock_field "$TMPDIR_18" 1 pid)"
+assert_eq "Token kind recorded as none" "none" "$(lock_field "$TMPDIR_18" 1 pid_starttime_kind)"
+
+TOTAL=$((TOTAL + 1))
+if [[ $rc18 -ne 124 && $elapsed_18 -lt 30 ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: claim did not complete within the 30s budget (rc=$rc18, ${elapsed_18}s)"
+fi
+
+# And the UNKNOWN it recorded must read back as unknown, never as a crash.
+assert_eq "UNKNOWN anchor reads back as unknown" "unknown" \
+    "$(lock_holder_liveness "$(lock_field "$TMPDIR_18" 1 pid)" \
+                            "$(lock_field "$TMPDIR_18" 1 pid_starttime)" \
+                            "$(lock_field "$TMPDIR_18" 1 pid_starttime_kind)")"
+
+rm -rf "$TMPDIR_18"
 
 # --- Test 7: Syntax checks ---
 echo "--- Test 7: Syntax checks ---"
@@ -300,6 +625,14 @@ if bash -n "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"; then
 else
     FAIL=$((FAIL + 1))
     echo "FAIL: lib/pid_anchor.sh syntax check"
+fi
+
+TOTAL=$((TOTAL + 1))
+if bash -n "$PROJECT_DIR/.aitask-scripts/lib/tmux_exec.sh"; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: lib/tmux_exec.sh syntax check"
 fi
 
 # --- Summary ---
