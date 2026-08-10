@@ -554,7 +554,7 @@ Step 9 (Post-Implementation) handles merge, `ait gates run`, and archival.
   ledger-only (no registry passed; `(mtime_ns, size)` cache key; cross-project
   cwd), so that one badge can still disagree with the enforcing decision. The
   two surfaces t1409's risk actually named — board and `ait ls` — are both
-  fixed · severity: low · → mitigation: monitor_stale_gate_column_parity
+  fixed · severity: low · → mitigation: t1473
 - No repo currently writes `.signed` witnesses, so the new behaviour is proven
   by synthetic fixtures and one live end-to-end run rather than by production
   use; the per-task cost bound (W×3 git subprocesses for W signed tasks; ≤1
@@ -570,7 +570,7 @@ Step 9 (Post-Implementation) handles merge, `ait gates run`, and archival.
 ### Planned mitigations
 - timing: pre-phase | name: guard_enforcing_path_consolidation | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the `_read_state` consolidation touches the enforcing path t1409 just fixed | desc: Land the `_read_state` → `demote_stale_signed` consolidation as an isolated first edit, with `test_gate_orchestrator.sh` 9/9c/9d captured as a baseline before it and re-run immediately after.
 - timing: pre-phase | name: witness_heavy_cost_probe | type: performance | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health / goal-achievement — the per-task cost bound is reasoned, not measured, and the task requires measuring before committing to the design | desc: Measure `ait ls` and one board refresh against a ~50-task fixture where every task carries a stamped witness, BEFORE finalizing the design, against declared thresholds with a named fallback (cross-process digest threading via an explicit `--code-digest` argument).
-- timing: after | name: monitor_stale_gate_column_parity | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: medium | addresses: goal-achievement — the monitor / minimonitor compact gate column stays ledger-only | desc: Bring the monitor compact gate column into signature parity, deciding the GateSummaryCache key question (adding the digest re-opens the t1111_1 per-tick-clear optimization) and the cross-project cwd resolution of the witness path.
+- timing: after | name: monitor_stale_gate_column_parity | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: medium | addresses: goal-achievement — the monitor / minimonitor compact gate column stays ledger-only | desc: Bring the monitor compact gate column into signature parity, deciding the GateSummaryCache key question (adding the digest re-opens the t1111_1 per-tick-clear optimization) and the cross-project cwd resolution of the witness path. | created: t1473
 
 **Reassessment after inlining:** both inline phases are separable, bounded
 pre-work — a baseline test run and a measurement pass with declared thresholds.
