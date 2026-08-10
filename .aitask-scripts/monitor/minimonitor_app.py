@@ -75,7 +75,9 @@ from agent_launch_utils import (  # noqa: E402
     unmark_monitor_pane,
 )
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # noqa: E402
+import gate_ledger  # noqa: E402  (narrow gate-summary shed; same import path as monitor_core)
 
+from rich.cells import cell_len, set_cell_size  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
@@ -92,6 +94,120 @@ from textual.widgets import Static  # noqa: E402
 # extra pane lifetime and buys immunity to a single-tick glitch. There is
 # deliberately NO opposite budget: repeated failures never close the pane.
 AUTO_CLOSE_CONFIRMATIONS = 2
+
+
+# -- Row width budget ---------------------------------------------------------
+#
+# The one place this pane's column arithmetic lives (t1479):
+#
+#     target_width (default 40, `mm_cfg["width"]`)
+#       − 2   MiniPaneCard `padding: 0 1`      ⇒ usable row      = _row_budget()
+#       − 2   the "  " indent every detail row under the name line carries
+#       = 36  at the default width             ⇒ detail content  = _detail_budget()
+#
+# Budgets are denominated in terminal **cells**, not code points — `cell_len`,
+# never `len` — because a double-width character costs two columns.
+_ROW_PADDING = 2      # MiniPaneCard `padding: 0 1`
+_DETAIL_INDENT = 2    # the "  " prefix on the title / gate-phase rows
+_MIN_PHASE_CELLS = 4  # below this a clipped phase carries no information
+
+
+def _row_budget(target_width: int) -> int:
+    """Cells available to a card's first (name/status) row.
+
+    Not consumed by the gate-phase row below — it is here so **row 1's** owner
+    (t1351, the row-width audit that replaces the `len()`-based name/command
+    caps with cell-aware truncation) can adopt this arithmetic rather than
+    restate it. The two tasks share this pane's budget; this module is where it
+    is stated once.
+    """
+    return max(0, target_width - _ROW_PADDING)
+
+
+def _detail_budget(target_width: int) -> int:
+    """Cells available to a card's indented detail row (title, gate+phase).
+
+    **Real geometry, clamped only at zero.** ``tmux.minimonitor.width`` is
+    user-configurable and nothing validates a minimum, so a floor here (an
+    earlier draft clamped to 8) would hand callers more cells than the pane
+    has and the row would wrap — the one outcome this budget exists to
+    prevent. Consumers are built for a tight budget: ``_clip`` answers 0 and 1
+    without overshooting, and ``format_gate_phase_row`` sheds down to the bare
+    ``<n>/<total>`` ratio. A pane too narrow to say anything renders nothing,
+    which is honest; rejecting an absurd configured width belongs at the config
+    seam, not here.
+    """
+    return max(0, target_width - _ROW_PADDING - _DETAIL_INDENT)
+
+
+def _clip(text: str, budget: int) -> str:
+    """Cell-aware terminator. ``Static`` *wraps* rather than clips, so anything
+    that could exceed its budget must be cut here or it silently costs a whole
+    extra row — the exact cost this card is trying to save.
+
+    The return is ALWAYS ≤ ``budget`` cells, degenerate budgets included: the
+    ellipsis itself costs a cell, so budgets 0 and 1 are answered before it is
+    appended rather than overshooting by one.
+    """
+    if budget <= 0:
+        return ""
+    if cell_len(text) <= budget:
+        return text
+    if budget == 1:
+        return "…"
+    return set_cell_size(text, budget - 1).rstrip() + "…"
+
+
+def format_gate_phase_row(phase: str, gates: str, budget: int) -> str:
+    """The gate summary and the advisory workflow phase on ONE line (t1479).
+
+    ``<PHASE><⏸> · <gate summary>`` — phase first (the coarser signal), counts
+    second, and **no ``phase:`` / ``gates:`` labels**: they cost ~13 cells and
+    say nothing that ``IMPLEMENT`` and ``3/4 pass`` do not already say in
+    context. The full monitor merges the same two signals onto its status row;
+    this is the narrow-column equivalent, and it is what turns a gated task's
+    card from four rows into three.
+
+    Either half may be empty (an ungated task has no summary, an unresolvable
+    phase renders as ``""``) — then the other is rendered alone, and ``""``
+    when both are.
+
+    **Shed order when the join exceeds ``budget``** — the gate counts are the
+    last thing to give way, because a failed or stale gate is precisely what
+    must stay visible:
+
+    1. abbreviate the gate tail (``1/4 pass, 1 pending, 1 failed`` →
+       ``1/4 1p 1f``, :func:`gate_ledger.abbreviate_gate_summary`);
+    2. clip the **phase** — it is coarse and re-derivable, the counts are not;
+    3. drop the phase entirely once it would clip below
+       :data:`_MIN_PHASE_CELLS`, where it carries no information anyway;
+    4. terminal backstop — clip the abbreviated summary, reachable only if it
+       alone exceeds the budget.
+
+    At the default 40-column pane (36-cell budget) the worst realistic case,
+    ``unknown (rec off) · 0/4 1p 1f 1s``, is 32 cells: rungs 2-4 exist so the
+    failure mode is stated rather than emergent.
+    """
+    if not phase and not gates:
+        return ""
+    if not gates:
+        return _clip(phase, budget)
+    short = gate_ledger.abbreviate_gate_summary(gates)
+    if not phase:
+        for candidate in (gates, short):
+            if cell_len(candidate) <= budget:
+                return candidate
+        return _clip(short, budget)
+    for candidate in (gates, short):                    # 1. abbreviate the tail
+        line = f"{phase} · {candidate}"
+        if cell_len(line) <= budget:
+            return line
+    room = budget - cell_len(f" · {short}")             # 2. the phase gives way
+    if room >= _MIN_PHASE_CELLS:
+        return f"{_clip(phase, room)} · {short}"
+    if cell_len(short) <= budget:                       # 3. drop the phase
+        return short
+    return _clip(short, budget)                         # 4. terminal backstop
 
 
 # -- Widgets ------------------------------------------------------------------
@@ -833,13 +949,19 @@ class MiniMonitorApp(
                 if len(title) > 30:
                     title = title[:29] + "…"
                 line1 += f"\n  [dim]{title}[/]"
-                # Shown only for tasks that have a gate ledger.
-                gates = self._gate_cache.summary_for(info)
-                if gates:
-                    line1 += f"\n  [dim]gates: {gates}[/]"
-                phase = workflow_phase.render_phase(self._phase_for_snap(snap, info))
-                if phase:
-                    line1 += f"\n  [dim]{phase}[/]"
+                # Gate summary + advisory phase share ONE row (t1479): they
+                # describe one thing between them, and two rows of a four-row
+                # card is too much of this pane to spend on it. Either half may
+                # be empty (ungated task / unresolvable phase); the row is
+                # omitted only when both are.
+                merged = format_gate_phase_row(
+                    workflow_phase.render_phase_narrow(
+                        self._phase_for_snap(snap, info)),
+                    self._gate_cache.summary_for(info) or "",
+                    _detail_budget(self._target_width),
+                )
+                if merged:
+                    line1 += f"\n  [dim]{merged}[/]"
         return line1
 
     def _phase_for_snap(self, snap: PaneSnapshot, info) -> "workflow_phase.PhaseSignal":
@@ -942,6 +1064,14 @@ class MiniMonitorApp(
         one place it is for. It is advisory: it never gates a key, a spawn, or
         anything the user can ask the shadow.
 
+        **Phase only — deliberately no gate summary (t1479).** When the list
+        rows merged their gate counts onto the phase line, this panel did NOT
+        follow: a gate summary is a second live signal, and admitting it would
+        widen the narrowed contract above rather than keep it narrow. What it
+        did adopt is the *rendering*: ``render_phase_narrow`` (label-free), so
+        the phase reads the same on both surfaces of this 40-column pane instead
+        of carrying a ``phase: `` label the rows next to it dropped.
+
         ``marked is None`` ⇒ there is nothing markable here (the window was
         never an agent, or was renamed off the ``agent-`` prefix after the panel
         was built) ⇒ **no glyph**, matching ``_other_card_text``. The glyph is
@@ -997,6 +1127,10 @@ class MiniMonitorApp(
     def _own_phase_text(self, snap) -> str:
         """Rendered advisory phase for the followed agent, or ``""``.
 
+        Narrow (label-free) form, matching the list rows of the same pane — see
+        ``_own_card_text`` for why this panel takes the phase and not the gate
+        summary that now shares that line on the rows.
+
         Fails soft: any resolution problem yields no phase line rather than a
         stale or fabricated one, because this panel must never be broken by an
         advisory signal.
@@ -1009,7 +1143,7 @@ class MiniMonitorApp(
         info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
         if info is None:
             return ""
-        return workflow_phase.render_phase(self._phase_for_snap(snap, info))
+        return workflow_phase.render_phase_narrow(self._phase_for_snap(snap, info))
 
     async def _maybe_build_own_agent_panel(self) -> None:
         """Populate the docked panel for the agent this minimonitor follows —

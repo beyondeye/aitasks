@@ -507,25 +507,57 @@ UNKNOWN_LINE = format_signal(PhaseSignal(
     detail="phase signal unavailable"))
 
 
+# Long / narrow wording per UNKNOWN cause. One constant per value set: both
+# renderers below read this table, so a cause can never render on one surface
+# and silently vanish on the other (t1479).
+_UNKNOWN_TEXT: dict[str, tuple[str, str]] = {
+    "recording_off": ("unknown (gate recording off)", "unknown (rec off)"),
+    "ledger_only": ("unknown (ledger only)", "unknown (ledger)"),
+    "waiting": ("unknown ⏸", "unknown ⏸"),
+}
+
+
+def _phase_body(sig: PhaseSignal, *, narrow: bool) -> str:
+    """The label-free phase text shared by both renderers; ``""`` when there is
+    nothing honest to say."""
+    if sig.phase == UNKNOWN_PHASE:
+        if sig.recording == "off":
+            cause = "recording_off"
+        elif "no prompt markers" in sig.detail:
+            cause = "ledger_only"
+        elif sig.waiting == "WAITING":
+            cause = "waiting"
+        else:
+            return ""
+        return _UNKNOWN_TEXT[cause][1 if narrow else 0]
+    glyph = " ⏸" if sig.waiting == "WAITING" else ""
+    return f"{sig.phase}{glyph}"
+
+
 def render_phase(sig: PhaseSignal) -> str:
     """Compact one-line label for a TUI column. ``""`` when there is nothing
     honest to say, so an ungated task adds no noise.
 
-    Shared by both monitor TUIs so the phase reads identically wherever it
-    appears, and kept short because minimonitor's rows are narrow. ``UNKNOWN``
-    is rendered explicitly rather than hidden — "cannot tell" is a real state,
-    and a blank would read as "no phase" instead.
+    The canonical, labelled form — what ``ait monitor`` renders on its status
+    row. ``UNKNOWN`` is rendered explicitly rather than hidden — "cannot tell"
+    is a real state, and a blank would read as "no phase" instead.
     """
-    if sig.phase == UNKNOWN_PHASE:
-        if sig.recording == "off":
-            return "phase: unknown (gate recording off)"
-        if "no prompt markers" in sig.detail:
-            return "phase: unknown (ledger only)"
-        if sig.waiting == "WAITING":
-            return "phase: unknown ⏸"
-        return ""
-    glyph = " ⏸" if sig.waiting == "WAITING" else ""
-    return f"phase: {sig.phase}{glyph}"
+    body = _phase_body(sig, narrow=False)
+    return f"phase: {body}" if body else ""
+
+
+def render_phase_narrow(sig: PhaseSignal) -> str:
+    """Label-free, shortened phase for a **narrow** surface (t1479).
+
+    ``ait minimonitor`` renders the phase on the same ~36-cell line as the gate
+    summary, where the ``phase: `` label costs 7 of those cells and the counts
+    beside it already say what the line is about. Dropping the label and
+    shortening the ``unknown (…)`` variants is what makes the merge fit; the
+    labelled :func:`render_phase` stays canonical for the full monitor, which is
+    why this is a second renderer rather than a shortening of the shared one.
+    Both read :data:`_UNKNOWN_TEXT`, so the two forms cannot drift apart.
+    """
+    return _phase_body(sig, narrow=True)
 
 
 # --- CLI -------------------------------------------------------------------

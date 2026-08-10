@@ -366,6 +366,19 @@ def format_status(text: str) -> str:
     return "\n".join(_format_gate_run_status_line(n, current[n]) for n in order)
 
 
+# The tail parts of a compact gate summary, in render order, each paired with
+# the single letter the narrow form uses. One named constant per value set:
+# `compact_gate_summary` writes through it and `abbreviate_gate_summary` reads
+# back through it, so a new part cannot gain a long form without an
+# abbreviation (t1479). The leading "<n>/<total> pass" head is NOT in here —
+# the narrow form strips that word rather than abbreviating it.
+GATE_SUMMARY_TAIL: tuple[tuple[str, str], ...] = (
+    ("pending", "p"), ("failed", "f"), ("stale", "s"),
+)
+
+_GATE_SUMMARY_SEP = ", "
+
+
 def compact_gate_summary(state: TaskGateState) -> str:
     """Compact one-line gate summary for monitor TUI columns.
 
@@ -396,14 +409,37 @@ def compact_gate_summary(state: TaskGateState) -> str:
     n_fail = sum(1 for r in runs if r.status in ("fail", "error")
                  and r.name not in stale)
     n_pending = total - n_pass - n_fail - n_stale
+    counts = {"pending": n_pending, "failed": n_fail, "stale": n_stale}
     parts = [f"{n_pass}/{total} pass"]
-    if n_pending:
-        parts.append(f"{n_pending} pending")
-    if n_fail:
-        parts.append(f"{n_fail} failed")
-    if n_stale:
-        parts.append(f"{n_stale} stale")
-    return ", ".join(parts)
+    parts += [f"{counts[label]} {label}"
+              for label, _short in GATE_SUMMARY_TAIL if counts[label]]
+    return _GATE_SUMMARY_SEP.join(parts)
+
+
+def abbreviate_gate_summary(summary: str) -> str:
+    """Narrow-surface shed of :func:`compact_gate_summary` (t1479).
+
+    ``"1/4 pass, 1 pending, 1 failed"`` → ``"1/4 1p 1f"``: the head keeps its
+    ``<n>/<total>`` ratio and loses the word ``pass``, each tail part collapses
+    to ``<n><letter>``. Used when the long form does not fit a narrow row —
+    ``ait minimonitor`` renders it beside the workflow phase on one ~36-cell
+    line, where every count must survive because a failed or stale gate is
+    exactly what the column exists to show.
+
+    Reads the same :data:`GATE_SUMMARY_TAIL` table the long form writes, so the
+    two cannot drift. An unrecognised part is passed through **verbatim** rather
+    than dropped: a narrow row may be terse, never untrue.
+    """
+    if not summary:
+        return ""
+    short_of = dict(GATE_SUMMARY_TAIL)
+    head, *tail = summary.split(_GATE_SUMMARY_SEP)
+    parts = [head[:-len(" pass")] if head.endswith(" pass") else head]
+    for part in tail:
+        count, _sep, label = part.partition(" ")
+        short = short_of.get(label)
+        parts.append(f"{count}{short}" if short else part)
+    return " ".join(parts)
 
 
 # --- Append ---------------------------------------------------------------
