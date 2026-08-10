@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, monitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-10 16:19
-updated_at: 2026-08-10 16:19
+updated_at: 2026-08-10 16:27
 ---
 
 ## Origin
