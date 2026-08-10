@@ -403,7 +403,7 @@ Current-branch mode: no worktree or branch cleanup. Merge target is `main`
   kill the prose false-positives (line anchor, `❯`-only marker, paired cancel label)
   trades some of this away: a rendering that puts anything else on an option line, or
   separates the two options by a blank line, would now miss · severity: medium ·
-  → mitigation: verify_trust_dialog_live
+  → mitigation: t1477
 - **Accepted, not mitigated:** a pane displaying a verbatim two-line reproduction of the
   option block — this task's own test fixture, or any doc that pastes it — is
   indistinguishable from the live dialog to any text matcher and will be reported as
@@ -420,7 +420,7 @@ Current-branch mode: no worktree or branch cleanup. Merge target is `main`
 - The workspace-trust dialog cannot be reproduced in this session (it only appears on
   first run in an untrusted folder), so the central fix ships **unverified against the
   real widget** — the pattern could be right in wording and still never fire ·
-  severity: medium · → mitigation: verify_trust_dialog_live
+  severity: medium · → mitigation: t1477
 - Defect 1 is delivered as a comment correction rather than the retirement the task
   suggested, because the wording turned out to be live. Confirmed with the user;
   the residual risk is only that the corrected comment under-sells how rarely the
@@ -429,7 +429,7 @@ Current-branch mode: no worktree or branch cleanup. Merge target is `main`
 ### Planned mitigations
 - timing: pre-phase | name: pin_osc_fixture_from_live_tmux | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a broadened strip_ansi on the monitor hot path could swallow visible text | desc: Capture a real OSC-8-bearing pane with tmux capture-pane -p -e and freeze those exact bytes as the tests/test_ansi_utils.py fixture, asserting both markup removal and visible-text survival, and confirming the check fails against the current CSI-only strip first.
 - timing: post-phase | name: parity_test_shadow_strip_mirror | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the bash sed mirror of strip_ansi has no automated coverage and can drift from the Python implementation silently | desc: Add tests/test_shadow_strip_ansi.sh driving the aitask_shadow_capture.sh - stdin seam over the shared real-tmux fixture plus BEL/unterminated/CSI cases, asserting parity against the live Python strip_ansi and absolute properties on the fixture. Confirmed by the user in chat.
-- timing: after | name: verify_trust_dialog_live | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement — the workspace-trust dialog cannot be reproduced in this session, so claude_trust_folder ships unverified against the real widget | desc: Run a code agent for the first time in an untrusted scratch folder inside the framework tmux session and confirm ait monitor / ait minimonitor render PROMPT for that pane with awaiting_input_kind claude_trust_folder.
+- timing: after | name: verify_trust_dialog_live | type: manual_verification | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement — the workspace-trust dialog cannot be reproduced in this session, so claude_trust_folder ships unverified against the real widget | desc: Run a code agent for the first time in an untrusted scratch folder inside the framework tmux session and confirm ait monitor / ait minimonitor render PROMPT for that pane with awaiting_input_kind claude_trust_folder. | created: t1477
 
 ## Final Implementation Notes
 
