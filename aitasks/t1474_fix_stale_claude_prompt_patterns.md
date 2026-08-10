@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:19
-updated_at: 2026-08-10 16:27
+updated_at: 2026-08-10 18:20
 ---
 
 ## Origin
@@ -65,3 +68,8 @@ Retire or re-target `claude_proceed` to the wording it is meant to catch, add a
 Note `awaiting_input_kind` reaches the applink wire (`applink/pusher.py:420-421`),
 so document any value change. Coordinate with t1467, which owns the
 Codex/OpenCode prompt-surface inventory.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T15:20:59Z status=pass attempt=1 type=human
