@@ -90,14 +90,62 @@ Three properties are load-bearing:
   shells out to git if something survives it, so the common no-witness case
   costs archival nothing.
 
-**Deliberately ledger-only surfaces.** `archive_status_from_text()` (the
-content-level twin used by `stats_data.py`'s active-task scan and
-`trail_gather.py`), `read_task_gate_state()` (the board / monitor badge),
-`deps-unblock` and `gates unlocked` all skip the re-validation: they run per-task
-across many tasks per refresh, where a git subprocess each is not affordable. A
-task whose only unmet gate is a stale signature therefore reads archivable on
-those surfaces and blocked at the enforcing one. Closing that gap with a
-once-per-refresh digest is tracked separately.
+### Which surfaces re-validate (t1416)
+
+t1409 wired the re-validation into the two enforcing surfaces and left four
+read-side ones ledger-only on a single cost argument ("a git subprocess per task
+per refresh"). t1416 measured that cost and decided the split **per surface** —
+the four turned out not to be alike.
+
+| Surface | Re-validates? | Why |
+|---|---|---|
+| `Engine._read_state()` (`ait gates run`) | **yes** | The write-side enforcer. Threads the engine's per-run digest. |
+| `archive_status(file, registry)` (`archive-ready`) | **yes** | The read-side archival guard; lazy digest. |
+| `gate_orchestrator.unlocked()` (`ait gates unlocked`) | **yes** | One-shot, single-task, human-invoked — there is no per-task loop, so the affordability argument never applied. Costs at most one digest. |
+| `read_task_gate_state(file, registry, digest)` (board) | **yes** | The board threads a **once-per-refresh** memo (`TaskManager.code_digest_for_refresh`), so a refresh costs exactly one digest no matter how many tasks are signed — and zero when none are. |
+| `deps-unblock` (`ait ls`) | **yes** | A *semantics* decision, not a cost one — see [[dependency-unblock-semantics]]. |
+| `archive_status_from_text()` (stats, trail) | **no — ratified** | Below. |
+| monitor / minimonitor compact gate column | **no — ratified** | Below. |
+
+**The two ratified ledger-only surfaces**, for reasons that are contractual
+rather than merely economic:
+
+- **`archive_status_from_text()`** is a **pure-text** function — no filesystem, no
+  registry, no task id — which is the entire reason it exists beside
+  `archive_status`. Re-validation needs all three, so threading a digest would
+  not extend it but replace it. More decisively, `trail_gather.task_record()`
+  hashes its verdict (`gates_pending`) into the trail's `input_digest` staleness
+  key: a code-state-dependent verdict would flip every trail's staleness result
+  on unrelated commits, turning a correctness fix into a correctness regression.
+- **The monitor's compact gate column** calls `read_task_gate_state` with **no
+  registry**, so it cannot classify a human gate at all. Its cache is keyed on
+  the *task file*'s `(st_mtime_ns, st_size)`, and a code change does not touch
+  that file — so a digest-sensitive verdict would need the digest in the cache
+  key, recomputed on every 3 s tick, undoing the t1111_1 optimization that
+  removed the per-tick cache clear. It also runs cross-project, where the
+  cwd-relative witness path resolves elsewhere.
+
+A task whose only unmet gate is a stale signature therefore still reads
+archivable on those two, and blocked at the enforcing one. That is now a stated
+contract with named reasons, not an untracked gap.
+
+**Enforcement.** `tests/test_gate_ledger_only_surfaces.py` is a drift guard: it
+scans `.aitask-scripts/` for ledger-only consumers and fails unless each is
+registered with a reason, so the split cannot grow silently. Because the guard is
+syntactic, it also treats any **re-binding** of a watched function (aliased
+import, assignment, `map`/`partial` use, `getattr` on the gate modules) as a
+finding — and the paired production convention is that
+`archive_status_from_text` and `read_task_gate_state` are **called directly,
+never aliased or indirected**. `tests/test_gate_stale_witness_parity.sh` pins the
+flip on the three surfaces that now re-validate, each with its own single-mutation
+negative control.
+
+**Cost, measured (t1416).** `code_digest()` ≈ 5 ms on the framework repo. The
+no-git pre-filter in `stale_signed_gates()` means a task with no stamped witness
+pays ~2 µs, so the added cost is linear in the number of *signed* tasks, not in
+the task count: +2.2% on `ait ls` at 50 signed tasks (crossing +10% around 230,
+where the caller should thread the digest), and exactly one digest per board
+refresh at any number.
 
 ## Deferred-archival state contract
 

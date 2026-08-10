@@ -18,7 +18,8 @@
 #   status <task-id>                             Print derived per-gate state
 #   list   <task-id>                             List declared gates (+ registry)
 #   deps-unblock <task-id>                       Decide if this task releases its
-#                                                dependents (t635_3; python-only)
+#                                                dependents (t635_3; python-only;
+#                                                re-validates signatures, t1416)
 #   archive-ready <task-id>                      Decide if this task may archive
 #                                                (t635_4; python-only)
 #   resume-point <task-id>                       Derive task-workflow re-entry
@@ -559,12 +560,25 @@ cmd_list() {
 
 # deps-unblock: decide whether this task releases its dependents (t635_3).
 # Python-only: the decision combines the registry `blocks_dependents` flag, the
-# per-task `also_blocks_dependents` list, and ledger derivation. It is a new,
-# low-frequency decision (only on `ait ls`, only for gated active tasks), so it
-# delegates to lib/gate_ledger.py rather than re-implementing the registry-flag
-# + two-list logic in awk. Prints one of: SATISFIED | BLOCKED:<csv> | NO_GATES.
-# If python is unavailable, degrades to NO_GATES so callers fall back to today's
+# per-task `also_blocks_dependents` list, and ledger derivation, so it delegates
+# to lib/gate_ledger.py rather than re-implementing the registry-flag + two-list
+# logic in awk. Prints one of: SATISFIED | BLOCKED:<csv> | NO_GATES. If python is
+# unavailable, degrades to NO_GATES so callers fall back to today's
 # file-existence behavior.
+#
+# NOT low-frequency, despite what this comment used to claim: `aitask_ls.sh`
+# invokes it as ONE SUBPROCESS PER gated active task on every `ait ls` (307 of
+# them, ~47ms each, in the framework repo itself). Batching that fan-out is
+# tracked separately; anything added on this path is multiplied by N.
+#
+# Since t1416 the decision also RE-VALIDATES a code-bound signature: a required
+# gate whose ledger reads `pass` but whose witness was signed against different
+# code counts as unsatisfied, because `review_approved` / `merge_approved` are
+# both `blocks_dependents: true` and the two code-bound gates — a dependent must
+# not build on code the reviewer never approved. Cost is bounded by the no-git
+# pre-filter: a task with no stamped witness pays nothing (~2us), and only a
+# witness-carrying task shells out to git (~5ms). Linear in the number of SIGNED
+# tasks, not in N.
 cmd_deps_unblock() {
     local task_id="${1:-}"
     [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh deps-unblock <task-id>"
@@ -1187,7 +1201,9 @@ Commands:
         pending), or NO_GATES (no required-to-unblock gates → caller falls back
         to file-existence). "Required" = declared gates flagged
         `blocks_dependents` in the registry, plus the task's
-        `also_blocks_dependents` list.
+        `also_blocks_dependents` list. A required gate whose ledger reads `pass`
+        but whose code-bound signature is stale counts as NOT satisfied (t1416),
+        so BLOCKED can name a gate that `status` still shows as passing.
 
   archive-ready <task-id>
         Decide whether this task may archive (t635_4). Prints ALL_PASS (every

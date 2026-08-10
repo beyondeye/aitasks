@@ -343,9 +343,11 @@ class Engine:
         # re-pend itself is then done by `_handle_human`'s existing `stale`
         # branch, so there is no second append site. `runs_by_gate` is left
         # intact: retry budgets and the stopping heuristic are unaffected.
-        for g in gl.stale_signed_gates(active, self.registry, state,
-                                       self.task_id, self.digest):
-            del state[g]
+        # The demotion is `gl.demote_stale_signed` (t1416) rather than an inline
+        # loop, so this enforcing path and the read-side surfaces share ONE
+        # implementation instead of agreeing copies.
+        state, _stale = gl.demote_stale_signed(active, self.registry, state,
+                                               self.task_id, self.digest)
         return active, state, _runs_by_gate(runs)
 
     def _run_machine_gate(self, gate: str, runs_by_gate: dict) -> None:
@@ -491,18 +493,32 @@ def run(task_file: str, task_id: str, *, gate=None, dry_run=False,
     return rc, reports
 
 
-def unlocked(task_file: str, registry_file=DEFAULT_REGISTRY) -> list[str]:
-    """The unlocked set, LEDGER-ONLY: unlike :meth:`Engine._read_state` this does
-    not re-validate code-bound signatures (t1409), so a gate whose signature has
-    gone stale is still reported satisfied here. This verb is introspection
-    (``ait gates unlocked``); the enforcing path is ``Engine.run``."""
+def unlocked(task_file: str, registry_file=DEFAULT_REGISTRY,
+             current_digest=gl._COMPUTE_DIGEST) -> list[str]:
+    """The unlocked set for ``ait gates unlocked``.
+
+    Re-validates code-bound signatures exactly as :meth:`Engine._read_state`
+    does (t1416), through the same ``gl.demote_stale_signed`` seam — so this
+    introspection verb cannot disagree with the enforcing ``Engine.run`` about
+    which gates are outstanding. It was left ledger-only by t1409 on an
+    affordability argument borrowed from the per-task TUI surfaces, but that
+    argument never applied here: this is a one-shot, single-task, human-invoked
+    verb, so re-validation costs at most one ``code_digest()`` — and nothing at
+    all unless the task carries a stamped witness.
+
+    Read-only, like every other introspection verb: a stale signature makes the
+    gate appear unlocked (work to do), and recording the resulting ``pending``
+    remains ``ait gates run``'s job alone.
+    """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
     active = gl.read_active_gates_from_text(text)  # enforced set (t635_33)
     registry = gl.read_registry(registry_file)
-    state = {r.name: r for r in gl.parse_gate_run_blocks(text)}
-    runs_by_gate = _runs_by_gate(gl.parse_gate_run_blocks(text))
-    return compute_unlocked(active, registry, state, runs_by_gate)
+    runs = gl.parse_gate_run_blocks(text)          # parse ONCE, feed both views
+    state = {r.name: r for r in runs}
+    state, _stale = gl.demote_stale_signed(
+        active, registry, state, gl.task_id_from_file(task_file), current_digest)
+    return compute_unlocked(active, registry, state, _runs_by_gate(runs))
 
 
 # --- CLI ------------------------------------------------------------------

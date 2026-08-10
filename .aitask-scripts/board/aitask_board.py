@@ -87,6 +87,11 @@ CODEAGENT_FAILURE_NOTICE = (
 )
 
 
+# "No digest resolved yet this refresh" — distinct from a resolved ``None``,
+# which is the real answer "freshness is unverifiable" (t1416).
+_DIGEST_UNSET = object()
+
+
 @dataclass
 class GateStateResult:
     state: gate_ledger.TaskGateState | None = None
@@ -106,6 +111,10 @@ class InFlightItem:
     blockers: list[str] = field(default_factory=list)
     state_error: str = ""
     has_ledger: bool = False
+    # Ledger-pass human gates whose code-bound signature no longer binds (t1416).
+    # Distinct from human_gates, which reports ledger truth: these DID pass, and
+    # need re-signing rather than a first signature.
+    stale_signed: list[str] = field(default_factory=list)
 
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
@@ -1145,6 +1154,12 @@ class TaskManager:
         self.gate_state_cache: dict[str, GateStateResult] = {}
         self.gate_registry_cache: dict[str, dict] | None = None
         self.gate_registry_error = ""
+        # Repo-global code digest, computed at most once per refresh cycle and
+        # ONLY if some task actually carries a signed gate witness (t1416).
+        # Shares clear_gate_cache() with gate_state_cache deliberately: a second,
+        # independent lifetime is how a digest ends up pinned for the whole
+        # process, which would make a stale approval read valid until restart.
+        self.gate_digest_cache: object | str | None = _DIGEST_UNSET
         # (signature, topic_lanes, ungrouped) for the by-topic build; None = cold.
         # Sort-mode switches and refocus refreshes re-sort this cached build
         # instead of re-bucketing every task. Invalidated by content signature
@@ -1525,6 +1540,34 @@ class TaskManager:
         self.gate_state_cache.clear()
         self.gate_registry_cache = None
         self.gate_registry_error = ""
+        # MUST stay in this method (t1416). The digest is repo-global rather than
+        # per-task, so a lifetime longer than one refresh cycle is not a cache
+        # miss — it silently freezes every signature verdict until the process
+        # restarts. Keeping it here means it can only outlive the gate state it
+        # is derived alongside if someone deletes this line.
+        self.gate_digest_cache = _DIGEST_UNSET
+
+    def code_digest_for_refresh(self) -> str | None:
+        """Repo code digest, computed once per refresh; ``None`` if unavailable.
+
+        Passed to ``read_task_gate_state`` as a **callable** so it is invoked
+        lazily — only when some task's cheap no-git pre-filter finds a stamped
+        witness. A board rendering 300 tasks with no signed gates never shells
+        out to git; one with signed gates shells out exactly once per refresh.
+
+        Total by contract: ``gate_ledger._resolve_digest`` deliberately does not
+        catch, so a raising provider would propagate into the render. Mirrors
+        :meth:`gate_registry`'s fail-closed shape — an unavailable digest becomes
+        ``None``, which the classifier resolves to *accept* (never a guessed
+        stale).
+        """
+        if self.gate_digest_cache is not _DIGEST_UNSET:
+            return self.gate_digest_cache  # type: ignore[return-value]
+        try:
+            self.gate_digest_cache = gate_ledger.code_digest()
+        except Exception:
+            self.gate_digest_cache = None
+        return self.gate_digest_cache  # type: ignore[return-value]
 
     def gate_registry(self) -> dict[str, dict]:
         """Read gates.yaml once per refresh; missing/invalid registry is safe."""
@@ -1547,8 +1590,12 @@ class TaskManager:
         has_ledger = False
         try:
             has_ledger = gate_ledger.has_gate_markers(task.content or "")
+            # The BOUND METHOD, not its value: passing the memo itself keeps the
+            # digest lazy (never computed for a board with no signed witnesses)
+            # while capping it at one computation per refresh (t1416).
             state = gate_ledger.read_task_gate_state(
-                str(task.filepath), str(GATES_REGISTRY_FILE)
+                str(task.filepath), str(GATES_REGISTRY_FILE),
+                self.code_digest_for_refresh
             )
             result = GateStateResult(state=state, has_ledger=has_ledger)
         except Exception as exc:
@@ -1603,7 +1650,16 @@ class TaskManager:
         if not state or not state.current:
             return "no recorded gates"
         parts = []
+        stale = set(state.stale_signed)
         for run in state.current.values():
+            if run.name in stale:
+                # Both facts, never one without the other (t1416): the ledger
+                # really does read `pass`, AND that signature no longer binds
+                # the current code. Showing only the ledger is the disagreement
+                # this surface exists to remove; showing only "stale" would hide
+                # that it was ever approved.
+                parts.append(f"⚠ {run.name}:{run.status} (stale signature)")
+                continue
             parts.append(f"{run.icon} {run.name}:{run.status}")
         return "  ".join(parts)
 
@@ -1660,6 +1716,14 @@ class TaskManager:
         elif not result.has_ledger:
             group = "agent"
             next_action = "No gate information yet — pick/resume"
+        elif state and state.stale_signed:
+            # Ahead of the ALL_PASS branch on purpose (t1416). The demotion has
+            # already flipped archive_decision to BLOCKED, so ALL_PASS no longer
+            # fires — but "blocked" alone would send the user looking for a gate
+            # that never ran. The action is to RE-SIGN an approval that has been
+            # invalidated by a code change, so say that.
+            group = "human"
+            next_action = "awaiting re-sign: " + ", ".join(state.stale_signed)
         elif state and state.archive_decision == "ALL_PASS":
             group = "human"
             next_action = "all gates pass — archive/re-enter"
@@ -1690,6 +1754,7 @@ class TaskManager:
             blockers=blockers,
             state_error=result.error,
             has_ledger=result.has_ledger,
+            stale_signed=list(state.stale_signed) if state else [],
         )
 
     def get_inflight_items(self) -> list[InFlightItem]:
@@ -8001,6 +8066,34 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.manager.get_parent_num_for_child(child), []).append(child)
         return index
 
+    def _any_child_matches(self, task, visible, search: str,
+                           child_index) -> bool:
+        """Whether ANY child of `task` passes the filter (t1469).
+
+        THE single child-aware primitive: the group-header rule
+        (`_group_header_matches`) and the parent-card rule (`apply_filter`'s unit
+        loop) are both "matches itself OR this returns True", so a change here
+        moves them together instead of letting them diverge — which is exactly
+        how the ungrouped case was left broken when t1243_9 fixed the header.
+
+        The FULL `task_matches_filter` predicate is applied to the child — base
+        set AND search, not search alone. A parent is therefore re-admitted only
+        by a child the current view would actually show, which is what makes
+        "a visible `↳` row always has a visible parent above it" hold for every
+        filter dimension rather than for search alone.
+
+        `child_index` is the per-pass `_children_by_parent()` map. The empty-map
+        fast path is what keeps a childless board from paying a filename parse
+        per card on the per-keystroke path.
+        """
+        if not child_index:
+            return False
+        num, _ = TaskCard._parse_filename(task.filename)
+        if not num:
+            return False
+        return any(task_matches_filter(c, visible, search)
+                   for c in child_index.get(num, ()))
+
     def _group_header_matches(self, header, visible, search: str,
                               child_index) -> bool:
         """A header is visible iff >= 1 member — or >= 1 member's CHILD — matches.
@@ -8011,23 +8104,24 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         group's mount none, but the member DATA answers either way.
 
         CHILD-AWARE because `Task.search_haystack` is `"<filename> <metadata>"` —
-        a parent's corpus does NOT contain its children's text. `_filter_units`
-        includes expanded child cards, so a member-only rule would hide the
-        header while leaving a matching `↳` child row visible underneath it.
+        a parent's corpus does NOT contain its children's text. The child half is
+        delegated to `_any_child_matches`, which `apply_filter`'s parent-card
+        rule also calls: since t1469 a header and the parent card underneath it
+        answer to the same formula, so neither can be made child-aware without
+        the other.
 
-        `child_index` is built at most once per pass by the caller. Members are
-        tested first and short-circuit, so the child lookups only run for a group
-        whose own members all failed.
+        `child_index` is a ZERO-ARG CALLABLE that builds the per-pass index on
+        first use and memoizes it (t1469). Members are tested first and
+        short-circuit, so it is invoked only for a group whose own members all
+        failed — which is what keeps a header-bearing board with no filter
+        active from paying for the walk at all.
         """
         members = header.members
         if any(task_matches_filter(m, visible, search) for m in members):
             return True
-        for member in members:
-            num, _ = TaskCard._parse_filename(member.filename)
-            if num and any(task_matches_filter(c, visible, search)
-                           for c in child_index.get(num, ())):
-                return True
-        return False
+        index = child_index()
+        return any(self._any_child_matches(m, visible, search, index)
+                   for m in members)
 
     def apply_filter(self, cols: set | None = None):
         """Apply base filter ∩ active add-ons ∩ search.
@@ -8040,6 +8134,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         a move can only change what the columns it touched display. A scoped pass must
         never flip a placeholder in an untouched column: the cards backing that
         decision were not re-evaluated, so `cols_with_visible` says nothing about it.
+
+        **A parent card is CHILD-AWARE (t1469):** it is shown when it matches
+        itself *or* when any of its children passes the composed predicate. That
+        overrides EVERY dimension, base filters included — a parent
+        `_free_visible_set` excluded is re-admitted by a child that view would
+        show. The four `_*_visible_set` helpers therefore compute membership but
+        no longer decide alone what renders.
+
+        **Scope of the invariant this buys.** What becomes derivable is *a
+        visible `.child-wrapper` row always has a visible parent card above it*,
+        and that row shape exists only in `KanbanColumn.task_block`. By-Topic and
+        By-Trail mount a child as an ordinary top-level card whose parent may not
+        be in the lane or wave at all; the rescue still shows a parent that IS
+        mounted there, but no parent-visibility invariant is claimed for them.
         """
         if self.base_filter in ("inflight", "bytopic", "bytrail"):
             visible = None
@@ -8058,9 +8166,26 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             type_set = self._type_visible_set()
             visible = type_set if visible is None else visible & type_set
 
+        # `_children_by_parent()` is built AT MOST ONCE per pass and only when a
+        # decision needs it: a unit that matched its own corpus never reaches a
+        # child lookup, so a board with no filter active still pays nothing.
+        index_cache = []
+
+        def child_index():
+            if not index_cache:
+                index_cache.append(self._children_by_parent())
+            return index_cache[0]
+
         cols_with_visible = set()
         for unit in self._filter_units(cols):
             v = task_matches_filter(unit.task_data, visible, self.search_filter)
+            # A child unit is never rescued: children have no children, and in
+            # By-Topic / By-Trail child tasks mount as top-level cards. Read with
+            # `getattr` for the same reason `set_unit_display` does — a future
+            # non-TaskCard unit needs no branch added here.
+            if not v and not getattr(unit, "is_child", False):
+                v = self._any_child_matches(unit.task_data, visible,
+                                            self.search_filter, child_index())
             set_unit_display(unit, v)
             if v:
                 cols_with_visible.add(unit.column_id)
@@ -8071,11 +8196,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # would contribute nothing, wrongly show its EmptyColumnPlaceholder, and
         # end up with TWO focus anchors.
         #
-        # Materialized so the child index is built AT MOST ONCE per pass, and
-        # only when a header is actually in scope — no board renders a header
-        # until some task carries `boardgroup`, so this block is free until then.
+        # Shares the unit loop's lazy index (t1469) — the builder is passed in
+        # rather than its result, so a header whose own members match never
+        # triggers the walk, and a grouped board pays for at most one.
         headers = list(self._filter_group_headers(cols))
-        child_index = self._children_by_parent() if headers else {}
         for header in headers:
             v = self._group_header_matches(header, visible, self.search_filter,
                                            child_index)
@@ -8113,6 +8237,10 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         When a *child* is busy, also include the parent and all siblings —
         preserves the existing context-view UX (see what's in flight + its
         surrounding work). Inverse of `_free_visible_set()` at the leaf level.
+
+        Membership only: `apply_filter`'s child-aware rule can still SHOW a
+        parent this set excludes, when one of its children is in it — see
+        `_any_child_matches` (t1469).
         """
         visible = set()
 
@@ -8140,6 +8268,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Children: shown when the child itself is not busy.
         Parents: shown only when the parent itself is not busy AND no child
         is busy.
+
+        Membership only: `apply_filter`'s child-aware rule can still SHOW a
+        parent this set excludes, when one of its children is in it — see
+        `_any_child_matches` (t1469). A busy parent whose children are free
+        therefore does render in this view, above those children.
         """
         visible = set()
 
@@ -8159,7 +8292,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return visible
 
     def _git_visible_set(self) -> set:
-        """Tasks visible in git/integration view."""
+        """Tasks visible in git/integration view.
+
+        Membership only: `apply_filter`'s child-aware rule can still SHOW a
+        parent this set excludes, when one of its children is in it — see
+        `_any_child_matches` (t1469).
+        """
         visible = set()
         for filename, task in self.manager.task_datas.items():
             if task.metadata.get('issue') or task.metadata.get('pull_request'):
@@ -8170,7 +8308,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return visible
 
     def _type_visible_set(self) -> set:
-        """Tasks visible in issue-type view (matches selected types)."""
+        """Tasks visible in issue-type view (matches selected types).
+
+        Membership only: `apply_filter`'s child-aware rule can still SHOW a
+        parent this set excludes, when one of its children is in it — see
+        `_any_child_matches` (t1469).
+        """
         selected = set(self.manager.settings.get("filter_issue_types", []))
         if not selected:
             return set()

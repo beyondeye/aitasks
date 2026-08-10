@@ -75,6 +75,15 @@ SATISFIED_STATUSES = frozenset({"pass", "skip"})
 # `pending` are in-progress bookkeeping and never advance the attempt counter
 # (t1262). Mirrors TERMINAL_STATUSES in aitask_gate.sh.
 TERMINAL_STATUSES = frozenset({"pass", "fail", "skip", "error"})
+
+# Sentinel distinguishing "no digest supplied — compute one lazily" from an
+# explicitly supplied ``None`` (which means "unverifiable", a real answer).
+# Lives up here with the other module constants rather than beside the digest
+# helpers below because several functions take it as a DEFAULT ARGUMENT, and
+# defaults are evaluated at def time — a definition further down the module is a
+# NameError at import (t1416).
+_COMPUTE_DIGEST = object()
+
 ICONS = {
     "pass": "✅",     # ✅
     "fail": "❌",     # ❌
@@ -145,6 +154,15 @@ class TaskGateState:
     (failed-gate classification, pending-human-gate detection, compact counts)
     must key off the active set — historical runs of filtered gates stay
     visible in ``status_text`` audit-only, never driving a classification.
+
+    ``stale_signed`` (t1416) is the separate fact that a ledger-``pass`` human
+    gate's code-bound witness no longer binds the current code. ``current``
+    deliberately keeps the RAW ledger run for such a gate — the ledger really
+    does say ``pass``, and rewriting it here would make the count silently drop
+    with nothing to explain the drop — while ``archive_decision`` and
+    ``dependents_decision`` ARE derived with the stale gates demoted. A surface
+    rendering gate state should show the two facts together ("pass, signature
+    stale"), never one without the other.
     """
 
     task_file: str
@@ -159,6 +177,7 @@ class TaskGateState:
     resume_point: str
     active_gates: list[str] = field(default_factory=list)
     filtered_gates: list[str] = field(default_factory=list)
+    stale_signed: list[str] = field(default_factory=list)
 
 
 def _normalize_body_key(label: str) -> str:
@@ -350,19 +369,31 @@ def compact_gate_summary(state: TaskGateState) -> str:
     runs are recorded, so callers can show no column for ungated tasks.
     Example output: ``"3/4 pass, 1 pending"``, ``"2/2 pass"``, or
     ``"1/3 pass, 1 pending, 1 failed"``.
+
+    A gate on ``state.stale_signed`` (t1416) is counted as ``stale``, not
+    ``pass``: its ledger says ``pass`` but its code-bound signature no longer
+    binds, and the archival guard blocks on it — so counting it as passing would
+    reproduce the exact disagreement this column exists to avoid. Renders e.g.
+    ``"3/4 pass, 1 stale"``. Inert for callers that pass no registry (they never
+    populate ``stale_signed``).
     """
     runs = [r for r in state.current.values() if r.name not in state.filtered_gates]
     if not runs:
         return ""
+    stale = set(state.stale_signed)
     total = len(runs)
-    n_pass = sum(1 for r in runs if r.status == "pass")
-    n_fail = sum(1 for r in runs if r.status in ("fail", "error"))
-    n_pending = total - n_pass - n_fail
+    n_stale = sum(1 for r in runs if r.name in stale)
+    n_pass = sum(1 for r in runs if r.status == "pass" and r.name not in stale)
+    n_fail = sum(1 for r in runs if r.status in ("fail", "error")
+                 and r.name not in stale)
+    n_pending = total - n_pass - n_fail - n_stale
     parts = [f"{n_pass}/{total} pass"]
     if n_pending:
         parts.append(f"{n_pending} pending")
     if n_fail:
         parts.append(f"{n_fail} failed")
+    if n_stale:
+        parts.append(f"{n_stale} stale")
     return ", ".join(parts)
 
 
@@ -1308,7 +1339,8 @@ def _dependents_status_from_state(declared: list[str], also: list[str],
     return ("BLOCKED", pending) if pending else ("SATISFIED", [])
 
 
-def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, list[str]]:
+def dependents_status(task_file: str, registry_file: str | None,
+                      current_digest=_COMPUTE_DIGEST) -> tuple[str, list[str]]:
     """Decide whether ``task_file`` releases its dependents.
 
     Reads the ENFORCED active set (t635_33) — a profile-filtered gate must not
@@ -1328,6 +1360,23 @@ def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, l
       - ``("SATISFIED", [])``  — every required gate has derived status ``pass``;
         dependents may proceed even while non-required gates still pend.
       - ``("BLOCKED", pending)`` — one or more required gates are not ``pass``.
+
+    **Witness re-validation (t1416).** A required gate whose ledger says ``pass``
+    but whose code-bound signature is stale counts as NOT satisfied. This is a
+    semantics decision, not just a cost one: ``review_approved`` / ``merge_approved``
+    are exactly the two gates flagged ``blocks_dependents: true`` AND the two that
+    carry a code-bound witness, so a signature against different code is not an
+    approval of the code a dependent would build on. The demotion runs over the
+    **required** set (registry-flagged declared gates ∪ ``also_blocks_dependents``),
+    so an ``also_blocks_dependents`` entry is re-validated too.
+
+    **Cost.** The no-git pre-filter means a task without a stamped witness costs
+    nothing (~2 µs). Measured on the framework repo (t1416): each witness-carrying
+    task adds one ~5 ms ``code_digest()``. Because ``ait ls`` runs this as one
+    subprocess PER task, the lazy default cannot amortize across tasks — the added
+    cost is linear in W (tasks carrying a signature), ~+2.2% at W=50 and crossing
+    +10% at W≈230. Beyond that, thread the digest in from the caller
+    (``current_digest``); the batched-``deps-unblock`` follow-up subsumes it.
     """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
@@ -1335,8 +1384,12 @@ def dependents_status(task_file: str, registry_file: str | None) -> tuple[str, l
     also = _read_frontmatter_list_from_text(text, "also_blocks_dependents")
     also_effective = [g for g in also if g not in filtered]
     registry = read_registry(registry_file) if registry_file else {}
+    state = derive_gate_runs(text)
+    effective, _stale = demote_stale_signed(
+        required_unblock_gates(active, also_effective, registry), registry,
+        state, task_id_from_file(task_file), current_digest)
     return _dependents_status_from_state(active, also_effective, registry,
-                                         derive_gate_runs(text))
+                                         effective)
 
 
 # --- Code-state digest + human-gate signal witness (t635_15, t1409) -------
@@ -1353,9 +1406,33 @@ _DIGEST_EXCLUDES = [":(exclude)aitasks/**", ":(exclude)aiplans/**",
 
 _TASK_ID_RE = re.compile(r"^t(\d+(?:_\d+)?)_")
 
-# Sentinel distinguishing "no digest supplied — compute one lazily" from an
-# explicitly supplied ``None`` (which means "unverifiable", a real answer).
-_COMPUTE_DIGEST = object()
+def _resolve_digest(current_digest):
+    """Resolve the four-state digest channel to ``str | None`` (t1416).
+
+    The channel carries four DISTINCT things, and the branch order below is
+    load-bearing:
+
+    1. ``_COMPUTE_DIGEST`` (the default) — nothing supplied; compute one now.
+    2. a **callable** — a caller's once-per-refresh memo. Invoked here, which is
+       only ever reached AFTER the no-git pre-filter found a candidate, so a
+       board that renders 300 ungated tasks never triggers a git subprocess.
+    3. a ``str`` — an already-computed digest, used as-is.
+    4. ``None`` — freshness is **unverifiable** (no git / no commits). This is a
+       real answer, not a missing one: :func:`witness_state` resolves it to
+       ``unstamped`` (accept). It must be tested BEFORE any truthiness check —
+       ``callable(None)`` is ``False``, so the ordering here is what keeps
+       "cannot check" from being silently re-read as "compute it".
+
+    Deliberately does NOT catch exceptions from a provider. Making a provider
+    total is the provider's job (see ``aitask_board.TaskManager
+    .code_digest_for_refresh``); swallowing here would reinterpret a caller bug
+    as "unverifiable" and quietly accept a signature nobody validated.
+    """
+    if current_digest is _COMPUTE_DIGEST:
+        return code_digest()
+    if callable(current_digest):
+        return current_digest()
+    return current_digest
 
 
 def _git(args: list[str], cwd: str) -> str | None:
@@ -1489,10 +1566,16 @@ def stale_signed_gates(active: list[str], registry: dict[str, dict],
     and never writes a witness — and ``unstamped`` stays accepted for backward
     compatibility. Returns the offending gates in ``active`` order.
 
-    ``current_digest`` defaults to computing :func:`code_digest` **lazily**, and
-    only when the no-git pre-filter finds at least one stamped witness: this
-    function runs on every archival readiness check, and the overwhelmingly
-    common case (no witness files at all) must cost no subprocesses.
+    ``current_digest`` is the four-state channel documented on
+    :func:`_resolve_digest`: the ``_COMPUTE_DIGEST`` default computes
+    :func:`code_digest` **lazily**, a callable is a caller's once-per-refresh
+    memo invoked just as lazily, a ``str`` is used as-is, and ``None`` means
+    unverifiable (accept). Resolution happens only after the no-git pre-filter
+    finds at least one stamped witness: this function runs on every archival
+    readiness check and on every per-task TUI/`ait ls` decision, and the
+    overwhelmingly common case (no witness files at all) must cost no
+    subprocesses. Measured (t1416): 2 µs/task with no witness, versus one
+    ~5 ms `code_digest()` when a witness is present.
     """
     candidates = [g for g in active
                   if _gate_satisfied(state, g)
@@ -1500,10 +1583,33 @@ def stale_signed_gates(active: list[str], registry: dict[str, dict],
                   and _has_stamped_witness(g, registry, task_id)]
     if not candidates:
         return []
-    if current_digest is _COMPUTE_DIGEST:
-        current_digest = code_digest()
+    current_digest = _resolve_digest(current_digest)
     return [g for g in candidates
             if witness_state(g, registry, task_id, current_digest)[0] == "stale"]
+
+
+def demote_stale_signed(gates: list[str], registry: dict[str, dict],
+                        state: dict[str, GateRun], task_id: str,
+                        current_digest=_COMPUTE_DIGEST
+                        ) -> tuple[dict[str, GateRun], list[str]]:
+    """``(state_without_stale, stale)`` — the derived view with code-stale
+    human-gate signatures removed (t1409/t1416).
+
+    The ONE seam every consuming surface goes through, so a surface added later
+    cannot accidentally end up with a ledger-only view: the orchestrator's
+    ``Engine._read_state`` and ``unlocked()``, plus ``read_task_gate_state`` and
+    ``dependents_status``, all demote through here. (``archive_status`` composes
+    :func:`stale_signed_gates` directly because it needs the stale list merged
+    into a *declared-order* blocked list, not a filtered state map.)
+
+    Returns the ORIGINAL mapping object — not a copy — when nothing is stale, so
+    the overwhelmingly common case allocates nothing. Callers must therefore
+    treat the returned map as read-only.
+    """
+    stale = stale_signed_gates(gates, registry, state, task_id, current_digest)
+    if not stale:
+        return state, []
+    return {k: v for k, v in state.items() if k not in stale}, stale
 
 
 # --- Gate-guarded archival decision (t635_4) ------------------------------
@@ -1591,12 +1697,30 @@ def archive_status_from_text(text: str) -> tuple[str, list[str]]:
     fork (D6). Reads the ENFORCED active set (t635_33): a profile-filtered
     gate can never block archival.
 
-    The ledger-only scope is deliberate (t1409). Its consumers —
-    ``stats_data.py``'s active-task scan and ``trail_gather.py`` — are analytics
-    passes over many tasks at once, and the freshness check needs a git
-    subprocess; the ENFORCING decision is :func:`archive_status` with a registry,
-    which every archival path goes through. A task whose only unmet gate is a
-    stale signature therefore reads as archivable *here* and blocked *there*.
+    **The ledger-only scope is RATIFIED (t1416), and the reasons are contractual,
+    not merely cost.** t1416 re-validated the signature on the other three
+    ledger-only surfaces (``read_task_gate_state``, ``deps-unblock``,
+    ``gate_orchestrator.unlocked``); this one stays ledger-only because:
+
+    1. **It is a pure-text contract.** No filesystem, no registry, no task id —
+       that is the whole reason it exists next to :func:`archive_status`.
+       Re-validation needs all three, so threading a digest here would not extend
+       this function, it would replace it with a different one.
+    2. **Its verdict is hashed into a staleness digest.**
+       ``trail_gather.task_record()`` puts ``gates_pending`` (derived from this
+       call) into the trail's ``input_digest``. A code-state-dependent verdict
+       would flip every trail's staleness result on unrelated commits — turning a
+       correctness fix into a correctness regression.
+
+    The ENFORCING decision is :func:`archive_status` with a registry, which every
+    archival path goes through. A task whose only unmet gate is a stale signature
+    therefore reads as archivable *here* and blocked *there* — a stated contract,
+    not an oversight. The registered consumers and the guard that stops the split
+    from silently growing live in ``tests/test_gate_ledger_only_surfaces.py``; the
+    decision table is in ``aidocs/gates/gate-guarded-archival.md``.
+
+    **Call this function directly — never through an alias or indirection.** That
+    guard is syntactic, and an indirection defeats it.
     """
     return _archive_status_from_state(
         read_active_gates_from_text(text), derive_gate_runs(text))
@@ -1657,15 +1781,34 @@ def recorded_pass(task_file: str, gate: str) -> bool:
     return run is not None and run.status == "pass"
 
 
-def read_task_gate_state(task_file: str, registry_file: str | None = None) -> TaskGateState:
+def read_task_gate_state(task_file: str, registry_file: str | None = None,
+                         current_digest=_COMPUTE_DIGEST) -> TaskGateState:
     """Read a task file once and derive all gate state needed by TUIs.
 
-    ``archive_decision`` here is the LEDGER-ONLY one (``_archive_status_from_state``),
-    not :func:`archive_status`'s witness-re-validated verdict (t1409): TUIs call
-    this per task on every refresh, and the freshness check costs a git
-    subprocess. A board badge can therefore read "ready to archive" for a task
-    whose signature has gone stale; the enforcing decision at archival time
-    (``aitask_gate.sh archive-ready``) still blocks it.
+    **Witness re-validation (t1416).** ``archive_decision`` and
+    ``dependents_decision`` are derived with code-stale human-gate signatures
+    demoted, so a TUI cannot report "ready to archive" for a task the enforcing
+    guard (``aitask_gate.sh archive-ready``) would block. The offending gates are
+    reported separately on ``stale_signed``; ``current`` keeps the raw ledger.
+
+    Re-validation needs BOTH a ``registry_file`` (to know which gates are human
+    and where their witnesses live) and a resolvable digest. A caller that passes
+    **no registry is ledger-only by construction** — the monitor's
+    ``GateSummaryCache`` is deliberately such a caller, because its cache is keyed
+    on the *task file*'s ``(st_mtime_ns, st_size)`` and a code change does not
+    touch that file. That split is ratified and registered in
+    ``tests/test_gate_ledger_only_surfaces.py``; see
+    ``aidocs/gates/gate-guarded-archival.md``.
+
+    ``current_digest`` is the four-state channel of :func:`_resolve_digest`. A
+    per-task caller in a refresh loop should pass its **once-per-refresh memo**
+    (a callable) rather than the lazy default, which would compute one digest per
+    task; the no-git pre-filter means neither costs anything for a task without a
+    stamped witness.
+
+    **Call this function directly — never through an alias or indirection.** The
+    ledger-only/re-validated split is enforced by a syntactic guard, which an
+    indirection defeats.
     """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
@@ -1678,9 +1821,14 @@ def read_task_gate_state(task_file: str, registry_file: str | None = None) -> Ta
     also = _read_frontmatter_list_from_text(text, "also_blocks_dependents")
     also_effective = [g for g in also if g not in filtered]
     registry = read_registry(registry_file) if registry_file else {}
-    archive_decision, archive_pending = _archive_status_from_state(active, current)
+    # Demote code-stale signatures once, then derive BOTH decisions from the same
+    # effective view (t1416). Without a registry there are no human gates to
+    # classify, so this is a no-op and costs nothing.
+    effective, stale_signed = demote_stale_signed(
+        active, registry, current, task_id_from_file(task_file), current_digest)
+    archive_decision, archive_pending = _archive_status_from_state(active, effective)
     dep_decision, dep_pending = _dependents_status_from_state(active, also_effective,
-                                                              registry, current)
+                                                              registry, effective)
     order: list[str] = []
     seen: set[str] = set()
     for run in runs:
@@ -1700,6 +1848,7 @@ def read_task_gate_state(task_file: str, registry_file: str | None = None) -> Ta
         resume_point=_resume_point_from_state(current),
         active_gates=active,
         filtered_gates=filtered,
+        stale_signed=stale_signed,
     )
 
 

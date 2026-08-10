@@ -72,6 +72,25 @@ edge. Derived gate state uses the standard last-run-wins derivation
 `required_unblock_gates`), surfaced as `aitask_gate.sh deps-unblock <task-id>`
 (`SATISFIED` | `BLOCKED:<csv>` | `NO_GATES`), and consumed by `aitask_ls.sh`.
 
+### A code-stale signature does not release dependents (t1416)
+
+A required gate whose *ledger* reads `pass` counts as **not** satisfied when its
+code-bound witness was signed against a different code state. This is a semantics
+decision, and it falls directly out of the table below: `review_approved` and
+`merge_approved` are simultaneously the two gates flagged `blocks_dependents:
+true` **and** the two carrying a code-bound signature (`ait gate pass` stamps the
+witness with the repo's `code_digest` — see [[aitask-gate-framework]]). Those two
+facts are not a coincidence; both express "the code is now available for
+dependents to build on". A signature against different code is not an approval of
+the code the dependent would build on, so it must not release it.
+
+The demotion runs over the **required** set — registry-flagged declared gates ∪
+`also_blocks_dependents` — so a per-task addition is re-validated too, and a
+stale signature on a gate nobody flagged blocking still releases dependents
+exactly as before. Cost is bounded by the shared no-git pre-filter: a task with
+no stamped witness pays nothing. See "Which surfaces re-validate" in
+[[gate-guarded-archival]] for the full split and its measurements.
+
 ### Chain shapes (all uniform)
 
 - **Ungated upstream** (no `gates:` field) → `NO_GATES` → file-existence
