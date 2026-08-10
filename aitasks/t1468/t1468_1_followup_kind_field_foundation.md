@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_metadata, bash_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 created_at: 2026-08-10 16:28
-updated_at: 2026-08-10 16:28
+updated_at: 2026-08-10 17:27
 ---
 
 ## Context
