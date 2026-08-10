@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -12,7 +14,7 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-09 13:01
-updated_at: 2026-08-10 16:29
+updated_at: 2026-08-10 16:30
 ---
 
 A task lock held by a **live** agent session is handed to a second session
