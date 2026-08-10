@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1468
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:28
-updated_at: 2026-08-10 22:19
+updated_at: 2026-08-10 23:31
 ---
 
 ## Context
@@ -130,3 +131,8 @@ Plus:
    confirm the created file carries the right `followup_kind:` line.
 6. Confirm `upstream-followup.md`'s new `--followup-of` produces an `anchor:` on
    a real upstream-defect task.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T20:31:26Z status=pass attempt=1 type=human
