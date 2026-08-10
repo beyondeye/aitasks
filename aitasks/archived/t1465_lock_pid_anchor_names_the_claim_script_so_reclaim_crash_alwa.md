@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [crash_recovery, aitask_pick, bash_scripts]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-09 13:01
-updated_at: 2026-08-10 11:44
+updated_at: 2026-08-10 13:43
+completed_at: 2026-08-10 13:43
 ---
 
 `get_lock_pid()` anchors a task lock to a process that is guaranteed to be dead
@@ -146,3 +147,14 @@ decision), `.aitask-scripts/lib/pid_anchor.sh`,
 > **✅ gate:plan_approved** run=2026-08-10T08:44:40Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-10T10:37:09Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-10T10:43:16Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:279a69d7ca47f5f5
+
+> **✅ gate:risk_evaluated** run=2026-08-10T10:43:16Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1465/risk_evaluated_2026-08-10T10:43:16Z-risk_evaluated-a1.log`
