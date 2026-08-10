@@ -367,3 +367,95 @@ No mitigation tasks or inline phases are proposed: every identified risk is disc
 by an explicit step of this plan (the `render_phase` pin, the drift guard, the t1351
 hand-off contract, the live-capture recipe), so there is nothing left for a separate
 mitigation task to do.
+
+## Final Implementation Notes
+
+- **Actual work done:** implemented as planned, in three source files plus one new
+  test module.
+  - `.aitask-scripts/lib/workflow_phase.py` — `_UNKNOWN_TEXT` (long/narrow wording per
+    UNKNOWN cause) + `_phase_body(sig, narrow=)`; `render_phase` now composes the
+    labelled form from it (output byte-identical) and `render_phase_narrow` is the new
+    label-free variant.
+  - `.aitask-scripts/lib/gate_ledger.py` — `GATE_SUMMARY_TAIL` /
+    `_GATE_SUMMARY_SEP`; `compact_gate_summary` builds its tail through the table;
+    `abbreviate_gate_summary` reads back through it.
+  - `.aitask-scripts/monitor/minimonitor_app.py` — `_ROW_PADDING` /
+    `_DETAIL_INDENT` / `_MIN_PHASE_CELLS`, `_row_budget()` / `_detail_budget()`,
+    `_clip()`, `format_gate_phase_row()`; `_agent_card_text` emits the single merged
+    row; `_own_phase_text` switched to `render_phase_narrow`; decision 4 recorded in
+    `_own_card_text`'s docstring.
+  - `tests/test_minimonitor_gate_phase_row.py` — 33 tests in the five planned classes.
+- **Deviations from plan:** none in behaviour. Two small realizations while writing the
+  drift guard's fixture: `GateRun` takes `(name, icon, fields)` — `status` / `run_id` /
+  `attempt` are derived properties — and `TaskGateState` has ten required fields, so
+  fabricating either by keyword was the wrong shape. The fixture instead parses real
+  ledger text with `gate_ledger.read_task_gate_state` and sets `stale_signed` via
+  `dataclasses.replace`, which is both less code and independent ground truth.
+- **Issues encountered:**
+  - The first live-tmux attempt showed an empty pane list: the app's tmux gateway reads
+    `AITASKS_TMUX_SOCKET` (`lib/tmux_exec.py`), so without it the minimonitor queried
+    the shared `ait` socket instead of the throwaway one the fixture had built. Fixed by
+    exporting it into the pane's command, as `tests/test_board_header_row_live.py` does.
+  - The second attempt showed the card but no third row — a **pane-height** clip, not a
+    width problem: at `-y 30` the split left the list area exactly two rows tall. At
+    `-y 60` the merged row appears. Worth remembering: a missing bottom row in a live
+    capture is as likely to be height as it is to be the change under test.
+- **Key decisions:** all five of the task's "decisions to make" are recorded in the
+  plan above; the two the user chose interactively were decision 4 (docked panel:
+  phase-only, label-free — contract not widened) and decision 2 (shed order: abbreviate
+  the tail, then clip the **phase**, never the counts).
+- **Verification evidence:**
+  - `tests/test_minimonitor_gate_phase_row.py` — 33 passed. With the seven neighbouring
+    modules (other_section, own_mark, own_task_info, workflow_phase, gate_cache,
+    gate_summary): 128 passed. `tests/test_gate_ledger_python_parser.py`: 38/38.
+  - Negative control for the composited harness: the pre-t1479 four-line markup
+    composites to **4** non-blank rows and an over-wide row **wraps** to two — so the
+    3-row assertion and the cell budget are real discriminators, not tautologies.
+  - **Live 40-column tmux capture** (isolated socket + private `TMUX_TMPDIR`, server
+    killed on exit), window `agent-pick-1479` resolving to this task's own ledger:
+
+    ```
+     ── t1479_live ──
+     ☆ ● ≈ agent-pick-1479  Active
+       merge minimonitor gates and p…
+       IMPLEMENT · 1/1 pass
+    ```
+
+    Three rows, merged line intact, no wrap, at a real `pane_width` of 40.
+- **Upstream defects identified:**
+  - `agent_launch_utils.py:1587-1588 — tmux.minimonitor.width is read with int() and no
+    minimum/sanity validation, so a configured width of 10 (or 1) is accepted and every
+    row of the pane is built against a geometry no content can fit` — the same
+    unvalidated value is re-read at `minimonitor_app.py:2599`. Surfaced by review of
+    this task's budget helper (which was itself wrong in the other direction and is
+    fixed here); the config seam is untouched by t1479 and the gap predates it.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-10 20:20)
+
+- **Requested by user:** `_detail_budget()` clamped to a minimum of 8 cells, which
+  overstates real capacity when `tmux.minimonitor.width` is configured below 12: at
+  width 10 the true indented capacity is 6, so an 8-cell `2/2 pass` row would be
+  accepted and would wrap. Return real non-negative geometry (or validate the
+  configured width), and add a width-10 gates-only regression test.
+- **Changes made:** confirmed the defect and split the fix by ownership.
+  - `_row_budget` / `_detail_budget` now clamp at **0**, not 8, and return the true
+    `target_width − padding[ − indent]`. The docstring records why a floor is wrong
+    here: the consumers are already built for a tight budget (`_clip` answers budgets
+    0 and 1 without overshooting; `format_gate_phase_row` sheds to the bare
+    `<n>/<total>`), and a pane too narrow to say anything now renders nothing, which is
+    honest.
+  - Four regression tests added to `MergedRowLadderTests`: the helpers report real
+    geometry at width 10 (`6` / `8`) and 3 (`0`); a gates-only row at the width-10
+    budget renders `2/2` and fits; a merged row at that budget fits; a width-3 pane
+    renders `""`.
+  - **Not** done here, recorded as an upstream defect above: minimum-width validation
+    at the config seam (`agent_launch_utils.py` spawner + `minimonitor_app.py` main).
+    That value governs row 1 and the title row as well, so validating it belongs with
+    the row-width owner (t1351) / the config reader, not inside a detail-row budget.
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_minimonitor_gate_phase_row.py`.
+- **Re-verified:** 98 passed across `test_minimonitor_gate_phase_row.py` (38),
+  `test_minimonitor_other_section.py`, `test_minimonitor_own_mark.py`,
+  `test_minimonitor_own_task_info.py`.
