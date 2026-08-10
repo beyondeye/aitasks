@@ -105,6 +105,31 @@ a candidate".
      proceeding; if a threshold is crossed, say so and re-plan rather than
      restating the projection.
 
+   **RESULT (2026-08-10) — Gate 0 PASSED; lazy default shipped, fallback not
+   taken.** Within-run interleaved ablation over W=50 tasks each carrying a
+   stamped witness, with a positive control asserting the pre-filter actually
+   fires (the first run silently matched nothing — `resolve_signal_target`
+   prefixes `t` itself, so a `t0` task id looks for `.aitask-gates/tt0/`):
+
+   | arm | time (50 tasks) | `code_digest()` calls |
+   |---|---|---|
+   | lazy default (per task) | 111.8 ms | 50 |
+   | threaded (shared digest) | 2.9 ms | 1 |
+   | no witness (pre-filter only) | 0.10 ms | 0 |
+
+   `code_digest()` = 5.47 ms in this repo, 2.25 ms in the fixture. Projected:
+   - `ait ls`: +0.274 s on a 12.5 s baseline = **+2.2%** (threshold 10% ✓)
+   - board refresh: **+5.5 ms, exactly 1 call** (thresholds 50 ms / 1 call ✓)
+   - no-witness case: 2 µs/task — indistinguishable from today ✓
+
+   **Bound the measurement does not cover, recorded rather than left implicit:**
+   the `ait ls` cost scales linearly in W (each task is its own process, so the
+   lazy default cannot amortize), crossing the 10% threshold at **W≈230** — i.e.
+   a repo where nearly every gated task carries a signature. The threading
+   fallback stays available as a shell-side-only change, and the batched
+   `deps-unblock` follow-up (see Out of scope) subsumes it entirely. Noted in
+   `dependents_status`'s docstring so the bound travels with the code.
+
 1. `[guard_enforcing_path_consolidation]` Capture a baseline of the **enforcing**
    path before touching it: run `bash tests/test_gate_orchestrator.sh` and record
    the Test 9 / 9c / 9d results.
@@ -358,8 +383,18 @@ B (AST + frozen registry), modelled on `tests/test_board_persistence_seam.py:490
   `trail_gather._gates_pending`, `monitor_core.GateSummaryCache.summary_for`.
 - Scanner walks every `.aitask-scripts/**/*.py` for calls to
   `archive_status_from_text` / `_archive_status_from_state`, and for calls to
-  `read_task_gate_state` **with no registry argument** (the by-construction
+  `read_task_gate_state` **that do not supply a registry** (the by-construction
   ledger-only shape), resolving the enclosing function via a parent map.
+- **"Supplied an argument" ≠ "supplied a registry."** The callee does
+  `read_registry(registry_file) if registry_file else {}`, so
+  `read_task_gate_state(path, None)` yields an empty registry, classifies no
+  human gate, and is ledger-only — while an arity-only check (`len(args) >= 2`)
+  counts it as re-validating. That is a hole in the guard itself, so the classifier
+  is three-way: a falsy literal (`None`, `""`, `{}`) or an absent argument is a
+  **finding**; a **bare name** (which could hold `None`) is reported on the
+  undecidable channel — never registered, because "cannot tell" is a different
+  answer from "ledger-only by design"; a computed expression (`str(PATH)`, an
+  f-string) is accepted, which is where static analysis stops being sound.
   **Fails closed**: an unresolvable receiver or an unparsable file yields an
   `UNANALYSABLE:` marker that can never compare equal, and a parse error
   **raises** rather than skipping.
@@ -395,10 +430,14 @@ B (AST + frozen registry), modelled on `tests/test_board_persistence_seam.py:490
 - Anti-vacuity: assert the scan found ≥1 call site **and** that the alias pass is
   live (a synthetic alias in a temp copy is detected) — an alias check that never
   fires is indistinguishable from one that is broken.
-- Negative controls over **temp copies** of real source: (a) a new ledger-only
-  consumer injected → caught; (b) the same consumer reached through an alias →
-  caught by the alias pass, which is the control that proves concern-3 is closed
-  rather than merely documented.
+- Negative controls: (a) a new ledger-only consumer injected → caught; (b) the
+  same consumer reached through an alias → caught by the alias pass, the control
+  that proves the alias hole is closed rather than documented away; (c)
+  `read_task_gate_state(path, None)` **positionally** and (d) as
+  `registry_file=None`, plus `""` → all caught as findings; (e) a bare-name
+  registry → undecidable channel; (f) a computed registry path (the board's real
+  shape) → **not** a finding, the discriminating case that keeps the rule from
+  flagging every re-validating caller.
 - Failure message names all three remedies: *pass a registry + digest so the
   surface re-validates; register it here with a reason; or — if you aliased —
   call it directly per the convention.*
@@ -539,6 +578,58 @@ The cost probe moving *ahead* of implementation (per review) means the design ca
 still be re-planned before any surface is changed, which lowers goal-achievement
 risk. Levels: code-health **medium**, goal-achievement **low**.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-09, pre-implementation plan review)
+
+- **Requested by user:** Four concerns on the plan. (1) The board budget proved
+  ≤1 digest *within* one refresh but never proved invalidation *across* two —
+  a missed `clear_gate_cache()` path would pin a digest for the process
+  lifetime. (2) The task requires measuring before committing to the digest
+  design, but the only witness-heavy benchmark was scheduled post-implementation.
+  (3) The drift guard intentionally missed aliased consumers, so it could not
+  support the "cannot silently grow" claim. (4) The three changed public surfaces
+  were untested for digest-computation failure.
+- **Changes made:** All four verified as valid and addressed before
+  implementation. (1) The budget test became a **two-refresh** contract (code
+  mutated between refreshes; spy 1→2 **and** verdict flips; flips back on
+  re-sign) driven through both invalidation entry points, plus a
+  pinned-memo negative control. (2) `witness_heavy_cost_probe` moved from
+  post-phase to **pre-phase** with declared thresholds and a named fallback, and
+  Verification gained "Gate 0". (3) The scanner gained an alias pass (aliased
+  import, assignment, non-`Call.func` use, `getattr`) with its own anti-vacuity
+  assertion and negative control, paired with a documented call-directly
+  convention. (4) New §5c2: per-surface unverifiable-digest and raising-provider
+  cases driven through a non-git fixture.
+- **Files affected:** this plan (pre-phase, §5c, §5c2, §5d, Verification, Risk).
+
+### Change Request 2 (2026-08-10, post-implementation review)
+
+- **Requested by user:** The drift guard's `_has_registry_arg()` treated any
+  second argument or `registry_file=` keyword as proof that
+  `read_task_gate_state` re-validates. But the callee turns a falsy
+  `registry_file` into `{}`, so `read_task_gate_state(path, None)` is ledger-only
+  while the scanner ignored it — a new consumer could bypass the guard without
+  registering, violating the split-growth guarantee. Treat literal `None` (and
+  empty literals) as registryless, with negative controls for positional and
+  keyword `None`. Disposition: blocking.
+- **Changes made:** CONFIRMED by direct reproduction — same task and stale
+  witness, `registry_file=<path>` → `BLOCKED` / `stale_signed=['review']`,
+  `registry_file=None` → `ALL_PASS`. `_has_registry_arg()` was replaced by the
+  three-way `_registry_arg_kind()`: absent or falsy literal (`None`, `""`, `{}`)
+  → **finding**; bare name (may hold `None`) → **undecidable channel**, never
+  registered, because "cannot tell" is a different answer from "ledger-only by
+  design"; computed expression or non-empty literal → accepted. Negative controls
+  added for positional `None`, keyword `None`, `""`, a bare name, and — as the
+  discriminating case — a computed registry path (the board's real shape), which
+  must NOT be flagged. Note: the pre-existing
+  `test_a_registry_bearing_call_is_NOT_a_finding` had used a bare name, i.e. it
+  was asserting the buggy behaviour was acceptable; its fixture was retargeted to
+  a decidable literal rather than the new rule being relaxed. Swept for the
+  sibling hole in `archive_status()` (same falsy pattern): its only Python caller
+  is its own CLI forwarding `argv[2]`, so there is no exposure.
+- **Files affected:** `tests/test_gate_ledger_only_surfaces.py`, this plan.
+
 ## Out of scope (recorded, not silently dropped)
 
 - **`ait ls` is 12.5 s here**, essentially all of it `aitask_ls.sh:184-196`
@@ -550,3 +641,92 @@ risk. Levels: code-health **medium**, goal-achievement **low**.
 - **Monitor / minimonitor compact gate column** — ratified ledger-only with
   reasons (see Context) and registered in the drift guard; revisiting it means
   putting the digest in the `GateSummaryCache` key, which undoes t1111_1.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in the planned order.
+  1. **Pre-phase.** The cost probe ran first and PASSED its thresholds (numbers
+     recorded inline above), so the lazy per-process default shipped and the
+     cross-process threading fallback was not taken. The
+     `Engine._read_state` → `demote_stale_signed` consolidation then landed as an
+     isolated edit: `test_gate_orchestrator.sh` was 51/51 before it and 51/51
+     after, so the enforcing path was provably untouched before any new surface
+     was added.
+  2. **`lib/gate_ledger.py`** gained `_resolve_digest` (the four-state digest
+     channel), `demote_stale_signed` (the shared seam), a `stale_signed` field on
+     `TaskGateState`, a `current_digest` parameter on `read_task_gate_state` and
+     `dependents_status` with the demotion applied to their decisions, a `stale`
+     segment in `compact_gate_summary`, and a rewritten
+     `archive_status_from_text` docstring recording the ratification.
+  3. **`lib/gate_orchestrator.py`**: `_read_state` delegates to the shared seam;
+     `unlocked()` re-validates and parses the ledger once instead of twice.
+  4. **`board/aitask_board.py`**: a `gate_digest_cache` memo invalidated in
+     `clear_gate_cache`, `code_digest_for_refresh()` passed as a **bound method**
+     (lazy + once-per-refresh), an `awaiting re-sign:` In-Flight branch ahead of
+     `ALL_PASS`, a `⚠ … (stale signature)` gate-summary marker, and
+     `InFlightItem.stale_signed`.
+  5. **`aitask_gate.sh`**: corrected the `deps-unblock` comment (it is one
+     subprocess *per gated task* per `ait ls`, not "low-frequency") and recorded
+     the new re-validation plus its cost bound.
+  6. **Tests** (4 new, 1255 lines) and **docs** (3 aidocs files) as planned.
+- **Deviations from plan:** Two, both forced by the code and neither changing
+  scope.
+  - `_COMPUTE_DIGEST` had to **move to the module constant block**. It sat below
+    `dependents_status`, and default arguments are evaluated at def time, so
+    taking it as a default from an earlier function was a `NameError` at import.
+  - The plan said the board test would drive "both refresh entry points". It
+    drives `load_tasks()` and `clear_gate_cache()` directly (both real
+    `TaskManager` methods) rather than booting Textual for `refresh_board`; the
+    App-level path is covered structurally by `ClearGateCacheCallersTest`, a
+    frozen registry pinning that *exactly* `{load_tasks, refresh_board}` clear the
+    cache. Stated as a scope boundary in the module docstring.
+- **Issues encountered:**
+  - *The cost probe silently measured nothing on its first run* — 0 digest calls
+    where 50 were expected. `resolve_signal_target` prefixes `t` itself, so a
+    task id of `"t0"` looked for `.aitask-gates/tt0/` and the pre-filter matched
+    nothing. A fast-looking result was really a zero-match. A positive control
+    (assert the pre-filter fires, and that a matching digest is NOT reported
+    stale) was added before any timing was trusted. The same trap recurred later
+    when a hand-written proof harness omitted `gates:` and reported `NO_GATES`
+    for both arms.
+  - *An existing guard caught the new board test.*
+    `test_board_fixture_harness.LiveTreeSweepTests` flagged an `os.chdir` in the
+    fixture. The guard was right: `enter_fixture_tree` already makes the tree the
+    cwd, so the chdir was redundant. Removing it also let the fixture keep an
+    **uncounted** digest reference, which made the call-count assertions
+    unambiguous.
+  - *One full-suite run reported `FAILED` and was never attributed.* Three later
+    runs were clean (zero `FAILED` lines, `exit=0`) and the new modules passed
+    5/5 stress runs, so it did not reproduce — but the failing module was not
+    captured, so it cannot be positively declared unrelated. This box was running
+    six concurrent agent sessions.
+  - *The review found a hole in the guard itself* (Change Request 2): a falsy
+    registry argument. Reproduced, fixed three-way, and one of my own earlier
+    tests turned out to be asserting the buggy behaviour was fine.
+- **Key decisions:**
+  - **Decide the split per surface, not globally.** The four ledger-only surfaces
+    were not alike: `unlocked()` had no per-task loop at all (the cost argument
+    never applied to it), `deps-unblock` was a *semantics* question the cost
+    argument was hiding, and `archive_status_from_text` had a reason to stay
+    ledger-only that is *stronger* than cost — its verdict is hashed into the
+    trail's `input_digest`, so making it code-state-dependent would flip every
+    trail's staleness result on unrelated commits.
+  - **A callable as the fourth digest state.** It is what lets "compute once per
+    refresh, but only if something needs it" be expressed by the caller instead
+    of guessed by the callee — the board pays zero digests when nothing is signed
+    and exactly one when something is.
+  - **Keep `current` as the raw ledger; report `stale_signed` beside it.** The
+    ledger really does say `pass`; rewriting it would make a badge count drop
+    with nothing to explain the drop. Both facts are rendered together.
+  - **`_resolve_digest` does not swallow exceptions.** Making a provider total is
+    the provider's job (the board's memo catches, mirroring `gate_registry()`);
+    swallowing centrally would reinterpret a caller bug as "unverifiable" and
+    quietly accept an unvalidated signature.
+  - **The guard reports undecidable separately from ratified.** A bare-name
+    registry is never registered as a ledger-only consumer — that would let a
+    real hole be waved through behind a plausible entry.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_ls.sh:177-198 — build_dep_satisfied_set spawns one
+    aitask_gate.sh subprocess per gated active task, making ait ls ~12.5s on this
+    repo (307 candidates x ~47ms). Pre-existing and independent of this change; a
+    batched deps-unblock verb would collapse it to one process.`
