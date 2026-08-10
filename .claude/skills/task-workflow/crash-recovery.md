@@ -18,6 +18,13 @@ user's decision (`reclaim` | `decline`).
   - `RECLAIM_CRASH:<prev_locked_at>|<prev_hostname>|<prev_pid>`
   - `RECLAIM_STATUS:<prev_status>|<prev_assigned_to>`
 
+**This procedure is never the right answer for a live or unverified holder.**
+`LOCK_LIVE_HOLDER:` / `LOCK_UNVERIFIABLE_HOLDER:` are refusals, not reclaim
+signals: nothing was claimed, and the whole point of them is that the session
+in question may still be working. They are handled at their own prompt in
+`SKILL.md` Step 4 — do not route them here, and do not reuse the "appears to
+have crashed" wording for them.
+
 Set `signal_type` to one of `LOCK_RECLAIM` / `RECLAIM_CRASH` /
 `RECLAIM_STATUS` based on the prefer-order above.
 
@@ -96,7 +103,8 @@ Use `AskUserQuestion`. Pick the question text by `signal_type`:
   >
   > Resume with prior work intact?"
 
-- `RECLAIM_STATUS` (anomaly — lock missing or pre-PID-anchor lock):
+- `RECLAIM_STATUS` (anomaly — the lock is missing, predates the PID anchor,
+  recorded no session process, or is this session's own):
   > "Task t\<N\> shows status `Implementing` already assigned to you,
   > but no PID anchor matches your environment.
   >

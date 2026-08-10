@@ -13,10 +13,13 @@ There is no time threshold to tune: the decision is made from the process the lo
 | State | Meaning | Outcome |
 |---|---|---|
 | **dead** | The anchored process is provably gone, or the PID now belongs to a different process | `RECLAIM_CRASH:` — the headline case |
-| **alive** | The anchored process is provably still the one that took the lock | No crash is reported |
-| **unknown** | The lock never named a session process, or its liveness cannot be established | No crash is reported |
+| **alive** | The anchored process is provably still the one that took the lock | **The claim is refused** — no crash is reported |
+| **unknown** | Liveness cannot be established | **The claim is refused** — no crash is reported |
+| **unknown, no anchor** | The lock never named a session process at all | Claimed, with the anomaly prompt |
 
 Only a *provably* dead anchor is reported as a crash. "We cannot tell" is never rounded up to "it crashed" — a recovery prompt that says an agent crashed has to be right, because reclaiming while the other session is still working duplicates its work.
+
+The same verdict also decides whether the task can be claimed at all. A lock held by *another live session of yours on this machine* is not a recovery situation, and it is refused rather than reclaimed — see [When the holder is still running](#when-the-holder-is-still-running) below.
 
 ## When the Recovery Path Fires
 
@@ -44,13 +47,32 @@ You started a task on PC_A, walked over to PC_B, and ran `/aitask-pick` on the s
 
 ### Lock anomaly fallback
 
-The task is `Implementing` and `assigned_to` matches you, but the anchor does not establish a crash. The picker emits `RECLAIM_STATUS:`. This covers everything that is not a proven same-host crash:
+The task is `Implementing` and `assigned_to` matches you, but the anchor does not establish a crash. The picker emits `RECLAIM_STATUS:`. This covers the cases where there is no holder left to check:
 
-- the anchored process is **alive** — most often a second agent on this machine that is still working the task;
 - the lock records **no session process** (`pid: -` or `pid: 0`) — a claim made outside tmux with no `AIT_AGENT_PID`, a legacy lock predating the PID anchor, or a lock that went missing entirely;
-- the process **cannot be inspected**, or carries no usable identity token, so neither "alive" nor "dead" can be shown.
+- the lock is **this session's own**, being refreshed;
+- the task's `Implementing` status outlived its lock.
 
 All of these land here rather than in the crash path, because the one thing this prompt must not do is tell you an agent crashed when it did not.
+
+## When the Holder Is Still Running
+
+A lock is not always something to recover from. If the anchored process is a *different* session of yours on *this* machine, reclaiming it does not rescue abandoned work — it puts two agents on one task, which is how the same verification work gets done twice. So the claim is **refused** instead:
+
+| Signal | Meaning |
+|---|---|
+| `LOCK_LIVE_HOLDER:` | The holding session is provably still running |
+| `LOCK_UNVERIFIABLE_HOLDER:` | The holding session could not be shown to be either running or gone |
+
+Both refusals happen **before** the lock is written, before `status` becomes `Implementing`, and before anything is committed — so a refused pick leaves the task byte-for-byte as it was, and there is nothing to undo. The prompt offers "Pick a different task" first and a force option second; unattended runs ([`/aitask-pickrem`](../../skills/aitask-pickrem/)) always abort rather than force.
+
+Three cases deliberately do **not** trigger a refusal:
+
+- **Your own session re-claiming.** The lock records the process, not just the email, so a session recognises its own lock and refreshes it silently. Without that, the ownership guard, an in-pane re-pick, and every resume of an in-flight task would lock you out of your own work.
+- **A lock from another host.** A PID from another machine means nothing here; that is the multi-PC reclaim case above.
+- **A lock that never recorded a session process.** There is nothing to verify, so refusing would strand it forever. It stays reclaimable through the anomaly prompt.
+
+To clear a refusal properly, release the lock from the session that holds it (`ait lock --unlock <task_id>`), or let that session finish.
 
 ## The In-Progress Work Survey
 
@@ -149,7 +171,8 @@ The sync only ever fast-forwards. If your local merge target has commits the rem
 
 ## Tips
 
-- **Claims made outside tmux record no anchor.** If you start an agent in a plain terminal rather than a tmux pane, the lock records `pid: -` and re-picks report the anomaly fallback instead of a crash. Set `AIT_AGENT_PID` to the agent's own PID when launching it if you want crash detection there.
+- **Claims made outside tmux record no anchor.** If you start an agent in a plain terminal rather than a tmux pane, the lock records `pid: -` and re-picks report the anomaly fallback instead of a crash. Set `AIT_AGENT_PID` to the agent's own PID when launching it if you want crash detection there — and note that such a lock also cannot be protected from a concurrent claim, since there is no process to check.
+- **A lock taken from the board TUI is anchored to the board.** The Lock button in `ait board` records the board's own pane process, and the board typically stays open for hours — so that lock reads as a *live holder* to any agent you then start for the same task, and the pick is refused. That is the honest answer, but if you meant the lock as a reservation rather than a claim, unlock it from the board before launching the agent.
 - **The backfill script is no longer needed.** `./.aitask-scripts/aitask_backfill_pid_anchor.sh` tags pre-anchor locks with a `pid: 0` sentinel. That sentinel now means *unknown*, so a backfilled lock re-picks as `RECLAIM_STATUS:` — the same, honest outcome it would get with no fields at all. Running the script is optional and changes no signal.
 - **Decline does not touch your worktree.** "Pick a different task" reverts task metadata and releases the lock. Uncommitted files in the worktree, and the worktree directory itself, are left alone. Decide explicitly whether to keep them.
 - **macOS portability.** The identity token comes from `/proc/<pid>/stat` on Linux and from `ps -o lstart=` elsewhere, so macOS/BSD gets PID-recycling defense too — but only at one-second resolution. Because that cannot rule out a PID recycled within the same second, a *matching* token there yields "unknown" rather than "alive"; it is recorded as such in `pid_starttime_kind`. Crash detection itself is unaffected on macOS: a crashed agent's PID is absent, which is decided before any token is compared.

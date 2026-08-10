@@ -23,6 +23,15 @@
 #      gateway socket repointed at a server that does not exist, records `-`.
 #      Without this, assertion 1 could pass vacuously on a broken guard.
 #
+# Case B claims a SEPARATE task (t2), and must keep doing so. What it measures
+# is the WRITER — "an unreachable gateway degrades the anchor to UNKNOWN rather
+# than blocking" — and that has to be measured on an unheld task. Pointing it at
+# t1 would first meet the acquire-time liveness gate (t1466): t1 is still locked
+# by Case A's pane, that pane is still alive, and a claim that cannot resolve
+# its own anchor cannot prove it is that same session. The claim would be
+# refused before the writer ever ran, and this case would silently stop testing
+# the thing it is named for.
+#
 # Isolation: creates its own server on a private `-L` socket and kills it in a
 # trap. `require_isolated_tmux` additionally detaches this process from any
 # inherited server, so a stray call cannot reach the user's session. This test
@@ -94,6 +103,10 @@ updated_at: 2026-01-01 00:00
 Test task for the live tmux anchor test.
 TASK
 
+        # Case B's task. Separate from t1 on purpose — see the header comment.
+        sed 's/^Test task.*/Test task for the negative control./' \
+            aitasks/t1_test_task.md > aitasks/t2_test_task.md
+
         cat > bin/hostname <<'SH'
 #!/usr/bin/env bash
 echo "${TEST_HOSTNAME:-unknown-host}"
@@ -119,9 +132,9 @@ SH
 }
 
 lock_field() {
-    local tmpdir="$1" key="$2"
+    local tmpdir="$1" task_id="$2" key="$3"
     (cd "$tmpdir/local" && git fetch origin aitask-locks --quiet 2>/dev/null \
-        && git show "origin/aitask-locks:t1_lock.yaml" 2>/dev/null) \
+        && git show "origin/aitask-locks:t${task_id}_lock.yaml" 2>/dev/null) \
         | awk -v k="^${key}:" '$0 ~ k { sub(/^[^:]*: */, ""); print; exit }'
 }
 
@@ -198,9 +211,9 @@ if [[ -n "$PANE_PID" ]] && wait_for_claim "$LOCAL_DIR/claim.rc"; then
     assert_eq "In-pane claim exits 0" "0" "$claim_rc"
     assert_contains "In-pane claim succeeds" "OWNED:1" "$claim_out"
 
-    rec_pid=$(lock_field "$TMPDIR_LIVE" pid)
-    rec_tok=$(lock_field "$TMPDIR_LIVE" pid_starttime)
-    rec_kind=$(lock_field "$TMPDIR_LIVE" pid_starttime_kind)
+    rec_pid=$(lock_field "$TMPDIR_LIVE" 1 pid)
+    rec_tok=$(lock_field "$TMPDIR_LIVE" 1 pid_starttime)
+    rec_kind=$(lock_field "$TMPDIR_LIVE" 1 pid_starttime_kind)
 
     # The headline assertion: the anchor IS the pane process.
     assert_eq "Anchor equals the pane's pane_pid" "$PANE_PID" "$rec_pid"
@@ -232,17 +245,17 @@ echo "--- Case B: negative control (gateway socket repointed) ---"
 
 nc_cmd="cd '$LOCAL_DIR' && PATH='$INNER_PATH' TEST_HOSTNAME=pc-A"
 nc_cmd="$nc_cmd AITASKS_TMUX_SOCKET='ait_nonexistent_$$'"
-nc_cmd="$nc_cmd ./.aitask-scripts/aitask_pick_own.sh 1 --email 'alice@test.com'"
+nc_cmd="$nc_cmd ./.aitask-scripts/aitask_pick_own.sh 2 --email 'alice@test.com'"
 nc_cmd="$nc_cmd > claim2.out 2>&1; echo \$? > claim2.rc; sleep 60"
 
 tmux -L "$SOCK" new-window -d -n negctrl "$nc_cmd" 2>/dev/null
 
 if wait_for_claim "$LOCAL_DIR/claim2.rc"; then
     assert_eq "Negative-control claim still exits 0" "0" "$(cat "$LOCAL_DIR/claim2.rc")"
-    assert_contains "Negative-control claim still succeeds" "OWNED:1" \
+    assert_contains "Negative-control claim still succeeds" "OWNED:2" \
         "$(cat "$LOCAL_DIR/claim2.out" 2>/dev/null)"
     assert_eq "Unreachable gateway ⇒ UNKNOWN anchor" \
-        "$AIT_PID_ANCHOR_UNKNOWN" "$(lock_field "$TMPDIR_LIVE" pid)"
+        "$AIT_PID_ANCHOR_UNKNOWN" "$(lock_field "$TMPDIR_LIVE" 2 pid)"
 else
     TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
     echo "FAIL: negative-control claim did not finish within the budget"

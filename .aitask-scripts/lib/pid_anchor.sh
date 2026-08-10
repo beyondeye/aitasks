@@ -179,6 +179,59 @@ is_lock_holder_alive() {
     [[ "$(lock_holder_liveness "${1:-}" "${2:--}" "${3:-proc}")" == "alive" ]]
 }
 
+# --- Self-identity (is that anchor MY session?) -----------------------------
+
+# Internal: this session's own anchor triple, resolved once and cached.
+#
+# Memoized because the default rung shells out to tmux, and the value is
+# invariant for the life of a (short-lived) claim script. Cached even when the
+# anchor is UNKNOWN — "no session process could be named" is just as stable an
+# answer as a PID, and re-asking a wedged tmux server on every call is exactly
+# the cost this cache exists to avoid.
+_AIT_SELF_ANCHOR_CACHED=""
+_AIT_SELF_ANCHOR_PID=""
+_AIT_SELF_ANCHOR_TOKEN=""
+_AIT_SELF_ANCHOR_KIND=""
+_ait_current_anchor() {
+    if [[ -z "$_AIT_SELF_ANCHOR_CACHED" ]]; then
+        _AIT_SELF_ANCHOR_PID="$(get_session_anchor_pid)"
+        _AIT_SELF_ANCHOR_TOKEN="$(get_pid_starttime "$_AIT_SELF_ANCHOR_PID")"
+        _AIT_SELF_ANCHOR_KIND="$(get_pid_starttime_kind "$_AIT_SELF_ANCHOR_PID")"
+        _AIT_SELF_ANCHOR_CACHED=1
+    fi
+}
+
+# Is the recorded anchor <pid> <token> <kind> THIS session's own anchor?
+#   0 = provably this session, 1 = anything else (different session, or
+#   not provable).
+#
+# All three fields must match. The PID alone is not enough — a recycled PID
+# carries the same number with a different token, and calling that "self" would
+# hand the lock straight back to the caller it is meant to exclude. The kind
+# must match too: comparing a `ps` token against a `proc` one is comparing two
+# incomparable encodings of the same instant, and a false "self" here disables
+# the acquire gate entirely.
+#
+# An unresolvable own anchor ("-", "none") can never claim identity: a session
+# that cannot name its own process has no basis to assert that someone else's
+# recorded process is it. That asymmetry is deliberate — it fails toward the
+# gate, not around it.
+#
+# Consumed by aitask_lock.sh's acquire gate (a same-email refresh by the SAME
+# session must stay silent — Step 7's ownership guard, an in-pane re-pick and
+# an in-flight resume all take that path) and by aitask_pick_own.sh's
+# post-claim reclaim-signal choice.
+lock_anchor_is_self() {
+    local pid="${1:-}" token="${2:--}" kind="${3:-proc}"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    _ait_current_anchor
+    [[ "$_AIT_SELF_ANCHOR_PID" =~ ^[0-9]+$ ]] || return 1
+    [[ "$pid"   == "$_AIT_SELF_ANCHOR_PID"   ]] || return 1
+    [[ "$token" == "$_AIT_SELF_ANCHOR_TOKEN" ]] || return 1
+    [[ "$kind"  == "$_AIT_SELF_ANCHOR_KIND"  ]] || return 1
+    return 0
+}
+
 # --- Anchor resolution (writer side) ---------------------------------------
 
 # Internal: the tmux pane process this claim is running under, via the gateway.

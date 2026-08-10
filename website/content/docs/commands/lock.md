@@ -20,7 +20,7 @@ ait lock --list                    # Show all active locks
 
 | Command | Description |
 |---------|-------------|
-| `<task_id>` | Lock a task. Auto-detects email from `userconfig.yaml`, falling back to `emails.txt` |
+| `<task_id>` | Lock a task. Auto-detects email from `userconfig.yaml`, falling back to `emails.txt`. Exit 0 = locked, 1 = held by another owner, 13 = held by another **live** session of yours on this host, 14 = held by a session of yours whose liveness could not be established (see [Locks]({{< relref "/docs/concepts/locks" >}})) |
 | `--lock <task_id> [--email EMAIL]` | Explicit lock syntax (same as bare task ID) |
 | `--unlock <task_id>` | Release a task lock. Idempotent (succeeds even if not locked) |
 | `--check <task_id>` | Check lock status. Exit 0 = locked (prints lock info), exit 1 = free |

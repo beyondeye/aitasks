@@ -156,6 +156,8 @@ If neither check triggers, proceed to Step 5.
 {% else %}{# force_unlock_stale: false / undefined (default) #}
     Display error: "Task t\<N\> is locked by \<owner\>. Pick a different task." Abort.
 {% endif %}{# ---------- end force_unlock_stale ---------- #}
+  - `LOCK_LIVE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — another session of yours on this machine holds the task and is **still running**. Nothing was claimed. Display: "Task t\<N\> is held by a live session on this machine (pid \<pid\>, since \<locked_at\>). Abandoning — two agents on one task duplicate each other's work." **Abort.** Remote mode never force-claims past this: `force_unlock_stale` covers a *stale lock belonging to someone else*, and reusing it here would re-create exactly the concurrent double-claim the gate exists to stop. A human decides this one, interactively.
+  - `LOCK_UNVERIFIABLE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — same, except the holder could not be verified as either running or gone. Nothing was claimed. Display: "Task t\<N\> is held by a session on this machine (pid \<pid\>, since \<locked_at\>) whose liveness could not be established. Abandoning." **Abort** — unattended, "cannot tell" must never resolve to "take it".
   - `LOCK_ERROR:<message>` — Display error: "Lock system error: \<message\>. Run `./.aitask-scripts/aitask_lock_diag.sh` for troubleshooting." Abort.
   - `LOCK_INFRA_MISSING` — Display error: "Lock infrastructure not initialized. Run `ait setup`." Abort.
 
@@ -275,7 +277,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 5 
     ```bash
     ./.aitask-scripts/aitask_pick_own.sh <task_num> --email "<email>"
     ```
-  - Parse output: `OWNED` → proceed. Any failure (`LOCK_FAILED`, `LOCK_ERROR`, `LOCK_INFRA_MISSING`, or script error) → trigger the **Abort Procedure**.
+  - Parse output: `OWNED` → proceed. Any failure (`LOCK_FAILED`, `LOCK_LIVE_HOLDER`, `LOCK_UNVERIFIABLE_HOLDER`, `LOCK_ERROR`, `LOCK_INFRA_MISSING`, or script error) → trigger the **Abort Procedure**.
   - No `AskUserQuestion` calls (remote mode constraint).
 
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `.claude/skills/task-workflow/agent-attribution.md`) to record which code agent and model is implementing this task.

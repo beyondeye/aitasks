@@ -10,15 +10,25 @@
 #
 # Usage:
 #   ./.aitask-scripts/aitask_pick_own.sh <task_id> [--email <email>]   # Full ownership
-#   ./.aitask-scripts/aitask_pick_own.sh <task_id> --force --email <e>  # Force-unlock stale lock
+#   ./.aitask-scripts/aitask_pick_own.sh <task_id> --force --email <e>  # Override a held lock
 #   ./.aitask-scripts/aitask_pick_own.sh --sync                         # Sync-only mode
 #
 # Output format (structured lines for LLM parsing):
 #   OWNED:<task_id>              Task successfully claimed
 #   LOCK_FAILED:<owner>|<locked_at>|<hostname>   Lock held by another user (exit 1)
+#   LOCK_LIVE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>
+#                                Lock held by ANOTHER LIVE SESSION of yours on
+#                                this host (exit 1). Nothing was claimed: the
+#                                refusal happens before the lock, the status
+#                                write and the commit, so there is nothing to
+#                                give back. Re-run with --force to take it.
+#   LOCK_UNVERIFIABLE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>
+#                                Same, but the holder's liveness could not be
+#                                established ("cannot tell" is its own state,
+#                                never rounded to alive or dead). Also exit 1.
 #   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
 #   LOCK_ERROR:<message>         Lock system error (exit 1)
-#   FORCE_UNLOCKED:<prev_owner>  Stale lock force-unlocked, then re-locked
+#   FORCE_UNLOCKED:<prev_owner>  Prior lock force-unlocked, then re-locked
 #   SYNCED                       Sync-only mode completed (pulled, already up to
 #                                date, or no remote configured)
 #   SYNC_FAILED:<reason>         Sync-only mode: the pull failed; <reason> is a
@@ -74,7 +84,13 @@ Arguments:
 Options:
   --email EMAIL   Email of the person claiming the task. If provided and new,
                   it is stored to aitasks/metadata/emails.txt (deduplicated).
-  --force         Force-unlock a stale lock before claiming. Requires --email.
+  --force         Claim the task even though the lock is already held:
+                  by another user, or by another session of your own on this
+                  host that is still running or cannot be verified as gone
+                  (see LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER below).
+                  The lock is released and re-taken. Requires --email.
+                  Only pass this on an explicit human decision — forcing past
+                  a LIVE holder leaves two agents working one task.
   --sync          Sync-only mode: git pull + stale lock cleanup, then exit.
                   No task_id required.
   --help, -h      Show this help
@@ -83,9 +99,19 @@ Output format (one structured line to stdout):
   OWNED:<task_id>              Task successfully claimed
   LOCK_FAILED:<owner>|<locked_at>|<hostname>
                                Lock held by another user (exit 1)
+  LOCK_LIVE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>
+                               Held by another session of YOURS on this host
+                               that is still running (exit 1). Nothing was
+                               claimed — the refusal precedes the lock, the
+                               status write and the commit. Overridable with
+                               --force.
+  LOCK_UNVERIFIABLE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>
+                               Same, but the holder could not be shown to be
+                               either running or gone (exit 1). Also
+                               overridable with --force.
   LOCK_INFRA_MISSING           Lock infrastructure not initialized (exit 1)
   LOCK_ERROR:<message>         Lock system error (exit 1)
-  FORCE_UNLOCKED:<prev_owner>  Stale lock force-unlocked, then re-locked
+  FORCE_UNLOCKED:<prev_owner>  Prior lock force-unlocked, then re-locked
   SYNCED                       Sync-only mode completed
 
 Full ownership mode performs these steps in order:
@@ -213,7 +239,9 @@ store_email() {
 
 # --- Acquire lock ---
 # Returns: 0=success, 1=lock held by other (LOCK_FAILED printed),
-#          2=infra missing (LOCK_INFRA_MISSING printed), 3=other error (LOCK_ERROR printed)
+#          2=infra missing (LOCK_INFRA_MISSING printed), 3=other error (LOCK_ERROR printed),
+#          4=live session of ours holds it (LOCK_LIVE_HOLDER printed),
+#          5=holder's liveness undecidable (LOCK_UNVERIFIABLE_HOLDER printed)
 acquire_lock() {
     local task_id="$1"
     local email="$2"
@@ -261,6 +289,27 @@ acquire_lock() {
         10) echo "LOCK_INFRA_MISSING"; return 2 ;;
         11) echo "LOCK_ERROR:fetch_failed"; return 3 ;;
         12) echo "LOCK_ERROR:race_exhaustion"; return 3 ;;
+        13|14)  # Same-host, same-email acquire gate (t1466). The lock script
+                # already printed the structured line and refused BEFORE
+                # writing anything; forward it verbatim and let main() decide
+                # whether --force applies.
+            local gate_line
+            gate_line=$(echo "$lock_output" \
+                | grep -E '^LOCK_(LIVE|UNVERIFIABLE)_HOLDER:' || true)
+            if [[ -n "$gate_line" ]]; then
+                echo "$gate_line"
+            elif [[ $lock_exit -eq 13 ]]; then
+                echo "LOCK_LIVE_HOLDER:unknown|unknown|unknown|-"
+            else
+                echo "LOCK_UNVERIFIABLE_HOLDER:unknown|unknown|unknown|-"
+            fi
+            # Plain `if`, not `[[ … ]] && return 4`: under `set -e` an AND-list
+            # whose test fails takes the list's non-zero status and kills the
+            # function before the fallback return is reached.
+            if [[ $lock_exit -eq 13 ]]; then
+                return 4
+            fi
+            return 5 ;;
         *)  echo "LOCK_ERROR:unknown"; return 3 ;;
     esac
 }
@@ -378,14 +427,24 @@ main() {
     acquire_stdout=$(acquire_lock "$TASK_ID" "$EMAIL") || lock_result=$?
     [[ -n "$acquire_stdout" ]] && echo "$acquire_stdout"
 
-    if [[ $lock_result -eq 1 && "$FORCE" == true ]]; then
+    # 1 = another user's lock; 4/5 = our own email, but a different session on
+    # this host that is live (4) or undecidable (5). All three are overridable
+    # the same way, and force_acquire_lock unlocks first — so the re-lock sees
+    # no prior lock and the acquire gate cannot re-fire.
+    local forced_takeover=false
+    if [[ ( $lock_result -eq 1 || $lock_result -eq 4 || $lock_result -eq 5 ) \
+          && "$FORCE" == true ]]; then
         local force_result=0
         force_acquire_lock "$TASK_ID" "$EMAIL" || force_result=$?
         if [[ $force_result -ne 0 ]]; then
             exit 1
         fi
-    elif [[ $lock_result -eq 1 ]]; then
-        # LOCK_FAILED already printed by acquire_lock
+        forced_takeover=true
+    elif [[ $lock_result -eq 1 || $lock_result -eq 4 || $lock_result -eq 5 ]]; then
+        # LOCK_FAILED / LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER already
+        # printed by acquire_lock. Nothing was claimed — the gate refuses
+        # before the lock write, the status update and the commit — so there
+        # is no state to roll back here.
         exit 1
     elif [[ $lock_result -eq 2 ]]; then
         # LOCK_INFRA_MISSING already printed by acquire_lock
@@ -426,17 +485,26 @@ main() {
     # and forwarded above; we still emit one of the below for completeness —
     # task-workflow's dispatcher prefers LOCK_RECLAIM > CRASH > STATUS.
     if [[ "$prev_status" == "Implementing" && -n "$EMAIL" \
-          && "$prev_assigned" == "$EMAIL" ]]; then
+          && "$prev_assigned" == "$EMAIL" && "$forced_takeover" == false ]]; then
         local current_host liveness
         current_host=$(hostname 2>/dev/null || echo "unknown")
         liveness=$(lock_holder_liveness "$prior_pid" "$prior_starttime" \
                                         "${prior_starttime_kind:-proc}")
-        # ONLY a provably dead same-host anchor is a crash. `alive` and
-        # `unknown` both route to the RECLAIM_STATUS anomaly path: the two are
-        # genuinely different states (that is why lock_holder_liveness reports
-        # three), but giving a verifiably-live holder its own signal and a
-        # prompt that does not default to taking the lock is t1466's scope —
-        # it names this anchor as its discriminator. Do not split it here.
+        # ONLY a provably dead same-host anchor is a crash. The other two
+        # verdicts no longer reach this point on a same-host lock: aitask_lock.sh's
+        # acquire gate refuses a live holder (LOCK_LIVE_HOLDER) and an
+        # undecidable one (LOCK_UNVERIFIABLE_HOLDER) BEFORE anything is claimed
+        # (t1466). What still lands on RECLAIM_STATUS here is the honest
+        # remainder: a lock that never recorded an anchor at all (pre-anchor,
+        # or a claim made outside tmux), a cross-host lock, this session's own
+        # refreshed lock, or a task whose Implementing status outlived its lock
+        # entirely.
+        #
+        # `forced_takeover` suppresses the whole block: the user has just
+        # confirmed a --force past one of those refusals, and re-asking
+        # "reclaim and continue?" immediately afterwards would prompt twice for
+        # one decision. (Different-email forces never matched the
+        # prev_assigned test above, so this changes nothing for them.)
         if [[ "$prior_lock_host" == "$current_host" && "$liveness" == "dead" ]]; then
             echo "RECLAIM_CRASH:${prior_locked_at}|${prior_lock_host}|${prior_pid}"
         else

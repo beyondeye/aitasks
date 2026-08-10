@@ -14,6 +14,14 @@
 # Live-tmux coverage of the default anchor rung lives in a separate file
 # (tests/test_lock_anchor_tmux_live.sh) so this one stays boot-free.
 #
+# Tests 14 and 17 were retargeted by t1466, which put a liveness gate on the
+# ACQUIRE path: a same-host, same-email lock whose holder is alive or
+# undecidable is now refused before anything is written, instead of being
+# absorbed into the RECLAIM_STATUS bucket after the fact. Their original
+# invariant — an undecidable anchor is never reported as a crash — is asserted
+# unchanged; only the outcome that follows it moved. The gate itself is covered
+# in tests/test_lock_live_holder_gate.sh.
+#
 # Run: bash tests/test_crash_recovery_pid_anchor.sh
 
 set -e
@@ -449,7 +457,16 @@ pid: $ANCHOR_PID_14
 pid_starttime: -"
 out14=$(run_claim "$TMPDIR_12" 1 "AIT_AGENT_PID=$ANCHOR_PID_14")
 assert_not_contains "Untokened live PID is not a crash" "RECLAIM_CRASH" "$out14"
-assert_contains "Untokened live PID → RECLAIM_STATUS" "RECLAIM_STATUS" "$out14"
+# t1466 retarget. The invariant this test was written to protect — an
+# undecidable anchor is NEVER reported as a crash — is asserted above and is
+# unchanged. What changed is where the claim ends up: this case used to be
+# absorbed into the RECLAIM_STATUS anomaly bucket *after* the lock had already
+# been taken. It is now refused at acquire time with its own signal, which is
+# what makes "cannot tell" a state of its own rather than a synonym for "go
+# ahead". Do not loosen this back to RECLAIM_STATUS.
+assert_contains "Untokened live PID → LOCK_UNVERIFIABLE_HOLDER" \
+    "LOCK_UNVERIFIABLE_HOLDER:" "$out14"
+assert_not_contains "Untokened live PID is not claimed" "OWNED:" "$out14"
 
 echo "--- Test 17: weak (second-granular) token cannot prove liveness ---"
 
@@ -462,9 +479,18 @@ if [[ "$(uname)" == "Linux" ]]; then
     assert_eq "kind=proc + matching token ⇒ alive (strong)" \
         "alive" "$(lock_holder_liveness "$ANCHOR_PID_14" "$proc_tok_17" proc)"
 
-    # Neither verdict is a crash — the strength gate changes the VERDICT
-    # without changing this task's SIGNAL, which is what leaves t1466 a clean
-    # discriminator to build its acquire gate on.
+    # Neither verdict is a crash — the strength gate changes the VERDICT, and
+    # t1466's acquire gate then routes the two verdicts to different OUTCOMES.
+    # The claim below runs with AIT_AGENT_PID equal to the planted anchor, so
+    # the two halves also pin the self-identity rule:
+    #
+    #   kind=proc — the recorded triple (pid, token, kind) is exactly this
+    #     session's, so the lock is OURS. It refreshes silently, as every
+    #     in-pane re-pick and in-flight resume must.
+    #   kind=ps — same pid, but a second-granular token this host would never
+    #     have written. That is not a provable identity, so it is not self, and
+    #     the weak token cannot license an "alive" verdict either. Undecidable
+    #     ⇒ refused at acquire, its own signal.
     for pair in "ps:$ps_tok_17" "proc:$proc_tok_17"; do
         kind_17="${pair%%:*}"; tok_17="${pair#*:}"
         plant_lock "$TMPDIR_12" 1 "task_id: 1
@@ -476,7 +502,19 @@ pid_starttime: $tok_17
 pid_starttime_kind: $kind_17"
         out17=$(run_claim "$TMPDIR_12" 1 "AIT_AGENT_PID=$ANCHOR_PID_14")
         assert_not_contains "kind=$kind_17 live holder → not a crash" "RECLAIM_CRASH" "$out17"
-        assert_contains "kind=$kind_17 live holder → RECLAIM_STATUS" "RECLAIM_STATUS" "$out17"
+        if [[ "$kind_17" == "proc" ]]; then
+            assert_contains "kind=proc live holder is OUR OWN lock → refreshed" \
+                "OWNED:1" "$out17"
+            assert_contains "kind=proc self re-claim → RECLAIM_STATUS" \
+                "RECLAIM_STATUS" "$out17"
+            assert_not_contains "kind=proc self re-claim is not refused" \
+                "LOCK_UNVERIFIABLE_HOLDER" "$out17"
+        else
+            assert_contains "kind=ps live holder → LOCK_UNVERIFIABLE_HOLDER" \
+                "LOCK_UNVERIFIABLE_HOLDER:" "$out17"
+            assert_not_contains "kind=ps live holder is not claimed" \
+                "OWNED:" "$out17"
+        fi
     done
 else
     echo "  (skipped on non-Linux: needs both token sources on one host)"

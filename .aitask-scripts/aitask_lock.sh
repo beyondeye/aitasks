@@ -6,6 +6,11 @@
 #
 # Public usage (via ait dispatcher):
 #   ait lock <task_id>                     Lock task (auto-detects email)
+#                                          (exit 0=locked, 1=held by someone
+#                                           else, 13=held by a live session of
+#                                           yours on this host, 14=held by a
+#                                           session of yours whose liveness
+#                                           could not be established)
 #   ait lock <task_id> --email <email>     Lock task with explicit email
 #   ait lock --unlock <task_id>            Release lock
 #   ait lock --check <task_id>             Check if locked (exit 0=locked, 1=free)
@@ -200,6 +205,47 @@ lock_task() {
                       && "$locked_hostname" != "unknown" \
                       && "$locked_hostname" != "$current_hostname" ]]; then
                     echo "LOCK_RECLAIM:${locked_hostname}|${locked_at}|${current_hostname}"
+                fi
+                # Same host, same email: the mutex's blind spot. Matching on
+                # email alone made this branch hand the lock to a SECOND live
+                # agent session without a word — two panes owned one task and
+                # duplicated its work (t1466). The anchor t1465 put in the lock
+                # is the discriminator: refuse anything that is not provably
+                # THIS session or provably gone.
+                #
+                # Cross-host is deliberately excluded: a PID from another
+                # machine is not comparable here, and that case already has its
+                # own confirmation path (LOCK_RECLAIM, just above). A hostname
+                # of "unknown" is not comparable either — two machines both
+                # reporting it would compare equal.
+                if [[ -n "$locked_hostname" \
+                      && "$locked_hostname" != "unknown" \
+                      && "$locked_hostname" == "$current_hostname" ]] \
+                   && ! lock_anchor_is_self "$prior_pid" "$prior_starttime" \
+                                            "$prior_starttime_kind"; then
+                    local prior_liveness
+                    prior_liveness=$(lock_holder_liveness "$prior_pid" \
+                        "$prior_starttime" "$prior_starttime_kind")
+                    case "$prior_liveness" in
+                        alive)
+                            echo "LOCK_LIVE_HOLDER:${locked_by}|${locked_at}|${locked_hostname}|${prior_pid}"
+                            die_code 13 "Task t$task_id is held by a live session of yours on this host (pid $prior_pid, since $locked_at). Let it finish, or release it with './ait lock --unlock $task_id'."
+                            ;;
+                        unknown)
+                            # "Cannot tell" is its own state, and it must not
+                            # default to taking the lock. But only when an
+                            # anchor was actually RECORDED: a lock carrying
+                            # "-"/"0"/nothing never named a session, so there is
+                            # nothing to verify, and refusing it would bar every
+                            # pre-anchor lock and every claim made outside tmux
+                            # from ever being resumed. Those keep their existing
+                            # behaviour (acquire, then RECLAIM_STATUS).
+                            if [[ "$prior_pid" =~ ^[0-9]+$ ]] && (( prior_pid > 0 )); then
+                                echo "LOCK_UNVERIFIABLE_HOLDER:${locked_by}|${locked_at}|${locked_hostname}|${prior_pid}"
+                                die_code 14 "Task t$task_id is held by a session on this host (pid $prior_pid, since $locked_at) whose liveness could not be established. Confirm it is gone, then re-claim with --force, or release it with './ait lock --unlock $task_id'."
+                            fi
+                            ;;
+                    esac
                 fi
                 # Always emit PRIOR_LOCK so aitask_pick_own.sh can decide
                 # between RECLAIM_CRASH (same-host, dead PID) and
@@ -605,13 +651,23 @@ show_help() {
     cat <<'EOF'
 Usage: ait lock [--debug] <command> [args]
 
-Atomic task lock management. Prevents two users from working on the same
-task simultaneously. Locks are stored on a separate git branch (aitask-locks).
-When no git remote is configured, lock operations are silently skipped
-(single-user mode — no locking needed).
+Atomic task lock management. Prevents two SESSIONS — not just two users — from
+working on the same task simultaneously. Locks are stored on a separate git
+branch (aitask-locks). When no git remote is configured, lock operations are
+silently skipped (single-user mode — no locking needed).
+
+A lock held by your own email on this host is refreshed silently only when it
+was taken by THIS session. One taken by another session of yours is refused
+while that session is still running (exit 13), or while its liveness cannot be
+established (exit 14); release it with --unlock, or override with
+'aitask_pick_own.sh <task_id> --force'.
 
 Commands:
-  <task_id>                        Lock a task (auto-detects email from userconfig)
+  <task_id>                        Lock a task (auto-detects email from userconfig).
+                                   Exit 0 = locked, 1 = held by another user,
+                                   13 = held by a live session of yours on this
+                                   host, 14 = held by a session of yours whose
+                                   liveness could not be established.
   --lock <task_id> [--email EMAIL] Lock a task (explicit syntax)
   --unlock <task_id>               Release a task lock
   --check <task_id>                Check if locked (exit 0=locked, 1=free)
