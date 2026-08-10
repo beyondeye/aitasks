@@ -368,3 +368,120 @@ helpers' widened contract still lands. Levels are unchanged — code-health
 **Declined:** `bench_filter_keystroke_cost` (spawn 'before'; a within-run
 ablation of the added `apply_filter` cost) — dropped by the user, leaving the
 hot-path bullet carried rather than measured.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. New `KanbanApp._any_child_matches`
+  is the single child-aware primitive; `_group_header_matches` delegates its
+  child phase to it, and `apply_filter`'s unit loop rescues a non-child card
+  whose child passes the composed predicate. The per-pass `_children_by_parent()`
+  index became lazy and is shared by the unit loop and the header loop.
+  Membership-only notes added to `_locked_visible_set`, `_free_visible_set`,
+  `_git_visible_set` and `_type_visible_set`; scope-of-invariant note added to
+  `apply_filter`. Seven new cases in `tests/test_board_render_scoping.py`
+  (`ChildAwareParentFilterTests`, deliberately on the UNGROUPED default
+  topology); two controls retargeted in `tests/test_board_group_focus.py`;
+  the board how-to gained the parent-follows-child paragraph plus a
+  view-mode cross-reference.
+
+- **Deviations from plan:** One. The plan kept the header loop's eager index
+  build and made only the unit loop lazy. That failed the new "idle pass builds
+  nothing" control on a grouped board, because the header loop called the
+  builder unconditionally. Fixed by passing the *builder* into
+  `_group_header_matches` instead of its result — its `child_index` parameter is
+  now a zero-arg memoizing callable, invoked only in the second (child) phase.
+  Strictly better than the pre-task behaviour, which built the index on EVERY
+  pass whenever a header was in scope, filter active or not.
+
+- **Issues encountered:**
+  - The `free` arm of the dimension sweep initially failed its control: with
+    only `t9000_1` marked busy, the still-Ready sibling `t9000_2` rescued the
+    parent on its own. The control now disqualifies BOTH children. The Git and
+    Type arms need no equivalent — there the sibling never carries the
+    qualifying metadata.
+  - `test_child_index_is_built_once_per_pass_and_not_at_all_without_headers`
+    could not keep its `no_headers == 0` control: the index is no longer
+    header-gated, so a scoped pass over an ungrouped column with an active
+    search legitimately builds it. Retargeted to a no-filter-active pass and
+    renamed `test_child_index_is_built_at_most_once_per_pass`.
+
+- **Key decisions:**
+  - **Full predicate, not search-only** (user's call at planning). A matching
+    child re-admits its parent whatever hid it, which makes "a visible
+    `.child-wrapper` row always has a visible parent card above it" a theorem
+    rather than a search-specific patch. Accepted consequence: Free view now
+    shows an in-flight parent above its free children.
+  - `_group_header_matches` keeps its two-phase (members-first) order rather
+    than collapsing into the shared rule, so its documented short-circuit
+    property stays true and the lazy index stays lazy for grouped boards.
+  - The invariant is scoped to the standard column view in code, tests and docs.
+    By-Topic / By-Trail mount children as top-level cards whose parent may be
+    absent from the lane entirely, so no parent-visibility claim is made there.
+
+- **Verification evidence:**
+  - Full Python suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)` — 3910
+    passed, 2 skipped, plus the serial carve-out.
+  - Unit negative control: mutating the unit-loop rescue to `if False and …`
+    fails 5 of the 7 new cases. The two survivors (`test_fixture_facts`,
+    `test_parent_key_derivations_agree`) are precondition/key-derivation cases
+    that correctly do not depend on the rescue wiring.
+  - Live acceptance on a real `ait board` in a tmux pane, against an isolated
+    framework copy (never the real repo): searching a child-only token showed
+    the parent with its `↳` row and hid the non-matching sibling.
+  - **Live negative control** on the fixture's own board copy reproduced the
+    defect exactly — a bare `↳ t9000_1 childalpha` row at the top of the Now
+    column with no parent card above it.
+
+- **`manual_verify_free_view_widening` (post-phase mitigation) — outcome:**
+  Both states ran live. **State A** (parent `Implementing`, both children
+  `Ready`): the rescued parent renders in Free view with `📋 Implementing` on
+  its face, so the view never implies it is pickable — it reads as context
+  ("these children are free, their parent is in flight"), **not** as a filter
+  leak. **State B** (parent `Ready`, one child busy): the free parent renders
+  above its free child, the busy child is hidden, the card shows `⚡ t9000_2`
+  and `👶 1 more children`, and no bare `↳` row appears. Conclusion: the
+  full-predicate choice is retained; no grounds found to fall back to the
+  search-only variant.
+
+- **Upstream defects identified:** None.
+
+- **Concurrency note (not a defect):** a parallel session held uncommitted
+  gate-digest changes in `aitask_board.py` (hunks at lines <= 1690) plus six
+  other files while this task ran. Only this task's hunks (all >= 8001) were
+  staged, via a filtered patch applied with `git apply --cached`; the staged
+  blob was verified byte-identical to `HEAD` below line 7990. The full-suite
+  green therefore also covered that session's in-flight code.
+
+### Commit split — READ THIS BEFORE REVERTING t1469
+
+The source change for this task is **not** in this task's own commit.
+
+- `24fff9006` — `bug: Show a parent card when one of its children matches the
+  filter (t1469)`. Contains ONLY
+  `tests/test_board_render_scoping.py`, `tests/test_board_group_focus.py` and
+  `website/content/docs/tuis/board/how-to.md`.
+- `889a86cc8` — `enhancement: Re-validate stale gate signatures on read-side
+  surfaces (t1416)`. Contains that task's own work **plus this task's 114 lines
+  of `.aitask-scripts/board/aitask_board.py`** (`_any_child_matches`, the
+  `_group_header_matches` delegation, the `apply_filter` unit-loop rescue and
+  lazy index, and the four `_*_visible_set` docstring notes).
+
+**Cause.** A parallel session committed with an all-files stage in the window
+between this task staging its index (a filtered `git apply --cached` that
+deliberately excluded that session's hunks) and running `git commit`. Staging
+scope was correct and verified; the race was on the commit itself, which cannot
+be prevented from this side.
+
+**Consequences to respect:**
+
+- `ait revert t1469` finds only `24fff9006`, so it removes the tests and docs
+  and LEAVES the behaviour change in place. Reverting the board hunks means
+  reverting them out of `889a86cc8` by hand.
+- Reverting `t1416` wholesale would silently revert this task's fix as well.
+
+Left unrewritten by explicit user decision: neither commit was pushed, so a
+rebase was possible, but `889a86cc8` belongs to a session that may still have
+been acting on that hash. Correctness on `main` is unaffected and verified —
+`tests/test_board_render_scoping.py` + `tests/test_board_group_focus.py` are
+green at `HEAD` (70 passed) with all nine `t1469` markers present in the
+committed board module.
