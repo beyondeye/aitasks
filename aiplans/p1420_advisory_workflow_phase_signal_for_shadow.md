@@ -217,19 +217,35 @@ The live half is **two tiers**, and the tier split is the t1467 ownership seam.
      not blocked cannot be "waiting inside a phase". `awaiting_input is None`
      ("cannot tell") counts as **not** current — unverifiable is not a licence to
      override. This is the CLI path's default.
-  2. **The anchor must belong to the CURRENT prompt block.** `awaiting_input`
-     only proves *a* prompt is live, not that the *matched* one is: an answered
-     "Plan saved to …" can sit in the tail while a tool-permission dialog is what
-     is actually blocking. So compute, over the tail:
-     - `k` — index of the last line matching any `prompt_patterns.all_patterns()`
-       entry, i.e. the **active** prompt's marker;
-     - `a` — index of the last Tier A anchor.
+  2. **The anchor must belong to the CURRENT prompt block, identified by a
+     WIDGET-SPECIFIC marker.** `awaiting_input` only proves *a* prompt is live,
+     not that the *matched* one is: an answered "Plan saved to …" can sit in the
+     tail while a tool-permission dialog is what is actually blocking.
 
-     Tier A fires only when `a < k` **and no other prompt-pattern match lies
-     between `a` and `k`**. An intervening prompt marker means the anchor is the
-     question text of an earlier, already-answered prompt, and the block that is
-     actually current belongs to something else. Same rule for Tier B, whose
-     anchor is `k` itself by construction.
+     **Superseded by measurement (see "Pre-phase measurement results").** The
+     originally-planned heuristic — last marker of *any* kind, reject on an
+     intervening marker — is unnecessary, because the measured widget markers are
+     **disjoint**. A workflow checkpoint is always an `AskUserQuestion`, and that
+     widget's marker is matched by nothing else. So the rule is simply:
+
+     - `k` — index of the last line matching the **`claude_askuserquestion`**
+       marker specifically (not `all_patterns()`);
+     - `a` — index of the last Tier A anchor;
+     - **Superseded again during review.** A distance bound is not sufficient:
+       a stale anchor can sit within *any* fixed bound once a later, unrelated
+       `AskUserQuestion` renders beneath it, and the widget's own inner rule sits
+       below its question so "last rule" fails too. The shipped rule is
+       structural — `current_question_block` finds the widget's header chip
+       (`` ☐ <Header> ``), measured to occur exactly once and only in a live
+       question, and the anchor must sit **below** it. Verified on the real
+       captures: the stale echo at distance 20 is above the chip (excluded), the
+       live question at 14 is below it (fires).
+
+     The adversarial case is now **structurally impossible** rather than
+     heuristically excluded: a live tool-permission dialog matches
+     `claude_help_bar`, never `claude_askuserquestion`, so a stale anchor above it
+     finds no `k` at all. Tier B keys off `awaiting_input_kind` and needs no
+     positional rule.
   3. **Ambiguity suppresses, never guesses.** If `k` cannot be located, or the
      rule cannot be evaluated, the screen tiers contribute nothing and the ledger
      wins. When suppressed, `detail` says which condition failed
@@ -245,15 +261,44 @@ The live half is **two tiers**, and the tier split is the t1467 ownership seam.
      broken. Expose the predicate as
      `live_tiers_available(agent) -> bool` so the monitor can render the same
      distinction and t1467 has one place to flip.
-  4. **The pre-phase validates this rule, and may tighten it.**
-     `verify_prompt_visibility_live` must capture the exact adversarial sequence
-     — answer a workflow checkpoint, then trigger a tool-permission prompt, then
-     capture — and confirm the intervening-marker rule actually suppresses. If
-     real captures do not support it, fall back to the construction-safe rule:
-     **Tier A matches only inside the same tail slice that produced
-     `awaiting_input`**, so the anchor and the evidence of currency are the same
-     text and a stale occurrence higher up can never fire. Record which rule
-     shipped in the Final Implementation Notes.
+  4. **Pre-phase measurement results (`verify_prompt_visibility_live`, executed
+     2026-08-10, Claude Code 2.1.226, 163x64 pane).** Four live widgets were
+     captured through the monitor's exact path (`capture-pane -p -e -S -N` +
+     `ansi_utils.strip_ansi`) and cross-checked against every existing pattern:
+
+     | widget | distinctive bottom line | matched by existing patterns |
+     |---|---|---|
+     | `AskUserQuestion` (4 options) | `Enter to select · ↑/↓ to navigate · Esc to cancel` | **NONE** |
+     | workspace trust | `Enter to confirm · Esc to cancel` | **NONE** |
+     | tool permission (Write) | `Esc to cancel · Tab to amend` | `claude_help_bar` |
+     | `ExitPlanMode` | `Claude has written up a plan and is ready to execute. Would you like to proceed?` | **NONE** |
+
+     Findings that changed the design:
+
+     - **`AskUserQuestion` is undetected today**, so `awaiting_input` is `False`
+       for every agent parked at a workflow checkpoint. Adding
+       `claude_askuserquestion` is therefore **load-bearing for the whole
+       feature**, not an optional sharpening — and it independently fixes a real
+       monitor blindness for the single most common "waiting on you" state.
+     - The three candidate patterns are **perfectly disjoint** — each matches its
+       own widget and no other — which is what collapses rule 2 above from a
+       heuristic to a structural guarantee.
+     - **Anchor distance measured at 14 lines** above the marker for a 4-option
+       question, confirming `_WORKFLOW_PROMPT_TAIL_LINES = 40` is adequate and
+       that the 6-line `_prompt_detection_text` window would **never** have
+       contained it — the "construction-safe fallback" contemplated here would
+       have shipped a rung that could not fire.
+     - A live prompt exists **only in the visible screen region**: across 3352
+       lines of a real session's scrollback, zero live-prompt markers survived
+       though six questions had been answered. Answered questions collapse to
+       `User answered Claude's questions: … → <answer>`. Conversely the bare
+       Tier A anchor matched **26** times in that history — all assistant prose
+       and answered summaries. Bare-anchor matching without rule 2 would have been
+       almost entirely false positives.
+
+     Consequently `prompt_patterns.py` gains **two** additive Claude patterns, not
+     one: `claude_askuserquestion` (currency marker) and `claude_plan_approval`
+     (Tier B). Both are placed ahead of `claude_proceed`.
 
 - **Tier B — `NATIVE_KIND_PHASE` (per-agent native dialogs).** A map from the
   monitor's existing `awaiting_input_kind` values to `(phase, waiting)`, keyed by
@@ -370,11 +415,27 @@ Display (keep it narrow — minimonitor rows are tight):
   `:832-834`, `:886-889`) to read "static except the mark glyph and the phase
   line" and cite t1420.
 
-`prompt_patterns.py`: add `PromptPattern("claude_plan_approval", …)` **first** in
-the `claude` list (first-match-wins in `classify_content:198-202`), matching the
-ExitPlanMode dialog's distinctive option wording. **Verify the exact wording
-against a live pane before hardcoding it** — use the isolated tmux fixture recipe
-rather than guessing. This is the *only* native pattern t1420 adds; the `codex`
+`prompt_patterns.py`: add **two** patterns, both **first** in the `claude` list
+(first-match-wins in `classify_content:198-202`), both with wordings measured
+from live panes in the pre-phase rather than guessed:
+
+```python
+PromptPattern("claude_askuserquestion",
+              re.compile(r"Enter to select\s+·\s+↑/↓ to navigate")),
+PromptPattern("claude_plan_approval",
+              re.compile(r"Claude has written up a plan and is ready to execute")),
+```
+
+`claude_askuserquestion` is the **currency marker** rule 2 keys off, and it is
+load-bearing twice over: without it `awaiting_input` is `False` for every agent
+parked at a workflow checkpoint, so Tier A could never fire *and* the monitor
+stays blind to the most common "waiting on you" state. It is deliberately **not**
+a `NATIVE_KIND_PHASE` key — an `AskUserQuestion` may be any question; only Tier
+A's text anchor says *which* checkpoint it is. `claude_plan_approval` is the one
+Tier B row.
+
+Both are additive; `claude_proceed` and `claude_help_bar` are untouched, so a
+stale minimonitor (t1116) degrades to today's behaviour. The `codex`
 and `opencode` lists are left exactly as they are. Record that boundary in the
 file's docstring as a forward pointer — "workflow-*phase* mapping lives in
 `lib/workflow_phase.NATIVE_KIND_PHASE`; Codex/OpenCode native surfaces are
@@ -635,3 +696,75 @@ guarded.
 - timing: pre-phase | name: verify_prompt_visibility_live | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — capture visibility of workflow prompt text and ExitPlanMode dialog wording; code-health — which of the two current-prompt-block rules is sound | desc: Observe a live pane through the monitor's own capture+strip path across three states (prompt live, prompt answered, unrelated prompt live), size the tail window from the measurement, decide the currency rule, and read off the real ExitPlanMode option wording before hardcoding any of it.
 - timing: pre-phase | name: characterize_gate_summary_cache | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — GateSummaryCache tuple change moving existing summary output | desc: Pin summary_for() for gated/ungated/unreadable/malformed inputs and run it green against unmodified monitor_core.py before extending the cache.
 - timing: post-phase | name: prove_followed_panel_repaint | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a live phase line frozen at panel build time | desc: Change the underlying phase in a real tmux session and confirm the docked followed-agent panel repaints within one refresh cycle, captured from the pane rather than from the builder's return value.
+
+## Final Implementation Notes
+
+- **Actual work done:** All five deliverables landed. New `lib/workflow_phase.py`
+  seam (`PhaseSignal` with phase / waiting / source / provenance; agent-neutral
+  Tier A workflow-prompt table; per-agent Tier B native map; ledger half via the
+  newly-promoted public `gate_ledger.resume_point_from_text`; one canonical
+  vocabulary validated by both formatter and parser; `|`-delimited wire format
+  sanitized at the write site). `aitask_gate.sh workflow-phase` verb registered
+  at all four sites. `GateSummaryCache` extended (not re-parsed) to carry the
+  ledger half + recording provenance. Phase rendered on full-monitor agent cards,
+  minimonitor list rows, and the docked followed-agent panel. `@aitask_shadow_phase`
+  stamped inside `spawn_shadow` and re-stamped per tick from **both** TUIs via the
+  shared `refresh_shadow_phase_stamp`. `aitask_shadow_capture.sh --phase` ladder.
+  Shadow skill gained a per-capture phase read and a phase-driven default on the
+  `explicit > phase > ask` ladder; 3 goldens regenerated. Docs rewritten.
+
+- **Deviations from plan:** Three, all forced by the pre-phase measurement and by
+  review, and all recorded in place above rather than left implicit.
+  1. **`prompt_patterns.py` gained TWO patterns, not one.** The measurement found
+     `AskUserQuestion` was matched by *nothing*, so `awaiting_input` was `False`
+     for every agent parked at a workflow checkpoint — Tier A could never have
+     fired, and the monitor was blind to the most common "waiting on you" state.
+     `claude_askuserquestion` is therefore load-bearing, not optional sharpening.
+  2. **`claude_plan_approval` is bottom-anchored, not question-anchored.**
+     `classify_content` matches only the last `_PROMPT_DETECTION_TAIL_LINES` (6)
+     lines, and the ExitPlanMode question renders ~7 lines up. The shipped regex
+     matches its footer/option wording instead, measured at distances 0 and 5.
+  3. **The currency rule is structural, not a distance bound.** Planned as
+     "anchor within N lines of the bottom", then as "no intervening prompt
+     marker"; review correctly showed both are defeatable — a stale anchor can
+     sit within any fixed bound once a later *unrelated* question renders under
+     it, and the widget's own inner rule sits *below* its question so "last rule"
+     fails too. Shipped rule: `current_question_block()` locates the widget's
+     header chip (`☐ <Header>`, measured to occur exactly once and only while
+     live) and the anchor must sit below it. `_WORKFLOW_ANCHOR_GAP_MAX` deleted —
+     one exact rule rather than two weak ones.
+
+- **Issues encountered:**
+  - A helper script aborted before its file write, so `SHADOW_PHASE_OPTION` was
+    never defined; `refresh_shadow_phase_stamp`'s broad `except Exception` turned
+    the resulting `NameError` into a silent `False`. Every test stayed green while
+    the feature was dead. Caught by the re-stamp test; the guard is now narrowed
+    so only the tmux transport is tolerated, with `format_signal` outside it.
+  - `spawn_shadow` did not stamp at spawn (review finding): the per-tick re-stamp
+    left a window where a shadow read `--phase` before the first tick and missed
+    the checkpoint it was launched for. Now stamped before `schedule_refresh`,
+    with ordering asserted.
+  - Renaming `_refresh_own_mark` → `_refresh_own_live_state` and `summary_for`'s
+    body → `_entry_for` broke two existing guards (`test_minimonitor_own_mark`,
+    the ledger-only consumer registry). Both were fixture retargets — the
+    invariants were unchanged — and the registry entry keeps its original
+    rationale plus a note on why the function moved.
+  - `git stash` was used once to check whether a `MarkupError` was pre-existing.
+    That was unwise with concurrent sessions running; it happened to be safe only
+    because the foreign board change had already been committed as t1243_9. Do not
+    repeat — diff against `HEAD` instead.
+
+- **Key decisions:** Pane option over argv (re-stampable, so the hint tracks the
+  agent instead of freezing). Tier B keyed on `awaiting_input_kind` rather than
+  raw text, which makes absence-safety a property of the data structure. The phase
+  value never depends on the profile — `record_gates` only *explains* an
+  `UNKNOWN`. Two promoted public `gate_ledger` functions plus an AST contract test
+  instead of reaching into private helpers. The t1420/t1467 boundary is *two*
+  things for t1467, not one: per-agent **currency markers** as well as native
+  mappings, since Tier A's anchors are agent-neutral but its currency detection is
+  not.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/prompt_patterns.py:28 — claude_proceed (`Do you want to proceed\?`) matches no current Claude Code dialog (2.1.226): ExitPlanMode says "Would you like to proceed?" and tool permission says "Do you want to create <file>?". The pattern is dead and its comment claiming it covers both is wrong.`
+  - `.aitask-scripts/monitor/prompt_patterns.py:25 — the first-run workspace-trust dialog ("Quick safety check: …", footer `Enter to confirm · Esc to cancel`) is matched by nothing, so an agent blocked on it reads as idle in ait monitor / minimonitor.`
+  - `.aitask-scripts/monitor/ansi_utils.py:13 — ANSI_CSI_RE strips only CSI sequences; OSC 8 hyperlinks (ESC]8;id=..;URL\\text ESC]8;;\\) survive stripping and appear verbatim in captured pane text, polluting compare_value and any text matching.`

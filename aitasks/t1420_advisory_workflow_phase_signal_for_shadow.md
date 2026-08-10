@@ -207,6 +207,14 @@ with no `## Gate Runs` section under a non-`record_gates` profile must not repor
 - **t1389** — moves pane→task binding from window-name regex to stamped pane
   options. The phase signal depends on that binding; it should read it through
   the existing `get_task_id_for_pane` accessor so t1389 remains a drop-in change.
+- **t1467 (`depends: [1420]`)** — the reverse of its dependency edge. This task
+  owns the **agent-neutral** contract: ledger derivation, `UNKNOWN`, the shared
+  task-workflow checkpoint anchors, the pane-option transport, and advisory-only
+  behaviour. t1467 owns inventorying the real Codex/OpenCode prompt surfaces —
+  and that is **two** things, not one: the *currency markers* each agent needs
+  before Tier A can fire at all, and the native Tier B mappings. Tier A's anchors
+  are agent-neutral but its currency detection is not, so an agent without
+  markers is permanently ledger-only until t1467 lands.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
