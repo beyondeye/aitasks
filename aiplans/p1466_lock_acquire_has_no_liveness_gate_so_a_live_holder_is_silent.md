@@ -327,4 +327,99 @@ still show pane A's claim.
 ### Planned mitigations
 - timing: pre-phase | name: baseline_lock_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "wrong self-identity breaks picking" | desc: Record the pass/fail baseline of the four lock/anchor suites before any edit, so a retargeted assertion is distinguishable from a regression.
 - timing: post-phase | name: negctrl_live_holder_gate | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "wider refusal surface" + goal "no-anchor locks still acquire" | desc: Revert only the gate hunk and prove both the live-holder and unverifiable tests fail, then restore and re-run to green.
-- timing: after | name: port_live_holder_gate_other_agents | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health "partial sweep across skill trees" | desc: Port the LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER handling from the Claude Code skills to the Codex (.agents/skills/) and OpenCode (.opencode/skills/) task-workflow and aitask-pickrem surfaces.
+- timing: after | name: port_live_holder_gate_other_agents | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health "partial sweep across skill trees" | desc: Port the LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER handling from the Claude Code skills to the Codex (.agents/skills/) and OpenCode (.opencode/skills/) task-workflow and aitask-pickrem surfaces. | created: dropped(premise-false)
+
+**`port_live_holder_gate_other_agents` was dropped at Step 8d — its premise was
+false.** The design assumed Codex and OpenCode carry their own authoring copies
+of `task-workflow` and `aitask-pickrem`. They do not: `ls -d
+.agents/skills/*/ .opencode/skills/*/` shows no `task-workflow` authoring dir at
+all, and the `aitask-pickrem` entries in both trees are 27-line dispatch stubs,
+not content. Every agent renders from the single Claude authoring source
+(`.claude/skills/task-workflow/` and `.claude/skills/aitask-pickrem/SKILL.md.j2`),
+so `aitask_skill_rerender.sh` already propagated this change to all three trees.
+Verified by sweeping every rendered closure in `.claude/`, `.agents/` and
+`.opencode/` for the new strings: the only miss was a git-ignored `_skillrun_`
+scratch dir. Creating the task would have created an empty one.
+
+The mistaken premise came from my own exploration, not the repo: an earlier
+`grep -rln … | sed 's/-[a-z]*-\(codex-\)\?\//\//'` rewrote rendered paths like
+`task-workflow-fast-codex-/` into `task-workflow/`, manufacturing authoring
+paths that do not exist. A path-normalizing filter over a file listing can
+invent files — check existence before concluding one is stale.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. `lib/pid_anchor.sh` gained
+  `lock_anchor_is_self()` over a memoized own-anchor triple;
+  `aitask_lock.sh::lock_task()` gained the same-host/same-email acquire gate
+  (exit 13 `LOCK_LIVE_HOLDER:`, exit 14 `LOCK_UNVERIFIABLE_HOLDER:`, both
+  emitted and refused before the lock write, the status update and the commit);
+  `aitask_pick_own.sh` forwards both, routes them to `force_acquire_lock` under
+  `--force`, and suppresses the post-claim reclaim signal after a confirmed
+  same-email force. Skill surfaces: two new outcomes in `task-workflow`
+  Step 4 (safe option listed first in both prompts) and in the Step 7 ownership
+  guard, a scope note in `crash-recovery.md`, and abort arms in
+  `aitask-pickrem`'s `.j2`. Docs: an exclusion-guarantee table in
+  `concepts/locks.md`, a "When the Holder Is Still Running" section plus a
+  board-lock tip in `workflows/crash-recovery.md`, exit codes in
+  `commands/lock.md`. Tests: new `tests/test_lock_live_holder_gate.sh`
+  (60 assertions), two retargeted assertions in
+  `tests/test_crash_recovery_pid_anchor.sh`, one fixture fix in
+  `tests/test_lock_anchor_tmux_live.sh`.
+
+- **Deviations from plan:**
+  - *A fifth suite needed changing.* The plan baselined four suites;
+    `tests/test_lock_anchor_tmux_live.sh` was not among them and broke. Its
+    Case B negative control re-claimed the *same* task Case A had just locked
+    from a still-live pane, so the new gate refused it before the writer ran.
+    The guard is correct — a claim that cannot resolve its own anchor cannot
+    prove it is the holding session — so the fixture was retargeted onto its own
+    task (t2) rather than the gate being softened. The negative control is
+    fully preserved: Case B still proves the writer degrades to `pid: -`.
+  - *The spawned "after" mitigation was dropped*, premise verified false — see
+    the note under `### Planned mitigations` above.
+  - *`show_help()` was updated too* (review finding). The top-of-file contract
+    block had been updated but `show_help()` still described `--force` as
+    stale-lock-only and listed neither new output, so `--help` contradicted the
+    code this task shipped. Two adjacent stale phrasings in the same file (the
+    usage line and `FORCE_UNLOCKED`'s description, both saying "stale lock")
+    were aligned at the same time.
+
+- **Issues encountered:**
+  - *Test hang.* A `start_session()` helper returning a pid via command
+    substitution hung: the backgrounded `sleep` inherits the substitution's
+    pipe and holds it open. Inlined as `sleep 300 >/dev/null 2>&1 & PID=$!`,
+    which also keeps the process a direct child so `wait` can reap it — an
+    unreaped zombie still has a `/proc` entry and answers `kill -0`, so it
+    would read as ALIVE and silently invalidate every "dead" assertion.
+  - *`set -e` and `[[ … ]] && return N`.* An AND-list whose test fails takes the
+    list's non-zero status and kills the function before any fallback return.
+    Written as an explicit `if` in `acquire_lock`'s 13/14 arm.
+  - *A self-inflicted over-broad guard.* The negative-control script asserted
+    the removed slice contained no `LOCK_RECLAIM`; it tripped on the *word* in
+    a comment. Tightened to the emission (`echo "LOCK_RECLAIM`). The file was
+    not modified — the assertion fired before the write.
+
+- **Key decisions:**
+  - *Refuse, do not acquire-then-signal.* Both new outcomes refuse before any
+    write, so nothing has to be given back. This is what makes the headless lane
+    safe **by construction**: `aitask-pickrem` parses no `RECLAIM_*` signal at
+    all, so any design that acquires first and signals afterwards is
+    automatically taken over in remote mode. A post-claim
+    `RECLAIM_UNVERIFIABLE:` signal was designed and then discarded for this
+    reason.
+  - *Self-refresh is exempt, on all three fields.* `(pid, token, kind)` must all
+    match. Matching the pid alone would call a recycled PID "self" and disable
+    the gate; without the exemption the gate would refuse the Step 7 ownership
+    guard, every in-pane re-pick and every in-flight resume.
+  - *"Recorded but undecidable" and "never recorded" are different states.* The
+    first refuses; the second (`pid: -` / `0` / absent) keeps its old behaviour.
+    Refusing the second would strand every pre-anchor lock and every non-tmux
+    claim. This is the stated boundary of the guarantee and is documented as
+    such rather than implied away.
+  - *An unresolvable own anchor never claims identity* — it fails toward the
+    gate, not around it. The measured cost: a session whose tmux gateway becomes
+    unreachable is refused its own lock and needs `--force`. Accepted, since the
+    alternative is a hole exactly the size of the bug.
+
+- **Upstream defects identified:** None.
