@@ -20,6 +20,9 @@
 #   deps-unblock <task-id>                       Decide if this task releases its
 #                                                dependents (t635_3; python-only;
 #                                                re-validates signatures, t1416)
+#   deps-unblock-batch < paths                   Same decision for a whole list of
+#                                                task FILE PATHS on stdin, in one
+#                                                process (t1472; python-only)
 #   archive-ready <task-id>                      Decide if this task may archive
 #                                                (t635_4; python-only)
 #   resume-point <task-id>                       Derive task-workflow re-entry
@@ -46,8 +49,8 @@
 # documented fallback (drop-in, identical output): used when AIT_GATES_BACKEND=python
 # or when the awk scan fails. Keep the two output formats byte-identical.
 # EXCEPTIONS — python-only verbs (no bash path exists): deps-unblock,
-# archive-ready, resume-point, workflow-phase, effective-gates, procedure-gates,
-# sync-registry.
+# deps-unblock-batch, archive-ready, resume-point, workflow-phase,
+# effective-gates, procedure-gates, sync-registry.
 #
 # append keys: run, status, attempt, duration, type (marker line);
 #              verifier, result, log, note (body lines). Others are ignored.
@@ -581,10 +584,12 @@ cmd_list() {
 # unavailable, degrades to NO_GATES so callers fall back to today's
 # file-existence behavior.
 #
-# NOT low-frequency, despite what this comment used to claim: `aitask_ls.sh`
-# invokes it as ONE SUBPROCESS PER gated active task on every `ait ls` (307 of
-# them, ~47ms each, in the framework repo itself). Batching that fan-out is
-# tracked separately; anything added on this path is multiplied by N.
+# Single-task callers and tests only. `aitask_ls.sh` used to invoke this as ONE
+# SUBPROCESS PER gated active task on every `ait ls` (190 of them, ~46ms each,
+# = 9.7s of an 18.9s run in the framework repo itself); since t1472 it calls
+# `deps-unblock-batch` below instead, which decides the whole candidate list in
+# one process. Anything added on THIS path is still multiplied by N for any
+# caller that loops over it — prefer the batch verb for list-shaped work.
 #
 # Since t1416 the decision also RE-VALIDATES a code-bound signature: a required
 # gate whose ledger reads `pass` but whose witness was signed against different
@@ -600,6 +605,31 @@ cmd_deps_unblock() {
     local file
     file="$(resolve_task_file "$task_id")"
     delegate_python deps-unblock "$file" "$REGISTRY" || echo "NO_GATES"
+}
+
+# deps-unblock-batch: the batched twin of deps-unblock (t1472). Reads task FILE
+# PATHS on stdin (one per line, already resolved — no resolve_task_file pass) and
+# prints `<decision>\t<path>` per NON-EMPTY input line, in input order (blank
+# lines are skipped and produce no row — key off the echoed path rather than the
+# line position). The path round-trips so the CALLER keeps ownership of id
+# normalization; nothing here needs to agree with bash about how a filename maps
+# to a task id.
+#
+# No `|| echo NO_GATES` fallback: on a python-unavailable failure the caller sees
+# NO output, which is exactly equivalent to N x NO_GATES (no task enters the
+# dep-satisfied set) — the same degradation the per-task verb produces.
+#
+# Exit status passes through: 0 = every row decided, 1 = registry setup failed
+# and every row is a conservative NO_GATES (rows are still printed first).
+#
+# NOTE: `aitask_ls.sh` discards this verb's stderr AND ignores its exit status,
+# because in both failure shapes the rows it reads are already safe. A systematic
+# failure is therefore INVISIBLE in `ait ls` output — "nothing is gated" and "the
+# decider is broken" look identical there. Diagnose by running the verb by hand
+# with stderr attached:
+#   printf '%s\n' aitasks/t123_x.md | ./.aitask-scripts/aitask_gate.sh deps-unblock-batch
+cmd_deps_unblock_batch() {
+    delegate_python deps-unblock-batch "$REGISTRY"
 }
 
 # archive-ready: decide whether this task may archive (t635_4). Python-only
@@ -1242,6 +1272,21 @@ Commands:
         but whose code-bound signature is stale counts as NOT satisfied (t1416),
         so BLOCKED can name a gate that `status` still shows as passing.
 
+  deps-unblock-batch < task-file-paths
+        Batched twin of deps-unblock, for list-shaped callers (t1472). Reads task
+        FILE PATHS on stdin (one per line) and prints `<decision><TAB><path>` per
+        NON-EMPTY input line, in INPUT ORDER — every non-empty input line always
+        yields exactly one output line. Blank lines are skipped and produce no
+        row, so map results by the echoed path, not by line position.
+        Decisions are identical to the per-task verb (both route
+        through one shared core), but the whole list is decided in ONE process
+        with one registry parse and at most one code-digest, replacing `ait ls`'s
+        former one-subprocess-per-gated-task fan-out.
+        Exit 0 = every row decided; a task file that cannot be read or decided is
+        isolated to NO_GATES with a stderr diagnostic naming it. Exit 1 = registry
+        setup failed, so EVERY row is a conservative NO_GATES (one diagnostic,
+        not one per row); the rows are still printed before the nonzero exit.
+
   archive-ready <task-id>
         Decide whether this task may archive (t635_4). Prints ALL_PASS (every
         declared gate passed), BLOCKED:<csv> (declared gates not all pass), or
@@ -1395,6 +1440,7 @@ main() {
         status) shift; cmd_status "$@" ;;
         list)   shift; cmd_list "$@" ;;
         deps-unblock) shift; cmd_deps_unblock "$@" ;;
+        deps-unblock-batch) shift; cmd_deps_unblock_batch "$@" ;;
         archive-ready) shift; cmd_archive_ready "$@" ;;
         resume-point) shift; cmd_resume_point "$@" ;;
         workflow-phase) shift; cmd_workflow_phase "$@" ;;

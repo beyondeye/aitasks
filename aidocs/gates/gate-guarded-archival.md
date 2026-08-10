@@ -103,7 +103,7 @@ the four turned out not to be alike.
 | `archive_status(file, registry)` (`archive-ready`) | **yes** | The read-side archival guard; lazy digest. |
 | `gate_orchestrator.unlocked()` (`ait gates unlocked`) | **yes** | One-shot, single-task, human-invoked — there is no per-task loop, so the affordability argument never applied. Costs at most one digest. |
 | `read_task_gate_state(file, registry, digest)` (board) | **yes** | The board threads a **once-per-refresh** memo (`TaskManager.code_digest_for_refresh`), so a refresh costs exactly one digest no matter how many tasks are signed — and zero when none are. |
-| `deps-unblock` (`ait ls`) | **yes** | A *semantics* decision, not a cost one — see [[dependency-unblock-semantics]]. |
+| `deps-unblock` (`ait ls`) | **yes** | A *semantics* decision, not a cost one — see [[dependency-unblock-semantics]]. Since t1472 `ait ls` goes through the batched twin (`deps-unblock-batch`), which threads a once-per-batch memo, so a whole `ait ls` costs **one** digest no matter how many tasks are signed — the same property the board row above claims, reached the same way. |
 | `archive_status_from_text()` (stats, trail) | **no — ratified** | Below. |
 | monitor / minimonitor compact gate column | **no — ratified** | Below. |
 

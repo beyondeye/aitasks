@@ -70,7 +70,45 @@ edge. Derived gate state uses the standard last-run-wins derivation
 (`gate_ledger.derive_status`). The implementation lives in
 `.aitask-scripts/lib/gate_ledger.py` (`dependents_status` /
 `required_unblock_gates`), surfaced as `aitask_gate.sh deps-unblock <task-id>`
-(`SATISFIED` | `BLOCKED:<csv>` | `NO_GATES`), and consumed by `aitask_ls.sh`.
+(`SATISFIED` | `BLOCKED:<csv>` | `NO_GATES`).
+
+### Two surfaces, one decision core (t1472)
+
+`ait ls` evaluates this for **every** gated active task, so it does not call the
+per-task verb in a loop — that was one subprocess (and one fresh Python
+interpreter) per candidate: 190 of them, ~46 ms each, **9.7 s of an 18.9 s
+`ait ls`** on the framework repo. It calls the batched twin instead:
+
+| surface | shape | used by |
+|---|---|---|
+| `deps-unblock <task-id>` | one decision on stdout | single-task callers, tests |
+| `deps-unblock-batch` | task file paths on stdin → `<decision><TAB><path>` per non-empty input line, in input order | `aitask_ls.sh` |
+
+Both route through the same private core (`_dependents_status_for_text`), so the
+two surfaces **cannot** drift into two implementations of the decision;
+`tests/test_deps_unblock_batch.sh` pins their equality across every decision
+shape, with a negative control proving that comparison is not vacuous. Measured
+after batching: **9.9 s → 56 ms** for the same 191 candidates (~177×), `ait ls`
+18.9 s → 4.1 s, with byte-identical output.
+
+The batch is **total** — every *non-empty* input line always yields exactly one
+output line, in input order. Blank stdin lines are skipped and produce no row
+(there is no task file to decide), so a caller must map results by the **echoed
+path**, not by line position.
+A task file that cannot be read or decided is isolated to `NO_GATES` with a
+stderr diagnostic naming it (reproducing the boundary the per-task shape got
+free from its `|| echo NO_GATES` fallback); a registry that cannot be parsed
+makes *every* row `NO_GATES` with one diagnostic and exit **1**. Both directions
+are conservative: `NO_GATES` falls back to file-existence, so a dependent stays
+blocked until the upstream archives. `aitask_ls.sh` discards stderr and ignores
+the status, so a systematic failure is invisible there — diagnose by running the
+verb by hand.
+
+Batching also fixes the t1416 cost scaling as a side effect: the digest is
+resolved at most **once per `ait ls`** rather than once per signed task. That
+memo (`_DigestMemo`) memoizes a provider *failure* and re-raises it, never a
+bare `None` — `witness_state` reads a `None` digest as `unstamped` = accept, so
+caching one would release dependents on signatures nobody re-validated.
 
 ### A code-stale signature does not release dependents (t1416)
 

@@ -180,20 +180,36 @@ build_dep_satisfied_set() {
         "$TASK_DIR"/t[0-9]*_*.md "$TASK_DIR"/t[0-9]*/t[0-9]*_[0-9]*_*.md 2>/dev/null || true)
     [[ -z "$candidates" ]] && return 0
 
-    local f base id norm decision
-    while IFS= read -r f; do
+    # ONE subprocess for the whole candidate list (t1472). This used to be one
+    # `aitask_gate.sh deps-unblock` process per candidate — 190 of them, ~46ms
+    # each, 9.7s of an 18.9s `ait ls` in the framework repo. Decisions come back
+    # as `<decision><TAB><path>`, one per input line in input order; the PATH
+    # round-trips so the normalization below stays the single place a task file
+    # maps to a dep-set key (no id-canonicalization agreement across languages).
+    #
+    # `2>/dev/null || true`: the verb's diagnostics are not for `ait ls`, and both
+    # of its failure shapes (per-file isolation, registry setup failure) already
+    # yield conservative NO_GATES rows. A total failure yields no rows at all,
+    # which is equivalent to N x NO_GATES here. See cmd_deps_unblock_batch for how
+    # to diagnose a systematic failure, which is invisible in this output.
+    #
+    # basename(1) is deliberately NOT used: it forked once per candidate. `${f##*/}`
+    # is exact for these paths, and now runs only for SATISFIED rows.
+    local decision f base norm
+    while IFS=$'\t' read -r decision f; do
+        [[ "$decision" == "SATISFIED" ]] || continue
         [[ -n "$f" ]] || continue
-        base=$(basename "$f")
+        base="${f##*/}"
         if [[ "$base" =~ ^t([0-9]+)_([0-9]+)_ ]]; then
-            id="${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"; norm="t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"
+            norm="t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"
         elif [[ "$base" =~ ^t([0-9]+)_ ]]; then
-            id="${BASH_REMATCH[1]}"; norm="${BASH_REMATCH[1]}"
+            norm="${BASH_REMATCH[1]}"
         else
             continue
         fi
-        decision=$(TASK_DIR="$TASK_DIR" "$gate_script" deps-unblock "$id" 2>/dev/null || echo "NO_GATES")
-        [[ "$decision" == "SATISFIED" ]] && printf '%s\n' "$norm" >> "$dep_satisfied_file"
-    done <<< "$candidates"
+        printf '%s\n' "$norm" >> "$dep_satisfied_file"
+    done < <(printf '%s\n' "$candidates" \
+        | TASK_DIR="$TASK_DIR" "$gate_script" deps-unblock-batch 2>/dev/null || true)
 }
 build_dep_satisfied_set
 

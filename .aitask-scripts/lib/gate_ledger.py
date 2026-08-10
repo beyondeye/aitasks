@@ -24,6 +24,15 @@ CLI:
     gate_ledger.py list         <task-file> [registry.yaml]
     gate_ledger.py deps-unblock <task-file> [registry.yaml]
                                  -> SATISFIED | BLOCKED:<csv> | NO_GATES (t635_3)
+    gate_ledger.py deps-unblock-batch [registry.yaml] < task-file paths
+                                 -> one `<decision>\t<path>` line per NON-EMPTY
+                                    input line, in input order. Blank lines are
+                                    skipped and produce no row, so map results by
+                                    the echoed path, not by line position. The
+                                    batched twin of the verb above, for `ait ls`
+                                    (t1472): one process, one registry parse, at
+                                    most one code_digest(). Exit 1 (with all rows
+                                    NO_GATES) iff registry setup failed; else 0.
     gate_ledger.py archive-ready <task-file> [registry.yaml]
                                  -> ALL_PASS | BLOCKED:<csv> | NO_GATES (t635_4).
                                     With a registry, a ledger-satisfied human gate
@@ -1372,24 +1381,113 @@ def dependents_status(task_file: str, registry_file: str | None,
 
     **Cost.** The no-git pre-filter means a task without a stamped witness costs
     nothing (~2 µs). Measured on the framework repo (t1416): each witness-carrying
-    task adds one ~5 ms ``code_digest()``. Because ``ait ls`` runs this as one
-    subprocess PER task, the lazy default cannot amortize across tasks — the added
-    cost is linear in W (tasks carrying a signature), ~+2.2% at W=50 and crossing
-    +10% at W≈230. Beyond that, thread the digest in from the caller
-    (``current_digest``); the batched-``deps-unblock`` follow-up subsumes it.
+    task adds one ~5 ms ``code_digest()``, and this single-task entry point cannot
+    amortize it — the cost stays linear in W (tasks carrying a signature) for
+    every caller that loops over this function.
+
+    ``ait ls`` no longer does (t1472). It goes through
+    :func:`dependents_status_batch`, which decides the whole candidate list in ONE
+    process with one registry parse and at most one ``code_digest()``, replacing a
+    fan-out of one subprocess per gated task (190 processes / 9.7 s on the
+    framework repo). This per-task verb remains for single-task callers and tests;
+    a caller with its own once-per-refresh memo threads it via ``current_digest``.
     """
     with open(task_file, encoding="utf-8") as fh:
         text = fh.read()
+    return _dependents_status_for_text(
+        text, read_registry(registry_file) if registry_file else {},
+        task_id_from_file(task_file), current_digest)
+
+
+def _dependents_status_for_text(text: str, registry: dict[str, dict],
+                                task_id: str,
+                                current_digest) -> tuple[str, list[str]]:
+    """Shared decision core of the per-task and batched deps-unblock verbs.
+
+    Both :func:`dependents_status` and :func:`dependents_status_batch` route
+    through here, so the two CLI surfaces cannot drift into two implementations
+    of the unblock decision (pinned by ``tests/test_deps_unblock_batch.sh``).
+    Takes an already-parsed ``registry`` and an explicit ``task_id`` so the batch
+    can hoist the registry read out of its loop.
+    """
     active, filtered, _valid = read_active_tuple_from_text(text)
     also = _read_frontmatter_list_from_text(text, "also_blocks_dependents")
     also_effective = [g for g in also if g not in filtered]
-    registry = read_registry(registry_file) if registry_file else {}
     state = derive_gate_runs(text)
     effective, _stale = demote_stale_signed(
         required_unblock_gates(active, also_effective, registry), registry,
-        state, task_id_from_file(task_file), current_digest)
+        state, task_id, current_digest)
     return _dependents_status_from_state(active, also_effective, registry,
                                          effective)
+
+
+def dependents_status_batch(task_files: list[str], registry_file: str | None,
+                            current_digest=_COMPUTE_DIGEST
+                            ) -> tuple[list[tuple[str, str, list[str]]],
+                                       Exception | None]:
+    """``(rows, setup_error)`` — one ``(path, decision, pending)`` row per input
+    path, in input order, plus the setup failure that forced them all (t1472).
+
+    A plain function, not a generator: the caller needs BOTH the rows and the
+    setup verdict, and a generator would force either a second registry parse in
+    the CLI or a ``StopIteration.value`` dance. 190 rows is nothing to hold.
+
+    One process, ONE registry parse, and AT MOST one ``code_digest()`` for the
+    whole batch — replacing ``ait ls``'s former one-subprocess-per-gated-task
+    fan-out (190 processes / 9.7 s on the framework repo).
+
+    **Totality is the contract: every element of ``task_files`` yields exactly one
+    row, in input order.** Two distinct degradation boundaries keep it true. (The
+    ``deps-unblock-batch`` CLI wrapping this function drops BLANK stdin lines
+    before building ``task_files``, so its one-to-one guarantee is per *non-empty*
+    input line — a caller mapping stdin lines to output rows positionally must
+    account for that, or key off the echoed path instead.)
+
+    *Per-file* — a file that cannot be read or decided yields ``("NO_GATES", [])``
+    plus a stderr diagnostic naming it, rather than aborting the batch. This
+    reproduces the boundary the old shape got for free from the per-task
+    ``delegate_python ... || echo "NO_GATES"`` fallback: collapsing N processes
+    into 1 must not let one bad task file cost ``ait ls`` every other decision.
+
+    *Setup* — :func:`read_registry` runs ONCE, before the loop, and is therefore
+    outside every per-file guard. It already returns ``{}`` for a MISSING
+    registry, but still raises on a directory path, unreadable permissions,
+    non-UTF-8 bytes, or a TOCTOU delete. Left unguarded that would abort before a
+    single row, so the promised rows and diagnostic would never exist. Guarded, a
+    setup failure degrades to the same shape: ``NO_GATES`` for every input row,
+    ONE diagnostic (not N copies of one cause), and a non-``None``
+    ``setup_error`` the CLI turns into a NONZERO exit — so a caller reading exit
+    status can tell "everything fell back" from "nothing was gated", a
+    distinction invisible in the rows themselves.
+
+    Falling back to a partial ``registry={}`` decision is deliberately NOT done:
+    with no registry no gate carries ``blocks_dependents``, so
+    ``also_blocks_dependents`` entries would still be honored while
+    registry-flagged ones silently would not — an inconsistent half-decision.
+    All-``NO_GATES`` is the conservative whole answer (the caller falls back to
+    file-existence, so a dependent stays blocked until archival); not fail-open.
+    """
+    try:
+        registry = read_registry(registry_file) if registry_file else {}
+    except Exception as exc:            # noqa: BLE001 — totality boundary, see above
+        sys.stderr.write(
+            f"deps-unblock-batch: registry unavailable ({registry_file}): {exc}"
+            f" — every task falls back to NO_GATES\n")
+        return [(p, "NO_GATES", []) for p in task_files], exc
+
+    memo = _DigestMemo(current_digest)
+    rows: list[tuple[str, str, list[str]]] = []
+    for path in task_files:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            decision, pending = _dependents_status_for_text(
+                text, registry, task_id_from_file(path), memo)
+        except Exception as exc:        # noqa: BLE001 — totality boundary, see above
+            sys.stderr.write(f"deps-unblock-batch: {path}: {exc}\n")
+            decision, pending = "NO_GATES", []
+        rows.append((path, decision, pending))
+    return rows, None
 
 
 # --- Code-state digest + human-gate signal witness (t635_15, t1409) -------
@@ -1433,6 +1531,58 @@ def _resolve_digest(current_digest):
     if callable(current_digest):
         return current_digest()
     return current_digest
+
+
+class _DigestMemo:
+    """One-shot memo over the four-state digest channel (t1472).
+
+    Batch analogue of the board's ``TaskManager.code_digest_for_refresh``. Passed
+    to the decision core as a *callable*, so :func:`_resolve_digest` invokes it
+    only after some task's no-git pre-filter finds a stamped witness: a batch of
+    300 unsigned tasks never shells out to git, and any number of signed ones
+    shells out exactly once. Delegating to :func:`_resolve_digest` is what keeps
+    all four incoming states (sentinel / callable / str / None) handled in one
+    place instead of re-deciding them here.
+
+    **A failed provider is memoized as the FAILURE, and re-raised.** It must not
+    decay into a cached ``None``: :func:`witness_state` resolves
+    ``current_digest is None`` to ``unstamped`` = *accept*, so a cached ``None``
+    would let every signed task after the first release its dependents on a
+    code-bound witness that was never re-validated — the exact fail-open t1416
+    closed. It is also precisely what :func:`_resolve_digest` refuses to do one
+    layer down ("swallowing here would reinterpret a caller bug as
+    'unverifiable' and quietly accept a signature nobody validated").
+
+    So: resolve at most ONCE (a failed provider is never retried, so a batch
+    cannot pay N failing subprocesses), and every later caller re-raises the
+    stored exception. Each signed row then hits the batch's per-file guard and
+    falls back to ``NO_GATES`` — conservative, since a task whose staleness
+    cannot be determined must not release its dependents. Unsigned rows never
+    call the memo at all and are unaffected.
+
+    ``Exception``, not ``BaseException``: a ``KeyboardInterrupt`` must still kill
+    the batch rather than be replayed once per row.
+    """
+
+    __slots__ = ("_source", "_value", "_error", "_done")
+
+    def __init__(self, source):
+        self._source = source
+        self._value = None
+        self._error = None
+        self._done = False
+
+    def __call__(self):
+        if not self._done:
+            self._done = True               # set FIRST: a failure is never retried
+            try:
+                self._value = _resolve_digest(self._source)
+            except Exception as exc:        # noqa: BLE001 — stored, then re-raised
+                self._error = exc
+                raise
+        if self._error is not None:
+            raise self._error
+        return self._value
 
 
 def _git(args: list[str], cwd: str) -> str | None:
@@ -1945,6 +2095,27 @@ def main(argv: list[str]) -> int:
         else:
             sys.stdout.write(decision + "\n")
         return 0
+
+    if cmd == "deps-unblock-batch":
+        # Task FILE PATHS on stdin, one per line; `<decision>\t<path>` per
+        # NON-EMPTY input line, in input order. Blank lines are dropped below and
+        # produce NO row, so the one-to-one guarantee is against non-empty lines,
+        # not against raw line positions — map results by the echoed path. (A
+        # blank line has no task file to decide; emitting `NO_GATES\t` for it
+        # would hand `aitask_ls.sh` an empty basename to normalize.)
+        # Exit 0 = every row decided (per-file fallbacks included — those are
+        # isolated and the other rows are valid); exit 1 = registry setup failed
+        # and every row is a conservative NO_GATES. Rows are always written
+        # BEFORE the nonzero return, so a caller that ignores the status still
+        # degrades safely.
+        registry_file = argv[1] if len(argv) > 1 else None
+        paths = [p for p in (ln.rstrip("\n") for ln in sys.stdin) if p]
+        rows, setup_error = dependents_status_batch(paths, registry_file)
+        for path, decision, pending in rows:
+            label = ("BLOCKED:" + ",".join(pending)
+                     if decision == "BLOCKED" else decision)
+            sys.stdout.write(f"{label}\t{path}\n")
+        return 1 if setup_error is not None else 0
 
     if cmd == "archive-ready":
         if len(argv) < 2:
