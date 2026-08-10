@@ -1095,6 +1095,19 @@ recorded decomposition, only now an explicit and reviewed one.
   - Ten of eleven negative controls discriminate; the eleventh is the documented
     mutual redundancy above.
 
+- **Mitigation `assert_fast_path_both_ways` — what it actually covers.** Stated
+  precisely rather than by summary: both directions of `_move_needs_recompose`
+  (case 19), the child index built once per pass and **zero** times with no
+  header in scope (case 14c), zero unit derivations on an ungrouped move (the
+  post-review case), and `_UNIT_SELECTOR`'s DOM order (case 4). The fifth item
+  the mitigation named — "`GroupHeader.members` cannot go stale" — has **no
+  dedicated test**, deliberately: membership can only change through a
+  `boardgroup` write, the board has no such write path until t1243_11/t1243_12,
+  and an external `aitask_update.sh --boardgroup` edit is only observed via
+  `refresh_board`, which reconstructs every column and header. There is no
+  reachable staleness path to assert against today. **t1243_11 must add one**
+  the moment it lands a membership write.
+
 - **Upstream defects identified:**
   - `.aitask-scripts/board/aitask_board.py:231,7873 — apply_filter can leave an expanded child card visible under a parent it hid, because Task.search_haystack is "<filename> <metadata>" and a parent's corpus never contains its children's text; the result is an orphaned "↳" row with no parent above it. Predates groups and is independent of them — fixing it would change apply_filter semantics for every ungrouped board.`
 
