@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1468
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:28
-updated_at: 2026-08-10 17:28
+updated_at: 2026-08-10 18:29
 ---
 
 ## Context
@@ -206,3 +209,8 @@ Per `aitasks_extension_points.md:42-60`:
 5. `bash tests/run_all_python_tests.sh` (read the LAST line for the verdict).
 6. `shellcheck .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_update.sh
    .aitask-scripts/aitask_fold_mark.sh`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T15:29:36Z status=pass attempt=1 type=human
