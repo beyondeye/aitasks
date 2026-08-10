@@ -6,8 +6,9 @@ issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
 verifies: [1474]
+followup_kind: risk_mitigation
 created_at: 2026-08-10 18:42
-updated_at: 2026-08-10 18:42
+updated_at: 2026-08-10 18:43
 ---
 
 ## Origin
