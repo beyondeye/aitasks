@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 09:03
-updated_at: 2026-08-10 09:25
+updated_at: 2026-08-10 14:24
 ---
 
 ## Origin
@@ -86,3 +87,8 @@ staleness path (a parent's memo would then depend on its children's state).
   the child-aware rule and must not regress.
 - No new whole-board query or per-parent child scan on the `apply_filter` hot
   path; reuse the per-pass index.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-10T11:24:54Z status=pass attempt=1 type=human
