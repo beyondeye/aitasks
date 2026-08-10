@@ -644,3 +644,46 @@ path are all load-bearing for every pick on every machine.
 - timing: pre-phase | name: fixture_tmux_dep_audit | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: lazy source of tmux_exec.sh could silently degrade standalone-cp fixtures to UNKNOWN anchors | desc: enumerate every test that cp's lib/pid_anchor.sh and verify each also receives lib/tmux_exec.sh, adding the copy where missing, before the source is introduced
 - timing: post-phase | name: tmux_unreachable_degradation | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: every ait lock acquisition now spawns a tmux display-message on the critical path | desc: test that a claim against an unreachable tmux socket still exits 0 with OWNED, records the UNKNOWN sentinel, and completes within a bounded timeout
 - timing: post-phase | name: launcher_assumption_pin | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: the pane-pid anchor is only correct while launch_in_tmux execs the bare agent command | desc: add a bidirectional comment between launch_in_tmux and ait_tmux_self_pane_pid naming the anchor contract, and extend tests/test_launch_in_tmux_pane_pid.py with a no-wrapper assertion if that test already inspects the launch command
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-10 13:30)
+
+- **Requested by user:** Two review concerns on the test suite. (1) *blocking* —
+  Test 11 inherits `TMUX` / `TMUX_PANE` while claiming to be
+  environment-independent, so its outcome depends on whichever pane the runner
+  happens to sit in; clear the pane state and pin the result to UNKNOWN, since
+  the live-tmux test already covers the normal pane rung. (2) *follow-up* —
+  Test 5's comment still states the pre-t1465 contract ("we treat unknown PID
+  as crashed") and its assertion still accepts CRASH *or* STATUS, which would
+  invite a maintainer to restore the false-crash behaviour.
+
+- **Changes made:**
+  - **Test 11** now runs the claim under `env -u AIT_AGENT_PID -u TMUX
+    -u TMUX_PANE` and asserts the exact outcome: `pid:` equals the UNKNOWN
+    sentinel and `pid_starttime_kind:` is `none`. The loose
+    "UNKNOWN **or** a live PID" branch is gone, and a separate check fails
+    outright if the writer recorded *any* numeric PID when it had no session
+    process to name. Renamed to "With nothing to resolve, the anchor is UNKNOWN
+    (never a dead PID)" and commented with why the pane rung is deliberately
+    left to `tests/test_lock_anchor_tmux_live.sh` — a real server is the only
+    place it can be proven honestly.
+  - **Test 5** comment rewritten to state the current contract (an unknown
+    anchor is not evidence of a crash, so the honest verdict is the
+    RECLAIM_STATUS anomaly path), with an explicit "do not loosen this back"
+    note. Its assertion is now `assert_contains RECLAIM_STATUS:` plus
+    `assert_not_contains RECLAIM_CRASH`.
+
+- **Files affected:** `tests/test_crash_recovery_pid_anchor.sh`
+
+- **Verification of the change:**
+  - The reported 70/71 symptom did **not** reproduce on this box — the
+    inherited pane here is the long-lived agent pane, so the old loose
+    assertion passed. The underlying fragility was real regardless, and the fix
+    removes it rather than relying on the runner's environment.
+  - Suite: 74 passed / 0 failed, and **identical** when re-run with the
+    runner's `TMUX` / `TMUX_PANE` cleared — the determinism the test now claims.
+  - Negative control re-run (single mutation restoring `get_session_anchor_pid`
+    to `echo "$PPID"`): failures rose from 9 to 11, the three new ones being
+    Test 11's tightened assertions — so the tightening strictly increased the
+    suite's power to detect the original defect.
