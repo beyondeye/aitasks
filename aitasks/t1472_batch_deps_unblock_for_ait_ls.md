@@ -1,0 +1,75 @@
+---
+priority: medium
+effort: medium
+depends: []
+issue_type: performance
+status: Ready
+labels: [backend, verification]
+gates: [risk_evaluated]
+anchor: 635
+created_at: 2026-08-10 14:56
+updated_at: 2026-08-10 14:56
+---
+
+## Origin
+
+Spawned from t1416 during Step 8b review.
+
+## Upstream defect
+
+- `.aitask-scripts/aitask_ls.sh:177-198 — build_dep_satisfied_set spawns one
+  aitask_gate.sh subprocess per gated active task, making ait ls ~12.5s on this
+  repo (307 candidates x ~47ms each)`
+
+## Diagnostic context
+
+Measured while sizing t1416's cost probe, not while chasing a bug — which is why
+it had gone unnoticed: `ait ls` has simply always been slow, and nothing
+attributed the cost.
+
+`build_dep_satisfied_set()` greps for every active task whose frontmatter carries
+`gates:` / `active_gates:` / `also_blocks_dependents:`, then loops:
+
+```bash
+decision=$(TASK_DIR="$TASK_DIR" "$gate_script" deps-unblock "$id" ...)
+```
+
+Each iteration is a fresh `aitask_gate.sh` process which in turn starts a fresh
+Python interpreter to run `gate_ledger.py deps-unblock`. Measured on the
+framework repo: one call ~47 ms, 307 candidates, `time ait ls 15` = **12.5 s** —
+i.e. essentially the entire runtime of `ait ls`.
+
+The `aitask_gate.sh` comment above the verb claimed it was "a new, low-frequency
+decision (only on `ait ls`, only for gated active tasks)"; t1416 corrected that
+comment, but not the fan-out itself, which was out of its scope.
+
+## Why it matters more after t1416
+
+t1416 made `deps-unblock` re-validate a code-bound human-gate signature. The
+no-git pre-filter keeps that free for a task with no stamped witness, but each
+task that DOES carry one adds a `code_digest()` (~5 ms). Because every task is
+its own process, the lazy digest cannot amortize, so the added cost is linear in
+the number of signed tasks: +2.2% at W=50, crossing +10% at **W≈230**. Batching
+removes that scaling concern entirely as a side effect.
+
+## Suggested fix
+
+Add a batched verb — `gate_ledger.py deps-unblock-batch` reading task files (or
+ids) from stdin and printing `<id> <decision>` lines — and have
+`build_dep_satisfied_set()` feed it its whole candidate list in ONE process.
+Expected: 307 subprocesses → 1, ~12.5 s → well under 1 s, and one `code_digest()`
+for the entire `ait ls` instead of one per signed task (pass it down via
+`dependents_status(..., current_digest=...)`, which already accepts it).
+
+Keep the per-task verb: `tests/test_dependency_unblock.sh` asserts shell/python
+parity on it, and other callers use it as a single-task decision.
+
+## Verification
+
+- `tests/test_dependency_unblock.sh` must stay green, including its `:111`
+  shell/python parity assertion.
+- A new test pinning that the batch verb and the per-task verb return identical
+  decisions for the same fixture set (they must not become two implementations).
+- Before/after timing of `ait ls` on a repo with a few hundred gated tasks,
+  measured within one run (this box runs concurrent agents, so cross-run absolute
+  numbers are not comparable).
