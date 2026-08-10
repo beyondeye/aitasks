@@ -561,32 +561,12 @@ class MergeSourceColumnTests(_ColumnDialogBase):
 # --------------------------------------------------------------------------
 
 
-class _PristineConfigMixin(bf.PristineTreeMixin):
-    """`PristineTreeMixin` plus the board config files.
-
-    The shared mixin restores only `**/*.md`, so a class that mutates COLUMNS
-    (add / delete / merge) leaks `board_config.json` into the next test. That
-    leak is silently self-concealing here: with `c1` already dropped from the
-    config, `merge_columns` refuses it as `unknown_column` and writes nothing,
-    while a "source column was removed" assertion still passes — because it was
-    removed by the *previous* test. Restore both halves so each test starts from
-    the committed tree. (Harness gap, not a production bug — `snapshot()` in
-    `board_fixture` already treats `board_config*.json` as part of the tree.)
-    """
-
-    @classmethod
-    def _snapshot_pristine(cls):
-        super()._snapshot_pristine()
-        meta = (cls.tree / ".aitask-data" / "aitasks" / "metadata").resolve()
-        cls._pristine_config = {p: p.read_bytes()
-                                for p in sorted(meta.glob("board_config*.json"))}
-        assert cls._pristine_config, "fixture tree produced no board config"
-
-    def setUp(self):
-        super().setUp()
-        for path, data in self._pristine_config.items():
-            if path.read_bytes() != data:
-                path.write_bytes(data)
+#: The config-restoring behaviour this module used to define locally now lives in
+#: `bf.PristineTreeMixin` itself (t1243_10) — board config is part of the fixture
+#: tree, which is how `bf.snapshot()` always treated it. Kept as a name so the
+#: class below still reads as "this one needs config restored", not as a second
+#: implementation.
+_PristineConfigMixin = bf.PristineTreeMixin
 
 
 class ColumnManageDialogLiveTests(_PristineConfigMixin, _ColumnDialogBase):

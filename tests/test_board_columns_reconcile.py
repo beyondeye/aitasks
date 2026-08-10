@@ -71,20 +71,47 @@ class _ReconcileCase(unittest.TestCase):
         cols, _order = self.written()
         return [c["id"] for c in cols]
 
+    def project_save_gesture(self, manager, col_id="c0"):
+        """A real user gesture that persists PROJECT config.
+
+        Every case here needs "the board saved" to have been provoked by a
+        user-reachable path rather than by calling `save_metadata()` directly —
+        a direct call proves the reconciliation runs, but not that anything
+        reaches it.
+
+        This used to be `toggle_column_collapsed`, which stopped writing the
+        project layer in t1243_10 (per-user view state now goes through
+        `save_settings()`, leaving `board_config.json` untouched). That silently
+        made several cases below VACUOUS rather than failing them: `written()`
+        reads the project file from disk, and an externally created column is
+        already in that file, so "the external column survived" passed whether or
+        not the board saved at all — only the negative control still carried
+        weight.
+
+        `update_column` with the id UNCHANGED is the replacement: it is exactly
+        what the Edit Column dialog issues (`_apply_column_edit` never re-slugs
+        the id), it mutates `columns`, and it ends in `save_metadata()`.
+        """
+        conf = next((c for c in manager.columns if c["id"] == col_id), None)
+        assert conf is not None, f"fixture has no column {col_id!r}"
+        manager.update_column(col_id, col_id, conf.get("title", col_id),
+                              conf.get("color", "#ffffff"))
+
 
 class ExternalAdditionTests(_ReconcileCase):
     def test_external_column_survives_an_ordinary_board_save(self):
         """Case 1 — the whole point of the phase.
 
-        The save is triggered by a real gesture (`toggle_column_collapsed`), not
-        by calling `save_metadata()` directly: a direct call would prove the
-        reconciliation runs, but not that any user-reachable path reaches it.
+        The save is triggered by a real gesture (an Edit Column commit — see
+        `project_save_gesture`), not by calling `save_metadata()` directly: a
+        direct call would prove the reconciliation runs, but not that any
+        user-reachable path reaches it.
         """
         manager = self.ab.TaskManager()
         out = bc.create_column(self.tree, "Spikes", "#8BE9FD")
         self.assertTrue(out.ok, out.refused)
 
-        manager.toggle_column_collapsed("c0")
+        self.project_save_gesture(manager)
 
         cols, order = self.written()
         by_id = {c["id"]: c for c in cols}
@@ -105,7 +132,7 @@ class ExternalAdditionTests(_ReconcileCase):
         with mock.patch.object(self.ab.TaskManager,
                                "_reconcile_external_columns",
                                lambda self: None):
-            manager.toggle_column_collapsed("c0")
+            self.project_save_gesture(manager)
 
         self.assertNotIn("spikes", self.written_ids())
 
@@ -114,7 +141,7 @@ class ExternalAdditionTests(_ReconcileCase):
         for title in ("First", "Second", "Third"):
             self.assertTrue(bc.create_column(self.tree, title).ok)
 
-        manager.toggle_column_collapsed("c0")
+        self.project_save_gesture(manager)
 
         ids = self.written_ids()
         self.assertEqual(ids[-3:], ["first", "second", "third"])
@@ -154,7 +181,7 @@ class DeletionDiscriminationTests(_ReconcileCase):
         self.assertNotIn("c1", manager._known_col_ids)
 
         bc.create_column(self.tree, "C1")   # slugs to "c1"
-        manager.toggle_column_collapsed("c0")
+        self.project_save_gesture(manager)
 
         self.assertIn("c1", self.written_ids())
 
@@ -251,7 +278,7 @@ class LayerIsolationTests(_ReconcileCase):
             return real(path)
 
         with mock.patch.object(self.ab, "project_columns_at", spy):
-            manager.toggle_column_collapsed("c0")
+            self.project_save_gesture(manager)
 
         self.assertTrue(seen)
         for path in seen:
@@ -273,7 +300,7 @@ class UnreadableConfigTests(_ReconcileCase):
         manager = self.ab.TaskManager()
         self.config.write_text("{ not json", encoding="utf-8")
 
-        manager.toggle_column_collapsed("c0")   # must not raise
+        self.project_save_gesture(manager)   # must not raise
 
         self.assertIn("c0", self.written_ids())
 
@@ -281,7 +308,7 @@ class UnreadableConfigTests(_ReconcileCase):
         manager = self.ab.TaskManager()
         self.config.unlink()
 
-        manager.toggle_column_collapsed("c0")
+        self.project_save_gesture(manager)
 
         self.assertIn("c0", self.written_ids())
 
@@ -404,6 +431,139 @@ class CallSiteContainmentTests(unittest.TestCase):
         sites = _callers_of(ast.parse(injected))["_reconcile_external_columns"]
         self.assertIn("refresh_board_probe", sites)
         self.assertFalse(sites <= ALLOWED_CALLERS["_reconcile_external_columns"])
+
+
+#: Functions that may call `save_metadata()` — i.e. the ones that actually mutate
+#: PROJECT config (`columns` / `column_order`). Everything else that persists
+#: state must use `TaskManager.save_settings()`, which writes only the
+#: gitignored user layer (t1243_10).
+#:
+#: `load_metadata` is the one non-mutating entry: it bootstraps both files the
+#: first time `board_config.json` does not exist, which is the "first-time ship"
+#: exception `aidocs/framework/tui_conventions.md` carves out of "project files
+#: are read-only at runtime".
+SAVE_METADATA_ALLOWED_CALLERS = {
+    "load_metadata",        # first-time bootstrap of a missing config
+    "add_column",
+    "update_column",
+    "delete_column",
+    "merge_columns",
+    "_shift",               # ColumnManageScreen reorder -> column_order
+    "_shift_column",        # ctrl+arrow reorder -> column_order
+}
+
+
+def _callers_of_name(tree: ast.AST, callee: str) -> set[str]:
+    """Enclosing function names that call `callee`.
+
+    Attribution is to the **immediately** enclosing function, which is the
+    STRICTER choice and deliberately so. Five of this rule's original violators
+    lived in nested `on_dismiss` closures; attributing to the outermost method
+    would let a nested call inherit its parent's exemption, while attributing to
+    the closure means an unlisted name — `on_dismiss` and friends are never in
+    the allowlist — fails the guard on sight. The cost is that a legitimate
+    project-mutating closure would have to be named explicitly, which is a loud
+    failure rather than a silent pass.
+    """
+    found: set[str] = set()
+    stack: list[str] = []
+
+    class Visitor(ast.NodeVisitor):
+        def visit_FunctionDef(self, node):
+            stack.append(node.name)
+            self.generic_visit(node)
+            stack.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Call(self, node):
+            func = node.func
+            name = (func.attr if isinstance(func, ast.Attribute)
+                    else func.id if isinstance(func, ast.Name) else None)
+            if name == callee and stack:
+                found.add(stack[-1])
+            self.generic_visit(node)
+
+    Visitor().visit(tree)
+    return found
+
+
+class SavePathContainmentTests(unittest.TestCase):
+    """Settings-only state must not be saved through `save_metadata` (t1243_10).
+
+    `save_metadata()` rewrites the git-tracked `board_config.json` wholesale and
+    runs `_reconcile_external_columns`, so routing a per-user preference through
+    it churns a tracked file on a view keystroke and can pull in another
+    checkout's columns as a side effect.
+
+    The split is invisible at the call site — both methods are one line and
+    either appears to work — which is exactly how FIVE sites had drifted onto
+    the wrong one by the time this guard was written (column collapse, the
+    by-topic sort mode, both type-filter dismiss branches, and the settings
+    dialog). A prose rule did not hold them; this does.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = BOARD_PATH.read_text(encoding="utf-8")
+        cls.tree = ast.parse(cls.source)
+
+    def test_only_project_mutating_functions_call_save_metadata(self):
+        sites = _callers_of_name(self.tree, "save_metadata")
+        self.assertTrue(sites, "save_metadata is never called — vacuous scan")
+        extra = sites - SAVE_METADATA_ALLOWED_CALLERS
+        self.assertFalse(
+            extra,
+            f"{sorted(extra)} call save_metadata() but are not in the "
+            f"project-mutating allowlist. If the function only changes keys "
+            f"inside `self.settings`, call TaskManager.save_settings() instead — "
+            f"it writes only board_config.local.json. If it really does mutate "
+            f"`columns` / `column_order`, add it to "
+            f"SAVE_METADATA_ALLOWED_CALLERS with a comment saying which.")
+
+    def test_every_allowlist_entry_is_load_bearing(self):
+        """No stale exemptions: each name must really be a call site."""
+        sites = _callers_of_name(self.tree, "save_metadata")
+        stale = SAVE_METADATA_ALLOWED_CALLERS - sites
+        self.assertFalse(
+            stale,
+            f"{sorted(stale)} are allow-listed but no longer call "
+            f"save_metadata() — drop them, or the allowlist silently grows "
+            f"permissions nobody needs")
+
+    def test_save_settings_exists_and_is_used(self):
+        """The guard's message names a remedy; the remedy must be real."""
+        self.assertIn("def save_settings(self)", self.source)
+        users = _callers_of_name(self.tree, "save_settings")
+        self.assertTrue(
+            users,
+            "save_settings() is never called — the guard would be telling "
+            "authors to use a dead method")
+
+    def test_negative_control_a_settings_only_closure_is_detected(self):
+        """Inject the exact shape that drifted, INSIDE A CLOSURE.
+
+        The five real violators were nested `on_dismiss` callbacks, so a control
+        that injects a top-level method would not prove the scan reaches the
+        case it exists for.
+        """
+        injected = self.source.replace(
+            "    def _handle_settings_result(self, result):",
+            "    def _probe_settings_writer(self):\n"
+            "        def on_dismiss(value):\n"
+            "            self.manager.settings['probe'] = value\n"
+            "            self.manager.save_metadata()\n"
+            "        return on_dismiss\n"
+            "\n"
+            "    def _handle_settings_result(self, result):",
+            1,
+        )
+        self.assertNotEqual(injected, self.source, "injection anchor not found")
+        sites = _callers_of_name(ast.parse(injected), "save_metadata")
+        self.assertIn("on_dismiss", sites,
+                      "the scan must see a call nested inside a closure")
+        self.assertFalse(sites <= SAVE_METADATA_ALLOWED_CALLERS,
+                         "…and must reject it")
 
 
 class BenchmarkTests(unittest.TestCase):

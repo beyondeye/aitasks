@@ -383,7 +383,11 @@ class ReconcileSurvivalTests(_ManagerBase):
 
     def test_a_later_save_does_not_resurrect_the_source(self):
         self.manager.merge_columns(["c0"], "c2")
-        self.manager.toggle_column_collapsed("c3")
+        # A later PROJECT-layer save. Was `toggle_column_collapsed`, which stopped
+        # writing that layer in t1243_10 — the invariant is unchanged, only the
+        # gesture that provokes it, and `save_metadata()` states it directly
+        # (matching `test_boundary_a_*` below).
+        self.manager.save_metadata()
         self.assertNotIn("c0", self.project_cols())
 
 
@@ -744,7 +748,9 @@ class MetadataFailureTests(_ManagerBase):
 
         # The regression a blanket rollback would cause: save_metadata writes
         # self.columns wholesale, so restored sources would reappear on disk.
-        self.manager.toggle_column_collapsed("c3")
+        # (Gesture retargeted in t1243_10 — `toggle_column_collapsed` no longer
+        # writes the project layer, so it can no longer provoke this.)
+        self.manager.save_metadata()
         self.assertNotIn("c0", self.project_cols())
 
 

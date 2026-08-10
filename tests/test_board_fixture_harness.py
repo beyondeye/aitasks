@@ -14,6 +14,7 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -193,6 +194,57 @@ class FixtureContractTests(bf.FixtureBoardTestBase, unittest.TestCase):
         self.assertTrue(resolved.is_relative_to(self.tree.resolve()),
                         f"{resolved} is not inside the fixture tree {self.tree}")
         self.assertFalse(resolved.is_relative_to(REPO_ROOT / "aitasks"))
+
+
+class PristineRestoreTests(bf.FixtureBoardTestBase, bf.PristineTreeMixin,
+                           unittest.TestCase):
+    """`PristineTreeMixin` restores board CONFIG, not only task files (t1243_10).
+
+    The restore is invisible while nothing persists config, which is exactly how
+    it stayed missing until group collapse became durable. These cases make it
+    load-bearing: each dirties one config layer and asserts the NEXT `setUp`
+    put the committed bytes back. unittest sorts methods alphabetically, so
+    `test_a_*` dirties and `test_b_*` observes — the ordering is the mechanism,
+    and it is asserted rather than assumed.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._snapshot_pristine()
+
+    def _config(self, name):
+        return self.tasks_dir / "metadata" / name
+
+    def test_a_dirty_both_config_layers(self):
+        for name in ("board_config.json", "board_config.local.json"):
+            path = self._config(name)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["_harness_canary"] = name
+            path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            # Precondition: the dirtying actually landed, so a green
+            # `test_b_*` cannot be explained by "nothing was ever written".
+            self.assertIn("_harness_canary", path.read_text(encoding="utf-8"))
+
+    def test_b_both_layers_were_restored(self):
+        for name in ("board_config.json", "board_config.local.json"):
+            self.assertNotIn("_harness_canary",
+                             self._config(name).read_text(encoding="utf-8"),
+                             f"{name} leaked from the previous test — "
+                             "PristineTreeMixin is not restoring board config")
+
+    def test_snapshot_covers_both_layers_and_the_task_files(self):
+        """Negative control: the snapshot is not silently task-files-only.
+
+        If `_snapshot_pristine` regressed to `rglob("*.md")`, `test_b_*` would
+        still pass whenever `test_a_*` happened not to run first. This asserts
+        the mechanism directly.
+        """
+        names = {p.name for p in self._pristine}
+        self.assertIn("board_config.json", names)
+        self.assertIn("board_config.local.json", names)
+        self.assertTrue(any(n.endswith(".md") for n in names),
+                        "task files must still be snapshotted")
 
 
 class PhantomStubTests(unittest.TestCase):

@@ -559,15 +559,31 @@ class FixtureBoardTestBase:
 
 
 class PristineTreeMixin:
-    """Restore the fixture tree's task files before every test.
+    """Restore the fixture tree's task files AND board config before every test.
 
     `FixtureBoardTestBase` builds ONE tree per class, so a movement test mutates
     the tree the next test starts from — positions drift and a later move can
     early-return, turning its assertions vacuous. Restoring the committed bytes
     also restores `git status` cleanliness, which the marking oracle depends on.
 
-    Mix in AFTER `FixtureBoardTestBase` and call `cls._snapshot_pristine()` at
-    the end of `setUpClass`, once the tree exists.
+    **`metadata/board_config*.json` is part of the tree**, not a separate concern
+    — `snapshot()` below has always treated it that way, and this mixin was the
+    outlier until t1243_10. Two independent leaks made restoring it mandatory
+    rather than tidy, and both are silently self-concealing:
+
+    - a class that mutates COLUMNS (add / delete / merge) leaks
+      `board_config.json`. With `c1` already dropped from the config,
+      `merge_columns` refuses it as `unknown_column` and writes nothing, while a
+      "source column was removed" assertion still passes — because the *previous*
+      test removed it.
+    - a class that collapses a group or a column leaks
+      `board_config.local.json`, because collapse state persists (t1243_10). A
+      later test asserting `collapsed_groups == set()` then fails, or worse boots
+      with members unmounted and quietly stops testing what it names.
+
+    Restoring is a no-op when nothing changed, so a class that touches no config
+    pays only the byte comparison. Mix in AFTER `FixtureBoardTestBase` and call
+    `cls._snapshot_pristine()` at the end of `setUpClass`, once the tree exists.
     """
 
     @classmethod
@@ -575,6 +591,11 @@ class PristineTreeMixin:
         base = (cls.tree / ".aitask-data" / "aitasks").resolve()
         cls._pristine = {p: p.read_bytes() for p in sorted(base.rglob("*.md"))}
         assert cls._pristine, "fixture tree produced no task files"
+        meta = base / "metadata"
+        cls._pristine.update({p: p.read_bytes()
+                              for p in sorted(meta.glob("board_config*.json"))})
+        assert any(p.name.startswith("board_config") for p in cls._pristine), \
+            "fixture tree produced no board config"
 
     def setUp(self):
         super().setUp()

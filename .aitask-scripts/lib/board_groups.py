@@ -172,3 +172,127 @@ def group_members(tasks, slug):
         return []
     return [t for t in sorted(tasks, key=column_sort_key)
             if task_group_slug(t) == target]
+
+
+# --- Collapse-key algebra (t1243_10) -----------------------------------------
+#
+# A group's *view* state (collapsed / expanded) is per-user, so it lives in the
+# USER layer of board_config as a list of ``"<col_id>/<slug>"`` keys. The key is
+# composite, which means it goes stale whenever EITHER half changes -- hence the
+# lifecycle owners in aitask_board.TaskManager. Everything about the key's
+# shape, parsing and rewriting lives here, pure and unit-testable.
+
+#: Separator between the two halves of a collapse key. The COLUMN half is
+#: written first and contains no ``/`` for any id this framework generates
+#: (``board_columns.generate_col_id`` emits ``^[a-z0-9_]+$``), while a
+#: hand-edited ``boardgroup`` legitimately can -- so a key is split ONCE, from
+#: the left, and never with ``str.split("/")``.
+GROUP_KEY_SEP = "/"
+
+
+def group_key(col_id, slug):
+    """The collapse key for one group identity: ``"<col_id>/<slug>"``.
+
+    The single construction site for the key that ``KanbanApp.collapsed_groups``,
+    ``KanbanColumn.is_group_collapsed`` and ``settings["collapsed_groups"]`` all
+    share. Build it here, never with a local f-string -- a second spelling is
+    exactly how the runtime set and the persisted list drift apart.
+    """
+    return f"{col_id}{GROUP_KEY_SEP}{slug}"
+
+
+def parse_group_key(key):
+    """Inverse of :func:`group_key`: ``(col_id, slug)``, or ``None`` if unusable.
+
+    Total over junk, for the same reason :func:`normalize_group_slug` is: this
+    list is persisted JSON in a per-user file a user may hand-edit, and board
+    versions before t1243_10 never wrote it at all. A non-``str`` entry, a
+    missing separator, an empty column half or a whitespace-only slug half all
+    degrade to "not a group identity" rather than raising inside a load path.
+
+    The slug half goes through :func:`normalize_group_slug`, so a parsed key can
+    only ever name an identity :func:`build_column_units` is able to produce --
+    including the no-``.strip()`` rule, which keeps ``"perf_work "`` a DIFFERENT
+    group from ``"perf_work"`` here exactly as it is on disk.
+    """
+    if not isinstance(key, str):
+        return None
+    col, sep, raw_slug = key.partition(GROUP_KEY_SEP)
+    slug = normalize_group_slug(raw_slug)
+    if not sep or not col or not slug:
+        return None
+    return col, slug
+
+
+def remap_group_keys(keys, remap=None):
+    """Re-point / drop collapse keys through ONE rule. Returns a sorted list.
+
+    ``keys``  -- any iterable of ``"<col>/<slug>"``; unparseable entries are
+                 dropped (see :func:`parse_group_key`).
+    ``remap`` -- ``(col_id, slug) -> (col_id, slug) | None``. Returning ``None``
+                 DROPS the group (dissolve). ``remap=None`` is the identity
+                 rule, i.e. pure normalization -- which is what the load path
+                 uses, so key hygiene has exactly one implementation shared with
+                 every lifecycle remap.
+
+    **The coalesce rule is a set union, in both of its named directions.**
+    Collapse state is a PRESENCE set, so "the destination key wins if it already
+    exists" and "otherwise the arriving key's state is adopted under the
+    destination key" describe the same operation -- inserting the re-pointed key
+    into a set:
+
+    ======================  =====================  ========================
+    arriving                destination            union of re-pointed keys
+    ======================  =====================  ========================
+    collapsed               collapsed              present (deduped)
+    expanded                collapsed              present -- arriving added nothing
+    collapsed               expanded               present -- adopted
+    expanded                expanded               absent
+    ======================  =====================  ========================
+
+    The vacated key is dropped for free, because a re-point REWRITES it rather
+    than adding beside it. That equivalence holds **only** because the key
+    carries no value; a future value-carrying view key (a per-group sort mode, a
+    colour) must revisit this rather than inherit the coincidence.
+
+    Returns a SORTED list, not a set: it is the persisted form (JSON has no
+    set), sorting keeps ``board_config.local.json`` byte-stable across saves, and
+    the sort is what makes the de-duplication observable to a test.
+
+    The four rule shapes the lifecycle owners need, all through this one
+    function -- a COLUMN-half remap is :func:`column_remap` (``update_column``,
+    ``delete_column``, ``merge_columns``); a SLUG-half rename is
+    ``lambda c, s: (c, new) if (c, s) == (col, old) else (c, s)`` (t1243_12); a
+    single group's MOVE between columns is
+    ``lambda c, s: (dest, s) if (c, s) == (src, moved) else (c, s)`` (t1243_11);
+    a DISSOLVE returns ``None`` for the target identity (t1243_12).
+    """
+    out = set()
+    for key in keys:
+        ident = parse_group_key(key)
+        if ident is None:
+            continue
+        moved = ident if remap is None else remap(*ident)
+        if moved is None:
+            continue
+        col, slug = moved
+        slug = normalize_group_slug(slug)
+        if not col or not slug:
+            continue
+        out.add(group_key(col, slug))
+    return sorted(out)
+
+
+def column_remap(mapping):
+    """A :func:`remap_group_keys` rule re-pointing the COLUMN half via a map.
+
+    ``{old_col: new_col}``; a column absent from the mapping is left alone. The
+    one rule shape with more than one call site (column rename, column delete,
+    column merge), so it is derived once here instead of three lambdas that
+    could disagree. Slug-half and single-identity rules stay inline at their
+    single call sites -- a helper per shape with one caller would be
+    speculative.
+    """
+    def remap(col_id, slug):
+        return mapping.get(col_id, col_id), slug
+    return remap

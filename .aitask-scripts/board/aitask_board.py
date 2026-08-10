@@ -56,7 +56,8 @@ from task_yaml import (
 # `boardgroup` raw — `task_group_slug` is the totality boundary that keeps an
 # unhashable hand-edited value (`boardgroup: []`) from taking the board down.
 from board_groups import (
-    build_column_units, group_display_title, group_members, task_group_slug,
+    build_column_units, column_remap, group_display_title, group_key,
+    group_members, remap_group_keys, task_group_slug,
 )
 
 from textual.app import App, ComposeResult
@@ -1166,9 +1167,35 @@ class TaskManager:
         # (see grouped_topic_lanes) and explicitly at the reload seams below.
         self.topic_lane_cache = None
         self.settings: dict = {}
+        # Collapsed in-column task groups, keys `"<col_id>/<slug>"` (t1243_10).
+        # THE in-memory truth: `KanbanApp.collapsed_groups` aliases this exact
+        # object and every mounted `KanbanColumn` holds it by reference, which is
+        # what lets a lifecycle op here update the board's rendering source with
+        # no propagation step. `settings["collapsed_groups"]` is its persisted
+        # projection, not a second owner. Created before load_metadata(), which
+        # fills it.
+        self.collapsed_groups: set = set()
         self._ensure_paths()
         self.load_metadata()
         self.load_tasks()
+
+    def _reset_collapsed_groups(self, keys) -> None:
+        """Replace the live set's CONTENTS. NEVER rebind the attribute.
+
+        `KanbanApp.collapsed_groups` and every mounted `KanbanColumn` hold THIS
+        exact set object (t1243_9 — that by-reference flow is what lets a
+        collapse toggle recompose one column with no propagation step).
+        Rebinding would leave all of them pointing at the previous object: the
+        board would keep rendering the pre-change state until the next full
+        `refresh_board`, and `action_toggle_group` would write into a set the
+        model no longer reads. Silent, and invisible to any assertion that reads
+        through the manager.
+
+        Load, every lifecycle remap and the `merge_columns` rollback all go
+        through here.
+        """
+        self.collapsed_groups.clear()
+        self.collapsed_groups.update(keys)
 
     def _ensure_paths(self):
         TASKS_DIR.mkdir(exist_ok=True)
@@ -1186,6 +1213,14 @@ class TaskManager:
         self.settings = config.get("settings", {"auto_refresh_minutes": 0})
         self._refresh_known_col_ids()
         self._prune_orphan_collapsed_columns()
+        # The LOAD END of the collapse set (t1243_10). `remap_group_keys` with no
+        # rule is pure normalization, so junk hygiene shares one implementation
+        # with every lifecycle remap. `isinstance` guard for the same reason
+        # `_prune_orphan_collapsed_columns` has one: a hand-edited scalar would
+        # otherwise be iterated character by character.
+        raw = self.settings.get("collapsed_groups")
+        self._reset_collapsed_groups(
+            remap_group_keys(raw) if isinstance(raw, list) else ())
         if not METADATA_FILE.exists():
             self.save_metadata()
 
@@ -1303,14 +1338,76 @@ class TaskManager:
             if cid not in self.column_order:
                 self.column_order.append(cid)
 
-    def save_metadata(self):
-        self._reconcile_external_columns()
+    def _settings_for_save(self) -> dict:
+        """`self.settings` with live view state materialized into persisted form.
+
+        `collapsed_groups` is a SET in memory (shared by reference with the app
+        and every KanbanColumn) and a sorted list on disk. This is the ONLY
+        projection site, so no save path can persist a stale list — including a
+        save issued by an unrelated caller such as `toggle_column_collapsed`.
+
+        Sorted for byte-stability: an unordered dump would rewrite
+        `board_config.local.json` with a different key order on every save. The
+        key is REMOVED when the set is empty, so a board that never collapses a
+        group never grows it and a collapse→expand round-trip returns the file to
+        its original bytes.
+        """
+        if self.collapsed_groups:
+            self.settings["collapsed_groups"] = sorted(self.collapsed_groups)
+        else:
+            self.settings.pop("collapsed_groups", None)
+        return self.settings
+
+    def _config_layers(self) -> tuple[dict, dict]:
+        """`(project_data, user_data)` for the current in-memory config.
+
+        ONE split site for both save paths, so the user-layer-only save derives
+        which keys are per-user from `_USER_KEYS` exactly as `save_metadata`
+        does, instead of hardcoding "settings goes local" a second time.
+        """
         data = {
             "columns": self.columns,
             "column_order": self.column_order,
-            "settings": self.settings,
+            "settings": self._settings_for_save(),
         }
-        project_data, user_data = split_config(data, project_keys=_PROJECT_KEYS, user_keys=_USER_KEYS)
+        return split_config(data, project_keys=_PROJECT_KEYS, user_keys=_USER_KEYS)
+
+    def _write_user_layer(self, user_data: dict) -> None:
+        """Write `board_config.local.json`; tag a failure `local`."""
+        if not user_data:
+            return
+        try:
+            save_local_config(str(local_path_for(str(METADATA_FILE))), user_data)
+        except OSError as exc:
+            raise MetadataWriteError("local", exc) from exc
+
+    def save_settings(self) -> None:
+        """Persist ONLY the USER layer (`board_config.local.json`) — t1243_10.
+
+        The runtime save path for per-user VIEW state. It deliberately does NOT
+        call `_reconcile_external_columns` and does NOT write the git-tracked
+        `board_config.json`: `aidocs/framework/tui_conventions.md` ("No
+        auto-commit/push of project-level config from runtime TUIs") makes
+        project files read-only at runtime, and reconciliation can legitimately
+        change `self.columns` and raise a warning — which would turn a collapse
+        keystroke into a column-config edit.
+
+        Use this for any mutation confined to `self.settings`; use
+        `save_metadata` when `columns` / `column_order` changed. The AST guard in
+        `tests/test_board_columns_reconcile.py` enforces that split, because it
+        is invisible at the call site.
+
+        Error contract is `save_metadata`'s local half verbatim —
+        `MetadataWriteError("local", …)`, an `OSError` subclass — so one handler
+        covers both. `_refresh_known_col_ids()` is NOT called: it tracks column
+        config, which this path does not touch.
+        """
+        _, user_data = self._config_layers()
+        self._write_user_layer(user_data)
+
+    def save_metadata(self):
+        self._reconcile_external_columns()
+        project_data, user_data = self._config_layers()
         # Two files, no cross-file transaction: tag each failure with its phase so
         # a caller can tell "nothing landed" from "columns landed, settings did
         # not" without re-reading config from disk (t1377_4).
@@ -1318,11 +1415,7 @@ class TaskManager:
             save_project_config(str(METADATA_FILE), project_data)
         except OSError as exc:
             raise MetadataWriteError("project", exc) from exc
-        if user_data:
-            try:
-                save_local_config(str(local_path_for(str(METADATA_FILE))), user_data)
-            except OSError as exc:
-                raise MetadataWriteError("local", exc) from exc
+        self._write_user_layer(user_data)
         self._refresh_known_col_ids()
 
     @property
@@ -1368,6 +1461,10 @@ class TaskManager:
                 continue
             self.task_datas[path.name] = task
         self.load_child_tasks()
+        # Membership is a fact about TASKS, so the group sweep lives here rather
+        # than beside `_prune_orphan_collapsed_columns` in `load_metadata` —
+        # which runs BEFORE any task exists (t1243_10).
+        self._prune_orphan_collapsed_groups()
 
     def load_child_tasks(self):
         self.topic_lane_cache = None
@@ -2039,6 +2136,11 @@ class TaskManager:
             if col_id in collapsed:
                 collapsed[collapsed.index(col_id)] = new_id
                 self.collapsed_columns = collapsed
+            # Same migration for the composite GROUP keys (t1243_10): a group is
+            # `(column, slug)`, so renaming the column renames the identity of
+            # every group in it. Union semantics means a rename onto a column
+            # that already holds a same-slug group coalesces with no branch here.
+            self.remap_collapsed_groups(column_remap({col_id: new_id}))
             # Reassign tasks from old ID to new ID
             for task in self.get_column_tasks(col_id):
                 task.board_col = new_id
@@ -2055,17 +2157,116 @@ class TaskManager:
         self.settings["collapsed_columns"] = value
 
     def toggle_column_collapsed(self, col_id: str):
-        """Toggle collapse state for a column and persist."""
+        """Toggle collapse state for a column and persist the USER layer.
+
+        `collapsed_columns` lives in `settings`, so `save_settings()` persists it
+        completely — and a per-user view toggle must not rewrite the git-tracked
+        `board_config.json` (t1243_10, `tui_conventions.md`).
+        """
         collapsed = list(self.collapsed_columns)
         if col_id in collapsed:
             collapsed.remove(col_id)
         else:
             collapsed.append(col_id)
         self.collapsed_columns = collapsed
-        self.save_metadata()
+        self.save_settings()
 
     def is_column_collapsed(self, col_id: str) -> bool:
         return col_id in self.collapsed_columns
+
+    # --- Group collapse (t1243_10) -------------------------------------------
+
+    def is_group_collapsed(self, col_id: str, slug: str) -> bool:
+        """Whether `(col_id, slug)` is collapsed — the model-side twin of
+        `KanbanColumn.is_group_collapsed`, which asks the same question from the
+        widget's own `col_id`."""
+        return group_key(col_id, slug) in self.collapsed_groups
+
+    def toggle_group_collapsed(self, col_id: str, slug: str) -> bool:
+        """Toggle `(col_id, slug)` and persist. Returns the NEW collapsed state.
+
+        Mirrors `toggle_column_collapsed` (mutate, then save) with one deliberate
+        difference: it saves through `save_settings()`, so a per-user view
+        keystroke never rewrites the git-tracked project file.
+        """
+        key = group_key(col_id, slug)
+        collapsed = key not in self.collapsed_groups
+        if collapsed:
+            self.collapsed_groups.add(key)
+        else:
+            self.collapsed_groups.discard(key)
+        self.save_settings()
+        return collapsed
+
+    def remap_collapsed_groups(self, remap) -> None:
+        """Re-point / drop collapse keys — THE lifecycle seam (t1243_10).
+
+        Every owner of the composite `"<col>/<slug>"` key calls this with one
+        pure rule instead of open-coding a rewrite:
+
+        - `update_column` (column renamed) — `column_remap({old: new})`
+        - `delete_column` (column deleted) — `column_remap({col: UNORDERED_ID})`
+        - `merge_columns` (columns merged) — `column_remap({src: dest, ...})`
+        - t1243_11's `_apply_group_move` (group moved to another column), called
+          AFTER the member writes land
+        - t1243_12's group rename (slug half) and group dissolve (rule returns
+          `None`)
+
+        See `board_groups.remap_group_keys` for the rule shapes and for why
+        coalescing is a set union — which is what makes "merge onto an existing
+        same-slug group" need no special case here.
+
+        IN-MEMORY ONLY, exactly like `_prune_orphan_collapsed_columns`: every
+        owner already ends in a save, and saving here would double-write. A
+        caller that also moves member tasks must call this AFTER the member
+        writes, in the same synchronous block, so no reload can observe the new
+        key with no members and prune it.
+        """
+        if not self.collapsed_groups:
+            return
+        self._reset_collapsed_groups(remap_group_keys(self.collapsed_groups, remap))
+
+    def _prune_orphan_collapsed_groups(self):
+        """Drop collapse keys whose `(column, slug)` has NO members (t1243_10).
+
+        The accumulation backstop for states no lifecycle owner saw: an external
+        `aitask_update.sh --boardgroup` edit, a task archived from another
+        checkout, a hand-edited `boardcol`. Runs at the end of `load_tasks`
+        because `load_metadata` — where the COLUMN sweep lives — runs before any
+        task is loaded, so a member-based sweep there would see zero members for
+        every key and wipe the whole list on every boot.
+
+        "No members" is LITERAL: a group that has dropped to exactly ONE member
+        keeps its key. `build_column_units` deliberately keeps a single member's
+        slug so a member moving away never dissolves the group, and the renderer
+        merely stops drawing a header while `len(members) == 1` — which makes the
+        key inert, not stale. Pruning at one would silently discard the user's
+        collapse the first time a sync moved a member out.
+
+        Column liveness is deliberately NOT a second criterion. A key naming a
+        column that no longer exists is kept while its members still claim that
+        column — those tasks render nowhere, so the key is inert, and it becomes
+        correct again the moment the column returns. Deriving liveness from one
+        source (membership) is what stops two criteria from ever disagreeing.
+
+        IN-MEMORY ONLY, like the column sweep: forcing a write on every board
+        open would cost a save per launch and race concurrent writers for no
+        benefit, since the in-memory value governs rendering.
+
+        SKIPPED while any task file is unreadable. A failed `Task.load()` wipes
+        that task's metadata, so its membership is invisible — the same "cannot
+        prove it is empty" state `merge_columns` refuses to act on. Sweeping then
+        would prune a live group's key on the strength of a transient parse error.
+        """
+        if not self.collapsed_groups or self.unreadable_files:
+            return
+        live = set()
+        for task in self.task_datas.values():   # parents only — children never
+            slug = task_group_slug(task)        # carry group membership
+            if slug:
+                live.add(group_key(task.board_col, slug))
+        if not live.issuperset(self.collapsed_groups):
+            self._reset_collapsed_groups(self.collapsed_groups & live)
 
     def delete_column(self, col_id: str):
         """Delete a column and reassign its tasks to 'unordered'."""
@@ -2081,6 +2282,12 @@ class TaskManager:
         if col_id in collapsed:
             collapsed.remove(col_id)
             self.collapsed_columns = collapsed
+        # The GROUPS survive the delete: their members were re-pointed to
+        # `unordered` above, so the column half of their collapse keys follows
+        # them (t1243_10). A same-slug group already in `unordered` coalesces by
+        # union — the same derivation that makes the two sets of members one
+        # group once they share a column.
+        self.remap_collapsed_groups(column_remap({col_id: UNORDERED_ID}))
         self.save_metadata()
 
     def merge_columns(self, source_ids, dest_id: str) -> MergeResult:
@@ -2176,12 +2383,19 @@ class TaskManager:
             return MergeResult(merged=tuple(merged), failed=tuple(failed))
 
         before = (list(self.columns), list(self.column_order),
-                  list(self.collapsed_columns))
+                  list(self.collapsed_columns), set(self.collapsed_groups))
         self.columns = [c for c in self.columns if c.get("id") not in drained]
         self.column_order = [c for c in self.column_order if c not in drained]
         collapsed = [c for c in self.collapsed_columns if c not in drained]
         if collapsed != self.collapsed_columns:
             self.collapsed_columns = collapsed
+        # The SIXTH collapse-key lifecycle owner (t1243_10). Placed with the
+        # other config removals, and keyed on `drained` rather than on `merged`:
+        # the column half of a group key states WHICH COLUMN HOLDS THE GROUP, so
+        # it must change exactly where column membership does. A partially merged
+        # source still exists and still holds members, so its key is still true;
+        # the convergent retry that finally drains it re-points then.
+        self.remap_collapsed_groups(column_remap({s: dest_id for s in drained}))
         try:
             self.save_metadata()
         except OSError as exc:
@@ -2191,7 +2405,15 @@ class TaskManager:
             if getattr(exc, "phase", "project") == "project":
                 # Project write did not land: nothing durable. Restore, so
                 # in-memory matches disk and re-running merge_columns converges.
-                self.columns, self.column_order, self.collapsed_columns = before
+                self.columns, self.column_order, self.collapsed_columns = before[:3]
+                # Restored IN PLACE: the app and every mounted KanbanColumn alias
+                # this set, so `self.collapsed_groups = before[3]` would orphan
+                # all of them (see `_reset_collapsed_groups`). The re-point is
+                # not durable either — the project half is written first, so a
+                # project-phase failure means the local half never ran — and
+                # leaving it applied would let the next unrelated save persist a
+                # merge that never happened.
+                self._reset_collapsed_groups(before[3])
                 failed.append((MERGE_METADATA_KEY, f"config_write_failed: {exc}"))
                 return MergeResult(merged=tuple(merged), failed=tuple(failed))
             # Project write LANDED; the local half is pending. Do NOT roll back:
@@ -2400,11 +2622,22 @@ class GroupHeader(Static):
         self.slug = slug
         self.members = members
         self.collapsed = collapsed
+        # `· N match` badge (t1243_10); None = no badge. A freshly composed
+        # header always starts without one, and every recompose path
+        # (`refresh_column` / `refresh_columns` / `refresh_board`) queues an
+        # `apply_filter` through `call_after_refresh` whose header loop re-sets
+        # this for every header in scope — so a stale badge cannot survive a
+        # recompose and a missing one cannot outlive the next pass.
+        self.match_count: int | None = None
         self.update(self._label())
 
     def _label(self) -> str:
         glyph = "▸" if self.collapsed else "▾"
-        return f"{glyph} {group_display_title(self.slug)} ({len(self.members)})"
+        label = f"{glyph} {group_display_title(self.slug)} ({len(self.members)})"
+        # No pluralisation branch: "2 match" and "1 match" both read as a verb.
+        if self.match_count is not None:
+            label = f"{label} · {self.match_count} match"
+        return label
 
     def set_collapsed(self, collapsed: bool) -> None:
         """Flip the glyph in place — no recompose.
@@ -2413,9 +2646,25 @@ class GroupHeader(Static):
         one widget's content changes, so rebuilding the column would be pure
         waste. (Collapse itself DOES recompose, because members mount/unmount;
         this is for a header whose glyph alone is stale.)
+
+        Repaints through `_label()`, so it preserves the badge rather than
+        erasing it — which is why the badge must live in `_label()` and not be
+        appended by whoever sets it.
         """
         if self.collapsed != collapsed:
             self.collapsed = collapsed
+            self.update(self._label())
+
+    def set_match_count(self, count: int | None) -> None:
+        """Set or clear the `· N match` badge in place — no recompose.
+
+        Same idiom as `set_collapsed`. The no-op guard is the point, not the
+        assignment: the filter pass calls this for EVERY header in scope, and on
+        a board with no filter active every call is `None -> None` and repaints
+        nothing.
+        """
+        if self.match_count != count:
+            self.match_count = count
             self.update(self._label())
 
 
@@ -3534,8 +3783,14 @@ class KanbanColumn(VerticalScroll):
         self.collapsed_groups = collapsed_groups if collapsed_groups is not None else set()
 
     def is_group_collapsed(self, slug: str) -> bool:
-        """Whether `(this column, slug)` is collapsed. Key: `"<col_id>/<slug>"`."""
-        return f"{self.col_id}/{slug}" in self.collapsed_groups
+        """Whether `(this column, slug)` is collapsed.
+
+        Key built by `board_groups.group_key`, never a local f-string (t1243_10):
+        the same key is persisted to `settings["collapsed_groups"]` and rewritten
+        by six lifecycle owners, so a second spelling here is how the runtime set
+        and the on-disk list would drift apart.
+        """
+        return group_key(self.col_id, slug) in self.collapsed_groups
 
     def compose(self):
         # Header
@@ -7206,12 +7461,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self.type_filter_active = False
         self._view_auto_expanded: set = set()
         self.expanded_tasks: set = set()
-        # Collapsed in-column task groups, keyed "<col_id>/<slug>" (t1243_9).
-        # SESSION-ONLY here, exactly like `expanded_tasks` above. t1243_10 adds
-        # load/save against `settings.collapsed_groups` in the USER layer of
-        # board_config (alongside `collapsed_columns`) — it replaces only those
-        # two ends, not this attribute or anything downstream of it.
-        self.collapsed_groups: set = set()
+        # Collapsed in-column task groups, keyed "<col_id>/<slug>" (t1243_9),
+        # PERSISTED since t1243_10 in `settings.collapsed_groups` (USER layer of
+        # board_config, alongside `collapsed_columns`) — unlike the session-only
+        # `expanded_tasks` above.
+        #
+        # An ALIAS, not a copy: `TaskManager` owns the object and mutates it IN
+        # PLACE, so a lifecycle op that re-points keys (column rename / delete /
+        # merge, and later a group move or rename) is seen here and by every
+        # mounted `KanbanColumn` with no propagation step and no rebinding. Never
+        # assign to this name — see `TaskManager._reset_collapsed_groups`.
+        self.collapsed_groups: set = self.manager.collapsed_groups
         # Multi-select marks (t1243_6), keyed by task filename like the two sets
         # above. Session-only; cleared on view switch, pruned on refresh.
         self.marked = MarkedSelection()
@@ -8123,6 +8383,37 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return any(self._any_child_matches(m, visible, search, index)
                    for m in members)
 
+    def _group_match_count(self, header, visible, search: str,
+                           child_index) -> int:
+        """How many members the EXPANDED group would show — the `· N match` badge.
+
+        NOT a second visibility predicate: it composes the SAME two primitives
+        the rest of the pass does (`task_matches_filter`, then
+        `_any_child_matches`), member by member, so it answers per member exactly
+        what `apply_filter`'s unit loop answers for a mounted parent card. The
+        badge therefore promises "this many cards appear if you expand", not some
+        private notion of matching, and `count > 0` is equivalent to
+        `_group_header_matches` by construction.
+
+        Kept SEPARATE from `_group_header_matches` because that rule
+        short-circuits on the first matching member and never reaches the child
+        index for a group that matched cheaply — the early exit that keeps a
+        per-keystroke pass off the child walk. Counting cannot short-circuit, so
+        it is confined by the caller to the narrow path: an actually narrowing
+        filter, a COLLAPSED header, and a header the pass is keeping visible.
+        With no filter active it is never called.
+
+        `child_index` is the pass's memoized zero-arg builder, shared with both
+        loops, so a pass still builds the index at most once.
+        """
+        matched = 0
+        for member in header.members:
+            if task_matches_filter(member, visible, search):
+                matched += 1
+            elif self._any_child_matches(member, visible, search, child_index()):
+                matched += 1
+        return matched
+
     def apply_filter(self, cols: set | None = None):
         """Apply base filter ∩ active add-ons ∩ search.
 
@@ -8199,6 +8490,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # Shares the unit loop's lazy index (t1469) — the builder is passed in
         # rather than its result, so a header whose own members match never
         # triggers the walk, and a grouped board pays for at most one.
+        #
+        # A filter only NARROWS when something can be excluded: `visible is None`
+        # is the all-eligible sentinel and an empty search matches every corpus.
+        # Computed once per pass — it is what keeps an idle board from walking a
+        # single member for the badge, since the count cannot short-circuit.
+        narrowing = visible is not None or bool(self.search_filter)
         headers = list(self._filter_group_headers(cols))
         for header in headers:
             v = self._group_header_matches(header, visible, self.search_filter,
@@ -8206,6 +8503,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             set_unit_display(header, v)
             if v:
                 cols_with_visible.add(header.column_id)
+            # The badge is a COLLAPSED group's substitute for the member cards it
+            # does not mount: an expanded group hides its non-matching members
+            # individually, so the count is already on screen there. Shown only
+            # when PARTIAL — `· 3 match` under `(3)` repeats what the header
+            # already says. `n >= 1` whenever `v` is True, because both rules read
+            # the same members through the same primitives and the same index.
+            count = None
+            if narrowing and v and header.collapsed:
+                n = self._group_match_count(header, visible, self.search_filter,
+                                            child_index)
+                if n < len(header.members):
+                    count = n
+            header.set_match_count(count)
 
         # A column showing no content falls back to its focusable placeholder.
         for placeholder in self._filter_placeholders(cols):
@@ -8379,7 +8689,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if mode is None or mode == self._topic_sort_mode():
                 return
             self.manager.settings["topic_sort_mode"] = mode
-            self.manager.save_metadata()
+            self.manager.save_settings()   # settings-only — never the project layer
             focused = self._focused_card()
             refocus = focused.task_data.filename if focused else ""
             self.refresh_board(refocus_filename=refocus)
@@ -8408,7 +8718,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not result:
                 # Empty confirm → clear selection and disable the add-on.
                 self.manager.settings["filter_issue_types"] = []
-                self.manager.save_metadata()
+                self.manager.save_settings()   # settings-only
                 self.type_filter_active = False
                 self._refresh_selector()
                 self._refresh_type_filter_summary()
@@ -8416,7 +8726,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.apply_filter()
                 return
             self.manager.settings["filter_issue_types"] = sorted(result)
-            self.manager.save_metadata()
+            self.manager.save_settings()   # settings-only
             self.type_filter_active = True
             self._refresh_selector()
             self._refresh_type_filter_summary()
@@ -10496,11 +10806,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # and a `TaskCard` reaching the `header.column_id` below would raise
             # AttributeError straight into Textual's message pump.
             return
-        key = f"{header.column_id}/{header.slug}"
-        if key in self.collapsed_groups:
-            self.collapsed_groups.discard(key)
-        else:
-            self.collapsed_groups.add(key)
+        # The model owns the key and the persistence (t1243_10). It mutates the
+        # very set this app aliases, so the recompose below still sees the flip
+        # with no propagation step.
+        try:
+            self.manager.toggle_group_collapsed(header.column_id, header.slug)
+        except MetadataWriteError as exc:
+            # NARROW: only a user-layer write failure. The in-memory toggle has
+            # already happened and the recompose below honours it — refusing a
+            # view keystroke because a gitignored file is unwritable would be
+            # worse than not persisting it. But it must not be silent, or the
+            # collapse would simply be gone at next launch with no explanation.
+            self.notify(f"Collapse state not saved: {exc}", severity="warning")
         # Recompose: members and their `.child-wrapper` rows mount/unmount
         # together, which only `compose` can express. The column widget holds the
         # app's `collapsed_groups` BY REFERENCE, so it reads the mutation above
@@ -10559,6 +10876,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         returns the destination column so the caller can refocus the header
         there. Until then the move is REPORTED rather than silently dropped, so
         `shift`/`ctrl` + arrow on a header is never a dead key.
+
+        **A lateral move must also carry the group's collapse key** (t1243_10):
+        after the member writes land, and in the same synchronous block, call
+
+            self.manager.remap_collapsed_groups(
+                lambda c, s: (dest_col, s) if (c, s) == (src_col, header.slug)
+                else (c, s))
+
+        The member writes must come first — a reload between them and the remap
+        would see the new key with no members and prune it. Coalescing onto a
+        same-slug group already in the destination needs no extra code: the
+        remap is a set union (see `board_groups.remap_group_keys`).
         """
         self.notify(
             f"Moving the group '{group_display_title(header.slug)}' as a block "
@@ -11231,7 +11560,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if result is None:
             return
         self.manager.settings.update(result)
-        self.manager.save_metadata()
+        # `SettingsScreen` returns only settings keys (auto_refresh_minutes,
+        # sync_on_refresh), so the USER layer is the complete write (t1243_10).
+        self.manager.save_settings()
         self._start_auto_refresh_timer()
         self._update_subtitle()
         minutes = result["auto_refresh_minutes"]
