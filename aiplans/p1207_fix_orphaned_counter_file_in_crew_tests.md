@@ -508,3 +508,102 @@ Standard: merge to `main`, archive the task and this plan.
 - timing: pre-phase | name: snapshot_suite_baseline | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — 256 files source asserts.sh | desc: Capture the t923 harness's per-file FAIL-count + exit-status baseline over every file sourcing asserts.sh before the library edit, and re-check after Steps 1 and 2.
 - timing: post-phase | name: assert_negctrl_anchor | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — negative control may pass vacuously | desc: Hard-fail the per-file negative control when its injection anchor is missing, assert the injected line landed, and require a passing pre-injection run as positive control.
 - timing: after | name: triage_enforced_crew_test_failures | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — newly enforced assertions may reveal real failures | desc: Repair any genuine pre-existing failures that enforcement exposes in the 11 crew/brainstorm test files in a dedicated task, never by weakening the assertion.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, all five steps plus both inline
+  mitigations. `tests/lib/asserts.sh` gained an opt-in, fail-closed, file-backed
+  counter (`assert_counters_init` / `assert_record_pass` / `assert_record_fail` /
+  `assert_counters_load`, sentinel `#ait-assert-counters-v1`), and all 16
+  existing helpers were mechanically routed through the two recorders. The 11
+  files each took the same four-part edit; `tests/test_crew_runner_config_delivery.sh`
+  lost its now-false "pre-existing defect, logged separately" note;
+  `tests/test_asserts_counters.sh` (14 scenarios, 23 assertions) pins the
+  mechanism, the fail-closed contract and a drift guard; `CLAUDE.md` §Testing and
+  `website/content/docs/development/_index.md` document the subshell rule.
+  Net −30 lines across tracked files despite adding the mechanism: eleven copies
+  of hand-rolled counter scaffolding went away.
+
+- **Deviations from plan:**
+  1. *Cohort `check` run once, not twice.* The plan said re-check after Step 1
+     and again after Step 2. Step 2 touches only the 11 in-scope files, which are
+     by construction excluded from the cohort, so a second identical pass could
+     produce no new information. The single pass was run after all edits
+     (including the new test file, which is the only Step-2..4 change that could
+     affect a cohort member via a `tests/*.sh` scan).
+  2. *`test_launch_mode_field.sh` sourcing order also fixed.* It sourced
+     `asserts.sh` before `test_scaffold.sh`, against the convention stated in
+     the asserts.sh header. Since the counter init had to move below the source
+     line anyway, the two sources were put in the documented order.
+  3. *Negative control gained a declared `KNOWN_RED` list.* `test_brainstorm_cli.sh`
+     has a genuine pre-existing failure (below), so it cannot satisfy the
+     positive control. Rather than skip it silently, it is declared, and its
+     verdict rests on the injected `FAIL:` line appearing — which proves subshell
+     propagation independently of the exit code.
+
+- **Issues encountered:**
+  - **The baseline's `^FAIL:` signal over-counts by one for five files.**
+    `assert_migration_verify.sh` counts `^FAIL:` lines, and the
+    `PASS:/FAIL:/TOTAL:` summary format prints `FAIL: 0` at line start. Five of
+    the 11 (and two cohort files, `test_find_files.sh` / `test_merge_issues.sh`)
+    therefore showed `FAIL=1` with no real failure. Real failures must be counted
+    as `^FAIL: [^0-9]`. This misread the baseline until the files were run by hand.
+  - **The drift guard flagged itself on first run** — its own negative-control
+    probe contains the offending shape. Fixed by excluding self by basename,
+    which is correct rather than a workaround: it is the one file that must
+    contain it.
+  - **One cohort `CHANGED`, triaged to a pre-existing flake.** See the exclusion
+    below.
+  - **A concurrent session was editing this repo throughout.** Staging was done
+    from an explicit 16-path allowlist; `tests/test_global_shim.sh`,
+    `tests/test_setup_help_flag.sh` and
+    `website/content/docs/commands/setup-install.md` are theirs and were not
+    committed here. `main` also advanced mid-task (t1482).
+
+- **Declared cohort exclusion (1 of 245):**
+  `tests/test_gate_lock_characterization.sh` — **non-deterministic under
+  concurrency; excluded from the regression verdict, not silently dropped.**
+  Evidence: the same code produced rc=1/2-fails then rc=0/0-fails on
+  back-to-back runs; 8 subsequent sequential runs (5 on the new library, 3 at
+  HEAD) all passed; 4 concurrent runs failed 4/4. Root cause is its own
+  isolation, not this change: it hard-codes lock paths
+  (`/tmp/aitask_gate_lock_987652`, `_987654`, `_987657`) and task ids, so two
+  simultaneous runs treat each other's lock dir as a foreign lock and the
+  characterization assertions invert. It never calls `assert_counters_init`, so
+  the new mechanism is structurally inert for it. The other 244 cohort files
+  reported `OK` (identical FAIL-count and exit status).
+
+- **Verification evidence:**
+  - Guard test: 23/23.
+  - Negative control, all 11: each injected **inside a subshell** (top level for
+    `test_agentcrew_pythonpath.sh`, which has none), anchor presence asserted,
+    positive control run first — all exit non-zero after injection.
+  - **Pre-fix control:** the identical injection applied to
+    `test_crew_groups.sh` and `test_crew_report.sh` in a detached `git worktree`
+    at HEAD printed its `FAIL:` line (`fail_line_seen=1`) and **still exited 0**,
+    against exit 1 after the fix. Same input, opposite verdict — the defect and
+    its closure.
+  - Counts became real: `crew_groups` 0→24, `crew_runner` 2→39, `crew_init` →32,
+    `agentcrew_pythonpath` 0→12, `crew_addwork_output_instructions` 0→6.
+  - `shellcheck -S warning` clean over every edited file.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_brainstorm_archive.sh:74 — the NO_PLAN fallback greps finalize's output for "has no plan_file", a string that exists nowhere in the codebase except that grep; finalize_session (brainstorm_session.py:375-421) raises only "No HEAD node set — cannot finalize." and the module-sync message, so the branch is unreachable and `ait brainstorm archive` never warns on a no-plan session. Newly visible because test_brainstorm_cli.sh's assertion is now enforced; that file is left red on purpose.`
+  - `tests/test_gate_lock_characterization.sh:1 — hard-coded lock paths (/tmp/aitask_gate_lock_987652, _987654, _987657) and fixed task ids make two concurrent runs of the file collide, each treating the other's lock as foreign; fails 4/4 concurrently, passes 8/8 sequentially. Pre-existing, unrelated to t1207.`
+
+- **Key decisions:**
+  - *Shared opt-in mechanism over per-file restructuring.* 10 of 11 files run
+    every assertion inside a `( … )` subshell for `cd` isolation, so the
+    "drop the subshells" direction would have rewritten ~250 assertion sites and
+    re-anchored every path assertion. The library already had one caller shape
+    that worked (`test_crew_cleanup.sh`); this promotes it into the shared seam
+    instead of leaving eleven private reimplementations.
+  - *Fail-closed with a sentinel, and enablement tracked separately from the
+    path.* `>>` recreates a deleted record, so "file missing" is not observable
+    at load time; the sentinel is. An append failure deletes the record on
+    purpose, turning an undetectable short count into a detectable corrupt one.
+    Without this, a lost record would read as "0 failures" — the same silent
+    false-green this task removes.
+  - *Left the one genuine failure failing.* Repairing brainstorm's `NO_PLAN`
+    path is product work; weakening the assertion to get green would restore the
+    blindness. Routed to the `triage_enforced_crew_test_failures` follow-up.
