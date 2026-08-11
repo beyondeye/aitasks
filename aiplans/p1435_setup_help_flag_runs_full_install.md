@@ -324,3 +324,93 @@ Post-implementation cleanup, archival, and merge follow **Step 9
 
 ### Planned mitigations
 - timing: post-phase | name: guard_usage_documents_every_tier_flag | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — usage-text drift when a new `--with-*` tier is added | desc: derive the tier flags from aitask_setup.sh's case loop and assert each is documented in the --help output, with a non-empty/count guard so the loop cannot go vacuous
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in five parts.
+  (1) `.aitask-scripts/aitask_setup.sh`: added a source-traced `usage()` above
+  `# --- Main ---` and an `-h|--help)   usage; exit 0 ;;` arm in `main()`'s flag
+  loop, placed after the three `--with-*` arms and before `--)` / the `*)`
+  catch-all, so it exits before `info "aitask framework setup"`.
+  (2) `packaging/shim/ait`: the no-project bootstrap branch now scans `"${@:2}"`
+  and exits 0 with a pointer on `-h`/`--help`, before the banner, the Y/n prompt
+  and the installer download.
+  (3) `tests/test_setup_help_flag.sh` (new, 23 assertions): isolated framework
+  fixture (`setup_fake_aitask_repo` + `aitask_setup.sh` + `lib/github_release.sh`
+  + a copy of `ait`) with a temp `$HOME`, covering `--help`, `-h`,
+  `--with-dev --help`, the `./ait setup --help` dispatcher path, the absence of
+  the `aitask framework setup` banner, the absence of `$HOME/.aitask`, and the
+  tier-flag drift guard. Includes a portable `run_bounded` helper
+  (`timeout` → `gtimeout` → background watchdog with a process-group kill).
+  (4) `tests/test_global_shim.sh`: Test 12 for the shim guard, reusing the
+  existing fake-failing-`curl`/`wget` recipe.
+  (5) `website/content/docs/commands/setup-install.md`: a `--help` pointer line
+  plus the auto-bootstrap exception sentence.
+- **Deviations from plan:** None in scope or structure. Three corrections made
+  while implementing, all from running the checks rather than from re-reading
+  the plan:
+  - The planned extractor's `tr -d '[:space:])'` deleted the newlines as well and
+    fused the three matches into one token (the count assertion caught it,
+    reporting 1 instead of 3). Replaced with a per-line
+    `sed 's/^[[:space:]]*//; s/)$//'`.
+  - The planned drift guard used a plain substring check, which still passed
+    after an Options line was deleted, because every tier flag also appears in
+    the Examples block. Tightened to `assert_contains_re "^  <flag>[[:space:]]+[A-Za-z]"`
+    so it matches an Options *entry*, and re-ran the mutation to confirm only
+    the mutated flag now fails.
+  - shellcheck SC1087 on `"^  $f[[:space:]]…"` (reads as array indexing);
+    braced to `${f}`.
+- **Issues encountered:** A concurrent session was modifying 24 unrelated files
+  in this working tree (monitor / shadow / concern work, plus `tests/lib/asserts.sh`
+  and `CLAUDE.md`). All commits below stage the five t1435 paths explicitly; no
+  `git add -A` / `git add .` was used. Both test files were re-run after
+  `tests/lib/asserts.sh` changed under them (t1207 file-backed counters) — they
+  assert at top level, never inside a `( … )` subshell, so no counter opt-in is
+  required and both still report real counts.
+- **Key decisions:**
+  - The two entry paths get deliberately asymmetric contracts. The shim prints a
+    pointer, not the option list: `usage()` lives in a file that does not exist
+    before installation, and duplicating its text into the shim would recreate
+    the drift the post-phase guard exists to prevent. Documented in the plan's
+    Outcome table and in the code comment.
+  - Every automated assertion runs in an isolated fixture with a temp `$HOME`,
+    never against the real repo. Pre-fix, a dispatcher-path run *is* the full
+    install; a test that regressed would otherwise perform it on the developer's
+    own checkout. The real-repo `./ait setup --help` was run only after the
+    suites passed.
+  - The `*)` catch-all still swallows unknown options (out of scope, and
+    `--source-only` relies on it), so this change adds a help arm without
+    altering argument-rejection behavior.
+- **Verification results:** `test_setup_help_flag` 23/23, `test_global_shim`
+  26/26, `test_shim_extraction_parity` 3/3, `test_setup_git` 70/70,
+  `test_setup_git_tui` 16/16, `test_packaging_cleanup` 6/6, `test_version_checks`
+  2/2 (`test_setup_python_install` self-skips without
+  `AIT_RUN_INTEGRATION_TESTS=1`). `shellcheck` clean on every changed file
+  (`aitask_setup.sh`'s remaining findings are all pre-existing and outside the
+  new hunks); `bash -n` clean. `./ait setup --help` in the real repo prints the
+  usage block, exits 0, and left the working tree unchanged.
+- **Negative controls (all run in the isolated fixture, temp `$HOME`):**
+  1. Deleting only the `-h|--help)` arm → `./ait setup --help` printed
+     `aitask framework setup` and created `$HOME/.aitask`, so both the banner
+     assertion and the `$HOME/.aitask` assertion are discriminating, not vacuous.
+  2. Stripping only the shim guard block → rc 1 and a `Downloading` line, so
+     Test 12's three assertions all fail without the guard.
+  3. Deleting only the `--with-chat` Options line → the tightened guard fails
+     for `--with-chat` and passes for the other two. (This control is what
+     exposed the original substring check as non-discriminating.)
+- **Upstream defects identified:** None. The shim's bootstrap-on-`--help`
+  behavior was a second surface of *this* task's defect and was fixed here, not
+  deferred. The ten other dispatcher-exposed scripts without a `--help` handler
+  (`board`, `monitor`, `minimonitor`, `codebrowser`, `settings`, `syncer`,
+  `applink`, `chatlink`, `stats-tui`, `diffviewer`) are a known scope exclusion
+  recorded in the task's own Scope note, not a newly discovered defect — all are
+  TUI launchers whose failure mode is opening a TUI, not installing anything.
+- **Commit history anomaly:** while this task was in review, the concurrent
+  t1207 session committed the entire shared git index, sweeping all five t1435
+  paths into its commit `d490b2373` ("bug: Make the orphaned-counter test files
+  enforce their assertions (t1207)"). The code is correct and in the tree, but
+  the `(t1435)` tag was never recorded there. Resolution (user's call): an empty
+  marker commit `225a8b6b5` carries the `(t1435)` tag and names `d490b2373` as
+  the commit holding the diff, so tag-based lookup (`aitask_issue_update.sh`,
+  changelog) resolves. History was deliberately NOT rewritten — the sweeping
+  commit was still unpushed, but the other agent was live in the same tree.
