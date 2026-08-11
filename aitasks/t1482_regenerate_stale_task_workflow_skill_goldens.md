@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -61,10 +63,27 @@ This is a repeat of a known failure mode — CLAUDE.md and
 `aidocs/framework/skill_authoring_conventions.md:467` both require goldens to be
 regenerated in the **same commit** as the template/procedure edit.
 
+## Scope amendment (during implementation)
+
+A **fourth** stale golden was found while verifying that no others had drifted:
+`tests/golden/skills/aitask-pickrem/SKILL-remote-claude.md` (last regenerated in
+`b9c44161b`, t1233). Same root cause, same commit — `4f8d0387e` (t1466) also
+edited `.claude/skills/aitask-pickrem/SKILL.md.j2` without regenerating it,
+leaving `tests/test_skill_render_aitask_pickrem.sh` red at 66/67. The user
+confirmed it is in scope, so this task cures **four** goldens, not three; the
+fix below is amended accordingly.
+
+All other goldens are current: every `tests/test_skill_render_*.sh` was run,
+covering all 76 files under `tests/golden/`.
+
 ## Suggested fix
 
-Regenerate the three goldens with the documented loop
-(`aidocs/framework/skill_authoring_conventions.md:484-497`):
+Regenerate the four goldens with the documented loop
+(`aidocs/framework/skill_authoring_conventions.md:484-497`). Note the two sources
+differ in kind and in golden dimensionality: `task-workflow/SKILL.md` is a
+**wrapped `.md`** whose goldens live under `tests/golden/procs/` with no
+`-claude` suffix, across 3 profiles; pickrem is a **`.j2`** with a single
+`remote` × `claude` golden (see `tests/test_skill_render_aitask_pickrem.sh:5`).
 
 ```bash
 PYTHON="$(source .aitask-scripts/lib/python_resolve.sh && require_ait_python)"
@@ -74,16 +93,27 @@ for profile in default fast remote; do
     aitasks/metadata/profiles/$profile.yaml claude \
     > tests/golden/procs/task-workflow/SKILL-${profile}.md
 done
+
+"$PYTHON" .aitask-scripts/lib/skill_template.py \
+  .claude/skills/aitask-pickrem/SKILL.md.j2 \
+  aitasks/metadata/profiles/remote.yaml claude \
+  > tests/golden/skills/aitask-pickrem/SKILL-remote-claude.md
 ```
 
-Then confirm `bash tests/test_skill_render_task_workflow.sh` is fully green
-(184/184). Review the diff before committing to confirm it contains only t1466's
-intended content and no unrelated drift.
+Then confirm both suites are fully green — `bash
+tests/test_skill_render_task_workflow.sh` (184/184) and `bash
+tests/test_skill_render_aitask_pickrem.sh` (67/67). Review the diff before
+committing to confirm it contains only t1466's intended content and no unrelated
+drift.
 
 Worth considering as part of the fix: nothing mechanically enforces the
 same-commit rule, which is why this drifted silently for two tasks. A pre-commit
 check or a CI step that fails when a wrapped source file is newer than its
-golden would close the loop.
+golden would close the loop. **Deferred by the user to t1484** (`enforce skill
+golden freshness`), which records the design constraints found here — chiefly
+that `aitask_skill_verify.sh` does not inspect goldens at all, that no single
+place knows the golden matrix, and that CLAUDE.md's `.j2`/stub-surface trigger
+would not have fired on t1466's wrapped-`.md` edit anyway.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->

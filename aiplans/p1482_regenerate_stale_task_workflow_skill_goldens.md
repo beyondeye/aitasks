@@ -185,3 +185,56 @@ current-branch mode the merge is a no-op and archival moves the task file.
   by this plan. · severity: low · → mitigation: explicitly deferred by the user
   to the standalone task created in Step 4, with the design constraints recorded
   so the follow-up starts from evidence rather than from scratch
+
+## Final Implementation Notes
+
+- **Actual work done:** All five planned steps landed as written, with no
+  deviations. The four stale goldens were regenerated with the documented
+  loop — three `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md`
+  (+22 lines each) and `tests/golden/skills/aitask-pickrem/SKILL-remote-claude.md`
+  (+4/-1). The pre-commit diff audit confirmed the content is exactly t1466's:
+  the `LOCK_LIVE_HOLDER:` / `LOCK_UNVERIFIABLE_HOLDER:` branches, the expanded
+  `RECLAIM_STATUS:` description, the Step-7 pre-implementation-guard bullet, and
+  pickrem's own remote-mode variants plus its widened ownership-parse failure
+  list. t1484 (`enforce skill golden freshness`) was created for the deferred
+  guard, and t1482's own AC gained a "Scope amendment" section naming the fourth
+  golden.
+- **Deviations from plan:** None.
+- **Issues encountered:**
+  - *The stale set was larger than the task's AC.* The AC named three goldens;
+    a sweep of all 15 `tests/test_skill_render_*.sh` (covering all 76 files
+    under `tests/golden/`) found a fourth, `aitask-pickrem`, red at 66/67 from
+    the same commit. Rather than deviate silently, the extra file was confirmed
+    with the user during planning and the AC amended in the same change.
+  - *A concurrent session was writing to this repo throughout.* The tree was
+    clean at session start; by Step 8 it also carried
+    `.aitask-scripts/monitor/concern_parser.py`, three
+    `.claude/skills/aitask-shadow/plan-*.md`, `tests/test_concern_picker_modal.py`
+    and `aitasks/t1159/t1159_1_*.md` from another agent's t1427/t1159 work.
+    Every commit here stages its paths **explicitly** — never `git add -A` or a
+    bare `git add tests/` — so none of that work was captured or clobbered.
+  - *The first reproducibility check was invalid.* `git diff --stat` after a
+    second render compares against HEAD, not against the first render, so it
+    would have shown an identical stat even for a non-deterministic renderer.
+    It was replaced with a before/after `md5sum` comparison of the four files
+    across two renders, which is what actually proves determinism.
+- **Key decisions:**
+  - *The guard is a separate task, not part of this one.* The user chose this
+    after planning surfaced that it is not a low-effort add-on:
+    `aitask_skill_verify.sh` inspects no goldens at all; no single place knows
+    the golden matrix (pickrem is `remote`×`claude`, one file; task-workflow is
+    3 profiles under `tests/golden/procs/` with no `-claude` suffix); and
+    CLAUDE.md's `.j2`/stub-surface trigger would not have fired on t1466's
+    wrapped-`.md` edit, so closing the loop also means widening that trigger.
+    A timestamp-based check — the shape the task file floated — was rejected in
+    the t1484 description: mtime is untracked by git and commit timestamps are
+    fragile across rebases, while the render tests are already the correct
+    content-based comparison.
+  - *t1484 carries no `followup_kind` and no `anchor`.* It is genuine new work,
+    not one of the auto-spawn provenance kinds, and its topic (skill-golden
+    hygiene) is not t1482's `anchor: 1468` root, so it is its own root.
+  - *Golden churn kept in its own commit.* Nothing else rides along, so `git log`
+    attributes the content to t1466 and the regeneration to t1482 — the
+    provenance property whose absence caused t1468_2's regeneration to be
+    reverted on review in the first place.
+- **Upstream defects identified:** None.
