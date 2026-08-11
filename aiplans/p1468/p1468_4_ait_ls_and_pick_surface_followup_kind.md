@@ -493,6 +493,128 @@ Post-implementation cleanup, archival and merge are handled by task-workflow
 
 ---
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-11 23:35)
+
+- **Requested by user:** Step 7.1's `-v` output-format code block presented
+  `Follow-up: <followup_kind>` as an unconditional field, while the prose right
+  below it and the Step 2b template both make it conditional. An agent reading
+  the code block as the schema could expect the field on every line, or emit a
+  placeholder for a genuine-new-work task.
+- **Verification:** Confirmed. The block listed one shape only, and it was the
+  *rare* one — on the live corpus 257 of 261 Ready parents carry no kind, so the
+  documented schema was wrong for 98% of lines. The Step 2b template already
+  said "(omit this line entirely if the task is not a follow-up)", so the two
+  halves of the same skill disagreed.
+- **Changes made:** The block now shows **both** shapes explicitly — genuine new
+  work first (labelled the common case), then the follow-up form that appends
+  one further segment. The prose was tightened to say `Type:` is always present
+  and that the `, Follow-up: <followup_kind>` segment never appears as an empty
+  or placeholder value, so its *absence* is the signal. Both rendered shapes were
+  then checked byte-for-byte against real `ait ls -v` output.
+- **Files affected:** `.claude/skills/aitask-pick/SKILL.md.j2`,
+  `tests/golden/skills/aitask-pick/SKILL-{default,fast,remote}-claude.md`
+  (rerendered + regoldened; `test_skill_render_aitask_pick.sh` 97/97,
+  `aitask_skill_verify.sh` clean).
+- **Disposition note:** raised as "follow-up", fixed inline instead — this block
+  *is* this child's deliverable for the pick surface, and correcting it cost one
+  edit plus a regolden that the change already required.
+
+## Final Implementation Notes
+
+- **Actual work done:** All nine implementation steps landed as planned.
+  `lib/task_utils.sh` gained `read_valid_task_types`; the three
+  `get_valid_task_types` copies (`aitask_create.sh`, `aitask_update.sh`,
+  `aitask_stats_legacy.sh`) now delegate to it. `aitask_ls.sh` parses
+  `followup_kind`, always displays `Type:` and conditionally `Follow-up:`, and
+  gained `--type` / `--followup-kind` / `--no-followup-kind` with fail-closed
+  value validation. `aitask-pick/SKILL.md.j2` carries the kind at all three
+  sites; three profiles rerendered and three goldens regenerated. Website
+  `ait ls` docs updated. New `tests/test_ls_display_and_filters.sh` — 61
+  assertions, all passing.
+
+- **Deviations from plan:** Three, all small.
+  1. `read_valid_task_types` is called with an **explicit** `"$TASK_TYPES_FILE"`
+     argument at all four wrapper/validation sites rather than relying on the
+     function's default-arg fallback. The fallback is retained, but the implicit
+     form made shellcheck report `TASK_TYPES_FILE appears unused` (SC2034) in
+     `aitask_ls.sh` and `aitask_stats_legacy.sh` — a false positive, since the
+     variable is consumed indirectly. Passing it explicitly removes the warning
+     without a suppression directive and makes the dependency visible at the
+     call site.
+  2. The plan's verification step 5 fixture list omitted
+     `aitasks/metadata/task_types.txt`. Without it `--type` validates against the
+     empty-file fallback (`bug/feature/refactor`) and correctly rejects the
+     fixture's `chore` / `test` / `enhancement` tasks. The fixture now writes the
+     real vocabulary.
+  3. Two extra assertions were added to verification step 6 pinning that the
+     rejection messages name an invalid **value** (`Invalid follow-up kind:
+     bogus`, `Invalid type: bogus`) — the distinction from the "cannot resolve"
+     message was otherwise only asserted on the fail-closed path.
+
+- **Issues encountered:**
+  - The test's `run_ls_rc` helper originally set `RC` and returned output on
+    stdout. Called inside a command substitution it ran in a subshell, so the
+    exit-code assignment died there and **every** rejection assertion silently
+    saw `rc=0`. Rewritten to publish `LS_OUT` / `LS_RC` as globals and never be
+    called in a substitution; a comment records why.
+  - The first baseline-capture attempt ran `git show` from the scratchpad
+    directory (not a repo), so every baseline file came out empty and the
+    shellcheck diff showed a bogus uniform `SC2148 no shebang` delta. Redone
+    from the repo root with an explicit failure echo.
+  - `--batch` requires `--desc`; the post-phase pin's `aitask_create.sh`
+    invocations initially omitted it and failed for a fixture reason rather than
+    a behavioural one.
+
+- **Key decisions:** Kept every design decision D1–D5 as written. In particular
+  `Type:` stays unconditional and `Follow-up:` conditional, the raw canonical
+  token is printed (not t1468_3's human label), and neither field became a sort
+  dimension.
+
+- **Verification evidence:**
+  - **Pre-phase `negctrl_display_line`:** the display-line assertions were
+    written in final form and run against unmodified `aitask_ls.sh` → **RED**,
+    45/59 failing, e.g. `FAIL: t11 full display line (field order pinned)
+    (expected 't11_mitigation.md [Status: Ready, Priority: Medium, Effort:
+    Medium, Type: feature, Follow-up: risk_mitigation]', got 't11_mitigation.md
+    [Status: Ready, Priority: Medium, Effort: Medium]')`. Re-run after the
+    fixture was finalised, against a pristine copy of `HEAD`'s `aitask_ls.sh`:
+    **37 failures**, including all five pinned display-line assertions, with the
+    assertions byte-unchanged. The same file passes 61/61 against the
+    implementation.
+  - **Post-phase `pin_task_type_validation`:** six `aitask_create.sh --type`
+    probes (valid / bogus / `manual_verification` / empty-vocabulary fallback)
+    driven through the real CLI against a pre-delegation copy of
+    `aitask_create.sh` and against the delegated one — **byte-identical** exit
+    codes and `Invalid type:` messages.
+  - Real-repo partition check: 261 Ready parents = 257 `--no-followup-kind` + 4
+    across all eight kinds (1 `risk_mitigation`, 3 `upstream_defect`) — the
+    filters partition the corpus exactly.
+  - `shellcheck` diffed against `HEAD` per file: the only deltas are one new
+    informational `SC1091` (the added `source` line, same class as the two
+    existing ones) and the **removal** of `issue_type_text appears unused` —
+    the dead metadata this child was meant to revive. No new warnings.
+  - `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest,
+    exit=0)`.
+  - `./.aitask-scripts/aitask_skill_verify.sh` → OK (13 templates, 3 agents,
+    4 stub surfaces; wrapper parity clean).
+  - `bash tests/test_skill_render_aitask_pick.sh` → 97/97.
+  - All 50 bash tests referencing `get_valid_task_types` / `validate_task_type` /
+    `task_types.txt` / `aitask_ls.sh` were run: 49 pass.
+    `tests/test_boardcol_update.sh` fails, but **identically at clean `HEAD`** in
+    a throwaway worktree (same rc, byte-identical output) — pre-existing, not
+    caused by this change.
+  - Verification step 10 (`/aitask-pick` shows the kind): confirmed by reading
+    the regenerated goldens — the diff is identical in all three profiles, as
+    predicted, since the three edited sites sit outside every `{% if %}` gate.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:** see the section below; additionally,
+  `tests/test_boardcol_update.sh` is red on `main` independently of this work —
+  worth a separate look, but out of scope here.
+
 ## Notes for sibling tasks
 
 - **`aitask-pick` has no force-tracked rendered variants.** `.gitignore:60-68`
