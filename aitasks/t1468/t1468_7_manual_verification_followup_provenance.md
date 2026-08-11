@@ -31,7 +31,9 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1468_3] By-Trail view: a trail card for a marked task shows the glyph; a trail GHOST card shows no glyph and renders without visual breakage.
 - [ ] [t1468_3] Collapse a group containing follow-ups: the GroupHeader roll-up reports them, and the count is correct.
 - [ ] [t1468_3] Collapse a group containing NO follow-ups: no roll-up text is shown (negative control).
-- [ ] [t1468_3] A task with a hand-edited malformed followup_kind (e.g. a list, or an unknown string) renders without a glyph and without crashing the board.
+- [ ] [t1468_3] A task with a hand-edited MALFORMED followup_kind (a list, an int, an empty or whitespace-only string) renders NO glyph at all and does not crash the board.
+- [ ] [t1468_3] A task with an UNKNOWN non-empty followup_kind (e.g. a typo like `risk_mitgation`) renders the `·` fallback, UNCOLOURED — it must stay visible, since a value that silently vanishes reads as "not a follow-up". (Decided in t1468_3; this is deliberately different from the malformed case above.)
+- [ ] [t1468_3] Collapse a group containing an unknown kind: the roll-up tallies it last, under `·`.
 - [ ] [t1468_4] `ait ls -v` shows the kind on a marked task and shows nothing extra on an unmarked one.
 - [ ] [t1468_4] `ait ls --followup-kind risk_mitigation` returns a plausible, non-zero set; spot-check two of the returned tasks are genuinely risk mitigations.
 - [ ] [t1468_4] `ait ls --type bug` filters correctly and composes with `-l` and `--followup-kind`.
