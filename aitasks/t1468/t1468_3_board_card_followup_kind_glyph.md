@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1468
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:29
-updated_at: 2026-08-11 14:45
+updated_at: 2026-08-11 15:02
 ---
 
 ## Context
@@ -135,3 +136,8 @@ card class, not just `TaskCard`:
    In-Flight, in By-Trail, as a collapsed-group roll-up, and **at a narrow
    terminal width**. Visible is not the same as readable; check the narrow case
    explicitly.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-11T12:02:11Z status=pass attempt=1 type=human
