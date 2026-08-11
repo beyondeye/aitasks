@@ -50,12 +50,10 @@ EOF
 
 # --- Task Types ---
 
+# Read-only surface: no ensure_task_types_file call today, and none is added —
+# a stats run must not create files in the user's repo.
 get_valid_task_types() {
-    if [[ -s "$TASK_TYPES_FILE" ]]; then
-        sort -u "$TASK_TYPES_FILE"
-    else
-        printf '%s\n' "bug" "feature" "refactor"
-    fi
+    read_valid_task_types "$TASK_TYPES_FILE"
 }
 
 get_type_display_name() {

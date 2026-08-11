@@ -5,8 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/cross_repo_reexec.sh
 source "$SCRIPT_DIR/lib/cross_repo_reexec.sh"
+# shellcheck source=lib/followup_kinds_sh.sh
+# Lazy + memoising: sourcing costs nothing until followup_kinds_pipe is called,
+# which only happens when --followup-kind is actually supplied.
+source "$SCRIPT_DIR/lib/followup_kinds_sh.sh"
 
 TASK_DIR="aitasks"
+TASK_TYPES_FILE="$TASK_DIR/metadata/task_types.txt"
 
 # Cross-repo redirect (t832_1): if `--project <name>` appears anywhere in
 # argv, resolve <name> to a sibling aitasks project root and re-exec the
@@ -40,6 +45,11 @@ OPTIONS:
                 Default: Ready (only show Ready tasks)
   -l, --labels LABELS  Filter by labels (comma-separated). Only show tasks
                 with at least one matching label.
+  --type TYPE   Filter by issue type (see aitasks/metadata/task_types.txt).
+                A task with no issue_type: field counts as 'feature'.
+  --followup-kind KIND  Filter to auto-spawned follow-ups of one kind.
+  --no-followup-kind    Only tasks that are NOT auto-spawned follow-ups
+                (genuine new work). Mutually exclusive with --followup-kind.
   -c, --children PARENT  List only children of specified parent task number.
   --all-levels  Show all tasks including children (flat list).
   --tree        Show hierarchical tree view with children indented.
@@ -57,7 +67,11 @@ METADATA FORMAT:
     priority: high|medium|low
     effort: high|medium|low
     depends: [1, 3, 5]
-    issue_type: bug|chore|documentation|enhancement|feature|performance|refactor|style|test
+    issue_type: bug|chore|documentation|enhancement|feature|manual_verification|
+                performance|refactor|style|test
+    followup_kind: carry_over|docs_gap|manual_verification|qa_test_gap|
+                review_finding|risk_mitigation|upstream_defect|verification_failure
+                (absent = genuine new work, not an auto-spawned follow-up)
     status: Editing|Implementing|Postponed|Ready|Done|Folded
     labels: [ui, backend]
     assigned_to: email@example.com
@@ -78,6 +92,9 @@ VERBOSE=false
 LIMIT=0
 STATUS_FILTER="Ready"
 LABELS_FILTER=""
+TYPE_FILTER=""
+FOLLOWUP_KIND_FILTER=""
+NO_FOLLOWUP_KIND=false
 CHILDREN_OF=""
 ALL_LEVELS=false
 TREE_VIEW=false
@@ -96,6 +113,18 @@ while [[ $# -gt 0 ]]; do
         -l|--labels)
             LABELS_FILTER="$2"
             shift 2
+            ;;
+        --type)
+            TYPE_FILTER="$2"
+            shift 2
+            ;;
+        --followup-kind)
+            FOLLOWUP_KIND_FILTER="$2"
+            shift 2
+            ;;
+        --no-followup-kind)
+            NO_FOLLOWUP_KIND=true
+            shift
             ;;
         -c|--children)
             CHILDREN_OF="$2"
@@ -131,6 +160,29 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Validate filter VALUES before any scanning work. A silent zero-match is
+# indistinguishable from "no such tasks", which is exactly what a typo produces,
+# so both value-taking filters die on an unrecognised value. (This is a distinct
+# error shape from the `show_help; exit 1` above, which rejects a bad flag NAME.)
+if [[ -n "$FOLLOWUP_KIND_FILTER" && "$NO_FOLLOWUP_KIND" == true ]]; then
+    die "--followup-kind and --no-followup-kind are mutually exclusive."
+fi
+
+if [[ -n "$FOLLOWUP_KIND_FILTER" ]]; then
+    # Two distinct deaths: "cannot verify" is its own state, not a negative
+    # result. --no-followup-kind deliberately needs no lookup, so it keeps
+    # working when the Python vocabulary cannot be resolved.
+    kinds="$(followup_kinds_pipe)" \
+        || die "cannot resolve the follow-up kind vocabulary (lib/followup_kinds.py unreachable) — --followup-kind cannot be validated."
+    is_valid_followup_kind "$FOLLOWUP_KIND_FILTER" \
+        || die "Invalid follow-up kind: $FOLLOWUP_KIND_FILTER (must be one of: ${kinds//|/, })"
+fi
+
+if [[ -n "$TYPE_FILTER" ]]; then
+    grep -qFx "$TYPE_FILTER" <(read_valid_task_types "$TASK_TYPES_FILE") \
+        || die "Invalid type: $TYPE_FILTER (must be one of: $(read_valid_task_types "$TASK_TYPES_FILE" | tr '\n' ',' | sed 's/,$//'))"
+fi
 
 # Check if directory exists
 if [ ! -d "$TASK_DIR" ]; then
@@ -249,6 +301,8 @@ risk_goal_achievement_text=""
 e_text="Medium"
 d_text="None"
 issue_type_text="feature"
+# Absent = "not an auto-spawned follow-up" (t1468_1's no-tombstone contract).
+followup_kind_text=""
 status_text="Ready"
 labels_text=""
 children_to_implement_text=""
@@ -325,6 +379,9 @@ parse_yaml_frontmatter() {
                     ;;
                 issue_type)
                     issue_type_text="$value"
+                    ;;
+                followup_kind)
+                    followup_kind_text="$value"
                     ;;
                 status)
                     status_text="$value"
@@ -418,6 +475,7 @@ parse_task_metadata() {
     e_score=2; e_text="Medium"
     blocked=0; d_text="None"
     issue_type_text="feature"
+    followup_kind_text=""
     status_text="Ready"
     labels_text=""
     children_to_implement_text=""
@@ -478,6 +536,22 @@ process_task_file() {
         fi
     fi
 
+    # Apply issue-type filter. Note a file with no issue_type: at all matches
+    # `--type feature`, because the parser defaults to it (documented in --help).
+    if [[ -n "$TYPE_FILTER" && "$issue_type_text" != "$TYPE_FILTER" ]]; then
+        return
+    fi
+
+    # Apply follow-up-kind filters (mutually exclusive; values validated at
+    # parse time). An absent kind means "not a follow-up" — never compared
+    # against a None/unset sentinel.
+    if [[ -n "$FOLLOWUP_KIND_FILTER" && "$followup_kind_text" != "$FOLLOWUP_KIND_FILTER" ]]; then
+        return
+    fi
+    if [[ "$NO_FOLLOWUP_KIND" == true && -n "$followup_kind_text" ]]; then
+        return
+    fi
+
     # Determine display status string
     local display_status
     if [ "$blocked" -eq 1 ]; then
@@ -516,7 +590,19 @@ process_task_file() {
         if [[ -n "$risk_goal_achievement_text" ]]; then
             risk_info="${risk_info}, GA-risk: $risk_goal_achievement_text"
         fi
-        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text${risk_info}, Effort: $e_text${assigned_info}${issue_info}${pr_info}${contributor_info}]"
+        # Type is always shown (the parser defaults it, so there is no "absent"
+        # state); Follow-up appears only when the field is present. The raw
+        # canonical token is printed, not a human label, so it can be pasted
+        # straight into --followup-kind. Display only — NOT a sort dimension.
+        local type_info=""
+        if [[ -n "$issue_type_text" ]]; then
+            type_info=", Type: $issue_type_text"
+        fi
+        local followup_info=""
+        if [[ -n "$followup_kind_text" ]]; then
+            followup_info=", Follow-up: $followup_kind_text"
+        fi
+        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text${risk_info}, Effort: $e_text${type_info}${followup_info}${assigned_info}${issue_info}${pr_info}${contributor_info}]"
     else
         display="${indent_prefix}$filename"
     fi

@@ -742,6 +742,27 @@ filter_gates_for_issue_type() {
 # (sourced above) — a shared lib so agentcrew_utils.sh can reuse the same
 # canonical readers without a copy of its own.
 
+# --- Issue-type vocabulary (shell-side reader) ---
+
+# read_valid_task_types [file]
+# Pure reader for the issue-type vocabulary — prints one type per line, sorted.
+# Unlike the callers' get_valid_task_types wrappers it does NOT call
+# ensure_task_types_file: a read-only lister (aitask_ls.sh) must never create
+# files in the user's repo. Callers that legitimately need the file to exist
+# keep their own ensure_task_types_file call around this one.
+#
+# Folding the whole vocabulary onto one seam across the 32+ duplication sites is
+# t720's job (issue_type_list_single_source_of_truth); this is only the
+# shell-side reader, a down-payment on it and not a substitute.
+read_valid_task_types() {
+    local f="${1:-${TASK_TYPES_FILE:-aitasks/metadata/task_types.txt}}"
+    if [[ -s "$f" ]]; then
+        sort -u "$f"
+    else
+        printf '%s\n' "bug" "feature" "refactor"
+    fi
+}
+
 # --- Task level enum (single source of truth) ---
 
 # Canonical task level enum (high/medium/low), shared by priority, effort, and

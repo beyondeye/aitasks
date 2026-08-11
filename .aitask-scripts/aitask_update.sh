@@ -880,13 +880,11 @@ ensure_task_types_file() {
     touch "$TASK_TYPES_FILE"
 }
 
+# Write-path wrapper: keeps the ensure_task_types_file side effect, delegates
+# the read to lib/task_utils.sh::read_valid_task_types.
 get_valid_task_types() {
     ensure_task_types_file
-    if [[ -s "$TASK_TYPES_FILE" ]]; then
-        sort -u "$TASK_TYPES_FILE"
-    else
-        printf '%s\n' "bug" "feature" "refactor"
-    fi
+    read_valid_task_types "$TASK_TYPES_FILE"
 }
 
 validate_task_type() {

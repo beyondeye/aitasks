@@ -94,19 +94,25 @@ ait ls -v 15                    # Top 15 tasks, verbose
 ait ls -v -l ui,backend 10     # Filter by labels
 ait ls -v -s all --tree 99     # Tree view, all statuses
 ait ls -v --children 10 99     # List children of task t10
+ait ls -v --no-followup-kind 15 # Genuine new work only (no auto-spawned follow-ups)
 ```
 
 | Option | Description |
 |--------|-------------|
 | `[NUMBER]` | Limit output to top N tasks |
-| `-v` | Verbose: show status, priority, effort, assigned, issue |
+| `-v` | Verbose: show status, priority, effort, issue type, follow-up kind, assigned, issue |
 | `-s, --status STATUS` | Filter by status: Ready (default), Editing, Implementing, Postponed, Done, all |
 | `-l, --labels LABELS` | Filter by labels (comma-separated, matches any) |
+| `--type TYPE` | Filter by issue type. A task with no `issue_type:` field counts as `feature` |
+| `--followup-kind KIND` | Filter to auto-spawned follow-ups of one kind (e.g. `risk_mitigation`) |
+| `--no-followup-kind` | Only tasks that are *not* auto-spawned follow-ups. Mutually exclusive with `--followup-kind` |
 | `-c, --children PARENT` | List only children of specified parent task number |
 | `--all-levels` | Show all tasks including children (flat list) |
 | `--tree` | Hierarchical tree view with children indented under parents |
 
-**Sort order** (unblocked tasks first, then): priority (high > medium > low) → effort (low > medium > high).
+**Sort order** (unblocked tasks first, then): priority (high > medium > low) → effort (low > medium > high). Issue type and follow-up kind are shown in `-v` output but are not sort dimensions.
+
+**Follow-up kind** marks a task as auto-spawned by the workflow rather than as new work. `-v` shows it as a `Follow-up: <kind>` field, present only when the task carries one — its absence means genuine new work. `--followup-kind` and `--type` both reject an unrecognised value rather than silently matching nothing.
 
 **View modes:**
 - **Normal** (default) — Parent tasks only. Parents with pending children show "Has children" status

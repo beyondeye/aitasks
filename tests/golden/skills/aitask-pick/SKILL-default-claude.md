@@ -148,10 +148,20 @@ If labels were selected in Step 1:
 
 **Note:** This only shows parent-level tasks, not children. Parent tasks with pending children will show as "Has children" and can be selected to drill down into child tasks.
 
-The output format with `-v` is:
+The output format with `-v` has two shapes. Genuine new work — the common case:
 ```
-t<number>_<name>.md [Status: <status>, Priority: <priority>, Effort: <effort>]
+t<number>_<name>.md [Status: <status>, Priority: <priority>, Effort: <effort>, Type: <issue_type>]
 ```
+An auto-spawned follow-up, which appends one further segment:
+```
+t<number>_<name>.md [Status: <status>, Priority: <priority>, Effort: <effort>, Type: <issue_type>, Follow-up: <followup_kind>]
+```
+
+`Type:` is always present. The `, Follow-up: <followup_kind>` segment appears
+**only** on auto-spawned follow-up tasks (manual verification, risk mitigation,
+upstream defect, …) — never as an empty or placeholder value, so its absence is
+what means "genuine new work". `ait ls` can also filter on it —
+`--followup-kind <kind>`, `--no-followup-kind`, and `--type <issue_type>`.
 
 #### 2b: Generate Task Summaries
 
@@ -167,8 +177,9 @@ For each task returned by the script:
 - Present each task in this format:
 
 ```
-<filename> [Priority: <priority>, Effort: <effort>, Status: <status>]
+<filename> [Priority: <priority>, Effort: <effort>, Status: <status>, Type: <issue_type>]
 <brief summary of task content>
+Follow-up: <followup_kind> (omit this line entirely if the task is not a follow-up)
 Children: <N children pending> (or "None")
 ___________
 ```
@@ -186,7 +197,7 @@ Since `AskUserQuestion` supports a maximum of 4 options, implement pagination to
 - For the current page, take tasks from index `current_offset` to `current_offset + page_size - 1`.
 
 - Build `AskUserQuestion` options:
-  - For each task in the current page slice: option label = task filename, description = brief summary with metadata
+  - For each task in the current page slice: option label = task filename, description = brief summary with metadata. The description **must** carry the follow-up kind when the task has one (e.g. "follow-up: risk_mitigation") — that description is the text the human actually reads when choosing, so a follow-up must be distinguishable from genuine new work without opening the file.
   - If there are more tasks beyond this page: add a **"Show more tasks"** option (description: "Show next batch of tasks (N more available)")
 
 - Present options via `AskUserQuestion`.
