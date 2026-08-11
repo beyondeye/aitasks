@@ -15,6 +15,7 @@ aitask_contribute
 aitask_explain
 aitask_explore
 aitask_fold
+aitask_ls
 aitask_monitor
 aitask_monitormini
 aitask_pick
@@ -49,8 +50,10 @@ codex
 codexcli
 crash_recovery
 custom_shortcuts
+dependencies
 development
 differ
+display
 docs
 documentation
 execution_profiles
