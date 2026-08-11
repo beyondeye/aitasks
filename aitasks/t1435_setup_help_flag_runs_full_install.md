@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1432
+implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:38
-updated_at: 2026-08-11 16:56
+updated_at: 2026-08-11 17:55
 ---
 
 ## Origin
@@ -65,3 +66,8 @@ usage text should cover the three opt-in tiers (`--with-pypy`, `--with-chat`,
 `--with-dev`). Per `aidocs/framework/code_conventions.md`, help text condensed
 from another canonical file needs a source-trace comment pointing at the
 authority.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-11T14:56:09Z status=pass attempt=1 type=human
