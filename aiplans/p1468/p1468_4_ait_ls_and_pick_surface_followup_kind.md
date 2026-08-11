@@ -5,74 +5,335 @@ Sibling Tasks: aitasks/t1468/t1468_1_*.md, aitasks/t1468/t1468_2_*.md, aitasks/t
 Archived Sibling Plans: aiplans/archived/p1468/p1468_*_*.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-08-11 19:54
 ---
 
 # p1468_4 — `ait ls` and `/aitask-pick` surface the follow-up kind
 
 Context is in `aitasks/t1468/t1468_4_ait_ls_and_pick_surface_followup_kind.md`.
 
-**Precondition:** t1468_1 has landed.
+**Precondition:** t1468_1 has landed (verified — `lib/followup_kinds.py` and
+`lib/followup_kinds_sh.sh` exist and `followup_kind:` round-trips).
+
+**Re-verified against current source (2026-08-11).** Every structural claim in
+the previous revision still holds; the line numbers had drifted ~+16 in the
+middle of `aitask_ls.sh` (the t1472 `deps-unblock-batch` rewrite). All line
+references below are the re-verified current ones. Three substantive corrections
+came out of that verification and are folded in:
+
+1. **Filters validate their values** rather than silently matching nothing
+   (user decision — see "Design decisions" below). The previous revision's
+   verification step 5 said the opposite; it is rewritten.
+2. **`--no-followup-kind` is added** so the queue can be filtered down to
+   genuine new work — the parent task's headline motivation (user decision).
+3. **`aitask-pick` has NO force-tracked rendered variants.** The task file and
+   the previous plan revision both claim "the three `remote` rendered copies are
+   force-tracked and must be committed". That is false for this skill:
+   `.gitignore:47-49` ignores every `*-/` rendered dir and the un-ignore list at
+   `:60-68` names only `aitask-pickrem`, `aitask-pickweb` and `task-workflow`.
+   `git ls-files | grep -- '-remote-' | grep -i pick` returns no
+   `aitask-pick-remote-` entry. The only tracked artifacts of a `.j2` edit here
+   are the template itself and the three goldens.
+
+---
+
+## Design decisions
+
+**D1 — Display format.** The `-v` line gains two fields in the existing optional
+suffix zone, after `Effort:` and before `Assigned:`:
+
+```
+t1468_4_foo.md [Status: Ready, Priority: High, Effort: Medium, Type: feature, Follow-up: risk_mitigation]
+```
+
+- `Type:` is **always** shown in `-v` (the parser defaults `issue_type_text` to
+  `feature`, so there is no "absent" state to represent).
+- `Follow-up:` appears **only** when the field is present — absent means "not a
+  follow-up", per t1468_1's no-tombstone contract. Never assert `== None`.
+- The value printed is the **raw canonical token** (`risk_mitigation`), not
+  t1468_3's human label ("risk mitigation"), so it can be pasted straight into
+  `--followup-kind`. t1468_3's glyph/label vocabulary is for the board's
+  space-constrained card and group roll-up; a plain-text list line has room for
+  the real token and gains copy-pasteability from it.
+
+**Safe for existing consumers — verified.** The only code that reads this line is
+`aitask_create.sh:382,1298` and `aitask_update.sh:1258,1341` (fzf pickers), and
+both extract only the leading `^t[0-9]+`. Nothing parses the bracket contents
+positionally.
+
+**D2 — Filters reject unknown values.** `--followup-kind` and `--type` both
+validate and `die` on an unrecognised value, listing the valid set. Rationale: a
+silent zero-match is indistinguishable from "no such tasks", which is exactly the
+failure mode a typo produces. `--followup-kind` validates through
+`lib/followup_kinds_sh.sh` (the bridge is lazy, so nothing is paid unless the
+flag is used) and **fails closed** when the vocabulary cannot be resolved — the
+contract t1468_1's sibling notes hand to this child. That failure is scoped to
+invocations that actually pass the flag; a plain `ait ls` never touches Python
+for this.
+
+**D3 — `--no-followup-kind` is a separate boolean flag**, not a `none` sentinel
+inside `--followup-kind`'s closed vocabulary (no magic values). It needs no
+vocabulary lookup, so it works even when the bridge cannot resolve. Passing both
+`--followup-kind` and `--no-followup-kind` is an error.
+
+**D4 — Display-only, NOT a sort dimension.** Follow the explicit `risk`
+precedent at `aitask_ls.sh:245` ("risk is display-only — NOT a sort dimension
+(no r_score)"). Sorting would require a 4th field in the `:524` echo *and* a
+`-k4,4n` at `:592`; leave both alone.
+
+**D5 — One shared issue-type reader instead of a fourth copy.**
+`get_valid_task_types` exists **three** times today (`aitask_create.sh:1147`,
+`aitask_update.sh:883`, `aitask_stats_legacy.sh:53`), each repeating the same
+`bug/feature/refactor` fallback. Rather than adding a fourth for `ait ls`, add
+one pure reader to `lib/task_utils.sh` and have all three delegate. The
+side-effecting `ensure_task_types_file` call stays in the two write-path
+scripts — a read-only lister must not create files in the user's repo. This is
+a small down-payment on **t720** (`issue_type_list_single_source_of_truth`), not
+a substitute for it; note that in the comment.
+
+---
 
 ## Implementation steps
 
-### 1. `aitask_ls.sh` — parse
+### Pre-phase (risk mitigations)
 
-1.1 Add a `followup_kind)` arm beside the `issue_type)` arm at `:310-312`, plus
-the module-level default (`:235` area) and the per-file reset inside
-`parse_task_metadata` (`:404` area). **All three** — the reset is what stops one
-task's value leaking into the next file.
+1. `[negctrl_display_line]` Create `tests/test_ls_display_and_filters.sh` with
+   its fixture repo and write the **display-line assertions in their final
+   form** — `t11`'s `-v` line contains `Type: feature` and
+   `Follow-up: risk_mitigation`, `t10`'s contains `Type: bug` and
+   `assert_not_contains "Follow-up"` — then run the file against **unmodified**
+   `aitask_ls.sh` and confirm it goes RED. Record the failing test id and the
+   exact failure message in Final Implementation Notes. At the end the same
+   assertions, **byte-unchanged**, must pass. Asserting today's (field-less)
+   line instead would go green against unchanged source and prove nothing.
 
-### 2. `aitask_ls.sh` — display
+### 1. `lib/task_utils.sh` — pure issue-type vocabulary reader
 
-2.1 Build `local followup_info=""` and set it conditionally, then append to the
-single `display=` assembly at `:503`. Copy the uniform idiom already used by
-`risk_info` / `assigned_info` / `issue_info` at `:479-502`.
+Add beside the other task-metadata helpers:
 
-2.2 **Also surface `issue_type`.** It is parsed at `:311` into `issue_type_text`
-and then **never read** — `grep -n issue_type_text` returns exactly `:235`,
-`:311`, `:404`, all writes. It is dead metadata, and the parent task explicitly
-names this surface as needing type display *and* filtering.
+```bash
+# read_valid_task_types [file]
+# Pure reader for the issue-type vocabulary — prints one type per line, sorted.
+# Unlike the callers' get_valid_task_types wrappers it does NOT call
+# ensure_task_types_file: a read-only lister (aitask_ls.sh) must never create
+# files in the user's repo. Folding the whole vocabulary onto one seam across
+# the 32+ duplication sites is t720's job; this is only the shell-side reader.
+read_valid_task_types() {
+    local f="${1:-${TASK_TYPES_FILE:-aitasks/metadata/task_types.txt}}"
+    if [[ -s "$f" ]]; then
+        sort -u "$f"
+    else
+        printf '%s\n' "bug" "feature" "refactor"
+    fi
+}
+```
 
-2.3 **Display-only — do not make either a sort dimension.** Follow the explicit
-`risk` precedent at `:229` ("risk is display-only — NOT a sort dimension (no
-r_score)"). Sorting would require a 4th field in the `:508` echo *and* `-k4,4n`
-at `:576`; leave both alone.
+Then collapse the three existing copies to delegate, preserving each one's
+`ensure_task_types_file` side effect exactly where it is today:
 
-### 3. `aitask_ls.sh` — filters
+| file | line | new body |
+|---|---|---|
+| `aitask_create.sh` | `:1147` | `ensure_task_types_file; read_valid_task_types` |
+| `aitask_update.sh` | `:883` | `ensure_task_types_file; read_valid_task_types` |
+| `aitask_stats_legacy.sh` | `:53` | `read_valid_task_types` (has no `ensure_` call today — do not add one) |
 
-3.1 Declare `FOLLOWUP_KIND_FILTER=""` and `TYPE_FILTER=""` beside
-`LABELS_FILTER` at `:76-82`.
-3.2 Parse `--followup-kind` and `--type` in the arg `case` at `:84-133`. This is
-mandatory, not cosmetic: the fallthrough at `:112-131` treats a bare numeric as
-`LIMIT` and **hard-fails** (`show_help; exit 1`) on anything else, so an
-unregistered flag kills the command.
-3.3 Apply both inside `process_task_file` with the **early-`return`** idiom used
-by the labels filter at `:450-466` — filters run before display construction, and
-this one function serves all four listing modes (children / tree / all-levels /
-normal), so a single edit covers every mode.
+All three already `source lib/task_utils.sh` (verified: `:11`, `:11`, `:9`) and
+all three set `TASK_TYPES_FILE` before use.
 
-### 4. `aitask_ls.sh` — help
+### 2. `aitask_ls.sh` — parse
 
-4.1 Flags block `:35-50` (beside `-l, --labels`).
-4.2 Frontmatter reference `:52-66` — add `followup_kind` with its vocabulary.
-Note `:60` already lists the `issue_type` values and omits `manual_verification`;
-fix that while here.
+2.1 Source the bridge beside the existing lib sources at `:5-7`:
 
-### 5. `/aitask-pick` presentation
+```bash
+# shellcheck source=lib/followup_kinds_sh.sh
+source "$SCRIPT_DIR/lib/followup_kinds_sh.sh"
+```
 
-`.claude/skills/aitask-pick/SKILL.md.j2`:
+It is lazy and memoising — sourcing costs nothing until `followup_kinds_pipe`
+is called. `die` is already in scope (`task_utils.sh` → `terminal_compat.sh`).
 
-5.1 `:157-160` — the `-v` output-format note; update to match the new `ait ls`
-line so the skill's description of the tool stays true.
-5.2 `:173-180` — the Step 2b presentation template
-(`<filename> [Priority: …, Effort: …, Status: …]`); add the kind.
-5.3 `:182-196` — Step 2c builds each option's description as "brief summary with
-metadata"; make sure the kind reaches it, since that is the text the human
-actually reads when choosing.
+2.2 Add `TASK_TYPES_FILE="$TASK_DIR/metadata/task_types.txt"` beside
+`TASK_DIR="aitasks"` at `:9`.
 
-Use terminology consistent with t1468_3's `GroupHeader` roll-up wording.
+2.3 Add a `followup_kind)` arm to the `case "$key"` in `parse_yaml_frontmatter`,
+immediately after the `issue_type)` arm at `:326-328`:
 
-### 6. Regeneration
+```bash
+                followup_kind)
+                    followup_kind_text="$value"
+                    ;;
+```
+
+`^([a-z_]+):` (`:285`) accepts the key — verified.
+
+2.4 **All three sites, or the value leaks between files:** the module-level
+default `followup_kind_text=""` beside `issue_type_text="feature"` at `:251`,
+**and** the per-file reset in `parse_task_metadata` beside `:420`. The reset is
+what stops one task's kind appearing on the next task's line.
+
+### 3. `aitask_ls.sh` — display
+
+In the `VERBOSE` block, following the uniform
+`local X_info=""` → conditional → interpolate idiom already used by
+`assigned_info` / `issue_info` / `risk_info` at `:496-518`:
+
+```bash
+        local type_info=""
+        if [[ -n "$issue_type_text" ]]; then
+            type_info=", Type: $issue_type_text"
+        fi
+        local followup_info=""
+        if [[ -n "$followup_kind_text" ]]; then
+            followup_info=", Follow-up: $followup_kind_text"
+        fi
+```
+
+and extend the single `display=` assembly at `:519`:
+
+```bash
+        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text${risk_info}, Effort: $e_text${type_info}${followup_info}${assigned_info}${issue_info}${pr_info}${contributor_info}]"
+```
+
+`issue_type_text` was parsed at `:327` and **never read** — `grep -n
+issue_type_text` returns exactly `:251`, `:327`, `:420`, all writes. This is the
+edit that makes it live.
+
+### 4. `aitask_ls.sh` — flags and validation
+
+4.1 Declare beside `LABELS_FILTER` at `:80`:
+
+```bash
+LABELS_FILTER=""
+TYPE_FILTER=""
+FOLLOWUP_KIND_FILTER=""
+NO_FOLLOWUP_KIND=false
+```
+
+4.2 Parse in the arg `case` at `:86-133`. **Mandatory, not cosmetic:** the
+fallthrough at `:117-131` treats a bare numeric as `LIMIT` and hard-fails
+(`show_help; exit 1`) on anything else, so an unregistered long flag kills the
+command.
+
+```bash
+        --type)
+            TYPE_FILTER="$2"
+            shift 2
+            ;;
+        --followup-kind)
+            FOLLOWUP_KIND_FILTER="$2"
+            shift 2
+            ;;
+        --no-followup-kind)
+            NO_FOLLOWUP_KIND=true
+            shift
+            ;;
+```
+
+4.3 Validate **after** the parse loop, before the `TASK_DIR` existence check at
+`:136` — so a bad flag is rejected before any scanning work:
+
+```bash
+if [[ -n "$FOLLOWUP_KIND_FILTER" && "$NO_FOLLOWUP_KIND" == true ]]; then
+    die "--followup-kind and --no-followup-kind are mutually exclusive."
+fi
+
+if [[ -n "$FOLLOWUP_KIND_FILTER" ]]; then
+    kinds="$(followup_kinds_pipe)" \
+        || die "cannot resolve the follow-up kind vocabulary (lib/followup_kinds.py unreachable) — --followup-kind cannot be validated."
+    is_valid_followup_kind "$FOLLOWUP_KIND_FILTER" \
+        || die "Invalid follow-up kind: $FOLLOWUP_KIND_FILTER (must be one of: ${kinds//|/, })"
+fi
+
+if [[ -n "$TYPE_FILTER" ]]; then
+    grep -qFx "$TYPE_FILTER" <(read_valid_task_types) \
+        || die "Invalid type: $TYPE_FILTER (must be one of: $(read_valid_task_types | tr '\n' ',' | sed 's/,$//'))"
+fi
+```
+
+Two distinct death messages for `--followup-kind` — "invalid value" vs "cannot
+verify" — because "unverifiable" is its own state, not a negative result. Note
+`--no-followup-kind` deliberately triggers **no** vocabulary lookup, so it keeps
+working when Python is unavailable.
+
+### 5. `aitask_ls.sh` — apply the filters
+
+Inside `process_task_file`, using the **early-`return`** idiom of the labels
+filter at `:463-479`, immediately after it. Filters run before display
+construction, and this one function serves all four listing modes (children /
+tree / all-levels / normal), so a single edit covers every mode:
+
+```bash
+    # Apply issue-type filter
+    if [[ -n "$TYPE_FILTER" && "$issue_type_text" != "$TYPE_FILTER" ]]; then
+        return
+    fi
+
+    # Apply follow-up-kind filters (mutually exclusive; validated at parse time)
+    if [[ -n "$FOLLOWUP_KIND_FILTER" && "$followup_kind_text" != "$FOLLOWUP_KIND_FILTER" ]]; then
+        return
+    fi
+    if [[ "$NO_FOLLOWUP_KIND" == true && -n "$followup_kind_text" ]]; then
+        return
+    fi
+```
+
+`--type feature` also matches a file with no `issue_type:` at all, because the
+parser defaults to `feature`. Document that in the help text rather than
+inventing an unset state.
+
+### 6. `aitask_ls.sh` — help text
+
+6.1 Flags block `:36-50`, beside `-l, --labels`:
+
+```
+  --type TYPE   Filter by issue type (see aitasks/metadata/task_types.txt).
+                A task with no issue_type: field counts as 'feature'.
+  --followup-kind KIND  Filter to auto-spawned follow-ups of one kind.
+  --no-followup-kind    Only tasks that are NOT auto-spawned follow-ups
+                (genuine new work). Mutually exclusive with --followup-kind.
+```
+
+6.2 Frontmatter reference `:52-66`: add a `followup_kind:` line with its
+vocabulary, and **fix the pre-existing gap at `:60`** — the `issue_type` value
+list omits `manual_verification`, which *is* in
+`aitasks/metadata/task_types.txt`.
+
+### 7. `/aitask-pick` presentation
+
+`.claude/skills/aitask-pick/SKILL.md.j2` (line refs here are exact and current):
+
+7.1 `:157-160` — the `-v` output-format note; update it to the new line so the
+skill's description of the tool stays true:
+
+```
+t<number>_<name>.md [Status: <status>, Priority: <priority>, Effort: <effort>, Type: <issue_type>, Follow-up: <followup_kind>]
+```
+plus a sentence saying `Follow-up:` is present only on auto-spawned follow-ups
+and absent means genuine new work.
+
+7.2 `:173-180` — the Step 2b presentation template; add the kind:
+
+```
+<filename> [Priority: <priority>, Effort: <effort>, Status: <status>, Type: <issue_type>]
+<brief summary of task content>
+Follow-up: <followup_kind> (omit this line entirely if the task is not a follow-up)
+Children: <N children pending> (or "None")
+```
+
+7.3 `:194-196` — Step 2c builds each option's description as "brief summary with
+metadata"; state explicitly that the description must carry the follow-up kind
+when present, since that is the text the human actually reads when choosing.
+
+These three sites are outside every `{% if %}` gate, so the edit lands
+identically in all three profile goldens.
+
+### 8. Regeneration
+
+The rendered `aitask-pick-*-/` closures are **gitignored** for every profile
+(see correction 3 above) and self-heal at invocation via the stub's
+skip-if-fresh render, so no rendered copy needs staging. Refresh them anyway so
+a live session picks the change up immediately:
 
 ```bash
 ./.aitask-scripts/aitask_skill_rerender.sh default
@@ -80,35 +341,175 @@ Use terminology consistent with t1468_3's `GroupHeader` roll-up wording.
 ./.aitask-scripts/aitask_skill_rerender.sh remote
 ```
 
-Regolden `tests/golden/skills/aitask-pick/SKILL-{default,fast,remote}-claude.md`.
-The three `remote` rendered copies are force-tracked and must be committed; stage
-with an explicit path allowlist.
+Regenerate the three tracked goldens — this is what the suite compares:
+
+```bash
+PY="$(.aitask-scripts/lib/python_resolve.sh >/dev/null 2>&1; echo)"   # see the test for the exact resolver call
+for p in default fast remote; do
+  "$PYTHON" .aitask-scripts/lib/skill_template.py \
+    .claude/skills/aitask-pick/SKILL.md.j2 \
+    aitasks/metadata/profiles/$p.yaml claude \
+    > tests/golden/skills/aitask-pick/SKILL-$p-claude.md
+done
+```
+
+(`$PYTHON` = `require_ait_python` from `lib/python_resolve.sh`, exactly as
+`tests/test_skill_render_aitask_pick.sh:34-37` resolves it.)
+
+Stage with an explicit path allowlist — a rerender touches many gitignored
+targets and `git add -A` would be wrong here.
+
+### 9. Website docs
+
+`website/content/docs/commands/task-management.md`, `## ait ls` section:
+
+- the `-v` row (`:101`) currently reads "show status, priority, effort,
+  assigned, issue" — add type and follow-up kind;
+- three new option rows for `--type`, `--followup-kind`, `--no-followup-kind`;
+- one worked example line, e.g. `ait ls -v --no-followup-kind 15   # genuine new
+  work only`.
+
+Current-state prose only — no version history, per
+`aidocs/framework/documentation_conventions.md`.
+
+### Post-phase (risk mitigations)
+
+1. `[pin_task_type_validation]` With the `get_valid_task_types` delegation in
+   place, pin its behaviour **through the real entry points**, not through the
+   helper: in the new test file assert that
+   `aitask_create.sh --batch --name x --type bogus` exits non-zero with
+   `Invalid type:`, that the same command with `--type manual_verification`
+   succeeds, and that pointing `TASK_TYPES_FILE` at an empty file still yields
+   exactly `bug`, `feature`, `refactor`. Run these **before** the step-1 edit to
+   record the baseline, and again after — the outputs must be identical.
+
+---
 
 ## Verification
 
-1. `ait ls -v` shows the kind on a marked task, and shows **no** extra field on
-   an unmarked one (negative control).
-2. `ait ls --followup-kind risk_mitigation` and `ait ls --type bug` each return
-   only matching tasks. **Check hit counts, not exit status** — a silent
-   zero-match reads as clean and would pass a naive test.
-3. Both filters behave in every listing mode: default, `--children N`, `--tree`,
-   `--all-levels`.
-4. Filters compose with `-l/--labels` and with each other.
-5. An unknown *value* returns an empty result without erroring; an unknown *long
-   flag* still hard-fails as before (do not accidentally loosen the `case`).
-6. `/aitask-pick` shows the kind in its Step 2c selection options — drive it far
-   enough to see them.
-7. **New coverage — none exists today.** No test asserts the
-   `[Status: …, Priority: …, Effort: …]` line as a whole, and **nothing exercises
-   `-l/--labels` at all**. Add a shell test covering the display line and all
-   three filters, copying the assertion style of `tests/test_xdeps_blocking.sh:114-125`
-   (`assert_contains` on the captured `-v` line, with `assert_not_contains`
-   negative controls at `:116`, `:125`, `:184`). Source `tests/lib/asserts.sh`.
-8. `./.aitask-scripts/aitask_skill_verify.sh` — clean.
-9. `shellcheck .aitask-scripts/aitask_ls.sh`
-10. `bash tests/run_all_python_tests.sh` — read the **last** line.
+New test file `tests/test_ls_display_and_filters.sh`, modelled on
+`tests/test_xdeps_blocking.sh` — build a real fixture repo under `mktemp -d`,
+`cd` into it, and run the **real** `$PROJECT_DIR/.aitask-scripts/aitask_ls.sh`
+against it (no scaffold copy needed: `SCRIPT_DIR` resolves back to the real
+`lib/`, so the bridge is found). Source `tests/lib/asserts.sh`; test bodies stay
+in the main shell, so the in-process `PASS`/`FAIL` counters are correct without
+the file-backed opt-in. Assertion style copied from
+`test_xdeps_blocking.sh:114-125` — capture the `-v` line and `assert_contains`,
+with `assert_not_contains` negative controls.
+
+**This is the first test coverage `aitask_ls.sh`'s display line and `-l/--labels`
+have ever had** — verified: no test asserts the `[Status: …, Priority: …,
+Effort: …]` line as a whole, and every `--labels` hit under `tests/` belongs to
+`aitask_create.sh` / `aitask_update.sh`, never the `ls` filter.
+
+Fixture: `t10` (bug, `labels: [ui]`, no kind), `t11` (feature,
+`followup_kind: risk_mitigation`, `labels: [backend]`), `t12` (test,
+`followup_kind: qa_test_gap`, `labels: [ui, backend]`), `t13` (feature parent
+with `children_to_implement`), `t13/t13_1` (enhancement,
+`followup_kind: upstream_defect`), `t13/t13_2` (chore, no kind).
+
+1. **Display line.** `-v` on `t11` contains `Type: feature` **and**
+   `Follow-up: risk_mitigation`; `-v` on `t10` contains `Type: bug` and
+   `assert_not_contains "Follow-up"` (negative control). Assert the whole
+   bracket for at least one task so the field order is pinned, not just
+   substrings.
+2. **Positive filters, by hit count.** `--followup-kind risk_mitigation` →
+   exactly 1 line and it is `t11`; `--type bug` → exactly 1 and it is `t10`.
+   Assert `wc -l`, not exit status — a silent zero-match reads as clean.
+3. **`--no-followup-kind`** → exactly `t10` + `t13` in the default (parents)
+   mode; `assert_not_contains` for `t11` and `t12`.
+4. **Every listing mode.** `--followup-kind upstream_defect` returns `t13_1` in
+   `--children 13`, `--tree` and `--all-levels`, and returns **zero** lines in
+   the default parents-only mode (`t13_1` is a child). Same for `--type chore`.
+5. **Composition.** `--type feature --followup-kind risk_mitigation` → `t11`;
+   `--type test --followup-kind risk_mitigation` → 0 lines; `-l ui --type bug` →
+   `t10`; `-l ui` alone → `t10` + `t12` (the first-ever `-l` coverage).
+6. **Rejection.** `--followup-kind bogus` exits non-zero and names the valid
+   kinds; `--type bogus` exits non-zero and names the valid types;
+   `--followup-kind risk_mitigation --no-followup-kind` exits non-zero; an
+   unknown long flag (`--nope`) still hard-fails with the pre-existing
+   "Unknown argument" + help path (do not accidentally loosen the `case`).
+7. **Fail-closed, with a positive control.** With
+   `AIT_FOLLOWUP_KINDS_DIR=<empty dir>`, `--followup-kind risk_mitigation` dies
+   with the "cannot resolve" message (not the "invalid value" one — assert the
+   distinct text); with the same env and **no** kind flag, plain `-v` still
+   succeeds and still prints `Follow-up: risk_mitigation` for `t11` (the lazy
+   bridge is never consulted for display).
+8. `bash tests/test_skill_render_aitask_pick.sh` — goldens match after
+   regeneration.
+9. `bash tests/test_xdeps_blocking.sh` and `bash tests/test_draft_finalize.sh` —
+   the two existing suites that read `aitask_ls.sh` output and `--type`
+   respectively, both must pass unchanged.
+10. `/aitask-pick` shows the kind in its Step 2c options — verify by reading the
+    regenerated `fast` golden's Step 2b/2c block (the rendered prose *is* the
+    deliverable for this surface; there is no executable path to assert).
+11. `./.aitask-scripts/aitask_skill_verify.sh` — clean.
+12. `shellcheck .aitask-scripts/aitask_ls.sh .aitask-scripts/lib/task_utils.sh
+    .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_update.sh
+    .aitask-scripts/aitask_stats_legacy.sh`
+13. `bash tests/run_all_python_tests.sh` — read the **last** line for the
+    verdict (`set -o pipefail` if piping).
+
+Post-implementation cleanup, archival and merge are handled by task-workflow
+**Step 9 (Post-Implementation)**.
+
+---
+
+## Risk
+
+### Code-health risk: medium
+
+- The `-v` display line changes shape for **every** task (`Type:` is
+  unconditional), and it is a user-facing surface read by `/aitask-pick`,
+  `ait create`'s and `ait update`'s fzf pickers, and humans. The two code
+  consumers were verified to extract only `^t[0-9]+`, so the risk is
+  presentational rather than a parse break · severity: low (residual —
+  addressed by inline pre-phase `negctrl_display_line`) · → mitigation: inline
+  pre-phase negctrl_display_line
+- `get_valid_task_types` is folded onto a new shared reader in **three** scripts,
+  two of which (`aitask_create.sh`, `aitask_update.sh`) are the framework's
+  load-bearing write paths. The bodies are behaviourally identical, but a
+  regression here would surface as a wrongly-accepted or wrongly-rejected
+  `--type` on task creation · severity: medium (residual — addressed by inline
+  post-phase `pin_task_type_validation`) · → mitigation: inline post-phase
+  pin_task_type_validation
+- `aitask_ls.sh` gains its first `die` on a bad flag *value*, alongside the
+  existing `show_help; exit 1` for a bad flag *name* — two error shapes in one
+  arg parser · severity: low · → mitigation: none (both are correct for their
+  case and pinned by verification step 6)
+
+### Goal-achievement risk: low
+
+- The `/aitask-pick` half of the deliverable is agent-read prose, so "the human
+  choosing work can see the kind" is verifiable only by inspecting the rendered
+  golden, never by executing the skill · severity: low · → mitigation: none
+  (verification step 10 pins the rendered text, which is the actual artifact)
+- Everything else is a closed, mechanically checkable change with the design
+  questions already settled with the user · severity: low · → mitigation: none
+
+### Planned mitigations
+- timing: pre-phase | name: negctrl_display_line | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: the -v display line changing shape for every task | desc: write the display-line assertions in final form and confirm RED against unmodified aitask_ls.sh before any edit
+- timing: post-phase | name: pin_task_type_validation | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: regression in aitask_create.sh / aitask_update.sh from the get_valid_task_types delegation | desc: pin --type acceptance/rejection and the empty-file fallback through the real entry points, baselined before the delegation and re-run after
+
+---
 
 ## Notes for sibling tasks
 
+- **`aitask-pick` has no force-tracked rendered variants.** `.gitignore:60-68`
+  un-ignores only `aitask-pickrem`, `aitask-pickweb` and `task-workflow`. A
+  `.j2` edit here stages the template plus
+  `tests/golden/skills/aitask-pick/SKILL-{default,fast,remote}-claude.md` and
+  nothing else. Do not copy the "three remote copies are force-tracked"
+  sentence from the t1468_4 task file — it is wrong for this skill.
 - This child adds the first real test coverage for `aitask_ls.sh`'s display line
-  and filters. t1468_6 can lean on it to verify backfilled tasks appear correctly.
+  and for **all** its filters (`-l`, `--type`, `--followup-kind`,
+  `--no-followup-kind`). t1468_6 can lean on it to verify backfilled tasks
+  appear correctly — `ait ls --followup-kind <kind>` hit counts are a direct
+  check on a backfill run.
+- `lib/task_utils.sh::read_valid_task_types` is now the shell-side reader for
+  the issue-type vocabulary. Any new shell surface needing the list should call
+  it rather than adding a fourth copy of the `bug/feature/refactor` fallback.
+  Full de-duplication across the 32+ sites remains **t720**.
+- The `ait ls` filters treat an **absent** `followup_kind` as "not a follow-up"
+  (t1468_1's no-tombstone contract) — `--no-followup-kind` is the flag for that,
+  and no code path compares against `None`.
