@@ -128,9 +128,11 @@ This module already boots a **real** `TaskManager` against a temp tree
 
 #### The negative control
 
-One control, in the existing `NegativeControlTests` class and via its `_under`
-helper (which pins *which* assertion failed, so a control cannot pass on an
-unrelated `AssertionError`):
+One control, in its own `UserLayerNegativeControlTests` class. `_under` turned
+out to be hardwired to `B.Task.reload_and_save_board_fields`, so the control
+follows its *discipline* (shared `_assert_*` helper on a base, `assertRaises`
+pinned to the exact message) rather than calling it — which also avoids churning
+the four existing controls:
 
 - `test_negative_control_unchanged_skip_body_stops_the_write` — patches
   `B.TaskManager._write_user_layer` with the rejected Option B (read the local
@@ -150,6 +152,35 @@ Runtime pins, not a source grep:
   None`, **and** `m.auto_refresh_minutes = 7` raises `AttributeError` while
   leaving `m.settings` unchanged (so the assertion is about the property, not
   an unrelated failure).
+
+### 4. `tests/test_board_settings_dialog.py` — the surviving write path, live
+
+*Added in review round 1.* Deleting the setter is only safe if the write path
+that survives it is proven, and **nothing drove the settings dialog before**:
+the tests above pin `save_settings()` at the manager layer, which says nothing
+about whether the dialog reaches it. A one-off manual smoke against the user's
+own config cannot close that — it leaves no coverage. So this new module drives
+the real `KanbanApp` via Pilot over the fixture tree (no user state touched):
+
+- `test_fixture_facts` — `O` opens the modal and the field seeds itself from the
+  (surviving) getter at `0`.
+- `test_saving_the_dialog_persists_and_notifies` — cycle `0` → `1`, click Save;
+  asserts all three effects independently: in-memory `auto_refresh_minutes`, the
+  bytes in `board_config.local.json`, and the `Auto-refresh: 1min` notification
+  (captured with a call-*through* spy on `app.notify`).
+- `test_the_other_dialog_key_rides_along` — `sync_on_refresh` persists too. This
+  is the key a per-key setter could not have carried, i.e. the reason the setter
+  was deleted rather than wired up.
+- `test_cancel_writes_nothing` — without it, the above could pass on a board
+  that persists on *any* dismissal rather than on Save.
+
+Uses `PristineTreeMixin`: these tests persist settings, and a leaked
+`board_config.local.json` would make the next one boot with the previous test's
+value and assert vacuously.
+
+**Proven non-vacuous** by an out-of-tree mutation: with `save_settings` stubbed
+to a no-op, `test_saving_the_dialog_persists_and_notifies` fails on the *disk*
+assertion (`0 != 1`) while the in-memory one still passes.
 
 ## Risk
 
@@ -184,9 +215,8 @@ assertion, so the levels above are unchanged.*
 
 ## Verification
 
-1. Targeted: `~/.aitask/venv/bin/python -m pytest tests/test_board_persistence_seam.py -q`
-   (or `python3 -m unittest tests.test_board_persistence_seam -v`) — the two new
-   classes and the new control green, existing classes unaffected.
+1. Targeted: `~/.aitask/venv/bin/python -m pytest tests/test_board_persistence_seam.py tests/test_board_settings_dialog.py -q`
+   — the new classes and controls green, existing classes unaffected.
 2. Dead-setter proof: `grep -rn "auto_refresh_minutes" --include=*.py --include=*.sh --include=*.md .`
    shows no assignment through the property.
 3. Full suite: `bash tests/run_all_python_tests.sh` — read the **last** line
@@ -194,12 +224,22 @@ assertion, so the levels above are unchanged.*
    without `pipefail`.
 4. Live smoke (**restores user state** — `aitasks/metadata/board_config.local.json`
    is the user's real local board config):
-   a. Record the current value: `python3 -c 'import json;print(json.load(open("aitasks/metadata/board_config.local.json"))["settings"].get("auto_refresh_minutes"))'`
-      and `cp` the file to the scratchpad.
+   a. Record the current value and `cp` the file to the scratchpad.
    b. `ait board` → settings dialog → change the auto-refresh interval; confirm
       the notification and the new value in the file (the `settings.update` +
       `save_settings` write path).
    c. Set it back to the recorded value through the same dialog, then `diff` the
       file against the scratchpad copy to confirm it is restored.
+
+   **Ran (t1480 review round 1).** Driven in a real tmux pane against the real
+   repo: modal opened seeded at `0`, cycled to `1`, Save → on-disk
+   `auto_refresh_minutes: 1`, header subtitle *and* toast both read
+   "Auto-refresh: 1min"; reverted through the same dialog and restored the file
+   from the backup — `diff` identical. One observation, not a defect of this
+   change: the save also pruned a stale `collapsed_columns` entry
+   (`trail-w1`) via `_prune_orphan_collapsed_columns`, which is that helper's
+   documented orphan healing — the current board cannot even create such an
+   entry (`check_action` disables `toggle_column_collapsed` in the By-Trail
+   view). The backup restore put it back.
 
 Step 9 (Post-Implementation) handles archival and merge.
