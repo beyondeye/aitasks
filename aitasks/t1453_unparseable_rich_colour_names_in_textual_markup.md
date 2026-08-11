@@ -84,3 +84,8 @@ currently the only place in the suite that checks a resolved colour.
 3. While there, confirm whether any other Rich-only name is in use in markup
    that a *Rich* renderer (not Textual) consumes — those are fine and must not
    be "fixed". Establish per-file which renderer is in play before editing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-11T14:17:08Z status=pass attempt=1 type=human
