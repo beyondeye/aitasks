@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [task_workflow]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1468
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-11 14:30
-updated_at: 2026-08-11 17:11
+updated_at: 2026-08-11 17:18
+completed_at: 2026-08-11 17:18
 ---
 
 ## Origin
@@ -121,3 +122,14 @@ would not have fired on t1466's wrapped-`.md` edit anyway.
 > **✅ gate:plan_approved** run=2026-08-11T14:11:36Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-11T14:16:10Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-11T14:18:05Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:7a087f9fb1192ae1
+
+> **✅ gate:risk_evaluated** run=2026-08-11T14:18:05Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1482/risk_evaluated_2026-08-11T14:18:05Z-risk_evaluated-a1.log`
