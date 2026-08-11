@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1468_3]
 issue_type: feature
@@ -119,3 +121,5 @@ stage with an explicit path allowlist.
 > Note: drift
 
 > **✅ gate:plan_approved** run=2026-08-11T20:00:24Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-08-11T20:35:09Z status=pass attempt=1 type=human
