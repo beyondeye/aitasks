@@ -3,16 +3,17 @@ priority: high
 effort: medium
 depends: [t1468_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, task_workflow]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 created_at: 2026-08-10 16:29
-updated_at: 2026-08-11 22:06
+updated_at: 2026-08-11 22:58
 ---
 
 ## Context
