@@ -2364,7 +2364,7 @@ class MiniMonitorApp(
         info_suffix = f" (+{info} informational)" if info else ""
         self.notify(
             f"Shadow raised {actionable} concern(s){info_suffix} — press 'c' to pick"
-            + round_suffix + stale_suffix,
+            + stale_suffix,
             severity="information",
         )
 
