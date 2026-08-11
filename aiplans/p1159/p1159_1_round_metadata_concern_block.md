@@ -673,3 +673,41 @@ cleanup, archival, and merge.
 
 ### Planned mitigations
 - timing: pre-phase | name: narrow_width_context_budget | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (shared picker modal / narrow-width display budget) | desc: Characterize the picker context line at the xnarrow tier on the composited strip before adding the round suffix, then assert the actionable counts remain visible with block_meta present
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-11 17:10) — shadow impl-review round, both CONFIRMED
+
+- **Requested by user (via shadow review):**
+  1. *(high, monitor_app.py)* "meta present + nothing unrecovered" does not
+     certify a metadata-only block: header + silently-dropped stray prose
+     passes it (prose before the first item is dropped without appearing in
+     `unrecovered_markers`), and both `c` paths would also report an
+     **unclosed** header-only stream as clean (the forgiving region reads meta
+     from a block that may be about to emit items). Add a shared strict
+     predicate — complete fenced region containing exactly the header — and
+     use it in every clean-round branch.
+  2. *(medium, concern_parser.py)* `int(match.group("round"))` raises
+     `ValueError` past `sys.get_int_max_str_digits()` (4300 digits, 3.11+) on
+     an agent-emitted oversized round, violating the parser's never-raise
+     contract and propagating through the monitor tick / picker callers.
+- **Changes made:** Both reproduced empirically before fixing. (1) New strict
+  `is_metadata_only_block(text)` in `concern_parser.py`
+  (`require_close=True`, region's non-blank content == exactly one
+  `_META_LINE` match), used in all three clean-round branches (monitor offer
+  pass, monitor `c` path, minimonitor `c` path); `parse_block_meta`'s
+  docstring now states that reading meta is NOT certifying cleanliness.
+  (2) The round is bounded **in the grammar** (`\d{1,9}`): an oversized run
+  fails the line match and reads as a malformed header (meta `None`) instead
+  of raising — boundary pinned at 9-digits-parses / 10-digits-None.
+  Tests: `TestIsMetadataOnlyBlock` (8 cases: certifies complete header-only;
+  refuses streaming header-only, header+prose, header+items, headerless, no
+  block, malformed header; last-block-wins both directions);
+  oversized-round no-crash + boundary; per-TUI action tests (header+prose →
+  not clean, badge stands in the offer pass; streaming header-only → not
+  clean).
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `monitor_app.py`, `minimonitor_app.py`,
+  `.claude/skills/aitask-shadow/concern-format.md`,
+  `tests/test_concern_parser.py`, `tests/test_monitor_concern_action.py`,
+  `tests/test_minimonitor_concern_action.py`.

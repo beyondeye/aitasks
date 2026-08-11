@@ -75,3 +75,14 @@ authority.
 > **✅ gate:plan_approved** run=2026-08-11T14:56:09Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-11T15:51:32Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-11T15:57:32Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cc5df8a338dbd3b2
+
+> **✅ gate:risk_evaluated** run=2026-08-11T15:57:32Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1435/risk_evaluated_2026-08-11T15:57:32Z-risk_evaluated-a1.log`
