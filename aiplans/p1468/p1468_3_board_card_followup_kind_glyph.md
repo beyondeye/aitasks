@@ -379,3 +379,126 @@ an absolute value). Seed `followup_kind` through `FixtureTask(..., extra={...})`
   same glyphs and the same `FOLLOWUP_KINDS` ordering.
 - Clearing `followup_kind` is **key removal with no tombstone** — treat *absent*
   as "not a follow-up" and never assert `== None`.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** The glyph landed on all five surfaces exactly as the
+  re-verified plan specified, plus one defect fix the plan did not anticipate.
+  3 files modified, 1 added.
+  - **`board/aitask_board.py`:** imports `FOLLOWUP_KINDS` /
+    `normalize_followup_kind` / `UNKNOWN_GLYPH` from the vocabulary module;
+    adds `_followup_marker` (the render boundary) and `_followup_glyph_text`;
+    one layout-only CSS rule; the glyph on `TaskCard`, `InFlightTaskCard` and
+    `TrailTaskCard`; an explicit no-glyph comment on `TrailGhostCard`; and
+    `GroupHeader._followup_rollup()` + a rewritten `_label()`.
+  - **`lib/followup_kinds.py`:** `docs_gap`'s colour `bright_black` → `#808080`
+    (see Upstream defects).
+  - **`tests/test_board_followup_glyph.py`** (new, 42 tests) and a one-field
+    fixture retarget in `tests/test_board_group_filtering.py`.
+- **Deviations from plan:**
+  - **`GroupHeader._label()` returns a Textual `Content`, not a Rich `Text`.**
+    The plan specified `Text`; that breaks the app-free header harness —
+    `Static.update()` routes a Rich `Text` through
+    `Content.from_rich_text(..., console=widget.app.console)` and raises
+    `NoActiveAppError` without a running app, failing all five
+    `GroupHeaderLabelTests`. `Content` is a `Visual`, taken as-is. `Content` is
+    immutable, so `_followup_rollup()` returns `assemble` parts rather than a
+    mutable buffer — and a `(glyph, colour)` marker IS an assemble part, so it
+    needs no conversion.
+  - **`_followup_marker` returns a tuple-or-`None`, and the plan's claim that
+    the module supplies the boundary was half-right.** `normalize_followup_kind`
+    is imported rather than copied (as planned), but `glyph_for()` / `colour_for()`
+    are unusable for rendering: both answer `("·", None)` for an **absent** kind
+    as well as an unknown one, so calling them directly would paint `·` on every
+    ordinary task. The board-level split is genuinely required.
+  - **`TrailTaskCard` needed a different placement than "gutter Label".** It has
+    no `.task-title-row` `Horizontal` — the title is a single Rich `Text` — so
+    the glyph is prepended into that `Text`, before the landed `✔ `. Verified
+    during re-planning, and the reason the plan's per-surface table was rewritten.
+  - **`InFlightTaskCard` reads `self.task_data.metadata`**, not
+    `self.item.task.metadata` as the task file specified: `__init__` already
+    passes `item.task` to `super()`, so all three surfaces read one attribute.
+- **Issues encountered:**
+  - **The colour probe needed three fixes before it measured anything.** Textual
+    resolves ANSI colours through the app theme (`Color.parse("ansi_yellow").hex`
+    is literally `"ansi_yellow"`), so no static hex can be pinned; ground truth
+    had to become an in-app probe. The probe then rendered off-frame twice —
+    first because a bare `App` gives a `Static` the whole screen, then because a
+    focusable `TaskCard` auto-scrolls into view and pushed the probe to `y=-1`.
+    Both are recorded as comments in the harness.
+  - **Suite flakiness under parallel load.** Two of four full parallel runs
+    failed on `test_board_bytrail_view.py::LaunchFallbackTests::test_repeated_R_during_an_in_flight_baseline_launches_once`,
+    a launch-debounce timing test untouched by this change. It passes 3/3 in
+    isolation and its file 4/4 under `-n 4`. The **serial** full suite is clean
+    (4128 passed, 2 skipped, exit=0), which is the verdict this task reports.
+- **Key decisions:**
+  - **Unknown kind renders `·` uncoloured; absent renders nothing** (user
+    decision). A typo that silently vanishes is indistinguishable from "not a
+    follow-up", which is the one thing it is not.
+  - **The collapsed-group roll-up carries per-kind glyphs and counts**
+    (`· ▲2 ◈1`), not a plain count (user decision) — the acceptance criterion is
+    colour *and* shape, and a bare number preserves neither.
+  - **No two-map drift guard, because there is no second map.** The guard that
+    replaces it asserts every kind in `FOLLOWUP_KINDS` actually renders, which
+    fails the moment the vocabulary grows past a hardcoded subset.
+  - **`▲` collides with `preferred_predecessor` in
+    `TRAIL_CLASSIFICATION_GLYPHS`.** Both render on a By-Trail card, on
+    different lines (title vs `.trail-badges`). Accepted rather than
+    renegotiating a vocabulary t1468_1 landed and t1468_4/5/6 build on.
+- **Verification results:**
+  - `tests/test_board_followup_glyph.py`: 42/42. Board suite: 1018 passed,
+    2 skipped. `test_followup_kind_roundtrip.sh` 31/31,
+    `test_followup_kind_seams.sh` 55/55.
+  - **Full Python suite, serial: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`
+    — 4128 passed, 2 skipped.**
+  - **Four negative controls**, each failing exactly the named test(s) and each
+    restored byte-identical:
+    - `[colour_assertion_negative_control]` (in-test): mutating
+      `risk_mitigation` yellow→green flips the comparison, and the restored
+      value goes GREEN again.
+    - Reverting `docs_gap` to `bright_black` reddens exactly three:
+      `test_every_colour_is_parseable_by_textual`
+      (*"docs_gap's colour 'bright_black' is not parseable by Textual"*),
+      `test_each_glyph_is_painted_in_its_own_colour` (`'#e0e0e0' != '#808080'`),
+      and `test_no_kind_paints_as_plain_text`.
+    - Removing the `InFlightTaskCard` seam fails **only**
+      `test_inflight_card_shows_the_glyph` — proving the per-surface tests are
+      each bound to their own seam.
+    - Stripping the roll-up's colour fails **only**
+      `test_the_rollup_glyph_is_painted_in_colour`.
+  - **Live board in a real terminal** (tmux, real repo): `☐ ▲ t1477` at width
+    200; `☐ ▼ t1481` in a **mixed** column beside three glyph-less cards, escape
+    `\033[38;2;255;0;0m` (pure red = `upstream_defect`), with `☐` at `#6272A4`;
+    and the same card still glyphed and red at **width 44**.
+  - **Live coverage is kanban-only, deliberately.** By-Topic, In-Flight,
+    By-Trail and the collapsed-group roll-up were verified at render level but
+    NOT live: the repo's four real follow-up tasks are ungrouped singletons with
+    no gate ledgers and no trail membership, so those surfaces would have had
+    nothing to display and the check would have been vacuous.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/followup_kinds.py:37 — docs_gap shipped the colour "bright_black", a valid Rich palette name that Textual CANNOT parse (Color.parse raises "did you mean 'ansi_bright_black'?"). Textual does not raise on an unparseable style — it silently falls back to the theme's default foreground — so the glyph reached the compositor as truecolor #e0e0e0, pixel-identical to ordinary card text, and docs_gap had no colour signal at all. Fixed here to #808080 (exactly what Rich resolves bright_black to, and the only spelling of that grey both libraries accept); it was the only unparseable entry of the eight. This is a NEW INSTANCE of the defect class already tracked by t1453 ("unparseable rich colour names in textual markup"), which documents the identical mechanism and the same #e0e0e0 measurement under Textual 8.2.7 but does not list this file in its inventory. t1453 was NOT edited by this task.`
+- **Notes for sibling tasks:**
+  - **`glyph_for()` / `colour_for()` are validation helpers, not render helpers.**
+    They answer `("·", None)` for an *absent* kind as well as an unknown one.
+    Any surface distinguishing "not a follow-up" from "unrecognised follow-up" —
+    t1468_4's `ait ls` / pick output does — needs its own boundary, as
+    `_followup_marker` is here. Consider promoting a shared
+    `marker_for(kind) -> (glyph, colour) | None` into `lib/followup_kinds.py`
+    if t1468_4 wants the same split.
+  - **Any new colour added to `FOLLOWUP_KINDS` must be parseable by BOTH Rich
+    and Textual.** Rich palette names (`bright_black`, `dodger_blue1`,
+    `bright_cyan`) are silently inert in Textual; CSS names (`gray`, `silver`)
+    are rejected by Rich. A hex is the only universally safe form.
+    `tests/test_board_followup_glyph.py::FollowupVocabularyTests` guards both
+    directions at the name level, and `test_no_kind_paints_as_plain_text` guards
+    the render-level consequence.
+  - **The roll-up wording is user-visible**: `· ▲2 ◈1`, canonical
+    `FOLLOWUP_KINDS` order, unknown kinds tallied last under `·`. t1468_4's
+    `ait ls` display should match.
+  - **`GroupHeader._label()` now returns `Content`, not `str`.** Anything adding
+    to that header must return assemble parts and must build inside `_label()`
+    — a badge appended by its setter is erased by the next `set_collapsed`.
+  - Clearing `followup_kind` is **key removal with no tombstone** — treat
+    *absent* as "not a follow-up"; never assert `== None`.
