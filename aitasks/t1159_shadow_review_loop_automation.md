@@ -10,6 +10,7 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+children_to_implement: [t1159_1]
 folded_tasks: [1017]
 assigned_to: dario-e@beyond-eye.com
 artifacts:
@@ -17,7 +18,7 @@ artifacts:
     kind: implementation_trail
     name: "Shadow review-loop automation: landing order"
 created_at: 2026-07-19 08:43
-updated_at: 2026-08-11 14:08
+updated_at: 2026-08-11 15:32
 boardcol: now
 boardidx: 70
 ---
