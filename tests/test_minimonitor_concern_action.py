@@ -73,6 +73,48 @@ _MALFORMED_ONLY_BLOCK = (
     "- [medium | parser never closes\n"
     "===END-CONCERNS===\n"
 )
+# The SAME concerns as _CLOSED_BLOCK, round-headed (t1159_1). Round 2 differs
+# from round 1 only in the header — that is the dedup-lift case.
+_ROUND1_BLOCK = (
+    "some earlier pane output\n"
+    "===AITASK-CONCERNS===\n"
+    "Round: 1 @ 2026-08-11T14:03:27Z\n"
+    "- [high | Step 7 guard] The guard double-commits the lock.\n"
+    "- [medium | parser] Multi-block accumulation is undefined.\n"
+    "===END-CONCERNS===\n"
+)
+_ROUND2_BLOCK = _ROUND1_BLOCK.replace(
+    "Round: 1 @ 2026-08-11T14:03:27Z", "Round: 2 @ 2026-08-11T14:09:41Z"
+)
+# A clean-round record: fences with only the round header between them. The
+# strict trigger stays False (no items), so the auto-offer must stay silent;
+# the `c` path names the round instead of claiming "no concerns detected".
+_METADATA_ONLY_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 3 @ 2026-08-11T14:12:05Z\n"
+    "===END-CONCERNS===\n"
+)
+# Header plus silently-dropped prose, and a still-streaming header-only block:
+# both read as meta by the forgiving parser, and NEITHER may be reported as a
+# certified clean round (strict-predicate contract, t1159_1 review fix).
+_HEADER_PLUS_PROSE_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 3 @ 2026-08-11T14:12:05Z\n"
+    "some stray prose the scanner drops\n"
+    "===END-CONCERNS===\n"
+)
+_STREAMING_HEADER_ONLY = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 3 @ 2026-08-11T14:12:05Z\n"
+)
+# A Round:-shaped header that fails the grammar (rounds are 1-based): meta
+# reads None, but the producer TRIED to emit metadata — investigable, never
+# the generic "no concerns" (t1159_1 review round 4).
+_INVALID_ROUND_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 0 @ 2026-08-11T14:12:05Z\n"
+    "===END-CONCERNS===\n"
+)
 
 
 def _async_return(value):
@@ -262,6 +304,92 @@ class ActionPickConcernsTests(unittest.TestCase):
         self.assertEqual(
             app.spy_notify, [("No concerns detected on the shadow pane", "information")]
         )
+
+    def test_pushed_modal_carries_the_block_meta(self):
+        """Caller wiring (t1159_1): the pushed modal INSTANCE has the meta.
+
+        Isolated parser/helper/modal tests all stay green if this caller drops
+        the ``block_meta=`` argument — only inspecting the pushed instance
+        catches that.
+        """
+        from monitor.concern_parser import parse_block_meta
+
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_ROUND2_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertEqual(modal._block_meta, parse_block_meta(_ROUND2_BLOCK))
+        self.assertIsNotNone(modal._block_meta)
+
+    def test_pushed_modal_meta_is_none_for_a_headerless_block(self):
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertIsNone(modal._block_meta)
+
+    def test_metadata_only_block_names_the_clean_round(self):
+        """A clean-round record is not "no concerns detected" — it is a
+        machine-readable statement that round N ran clean (t1159_1)."""
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_METADATA_ONLY_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        self.assertEqual(app.spy_pushed, [])
+        self.assertEqual(
+            app.spy_notify,
+            [("Clean review (round 3) — no concerns", "information")],
+        )
+
+    def test_header_with_dropped_prose_warns_and_shows_the_raw_block(self):
+        """Strict certification (t1159_1 review fix, round 3): header plus
+        silently-dropped prose is malformed output — warn and expose the raw
+        block instead of a false "no concerns" all-clear."""
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_HEADER_PLUS_PROSE_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        msg, severity = app.spy_notify[0]
+        self.assertNotIn("Clean review", msg)
+        self.assertNotIn("No concerns detected", msg)
+        self.assertIn("not a clean-round record", msg)
+        self.assertEqual(severity, "warning")
+        modal, _ = app.spy_pushed[0]
+        self.assertIsInstance(modal, mm.ConcernBlockInspectModal)
+        self.assertIn("stray prose", modal._raw_block)
+
+    def test_invalid_round_header_warns_and_shows_the_raw_block(self):
+        """A grammar-invalid header (`Round: 0`) reads meta=None, but the
+        block must NOT be handled as headerless — the producer tried to emit
+        metadata and got it wrong, which is investigable (round 4 fix)."""
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_INVALID_ROUND_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        msg, severity = app.spy_notify[0]
+        self.assertNotIn("Clean review", msg)
+        self.assertNotIn("No concerns detected", msg)
+        self.assertIn("invalid round header", msg)
+        self.assertEqual(severity, "warning")
+        modal, _ = app.spy_pushed[0]
+        self.assertIsInstance(modal, mm.ConcernBlockInspectModal)
+        self.assertIn("Round: 0", modal._raw_block)
+
+    def test_streaming_header_only_block_is_not_reported_clean(self):
+        """An unclosed header-only stream may be about to emit items — warn
+        and show the raw block, never the clean-round message."""
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_STREAMING_HEADER_ONLY))
+        asyncio.run(app.action_pick_concerns())
+        msg, severity = app.spy_notify[0]
+        self.assertNotIn("Clean review", msg)
+        self.assertIn("not a clean-round record", msg)
+        self.assertEqual(severity, "warning")
+        modal, _ = app.spy_pushed[0]
+        self.assertIsInstance(modal, mm.ConcernBlockInspectModal)
 
     def test_malformed_only_block_warns_instead_of_no_concerns(self):
         """A block that parsed to nothing must not be reported as "no concerns".
@@ -625,6 +753,33 @@ class AutoOfferTests(unittest.TestCase):
         _stub_capture(self, _async_return(changed))
         asyncio.run(app._maybe_offer_concerns())
         self.assertEqual(len(app.spy_notify), 2)
+
+    def test_repeat_round_with_identical_concerns_refires(self):
+        """The dedup lift (t1159_1): a round-2 review re-raising the SAME
+        concerns is news — the shadow re-reviewed and stands by them. The
+        payload-keyed dedup alone would silently swallow it."""
+        app = self._app(_ROUND1_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(len(app.spy_notify), 1)
+        _stub_capture(self, _async_return(_ROUND2_BLOCK))
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(len(app.spy_notify), 2)
+        # The toast names the round of the re-offer.
+        self.assertIn("(round 2)", app.spy_notify[1][0])
+
+    def test_identical_round_still_fires_once(self):
+        """Same round, same concerns, re-captured → one notify, as today."""
+        app = self._app(_ROUND1_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(len(app.spy_notify), 1)
+
+    def test_metadata_only_block_stays_silent(self):
+        """A clean-round record has no items ⇒ the strict trigger stays False
+        and the auto-offer neither toasts nor warns (t1159_1)."""
+        app = self._app(_METADATA_ONLY_BLOCK)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app.spy_notify, [])
 
     def test_no_shadow_skips_silently(self):
         app = self._app(_CLOSED_BLOCK, async_list="%1\t\n%6\t%2")  # no shadow

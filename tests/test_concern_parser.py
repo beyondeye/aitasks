@@ -19,14 +19,19 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", ".aitask-scripts", "monitor")
 )
 from concern_parser import (  # noqa: E402
+    BlockMeta,
     Concern,
     DEFAULT_PREAMBLE,
     block_head_truncated,
     block_region,
     build_clipboard_payload,
+    concern_block_signature,
     contains_any_concern_block,
     has_concern_block,
+    has_invalid_round_header,
+    is_metadata_only_block,
     needs_addressing,
+    parse_block_meta,
     parse_concerns,
     unrecovered_markers,
 )
@@ -794,6 +799,235 @@ def _states_short_region_rule(text: str) -> bool:
     return "≤ ~30 chars" in flat and "never a full repo path" in flat
 
 
+HEADER = "Round: 2 @ 2026-08-11T14:03:27Z"
+
+
+class TestParseBlockMeta(unittest.TestCase):
+    """Round metadata from the block header (t1159_1).
+
+    The header sits in the one slot `_scan_items` already drops (a non-marker
+    line before the first item), so every concern-yielding entry point is
+    unaffected; `parse_block_meta` is the only reader. Fail-open: `reviewed_at`
+    is verbatim and unvalidated.
+    """
+
+    def test_header_parses(self):
+        text = block(HEADER, "- [high | x] body.")
+        self.assertEqual(
+            parse_block_meta(text), BlockMeta(2, "2026-08-11T14:03:27Z")
+        )
+
+    def test_absent_header_is_none(self):
+        self.assertIsNone(parse_block_meta(block("- [high | x] body.")))
+
+    def test_no_block_is_none(self):
+        self.assertIsNone(parse_block_meta("just some pane output"))
+
+    def test_no_timestamp_is_empty_not_none(self):
+        self.assertEqual(
+            parse_block_meta(block("Round: 3", "- [low | y] z.")),
+            BlockMeta(3, ""),
+        )
+
+    def test_dangling_at_is_empty_not_none(self):
+        self.assertEqual(
+            parse_block_meta(block("Round: 3 @", "- [low | y] z.")),
+            BlockMeta(3, ""),
+        )
+
+    def test_leading_blank_lines_are_skipped(self):
+        text = block("", "  ", HEADER, "- [high | x] body.")
+        self.assertEqual(
+            parse_block_meta(text), BlockMeta(2, "2026-08-11T14:03:27Z")
+        )
+
+    def test_header_after_an_item_is_none_and_body_joined(self):
+        """Pin the corruption mode, not just the None.
+
+        A header emitted after an item is wrap-joined into that item's body by
+        the continuation grammar — the round is lost AND the body is polluted.
+        Believing a later `Round:` line would report a round the block's
+        header slot does not carry, so `None` is correct; the join is the
+        producer-facing reason the placement rule exists.
+        """
+        text = block("- [high | x] body.", HEADER)
+        self.assertIsNone(parse_block_meta(text))
+        (concern,) = parse_concerns(text)
+        self.assertEqual(concern.body, f"body. {HEADER}")
+
+    def test_last_block_wins(self):
+        text = (
+            block("Round: 1 @ a", "- [high | x] old.")
+            + "\nchatter\n"
+            + block("Round: 2 @ b", "- [high | x] new.")
+        )
+        self.assertEqual(parse_block_meta(text), BlockMeta(2, "b"))
+
+    def test_unclosed_newest_block_still_yields_meta(self):
+        """Same forgiving region as `parse_concerns` (require_close=False)."""
+        text = "\n".join([OPEN, HEADER, "- [high | x] streaming"])
+        self.assertEqual(
+            parse_block_meta(text), BlockMeta(2, "2026-08-11T14:03:27Z")
+        )
+
+    def test_metadata_only_block_is_a_clean_round_record(self):
+        """Meta readable; nothing else sees a concern; nothing is 'lost'."""
+        text = block(HEADER)
+        self.assertEqual(
+            parse_block_meta(text), BlockMeta(2, "2026-08-11T14:03:27Z")
+        )
+        self.assertFalse(has_concern_block(text))
+        self.assertEqual(parse_concerns(text), [])
+        self.assertEqual(unrecovered_markers(text), [])
+
+    def test_entry_points_are_byte_identical_with_and_without_header(self):
+        items = (
+            "- [high | x] a body.",
+            "- [low | aaaa",  # an unrecovered marker, to cover that path too
+        )
+        with_header = block(HEADER, *items)
+        without = block(*items)
+        self.assertEqual(parse_concerns(with_header), parse_concerns(without))
+        self.assertEqual(
+            has_concern_block(with_header), has_concern_block(without)
+        )
+        self.assertEqual(
+            unrecovered_markers(with_header), unrecovered_markers(without)
+        )
+
+    def test_signature_changes_on_a_round_bump_alone(self):
+        """The header deliberately perturbs the signature: a round bump must
+        re-hash the monitor's freshness badge even with identical items."""
+        item = "- [high | x] the same body."
+        round_1 = block("Round: 1 @ 2026-08-11T14:03:27Z", item)
+        round_2 = block("Round: 2 @ 2026-08-11T14:03:27Z", item)
+        self.assertIsNotNone(concern_block_signature(round_1))
+        self.assertNotEqual(
+            concern_block_signature(round_1), concern_block_signature(round_2)
+        )
+
+    def test_oversized_round_reads_as_malformed_not_a_crash(self):
+        """`int()` raises past sys.get_int_max_str_digits() (4300 on 3.11+),
+        and the round is agent-emitted text — the grammar bounds the digits so
+        an absurd run fails the match (meta None) instead of raising through
+        the monitor tick / picker callers (the never-raise contract)."""
+        oversized = block("Round: " + "1" * 5000 + " @ ts", "- [high | x] b.")
+        self.assertIsNone(parse_block_meta(oversized))
+        # Boundary: 9 digits parses, 10 reads as malformed.
+        self.assertEqual(
+            parse_block_meta(block("Round: 999999999", "- [l | y] z.")),
+            BlockMeta(999999999, ""),
+        )
+        self.assertIsNone(
+            parse_block_meta(block("Round: 1000000000", "- [l | y] z."))
+        )
+
+    def test_round_zero_and_zero_padding_read_as_malformed(self):
+        """Rounds are 1-based: `Round: 0` must neither parse nor certify a
+        clean round, and a zero-padded round is not a compliant emission."""
+        self.assertIsNone(parse_block_meta(block("Round: 0", "- [l | y] z.")))
+        self.assertIsNone(parse_block_meta(block("Round: 01", "- [l | y] z.")))
+        self.assertFalse(is_metadata_only_block(block("Round: 0 @ ts")))
+        # Positive control on the same shapes: round 1 parses and certifies.
+        self.assertEqual(
+            parse_block_meta(block("Round: 1", "- [l | y] z.")),
+            BlockMeta(1, ""),
+        )
+        self.assertTrue(is_metadata_only_block(block("Round: 1 @ ts")))
+
+
+class TestHasInvalidRoundHeader(unittest.TestCase):
+    """A Round:-shaped header that fails the grammar is investigable, not
+    silence (t1159_1 review round 4).
+
+    `parse_block_meta` reads it as absent (fail-open), but consumers must not
+    then treat the block as headerless — the producer tried to emit metadata
+    and got it wrong.
+    """
+
+    def test_grammar_violations_are_flagged(self):
+        for bad in ("Round: 0", "Round: 01", "Round: " + "1" * 5000,
+                    "Round: -3", "Round: x"):
+            with self.subTest(bad=bad):
+                text = block(bad + " @ ts")
+                self.assertIsNone(parse_block_meta(text))
+                self.assertTrue(has_invalid_round_header(text))
+
+    def test_valid_header_is_not_flagged(self):
+        self.assertFalse(has_invalid_round_header(block(HEADER)))
+
+    def test_headerless_shapes_are_not_flagged(self):
+        self.assertFalse(has_invalid_round_header("no block here"))
+        self.assertFalse(
+            has_invalid_round_header(block("- [high | x] body."))
+        )
+        self.assertFalse(has_invalid_round_header(block("plain prose line")))
+
+    def test_streaming_invalid_header_is_flagged(self):
+        """Same forgiving region as the other readers."""
+        self.assertTrue(
+            has_invalid_round_header("\n".join([OPEN, "Round: 0 @ ts"]))
+        )
+
+    def test_round_line_after_an_item_is_body_not_header(self):
+        self.assertFalse(
+            has_invalid_round_header(block("- [high | x] b.", "Round: 0"))
+        )
+
+
+class TestIsMetadataOnlyBlock(unittest.TestCase):
+    """Certifying a clean round is stricter than reading its meta (t1159_1).
+
+    `parse_block_meta` is forgiving (streaming-tolerant, prose-blind) because
+    display and dedup must work on imperfect captures. Consumers that
+    AUTO-CLEAR state (badge, "Clean review" message) need the strict check: a
+    still-streaming header-only block may be about to emit items, and a header
+    followed by silently-dropped prose is malformed output to investigate.
+    """
+
+    def test_certifies_a_complete_header_only_block(self):
+        self.assertTrue(is_metadata_only_block(block(HEADER)))
+
+    def test_blank_lines_around_the_header_still_certify(self):
+        self.assertTrue(is_metadata_only_block(block("", HEADER, "  ")))
+
+    def test_unclosed_header_only_stream_does_not_certify(self):
+        """The forgiving reader sees meta here — the strict one must not
+        certify (the block may be about to emit items)."""
+        stream = "\n".join([OPEN, HEADER])
+        self.assertIsNotNone(parse_block_meta(stream))
+        self.assertFalse(is_metadata_only_block(stream))
+
+    def test_header_plus_stray_prose_does_not_certify(self):
+        """The scanner drops non-marker prose before the first item, so the
+        forgiving path sees nothing lost — but dropped output is not clean."""
+        prose = block(HEADER, "stray prose the scanner drops")
+        self.assertIsNotNone(parse_block_meta(prose))
+        self.assertEqual(parse_concerns(prose), [])
+        self.assertEqual(unrecovered_markers(prose), [])
+        self.assertFalse(is_metadata_only_block(prose))
+
+    def test_header_plus_items_does_not_certify(self):
+        self.assertFalse(
+            is_metadata_only_block(block(HEADER, "- [high | x] body."))
+        )
+
+    def test_no_block_and_headerless_block_do_not_certify(self):
+        self.assertFalse(is_metadata_only_block("no block here"))
+        self.assertFalse(is_metadata_only_block(block("- [high | x] body.")))
+
+    def test_malformed_header_does_not_certify(self):
+        self.assertFalse(
+            is_metadata_only_block(block("Round: " + "1" * 5000 + " @ ts"))
+        )
+
+    def test_last_block_wins(self):
+        text = block(HEADER, "- [high | x] body.") + "\n" + block(HEADER)
+        self.assertTrue(is_metadata_only_block(text))
+        reversed_order = block(HEADER) + "\n" + block(HEADER, "- [h | x] b.")
+        self.assertFalse(is_metadata_only_block(reversed_order))
+
+
 class TestProducerShortRegionRule(unittest.TestCase):
     """Every concern-block producer must state the short-region rule (t1187).
 
@@ -1088,6 +1322,249 @@ class TestProducerRejectionSuppressionRule(unittest.TestCase):
                          "suppression-rule one")
 
 
+_ROUND_HEADER_DIRECTIVE = (
+    "**Emit a round header as the first line inside the block.**"
+)
+
+
+def _states_round_header_rule(text: str) -> bool:
+    """True when a producer states the round-header rule in BOTH placements.
+
+    Same shape as :func:`_states_rejection_suppression_rule` — whitespace is
+    collapsed, and the counts tell the two placements apart (directive + rules
+    bullet). The counted tokens use the **placeholder** grammar
+    (``Round: <N> @ <timestamp>``), so the concrete example header
+    (``Round: 1 @ 2026-08-11T14:03:27Z``) cannot inflate a count and mask a
+    deleted rule site. ``zero-concern`` and the ``date -u`` command must also
+    appear at both sites (a hyphen-wrapped ``zero-concern`` fails, correctly).
+    """
+    flat = " ".join(text.split())
+    return (_ROUND_HEADER_DIRECTIVE in flat
+            and flat.count("Round: <N> @ <timestamp>") >= 2
+            and flat.count("zero-concern") >= 2
+            and flat.count("date -u +%Y-%m-%dT%H:%M:%SZ") >= 2)
+
+
+def _retains_omit_block_rule(text: str) -> bool:
+    """True when a producer still carries the pre-round omit-when-clean rule.
+
+    The negative half of the t1159_1 replacement: the metadata-only clean-round
+    block REPLACED "omit the block entirely" — a producer stating both gives
+    the agent contradictory instructions while the positive guard above stays
+    green, and an agent following the old rule emits no clean-round record.
+    """
+    flat = " ".join(text.split())
+    return ("omit the block entirely" in flat
+            or "omit it entirely" in flat
+            or "emit no concern block" in flat)
+
+
+class TestProducerRoundHeaderRule(unittest.TestCase):
+    """Every producer must state the round-header rule (t1159_1).
+
+    Round metadata only exists if the producers emit it — nothing downstream
+    can synthesize a round. The rule lives twice in each producer (bolded emit
+    directive + rules-list bullet), mirroring the rejection-suppression rule
+    and guarded the same way, plus the negative half: the old
+    "omit the block when clean" wording must be GONE, because the metadata-only
+    clean-round block replaced it and both instructions cannot coexist.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_producer_set_is_the_known_set(self):
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_round_header_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_round_header_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state the round-header rule in both "
+            "placements (bolded emit directive AND rules-list entry), so the "
+            "agent may emit blocks without round metadata: "
+            + ", ".join(offenders),
+        )
+
+    def test_no_producer_retains_the_omit_block_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if _retains_omit_block_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) still instruct omitting the block on a clean "
+            "review — contradicting the metadata-only clean-round rule, so "
+            "round numbering silently stalls on clean rounds: "
+            + ", ".join(offenders),
+        )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control: prove the guard is placement-aware, per placement.
+
+        Synthetic text, not a mutate-and-restore of a repo file — this worktree
+        is shared with concurrent sessions.
+        """
+        directive = (
+            _ROUND_HEADER_DIRECTIVE + " Emit exactly one line of the form\n"
+            "`Round: <N> @ <timestamp>`. Obtain the timestamp by running\n"
+            "`date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A\n"
+            "**zero-concern** review still emits the block.\n"
+        )
+        rules_entry = (
+            "- **Round header.** The first line after the opening fence is\n"
+            "  `Round: <N> @ <timestamp>` and nothing else. Get the timestamp\n"
+            "  from `date -u +%Y-%m-%dT%H:%M:%SZ`. A **zero-concern** review\n"
+            "  still emits the fences with only this header between them.\n"
+        )
+        base = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+
+        # Neither copy.
+        self.assertFalse(_states_round_header_rule(base))
+        # Rules-list entry only — the directive was deleted.
+        self.assertFalse(_states_round_header_rule(base + rules_entry))
+        # Directive only — the rules-list entry was deleted.
+        self.assertFalse(_states_round_header_rule(base + directive))
+        # Both placements present.
+        self.assertTrue(_states_round_header_rule(base + directive + rules_entry))
+
+        # The omit-rule predicate flips on each phrase individually…
+        for phrase in ("omit the block entirely", "omit it entirely",
+                       "emit no concern block"):
+            with self.subTest(phrase=phrase):
+                self.assertTrue(
+                    _retains_omit_block_rule(base + "If clean, " + phrase + ".")
+                )
+        # …and not on compliant text.
+        self.assertFalse(_retains_omit_block_rule(base + directive + rules_entry))
+
+    def test_production_assertion_fails_on_a_real_offender(self):
+        """Negative control for the production assertion itself.
+
+        Runs **the production methods themselves** against a fixture directory
+        (one compliant producer, one offender each way) — not a re-implemented
+        offender scan, which a wrong-predicate mutation would never reach (see
+        the rationale on
+        :meth:`TestProducerRejectionSuppressionRule.test_production_assertion_fails_on_a_real_offender`).
+        Patching ``SHADOW_DIR`` exercises the real ``_producers`` glob-and-filter
+        and touches no shared file.
+        """
+        import tempfile
+        from unittest import mock
+
+        marker_line = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        directive = (
+            _ROUND_HEADER_DIRECTIVE + " Emit exactly one line of the form\n"
+            "`Round: <N> @ <timestamp>`. Obtain the timestamp by running\n"
+            "`date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A\n"
+            "**zero-concern** review still emits the block.\n"
+        )
+        rules_entry = (
+            "- **Round header.** The first line after the opening fence is\n"
+            "  `Round: <N> @ <timestamp>` and nothing else. Get the timestamp\n"
+            "  from `date -u +%Y-%m-%dT%H:%M:%SZ`. A **zero-concern** review\n"
+            "  still emits the fences with only this header between them.\n"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "good.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + directive + rules_entry)
+            # Compliant except the directive was removed.
+            with open(os.path.join(tmp, "bad.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + rules_entry)
+            # Fully rule-stating, but the omit rule survived alongside.
+            with open(os.path.join(tmp, "omit.md"), "w", encoding="utf-8") as fh:
+                fh.write(marker_line + directive + rules_entry
+                         + "- If clean, omit the block entirely and say so.\n")
+            # Not a producer at all (no marker) — must be ignored, not flagged.
+            with open(os.path.join(tmp, "notaproducer.md"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("Prose with no producer marker and no rule.\n")
+
+            with mock.patch.object(TestProducerRoundHeaderRule,
+                                   "SHADOW_DIR", tmp):
+                self.assertEqual(sorted(self._producers()),
+                                 ["bad.md", "good.md", "omit.md"])
+                with self.assertRaises(AssertionError) as missing:
+                    self.test_every_producer_states_the_round_header_rule()
+                with self.assertRaises(AssertionError) as retained:
+                    self.test_no_producer_retains_the_omit_block_rule()
+
+        message = str(missing.exception)
+        self.assertIn("bad.md", message,
+                      "the positive assertion failed without naming the "
+                      "offending producer")
+        self.assertNotIn("good.md", message,
+                         "the positive assertion flagged the COMPLIANT fixture")
+        omit_message = str(retained.exception)
+        self.assertIn("omit.md", omit_message,
+                      "the omit-rule assertion failed without naming the "
+                      "offending producer")
+        self.assertNotIn("good.md", omit_message,
+                         "the omit-rule assertion flagged the COMPLIANT fixture")
+
+    def test_every_producer_example_starts_with_a_round_header(self):
+        """Each producer's example block leads with a concrete round header.
+
+        The example is what the agent pattern-matches against — a rule stated
+        twice but contradicted by the example is a rule the agent may skip.
+        The first markdown code fence containing a `- [` item line must open
+        with the header, immediately followed by the first item.
+        """
+        import re as _re
+
+        header_re = _re.compile(
+            r"^\s*Round: \d+ @ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+        )
+
+        def fence_bodies(text: str) -> list[list[str]]:
+            """Bodies of markdown code fences, walked line-wise.
+
+            A findall over ``` pairs mispairs when a ```bash block precedes
+            the example (the closing fence of one block matches as the opening
+            fence of the next), so walk the lines and toggle instead.
+            """
+            bodies: list[list[str]] = []
+            current: list[str] | None = None
+            for line in text.splitlines():
+                if line.strip().startswith("```"):
+                    if current is None:
+                        current = []
+                    else:
+                        bodies.append(current)
+                        current = None
+                elif current is not None:
+                    current.append(line)
+            return bodies
+
+        for name, text in self._producers().items():
+            with self.subTest(producer=name):
+                examples = [
+                    body for body in fence_bodies(text)
+                    if any(line.lstrip().startswith("- [") for line in body)
+                ]
+                self.assertTrue(examples,
+                                f"{name}: no example block with item lines")
+                body_lines = [line for line in examples[0] if line.strip()]
+                self.assertRegex(body_lines[0].strip(), header_re,
+                                 f"{name}: example does not open with a "
+                                 "round header")
+                self.assertTrue(
+                    body_lines[1].lstrip().startswith("- ["),
+                    f"{name}: the first item must directly follow the header",
+                )
+
+
 class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
     """The same guarantees must survive rendering (t1311).
 
@@ -1199,6 +1676,31 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
             [],
             "rendered producer(s) lost the rejection-suppression rule in one or "
             "both placements: " + ", ".join(offenders),
+        )
+
+    def test_every_rendered_producer_states_the_round_header_rule(self):
+        """Same rationale for the round-header rule (t1159_1): the rendered
+        tree is the surface the agent actually reads."""
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if not _states_round_header_rule(t)]
+        self.assertEqual(
+            offenders,
+            [],
+            "rendered producer(s) lost the round-header rule in one or both "
+            "placements: " + ", ".join(offenders),
+        )
+
+    def test_no_rendered_producer_retains_the_omit_block_rule(self):
+        """A conditional that resurrected the pre-round omit-when-clean wording
+        in one profile's render would contradict the metadata-only rule on the
+        executed surface while the authoring guard stayed green."""
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if _retains_omit_block_rule(t)]
+        self.assertEqual(
+            offenders,
+            [],
+            "rendered producer(s) still instruct omitting the block on a clean "
+            "review: " + ", ".join(offenders),
         )
 
 

@@ -36,8 +36,9 @@ pane — never the followed pane.
    *intentionally* failing test may be exactly what the agent expects, and a
    traceback the agent has pasted to *discuss* is not a fresh crash. Judge whether
    each signal reflects an actual, unhandled failure the agent is stuck on. If
-   nothing on screen is a genuine error/retry problem, **say so plainly and stop**
-   — emit no concern block.
+   nothing on screen is a genuine error/retry problem, **say so plainly** and
+   emit the metadata-only block — the two fences with only the round header
+   between them (step 4) — so the round is still recorded.
 
 3. **Attribute each genuine signal to the likely skill / helper.** For each error
    cluster, identify which workflow skill or `aitask_*.sh` helper the followed
@@ -65,9 +66,23 @@ pane — never the followed pane.
    line between them. The concern lines themselves look like:
 
    ```
+   Round: 1 @ 2026-08-11T14:03:27Z
    - [high | aitask_pick_own.sh] The followed agent's claim call exits non-zero with `aitask_pick_own.sh: line 88: LOCK_DIR: unbound variable`, then retries the identical command three times — the helper dereferences LOCK_DIR before it is set, so every claim on this path crashes. Look at the variable's init in aitask_pick_own.sh; likely a missing default or an ordering bug rather than a bad caller argument.
    - [medium | task-workflow Step 4] The agent passes `--email ""` and the script emits `InputValidationError: email must be non-empty`, looping twice. The workflow's email-resolution branch is handing an empty string to the claim call instead of omitting the flag; the fix likely belongs in the Step 4 email branch, not the helper.
    ```
+
+   **Emit a round header as the first line inside the block.** Immediately
+   after the opening fence — before the first `- [` marker — emit exactly one
+   line of the form `Round: <N> @ <timestamp>`, for example
+   `Round: 2 @ 2026-08-11T14:03:27Z`. If the request that triggered this review
+   names a round ("recheck round N"), use that N; otherwise N is 1 for the
+   first review you run in this conversation and increments by one on each
+   later review you run in it (any review sub-procedure counts; a fresh shadow
+   session starts at 1 again — the timestamp is what disambiguates). Obtain the
+   timestamp by running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A
+   **zero-concern** review (nothing found, or suppression removed everything)
+   still emits the block: the two fences with only this header between them,
+   which is the machine-readable record that the round completed clean.
 
    Format rules — all load-bearing for minimonitor's parser; match them exactly:
    - One concern per line, in the form `- [priority | region] body`.
@@ -104,9 +119,18 @@ pane — never the followed pane.
      the block. When no task id can be resolved, say suppression was skipped.
    - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
      auto-offer only fires on a complete block.
-   - Emit the block **only when you found at least one genuine error/retry
-     signal** (step 2) that survived suppression. If there were none, omit the
-     block entirely and say so.
+   - **Round header.** The first line after the opening fence is
+     `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the
+     first `- [` marker — placed after an item it is absorbed into that item's
+     body and the round is lost — and it must never itself begin with `- [`.
+     Take N from the request when it names a round ("recheck round N"), else
+     count from 1 within this conversation; get the timestamp from
+     `date -u +%Y-%m-%dT%H:%M:%SZ`, never by estimate. A **zero-concern**
+     review — no genuine error/retry signal (step 2) survived suppression —
+     still emits the fences with only this header between them (say so in the
+     prose). Minimonitor reads the header to show the round, to re-offer the
+     picker when a later round repeats the same concerns, and to judge concern
+     freshness.
 
 5. **Let the user choose which concerns to act on, then offer ONE action.** Ask
    the user which of the presented concerns actually warrant their own fix-task —

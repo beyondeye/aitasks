@@ -53,11 +53,13 @@ from monitor.monitor_shared import (  # noqa: E402
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_section_header, format_session_divider, format_shadow_glyph,
     format_stale_duration, format_state_dot, is_task_completed,
-    unparsed_concerns_msg,
+    uncertified_round_block_msg, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, block_region, build_clipboard_payload,
-    has_concern_block, needs_addressing, parse_concerns, unrecovered_markers,
+    has_concern_block, has_invalid_round_header, is_metadata_only_block,
+    needs_addressing,
+    parse_block_meta, parse_concerns, unrecovered_markers,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
@@ -2247,6 +2249,31 @@ class MiniMonitorApp(
                 self.push_screen(
                     ConcernBlockInspectModal(lost, block_region(text) or "")
                 )
+            elif is_metadata_only_block(text):
+                # A CERTIFIED metadata-only block is the shadow's record of a
+                # clean round (t1159_1) — name the round instead of the
+                # generic line. Strict on purpose: an unclosed header-only
+                # stream may be about to emit items, and header+dropped-prose
+                # is malformed output — neither is a clean round.
+                meta = parse_block_meta(text)
+                self.notify(
+                    f"Clean review (round {meta.round}) — no concerns"
+                )
+            elif ((meta := parse_block_meta(text)) is not None
+                    or has_invalid_round_header(text)):
+                # A round header without certification: dropped non-item
+                # content, a still-streaming header-only block, or a
+                # Round:-shaped header that fails the grammar (meta None,
+                # but the producer TRIED to emit metadata). "No concerns"
+                # would hide emitted output — warn and show the raw block,
+                # like the lost-markers case above.
+                self.notify(
+                    uncertified_round_block_msg(meta.round if meta else None),
+                    severity="warning",
+                )
+                self.push_screen(
+                    ConcernBlockInspectModal([], block_region(text) or "")
+                )
             else:
                 self.notify("No concerns detected on the shadow pane")
             return
@@ -2267,6 +2294,7 @@ class MiniMonitorApp(
                 raw_block=block_region(text) or "",
                 rejected_entries=entries,
                 store_unavailable=not self._concern_pick_task_id,
+                block_meta=parse_block_meta(text),
             ),
             callback=self._on_concerns_picked,
         )
@@ -2350,9 +2378,19 @@ class MiniMonitorApp(
         if not concerns:
             return
         payload = build_clipboard_payload(concerns)
-        if self._last_concern_block_payload.get(shadow_pane) == payload:
+        # Round-qualified dedup (t1159_1): a repeat round re-raising the same
+        # concerns is NEWS (the shadow re-reviewed and stands by them), so the
+        # round header lifts the payload dedup. No header ⇒ the key is the bare
+        # payload, byte-identical to the pre-header behavior.
+        meta = parse_block_meta(text)
+        dedup_key = (
+            f"round={meta.round}@{meta.reviewed_at}\n{payload}" if meta
+            else payload
+        )
+        if self._last_concern_block_payload.get(shadow_pane) == dedup_key:
             return
-        self._last_concern_block_payload[shadow_pane] = payload
+        self._last_concern_block_payload[shadow_pane] = dedup_key
+        round_suffix = f" (round {meta.round})" if meta else ""
         stale_suffix = (
             " (⚠ STALE — agent moved on)"
             if getattr(self, "_shadow_feedback_stale", None) else ""
@@ -2364,7 +2402,7 @@ class MiniMonitorApp(
         info_suffix = f" (+{info} informational)" if info else ""
         self.notify(
             f"Shadow raised {actionable} concern(s){info_suffix} — press 'c' to pick"
-            + stale_suffix,
+            + round_suffix + stale_suffix,
             severity="information",
         )
 

@@ -46,12 +46,14 @@ from monitor.monitor_shared import (  # noqa: E402
     ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_session_divider, format_shadow_glyph, format_state_dot,
-    is_task_completed, unparsed_concerns_msg,
+    is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS, block_head_truncated, block_region,
     build_clipboard_payload, concern_block_signature, concern_marker_line,
-    needs_addressing, parse_concerns, unrecovered_markers,
+    has_invalid_round_header, is_metadata_only_block, needs_addressing,
+    parse_block_meta, parse_concerns,
+    unrecovered_markers,
 )
 from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
 from rich.text import Text  # noqa: E402
@@ -1129,8 +1131,27 @@ class MonitorApp(
             )
             concerns = parse_concerns(text)
             if not concerns:
-                # Malformed or empty block: no misleading toast. The badge
-                # stands, and `c` gives the user the precise reason.
+                if is_metadata_only_block(text):
+                    # CERTIFIED metadata-only clean-round block (t1159_1):
+                    # complete fence, exactly the header — nothing to pick,
+                    # nothing to investigate — treat as handled. (The strict
+                    # predicate matters: header + silently-dropped stray prose
+                    # parses to nothing too, but that is malformed output to
+                    # investigate, not a clean round.) Marking it OFFERED (the
+                    # same call the `c` path makes) clears the badge; the
+                    # signature stays in `_concern_sig_latest`, so downstream
+                    # freshness still sees the round advance. Residual: this
+                    # pass runs only for the FOCUSED agent, so an unfocused
+                    # agent's clean round badges until it is next focused —
+                    # clearing it tick-side would require parsing the raw
+                    # capture, which `_scan_concern_signatures` ("a TRIGGER,
+                    # never a parse") deliberately forbids.
+                    self._mark_concern_sig(
+                        self._concern_sig_offered, pane_id, sig, captured_sig
+                    )
+                    return
+                # Malformed or empty-parse block: no misleading toast. The
+                # badge stands, and `c` gives the user the precise reason.
                 return
             eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
             stale, _ = await compute_shadow_staleness(
@@ -2964,22 +2985,56 @@ class MonitorApp(
                     return  # indeterminate — marker untouched
             if not concerns:
                 lost = unrecovered_markers(text)
+                # A round header without certification (t1159_1): a complete
+                # block whose non-item content the scanner silently dropped,
+                # a still-streaming header-only block, or a Round:-shaped
+                # header that fails the grammar (zero / zero-padded /
+                # oversized — meta reads None, but the producer TRIED to emit
+                # metadata). None is a clean round, and "no concerns" would
+                # hide emitted output — warn and show the raw block, like the
+                # lost-markers case.
+                certified = is_metadata_only_block(text)
+                uncertified_meta = (
+                    None if lost or certified else parse_block_meta(text)
+                )
+                round_headed = uncertified_meta is not None or (
+                    not lost and not certified
+                    and has_invalid_round_header(text)
+                )
                 if lost:
                     self.notify(
                         unparsed_concerns_msg(len(lost)), severity="warning"
                     )
+                elif certified:
+                    # A CERTIFIED metadata-only block records a clean round
+                    # (t1159_1) — name the round instead of the generic line.
+                    meta = parse_block_meta(text)
+                    self.notify(
+                        f"Clean review (round {meta.round}) — no concerns"
+                    )
+                elif round_headed:
+                    self.notify(
+                        uncertified_round_block_msg(
+                            uncertified_meta.round if uncertified_meta
+                            else None
+                        ),
+                        severity="warning",
+                    )
                 else:
                     self.notify("No concerns detected on the shadow pane")
                 # Definitive ONLY when the capture does contain a complete block:
-                # the user has just been told precisely what is in it and it will
-                # never become parseable, so clear the badge. With no complete
-                # block here we learned nothing about the badged one — leave it.
+                # the user has just been told (or, via the raw view below,
+                # shown) precisely what is in it and it will never become
+                # parseable, so clear the badge. With no complete block here we
+                # learned nothing about the badged one — leave it. (A streaming
+                # header-only block has no complete fence, so it is naturally
+                # NOT marked and stays offerable.)
                 done_sig = concern_block_signature(text)
                 if done_sig is not None:
                     self._mark_concern_sig(
                         self._concern_sig_offered, pane_id, trigger_sig, done_sig
                     )
-                if lost:
+                if lost or round_headed:
                     # No picker means no banner to hang the `u` affordance off,
                     # so open the raw view directly (t1293). It owns the pick
                     # guard until dismissed, exactly like the picker does —
@@ -3013,6 +3068,7 @@ class MonitorApp(
                     raw_block=block_region(text) or "",
                     rejected_entries=entries,
                     store_unavailable=not task_id,
+                    block_meta=parse_block_meta(text),
                 ),
                 callback=self._on_concerns_picked,
             )

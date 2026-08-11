@@ -31,11 +31,12 @@ from textual.widgets import Label  # noqa: E402
 
 from tui_layout import NARROW_TERMINAL_WIDTH, is_narrow_terminal  # noqa: E402
 
-from monitor.concern_parser import Concern  # noqa: E402
+from monitor.concern_parser import BlockMeta, Concern  # noqa: E402
 from monitor import monitor_shared  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     ConcernBlockInspectModal, ConcernPickerModal, ConcernPickResult,
     RejectedEntry, RejectedStoreModal, _ConcernRow, _RejectedRow,
+    format_block_meta,
 )
 
 
@@ -58,6 +59,7 @@ class _Host(App):
         raw_block: str = "",
         rejected_entries: tuple[RejectedEntry, ...] = (),
         store_unavailable: bool = False,
+        block_meta=None,
     ) -> None:
         super().__init__()
         self._concerns = concerns
@@ -67,6 +69,7 @@ class _Host(App):
         self._raw_block = raw_block
         self._rejected_entries = rejected_entries
         self._store_unavailable = store_unavailable
+        self._block_meta = block_meta
         self.result = self._UNSET
         self.notifications: list[tuple[str, str]] = []
 
@@ -87,6 +90,7 @@ class _Host(App):
                 unrecovered=self._unrecovered, raw_block=self._raw_block,
                 rejected_entries=self._rejected_entries,
                 store_unavailable=self._store_unavailable,
+                block_meta=self._block_meta,
             ),
             _capture,
         )
@@ -774,6 +778,140 @@ class ConcernPickerWidthTierTests(unittest.TestCase):
                 self.assertTrue(app.screen.has_class("xnarrow"))
 
         self._run(runner())
+
+
+class ConcernContextLineBudgetTests(unittest.TestCase):
+    """The context line's actionable counts survive the xnarrow tier (t1159_1).
+
+    Characterization first: the two-partition line already runs ~48 characters
+    (`"2 to address  ·  1 informational  ·  forward or reject"`), and the round
+    suffix adds ~20 more at a tier as narrow as ``_PICKER_NARROW_MIN_WIDTH``.
+    These pin the *composited strips* — the line wraps inside the dialog, so a
+    `render()` string that contains the counts proves nothing about the screen
+    (same rationale as :class:`ConcernPickerNarrowLayoutTests`).
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _flat_at(self, width: int, height: int = 30, **host_kwargs) -> str:
+        async def runner():
+            app = _Host(_mixed_concerns(), narrow=True, **host_kwargs)
+            async with app.run_test(size=(width, height)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return _flat_text(_screen_rows(app))
+
+        return self._run(runner())
+
+    #: A realistic header's meta — the widest suffix shape (round + clock).
+    META = BlockMeta(2, "2026-08-11T14:03:27Z")
+
+    def test_counts_visible_at_the_xnarrow_tier(self):
+        """Pre-change characterization: both counts reach the screen at the
+        tier boundary, wrapped or not."""
+        flat = self._flat_at(monitor_shared._PICKER_NARROW_MIN_WIDTH)
+        self.assertIn("2 to address", flat)
+        self.assertIn("1 informational", flat)
+
+    def test_counts_visible_at_the_supported_floor(self):
+        flat = self._flat_at(monitor_shared._PICKER_MIN_COLS)
+        self.assertIn("2 to address", flat)
+        self.assertIn("1 informational", flat)
+
+    def test_counts_still_visible_with_the_round_suffix(self):
+        """The round suffix must not push the actionable counts off screen at
+        either narrow width (the t1159_1 pre-phase acceptance)."""
+        for width in (monitor_shared._PICKER_NARROW_MIN_WIDTH,
+                      monitor_shared._PICKER_MIN_COLS):
+            with self.subTest(width=width):
+                flat = self._flat_at(width, block_meta=self.META)
+                self.assertIn("2 to address", flat)
+                self.assertIn("1 informational", flat)
+
+    def test_round_suffix_reaches_the_screen_when_it_fits(self):
+        """At a comfortable width the round is visible, not merely returned."""
+        flat = self._flat_at(80, block_meta=self.META)
+        self.assertIn("round 2", flat)
+        self.assertIn("14:03:27Z", flat)
+
+
+class FormatBlockMetaTests(unittest.TestCase):
+    """`format_block_meta` is pure, plain-text, and total over garbage."""
+
+    def test_none_is_empty(self):
+        self.assertEqual(format_block_meta(None), "")
+
+    def test_iso_timestamp_is_shortened_to_the_clock(self):
+        self.assertEqual(
+            format_block_meta(BlockMeta(2, "2026-08-11T14:03:27Z")),
+            "  ·  round 2, 14:03:27Z",
+        )
+
+    def test_empty_reviewed_at_shows_the_round_alone(self):
+        self.assertEqual(format_block_meta(BlockMeta(2, "")), "  ·  round 2")
+
+    def test_garbage_reviewed_at_never_raises(self):
+        for garbage in ("[/]", "[bold red]x", "]", "no-iso-shape-here" * 20):
+            with self.subTest(garbage=garbage):
+                suffix = format_block_meta(BlockMeta(2, garbage))
+                self.assertTrue(suffix.startswith("  ·  round 2"))
+
+
+class ConcernContextMetaTests(unittest.TestCase):
+    """The context line carries the round on BOTH partition shapes, and
+    markup-shaped garbage in `reviewed_at` renders instead of crashing.
+
+    The crash being guarded fires at RENDER time (`MarkupError` on an
+    unescaped `[/]` in a markup-enabled Static), so these drive the composited
+    render — a `_context_line()` return-value assertion would pass while the
+    modal went down.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _flat(self, concerns: list[Concern], block_meta) -> str:
+        async def runner():
+            app = _Host(concerns, block_meta=block_meta)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return _flat_text(_screen_rows(app))
+
+        return self._run(runner())
+
+    def test_single_partition_line_carries_the_round(self):
+        flat = self._flat(
+            _sample_concerns(), BlockMeta(2, "2026-08-11T14:03:27Z")
+        )
+        self.assertIn("3 concern(s)", flat)
+        self.assertIn("round 2, 14:03:27Z", flat)
+
+    def test_two_partition_line_carries_the_round(self):
+        flat = self._flat(
+            _mixed_concerns(), BlockMeta(2, "2026-08-11T14:03:27Z")
+        )
+        self.assertIn("2 to address", flat)
+        self.assertIn("round 2, 14:03:27Z", flat)
+
+    def test_no_meta_renders_exactly_the_pre_round_line(self):
+        flat = self._flat(_mixed_concerns(), None)
+        self.assertIn("1 informational · forward or reject", flat)
+        self.assertNotIn("round", flat)
+
+    def test_markup_shaped_reviewed_at_renders_instead_of_crashing(self):
+        """`reviewed_at` is verbatim untrusted producer text on a markup
+        surface — an unescaped `[/]` raises MarkupError and takes the modal
+        down. The escape must let it render as literal text."""
+        for garbage in ("[/]", "[bold red]x", "]"):
+            with self.subTest(garbage=garbage):
+                flat = self._flat(
+                    _mixed_concerns(), BlockMeta(2, garbage)
+                )
+                # The modal composed and its context line reached the screen.
+                self.assertIn("2 to address", flat)
+                self.assertIn("round 2", flat)
 
 
 class ConcernInspectAffordanceTests(unittest.TestCase):

@@ -17,6 +17,7 @@ the join; see ``.claude/skills/aitask-shadow/concern-format.md``.
 Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md``)::
 
     ===AITASK-CONCERNS===
+    Round: 2 @ 2026-08-11T14:03:27Z
     - [high | Step 7 ownership guard] The guard re-runs aitask_pick_own.sh which
       double-commits when the lock was already held.
     - [medium | parser module] Multi-block accumulation is undefined.
@@ -43,12 +44,24 @@ Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md
   review appends to the body. ``body`` itself is left canonical so
   :func:`build_clipboard_payload` forwards the trailer intact; display surfaces
   call :meth:`Concern.display_body`.
+- **Round header (t1159_1):** the first line inside the fences is
+  ``Round: <N> @ <ISO-8601-UTC-seconds>Z``, read by :func:`parse_block_meta`.
+  It sits in the one slot the item scanner already drops (a non-marker line
+  before the first item), so every concern-yielding entry point is unaffected;
+  it deliberately perturbs :func:`concern_block_signature`. A **metadata-only**
+  block (fences + header, no items) records a clean round;
+  :func:`has_concern_block` stays False for it and the strict
+  :func:`is_metadata_only_block` certifies it (complete fence + exactly the
+  header). Absent header = pre-t1159_1 block, byte-identical behavior
+  everywhere.
 - **Last block wins:** when several blocks are present, only the most recent
   one is parsed (a re-issued review supersedes an earlier one).
 
-Three strictness tiers. The first two share :func:`_last_block_region`, diverging
-only on ``require_close``; the third shares it too but consumes a *different
-capture shape* and never yields concerns:
+Three strictness tiers over two capture shapes. The concern-yielding entry
+points share :func:`_last_block_region`, diverging on ``require_close``
+(forgiving readers pass ``False``, the strict trigger ``True``); the signature
+tier shares it too but consumes a *different capture shape* and never yields
+concerns:
 
 =============================== ============================== ==========================================
 Entry point                     Input shape                    Purpose
@@ -75,6 +88,10 @@ Entry point                     Input shape                    Purpose
                                                                region's text, verbatim, so a human can read
                                                                what the parser could not use (t1293). Never
                                                                parsed into forwardable concerns.
+:func:`parse_block_meta`        wrap-joined, ANSI-free (``-J``) **metadata** — the same (forgiving) region's
+                                                               round header, as a :class:`BlockMeta`, or
+                                                               ``None`` when absent (t1159_1). Never yields
+                                                               concerns; fail-open on malformed headers.
 =============================== ============================== ==========================================
 """
 from __future__ import annotations
@@ -170,6 +187,37 @@ DEFAULT_PREAMBLE = (
     "I have some concerns: please verify them and if valid "
     "please address in the plan"
 )
+
+# The round header a producer emits as the first line inside the fences:
+# `Round: 2 @ 2026-08-11T14:03:27Z` (t1159_1). The timestamp part after `@`
+# is captured verbatim and never validated — the producers shell-source it,
+# but the parser stays fail-open on whatever actually arrived.
+#
+# The round is a POSITIVE integer of at most 9 digits IN THE GRAMMAR
+# (1..999999999, documented in concern-format.md). Bounded because `int()` on
+# an unbounded digit run raises past sys.get_int_max_str_digits() (4300 on
+# 3.11+), which would violate the parser's never-raise contract on
+# agent-emitted garbage; positive because rounds are 1-based — `Round: 0` (or
+# a zero-padded round) is not a value a compliant producer can emit. Either
+# violation simply fails the line match, so the header reads as malformed
+# (meta = None) rather than crashing or certifying a bogus round.
+_META_LINE = re.compile(
+    r"^\s*Round:\s*(?P<round>[1-9]\d{0,8})\s*(?:@\s*(?P<at>.*?))?\s*$"
+)
+
+
+class BlockMeta(NamedTuple):
+    """Round metadata parsed from a concern block's header line (t1159_1).
+
+    **Consumer contract (t1448): the freshness key is the
+    ``(round, reviewed_at)`` PAIR — never ``round`` alone.** A restarted shadow
+    session starts counting at 1 again, so equal round numbers from different
+    sessions are routine; the seconds-resolution timestamp is what
+    disambiguates them.
+    """
+
+    round: int          # 1-based round the producer emitted
+    reviewed_at: str    # verbatim text after '@' ("" when absent or empty)
 
 
 class Concern(NamedTuple):
@@ -432,6 +480,99 @@ def unrecovered_markers(capture_text: str) -> list[str]:
     """
     region = _last_block_region(capture_text, require_close=False)
     return _scan_items(region)[1] if region is not None else []
+
+
+def parse_block_meta(capture_text: str) -> BlockMeta | None:
+    """Round metadata from the newest block's header line, or ``None``.
+
+    Same forgiving scope as :func:`parse_concerns` (``require_close=False``), so
+    meta and concerns always describe the same (newest) block. Only the **first
+    non-blank line** of the region is consulted: a ``Round:`` line appearing
+    after an item is body text by the item grammar (it was wrap-joined into that
+    item), and believing it here would report a round the block does not carry.
+
+    Fail-open and pure: ``reviewed_at`` is returned verbatim, unvalidated.
+    Absent header ⇒ ``None`` and every other entry point behaves exactly as
+    before the header existed.
+
+    **Parser safety.** The header occupies the one slot the item scanner already
+    ignores: ``_scan_items`` drops a non-blank, non-marker line seen before the
+    first item (``items`` empty ⇒ no continuation join), so
+    :func:`parse_concerns` / :func:`has_concern_block` /
+    :func:`unrecovered_markers` are unaffected by its presence. It
+    **deliberately** changes :func:`concern_block_signature` and
+    :func:`block_region` — a round bump re-hashes the monitor's freshness
+    badge. The header must never itself begin ``- [`` (that shape is recorded
+    as an unrecovered marker even before the first item).
+
+    **Consumer contract (t1448):** the freshness key is the
+    ``(round, reviewed_at)`` pair — see :class:`BlockMeta`.
+
+    A **metadata-only block** (fences with only the header between them) is the
+    producers' machine-readable record of a clean round: this function reads its
+    round while :func:`has_concern_block` stays ``False`` for it. Reading the
+    round is NOT certifying cleanliness — consumers that auto-clear state must
+    use the strict :func:`is_metadata_only_block` instead (this forgiving
+    reader also returns meta for a still-streaming or prose-polluted block).
+    """
+    region = _last_block_region(capture_text, require_close=False)
+    if region is None:
+        return None
+    for line in region.splitlines():
+        if not line.strip():
+            continue
+        match = _META_LINE.match(line)
+        if match is None:
+            return None
+        return BlockMeta(
+            int(match.group("round")), (match.group("at") or "").strip()
+        )
+    return None
+
+
+def has_invalid_round_header(text: str) -> bool:
+    """True when the newest block leads with a ``Round:``-shaped line that
+    fails the grammar (zero, zero-padded, oversized, or otherwise malformed).
+
+    :func:`parse_block_meta` reads such a header as absent (``None``) — the
+    fail-open contract — but consumers must not then treat the block as a
+    plain headerless one: a producer *tried* to emit round metadata and got it
+    wrong, which is investigable output, not silence. Same forgiving region as
+    the other readers, and only the first non-blank line is consulted (a
+    ``Round:`` line after an item is body text by the item grammar).
+    """
+    region = _last_block_region(text, require_close=False)
+    if region is None:
+        return False
+    for line in region.splitlines():
+        if not line.strip():
+            continue
+        return (line.lstrip().startswith("Round:")
+                and _META_LINE.match(line) is None)
+    return False
+
+
+def is_metadata_only_block(text: str) -> bool:
+    """Strict predicate: the newest block is a certified clean-round record.
+
+    True only when the LAST opening fence has its own closing fence after it
+    (``require_close=True`` — a still-streaming header-only block may be about
+    to emit items, so it must **not** certify) and the enclosed region's
+    non-blank content is **exactly one line, the round header**. This is
+    deliberately stronger than ``parse_block_meta(text) and no concerns``:
+    a header followed by stray non-marker prose parses to nothing and loses
+    nothing *visible*, but the prose was silently dropped — such a block is
+    malformed output to investigate, not a clean round to auto-clear.
+
+    Consumers use this to treat a clean round as *handled* (no toast, no
+    standing badge, "Clean review (round N)" on the explicit action) —
+    misclassifying either direction is user-visible, hence the strictness.
+    """
+    region = _last_block_region(text, require_close=True)
+    if region is None:
+        return False
+    lines = [line for line in region.splitlines() if line.strip()]
+    return len(lines) == 1 and _META_LINE.match(lines[0]) is not None
 
 
 def block_region(capture_text: str) -> str | None:

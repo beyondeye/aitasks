@@ -64,7 +64,7 @@ except ImportError:  # imported flat (tests may put MONITOR_DIR on sys.path)
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 if TYPE_CHECKING:  # annotations only (PEP 563 via `from __future__`); no runtime cost
-    from monitor.concern_parser import Concern
+    from monitor.concern_parser import BlockMeta, Concern
 
 
 # Dark background for terminal preview — hard-coded because we're rendering
@@ -797,6 +797,31 @@ def unparsed_concerns_msg(count: int) -> str:
     return (
         f"Shadow emitted a concern block but {count} line(s) could not be "
         "parsed — none are forwardable"
+    )
+
+
+def uncertified_round_block_msg(round_number: "int | None") -> str:
+    """Warning for a round-headed block that is not a certified clean round.
+
+    Covers the shapes `is_metadata_only_block` refuses while the block still
+    carries (or attempts) a round header (t1159_1): a complete block whose
+    non-item content the scanner silently dropped (nothing parsed, nothing in
+    `unrecovered_markers`), a still-streaming header-only block, and — with
+    ``round_number=None`` — a block whose ``Round:`` line fails the grammar
+    (`has_invalid_round_header`), where no round can be reported. Reporting
+    any of them as "no concerns" would hide output the shadow did emit — same
+    failure class as :func:`unparsed_concerns_msg`.
+
+    Shared so both TUIs report the shapes identically.
+    """
+    if round_number is None:
+        return (
+            "Concern block has an invalid round header and no parseable "
+            "concerns — showing the raw block"
+        )
+    return (
+        f"Concern block (round {round_number}) has no parseable concerns and "
+        "is not a clean-round record — showing the raw block"
     )
 
 
@@ -2162,6 +2187,25 @@ _CONCERN_HELP_COMPACT = (
 )
 
 
+def format_block_meta(meta: "BlockMeta | None") -> str:
+    """Display suffix for a concern block's round header, ``""`` when absent.
+
+    Pure and **total over garbage**: ``reviewed_at`` is verbatim producer text
+    that the parser never validates, so this must render *something* for any
+    input rather than raise. The time is shortened to its clock part when the
+    ISO shape is recognizable (``…T14:03:27Z`` → ``14:03:27Z``) and truncated
+    otherwise. Returns **plain text** — the caller owns escaping at whatever
+    markup boundary consumes it.
+    """
+    if meta is None:
+        return ""
+    when = meta.reviewed_at
+    if "T" in when:
+        when = when.rsplit("T", 1)[1]
+    when = when[:12]
+    return f"  ·  round {meta.round}" + (f", {when}" if when else "")
+
+
 class ConcernBlockInspectModal(ModalScreen):
     """Raw view of a concern block that did not fully parse (t1293).
 
@@ -2482,6 +2526,7 @@ class ConcernPickerModal(ModalScreen):
         *,
         rejected_entries: Sequence[RejectedEntry] = (),
         store_unavailable: bool = False,
+        block_meta: "BlockMeta | None" = None,
     ) -> None:
         super().__init__()
         self._concerns = list(concerns)
@@ -2500,6 +2545,8 @@ class ConcernPickerModal(ModalScreen):
         # No task id for this pane ⇒ the store cannot be located at all. Kept
         # distinct from "store is empty" so `R` can say which is true.
         self._store_unavailable = store_unavailable
+        # Round metadata from the block header (t1159_1) — display-only.
+        self._block_meta = block_meta
         self._unreject_ids: list[str] = []
 
     def _partitions(self) -> list[tuple[str, list[tuple[int, "Concern"]]]]:
@@ -2517,13 +2564,21 @@ class ConcernPickerModal(ModalScreen):
         return [(title, group) for title, group in pairs if group]
 
     def _context_line(self) -> str:
+        # `reviewed_at` is verbatim untrusted producer text on a markup-enabled
+        # Static — an unescaped `[/]` raises MarkupError and takes the modal
+        # down (same hazard class as the board-column title at _swatch_markup).
+        meta_suffix = escape(format_block_meta(self._block_meta))
         partitions = self._partitions()
         if len(partitions) < 2:
-            return f"{len(self._concerns)} concern(s)  ·  forward or reject"
+            return (
+                f"{len(self._concerns)} concern(s)  ·  forward or reject"
+                + meta_suffix
+            )
         counts = {title: len(group) for title, group in partitions}
         return (
             f"{counts['Needs addressing']} to address  ·  "
             f"{counts['Informational']} informational  ·  forward or reject"
+            + meta_suffix
         )
 
     def compose(self) -> ComposeResult:

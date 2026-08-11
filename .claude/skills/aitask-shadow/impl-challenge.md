@@ -389,10 +389,24 @@ Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a closing
 between them. The concern lines themselves look like:
 
 ```
+Round: 1 @ 2026-08-11T14:03:27Z
 - [high | file.ext:120] In path/to/file.ext the new guard compares the raw email instead of the normalized one, so a task assigned with a trailing-space email never matches and re-locks every resume. It bites on the common reclaim path. Normalizing both sides before compare would fix it — exact form your call. Disposition: blocking. Verified: CONFIRMED.
 - [medium | unmitigated risk] The plan's Risk section flagged concurrent writers to the ledger, but the diff adds no locking around the append, so two resumes can interleave and drop one run. The Final Implementation Notes don't mention it, so it looks unaddressed rather than deliberately deferred. Disposition: follow-up. Verified: PLAUSIBLE.
 - [low | accepted risk] The plan explicitly accepted the unlocked counter increment, on the rationale that only the reaper writes it. That rationale holds against the diff — the only other writer is behind the same mutex — so I am not asking for a change; flagging it so you can judge the single-writer assumption yourself. Disposition: informational. Verified: CONFIRMED.
 ```
+
+**Emit a round header as the first line inside the block.** Immediately after
+the opening fence — before the first `- [` marker — emit exactly one line of
+the form `Round: <N> @ <timestamp>`, for example
+`Round: 2 @ 2026-08-11T14:03:27Z`. If the request that triggered this review
+names a round ("recheck round N"), use that N; otherwise N is 1 for the first
+review you run in this conversation and increments by one on each later review
+you run in it (any review sub-procedure counts; a fresh shadow session starts
+at 1 again — the timestamp is what disambiguates). Obtain the timestamp by
+running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A **zero-concern**
+review (nothing found, or suppression removed everything) still emits the
+block: the two fences with only this header between them, which is the
+machine-readable record that the round completed clean.
 
 Rules — all load-bearing for minimonitor's parser; match them exactly:
 - One concern per line, in the form `- [priority | region] body`.
@@ -442,9 +456,18 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   When no task id can be resolved, say suppression was skipped.
 - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
   auto-offer only fires on a complete block.
-- Emit the block **only when you have at least one concern**. If the
-  implementation is genuinely clean, or suppression left you with nothing to
-  forward, omit the block entirely and say so.
+- **Round header.** The first line after the opening fence is
+  `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the
+  first `- [` marker — placed after an item it is absorbed into that item's
+  body and the round is lost — and it must never itself begin with `- [`. Take
+  N from the request when it names a round ("recheck round N"), else count from
+  1 within this conversation; get the timestamp from
+  `date -u +%Y-%m-%dT%H:%M:%SZ`, never by estimate. A **zero-concern** review —
+  the implementation is genuinely clean, or suppression left you with nothing
+  to forward — still emits the fences with only this header between them (say
+  so in the prose). Minimonitor reads the header to show the round, to re-offer
+  the picker when a later round repeats the same concerns, and to judge concern
+  freshness.
 
 **What minimonitor does with it (current behavior):** the picker derives each
 finding's disposition from the trailer above and splits the list into a

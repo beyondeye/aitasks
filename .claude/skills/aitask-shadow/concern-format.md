@@ -37,6 +37,46 @@ the parser-safety guard in `tests/test_concern_parser.py`.
   and do **not** collide with markdown ```` ``` ```` code fences common in agent
   output.
 
+### Round header
+
+- The **first line inside the fences** is `Round: <N> @ <timestamp>` — e.g.
+  `Round: 2 @ 2026-08-11T14:03:27Z`. `N` is the 1-based review round within the
+  shadow's conversation — a positive integer, at most 9 digits
+  (`1`..`999999999`, no zero-padding; the parser bounds the grammar so an
+  absurd digit run reads as a malformed header rather than raising, and no
+  compliant producer ever approaches the cap). The timestamp is UTC ISO-8601
+  at **seconds** resolution, shell-sourced by the producer
+  (`date -u +%Y-%m-%dT%H:%M:%SZ`), never estimated. Producers honor an
+  externally named round ("recheck round N") and self-count only otherwise.
+- **Placement is load-bearing.** The header occupies the one slot the item
+  scanner already drops (a non-marker line before the first item), which is
+  what makes it parser-safe: `parse_concerns`, `has_concern_block` and
+  `unrecovered_markers` are byte-identical with and without it. Placed **after
+  any item** it is wrap-joined into that item's body — the round is silently
+  lost and the body is corrupted — and it must never itself begin with `- [`
+  (that shape is recorded as an unrecovered marker). `parse_block_meta`
+  consults only the first non-blank line of the region.
+- **Back-compat:** a header-free block is a pre-header block —
+  `parse_block_meta` returns `None` and every consumer behaves exactly as
+  before the header existed.
+- **Metadata-only clean-round block:** a review that finds zero concerns (or
+  whose concerns were all suppressed) still emits the two fences with only the
+  round header between them — the machine-readable record that the round
+  completed clean, so round numbering advances on clean rounds too.
+  `has_concern_block` stays **False** for it (no items ⇒ no auto-offer), by
+  design. Consumers certify it with the strict `is_metadata_only_block`
+  (complete fence + exactly the header): a still-streaming header-only block
+  or a header followed by stray dropped prose must **not** be treated as a
+  clean round.
+- **Three consumer roles:** display (the picker's context line and the toast
+  name the round); the auto-offer dedup lift (minimonitor keys its repeat-block
+  suppression on `(round, reviewed_at, payload)`, so a repeat round re-raising
+  identical concerns re-offers instead of staying silent); and the t1448
+  freshness key — which is the `(round, reviewed_at)` **pair**, never the round
+  alone (a restarted shadow counts from 1 again).
+- The header intentionally changes `concern_block_signature` — a round bump
+  re-hashes the monitor's freshness badge even when the items are unchanged.
+
 ### Concern markers
 
 - One concern per line of the form `- [priority | region] body`.
@@ -268,6 +308,12 @@ green after it was deleted. The duplication is deliberate for the same reason
 the short-region rule is duplicated: these are prompt files read at runtime, and
 an extra file read is a rule the agent may skip.
 
+The **round-header rule** follows the same two-placement pattern in every
+producer (bolded emit directive + rules-list bullet), guarded by
+`TestProducerRoundHeaderRule` — including its negative half: no producer may
+retain the pre-round "omit the block when clean" wording, which the
+metadata-only clean-round block replaced.
+
 ## Where it lives
 
 - **Producer:** the `.claude/skills/aitask-shadow/` plan-review sub-procedures
@@ -276,9 +322,11 @@ an extra file read is a rule the agent may skip.
   Claude tree; the `.agents/` and `.opencode/` shadow trees carry a `SKILL.md`
   wrapper only (no mirrored sub-procedure files).
 - **Parser:** `.aitask-scripts/monitor/concern_parser.py` — pure (`Concern`,
-  `parse_concerns`, `has_concern_block`, `concern_block_signature`,
+  `BlockMeta`, `parse_concerns`, `parse_block_meta`, `is_metadata_only_block`,
+  `has_invalid_round_header`, `has_concern_block`, `concern_block_signature`,
   `contains_any_concern_block`, `block_head_truncated`, `unrecovered_markers`,
-  `needs_addressing`, `DISPOSITIONS`, `build_clipboard_payload`).
+  `block_region`, `needs_addressing`, `DISPOSITIONS`,
+  `build_clipboard_payload`).
 - **Consumer:** the concern-picker modal + trigger wiring (`monitor_shared.py`,
   `minimonitor_app.py`). The shadow lookup, capture and staleness helpers behind
   them are shared in `monitor_core.py`, so the full monitor uses one

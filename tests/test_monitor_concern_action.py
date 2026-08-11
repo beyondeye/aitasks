@@ -65,6 +65,7 @@ from monitor.concern_parser import (  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     SHADOW_CONCERN_GLYPH,
     SHADOW_GLYPH,
+    ConcernBlockInspectModal,
     ConcernPickResult,
 )
 from monitor.prompt_patterns import all_patterns  # noqa: E402
@@ -104,6 +105,42 @@ _MIXED_BLOCK = (
     "===AITASK-CONCERNS===\n"
     "- [high | Step 7 guard] The guard double-commits the lock.\n"
     "- [low | style] Naming nit. Disposition: informational.\n"
+    "===END-CONCERNS===\n"
+)
+# _CLOSED_BLOCK with a round header (t1159_1) — for the modal-wiring assertion.
+_ROUND_BLOCK = _CLOSED_BLOCK.replace(
+    "===AITASK-CONCERNS===\n",
+    "===AITASK-CONCERNS===\nRound: 2 @ 2026-08-11T14:09:41Z\n",
+)
+# A clean-round record: fences with only the round header between them
+# (t1159_1). It signs (complete fences) but parses to nothing and loses
+# nothing — the offer pass must treat it as handled, not as investigable.
+_METADATA_ONLY_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 3 @ 2026-08-11T14:12:05Z\n"
+    "===END-CONCERNS===\n"
+)
+# Header plus stray non-marker prose: the scanner silently drops the prose, so
+# the forgiving readers see nothing parsed and nothing lost — but dropped
+# output is malformed, NOT a certified clean round (strict-predicate contract).
+_HEADER_PLUS_PROSE_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 3 @ 2026-08-11T14:12:05Z\n"
+    "some stray prose the scanner drops\n"
+    "===END-CONCERNS===\n"
+)
+# A still-streaming header-only block: no closing fence yet — it may be about
+# to emit items, so no path may certify it clean.
+_STREAMING_HEADER_ONLY = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 3 @ 2026-08-11T14:12:05Z\n"
+)
+# A Round:-shaped header that fails the grammar (rounds are 1-based): meta
+# reads None, but the producer TRIED to emit metadata — investigable, never
+# the generic "no concerns" (t1159_1 review round 4).
+_INVALID_ROUND_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 0 @ 2026-08-11T14:12:05Z\n"
     "===END-CONCERNS===\n"
 )
 
@@ -458,6 +495,104 @@ class ActionPickConcernsTests(unittest.TestCase):
         _run(app.action_pick_concerns())
         screen, _ = app.spy_pushed[0]
         self.assertTrue(screen._stale)
+
+    def test_pushed_modal_carries_the_block_meta(self):
+        """Caller wiring (t1159_1): the pushed modal INSTANCE has the meta —
+        isolated parser/helper/modal tests all stay green if this caller drops
+        the ``block_meta=`` argument."""
+        from monitor.concern_parser import parse_block_meta
+
+        app = self._app_with_shadow()
+        _install_capture(self, _CaptureScript(_ROUND_BLOCK))
+        _install_staleness(self)
+        _run(app.action_pick_concerns())
+        screen, _ = app.spy_pushed[0]
+        self.assertEqual(screen._block_meta, parse_block_meta(_ROUND_BLOCK))
+        self.assertIsNotNone(screen._block_meta)
+
+    def test_pushed_modal_meta_is_none_for_a_headerless_block(self):
+        app = self._app_with_shadow()
+        _install_capture(self, _CaptureScript(_CLOSED_BLOCK))
+        _install_staleness(self)
+        _run(app.action_pick_concerns())
+        screen, _ = app.spy_pushed[0]
+        self.assertIsNone(screen._block_meta)
+
+    def test_metadata_only_block_names_the_clean_round_and_marks_offered(self):
+        """`c` on a clean-round record: no modal, the round is named, and the
+        signature is marked offered so the badge clears (t1159_1)."""
+        app = self._app_with_shadow(shadow_content=_METADATA_ONLY_BLOCK)
+        app._tick_shadow_snaps = {
+            "%1": _snap(_pane("%9", shadow_target="%1"), _METADATA_ONLY_BLOCK)
+        }
+        app._scan_concern_signatures()
+        _install_capture(self, _CaptureScript(_METADATA_ONLY_BLOCK))
+        _install_staleness(self)
+        _run(app.action_pick_concerns())
+        self.assertEqual(app.spy_pushed, [])
+        self.assertIn("Clean review (round 3)", app.spy_notify[0][0])
+        self.assertFalse(app._has_fresh_concerns("%1"))
+
+    def test_header_with_dropped_prose_warns_and_shows_the_raw_block(self):
+        """Certification is strict: header + silently-dropped prose parses to
+        nothing and loses nothing visible, but it is malformed output — warn
+        and expose the raw block instead of a false "no concerns" all-clear
+        (t1159_1 review fix, round 3)."""
+        app = self._app_with_shadow(shadow_content=_HEADER_PLUS_PROSE_BLOCK)
+        app._tick_shadow_snaps = {
+            "%1": _snap(_pane("%9", shadow_target="%1"), _HEADER_PLUS_PROSE_BLOCK)
+        }
+        app._scan_concern_signatures()
+        _install_capture(self, _CaptureScript(_HEADER_PLUS_PROSE_BLOCK))
+        _install_staleness(self)
+        _run(app.action_pick_concerns())
+        msg, severity = app.spy_notify[0]
+        self.assertNotIn("Clean review", msg)
+        self.assertNotIn("No concerns detected", msg)
+        self.assertIn("not a clean-round record", msg)
+        self.assertEqual(severity, "warning")
+        # The raw view is pushed so the dropped content is visible.
+        screen, _ = app.spy_pushed[0]
+        self.assertIsInstance(screen, ConcernBlockInspectModal)
+        self.assertIn("stray prose", screen._raw_block)
+        # Complete block + user shown its content = definitive, same contract
+        # as the lost-markers case: the badge clears after the inspect view.
+        self.assertFalse(app._has_fresh_concerns("%1"))
+
+    def test_invalid_round_header_warns_and_shows_the_raw_block(self):
+        """A grammar-invalid header (`Round: 0`) reads meta=None, but the
+        block must NOT be handled as headerless — the producer tried to emit
+        metadata and got it wrong, which is investigable (round 4 fix)."""
+        app = self._app_with_shadow(shadow_content=_INVALID_ROUND_BLOCK)
+        _install_capture(self, _CaptureScript(_INVALID_ROUND_BLOCK))
+        _install_staleness(self)
+        _run(app.action_pick_concerns())
+        msg, severity = app.spy_notify[0]
+        self.assertNotIn("Clean review", msg)
+        self.assertNotIn("No concerns detected", msg)
+        self.assertIn("invalid round header", msg)
+        self.assertEqual(severity, "warning")
+        screen, _ = app.spy_pushed[0]
+        self.assertIsInstance(screen, ConcernBlockInspectModal)
+        self.assertIn("Round: 0", screen._raw_block)
+
+    def test_streaming_header_only_block_is_not_reported_clean(self):
+        """An unclosed header-only stream may be about to emit items — the
+        forgiving meta reader sees it, the clean-round message must not; the
+        raw view opens, and the marker stays untouched (no complete block, so
+        nothing is definitive yet)."""
+        app = self._app_with_shadow(shadow_content=_STREAMING_HEADER_ONLY)
+        _install_capture(self, _CaptureScript(_STREAMING_HEADER_ONLY))
+        _install_staleness(self)
+        _run(app.action_pick_concerns())
+        msg, severity = app.spy_notify[0]
+        self.assertNotIn("Clean review", msg)
+        self.assertIn("not a clean-round record", msg)
+        self.assertEqual(severity, "warning")
+        screen, _ = app.spy_pushed[0]
+        self.assertIsInstance(screen, ConcernBlockInspectModal)
+        # Incomplete block ⇒ nothing was marked offered for this pane.
+        self.assertNotIn("%1", app._concern_sig_offered)
 
 
 # -- Badge lifecycle -----------------------------------------------------------
@@ -1045,9 +1180,51 @@ class OfferConcernsTests(unittest.TestCase):
     def test_malformed_block_badges_without_toasting(self):
         """`concern_block_signature` signs a complete FENCE, not a parsed
         concern -- announcing "Shadow raised concerns" for a block that yields
-        nothing forwardable would be contradicted by `c` moments later."""
+        nothing forwardable would be contradicted by `c` moments later.
+
+        Also the negative control for the clean-round branch below (t1159_1):
+        a block whose emptiness comes from PARSE LOSS (unrecovered markers)
+        must keep the badge standing — there is something to investigate — so
+        the metadata-only branch must not have widened.
+        """
         app = self._app(content=_MALFORMED_ONLY_BLOCK)
         _install_capture(self, _CaptureScript(_MALFORMED_ONLY_BLOCK))
+        _install_staleness(self)
+        _run(app._offer_concerns())
+        self.assertEqual(app.spy_notify, [])
+        self.assertTrue(app._has_fresh_concerns("%1"))
+
+    def test_metadata_only_clean_round_clears_without_toasting(self):
+        """A valid clean-round record is handled, not investigable (t1159_1):
+        no toast, no standing badge — but the signature survives in
+        `_concern_sig_latest`, the freshness input downstream (t1448) reads."""
+        app = self._app(content=_METADATA_ONLY_BLOCK)
+        _install_capture(self, _CaptureScript(_METADATA_ONLY_BLOCK))
+        _install_staleness(self)
+        sig_before = app._concern_sig_latest.get("%1")
+        self.assertIsNotNone(sig_before, "precondition: the record must sign")
+        _run(app._offer_concerns())
+        self.assertEqual(app.spy_notify, [])
+        self.assertFalse(app._has_fresh_concerns("%1"))
+        self.assertEqual(app._concern_sig_latest.get("%1"), sig_before)
+
+    def test_metadata_only_clean_round_is_verified_only_once(self):
+        app = self._app(content=_METADATA_ONLY_BLOCK)
+        script = _install_capture(
+            self, _CaptureScript(*([_METADATA_ONLY_BLOCK] * 3))
+        )
+        _install_staleness(self)
+        for _ in range(3):
+            app._scan_concern_signatures()
+            _run(app._offer_concerns())
+        self.assertEqual(len(script.calls), 1)
+
+    def test_header_with_dropped_prose_badges_like_any_malformed_block(self):
+        """Strict certification (t1159_1 review fix): dropped prose is
+        investigable, so the badge must STAND — the clean-round branch must
+        not swallow it."""
+        app = self._app(content=_HEADER_PLUS_PROSE_BLOCK)
+        _install_capture(self, _CaptureScript(_HEADER_PLUS_PROSE_BLOCK))
         _install_staleness(self)
         _run(app._offer_concerns())
         self.assertEqual(app.spy_notify, [])

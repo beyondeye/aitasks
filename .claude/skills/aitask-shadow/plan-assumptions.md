@@ -76,9 +76,23 @@ agent's pane.
    line between them. The concern lines themselves look like:
 
    ```
+   Round: 1 @ 2026-08-11T14:03:27Z
    - [high | sequencing] The plan assumes sibling t1037_1's parser has already landed, but nothing in it verifies that. If the parser isn't there yet, the emitted block has no consumer and the whole feature silently does nothing — no error, just a no-op that looks like success in a demo. Worth confirming the parser module exists (or wiring it as an explicit dependency) before relying on it; how to sequence that is your call.
    - [medium | behavior of other code] The plan assumes aitask_shadow_capture.sh hands the parser wrap-joined lines, but the capture call omits tmux's -J flag. Long concern bodies will then split mid-word at the pane edge and the parser's space-join will stitch the fragments with a stray space inside a word. It only surfaces on bodies long enough to wrap, so it passes short-example tests and breaks in real use. Adding -J (or otherwise rejoining) at the capture site would fix it — exact spot left to you.
    ```
+
+   **Emit a round header as the first line inside the block.** Immediately
+   after the opening fence — before the first `- [` marker — emit exactly one
+   line of the form `Round: <N> @ <timestamp>`, for example
+   `Round: 2 @ 2026-08-11T14:03:27Z`. If the request that triggered this review
+   names a round ("recheck round N"), use that N; otherwise N is 1 for the
+   first review you run in this conversation and increments by one on each
+   later review you run in it (any review sub-procedure counts; a fresh shadow
+   session starts at 1 again — the timestamp is what disambiguates). Obtain the
+   timestamp by running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A
+   **zero-concern** review (nothing found, or suppression removed everything)
+   still emits the block: the two fences with only this header between them,
+   which is the machine-readable record that the round completed clean.
 
    Rules — all load-bearing for minimonitor's parser; match them exactly:
    - One concern per line, in the form `- [priority | region] body`.
@@ -120,5 +134,15 @@ agent's pane.
      the block. When no task id can be resolved, say suppression was skipped.
    - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
      auto-offer only fires on a complete block.
-   - Emit the block **only when you have at least one assumption worth
-     forwarding** after suppression; otherwise omit it entirely and say so.
+   - **Round header.** The first line after the opening fence is
+     `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the
+     first `- [` marker — placed after an item it is absorbed into that item's
+     body and the round is lost — and it must never itself begin with `- [`.
+     Take N from the request when it names a round ("recheck round N"), else
+     count from 1 within this conversation; get the timestamp from
+     `date -u +%Y-%m-%dT%H:%M:%SZ`, never by estimate. A **zero-concern**
+     review — no assumption worth forwarding after suppression — still emits
+     the fences with only this header between them (say so in the prose).
+     Minimonitor reads the header to show the round, to re-offer the picker
+     when a later round repeats the same concerns, and to judge concern
+     freshness.
