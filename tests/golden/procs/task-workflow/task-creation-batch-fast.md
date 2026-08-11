@@ -85,6 +85,7 @@ The closing `TASK_DESC` must be on its own line with no leading whitespace.
   --effort <effort> \
   --type <issue_type> \
   --labels "<labels>" \
+  --gates "risk_evaluated" \
   --desc-file - <<'TASK_DESC'
 <description>
 TASK_DESC
@@ -100,6 +101,7 @@ TASK_DESC
   --effort <effort> \
   --type <issue_type> \
   --labels "<labels>" \
+  --gates "risk_evaluated" \
   --desc-file - <<'TASK_DESC'
 <description>
 TASK_DESC

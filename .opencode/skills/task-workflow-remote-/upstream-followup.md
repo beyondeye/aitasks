@@ -90,8 +90,10 @@ On "Yes, create follow-up task", execute the **Batch Task Creation Procedure** (
 
 - `priority`: `medium` (default; bump to `high` only if the defect is actively breaking other flows).
 - `effort`: `low` unless the diagnostic context suggests otherwise.
-- `issue_type`: `bug`.
+- `issue_type`: `bug`. An upstream defect genuinely *is* a bug and deserves the bug workflow — the provenance is carried by `followup_kind`, not by the type.
 - `labels`: copy any topical labels from the current task. The user can adjust later.
+- `followup_of`: `<task_id>` — the task this defect was spawned from, so the follow-up clusters with its origin in the board's By-Topic view instead of becoming a standalone topic root.
+- `followup_kind`: `upstream_defect`.
 
 After the helper prints `Created: <filepath>`, display:
 

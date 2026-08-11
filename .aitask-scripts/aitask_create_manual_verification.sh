@@ -109,6 +109,7 @@ main() {
     local -a create_args=(
         --batch
         --type manual_verification
+        --followup-kind manual_verification
         --priority medium
         --effort medium
         --labels "verification,manual"
@@ -118,10 +119,25 @@ main() {
         --commit
     )
     if [[ -n "$PARENT" ]]; then
+        # A child created with --parent auto-inherits the parent's anchor, and
+        # --followup-of is REJECTED alongside --parent — so this branch must not
+        # thread it.
         create_args+=(--parent "$PARENT")
     else
         local bare_related; bare_related=$(strip_t_prefix "$RELATED")
         create_args+=(--deps "$bare_related")
+        # Best-effort topic anchor (t1468_2), mirroring
+        # aitask_verification_followup.sh: thread --followup-of only when the
+        # origin actually resolves. --related is a loose reference (it may name
+        # a commit-only task with no file) and --followup-of validation *dies*
+        # on an unresolvable id, so an unconditional flag would turn a
+        # previously-working creation into a hard failure. Skipping it leaves
+        # the task a topic root — exactly the prior behaviour.
+        local origin_status
+        origin_status=$("$SCRIPT_DIR/aitask_query_files.sh" task-status "$bare_related" 2>/dev/null || true)
+        if [[ "$origin_status" == STATUS:* && "$origin_status" != STATUS:NOT_FOUND ]]; then
+            create_args+=(--followup-of "$bare_related")
+        fi
     fi
 
     # Run create; capture combined output so we can surface errors.

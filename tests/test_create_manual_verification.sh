@@ -61,6 +61,9 @@ setup_project() {
     cp "$PROJECT_DIR/.aitask-scripts/aitask_fold_mark.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.py" .aitask-scripts/
+    # Required by the best-effort --followup-of probe in --related mode (t1468_2)
+    # and by aitask_create.sh's own --followup-of validation.
+    cp "$PROJECT_DIR/.aitask-scripts/aitask_query_files.sh" .aitask-scripts/
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/archive_scan.sh" .aitask-scripts/lib/
@@ -146,6 +149,67 @@ test_happy_path_related_mode() {
     assert_contains "second item present" "- [ ] Close restores focus" "$body"
     assert_contains "frontmatter type is manual_verification" "issue_type: manual_verification" "$body"
     assert_contains "frontmatter records dep on related" "depends: [42]" "$body"
+    assert_contains "frontmatter records manual_verification provenance" \
+        "followup_kind: manual_verification" "$body"
+
+    # FAIL-SAFE BASELINE (t1468_2). No t42 exists in this fixture, so `--related
+    # 42` is an UNRESOLVABLE origin. `aitask_create.sh --followup-of` *dies* on
+    # an unresolvable id, so the anchor threading added in t1468_2 must be
+    # probe-guarded: this creation has to keep succeeding and simply stay a
+    # topic root. This assertion passed before that change and must pass
+    # unchanged after — it is what proves the probe, not the flag, was added.
+    assert_not_contains_re "unresolvable origin leaves the task a topic root" \
+        '^anchor:' "$body"
+
+    teardown
+}
+
+# The companion to the fail-safe baseline above: when the origin DOES resolve,
+# the standalone manual-verification follow-up must actually join its topic.
+# Without this the guard could be satisfied by never threading the flag at all.
+test_related_mode_anchors_to_resolvable_origin() {
+    echo "=== Test: --related mode anchors to a resolvable origin ==="
+    setup_project
+
+    # A real origin task, so the anchor probe resolves.
+    mkdir -p aitasks
+    {
+        printf '%s\n' "---" "priority: medium" "effort: low" "depends: []" \
+            "issue_type: feature" "status: Ready" "labels: []" \
+            "created_at: 2026-01-01 10:00" "updated_at: 2026-01-01 10:00" "---"
+        printf '\nOrigin body\n'
+    } > aitasks/t77_origin_feature.md
+    git add -A; git commit -m "seed origin" --quiet
+
+    local items
+    items="$(mktemp)"
+    printf 'Origin behaviour still holds\n' > "$items"
+
+    local out rc
+    out=$(bash .aitask-scripts/aitask_create_manual_verification.sh \
+            --name mv_from_t77 \
+            --verifies 77 \
+            --related 77 \
+            --items "$items" 2>&1) && rc=0 || rc=$?
+    rm -f "$items"
+
+    assert_eq "wrapper exits 0 with a resolvable origin" "0" "$rc"
+
+    local new_path body
+    new_path=$(created_path_from_output "$out")
+    if [[ -z "$new_path" || ! -f "$new_path" ]]; then
+        FAIL=$((FAIL + 1)); TOTAL=$((TOTAL + 1))
+        echo "FAIL: task path not resolvable or file missing"
+        echo "  out: $out"
+        teardown
+        return
+    fi
+    body=$(cat "$new_path")
+
+    assert_contains "resolvable origin yields the origin's topic root" "anchor: 77" "$body"
+    assert_contains "still records manual_verification provenance" \
+        "followup_kind: manual_verification" "$body"
+    assert_contains "dep on the origin is unchanged" "depends: [77]" "$body"
 
     teardown
 }
@@ -200,6 +264,7 @@ teardown_all() {
 trap teardown_all EXIT
 
 test_happy_path_related_mode
+test_related_mode_anchors_to_resolvable_origin
 test_empty_items_file_errors_cleanly
 test_syntax_check
 

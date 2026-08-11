@@ -156,6 +156,13 @@ Parse the output lines: `EXISTING:` labels pass through; for `NEAR:<label>:<cand
 
 Then create the single task (sanitize the base tag for the name: `v0.1.2` → `v0_1_2`):
 
+This seam **deliberately bypasses the shared Batch Task Creation Procedure** and
+inlines the command, so it gets neither the profile's `--gates` auto-injection
+nor `--followup-of`. `--followup-kind` is therefore passed here directly rather
+than through the shared contract; keep the two in sync when the vocabulary
+changes. (Converting this to the shared template would also change its
+gate-declaration behaviour, so it belongs in its own task.)
+
 ```bash
 ./.aitask-scripts/aitask_create.sh --batch --commit \
   --name "docs_gaps_since_<sanitized_base_tag>" \
@@ -163,6 +170,7 @@ Then create the single task (sanitize the base tag for the name: `v0.1.2` → `v
   --effort <derived_effort> \
   --type documentation \
   --labels "<confirmed_csv>" \
+  --followup-kind docs_gap \
   --desc-file - <<'TASK_DESC'
 <description>
 TASK_DESC

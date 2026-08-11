@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 13 wrapped .md files (7 profile-varying + 6 profile-invariant)
-#   - 27 golden files under tests/golden/procs/task-workflow/
+#   - 14 wrapped .md files (8 profile-varying + 6 profile-invariant)
+#   - 30 golden files under tests/golden/procs/task-workflow/
 # Coverage:
-#   1.  Per-(file, profile) golden diff for the 7 profile-varying wrapped
+#   1.  Per-(file, profile) golden diff for the 8 profile-varying wrapped
 #       files × 3 profiles.
 #   1b. remote-drift-check is profile-invariant — a single canonical golden
 #       plus a byte-equality assertion across all 3 profile renders.
@@ -60,6 +60,12 @@ WRAPPED_FILES_VARYING=(
     "manual-verification-followup.md"
     "auto-verification.md"
     "satisfaction-feedback.md"
+    # The shared creation contract. Profile-varying via the default_gates
+    # injection: `fast` renders `--gates "risk_evaluated"` into both command
+    # forms, `default` and `remote` render neither. Added in t1468_2 — it had no
+    # golden at all until then, so template drift in the one file every
+    # task-creating seam routes through was invisible to this suite.
+    "task-creation-batch.md"
 )
 WRAPPED_FILES_INVARIANT=(
     "remote-drift-check.md"
@@ -74,7 +80,7 @@ AGENTS=(claude codex opencode)
 
 # === Test 1: Per-(file, profile) golden diff (profile-varying files) ===
 
-echo "=== Test 1: golden diffs for 7 profile-varying wrapped files × 3 profiles ==="
+echo "=== Test 1: golden diffs for 8 profile-varying wrapped files × 3 profiles ==="
 for file in "${WRAPPED_FILES_VARYING[@]}"; do
     stem="${file%.md}"
     for profile in "${PROFILES[@]}"; do

@@ -204,12 +204,17 @@ main() {
         followup_args=(--followup-of "$origin")
     fi
 
+    # --followup-kind is UNCONDITIONAL provenance and belongs here, not in
+    # followup_args: that array is gated on the origin resolving, so folding the
+    # kind into it would silently drop provenance for exactly the commit-only
+    # origins the guard above exists to tolerate (t1468_2).
     local new_path
     if ! new_path=$("$SCRIPT_DIR/aitask_create.sh" --batch --silent \
             --type bug --priority medium --effort medium \
             --name "$bug_name" \
             --labels verification,bug \
             --deps "$origin" \
+            --followup-kind verification_failure \
             ${followup_args[@]+"${followup_args[@]}"} \
             --desc-file "$tmp" --commit 2>&1); then
         echo "ERROR:aitask_create.sh failed: $new_path"

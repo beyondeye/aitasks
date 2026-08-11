@@ -388,8 +388,9 @@ also governs Part 3, which reuses these branches.)
       `children_to_implement`). Use the line's `name` / `type` / `priority` /
       `effort`; copy topical `labels` from the original task. Pass
       `followup_of: <task_id>` (the original task) so the mitigation anchors to
-      the topic it protects. Capture `<new_id>` from the `Created: <filepath>`
-      output.
+      the topic it protects, and `followup_kind: risk_mitigation` so the task is
+      machine-identifiable as an auto-spawned follow-up rather than new work.
+      Capture `<new_id>` from the `Created: <filepath>` output.
    3. **Persist the witness durably — before touching the next line.** Write
       `| created: t<new_id>` on the line (append it; for a stale-witness
       re-create, **replace** the old witness in place instead), then
@@ -512,7 +513,8 @@ behavior — "after" mitigations block nothing.
    `Risk-mitigation ("after") follow-up for t<task_id>,` in `## Origin` —
    comma included, end-of-line not anchored, as in Part 2), then Batch Task
    Creation
-   (`mode: parent`, same field mapping, `followup_of: <task_id>`), then the
+   (`mode: parent`, same field mapping, `followup_of: <task_id>`,
+   `followup_kind: risk_mitigation`), then the
    durable per-item witness write **committed immediately** via `./ait git`.
    Description heredoc:
 

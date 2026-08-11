@@ -161,6 +161,8 @@ test_resolvable_origin_anchors() {
         body=$(cat "$new_path")
         assert_contains "bug task anchored to origin topic root" "anchor: 42" "$body"
         assert_contains "bug task still depends on origin" "depends: [42]" "$body"
+        assert_contains "bug task records verification_failure provenance" \
+            "followup_kind: verification_failure" "$body"
     fi
 
     teardown
@@ -194,6 +196,12 @@ test_unresolvable_origin_no_anchor() {
         body=$(cat "$new_path")
         assert_not_contains "no anchor line for unresolvable origin" "anchor:" "$body"
         assert_contains "bug task still depends on origin" "depends: [77]" "$body"
+        # Provenance is UNCONDITIONAL, anchoring is not. The kind must never be
+        # folded into the conditional `followup_args` array beside
+        # --followup-of: doing so silently drops provenance for exactly the
+        # commit-only origins this branch exists to tolerate.
+        assert_contains "provenance survives an unresolvable origin" \
+            "followup_kind: verification_failure" "$body"
     fi
 
     teardown

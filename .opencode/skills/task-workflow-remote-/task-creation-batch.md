@@ -112,11 +112,17 @@ Add `--no-sibling-dep` after `--parent <parent_num>` if `no_sibling_dep` is `tru
 Append these flags before `--desc` or `--desc-file` when provided:
 
 ```bash
+  --followup-kind "<followup_kind>" \
   --issue "<issue_url>" \
   --pull-request "<pull_request_url>" \
   --contributor "<contributor>" \
   --contributor-email "<contributor_email>" \
 ```
+
+**`followup_kind` is orthogonal to anchoring, and unlike `anchor` /
+`followup_of` it is legal alongside `--parent`.** A follow-up created as a child
+still records how it came to exist, even though its topic grouping is
+parent-derived. Only the two anchoring flags are rejected with `--parent`.
 
 ### Topic anchoring (grouping)
 

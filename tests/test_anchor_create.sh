@@ -291,6 +291,39 @@ test_finalize_preserves_anchor() {
     teardown
 }
 
+# The exact flag shape upstream-followup.md dispatches after t1468_2. The two
+# flags are independent in the CLI but must land TOGETHER on the created task:
+# the kind alone still leaves the follow-up a topic root, which is precisely the
+# defect t1468_2 fixes (58 upstream-defect follow-ups unclustered in By-Topic).
+# A content check on the skill file cannot see this — only a real create can.
+test_upstream_defect_followup_shape() {
+    echo "=== Test: upstream-defect follow-up shape (--followup-of + --followup-kind) ==="
+    setup_project
+    seed_task aitasks/t42_root.md
+    seed_task aitasks/t50_followup.md "anchor: 42"
+    git add -A; git commit -m "seed" --quiet
+
+    local f
+    # Anchorless origin: the anchor becomes the origin's OWN id, not a missing
+    # key. This is the common case — most origin tasks are topic roots.
+    f=$(make_draft --name up_defect --desc x --type bug \
+            --followup-of 42 --followup-kind upstream_defect)
+    assert_eq "anchors to the anchorless origin itself" \
+        "42" "$(read_frontmatter_field "$f" anchor)"
+    assert_eq "records upstream_defect provenance" \
+        "upstream_defect" "$(read_frontmatter_field "$f" followup_kind)"
+
+    # Origin that is itself a follow-up: still the shared root (never chains).
+    f=$(make_draft --name up_defect_of_followup --desc x --type bug \
+            --followup-of 50 --followup-kind upstream_defect)
+    assert_eq "follow-up of a follow-up flattens to the shared root" \
+        "42" "$(read_frontmatter_field "$f" anchor)"
+    assert_eq "still records upstream_defect provenance" \
+        "upstream_defect" "$(read_frontmatter_field "$f" followup_kind)"
+
+    teardown
+}
+
 teardown_all() {
     local d
     for d in "${CLEANUP_DIRS[@]}"; do
@@ -304,6 +337,7 @@ test_followup_flatten
 test_child_inherit
 test_guards
 test_finalize_preserves_anchor
+test_upstream_defect_followup_shape
 
 echo ""
 echo "=========================="

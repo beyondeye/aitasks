@@ -138,6 +138,12 @@ test_carryover_anchored_to_origin() {
         local fm
         fm="$(cat "$carryover_file")"
         assert_contains "carry-over anchored to original topic root" "anchor: 200" "$fm"
+        # The KIND is carry_over, not manual_verification, even though the task
+        # is created with --type manual_verification: the kind records how the
+        # task came to exist, the type records how it is worked. The MV
+        # cross-field invariant is one-directional and permits this pairing.
+        assert_contains "carry-over records carry_over provenance" \
+            "followup_kind: carry_over" "$fm"
     fi
 
     teardown

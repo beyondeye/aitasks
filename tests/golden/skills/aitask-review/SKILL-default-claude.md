@@ -184,6 +184,7 @@ Execute the **Batch Task Creation Procedure** (see `../task-workflow/task-creati
 - effort: `<e>`
 - issue_type: `feature`
 - labels: `"review"`
+- followup_kind: `review_finding`
 - description: formatted list of all selected findings with file:line, description, severity, and suggested fix
 
 Read back the created task file:
@@ -200,6 +201,7 @@ Read back the created task file:
    - effort: `medium`
    - issue_type: `feature`
    - labels: `"review"`
+   - followup_kind: `review_finding`
    - description: `"Code review of <target area>. Child tasks contain individual findings grouped by <mode/finding>."`
 
 2. Read back parent task ID:
@@ -216,6 +218,7 @@ Read back the created task file:
    - effort: `<e>`
    - issue_type: `feature`
    - labels: `"review"`
+   - followup_kind: `review_finding`
    - description: findings for this group/finding with file:line, description, severity, and suggested fix
 
 ### Step 5: Decision Point

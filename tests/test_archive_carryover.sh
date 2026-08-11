@@ -46,6 +46,7 @@ DESC=""
 DESC_FILE=""
 VERIFIES=""
 TYPE=""
+FOLLOWUP_KIND=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --name) NAME="$2"; shift 2 ;;
@@ -53,6 +54,7 @@ while [[ $# -gt 0 ]]; do
         --desc-file) DESC_FILE="$2"; shift 2 ;;
         --verifies) VERIFIES="$2"; shift 2 ;;
         --type) TYPE="$2"; shift 2 ;;
+        --followup-kind) FOLLOWUP_KIND="$2"; shift 2 ;;
         --batch|--commit|--silent) shift ;;
         --priority|--effort) shift 2 ;;
         *) shift ;;
@@ -91,6 +93,9 @@ TIMESTAMP="$(date +"%Y-%m-%d %H:%M")"
     if [[ -n "$VERIFIES" ]]; then
         formatted="[$(echo "$VERIFIES" | sed "s/,/, /g")]"
         echo "verifies: $formatted"
+    fi
+    if [[ -n "$FOLLOWUP_KIND" ]]; then
+        echo "followup_kind: $FOLLOWUP_KIND"
     fi
     echo "created_at: $TIMESTAMP"
     echo "updated_at: $TIMESTAMP"

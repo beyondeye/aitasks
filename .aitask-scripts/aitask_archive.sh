@@ -599,11 +599,17 @@ create_carryover_task() {
     local orig_id
     orig_id=$(echo "$orig_basename" | sed -E 's/^t([0-9]+(_[0-9]+)?)_.*/\1/')
     local carryover_desc="Carry-over of deferred manual-verification items from t${orig_id}. Re-pick this task to continue the remaining checklist."
+    # followup_kind is carry_over, NOT manual_verification: the kind records how
+    # the task came to exist, --type records how it is worked. The MV
+    # cross-field invariant is one-directional (kind manual_verification
+    # requires type manual_verification, not the converse), so this pairing is
+    # legal (t1468_2).
     local create_args=(--batch --commit --silent
         --name "$carryover_name"
         --desc "$carryover_desc"
         --type manual_verification
         --priority medium --effort low
+        --followup-kind carry_over
         --followup-of "$orig_id")
     if [[ -n "$orig_verifies" ]]; then
         create_args+=(--verifies "$orig_verifies")
