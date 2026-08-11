@@ -243,3 +243,65 @@ assertion, so the levels above are unchanged.*
    view). The backup restore put it back.
 
 Step 9 (Post-Implementation) handles archival and merge.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-11 14:20)
+
+- **Requested by user:** the plan's only end-to-end verification (the live
+  `ait board` settings smoke) was still unrun. Run it, or explicitly accept the
+  interactive verification gap.
+- **Changes made:** ran it for real, and closed the gap permanently rather than
+  accepting it. (a) Drove `ait board` in a tmux pane against the real repo with
+  a backup/restore round-trip — result recorded under Verification step 4.
+  (b) Added `tests/test_board_settings_dialog.py` (Implementation step 4), so
+  the dialog→disk→notification path has standing coverage instead of a one-off
+  manual check. Plan Verification step 1 now names both test modules.
+- **Files affected:** `tests/test_board_settings_dialog.py` (new),
+  `aiplans/p1480_board_save_metadata_dead_code.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** exactly the approved plan, plus the review-round
+  addition above. `_write_user_layer` lost its vacuous `if not user_data:
+  return` and gained a docstring stating the unconditional contract;
+  `TaskManager.auto_refresh_minutes` lost its zero-caller setter and its getter
+  now documents why the property is read-only.
+  `tests/test_board_persistence_seam.py` gained `UserLayerWriteContractTests`,
+  `UserLayerNegativeControlTests` and `AutoRefreshMinutesIsReadOnlyTests`, with
+  `_manager` lifted from `CallSiteMappingTests` to `_TreeCase`.
+  `tests/test_board_settings_dialog.py` is new.
+- **Deviations from plan:** two. (1) The negative control could not reuse
+  `NegativeControlTests._under` — that helper hardwires
+  `mock.patch.object(B.Task, "reload_and_save_board_fields", body)`, so it can
+  only mutate that one seam. The control follows its *discipline* (shared
+  `_assert_*` helper so the real test and the control run identical code;
+  `assertRaises` pinned to the exact message) in its own class, which also
+  avoids churning the four existing controls. (2) Step 4 (the dialog module) was
+  added during review and was not in the approved plan.
+- **Issues encountered:** the first live-smoke attempt appeared to show the `O`
+  Options binding not working — three presses, no modal. It was not a defect:
+  keys were reaching the app (a `ctrl+p` positive control opened the command
+  palette), and a clean re-boot with an `escape` first opened the modal on the
+  first `O`. The initial session simply had the search input holding focus, so
+  `O` was consumed as text. Worth recording because "the key does nothing" was
+  the wrong conclusion and nearly became a spurious follow-up task.
+- **Key decisions:**
+  - **Chose "always write" over "skip when unchanged"** for the guard (user
+    decision). The rejected reading survives as the negative control, which is
+    what makes the semantics test discriminating rather than merely descriptive.
+  - **Deleted the setter rather than routing the dialog through it.**
+    `SettingsScreen` dismisses with `auto_refresh_minutes` *and*
+    `sync_on_refresh`, and the latter has no property — a per-key setter cannot
+    express that payload, so `settings.update()` stays the single write path.
+  - **Deliberately did NOT test `_write_user_layer({})`.** An earlier plan
+    revision did, on the reasoning that a direct call is the only way to observe
+    the guard's absence. Withdrawn on review: no caller can produce an empty
+    payload, so pinning it (and documenting the truncation it causes) would
+    convert a dead-code cleanup into a supported, destructive private-method
+    contract. The tests pin the semantics the guard *misrepresented* instead,
+    through the public `save_settings()` seam.
+  - **Verified non-vacuity by mutation, out of tree.** Stubbing `save_settings`
+    to a no-op makes the dialog test fail on its disk assertion (`0 != 1`) while
+    its in-memory assertion still passes — so the disk oracle is live.
+- **Upstream defects identified:** None.
