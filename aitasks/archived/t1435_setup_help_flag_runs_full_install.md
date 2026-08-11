@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [development]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1432
 implemented_with: claudecode/opus5
 created_at: 2026-08-05 17:38
-updated_at: 2026-08-11 17:56
+updated_at: 2026-08-11 18:57
+completed_at: 2026-08-11 18:57
 ---
 
 ## Origin
