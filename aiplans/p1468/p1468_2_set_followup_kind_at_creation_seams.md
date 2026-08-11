@@ -450,8 +450,13 @@ No new frontmatter field, so no Layer-5 sweep. Two touch-ups only:
 5. `bash tests/test_create_manual_verification_gates.sh` — still green (it owns
    the `task-creation-batch.md` template→rendered→sink equivalence pin that §1.2
    touches).
-6. `bash tests/test_skill_render_task_workflow.sh` — green **with** the three new
-   `task-creation-batch-*.md` goldens and the updated count.
+6. `bash tests/test_skill_render_task_workflow.sh` — the three new
+   `task-creation-batch-*.md` goldens pass and the counts are updated.
+   **Expect 3 pre-existing failures** (`golden SKILL × {default,fast,remote}`):
+   t1466 edited `task-workflow/SKILL.md` without regenerating its goldens, and
+   repairing that is deliberately **out of scope here** (see Post-Review
+   Changes 1). Assert the failure set is exactly those three and that the count
+   of passing tests rose by 3.
 7. `./.aitask-scripts/aitask_skill_verify.sh` — clean.
 8. `bash tests/run_all_python_tests.sh` — read the **last** line for the verdict
    (`set -o pipefail` if piping).
@@ -520,3 +525,188 @@ disposition table that could omit a whole discovery-predicate class.
 - timing: pre-phase | name: mv_anchor_failsafe_baseline | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — adding --followup-of to the MV seeder could turn a working creation into a die | desc: pin that standalone MV creation with an unresolvable --related succeeds today and require the same assertion to pass unchanged after the conditional probe is added
 - timing: pre-phase | name: kind_independent_of_anchor_resolution | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — folding the kind into the conditional followup_args array makes provenance depend on anchor resolution | desc: argv case driving aitask_verification_followup.sh with an unresolvable origin, asserting the kind is present while --followup-of is absent
 - timing: pre-phase | name: guarded_assert_nonvacuity_counter | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — guarded rendered-variant assertions all skip on a fresh clone | desc: build a non-vacuity counter into the guarded rendered assertions so a zero-executed run fails loudly instead of reporting green
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-11 00:05)
+- **Requested by user:** Three concerns raised at the Step-8 review, all
+  verified as valid before acting.
+  1. **[high · commit scope]** The unstaged composite had grown
+     `.aitask-scripts/board/aitask_board.py` and
+     `tests/test_board_persistence_seam.py` — neither named by this task or
+     plan. Committing them here would merge unrelated board work into t1468_2's
+     history.
+  2. **[high · commit scope]** The diff refreshed
+     `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md` to cure
+     stale t1466 goldens, although t1468_2 neither changes
+     `task-workflow/SKILL.md` nor plans those files. Repairing a pre-existing
+     regression fixture inside this task obscures provenance.
+  3. **[low · test hygiene]** `derive_p3()` in `tests/test_followup_kind_seams.sh`
+     emitted `grep: write error: Broken pipe` on stderr: `grep -v … | grep -q …`
+     lets the downstream `grep -q` exit at its first match and close the pipe.
+     The pipeline still returned success, so the noise hid under a green result.
+- **Verdict:** all three CONFIRMED.
+  1. Confirmed foreign: the two files appeared in `git status` *after* this
+     session's pre-rerender cleanliness check, and their own added comments name
+     t1480 (`# --- t1480: the USER config layer ---`, `t1480 retired a dead one`).
+     A concurrent session is active in this tree.
+  2. Confirmed pre-existing, not caused here: this tree's
+     `task-workflow/SKILL.md` is **byte-identical to HEAD**, and rendering
+     *HEAD's own copy* still differs from the committed golden — so the staleness
+     exists at HEAD independently of t1468_2. `git log` confirms the source last
+     changed in `4f8d0387e` (t1466) while the goldens last changed in
+     `4ba78d1c7` (t1272).
+  3. Confirmed by capturing stderr separately: the run wrote a non-empty stderr
+     stream while exiting 0.
+- **Changes made:**
+  1. No file change needed — the staging discipline this plan already mandates
+     (explicit path allowlist, never `git add -A`) covers it. The two t1480
+     files are left untouched and unstaged, and the allowlist is enumerated
+     explicitly at commit time.
+  2. Reverted the three `SKILL-*.md` goldens to HEAD with a path-scoped
+     `git checkout --`. The repair is **out of scope** for t1468_2 and is
+     recorded as an upstream defect instead, so it can be fixed under its own
+     tracking. Verification step 6 was rewritten to expect exactly those three
+     pre-existing failures rather than a fully green suite — an honest
+     expectation beats a green one bought with someone else's fix.
+  3. Replaced the two-stage pipeline in `derive_p3()` with a single `awk`
+     predicate (skip comment lines, match an `aitask_create.sh` invocation),
+     which has no downstream reader to close the pipe.
+- **Verification after the changes:** `tests/test_followup_kind_seams.sh` is
+  **55/55** with the derived P3 set unchanged and **0 bytes on stderr**;
+  `tests/test_skill_render_task_workflow.sh` is 184 tests / 181 passed with the
+  failure set exactly `golden SKILL × {default,fast,remote}` — the three
+  pre-existing ones — and the three new `task-creation-batch-*` goldens passing.
+- **Files affected:** `tests/test_followup_kind_seams.sh` (awk predicate),
+  `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md` (reverted),
+  this plan (verification step 6 + this section).
+
+## Final Implementation Notes
+
+- **Actual work done:** All twelve creation seams now set `followup_kind`, plus
+  the two topic-anchoring fixes and the golden-coverage gap. 20 files changed
+  (9 source, 3 shell helpers → counted within, 6 rendered/golden, 6 tests), 1
+  test file added.
+  - **Shared contract** (`task-creation-batch.md`): `--followup-kind
+    "<followup_kind>"` added to `### Optional flags`, plus a note that the kind
+    is orthogonal to anchoring and — unlike `anchor` / `followup_of` — **is**
+    legal alongside `--parent`. Verification found that ambiguity was real: the
+    QA child branch carries an exclusion note that reads as covering the kind
+    too.
+  - **Nine skill seams:** risk-mitigation-followup ×2 (prose), upstream-followup
+    (+ `followup_of`), aitask-qa ×2 branches, aitask-review ×3 sites,
+    aitask-docs-gap (inline, with a comment naming the divergence).
+  - **Three shell helpers:** `aitask_archive.sh` → `carry_over`,
+    `aitask_create_manual_verification.sh` → `manual_verification` (+ the
+    probe-guarded `--followup-of` on the standalone branch),
+    `aitask_verification_followup.sh` → `verification_failure`.
+  - **Golden coverage:** `task-creation-batch.md` added to
+    `WRAPPED_FILES_VARYING` with three new goldens; all four stale count sites
+    updated (14 wrapped / 8 varying / 30 goldens).
+- **Deviations from plan:**
+  - **The argv suite became real-file assertions in the three existing helper
+    tests, not a new `tests/test_followup_kind_helper_argv.sh`.** Verification
+    found each helper already has a real-file anchor test with exactly the right
+    fixture (`test_create_manual_verification.sh`,
+    `test_verification_followup_anchor.sh`, `test_archive_carryover_anchor.sh`),
+    including a resolvable/unresolvable-origin pair. Asserting the emitted
+    frontmatter there is strictly stronger than asserting argv against a stub,
+    and avoids duplicating three scaffolds. The exhaustiveness table still lives
+    in one place (`test_followup_kind_seams.sh`), which is what the AC asks for.
+  - **The upstream anchor proof went into `tests/test_anchor_create.sh`** (which
+    owns `--followup-of` semantics) rather than the new file.
+  - **`aitask-review`'s `followup_of` expectation is 1, not 0.** The plan
+    reasoned "reviews are topic roots by design ⇒ absent", but the file carries
+    a conditional-guidance line ("Only pass `followup_of: <reviewed_task_id>`
+    when the review clearly stems from one specific task"). The count is pinned
+    at its true value with a comment explaining it is guidance, not a dispatch
+    parameter.
+  - **Assertions normalise backticks.** The seam files disagree on markdown
+    house style — upstream-followup backticks its parameter *keys*, aitask-qa
+    and aitask-review backtick only *values*, risk-mitigation-followup wraps the
+    whole pair. Stripping backticks before matching keeps the assertion about
+    the parameter being passed rather than each file's formatting.
+- **Issues encountered:**
+  - **A concurrent session is active in this tree.** `main` advanced twice
+    mid-session (t1479 landed while planning), and
+    `.aitask-scripts/board/aitask_board.py` +
+    `tests/test_board_persistence_seam.py` (t1480) appeared as unstaged
+    modifications *after* the pre-rerender cleanliness check. Both were left
+    untouched and excluded from staging via an explicit path allowlist.
+  - **`tests/test_create_manual_verification.sh` had to copy
+    `aitask_query_files.sh`** into its scaffold: the new `--followup-of` probe
+    shells out to it, and the probe fails safe, so a missing script would have
+    silently produced "no anchor" instead of a visible error.
+- **Key decisions:**
+  - **Provenance is unconditional; anchoring is not.** In
+    `aitask_verification_followup.sh` the kind is a plain flag on the inline
+    command, deliberately *not* folded into the origin-conditional
+    `followup_args` array — otherwise a commit-only origin would silently lose
+    provenance. Pinned by an assertion in the unresolvable-origin branch.
+  - **The MV seeder's new anchor is probe-guarded.** `--followup-of` *dies* on
+    an unresolvable id and `--related` is a loose reference, so an unconditional
+    flag would have converted a working creation into a hard failure.
+  - **Discovery is execution-only.** Three narrow dispatch-shaped predicates
+    (P1/P2/P3) replace mention-based scanning, which dropped all six
+    mention-only files without a hand-maintained exclusion list and removed the
+    need for a fuzzy "doc reference" disposition class.
+- **Verification results:**
+  - `negctrl_seam_table_red_first`: **RED before any seam was edited** —
+    26 passed / 29 failed of 55, failing assertions including
+    `task-workflow/upstream-followup.md emits followup_kind: upstream_defect
+    exactly 1 time(s)`, `… references followup_of: exactly 1 time(s)`,
+    `aitask_archive.sh emits --followup-kind carry_over exactly 1 time(s)` and
+    the 12 rendered-tree assertions. **GREEN after: 55/55**, assertions
+    byte-unchanged. Test 1 (exhaustiveness) and Test 3 (vocabulary coverage)
+    passed from the start, confirming the tables matched the tree before the
+    behaviour changed.
+  - `mv_anchor_failsafe_baseline`: the unresolvable-origin assertion
+    ("unresolvable origin leaves the task a topic root") **passed before** the
+    §4b edit and **passes unchanged after**.
+  - `kind_independent_of_anchor_resolution`: provenance present in **both** the
+    resolvable and unresolvable branches.
+  - `guarded_assert_nonvacuity_counter`: probed by repointing the guarded paths
+    at non-existent files — the suite fails with "4 rendered tree(s) exist but 0
+    guarded assertions ran", both before and after implementation.
+  - Suites green: seams 55/55, followup_kind_roundtrip 31/31, anchor_create
+    24/24, create_manual_verification 18/18, verification_followup_anchor 12/12,
+    verification_followup 32/32, archive_carryover 13/13,
+    archive_carryover_anchor 5/5, create_manual_verification_gates 42/42, plus
+    18 further archive/gate/render suites (all rc=0).
+  - `tests/test_skill_render_task_workflow.sh`: 184 tests, 181 passed. The 3
+    failures are `golden SKILL × {default,fast,remote}` and are **pre-existing
+    at HEAD** (see Post-Review Changes 1) — the 3 new `task-creation-batch-*`
+    goldens pass.
+  - `bash tests/run_all_python_tests.sh`: `PYTHON SUITE: PASSED (runner=pytest,
+    exit=0)`.
+  - `./.aitask-scripts/aitask_skill_verify.sh`: OK (13 templates, 3 agents, 4
+    stub surfaces; wrapper parity clean).
+  - `shellcheck` on the three helpers: finding codes identical to HEAD
+    (6×SC1091, 5×SC2012, 3×SC2016) — no new findings.
+- **Upstream defects identified:**
+  - `tests/golden/procs/task-workflow/SKILL-default.md:1 — the three SKILL-*.md
+    goldens are stale at HEAD: commit 4f8d0387e (t1466) edited
+    .claude/skills/task-workflow/SKILL.md without regenerating them (goldens
+    last updated in 4ba78d1c7, t1272), so tests/test_skill_render_task_workflow.sh
+    has 3 failing golden diffs independent of any current work. Regenerating the
+    three files cures it; deliberately left out of t1468_2 to preserve
+    provenance.`
+- **Notes for sibling tasks:**
+  - **The vocabulary now has an emitter for all 8 kinds**, pinned by Test 3 of
+    `tests/test_followup_kind_seams.sh`: adding a ninth kind to
+    `lib/followup_kinds.py` fails that test until a seam emits it. t1468_3/_4/_5
+    should expect that guard.
+  - **`tests/test_followup_kind_seams.sh` is the registry of creation seams.**
+    Any sibling that adds or moves a task-creating seam must add a disposition
+    row (kind or `NONE`) or the exhaustiveness diff fails by name.
+  - **Rendered-assertion targets differ by tracking status.** Only
+    `task-workflow-remote-` (all three agent trees) is un-ignored in git;
+    `aitask-review-remote-` / `aitask-qa-remote-` are untracked. Assert against
+    the tracked prerenders or the tracked goldens; a `[[ -f ]]` guard on an
+    untracked path is vacuous on a fresh clone unless paired with a
+    non-vacuity counter.
+  - **`aitask_skill_rerender.sh` takes a positional profile and has no
+    `--force`** (that flag lives on `aitask_skill_render.sh`); one call per
+    profile loops all three agent trees.
