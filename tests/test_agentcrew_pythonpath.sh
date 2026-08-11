@@ -15,24 +15,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ORIG_DIR="$(pwd)"
 
-# File-based counters (work across subshells)
-COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_test_counters_XXXXXX")"
-echo "0 0 0" > "$COUNTER_FILE"
-trap 'rm -f "$COUNTER_FILE"; cd "$ORIG_DIR"' EXIT
-
-_inc_pass() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$((p + 1)) $f $((t + 1))" > "$COUNTER_FILE"
-}
-_inc_fail() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$p $((f + 1)) $((t + 1))" > "$COUNTER_FILE"
-}
-
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+
+# Test bodies run in `( … )` subshells, so the shared helpers' in-process
+# counters cannot survive to the footer — opt into the file-backed record.
+assert_counters_init
+trap 'rm -f "$AIT_ASSERT_COUNTER_FILE"; cd "$ORIG_DIR"' EXIT
 
 run_from() {
     local cwd="$1"
@@ -80,12 +69,12 @@ assert_not_contains "runner --check (foreign cwd): no ModuleNotFoundError" "Modu
 
 # --- Summary ---
 
-read -r PASSED FAILED TOTAL < "$COUNTER_FILE"
+assert_counters_load
 echo ""
 echo "=========================================="
-echo "Test Summary: $PASSED/$TOTAL passed"
-if [[ $FAILED -gt 0 ]]; then
-    echo "FAILED: $FAILED test(s) failed"
+echo "Test Summary: $PASS/$TOTAL passed"
+if [[ $FAIL -gt 0 ]]; then
+    echo "FAILED: $FAIL test(s) failed"
     exit 1
 fi
 echo "All tests passed!"

@@ -17,13 +17,14 @@ set -euo pipefail
 #    post-cleanup state. Test 2/3 below install for real and then hand off to the
 #    setup helper on that post-install repo.
 #
-# 2. It has a working exit path. These checks deliberately do NOT live in
-#    tests/test_crew_runner.sh: that script's footer reads a file-backed
-#    COUNTER_FILE that the shared asserts.sh helpers never write, so it prints
-#    `FAIL:` lines and still exits 0 — a regression there would be invisible to
-#    CI. (Pre-existing defect, logged separately.) Every assertion here is at top
-#    level, mutating the PASS/FAIL counters that the `[[ $FAIL -eq 0 ]]` footer
-#    actually reads.
+# 2. It has a working exit path. Every assertion here is at top level, mutating
+#    the in-process PASS/FAIL counters that the `[[ $FAIL -eq 0 ]]` footer reads,
+#    so this file needs no file-backed counter. (A file whose assertions run
+#    inside `( … )` subshells does: the in-process increments do not survive the
+#    subshell, and it must opt into assert_counters_init / assert_counters_load
+#    from tests/lib/asserts.sh. These checks were originally placed here rather
+#    than in tests/test_crew_runner.sh because that script had exactly that
+#    defect and exited 0 regardless; t1207 fixed it and the eleven files like it.)
 #
 # THE CONTRACT UNDER TEST
 #

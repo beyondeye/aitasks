@@ -185,6 +185,13 @@ Bash tests have no runner — each file under `tests/` is self-contained and pri
 bash tests/test_claim_id.sh
 ```
 
+A test file whose bodies run inside `( … )` subshells must opt into the
+file-backed counters from `tests/lib/asserts.sh`: call `assert_counters_init`
+after sourcing the library, and `assert_counters_load` in the footer before the
+`[[ "$FAIL" -eq 0 ]]` guard. The shared assertion helpers mutate in-process
+`PASS`/`FAIL`/`TOTAL` counters, which do not survive a subshell — without the
+opt-in, a file reports zero failures and exits 0 however many assertions failed.
+
 ### Python tests
 
 The Python tests do have an aggregate runner:

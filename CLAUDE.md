@@ -18,6 +18,14 @@ Bash tests are run individually — no runner. Each file is self-contained with
 bash tests/test_claim_id.sh
 ```
 
+**A file whose test bodies run inside `( … )` subshells must opt into the
+file-backed counters** — `assert_counters_init` after sourcing
+`tests/lib/asserts.sh`, and `assert_counters_load` in the footer before the
+`[[ "$FAIL" -eq 0 ]]` guard. The shared helpers mutate in-process
+`PASS`/`FAIL`/`TOTAL`, and those increments die at subshell exit, so without the
+opt-in the footer reports zero failures and the file exits 0 no matter what
+failed (t1207).
+
 Python tests do have one aggregate runner:
 ```bash
 bash tests/run_all_python_tests.sh                    # whole suite

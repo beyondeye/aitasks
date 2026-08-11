@@ -14,29 +14,15 @@ ORIG_DIR="$(pwd)"
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
 PY="$(require_ait_python)"
 
-# File-based counters (work across subshells)
-COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_test_counters_XXXXXX")"
-echo "0 0 0" > "$COUNTER_FILE"
-trap 'rm -f "$COUNTER_FILE"' EXIT
-
-_inc_pass() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$((p + 1)) $f $((t + 1))" > "$COUNTER_FILE"
-}
-_inc_fail() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$p $((f + 1)) $((t + 1))" > "$COUNTER_FILE"
-}
-
 # --- Test helpers ---
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-
-
+# Test bodies run in `( … )` subshells, so the shared helpers' in-process
+# counters cannot survive to the footer — opt into the file-backed record.
+assert_counters_init
+trap 'rm -f "$AIT_ASSERT_COUNTER_FILE"' EXIT
 
 # --- Setup: create isolated git repo with crew ---
 
@@ -176,9 +162,9 @@ TMPDIR_T4="$(setup_test_repo)"
     pos_a=$(echo "$output" | grep -n "OUTPUT_AGENT:agent_a" | head -1 | cut -d: -f1)
     pos_b=$(echo "$output" | grep -n "OUTPUT_AGENT:agent_b" | head -1 | cut -d: -f1)
     if [[ "$pos_a" -lt "$pos_b" ]]; then
-        _inc_pass
+        assert_record_pass
     else
-        _inc_fail
+        assert_record_fail
         echo "FAIL: agent_a should appear before agent_b in topo order"
     fi
 )
@@ -222,10 +208,10 @@ TMPDIR_T7="$(setup_test_repo)"
     assert_contains_ci "cleanup outputs CLEANED" "CLEANED:cleanme" "$output"
 
     if [[ -d ".aitask-crews/crew-cleanme" ]]; then
-        _inc_fail
+        assert_record_fail
         echo "FAIL: worktree directory should be removed"
     else
-        _inc_pass
+        assert_record_pass
     fi
 )
 cleanup_test_repo "$TMPDIR_T7"
@@ -241,9 +227,9 @@ TMPDIR_T8="$(setup_test_repo)"
     assert_contains_ci "cleanup outputs NOT_TERMINAL" "NOT_TERMINAL:running" "$output"
 
     if [[ -d ".aitask-crews/crew-running" ]]; then
-        _inc_pass
+        assert_record_pass
     else
-        _inc_fail
+        assert_record_fail
         echo "FAIL: worktree should still exist for non-terminal crew"
     fi
 )
@@ -267,9 +253,9 @@ TMPDIR_T9="$(setup_test_repo)"
     assert_contains_ci "refused active1" "NOT_TERMINAL:active1" "$output"
 
     if [[ -d ".aitask-crews/crew-active1" ]]; then
-        _inc_pass
+        assert_record_pass
     else
-        _inc_fail
+        assert_record_fail
         echo "FAIL: active crew should still exist"
     fi
 )
@@ -291,10 +277,10 @@ TMPDIR_T10="$(setup_test_repo)"
     assert_contains_ci "cleanup outputs CLEANED" "CLEANED:delbranch" "$output"
 
     if git show-ref --verify refs/heads/crew-delbranch &>/dev/null; then
-        _inc_fail
+        assert_record_fail
         echo "FAIL: branch should be deleted"
     else
-        _inc_pass
+        assert_record_pass
     fi
 )
 cleanup_test_repo "$TMPDIR_T10"
@@ -327,8 +313,8 @@ TMPDIR_T12="$(setup_test_repo)"
     sed -e 's/^status: .*/status: Running/' -e 's/^progress: .*/progress: 80/' "$cf" > "$cf.tmp" && mv "$cf.tmp" "$cf"
 
     output=$("$PY" .aitask-scripts/agentcrew/agentcrew_report.py --batch summary --crew rptcrew 2>&1)
-    if printf '%s' "$output" | grep -qF "CREW_STATUS:Completed"; then _inc_pass; else _inc_fail; echo "FAIL: report did not derive Completed: $output"; fi
-    if printf '%s' "$output" | grep -qF "CREW_PROGRESS:100"; then _inc_pass; else _inc_fail; echo "FAIL: report did not derive 100: $output"; fi
+    if printf '%s' "$output" | grep -qF "CREW_STATUS:Completed"; then assert_record_pass; else assert_record_fail; echo "FAIL: report did not derive Completed: $output"; fi
+    if printf '%s' "$output" | grep -qF "CREW_PROGRESS:100"; then assert_record_pass; else assert_record_fail; echo "FAIL: report did not derive 100: $output"; fi
 )
 cleanup_test_repo "$TMPDIR_T12"
 
@@ -336,7 +322,7 @@ cleanup_test_repo "$TMPDIR_T12"
 # Summary
 # ============================================================
 
-read -r PASS FAIL TOTAL < "$COUNTER_FILE"
+assert_counters_load
 
 echo ""
 echo "=== Results ==="

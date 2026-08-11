@@ -8,29 +8,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ORIG_DIR="$(pwd)"
 
-# File-based counters (work across subshells)
-COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_test_counters_XXXXXX")"
-echo "0 0 0" > "$COUNTER_FILE"
-trap 'rm -f "$COUNTER_FILE"' EXIT
-
-_inc_pass() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$((p + 1)) $f $((t + 1))" > "$COUNTER_FILE"
-}
-_inc_fail() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$p $((f + 1)) $((t + 1))" > "$COUNTER_FILE"
-}
-
 # --- Test helpers ---
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-
-
+# Test bodies run in `( … )` subshells, so the shared helpers' in-process
+# counters cannot survive to the footer — opt into the file-backed record.
+assert_counters_init
+trap 'rm -f "$AIT_ASSERT_COUNTER_FILE"' EXIT
 
 # --- Find Python ---
 find_python() {
@@ -118,20 +104,20 @@ echo ""
 echo "Test 1: Python modules compile"
 if [[ -n "$PYTHON" ]]; then
     if $PYTHON -m py_compile "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_utils.py" 2>/dev/null; then
-        _inc_pass
+        assert_record_pass
     else
-        _inc_fail
+        assert_record_fail
         echo "FAIL: agentcrew_utils.py does not compile"
     fi
     if $PYTHON -m py_compile "$PROJECT_DIR/.aitask-scripts/agentcrew/agentcrew_status.py" 2>/dev/null; then
-        _inc_pass
+        assert_record_pass
     else
-        _inc_fail
+        assert_record_fail
         echo "FAIL: agentcrew_status.py does not compile"
     fi
 else
     echo "SKIP: Python not available"
-    _inc_pass; _inc_pass
+    assert_record_pass; assert_record_pass
 fi
 
 # --- Test 2: Python utils — status validation ---
@@ -175,7 +161,7 @@ print(validate_agent_transition('MissedHeartbeat', 'Running'))
     assert_eq "MissedHeartbeat->Running invalid (removed)" "False" "$(echo "$result" | sed -n '14p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 14); do _inc_pass; done
+    for _ in $(seq 14); do assert_record_pass; done
 fi
 
 # --- Test 3: Python utils — crew status computation ---
@@ -205,7 +191,7 @@ print(compute_crew_status(['Error', 'Running']))
     assert_eq "Error suppressed by Running sibling" "Running" "$(echo "$result" | sed -n '8p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 8); do _inc_pass; done
+    for _ in $(seq 8); do assert_record_pass; done
 fi
 
 # --- Test 4: Python utils — DAG topo sort and cycle detection ---
@@ -228,7 +214,7 @@ print(sorted(cycle))
     assert_contains_ci "cycle detected" "a" "$(echo "$result" | sed -n '3p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 3); do _inc_pass; done
+    for _ in $(seq 3); do assert_record_pass; done
 fi
 
 # --- Test 5: Python utils — heartbeat check ---
@@ -265,7 +251,7 @@ import shutil; shutil.rmtree(td)
     assert_eq "no heartbeat stale" "False" "$(echo "$result" | sed -n '3p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 3); do _inc_pass; done
+    for _ in $(seq 3); do assert_record_pass; done
 fi
 
 # --- Test 6: Python utils — ready agents detection ---
@@ -304,7 +290,7 @@ import shutil; shutil.rmtree(td)
     assert_eq "b is ready (a completed)" "b" "$(echo "$result" | sed -n '2p')"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 2); do _inc_pass; done
+    for _ in $(seq 2); do assert_record_pass; done
 fi
 
 # --- Test 7: Status CLI — get crew status ---
@@ -327,7 +313,7 @@ if [[ -n "$PYTHON" ]]; then
     cleanup_test_repo "$TMPDIR_T7"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 4); do _inc_pass; done
+    for _ in $(seq 4); do assert_record_pass; done
 fi
 
 # --- Test 8: Status CLI — set status with valid transition ---
@@ -358,7 +344,7 @@ if [[ -n "$PYTHON" ]]; then
     cleanup_test_repo "$TMPDIR_T8"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 4); do _inc_pass; done
+    for _ in $(seq 4); do assert_record_pass; done
 fi
 
 # --- Test 9: Status CLI — reject invalid transition ---
@@ -377,7 +363,7 @@ if [[ -n "$PYTHON" ]]; then
     cleanup_test_repo "$TMPDIR_T9"
 else
     echo "SKIP: Python not available"
-    _inc_pass
+    assert_record_pass
 fi
 
 # --- Test 10: Status CLI — heartbeat ---
@@ -395,16 +381,16 @@ if [[ -n "$PYTHON" ]]; then
         # Verify alive file updated
         alive_file=".aitask-crews/crew-testcrew/planner_alive.yaml"
         if grep -q "last_heartbeat:" "$alive_file" && grep -q "working on it" "$alive_file"; then
-            _inc_pass
+            assert_record_pass
         else
-            _inc_fail
+            assert_record_fail
             echo "FAIL: alive file not updated correctly"
         fi
     )
     cleanup_test_repo "$TMPDIR_T10"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 2); do _inc_pass; done
+    for _ in $(seq 2); do assert_record_pass; done
 fi
 
 # --- Test 11: Status CLI — list agents ---
@@ -424,7 +410,7 @@ if [[ -n "$PYTHON" ]]; then
     cleanup_test_repo "$TMPDIR_T11"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 3); do _inc_pass; done
+    for _ in $(seq 3); do assert_record_pass; done
 fi
 
 # --- Test 12: Command — send and list ---
@@ -520,7 +506,7 @@ print(bool(read_yaml('.aitask-crews/crew-testcrew/planner_status.yaml').get('com
     cleanup_test_repo "$TMPDIR_T15"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 5); do _inc_pass; done
+    for _ in $(seq 5); do assert_record_pass; done
 fi
 
 # --- Test 16: crew status get derives from members when persisted is stale (t1041) ---
@@ -542,13 +528,13 @@ if [[ -n "$PYTHON" ]]; then
         sed -e 's/^status: .*/status: Running/' -e 's/^progress: .*/progress: 80/' "$cf" > "$cf.tmp" && mv "$cf.tmp" "$cf"
 
         output=$($PYTHON .aitask-scripts/agentcrew/agentcrew_status.py --crew testcrew get 2>&1)
-        if printf '%s' "$output" | grep -qF "CREW_STATUS:Completed"; then _inc_pass; else _inc_fail; echo "FAIL: crew get did not derive Completed: $output"; fi
-        if printf '%s' "$output" | grep -qF "CREW_PROGRESS:100"; then _inc_pass; else _inc_fail; echo "FAIL: crew get did not derive 100: $output"; fi
+        if printf '%s' "$output" | grep -qF "CREW_STATUS:Completed"; then assert_record_pass; else assert_record_fail; echo "FAIL: crew get did not derive Completed: $output"; fi
+        if printf '%s' "$output" | grep -qF "CREW_PROGRESS:100"; then assert_record_pass; else assert_record_fail; echo "FAIL: crew get did not derive 100: $output"; fi
     )
     cleanup_test_repo "$TMPDIR_T16"
 else
     echo "SKIP: Python not available"
-    for _ in $(seq 2); do _inc_pass; done
+    for _ in $(seq 2); do assert_record_pass; done
 fi
 
 # ============================================================
@@ -557,10 +543,10 @@ fi
 
 echo ""
 echo "=== Results ==="
-read -r pass fail total < "$COUNTER_FILE"
-echo "Total: $total  Pass: $pass  Fail: $fail"
+assert_counters_load
+echo "Total: $TOTAL  Pass: $PASS  Fail: $FAIL"
 
-if [[ "$fail" -gt 0 ]]; then
+if [[ "$FAIL" -gt 0 ]]; then
     echo "SOME TESTS FAILED"
     exit 1
 else

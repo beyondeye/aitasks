@@ -6,29 +6,15 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-. "$PROJECT_DIR/tests/lib/asserts.sh"
-
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
+. "$PROJECT_DIR/tests/lib/asserts.sh"
 ORIG_DIR="$(pwd)"
 
-# File-based counters (work across subshells)
-COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_test_counters_XXXXXX")"
-echo "0 0 0" > "$COUNTER_FILE"
-trap 'rm -f "$COUNTER_FILE"' EXIT
-
-_inc_pass() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$((p + 1)) $f $((t + 1))" > "$COUNTER_FILE"
-}
-_inc_fail() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$p $((f + 1)) $((t + 1))" > "$COUNTER_FILE"
-}
-
-# --- Test helpers ---
+# Test bodies run in `( … )` subshells, so the shared helpers' in-process
+# counters cannot survive to the footer — opt into the file-backed record.
+assert_counters_init
+trap 'rm -f "$AIT_ASSERT_COUNTER_FILE"' EXIT
 
 # --- Setup: create isolated git repo ---
 
@@ -141,7 +127,7 @@ cleanup_test_repo "$TMPDIR_T5"
 # Summary
 # ============================================================
 
-read -r PASS FAIL TOTAL < "$COUNTER_FILE"
+assert_counters_load
 
 echo ""
 echo "=== Results ==="

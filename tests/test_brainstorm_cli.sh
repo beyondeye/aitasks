@@ -11,30 +11,15 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 ORIG_DIR="$(pwd)"
 
-# File-based counters (work across subshells)
-COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_test_counters_XXXXXX")"
-echo "0 0 0" > "$COUNTER_FILE"
-trap 'rm -f "$COUNTER_FILE"' EXIT
-
-_inc_pass() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$((p + 1)) $f $((t + 1))" > "$COUNTER_FILE"
-}
-_inc_fail() {
-    local p f t
-    read -r p f t < "$COUNTER_FILE"
-    echo "$p $((f + 1)) $((t + 1))" > "$COUNTER_FILE"
-}
-
 # --- Test helpers ---
 
 # Shared assertion helpers (see tests/lib/asserts.sh)
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-
-
-
+# Test bodies run in `( … )` subshells, so the shared helpers' in-process
+# counters cannot survive to the footer — opt into the file-backed record.
+assert_counters_init
+trap 'rm -f "$AIT_ASSERT_COUNTER_FILE"' EXIT
 
 # --- Setup: create isolated git repo ---
 
@@ -274,9 +259,9 @@ TMPDIR_T9B="$(setup_test_repo)"
 
     # Sanity: the crew branch and worktree registration exist before delete.
     if git show-ref --verify --quiet "refs/heads/crew-brainstorm-999"; then
-        _inc_pass
+        assert_record_pass
     else
-        _inc_fail
+        assert_record_fail
         echo "FAIL: init did not create crew-brainstorm-999 branch"
     fi
 
@@ -286,19 +271,19 @@ TMPDIR_T9B="$(setup_test_repo)"
 
     # Branch should be gone after delete (regression guard for t662).
     if git show-ref --verify --quiet "refs/heads/crew-brainstorm-999"; then
-        _inc_fail
+        assert_record_fail
         echo "FAIL: crew-brainstorm-999 branch still present after delete (t662 regression)"
     else
-        _inc_pass
+        assert_record_pass
     fi
 
     # `git worktree list` should not reference the stale path.
     wt_list=$(git worktree list 2>&1)
     if echo "$wt_list" | grep -q "crew-brainstorm-999"; then
-        _inc_fail
+        assert_record_fail
         echo "FAIL: stale worktree registration still in 'git worktree list' (t662 regression)"
     else
-        _inc_pass
+        assert_record_pass
     fi
 )
 cleanup_test_repo "$TMPDIR_T9B"
@@ -329,7 +314,7 @@ cleanup_test_repo "$TMPDIR_T11"
 # Summary
 # ============================================================
 
-read -r PASS FAIL TOTAL < "$COUNTER_FILE"
+assert_counters_load
 
 echo ""
 echo "=== Results ==="
