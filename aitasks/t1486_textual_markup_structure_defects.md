@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1449
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-11 19:54
-updated_at: 2026-08-11 19:56
+updated_at: 2026-08-11 23:14
 ---
 
 ## Origin
@@ -68,3 +69,8 @@ frontmatter points at a GitLab host).
    literal-bracket cases need a heuristic (an all-caps or known-word token in a
    sink that renders markup) and may be better served by escaping conventions
    than by a scan.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-11T20:14:21Z status=pass attempt=1 type=human
