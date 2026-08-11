@@ -176,6 +176,30 @@ def _build_tui_list(project_root: Path | None = None):
 # Classification constants shared with tmux_monitor.py via tui_registry.
 _AGENT_PREFIXES = ["agent-"]
 
+# Markup styles for the switcher overlay. Named once here because these were
+# previously duplicated across eleven call sites, which is how a single wrong
+# colour name spread through the whole overlay unnoticed (t1453).
+#
+# These spans are parsed by **Textual**, whose palette is CSS colour names — it
+# does NOT know Rich's xterm names, and an unknown name fails *silently*: the
+# span keeps the unresolved string, so no span-level assertion can see it, while
+# the compositor paints the widget's default foreground and drops the `bold`.
+# `bright_cyan` and `bright_green` were both inert here for exactly that reason.
+#
+#: The `(K)` key-hint highlight. `cyan` is #00ffff — the brightest cyan Textual
+#: has, so it is also the closest resolvable thing to the `bright_cyan` that was
+#: intended. Shared with the current-item marker below; they never co-occur in a
+#: row because the hint is suppressed when `is_current`.
+TUI_KEY_HINT_STYLE = "bold cyan"
+
+#: The running-TUI `●`. A **hex literal, not a name**: `bright_green` is Rich's
+#: and Textual rejects it, while Textual's `ansi_bright_green` carries an ANSI
+#: flag that remaps through the *theme's* palette at render time (#98e024 under
+#: textual-dark, #60cb00 under textual-light) — a chartreuse, not the bright
+#: green the name means, and unpinnable in a test. #00ff00 is what Rich's
+#: `bright_green` actually resolves to, and it is stable across every theme.
+TUI_RUNNING_STYLE = "#00ff00"
+
 # Customizable-shortcuts scope for the switcher overlay's quick-jump keys
 # (t876). Distinct from the module-level "shared" scope that registers the
 # `j` key that *opens* the switcher (see bottom of file). The quick-jumps are
@@ -245,7 +269,7 @@ def _hint_segment(action_id: str, label: str, default_key: str) -> str:
     """
     key = resolve_key(_TUI_SWITCHER_SCOPE, action_id, default_key) or default_key
     rendered = render_label(label, key)
-    return _KEY_PAREN_RE.sub(r"[bold bright_cyan](\1)[/]", rendered, count=1)
+    return _KEY_PAREN_RE.sub(rf"[{TUI_KEY_HINT_STYLE}](\1)[/]", rendered, count=1)
 
 
 def _discover_brainstorm_sessions(project_root: Path | None = None) -> list[str]:
@@ -336,15 +360,15 @@ class _TuiListItem(ListItem):
             indicator = "[bold cyan]\u25b6[/]"
             style = "bold cyan"
         elif self.running:
-            indicator = "[bright_green]\u25cf[/]"
-            style = "bright_green"
+            indicator = f"[{TUI_RUNNING_STYLE}]\u25cf[/]"
+            style = TUI_RUNNING_STYLE
         else:
             indicator = "[dim]\u25cb[/]"
             style = "dim"
         # Show shortcut hint if this TUI has one (resolved so a rebind shows).
         shortcut = _resolve_tui_shortcut(self.tui_name)
         hint = (
-            f" [bold bright_cyan]({display_form(shortcut)})[/]"
+            f" [{TUI_KEY_HINT_STYLE}]({display_form(shortcut)})[/]"
             if shortcut and not self.is_current
             else ""
         )
@@ -360,7 +384,7 @@ class _WindowListItem(ListItem):
         self.window_index = window_index
 
     def compose(self):
-        yield Static(f" [bright_green]\u25cf[/]  {self.window_name}")
+        yield Static(f" [{TUI_RUNNING_STYLE}]\u25cf[/]  {self.window_name}")
 
 
 # Quick-jump bindings, registered under `shared.tui_switcher` so they surface
@@ -733,20 +757,20 @@ class TuiSwitcherOverlay(ModalScreen):
             _hint_segment(action_id, label, default_key)
             for action_id, label, default_key in _HINT_ITEMS
         ) + "\n"
-        close = f"[bold bright_cyan]{display_form(_OVERLAY_OPEN_KEY)}/Esc[/] close"
+        close = f"[{TUI_KEY_HINT_STYLE}]{display_form(_OVERLAY_OPEN_KEY)}/Esc[/] close"
         if self._multi_mode:
             text += (
-                "[bold bright_cyan]Enter[/] switch  "
-                "[bold bright_cyan]←/→[/] session  "
+                f"[{TUI_KEY_HINT_STYLE}]Enter[/] switch  "
+                f"[{TUI_KEY_HINT_STYLE}]←/→[/] session  "
             )
             groups = group_sessions(
                 self._all_sessions, self._selected_group
             ).groups
             if len(groups) >= 2:
-                text += "[bold bright_cyan]\\[/][/] group  "
+                text += f"[{TUI_KEY_HINT_STYLE}]\\[/][/] group  "
             text += close
         else:
-            text += "[bold bright_cyan]Enter[/] switch  " + close
+            text += f"[{TUI_KEY_HINT_STYLE}]Enter[/] switch  " + close
         hint.update(text)
 
     def _render_session_row(self) -> None:
@@ -801,7 +825,7 @@ class TuiSwitcherOverlay(ModalScreen):
         groups = group_sessions(self._all_sessions, self._selected_group).groups
         if any(g != PROJECT_GROUP_UNGROUPED_LABEL for g in groups):
             glabel = self._selected_group or PROJECT_GROUP_UNGROUPED_LABEL
-            prefix = f"[bold bright_cyan]\\[{glabel}][/]  "
+            prefix = f"[{TUI_KEY_HINT_STYLE}]\\[{glabel}][/]  "
         row.update(prefix + "Session: " + "  ".join(parts))
 
     def _render_desync_line(self, project_root: Path) -> None:

@@ -135,11 +135,15 @@ agent's own `●`), `format_shadow_glyph` (a bound shadow's `◆`) and
 `format_pane_status` returns:
 
 - `[bold magenta]PROMPT <s>s[/]` when `awaiting_input` is set.
-- `[bold dodger_blue1]DONE <s>s[/]` when the pane's task is completed and not
-  awaiting. `dodger_blue1` (`#0087ff`) rather than plain `blue`: Textual resolves
-  `blue` to `#000080`, only a 1.1:1 contrast ratio against the `#1a1a1a` card
-  background — effectively invisible. Verified by tmux capture, not by a string
-  assertion, which cannot see contrast.
+- `[bold #1e90ff]DONE <s>s[/]` when the pane's task is completed and not
+  awaiting. A **hex literal, not a colour name**: Textual's markup parser knows
+  CSS colour names only, and an unknown name fails silently — the span keeps the
+  unresolved string (so no span-level assertion can see it) while the compositor
+  paints the default foreground and drops the `bold`. `#1e90ff` is CSS
+  `dodgerblue`; plain CSS `blue` would be `#000080`, only a 1.1:1 contrast ratio
+  against the `#1a1a1a` card background and effectively invisible. The style is
+  named once as `monitor_shared.STATE_STYLE_DONE`; its value is ratified and its
+  rendering proved composited in `tests/test_markup_colour_contract.py`.
 - `[yellow]IDLE <s>s[/]` when `is_idle` is set and neither of the above.
 - `[green]Active[/]` otherwise.
 

@@ -43,7 +43,7 @@ from monitor.monitor_shared import (  # noqa: E402
     workflow_phase,
     TaskDetailDialog, KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
-    ShadowRejectionsMixin,
+    ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, unparsed_concerns_msg,
@@ -1276,7 +1276,7 @@ class MonitorApp(
             "  [dim]([/][green]●[/][dim] active [/]"
             "[bold magenta]●[/][dim] prompt [/]"
             "[yellow]●[/][dim] idle [/]"
-            "[bold dodger_blue1]●[/][dim] done)[/]"
+            f"[{STATE_STYLE_DONE}]●[/][dim] done)[/]"
         )
         return f"[bold]CODE AGENTS ({n_agents})[/]{auto_label}{legend}"
 
@@ -1469,7 +1469,7 @@ class MonitorApp(
                          if a.is_idle and not getattr(a, "awaiting_input", False)
                          and a.pane.pane_id not in self._completed_pane_ids)
         awaiting_str = f"  [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
-        done_str = f"  [bold dodger_blue1]{done_count} done[/]" if done_count > 0 else ""
+        done_str = f"  [{STATE_STYLE_DONE}]{done_count} done[/]" if done_count > 0 else ""
         idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow][AUTO][/]" if self._auto_switch else ""

@@ -1,9 +1,15 @@
 """Render-level tests for the COMPLETED agent status (t1322).
 
 Adds the fourth state to the monitor/minimonitor status ladder:
-``PROMPT > COMPLETED > IDLE > active``, as bold magenta / bold dodger_blue1 /
-yellow / green. Before t1322 a finished agent read ``IDLE 412s`` in yellow —
-indistinguishable from one that had hung.
+``PROMPT > COMPLETED > IDLE > active``, as the four ``STATE_STYLE_*``
+constants in ``monitor_shared``. Before t1322 a finished agent read
+``IDLE 412s`` in yellow — indistinguishable from one that had hung.
+
+Colour is asserted through those constants, never as a literal: the values
+themselves are ratified once, in ``test_markup_colour_contract.py``, and that
+they actually *paint* is proved by the composited tier in the same file. A
+literal here would assert only that ``_state_color`` returns what
+``_state_color`` returns (t1453).
 
 Follows the conventions established by ``test_monitor_shadow_status.py``:
 colour is asserted on the **raw markup** string (``.plain`` strips styles, so it
@@ -37,8 +43,9 @@ from monitor.monitor_core import (  # noqa: E402
     task_id_from_window_name,
 )
 from monitor.monitor_shared import (  # noqa: E402
-    SHADOW_GLYPH, format_pane_status, format_shadow_glyph, format_state_dot,
-    is_task_completed,
+    SHADOW_GLYPH, STATE_STYLE_ACTIVE, STATE_STYLE_DONE, STATE_STYLE_IDLE,
+    STATE_STYLE_PROMPT, format_pane_status, format_shadow_glyph,
+    format_state_dot, is_task_completed,
 )
 from monitor.monitor_app import MonitorApp  # noqa: E402
 from monitor.minimonitor_app import MiniMonitorApp  # noqa: E402
@@ -181,29 +188,54 @@ class LadderTests(unittest.TestCase):
 
     def test_active(self):
         s = _snapshot(_pane("%1"))
-        self.assertEqual(format_state_dot(s, False), "[green]●[/]")
-        self.assertEqual(format_pane_status(s, False), "[green]Active[/]")
+        self.assertEqual(format_state_dot(s, False), f"[{STATE_STYLE_ACTIVE}]●[/]")
+        self.assertEqual(format_pane_status(s, False), f"[{STATE_STYLE_ACTIVE}]Active[/]")
 
     def test_idle(self):
         s = _snapshot(_pane("%1"), idle=True)
-        self.assertEqual(format_state_dot(s, False), "[yellow]●[/]")
-        self.assertEqual(format_pane_status(s, False), "[yellow]IDLE 412s[/]")
+        self.assertEqual(format_state_dot(s, False), f"[{STATE_STYLE_IDLE}]●[/]")
+        self.assertEqual(
+            format_pane_status(s, False), f"[{STATE_STYLE_IDLE}]IDLE 412s[/]"
+        )
 
     def test_completed(self):
         s = _snapshot(_pane("%1"), idle=True)
-        self.assertEqual(format_state_dot(s, True), "[bold dodger_blue1]●[/]")
-        self.assertEqual(format_pane_status(s, True), "[bold dodger_blue1]DONE 412s[/]")
+        self.assertEqual(format_state_dot(s, True), f"[{STATE_STYLE_DONE}]●[/]")
+        self.assertEqual(
+            format_pane_status(s, True), f"[{STATE_STYLE_DONE}]DONE 412s[/]"
+        )
+
+    def test_the_four_state_styles_are_pairwise_distinct(self):
+        """The ladder is only readable if no two rungs share a colour.
+
+        This is the property the old per-state literal assertions were reaching
+        for and never actually expressed — each of them only restated what
+        ``_state_color`` returns (t1453).
+        """
+        styles = {
+            "PROMPT": STATE_STYLE_PROMPT,
+            "DONE": STATE_STYLE_DONE,
+            "IDLE": STATE_STYLE_IDLE,
+            "ACTIVE": STATE_STYLE_ACTIVE,
+        }
+        colours = {name: style.split()[-1] for name, style in styles.items()}
+        self.assertEqual(
+            len(set(colours.values())), len(colours),
+            f"two states share a colour: {colours}",
+        )
 
     def test_prompt_outranks_completed(self):
         """A completed agent parked on its final prompt still reads PROMPT."""
         s = _snapshot(_pane("%1"), awaiting=True, idle=True)
-        self.assertEqual(format_state_dot(s, True), "[bold magenta]●[/]")
-        self.assertEqual(format_pane_status(s, True), "[bold magenta]PROMPT 412s[/]")
+        self.assertEqual(format_state_dot(s, True), f"[{STATE_STYLE_PROMPT}]●[/]")
+        self.assertEqual(
+            format_pane_status(s, True), f"[{STATE_STYLE_PROMPT}]PROMPT 412s[/]"
+        )
 
     def test_completed_outranks_idle(self):
         s = _snapshot(_pane("%1"), idle=True)
-        self.assertIn("dodger_blue1", format_state_dot(s, True))
-        self.assertNotIn("yellow", format_state_dot(s, True))
+        self.assertIn(STATE_STYLE_DONE, format_state_dot(s, True))
+        self.assertNotIn(STATE_STYLE_IDLE, format_state_dot(s, True))
 
     def test_defaults_preserve_pre_t1322_output(self):
         """Byte-identity negative control for the un-completed path."""
@@ -215,8 +247,10 @@ class LadderTests(unittest.TestCase):
     def test_shadow_glyph_never_renders_completed(self):
         """A shadow is advisory and has no task, so it can never be blue."""
         shadow = _snapshot(_pane("%9"), idle=True)
-        self.assertEqual(format_shadow_glyph(shadow), f"[yellow]{SHADOW_GLYPH}[/]")
-        self.assertNotIn("dodger_blue1", format_shadow_glyph(shadow))
+        self.assertEqual(
+            format_shadow_glyph(shadow), f"[{STATE_STYLE_IDLE}]{SHADOW_GLYPH}[/]"
+        )
+        self.assertNotIn(STATE_STYLE_DONE, format_shadow_glyph(shadow))
 
 
 class CardRenderTests(unittest.TestCase):
@@ -239,25 +273,25 @@ class CardRenderTests(unittest.TestCase):
     def test_monitor_card_shows_completed(self):
         app = self._monitor_app({"%1"})
         row = app._format_agent_card_text(_snapshot(_pane("%1"), idle=True))
-        self.assertIn("[bold dodger_blue1]●[/]", row)
-        self.assertIn("[bold dodger_blue1]DONE 412s[/]", row)
+        self.assertIn(f"[{STATE_STYLE_DONE}]●[/]", row)
+        self.assertIn(f"[{STATE_STYLE_DONE}]DONE 412s[/]", row)
 
     def test_monitor_card_idle_when_not_in_set(self):
         app = self._monitor_app(set())
         row = app._format_agent_card_text(_snapshot(_pane("%1"), idle=True))
-        self.assertIn("[yellow]●[/]", row)
-        self.assertIn("[yellow]IDLE 412s[/]", row)
+        self.assertIn(f"[{STATE_STYLE_IDLE}]●[/]", row)
+        self.assertIn(f"[{STATE_STYLE_IDLE}]IDLE 412s[/]", row)
 
     def test_mini_card_shows_completed(self):
         app = self._mini_app({"%1"})
         row = app._agent_card_text(_snapshot(_pane("%1"), idle=True))
-        self.assertIn("[bold dodger_blue1]●[/]", row)
-        self.assertIn("[bold dodger_blue1]DONE 412s[/]", row)
+        self.assertIn(f"[{STATE_STYLE_DONE}]●[/]", row)
+        self.assertIn(f"[{STATE_STYLE_DONE}]DONE 412s[/]", row)
 
     def test_mini_card_idle_when_not_in_set(self):
         app = self._mini_app(set())
         row = app._agent_card_text(_snapshot(_pane("%1"), idle=True))
-        self.assertIn("[yellow]●[/]", row)
+        self.assertIn(f"[{STATE_STYLE_IDLE}]●[/]", row)
 
     def test_set_is_sole_source_not_the_card_lookup(self):
         """The set wins over the builder's own get_task_info result.
@@ -269,13 +303,13 @@ class CardRenderTests(unittest.TestCase):
         # Task on disk says Done, but the set (this tick) says not completed.
         app = self._monitor_app(set(), info=_info(status="Done"))
         row = app._format_agent_card_text(_snapshot(_pane("%1"), idle=True))
-        self.assertIn("[yellow]IDLE 412s[/]", row)
-        self.assertNotIn("dodger_blue1", row)
+        self.assertIn(f"[{STATE_STYLE_IDLE}]IDLE 412s[/]", row)
+        self.assertNotIn(STATE_STYLE_DONE, row)
 
         # And the converse: set says completed, task on disk still Ready.
         app2 = self._monitor_app({"%1"}, info=_info(status="Ready"))
         row2 = app2._format_agent_card_text(_snapshot(_pane("%1"), idle=True))
-        self.assertIn("[bold dodger_blue1]DONE 412s[/]", row2)
+        self.assertIn(f"[{STATE_STYLE_DONE}]DONE 412s[/]", row2)
 
     def test_mounted_card_renders_completed_dot(self):
         """The composited widget, not just the builder's return string."""
@@ -307,7 +341,7 @@ class CardRenderTests(unittest.TestCase):
         self.assertIn("CODE AGENTS (3)", header)
         for word in ("active", "prompt", "idle", "done"):
             self.assertIn(word, header)
-        self.assertIn("[bold dodger_blue1]●[/]", header)
+        self.assertIn(f"[{STATE_STYLE_DONE}]●[/]", header)
 
 
 class CounterPartitionTests(unittest.TestCase):

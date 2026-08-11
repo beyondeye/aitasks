@@ -105,11 +105,35 @@ def is_task_completed(info) -> bool:
     return "/archived/" in abs_path.replace(os.sep, "/")
 
 
+# Agent-state markup styles. Named here (t1453) because the DONE style was
+# previously duplicated as a literal across five call sites in three files,
+# which is how one wrong colour name spread unnoticed through both monitors.
+# The two `── … ──` rule styles live further down (SESSION_DIVIDER_STYLE,
+# SECTION_HEADER_STYLE); all five must stay mutually distinct.
+STATE_STYLE_PROMPT = "bold magenta"
+
+#: COMPLETED/DONE. Spelled as a **hex literal, not a colour name**: these markup
+#: spans are parsed by Textual, whose palette is CSS colour names — it does NOT
+#: know Rich's xterm names, and an unknown name fails *silently* rather than
+#: raising. `[bold dodger_blue1]` parsed fine and then painted default
+#: foreground with the `bold` dropped, so DONE never once rendered blue, and no
+#: span-level assertion could see it (the span keeps the unresolved string).
+#: Only a composited-screen check catches that — see
+#: tests/test_markup_colour_contract.py. #1e90ff is CSS `dodgerblue`, the shade
+#: the old name intended; plain CSS `blue` is #000080, far too dark on the
+#: #1a1a1a card.
+STATE_STYLE_DONE = "bold #1e90ff"
+
+STATE_STYLE_IDLE = "yellow"
+STATE_STYLE_ACTIVE = "green"
+
+
 def _state_color(snap: PaneSnapshot, completed: bool = False) -> str:
     """The single definition of the state→color mapping (t1133, t1322):
-    PROMPT (awaiting_input) > COMPLETED > IDLE > active, as bold magenta /
-    bold dodger_blue1 / yellow / green. Shared by the status badge, the agent
-    dot, and the shadow glyph.
+    PROMPT (awaiting_input) > COMPLETED > IDLE > active, as
+    :data:`STATE_STYLE_PROMPT` / :data:`STATE_STYLE_DONE` /
+    :data:`STATE_STYLE_IDLE` / :data:`STATE_STYLE_ACTIVE`. Shared by the status
+    badge, the agent dot, and the shadow glyph.
 
     ``completed`` is an explicit opt-in parameter and is never inferred here:
     it is a property of the pane's *task*, which a ``PaneSnapshot`` does not
@@ -119,12 +143,12 @@ def _state_color(snap: PaneSnapshot, completed: bool = False) -> str:
     is actionable now.
     """
     if getattr(snap, "awaiting_input", False):
-        return "bold magenta"
+        return STATE_STYLE_PROMPT
     if completed:
-        return "bold dodger_blue1"
+        return STATE_STYLE_DONE
     if snap.is_idle:
-        return "yellow"
-    return "green"
+        return STATE_STYLE_IDLE
+    return STATE_STYLE_ACTIVE
 
 
 def format_state_dot(snap: PaneSnapshot, completed: bool = False) -> str:
@@ -186,7 +210,7 @@ def format_mark_glyph(marked: bool) -> str:
     sits two columns from the agent's ``●``, and :func:`_state_color` paints
     that dot **yellow for IDLE** — so a yellow ★ beside a yellow ● would read as
     one state cluster and invite "is that agent idle, or is it flagged?". White
-    belongs to no state in the ladder (magenta / dodger_blue1 / yellow / green),
+    belongs to no state in the ladder (magenta / blue / yellow / green),
     which is exactly what makes it legible as *user intent* rather than status.
     """
     if marked:
@@ -200,7 +224,7 @@ def format_mark_glyph(marked: bool) -> str:
 # Bold cyan, deliberately NOT `dim`: `dim` is what the task-title line under
 # every agent card uses, so a dim divider read as one more task title and the
 # repo grouping vanished. Cyan also belongs to no state in the ladder
-# (magenta / dodger_blue1 / yellow / green) and is not the ★ mark's white,
+# (magenta / blue / yellow / green) and is not the ★ mark's white,
 # which is what makes it legible as *structure* rather than status.
 SESSION_DIVIDER_STYLE = "bold cyan"
 
@@ -220,7 +244,7 @@ def format_session_divider(label: str) -> str:
 # its own colour or the two read as one kind of boundary — but a DIFFERENT one,
 # because cyan has to keep meaning "repo boundary" and nothing else.
 #
-# A light violet, free in both agent lists: it is not dodger_blue1 (DONE) and
+# A light violet, free in both agent lists: it is not #1e90ff (DONE) and
 # sits far enough from magenta (PROMPT) to stay separable. Bold lives here
 # rather than in CSS so the whole style is one string.
 #
@@ -797,12 +821,12 @@ def format_pane_status(snap: PaneSnapshot, completed: bool = False) -> str:
     active priority (t1322). See :func:`_state_color` for why ``completed`` is
     an explicit parameter rather than something derived from ``snap``."""
     if getattr(snap, "awaiting_input", False):
-        return f"[bold magenta]PROMPT {int(snap.idle_seconds)}s[/]"
+        return f"[{STATE_STYLE_PROMPT}]PROMPT {int(snap.idle_seconds)}s[/]"
     if completed:
-        return f"[bold dodger_blue1]DONE {int(snap.idle_seconds)}s[/]"
+        return f"[{STATE_STYLE_DONE}]DONE {int(snap.idle_seconds)}s[/]"
     if snap.is_idle:
-        return f"[yellow]IDLE {int(snap.idle_seconds)}s[/]"
-    return "[green]Active[/]"
+        return f"[{STATE_STYLE_IDLE}]IDLE {int(snap.idle_seconds)}s[/]"
+    return f"[{STATE_STYLE_ACTIVE}]Active[/]"
 
 
 def _ansi_to_rich_text(ansi_str: str) -> Text:

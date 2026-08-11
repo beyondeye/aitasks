@@ -677,7 +677,10 @@ class OperationRow(Static):
 
     def render(self) -> str:
         if self.op_disabled:
-            return f"[dim strikethrough]{self.op_label}[/]  [dim]{self.op_description}[/]"
+            # `strike`, not Rich's `strikethrough`: Textual's markup parser does
+            # not know the latter and fails *silently*, dropping the whole span
+            # — so a disabled row rendered identically to an enabled one (t1453).
+            return f"[dim strike]{self.op_label}[/]  [dim]{self.op_description}[/]"
         marker = "[bold cyan]> [/]" if self.selected else "  "
         return f"{marker}[bold]{self.op_label}[/]  {self.op_description}"
 

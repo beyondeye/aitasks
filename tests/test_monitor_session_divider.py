@@ -52,6 +52,10 @@ from monitor.monitor_app import MonitorApp  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     SECTION_HEADER_STYLE,
     SESSION_DIVIDER_STYLE,
+    STATE_STYLE_ACTIVE,
+    STATE_STYLE_DONE,
+    STATE_STYLE_IDLE,
+    STATE_STYLE_PROMPT,
     format_section_header,
     format_session_divider,
 )
@@ -66,6 +70,19 @@ from monitor.tmux_monitor import (  # noqa: E402
 #: Colour half of each style ("bold #af87ff" → "#af87ff").
 SECTION_HEADER_COLOUR = SECTION_HEADER_STYLE.split()[-1]
 SESSION_DIVIDER_COLOUR = SESSION_DIVIDER_STYLE.split()[-1]
+
+#: The state ladder's colours, derived rather than named. Spelling these as
+#: literals is what made the collision guards below go quietly vacuous when the
+#: DONE colour changed: `dodger_blue1` simply stopped being a colour anyone
+#: used, so `assertNotIn` kept passing while checking nothing (t1453).
+STATE_COLOURS = {
+    "PROMPT": STATE_STYLE_PROMPT.split()[-1],
+    "DONE": STATE_STYLE_DONE.split()[-1],
+    "IDLE": STATE_STYLE_IDLE.split()[-1],
+    "ACTIVE": STATE_STYLE_ACTIVE.split()[-1],
+}
+#: Non-state colours that also carry meaning in the agent lists.
+RESERVED_COLOURS = {"MARK": "white", "CONTROL_FALLBACK": "red"}
 
 
 def _styles(widget: Static) -> list[str]:
@@ -113,12 +130,14 @@ class SharedSeamTests(unittest.TestCase):
     def test_style_collides_with_no_state_colour(self):
         """Cyan carries no meaning in either agent list.
 
-        magenta = PROMPT, dodger_blue1 = DONE, yellow = IDLE, green = active,
-        white = the ★ mark, red = the control fallback.
+        The state colours are read from the STATE_STYLE_* constants rather than
+        named here, so this guard tracks the ladder instead of going vacuous
+        when a state's colour changes. Compares the colour *token*: with a hex
+        state colour, a substring check would be strictly weaker.
         """
-        for taken in ("magenta", "dodger_blue1", "yellow", "green",
-                      "white", "red"):
-            self.assertNotIn(taken, SESSION_DIVIDER_STYLE)
+        for name, taken in {**STATE_COLOURS, **RESERVED_COLOURS}.items():
+            with self.subTest(state=name):
+                self.assertNotEqual(taken, SESSION_DIVIDER_COLOUR)
 
     def test_formatter_owns_no_indent(self):
         """Call sites own their own leading indent, never the style."""
@@ -135,9 +154,9 @@ class SharedSeamTests(unittest.TestCase):
         self.assertNotIn("dim", SECTION_HEADER_STYLE)
 
     def test_section_header_collides_with_no_state_colour(self):
-        for taken in ("magenta", "dodger_blue1", "yellow", "green",
-                      "white", "red"):
-            self.assertNotIn(taken, SECTION_HEADER_STYLE)
+        for name, taken in {**STATE_COLOURS, **RESERVED_COLOURS}.items():
+            with self.subTest(state=name):
+                self.assertNotEqual(taken, SECTION_HEADER_COLOUR)
 
     def test_section_header_formatter_emits_the_rule(self):
         markup = format_section_header("other (2)")
@@ -458,11 +477,21 @@ class _RuleHost(App):
         yield VerticalScroll(id="mini-pane-list")
 
     def on_mount(self) -> None:
+        # Two reference controls in the SAME CSS context as the rules: one
+        # carrying each style, one unstyled. Comparing runs against each other
+        # rather than against a literal hex is what keeps this environment-
+        # independent — the truecolor a compositor reports depends on colour
+        # depth and palette quantisation, so a literal makes the test pass or
+        # fail on WHERE it runs rather than on whether the style is live
+        # (t1453).
         self.query_one("#mini-pane-list", VerticalScroll).mount(
             Static(format_session_divider("aitasks"),
                    classes="mini-session-divider"),
             Static(format_section_header("other (2)"),
                    classes="mini-section-header"),
+            Static(f"[{SESSION_DIVIDER_STYLE}]REFDIVIDER[/]"),
+            Static(f"[{SECTION_HEADER_STYLE}]REFHEADER[/]"),
+            Static("REFPLAIN"),
         )
 
 
@@ -493,13 +522,25 @@ class CompositedColourTests(unittest.TestCase):
         self.assertIsNotNone(divider, f"divider not on screen: {painted}")
         self.assertIsNotNone(header, f"section header not on screen: {painted}")
 
-        # cyan resolves to #00ffff in Textual's palette (Rich's xterm `cyan` is
-        # #008080 — another reason not to reason about these from Rich).
-        self.assertEqual(divider, "#00ffff",
-                         f"divider painted {divider}, not cyan: {painted}")
-        self.assertEqual(header, SECTION_HEADER_COLOUR.lower(),
-                         f"section header painted {header}, not "
-                         f"{SECTION_HEADER_COLOUR}: {painted}")
+        # Each rule must match a reference run carrying the same style in the
+        # same CSS context, and that reference must differ from an unstyled
+        # run. The first half says the call site uses the declared style; the
+        # second says the style is live rather than silently inert. Neither
+        # names a literal hex — see the note in _RuleHost.on_mount.
+        self.assertNotEqual(
+            painted.get("REFDIVIDER"), painted.get("REFPLAIN"),
+            f"SESSION_DIVIDER_STYLE is inert: {painted}")
+        self.assertNotEqual(
+            painted.get("REFHEADER"), painted.get("REFPLAIN"),
+            f"SECTION_HEADER_STYLE is inert: {painted}")
+        self.assertEqual(divider, painted.get("REFDIVIDER"),
+                         f"divider painted {divider}, but "
+                         f"SESSION_DIVIDER_STYLE resolves to "
+                         f"{painted.get('REFDIVIDER')}: {painted}")
+        self.assertEqual(header, painted.get("REFHEADER"),
+                         f"section header painted {header}, but "
+                         f"SECTION_HEADER_STYLE resolves to "
+                         f"{painted.get('REFHEADER')}: {painted}")
 
     def test_the_two_rules_do_not_paint_the_same_colour(self):
         """The whole point of giving the section header its own style."""

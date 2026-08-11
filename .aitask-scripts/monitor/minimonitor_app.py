@@ -49,7 +49,7 @@ from monitor.monitor_shared import (  # noqa: E402
     KillConfirmDialog, NextSiblingDialog, ChooseSiblingModal,
     AgentMarksMixin, ColumnPickerModal, NewColumnTitleModal,
     ConcernBlockInspectModal, ConcernPickerModal, TaskNumberInputModal,
-    TaskPickConfirmDialog, ShadowRejectionsMixin,
+    TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_section_header, format_session_divider, format_shadow_glyph,
     format_stale_duration, format_state_dot, is_task_completed,
@@ -843,7 +843,7 @@ class MiniMonitorApp(
                          and a.pane.pane_id not in self._completed_pane_ids)
 
         awaiting_str = f" [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
-        done_str = f" [bold dodger_blue1]{done_count}d[/]" if done_count > 0 else ""
+        done_str = f" [{STATE_STYLE_DONE}]{done_count}d[/]" if done_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         try:
             desync = _get_desync_summary(Path.cwd(), compact=True)
@@ -2364,7 +2364,7 @@ class MiniMonitorApp(
         info_suffix = f" (+{info} informational)" if info else ""
         self.notify(
             f"Shadow raised {actionable} concern(s){info_suffix} — press 'c' to pick"
-            + stale_suffix,
+            + round_suffix + stale_suffix,
             severity="information",
         )
 
