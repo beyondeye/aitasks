@@ -609,11 +609,23 @@ Post-implementation cleanup, archival and merge are handled by task-workflow
     the regenerated goldens — the diff is identical in all three profiles, as
     predicted, since the three edited sites sit outside every `{% if %}` gate.
 
-- **Upstream defects identified:** None.
+- **Upstream defects identified:**
+  - `tests/test_boardcol_update.sh:81-83 — scaffold copy list omits
+    record_protocol.py, so every --boardcol validation fails inside the
+    scaffold`. The scaffold copies only `board_columns board_ordering
+    config_utils task_yaml`, but `.aitask-scripts/lib/board_columns.py:73` does
+    `from record_protocol import (...)`. Importing `board_columns` in the
+    scaffold therefore raises `ModuleNotFoundError: No module named
+    'record_protocol'`, and `aitask_update.sh --boardcol c1` dies with
+    `Error: board column 'c1': could not read the configured column list.` The
+    test masks the cause by redirecting the call's output to `/dev/null 2>&1`,
+    so under `set -e` the file aborts after printing only its first test header
+    and exits 1 with no diagnostic. Reproduced on a clean `HEAD` worktree
+    (identical rc and byte-identical output), so it is entirely independent of
+    t1468_4. Same class as the general "a selectively-copied build keeps users
+    of excluded definitions" hazard.
 
-- **Notes for sibling tasks:** see the section below; additionally,
-  `tests/test_boardcol_update.sh` is red on `main` independently of this work —
-  worth a separate look, but out of scope here.
+- **Notes for sibling tasks:** see the section below.
 
 ## Notes for sibling tasks
 
