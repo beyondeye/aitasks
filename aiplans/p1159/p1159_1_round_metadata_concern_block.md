@@ -7,68 +7,490 @@ Worktree: . (current directory — profile 'fast', current branch)
 Branch: main
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-08-11 16:41
 ---
 
 # Plan — t1159_1: Round metadata in the concern block
 
-Parent design: `aiplans/p1159_shadow_review_loop_automation.md` (pinned decisions restated below — do not reopen).
+Parent design: `aiplans/p1159_shadow_review_loop_automation.md` (pinned decisions
+restated below — do not reopen).
 
-## Pinned decisions
+## Context
 
-- Header line **inside** the fences, immediately after the opening fence, before the first item: `Round: <N> @ <ISO-8601-UTC-with-seconds>Z` (e.g. `Round: 2 @ 2026-08-11T14:03:27Z`). Seconds resolution required.
-- Never widen the `[priority | region]` marker bracket (t1167 hazard).
-- Producers honor an externally supplied round ("recheck round N" in the request — sent by t1159_2's loop), self-count only for first review / manual free-text rechecks; timestamps shell-sourced (`date -u +%Y-%m-%dT%H:%M:%SZ`), never estimated.
-- Clean reviews (zero concerns, or all suppressed) emit a **metadata-only block** (fences + round header only) so round numbering advances on clean rounds. `has_concern_block` stays False for it (no items ⇒ no auto-offer) — correct by design.
-- Rejection suppression stays task-scoped (t1427 store untouched).
+The shadow's concern block (`===AITASK-CONCERNS===` … `===END-CONCERNS===`)
+carries no round number and no review time. Three consequences:
+
+1. **Minimonitor's auto-offer is dedup-suppressed on repeat rounds.**
+   `_maybe_offer_concerns` keys on the *parsed clipboard payload*
+   (`minimonitor_app.py:2352-2355`), so a round-2 review that reaches the same
+   conclusions produces no new hint — the user is never told the shadow
+   re-reviewed.
+2. **The picker cannot say which round produced the block** it is showing.
+3. **t1448 (`depends: [1159, 1420]`) has no freshness key.** It is chartered to
+   key its badge-currency notion off exactly the metadata this child adds.
+
+This child adds the metadata end-to-end: grammar, parser accessor, producer
+wording, the dedup lift, and picker display. Both the auto-recheck loop
+(t1159_2) and the spin-off arm (t1159_3) consume it — t1159_2 derives the
+`recheck round <N+1>` it injects from `parse_block_meta` of the previous block.
+
+## Pinned decisions (user-confirmed at parent planning, 2026-08-11 — do not reopen)
+
+- Header line **inside** the fences, immediately after the opening fence, before
+  the first item: `Round: <N> @ <ISO-8601-UTC-with-seconds>Z`
+  (e.g. `Round: 2 @ 2026-08-11T14:03:27Z`). **Seconds resolution is required** —
+  a same-minute shadow restart must not reproduce a `(round, reviewed_at)` pair.
+- **Never widen the `[priority | region]` marker bracket** (t1167 split-marker
+  drop hazard). The header is a separate line, not a marker field.
+- Round is mechanically anchored where possible: producers honor an externally
+  supplied round when the request names one (`recheck round N`, sent by
+  t1159_2), and self-count only for the first review / manual free-text
+  rechecks. Timestamps are shell-sourced (`date -u +%Y-%m-%dT%H:%M:%SZ`), never
+  estimated.
+- **Clean reviews emit a METADATA-ONLY block** — fences with only the round
+  header between them — so round numbering advances on clean rounds too.
+  `has_concern_block` stays `False` for such a block (no items ⇒ no auto-offer),
+  which is correct.
+- Rejection suppression stays **task-scoped** (the t1427 store is untouched; no
+  round field is added to it).
+
+## Verification pass — findings against `main` (2026-08-11)
+
+This plan was re-verified against the live tree. All file:line seams below were
+confirmed. **Five corrections** to the plan as originally written:
+
+1. **`impl-challenge.md` HAS per-profile goldens — the original plan said
+   producers need none.** `tests/golden/procs/aitask-shadow/impl-challenge-{default,fast,remote}.md`
+   are diffed by `tests/test_skill_render_aitask_shadow.sh` Test 1p, because
+   `impl-challenge.md` is the one producer carrying Jinja
+   (`shadow_impl_review_tier`). Editing it **requires regenerating those three
+   goldens in the same commit** (`aidocs/framework/skill_authoring_conventions.md`
+   → "Regenerate goldens after any `.md.j2` or closure edit"). The other three
+   producers are in that test's `PROC_FILES_INVARIANT` list (Jinja-free, no
+   goldens) — but Test 1i asserts they render byte-identically across
+   profile × agent, so **do not introduce any Jinja into them**.
+2. **The rendered surface needs its own guard.** `TestRenderedShadowDocsKeepTheGuarantees`
+   (`tests/test_concern_parser.py:1091`) mirrors every authoring-dir producer
+   rule against `.claude/skills/aitask-shadow-fast-/` — the surface the agent
+   actually reads at runtime. The round-header rule needs a rendered counterpart
+   there (same rationale as t1311's `test_every_rendered_producer_states_the_suppression_rule`),
+   or a conditional that dropped the rule from one profile's render would leave
+   the authoring guard green while the executed surface has no rule.
+3. **`monitor_app.py` is a parallel picker surface the original plan missed.**
+   The full monitor constructs `ConcernPickerModal` at `monitor_app.py:3008-3016`
+   with `text` in scope, exactly as minimonitor does. It gets `block_meta` too.
+   Its *auto-offer* needs no change: it dedups on `concern_block_signature`
+   (`monitor_app.py:1111`, `:2977`, `:3003`), which hashes the whole block
+   region and therefore already re-fires on a round bump — the dedup lift is
+   free there and only minimonitor's payload-keyed dedup needs the explicit fix.
+4. **`_last_block_region`'s `require_close` is keyword-only with NO default**
+   (`concern_parser.py:235`: `def _last_block_region(text: str, *, require_close: bool) -> str | None`).
+   Every call must pass it explicitly.
+5. **The module docstring carries an entry-point table** (`concern_parser.py:49-78`)
+   whose lead-in asserts the tiers differ "only on `require_close`". Adding a
+   sixth entry point without a row there leaves the documented contract wrong.
+
+Confirmed unchanged and load-bearing:
+
+- `_scan_items` line 352: `if line.strip() and items:` — a non-blank, non-marker
+  line seen while `items` is empty is **silently dropped**, no buffer, nothing
+  appended. This is the parser-safety basis for the header slot. **Nuance:** a
+  line that *looks* like a marker (`^\s*-\s+\[`, `_MARKER_START` at :126) is
+  still recorded into `unrecovered` even before the first item — which is why
+  the producer rule must state the header never itself begins `- [`.
+- `has_concern_block` (`:453`) = `require_close=True` **and** ≥1 parsed item.
+- `concern_block_signature` (`:493`) hashes the **whole region** after
+  ANSI-strip → whitespace-collapse → strip. The header therefore changes it by
+  design (the monitor's freshness badge re-hashes on a round bump).
+- `from __future__ import annotations` is at `:80`, so `BlockMeta | None` in
+  annotations is safe on the 3.8 floor this module targets.
+- Metadata-only block through `_maybe_offer_concerns` (`minimonitor_app.py:2286-2345`):
+  `has_concern_block` False → `block_head_truncated` False (both fences present)
+  → `unrecovered_markers` `[]` → **silent return, no spurious warning.** Verified
+  by reading the branch, not inferred.
+- Producer examples are ```` ``` ```` fences containing item lines only — no
+  sentinel fences anywhere (`plan-challenge.md:74-77`, `plan-assumptions.md:78-81`,
+  `plan-diagnose-errors.md:67-70`, `impl-challenge.md:391-395`). The t1123
+  `contains_any_concern_block` guard globs **every** `*.md` under the shadow dir,
+  authoring and rendered.
+
+## Pre-phase (risk mitigations)
+
+1. **[narrow_width_context_budget]** Before touching `_context_line()`, add a
+   characterization test to `tests/test_concern_picker_modal.py` that renders
+   the picker's `#concern-context` `Static` at the `xnarrow` tier
+   (`self.size.width <= _PICKER_NARROW_MIN_WIDTH`, see
+   `ConcernPickerModal._apply_width_tier`, `monitor_shared.py:2557-2577`) and
+   pins the visible text of the current two-partition line
+   (`"N to address  ·  M informational  ·  forward or reject"`). Assert on the
+   **composited strip** at that width, not on `_context_line()`'s return value —
+   the return string is not what the user sees. Then, after step 4 lands, extend
+   the same test to assert that with `block_meta` present the actionable counts
+   are **still** visible at that width. If the round suffix pushes them off,
+   shorten the suffix (drop the time, keep `round N`) rather than widening the
+   modal. Addresses the code-health "shared modal / display budget" risk.
 
 ## Steps
 
-1. **Parser accessor** — `.aitask-scripts/monitor/concern_parser.py`:
-   ```python
-   class BlockMeta(NamedTuple):
-       round: int          # 1-based round the producer emitted
-       reviewed_at: str    # verbatim timestamp after '@' ("" when omitted)
+### 1. Parser accessor — `.aitask-scripts/monitor/concern_parser.py`
 
-   _META_LINE = re.compile(r"^\s*Round:\s*(?P<round>\d+)(?:\s*@\s*(?P<at>.*\S))?\s*$")
+Add beside the existing entry points:
 
-   def parse_block_meta(capture_text: str) -> BlockMeta | None:
-       ...
-   ```
-   - Use `_last_block_region(capture_text, require_close=False)` (line 235) — same forgiving region as `parse_concerns` (410-416), so meta and concerns always describe the same (newest) block.
-   - Consult only the **first non-blank line** of the region; if it doesn't match `_META_LINE`, return `None` (a `Round:` line later is body text by the item grammar).
-   - Fail-open, pure; `reviewed_at` verbatim, not validated.
-   - Docstring carries the t1448 consumer contract: freshness key is the `(round, reviewed_at)` **pair** — round alone is not unique (a restarted shadow starts at 1 again).
-   - Parser-safety basis (document in module docstring near the grammar notes): `_scan_items` line 352 drops a non-marker line before the first item (`items` empty ⇒ no continuation join), so `parse_concerns` / `has_concern_block` / `unrecovered_markers` are unaffected by the header. It **deliberately** changes `concern_block_signature` and `block_region`.
+```python
+class BlockMeta(NamedTuple):
+    round: int          # 1-based round the producer emitted
+    reviewed_at: str    # verbatim text after '@' ("" when absent or empty)
 
-2. **Producers** — both rule sites in each of `.claude/skills/aitask-shadow/plan-challenge.md`, `impl-challenge.md`, `plan-assumptions.md`, `plan-diagnose-errors.md` (mirror the rejection-suppression inlining pattern, e.g. plan-challenge.md:61-67 + 106-117; adjust the 3-space step indentation of the three plan-* files):
-   - **Site A (emit paragraph, near the fence-emission instruction):**
-     > **Emit a round header as the first line inside the block.** Immediately after the opening fence — before the first concern line — emit exactly one line of the form `Round: <N> @ <timestamp>` (e.g. `Round: 2 @ 2026-08-11T14:03:27Z`). If the request that triggered this review names a round ("recheck round N"), use that N. Otherwise `<N>` starts at 1 for the first review you run in this conversation and increments by one each time you re-run a review in this same conversation (any review sub-procedure counts; a fresh shadow session starts again at 1 — the timestamp disambiguates). Obtain `<timestamp>` by running `date -u +%Y-%m-%dT%H:%M:%SZ` — do not estimate it. **If this review found no concerns (or suppression removed them all), still emit the block**: the fences with only the round header between them — this is the machine-readable record that the round completed clean.
-   - **Site B (rules-list bullet):**
-     > - **Round header.** The first line after the opening fence is `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the first `- [` marker — placed after any item it is absorbed into that item's body — and it must never itself begin with `- [`. A zero-concern review still emits the fences with only this header between them. Minimonitor reads it to show the round, to re-offer the picker on a repeat round, and to judge concern freshness.
-   - Prepend `Round: 1 @ 2026-08-11T14:03:27Z` as the first line of each producer's example block. **Examples must never gain the fences** (t1123 `contains_any_concern_block` authoring guard).
-   - Producers are plain shared `.md` — **no goldens regeneration**; do **not** touch `SKILL.md.j2`.
 
-3. **Dedup lift** — `.aitask-scripts/monitor/minimonitor_app.py:2352-2355`:
-   ```python
-   meta = parse_block_meta(text)
-   payload = build_clipboard_payload(concerns)
-   dedup_key = (f"round={meta.round}@{meta.reviewed_at}\n{payload}"
-                if meta else payload)
-   ```
-   No meta ⇒ byte-identical to today (back-compat with old blocks). Toast appends `(round {meta.round})` when meta present.
+_META_LINE = re.compile(
+    r"^\s*Round:\s*(?P<round>\d+)\s*(?:@\s*(?P<at>.*?))?\s*$"
+)
 
-4. **Picker display** — `action_pick_concerns` (minimonitor_app.py:2199-2272) passes `block_meta=parse_block_meta(text)` to `ConcernPickerModal`; the modal (monitor_shared.py:2357-2660) gains optional `block_meta=None` keyword; `_context_line()` renders `· round 2, 14:03:27Z` (display-only — no `Concern.body` read, no AST-guard registration needed for this surface).
 
-5. **`concern-format.md`** — new "Round header" section after "Fences": grammar, placement rule + hazard (after an item ⇒ body-joined), back-compat (absent ⇒ `parse_block_meta` → None, everything else unchanged), metadata-only clean-round block (and that `has_concern_block` stays False for it), the three consumer roles (display; dedup lift; t1448 freshness key = the pair), signature note. Update the parser-entry-points list to include `parse_block_meta` / `BlockMeta`.
+def parse_block_meta(capture_text: str) -> BlockMeta | None:
+    region = _last_block_region(capture_text, require_close=False)
+    if region is None:
+        return None
+    for line in region.splitlines():
+        if not line.strip():
+            continue
+        match = _META_LINE.match(line)
+        if match is None:
+            return None
+        return BlockMeta(
+            int(match.group("round")), (match.group("at") or "").strip()
+        )
+    return None
+```
+
+- `require_close=False` is deliberate: the **same forgiving region** as
+  `parse_concerns` (`:416`) / `block_region` (`:450`), so meta and concerns
+  always describe the same (newest) block. Pass it explicitly — it is
+  keyword-only with no default.
+- **Only the first non-blank line** of the region is consulted. A `Round:` line
+  anywhere later is body text by the item grammar; returning `None` there is the
+  point (it makes the "header after an item" corruption visible instead of
+  silently believed).
+- Pure and fail-open: `reviewed_at` is verbatim and unvalidated. Input shape is
+  the same wrap-joined, ANSI-free capture `parse_concerns` takes (no
+  `strip_ansi` here — that belongs to `concern_block_signature`'s raw-capture
+  tier).
+- **Docstring must carry the t1448 consumer contract:** the freshness key is the
+  `(round, reviewed_at)` **PAIR**. Round alone is not unique — a restarted
+  shadow starts at 1 again.
+- **Docstring must carry the parser-safety basis:** `_scan_items` (`:352`) drops
+  a non-marker line before the first item, so `parse_concerns` /
+  `has_concern_block` / `unrecovered_markers` are unaffected by the header. It
+  **deliberately** changes `concern_block_signature` and `block_region`.
+
+Also update the **module docstring** (`:1-79`): add a `Round header` bullet to
+the format list (~`:25-47`), put the round line into the format example
+(`:19-23`), add a `:func:`parse_block_meta`` row to the entry-point table
+(`:53-78`), and amend the lead-in at `:49-51` ("The first two share
+`_last_block_region`, diverging only on `require_close`") so it stays true with
+a sixth entry point.
+
+### 2. Producers — both rule sites × 4 files
+
+Files: `.claude/skills/aitask-shadow/plan-challenge.md`, `impl-challenge.md`,
+`plan-assumptions.md`, `plan-diagnose-errors.md`.
+
+Mirror the rejection-suppression inlining pattern exactly (bolded emit-paragraph
+directive + rules-list bullet). **Insertion point: immediately after the example
+code fence, before the rules list** — this keeps the existing
+"The concern lines themselves look like:" lead-in adjacent to its example.
+
+| file | example fence ends | rules list starts | indent |
+|---|---|---|---|
+| `plan-challenge.md` | 77 | 79 | 3-space / 5-space cont. |
+| `plan-assumptions.md` | 81 | 83 | 3-space / 5-space cont. |
+| `plan-diagnose-errors.md` | 70 | 72 | 3-space / 5-space cont. |
+| `impl-challenge.md` | 395 | 397 | **column 0** / 2-space cont. |
+
+**Site A — bolded emit directive** (indent per the table):
+
+> **Emit a round header as the first line inside the block.** Immediately after
+> the opening fence — before the first `- [` marker — emit exactly one line of
+> the form `Round: <N> @ <timestamp>`, for example
+> `Round: 2 @ 2026-08-11T14:03:27Z`. If the request that triggered this review
+> names a round ("recheck round N"), use that N; otherwise N is 1 for the first
+> review you run in this conversation and increments by one on each later review
+> you run in it (any review sub-procedure counts; a fresh shadow session starts
+> at 1 again — the timestamp is what disambiguates). Obtain the timestamp by
+> running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A **zero-concern**
+> review (nothing found, or suppression removed everything) still emits the
+> block: the two fences with only this header between them, which is the
+> machine-readable record that the round completed clean.
+
+**Site B — rules-list bullet** (bullet indent per the table):
+
+> - **Round header.** The first line after the opening fence is
+>   `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the
+>   first `- [` marker — placed after an item it is absorbed into that item's
+>   body and the round is lost — and it must never itself begin with `- [`. Take
+>   N from the request when it names a round ("recheck round N"), else count from
+>   1 within this conversation; get the timestamp from
+>   `date -u +%Y-%m-%dT%H:%M:%SZ`, never by estimate. A **zero-concern** review
+>   still emits the fences with only this header between them. Minimonitor reads
+>   the header to show the round, to re-offer the picker when a later round
+>   repeats the same concerns, and to judge concern freshness.
+
+**Example blocks:** prepend `Round: 1 @ 2026-08-11T14:03:27Z` as the first line
+inside each producer's ```` ``` ```` example, above the first `- [` item.
+Examples must **never** gain the sentinel fences (t1123
+`contains_any_concern_block` guard — it scans every `*.md` in the shadow dir,
+authoring *and* rendered).
+
+**Wrapping hazard (breaks the guards silently):** never let
+`Round: <N> @ <timestamp>`, `zero-concern`, or
+`date -u +%Y-%m-%dT%H:%M:%SZ` straddle a line break. The guard predicates
+collapse whitespace, so a re-wrap is safe, but a hyphen-wrapped `zero-concern`
+becomes `zero- concern` and stops counting — the exact trap documented at
+`tests/test_concern_parser.py:935-936`.
+
+**Do not disturb the rejection-suppression rule** while editing: its guard needs
+the exact directive string `**Consult the rejection store before emitting.**`
+plus `previously-rejected` ≥ 2 and `aitask_shadow_rejected.sh list` ≥ 2 on the
+whitespace-collapsed text.
+
+**Goldens:** regenerate the three `impl-challenge` procedure goldens in the same
+commit (see step 6). Do **not** touch `SKILL.md.j2` or any stub.
+
+### 3. Dedup lift + toast — `.aitask-scripts/monitor/minimonitor_app.py`
+
+Add `parse_block_meta` to the import at `:58-61`. At `:2352-2355`:
+
+```python
+payload = build_clipboard_payload(concerns)
+meta = parse_block_meta(text)
+dedup_key = (
+    f"round={meta.round}@{meta.reviewed_at}\n{payload}" if meta else payload
+)
+if self._last_concern_block_payload.get(shadow_pane) == dedup_key:
+    return
+self._last_concern_block_payload[shadow_pane] = dedup_key
+```
+
+No meta ⇒ **byte-identical** to today (back-compat for blocks emitted before
+this lands). Toast (`:2365-2369`) gains a round suffix when meta is present:
+
+```python
+round_suffix = f" (round {meta.round})" if meta else ""
+```
+
+inserted before `stale_suffix` so the existing stale marker stays last.
+
+### 4. Picker display — both TUIs + the shared modal
+
+`monitor_shared.py`:
+
+- Module-level pure helper beside the modal, so it is unit-testable and **total
+  over garbage** (`reviewed_at` is unvalidated):
+
+  ```python
+  def format_block_meta(meta) -> str:
+      """Display suffix for a concern block's round header ("" when absent)."""
+      if meta is None:
+          return ""
+      when = meta.reviewed_at
+      if "T" in when:
+          when = when.rsplit("T", 1)[1]
+      when = when[:12]
+      return f"  ·  round {meta.round}" + (f", {when}" if when else "")
+  ```
+
+- `ConcernPickerModal.__init__` (`:2454-2461`) gains `block_meta=None` as a
+  **keyword-only** parameter (after the bare `*`, alongside `rejected_entries` /
+  `store_unavailable`); store it on `self._block_meta`.
+- `_context_line()` (`:2495-2503`) appends `format_block_meta(self._block_meta)`
+  to **both** return shapes (the `< 2` partitions branch and the two-partition
+  branch).
+
+Callers pass `block_meta=parse_block_meta(text)`:
+
+- `minimonitor_app.py` `action_pick_concerns` (`:2261-2272`);
+- `monitor_app.py` (`:3008-3016`) — add `parse_block_meta` to its import at
+  `:53`.
+
+Display-only: no `Concern.body` is read, so no registration is needed in the
+t1294 AST guard (`tests/test_concern_body_display_contract.py`).
+
+### 5. `concern-format.md`
+
+New **"Round header"** section immediately after `### Fences` (`:33-38`), before
+`### Concern markers` (`:40`), covering:
+
+- the grammar and the placement rule;
+- the placement **hazard** (after an item ⇒ body-joined into that item, round
+  lost);
+- **back-compat**: absent ⇒ `parse_block_meta` returns `None` and everything
+  else is unchanged;
+- the **metadata-only clean-round block**, and that `has_concern_block` stays
+  `False` for it (no items ⇒ no auto-offer) — by design, not a defect;
+- the **three consumer roles**: display; lifting minimonitor's payload dedup on
+  a repeat round; t1448's freshness key = the `(round, reviewed_at)` **pair**;
+- the note that the header intentionally changes `concern_block_signature`, so a
+  round bump re-hashes the monitor's freshness badge.
+
+Also update the parser list under `## Where it lives` (`:277-281`) to include
+`parse_block_meta` / `BlockMeta` — and `block_region`, which that list omits
+today even though `minimonitor_app.py` imports and uses it (pre-existing gap,
+fixed while editing the same list).
+
+The two-placement producer rule already documented at `:261-269` should name the
+round-header rule alongside the suppression rule.
+
+### 6. Regenerate the `impl-challenge` goldens (same commit)
+
+```bash
+PYTHON="$(source .aitask-scripts/lib/python_resolve.sh && require_ait_python)"
+for profile in default fast remote; do
+  "$PYTHON" .aitask-scripts/lib/skill_template.py \
+    .claude/skills/aitask-shadow/impl-challenge.md \
+    "aitasks/metadata/profiles/$profile.yaml" claude \
+    > "tests/golden/procs/aitask-shadow/impl-challenge-$profile.md"
+done
+```
+
+**Review the diff, do not rubber-stamp it** — the only change should be the two
+new rule sites and the example header, identically in all three.
 
 ## Verification
 
-- `tests/test_concern_parser.py` (extend):
-  - `parse_block_meta`: present / absent → None / no `@` timestamp → `reviewed_at == ""` / header after first item → None **and** the line body-joined into the prior concern (pin the corruption mode) / last-block-wins.
-  - Metadata-only block: meta readable; `has_concern_block` False; `parse_concerns` `[]`; `unrecovered_markers` `[]`.
-  - Byte-identical results of `parse_concerns` / `has_concern_block` / `unrecovered_markers` with and without the header on the same concerns.
-  - `concern_block_signature` changes when only the round bumps.
-  - New `TestProducerRoundHeaderRule` (mirror `TestProducerRejectionSuppressionRule`, ~line 950): each of the 4 producers carries both sites (grep both the emit paragraph marker and the rules bullet), each example block starts with a `Round:` line, and the zero-concern wording is present at both sites.
-- `tests/test_minimonitor_concern_action.py` (extend): identical concerns round 1 → notify; round 2 → second notify (dedup lifted); identical round → single notify.
-- `bash tests/run_all_python_tests.sh` — read only the final stderr verdict line.
-- Reference **Step 9 (Post-Implementation)** of the task-workflow skill for cleanup, archival, and merge.
+### `tests/test_concern_parser.py` (extend)
+
+`parse_block_meta` unit cases:
+
+- present → `BlockMeta(2, "2026-08-11T14:03:27Z")`;
+- absent (no header) → `None`;
+- no `@` (`Round: 3`) → `reviewed_at == ""`;
+- dangling `@` (`Round: 3 @`) → `reviewed_at == ""` (total, not `None`);
+- leading blank lines inside the region are skipped (first **non-blank** line);
+- header after the first item → `None` **and** the header text is body-joined
+  into the preceding concern's `.body` (pin the corruption mode explicitly);
+- last-block-wins: two blocks with different rounds → the newer one;
+- unclosed newest block (`require_close=False` path) → meta still readable.
+
+Contract cases:
+
+- **Metadata-only block**: `parse_block_meta` reads the round;
+  `has_concern_block` is `False`; `parse_concerns` is `[]`; `unrecovered_markers`
+  is `[]`.
+- **Byte-identical entry points**: for the same concerns with and without the
+  header, `parse_concerns`, `has_concern_block` and `unrecovered_markers`
+  produce equal results.
+- `concern_block_signature` **changes** when only the round bumps (and only the
+  round bumps).
+
+Producer guard — new `TestProducerRoundHeaderRule`, mirroring
+`TestProducerRejectionSuppressionRule` (`:950`) including **both** of its
+negative controls:
+
+```python
+_ROUND_HEADER_DIRECTIVE = (
+    "**Emit a round header as the first line inside the block.**"
+)
+
+
+def _states_round_header_rule(text: str) -> bool:
+    flat = " ".join(text.split())
+    return (_ROUND_HEADER_DIRECTIVE in flat
+            and flat.count("Round: <N> @ <timestamp>") >= 2
+            and flat.count("zero-concern") >= 2
+            and flat.count("date -u +%Y-%m-%dT%H:%M:%SZ") >= 2)
+```
+
+The counted tokens use the **placeholder** grammar (`<N>`, `<timestamp>`), so the
+concrete example header (`Round: 1 @ 2026-08-11T14:03:27Z`) cannot inflate the
+count and mask a deleted rule site.
+
+- `test_producer_set_is_the_known_set` (reuses `KNOWN_PRODUCERS`, unchanged — no
+  new producer file);
+- `test_every_producer_states_the_round_header_rule`;
+- **negative control 1 (synthetic, placement-aware):** neither copy → `False`;
+  directive only → `False`; bullet only → `False`; both → `True`;
+- **negative control 2 (production assertion):** patch `SHADOW_DIR` to a
+  tmpdir holding one compliant + one offending + one non-producer file, invoke
+  **the real production method** and require it to raise naming `bad.md` and not
+  `good.md`. Copy the rationale in `test_production_assertion_fails_on_a_real_offender`
+  (`:1024`) — recomputing the offender list here instead of calling the method
+  leaves both green under a wrong-predicate mutation.
+- `test_every_producer_example_starts_with_a_round_header`: for each producer,
+  take the first ```` ``` ```` fenced block whose body contains a `- [` line and
+  assert its first non-blank body line matches
+  `^\s*Round: \d+ @ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$` and that the next
+  non-blank line starts `- [`.
+
+Rendered-surface guard — add to `TestRenderedShadowDocsKeepTheGuarantees`
+(`:1091`):
+
+- `test_every_rendered_producer_states_the_round_header_rule`, using the same
+  predicate over `_rendered_producers()`. Without it, a profile conditional that
+  dropped the rule would leave the authoring guard green while the surface the
+  agent actually reads has no rule (the t1311 rationale).
+
+### `tests/test_minimonitor_concern_action.py` (extend `AutoOfferTests`)
+
+- round 1 → one notify; round 2 with **identical** concerns → a **second**
+  notify (dedup lifted);
+- the same round re-captured → still one notify;
+- the toast text contains `(round 2)` on the round-2 fire;
+- a header-free block behaves exactly as today (the existing
+  `test_closed_block_fires_once` / `test_surrounding_churn_does_not_refire`
+  already pin this — confirm they still pass unmodified, which is the
+  back-compat proof).
+
+### `tests/test_concern_picker_modal.py`
+
+- the pre-phase narrow-width characterization + its post-change extension
+  (see **Pre-phase** above);
+- `format_block_meta`: `None` → `""`; ISO input → `"  ·  round 2, 14:03:27Z"`;
+  empty `reviewed_at` → `"  ·  round 2"`; garbage `reviewed_at` (no `T`, long) →
+  truncated, never raises;
+- `_context_line()` with and without `block_meta`, on **both** partition shapes.
+
+### Suite / render
+
+```bash
+bash tests/run_all_python_tests.sh      # read ONLY the final stderr verdict line
+bash tests/test_skill_render_aitask_shadow.sh
+```
+
+If piping either, use `set -o pipefail` or check `${PIPESTATUS[0]}` — `| tail`
+returns `tail`'s exit status, not the suite's.
+
+No `.j2` or stub surface is touched, so `aitask_skill_verify.sh` is not
+required; run it only if that changes.
+
+Reference **Step 9 (Post-Implementation)** of the task-workflow skill for
+cleanup, archival, and merge.
+
+## Risk
+
+### Code-health risk: medium
+- The round-header rule is duplicated across six places that must agree (4
+  producers × 2 sites, `concern-format.md`, the parser module docstring table);
+  the producer half is guarded by tests, the doc half is not · severity: medium
+  · → mitigation: authoring + rendered guard predicates (step 2 / Verification);
+  the docstring-table row is pinned by review, not by a test
+- `ConcernPickerModal` is shared by both TUIs, and the context line gains ~20
+  characters at a tier as narrow as `_PICKER_NARROW_MIN_WIDTH` · severity:
+  medium · → mitigation: inline pre-phase narrow_width_context_budget
+- `impl-challenge.md` carries per-profile goldens; an edit without regeneration
+  breaks `test_skill_render_aitask_shadow.sh` · severity: low · → mitigation:
+  step 6 in the same commit (fails loudly, never silently)
+
+### Goal-achievement risk: medium
+- The round number is LLM-emitted in this child — the machine-derived
+  `recheck round N` injection only lands in t1159_2 — and a restarted shadow
+  restarts at 1, so a consumer keying on the round alone is wrong · severity:
+  medium · → mitigation: the `(round, reviewed_at)` pair contract, carried in
+  the `parse_block_meta` docstring and in `concern-format.md`, and test-pinned
+- The producer guards pin the *wording* of the rule, not that a live shadow
+  actually emits the header · severity: medium · → mitigation: t1159_5, whose
+  checklist already covers a live round 1, a live round 2 with the dedup lifted,
+  a metadata-only clean round, and the picker's round display
+
+### Planned mitigations
+- timing: pre-phase | name: narrow_width_context_budget | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (shared picker modal / narrow-width display budget) | desc: Characterize the picker context line at the xnarrow tier on the composited strip before adding the round suffix, then assert the actionable counts remain visible with block_meta present
