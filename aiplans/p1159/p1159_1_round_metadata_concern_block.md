@@ -711,3 +711,128 @@ cleanup, archival, and merge.
   `.claude/skills/aitask-shadow/concern-format.md`,
   `tests/test_concern_parser.py`, `tests/test_monitor_concern_action.py`,
   `tests/test_minimonitor_concern_action.py`.
+
+### Change Request 2 (2026-08-11 17:35) — shadow impl-review round 3
+
+- **Requested by user (via shadow review):**
+  1. *(high, CONFIRMED)* Header+stray-prose was still reported "No concerns
+     detected" by both `c` paths, and the full monitor then marked the
+     complete block offered — hiding output `is_metadata_only_block` itself
+     classifies as investigable. Warn and expose the raw block; do not clear
+     it as definitively handled.
+  2. *(medium, CONFIRMED)* The grammar accepted `Round: 0` as a certified
+     1-based clean round while rejecting a positive 10-digit round with no
+     documented maximum. Enforce positivity; document the bound.
+  3. *(medium, REFUTED)* Claimed `asserts.sh` `printf | grep -q` SIGPIPE
+     false-failure making the shadow render test exit 1. Measured unpiped:
+     the test exits **0** (475/475), and neither `asserts.sh` nor the test
+     file sets `pipefail`, so the pipeline status is `grep`'s and the claimed
+     mechanism cannot fire. No change.
+- **Changes made:** (1) New shared `uncertified_round_block_msg(round)` in
+  `monitor_shared.py`; both `c` paths now branch four ways on an empty parse:
+  lost markers → existing unparsed warning + raw view; certified
+  metadata-only → clean-round message; **meta present but uncertified**
+  (header+dropped-prose, or streaming header-only) → warning + raw
+  `ConcernBlockInspectModal`; headerless → the pre-existing generic message.
+  **Deliberate deviation from the review's "do not clear" clause, disclosed
+  at review:** for a *complete* uncertified block the monitor still marks the
+  signature offered — this matches the established lost-markers contract
+  ("definitive: the user has just been shown precisely what is in it"), and
+  not marking would leave the badge nagging forever with no clearing path. A
+  *streaming* block has no complete fence, so it is naturally never marked
+  and stays offerable. (2) `_META_LINE` round is now `[1-9]\d{0,8}`
+  (positive, ≤9 digits, no zero-padding — either violation reads as a
+  malformed header, meta `None`, never certified); the bound and positivity
+  are documented in `concern-format.md`'s grammar bullet.
+  Tests: round-0 / zero-padded → `None` + not certified with positive
+  controls; per-TUI header+prose tests now assert the warning text, the
+  pushed raw view, and (monitor) the lost-markers-consistent badge clear;
+  streaming tests assert the warning + raw view and that nothing was marked
+  offered.
+- **Files affected:** `.aitask-scripts/monitor/concern_parser.py`,
+  `monitor_shared.py`, `monitor_app.py`, `minimonitor_app.py`,
+  `.claude/skills/aitask-shadow/concern-format.md`,
+  `tests/test_concern_parser.py`, `tests/test_monitor_concern_action.py`,
+  `tests/test_minimonitor_concern_action.py`.
+
+### Change Request 3 (2026-08-11 17:55) — shadow impl-review round 4, CONFIRMED
+
+- **Requested by user (via shadow review):** grammar-invalid round-only
+  records (`Round: 0`, zero-padded, oversized) produce `meta=None`, so both
+  `c` paths fell through to the headerless "No concerns detected" branch (the
+  monitor additionally marking the complete signature offered) — hiding
+  exactly the malformed output the round-3 grammar tightening introduced.
+- **Changes made:** new shared classifier
+  `concern_parser.has_invalid_round_header(text)` — first non-blank region
+  line is `Round:`-shaped but fails `_META_LINE` (forgiving region;
+  first-line-only, so a `Round:` line after an item stays body text). Both
+  `c` paths now route it into the uncertified branch:
+  `uncertified_round_block_msg(None)` renders "invalid round header" wording
+  (helper widened to `int | None`), raw `ConcernBlockInspectModal` shown.
+  The complete-block offered-marking follows the same shown-content
+  precedent as CR2. Tests: `TestHasInvalidRoundHeader` (violations flagged /
+  valid header, headerless, prose-first, after-item not flagged / streaming
+  flagged) + per-TUI action tests (`Round: 0` block → "invalid round header"
+  warning + raw view, never the generic message).
+- **Files affected:** `concern_parser.py`, `monitor_shared.py`,
+  `monitor_app.py`, `minimonitor_app.py`, `concern-format.md` (parser list),
+  `tests/test_concern_parser.py`, `tests/test_monitor_concern_action.py`,
+  `tests/test_minimonitor_concern_action.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps landed: `BlockMeta` +
+  `parse_block_meta` + module-docstring updates in `concern_parser.py`; the
+  round-header rule at both sites × 4 producers with the omit-when-clean rule
+  **replaced** at five sites and `Round: 1 @ …` prepended to every example;
+  the three `impl-challenge` per-profile goldens regenerated in the same
+  change; minimonitor's round-qualified dedup key + `(round N)` toast; the
+  monitor's clean-round offer-pass handling (offered-marking, badge clears,
+  signature retained); `format_block_meta` + keyword-only `block_meta` on
+  `ConcernPickerModal` + escaped context-line suffix; the `concern-format.md`
+  "Round header" section. Three shadow-review rounds then hardened it beyond
+  the plan: strict `is_metadata_only_block` certification (complete fence +
+  exactly the header) gating every clean-round branch; the round grammar
+  bounded to positive ≤9-digit values (`int()` overflow + 1-based contract);
+  `has_invalid_round_header` + `uncertified_round_block_msg` so uncertified
+  or grammar-invalid round-headed blocks warn and open the raw
+  `ConcernBlockInspectModal` in both `c` paths instead of a false
+  "no concerns" all-clear.
+- **Deviations from plan:** (1) The dedup key computes `parse_block_meta`
+  after `build_clipboard_payload` rather than before — order is irrelevant,
+  both are pure. (2) The review's round-3 "do not clear as definitively
+  handled" clause was deliberately narrowed: a *complete* uncertified block
+  is still marked offered after the raw view is shown, matching the
+  established lost-markers contract; only incomplete (streaming) blocks stay
+  unmarked. Disclosed at review and accepted with the commit approval.
+  (3) `format_block_meta` returns plain text and `_context_line()` escapes at
+  the markup boundary (repo `escape()` convention) rather than `markup=False`
+  on the Static.
+- **Issues encountered:** A concurrent session (t1453 markup-style work) was
+  editing `monitor_shared.py` / `monitor_app.py` / `minimonitor_app.py` and
+  several test files in the same worktree; one transient full-suite failure
+  (`test_textual_markup_colours.py`) was that session's mid-edit state, green
+  on re-run. The commit therefore staged only this task's hunks (U0
+  patch-level staging for the three shared files), verified by an isolated
+  checkout-index build + targeted test run before committing.
+- **Key decisions:** round certification is a *strict* predicate separate
+  from the forgiving meta reader (display/dedup tolerate imperfect captures;
+  state-clearing must not); the round bound lives in the grammar so
+  violations degrade to "malformed header" instead of raising; the t1448
+  freshness key is the `(round, reviewed_at)` pair, pinned in the
+  `BlockMeta` docstring; rendered-surface guards mirror every authoring-dir
+  producer guard (t1311 pattern).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** t1159_2's recheck prompt should derive
+  `expected_round` from `parse_block_meta(previous capture).round + 1` and
+  treat `None` (absent/invalid header) as "no expected round" — do not guess.
+  A clean round is certified ONLY by `is_metadata_only_block`;
+  `parse_block_meta` alone also reads streaming/polluted/invalid blocks (the
+  round-3/round-4 review findings — read the CR2/CR3 sections above before
+  consuming the parser API). The auto-offer dedup key in minimonitor is
+  `round=<N>@<ts>\n<payload>` when meta is present, bare payload otherwise;
+  the monitor needs no equivalent (signature-keyed). Producer wording is
+  guard-pinned: `_states_round_header_rule` counts placeholder-grammar tokens
+  at BOTH sites and `_retains_omit_block_rule` must stay zero — re-wrapping
+  is safe, hyphen-wrapping `zero-concern` is not. `impl-challenge.md` edits
+  require regenerating its three goldens in the same commit.
