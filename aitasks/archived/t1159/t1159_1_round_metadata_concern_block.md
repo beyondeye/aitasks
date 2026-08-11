@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/fable5
 created_at: 2026-08-11 15:32
-updated_at: 2026-08-11 17:10
+updated_at: 2026-08-11 22:31
+completed_at: 2026-08-11 22:31
 ---
 
 Add round metadata to the shadow concern block: grammar, parser accessor, producer wording, auto-offer dedup lift, and picker display. First child of t1159 (shadow review-loop automation); the full parent design is in `aiplans/p1159_shadow_review_loop_automation.md` and the child plan is `aiplans/p1159/p1159_1_round_metadata_concern_block.md`.
@@ -69,3 +70,14 @@ Producers are plain shared `.md` files — NO goldens regeneration, do NOT touch
 > **✅ gate:plan_approved** run=2026-08-11T14:09:59Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-11T19:31:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-11T19:31:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0154ef2d9cd5473d
+
+> **✅ gate:risk_evaluated** run=2026-08-11T19:31:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1159_1/risk_evaluated_2026-08-11T19:31:39Z-risk_evaluated-a1.log`
