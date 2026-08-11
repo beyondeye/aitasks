@@ -109,3 +109,10 @@ stage with an explicit path allowlist.
 7. `./.aitask-scripts/aitask_skill_verify.sh` — clean.
 8. `shellcheck .aitask-scripts/aitask_ls.sh`
 9. `bash tests/run_all_python_tests.sh` (read the LAST line for the verdict).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-11T19:06:23Z status=pass attempt=1 type=human
+>
+> Note: drift
