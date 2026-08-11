@@ -34,7 +34,14 @@ FOLLOWUP_KINDS: "dict[str, tuple[str, str, str]]" = {
     "carry_over":           ("↻", "cyan",         "carry-over"),
     "qa_test_gap":          ("◐", "magenta",      "QA test gap"),
     "review_finding":       ("◈", "magenta",      "review finding"),
-    "docs_gap":             ("▤", "bright_black", "docs gap"),
+    # `#808080`, not `bright_black` (t1468_3). Rich resolves `bright_black` to
+    # exactly this grey, but Textual CANNOT parse the name — `Color.parse` there
+    # raises "did you mean 'ansi_bright_black'?" — and a style it fails to parse
+    # silently falls back to the default FOREGROUND. The glyph therefore reached
+    # the board's compositor as truecolor `#e0e0e0`, pixel-identical to ordinary
+    # card text, so `docs_gap` had no colour signal at all. A hex is the only
+    # spelling of this grey that both libraries accept.
+    "docs_gap":             ("▤", "#808080",      "docs gap"),
 }
 
 VALID_FOLLOWUP_KINDS: frozenset = frozenset(FOLLOWUP_KINDS)

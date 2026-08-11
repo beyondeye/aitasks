@@ -59,8 +59,14 @@ from board_groups import (
     build_column_units, column_remap, group_display_title, group_key,
     group_members, remap_group_keys, task_group_slug,
 )
+# The ONE authority for follow-up glyphs and colours (t1468_1). Imported, never
+# mirrored: a second map in this file — or a `.fk-<kind>` colour class in the
+# CSS, which cannot read a Python dict — would be an unsynchronisable copy.
+# `_followup_marker` below is the render boundary over it.
+from followup_kinds import FOLLOWUP_KINDS, UNKNOWN_GLYPH, normalize_followup_kind
 
 from textual.app import App, ComposeResult
+from textual.content import Content
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
 from textual.widgets import Header, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList, DataTable, Collapsible
 from textual.widgets.selection_list import Selection
@@ -2618,7 +2624,8 @@ class GroupHeader(Static):
     `members` is a list of `Task` DATA, not widgets, and that is load-bearing: a
     COLLAPSED group mounts no member cards at all, so a filter pass has nothing
     to evaluate unless the header carries its members itself. t1243_10 reads the
-    same list to count matches for its `· 2 match` badge.
+    same list to count matches for its `· 2 match` badge, and t1468_3 reads it
+    again for the `· ▲2 ◈1` follow-up roll-up — same reason both times.
     """
 
     can_focus = True
@@ -2638,13 +2645,73 @@ class GroupHeader(Static):
         self.match_count: int | None = None
         self.update(self._label())
 
-    def _label(self) -> str:
+    def _followup_rollup(self) -> list:
+        """`▲2 ◈1` — per-kind follow-up tally over `self.members` (t1468_3).
+
+        Returns `Content.assemble` parts (a `(text, style)` tuple per coloured
+        run, bare `str` otherwise), empty when the group holds no follow-ups.
+
+        A COLLAPSED group mounts no member cards at all, so a per-card glyph is
+        invisible there; this header is the only place the provenance can
+        surface. Counts are emitted in canonical `FOLLOWUP_KINDS` declaration
+        order so the roll-up is deterministic whatever order the members are
+        in, each in its own colour, with unrecognised kinds tallied under `·`
+        and placed last.
+
+        `members` is task DATA (see the class docstring), so `m.metadata` is
+        read directly — no `getattr` fallback, which would mask a real `Task`
+        arriving without metadata.
+        """
+        tally: dict = {}
+        for m in self.members:
+            marker = _followup_marker(m.metadata)
+            if marker:
+                tally[marker] = tally.get(marker, 0) + 1
+        if not tally:
+            return []
+        parts: list = []
+        known = [(glyph, colour) for glyph, colour, _ in FOLLOWUP_KINDS.values()]
+        for marker in known + [(UNKNOWN_GLYPH, None)]:
+            count = tally.get(marker)
+            if not count:
+                continue
+            if parts:
+                parts.append(" ")
+            glyph, colour = marker
+            # A `(text, style)` pair IS an assemble part — so a marker with a
+            # colour needs no conversion at all; an unknown one degrades to the
+            # bare glyph, uncoloured.
+            parts.append(marker if colour else glyph)
+            parts.append(str(count))
+        return parts
+
+    def _label(self):
+        """The header's rendered line, rebuilt from scratch on every repaint.
+
+        Returns a Textual `Content`, not a `str`, because the roll-up carries
+        per-kind colour. `Content` is deliberate over a Rich `Text`: it is a
+        `Visual`, so `Static.update()` takes it as-is, whereas a Rich `Text`
+        routes through `Content.from_rich_text(..., console=widget.app.console)`
+        and would require a running app — breaking the app-free header harness
+        (`tests/test_board_group_filtering.py::GroupHeaderLabelTests`) that
+        exists precisely so this formatter can be tested without booting a board.
+
+        Assembled from literal parts, so the user-authored group title is never
+        markup-parsed: a hand-edited `boardgroup: "a[/]b"` renders literally
+        instead of being interpreted as Rich markup, which the f-string this
+        replaced could not promise.
+        """
         glyph = "▸" if self.collapsed else "▾"
-        label = f"{glyph} {group_display_title(self.slug)} ({len(self.members)})"
+        parts: list = [
+            f"{glyph} {group_display_title(self.slug)} ({len(self.members)})"]
         # No pluralisation branch: "2 match" and "1 match" both read as a verb.
         if self.match_count is not None:
-            label = f"{label} · {self.match_count} match"
-        return label
+            parts.append(f" · {self.match_count} match")
+        rollup = self._followup_rollup()
+        if rollup:
+            parts.append(" · ")
+            parts.extend(rollup)
+        return Content.assemble(*parts)
 
     def set_collapsed(self, collapsed: bool) -> None:
         """Flip the glyph in place — no recompose.
@@ -2957,6 +3024,14 @@ class TaskCard(Static):
                 marked = self._is_marked()
                 yield Label(MARK_CHECKED if marked else MARK_UNCHECKED,
                             classes="task-mark task-marked" if marked else "task-mark")
+            # Follow-up provenance gutter (t1468_3). Deliberately NOT hung off
+            # the mark above: `markable=True` is set only in
+            # `KanbanColumn.task_block`, so TopicColumn cards and child cards
+            # have no mark and must still show the glyph.
+            followup = _followup_marker(meta)
+            if followup:
+                yield Label(_followup_glyph_text(followup),
+                            classes="task-followup-glyph")
             if task_num:
                 display_num = f"{task_num} *" if is_modified else task_num
                 num_classes = "task-number task-modified" if is_modified else "task-number"
@@ -3106,6 +3181,13 @@ class InFlightTaskCard(TaskCard):
 
     def compose(self):
         with Horizontal(classes="task-title-row"):
+            # `self.task_data` IS `item.task` (passed to super().__init__), so
+            # every card surface reads follow-up provenance off the same
+            # attribute — no In-Flight-specific plumbing.
+            followup = _followup_marker(self.task_data.metadata)
+            if followup:
+                yield Label(_followup_glyph_text(followup),
+                            classes="task-followup-glyph")
             yield Label(self.item.task_id, classes="task-number")
             yield Label(self.item.title, classes="task-title")
         yield Label(self.item.next_action, classes="task-info inflight-action")
@@ -3230,6 +3312,51 @@ class _GhostTaskStub:
         self.archived = False
 
 
+def _followup_marker(metadata):
+    """`(glyph, colour)` for a task's `followup_kind`, or `None` when it is not
+    an auto-spawned follow-up (t1468_3).
+
+    The board's totality boundary over `followup_kind`. `lib/task_yaml.py`
+    deliberately leaves frontmatter values type-honest, so a hand-edited or
+    foreign field arrives as `None`, a list, a dict, an int or a bool —
+    `normalize_followup_kind` (imported from the vocabulary module, never
+    copied) coerces every one of those to `""`. Never read the raw value in a
+    `compose`.
+
+    Deliberately NOT `followup_kinds.glyph_for()` / `colour_for()`: those were
+    written for validation and answer `("·", None)` for an **absent** kind just
+    as they do for an unknown one, which here would paint a marker on every
+    ordinary task. The two cases must diverge on a board:
+
+    - absent / empty / junk -> ``None``, so no widget is yielded at all;
+    - a recognised kind      -> its own glyph and severity-family colour;
+    - present but unrecognised (a typo, or a kind from a newer framework
+      version) -> the ``·`` fallback with **no** colour. It still renders —
+      mirroring `_trail_badge_text`'s `·` — because a bad value that silently
+      vanishes is indistinguishable from a task that was never a follow-up.
+
+    Returning a tuple-or-``None`` rather than a bare glyph string is what keeps
+    "no marker" structurally distinct from "a marker that happens to be `·`",
+    so every call site is a single `if marker:`.
+    """
+    kind = normalize_followup_kind((metadata or {}).get("followup_kind"))
+    if not kind:
+        return None
+    entry = FOLLOWUP_KINDS.get(kind)
+    return (entry[0], entry[1]) if entry else (UNKNOWN_GLYPH, None)
+
+
+def _followup_glyph_text(marker) -> Text:
+    """The glyph as a Rich `Text`, carrying its colour as a literal style.
+
+    A literal Rich style resolves in `render().spans` AND in the composited
+    strips; an unresolved CSS colour name resolves in neither, which is exactly
+    what the colour verification reads.
+    """
+    glyph, colour = marker
+    return Text(glyph, style=colour) if colour else Text(glyph)
+
+
 def _trail_badge_text(entry: dict) -> str:
     """Literal badge line for a trail entry card: glyph, classification,
     confidence. Rendered with markup=False (literal UI text)."""
@@ -3277,6 +3404,17 @@ class TrailTaskCard(TaskCard):
     def compose(self):
         task_num, task_name = self._parse_filename(self.task_data.filename)
         title = Text()
+        # There is no `.task-title-row` Horizontal on this card — the title is
+        # one Rich Text — so the follow-up glyph is prepended into it rather
+        # than yielded as a gutter Label. It goes BEFORE the landed `✔ `, so the
+        # leading column is the provenance marker on every By-Trail card.
+        # Source is frontmatter, NOT `self.trail_entry`: the trail snapshot
+        # serves the trail document, which is what keeps this independent of
+        # t1468_5.
+        followup = _followup_marker(self.task_data.metadata)
+        if followup:
+            title.append_text(_followup_glyph_text(followup))
+            title.append(" ")
         if self.trail_view.landed:
             title.append("✔ ")
             title.append(f"{task_num} {task_name}".strip(), style="strike")
@@ -3325,6 +3463,11 @@ class TrailGhostCard(TaskCard):
         self.is_ghost = True
 
     def compose(self):
+        # No follow-up glyph here, BY DESIGN (t1468_3) — not an omission. A
+        # ghost is a referenced task with no local file, so `_GhostTaskStub`
+        # carries `metadata = {}`: there is nothing to classify and nothing to
+        # pick. `_followup_marker({})` would return None anyway; not calling it
+        # states the decision rather than leaving it to fall out.
         ref = str(self.trail_entry.get("task") or "?")
         title = Text()
         if self.trail_view.landed:
@@ -7134,6 +7277,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .task-title-row { height: auto; }
     .task-mark { color: #6272A4; width: auto; margin: 0 1 0 0; }
     .task-marked { color: yellow; text-style: bold; }
+    /* Layout ONLY — no `color:`, and no per-kind classes. The colour is a
+       literal Rich style from FOLLOWUP_KINDS (see `_followup_marker`); a
+       `.fk-<kind>` rule here would be a second authority that CSS cannot keep
+       in sync with a Python dict. */
+    .task-followup-glyph { width: auto; margin: 0 1 0 0; }
     .task-number { color: $accent; text-style: bold; width: auto; margin: 0 1 0 0; }
     .task-modified { color: #FFB86C; }
     .task-title { text-style: bold; width: 1fr; }

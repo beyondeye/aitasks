@@ -751,7 +751,12 @@ class GroupHeaderLabelTests(bf.FixtureBoardTestBase, unittest.TestCase):
     FIXTURE_TASKS = FILTER_TOPOLOGY
 
     class _Member:
-        pass
+        # Stands in for a `Task`. `metadata` is required, not optional:
+        # `_label()` reads it for the t1468_3 follow-up roll-up, and production
+        # deliberately has no `getattr` fallback (that would mask a real Task
+        # arriving without metadata). Pass `extra` to make a member a follow-up.
+        def __init__(self, **extra):
+            self.metadata = dict(extra)
 
     def _header(self, *, collapsed=True, members=3, count=None):
         h = self.ab.GroupHeader("c0", PERF, [self._Member() for _ in range(members)],
