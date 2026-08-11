@@ -268,6 +268,34 @@ assert_exit_nonzero_rc "Missing source with no global shim is fatal" "$rc_11"
 
 rm -rf "$TMPDIR_11"
 
+# --- Test 12: `ait setup --help` outside a project never bootstraps (t1435) ---
+# The bootstrap branch keys on $1 == "setup" alone, so a help request used to
+# download install.sh and install the framework into $PWD. The fake failing
+# curl/wget is also this test's negative control: without the guard the shim
+# reaches the download and exits 1 with a "Downloading" line.
+echo "--- Test 12: setup --help does not bootstrap ---"
+
+TMPDIR_12="$(mktemp -d)"
+SHIM_PATH_12="$(generate_test_shim "$TMPDIR_12/shimbin")"
+
+mkdir -p "$TMPDIR_12/fakebin" "$TMPDIR_12/empty"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMPDIR_12/fakebin/curl"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TMPDIR_12/fakebin/wget"
+chmod +x "$TMPDIR_12/fakebin/curl" "$TMPDIR_12/fakebin/wget"
+
+for flag in --help -h; do
+    output=$(cd "$TMPDIR_12/empty" && PATH="$TMPDIR_12/fakebin:$PATH" \
+        "$SHIM_PATH_12" setup "$flag" </dev/null 2>&1)
+    rc=$?
+
+    assert_eq "setup $flag exits 0" "0" "$rc"
+    assert_not_contains_ci "setup $flag attempts no download" "downloading" "$output"
+    assert_contains_ci "setup $flag points at the framework help" \
+        "not installed here" "$output"
+done
+
+rm -rf "$TMPDIR_12"
+
 # --- Summary ---
 echo ""
 echo "==============================="

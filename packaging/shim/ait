@@ -20,6 +20,24 @@ done
 
 # No project found — special-case "ait setup" to bootstrap
 if [[ "${1:-}" == "setup" ]]; then
+    # Help is a question, not a request to install: never bootstrap on
+    # `ait setup --help`. This prints a pointer, NOT setup's option list —
+    # that list lives in usage() in .aitask-scripts/aitask_setup.sh, which
+    # does not exist until the framework is installed, and duplicating it
+    # here would drift from it.
+    for arg in "${@:2}"; do
+        case "$arg" in
+            -h|--help)
+                echo "[ait] No aitasks project found in $PWD or any parent directory."
+                echo "[ait] 'ait setup --help' lists setup's options, but they ship with the"
+                echo "[ait] framework, which is not installed here."
+                echo "[ait] Run 'ait setup' (no flags) to install aitasks into this directory,"
+                echo "[ait] then re-run 'ait setup --help' for the full option list."
+                exit 0
+                ;;
+        esac
+    done
+
     echo ""
     echo "[ait] No aitasks project found in $PWD or any parent directory."
     echo ""

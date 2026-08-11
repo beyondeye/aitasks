@@ -16,7 +16,9 @@ Cross-platform dependency installer and configuration tool. This is typically th
 ait setup
 ```
 
-**Auto-bootstrap:** When run via the global shim (`~/.local/bin/ait`) in a directory without an existing aitasks installation, `ait setup` automatically downloads and installs the latest release before running the setup flow. This lets you bootstrap new projects with a single command — no need to run the `curl | bash` installer separately.
+Run `ait setup --help` for the full option list, including the opt-in dependency tiers described below.
+
+**Auto-bootstrap:** When run via the global shim (`~/.local/bin/ait`) in a directory without an existing aitasks installation, `ait setup` automatically downloads and installs the latest release before running the setup flow. This lets you bootstrap new projects with a single command — no need to run the `curl | bash` installer separately. A help request is the one exception: `ait setup --help` outside a project never bootstraps — it tells you the options ship with the framework and how to install it first.
 
 **Guided setup flow:**
 

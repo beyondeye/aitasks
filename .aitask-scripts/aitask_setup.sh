@@ -3701,6 +3701,39 @@ setup_userconfig() {
     success "Created userconfig.yaml (email: $email)"
 }
 
+# --- Usage ---
+# Source: website/content/docs/commands/setup-install.md — "ait setup" section,
+# guided-setup step 7 (the three opt-in dependency tiers and their
+# remember-after-first-opt-in behavior). The setup-vs-upgrade verb split
+# ("reinstall / repair" vs "move to a newer version") is from CLAUDE.md,
+# "CLI Conventions".
+usage() {
+    cat << 'EOF'
+Usage: ait setup [OPTIONS]
+
+Install dependencies and configure the aitask framework in this project.
+Safe to re-run: setup reinstalls, repairs, and populates whatever is missing,
+preserving existing configuration. To move to a newer framework version, use
+'ait upgrade' instead.
+
+Options:
+  --with-pypy   Also install the opt-in PyPy venv that speeds up 'ait board'
+  --with-chat   Also install the opt-in chat SDK tier (discord.py, slack-bolt,
+                slack-sdk) used by 'ait chatlink'
+  --with-dev    Also install the opt-in dev/test tier (pytest, pytest-xdist),
+                which gives the Python test suite a parallel lane
+  -h, --help    Show this help message
+
+Each opt-in tier is remembered after the first opt-in: later plain 'ait setup'
+runs revalidate and repair it without re-passing the flag.
+
+Examples:
+  ait setup                            # Install / repair dependencies and config
+  ait setup --with-dev                 # ... plus the pytest test tier
+  ait setup --with-pypy --with-chat    # ... plus the PyPy and chat tiers
+EOF
+}
+
 # --- Main ---
 main() {
     INSTALL_PYPY=0
@@ -3712,6 +3745,10 @@ main() {
             --with-pypy) INSTALL_PYPY=1; shift ;;
             --with-chat) INSTALL_CHAT=1; shift ;;
             --with-dev)  INSTALL_DEV=1; shift ;;
+            # Must exit before any setup step runs: falling through to the
+            # catch-all below made 'ait setup --help' run the full guided
+            # install — the very side effects the user was asking about.
+            -h|--help)   usage; exit 0 ;;
             --) shift; args+=("$@"); break ;;
             *)  args+=("$1"); shift ;;
         esac
