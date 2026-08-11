@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
+implemented_with: claudecode/opus5
 created_at: 2026-07-21 18:02
-updated_at: 2026-08-11 16:56
+updated_at: 2026-08-11 17:55
 boardcol: bug_fixes
 boardidx: 30
 ---
@@ -86,3 +89,8 @@ Whichever is chosen, verification MUST include a negative control per touched
 file: deliberately break one assertion and confirm the suite now exits non-zero.
 A fix that only corrects the printed totals without fixing the exit code leaves
 the CI blind spot in place.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-11T14:56:07Z status=pass attempt=1 type=human
