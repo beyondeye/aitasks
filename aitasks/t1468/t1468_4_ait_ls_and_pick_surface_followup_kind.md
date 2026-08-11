@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1468
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:29
-updated_at: 2026-08-11 22:58
+updated_at: 2026-08-11 23:00
 ---
 
 ## Context
@@ -116,3 +117,5 @@ stage with an explicit path allowlist.
 > **✅ gate:plan_approved** run=2026-08-11T19:06:23Z status=pass attempt=1 type=human
 >
 > Note: drift
+
+> **✅ gate:plan_approved** run=2026-08-11T20:00:24Z status=pass attempt=2 type=human
