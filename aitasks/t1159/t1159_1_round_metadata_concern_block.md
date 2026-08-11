@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/fable5
 created_at: 2026-08-11 15:32
-updated_at: 2026-08-11 16:23
+updated_at: 2026-08-11 17:09
 ---
 
 Add round metadata to the shadow concern block: grammar, parser accessor, producer wording, auto-offer dedup lift, and picker display. First child of t1159 (shadow review-loop automation); the full parent design is in `aiplans/p1159_shadow_review_loop_automation.md` and the child plan is `aiplans/p1159/p1159_1_round_metadata_concern_block.md`.
@@ -59,3 +60,8 @@ Producers are plain shared `.md` files — NO goldens regeneration, do NOT touch
 - `tests/test_concern_parser.py` (extend): parse_block_meta present/absent/no-timestamp; header-after-item → meta None AND line body-joined (pin the corruption mode); last-block-wins; metadata-only block (meta readable, `has_concern_block` False, `parse_concerns` empty); byte-identical entry-point results with/without header; `concern_block_signature` changes on round bump alone; new `TestProducerRoundHeaderRule` (both sites x 4 producers + example headers + zero-concern wording present).
 - `tests/test_minimonitor_concern_action.py` (extend): round 1 then round 2 with identical concerns → two notifies; identical round → one.
 - Run: `bash tests/run_all_python_tests.sh` — read only the final stderr verdict line.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-11T14:09:59Z status=pass attempt=1 type=human
