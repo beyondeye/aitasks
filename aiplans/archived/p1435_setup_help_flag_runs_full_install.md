@@ -405,12 +405,20 @@ Post-implementation cleanup, archival, and merge follow **Step 9
   `applink`, `chatlink`, `stats-tui`, `diffviewer`) are a known scope exclusion
   recorded in the task's own Scope note, not a newly discovered defect — all are
   TUI launchers whose failure mode is opening a TUI, not installing anything.
-- **Commit history anomaly:** while this task was in review, the concurrent
-  t1207 session committed the entire shared git index, sweeping all five t1435
-  paths into its commit `d490b2373` ("bug: Make the orphaned-counter test files
-  enforce their assertions (t1207)"). The code is correct and in the tree, but
-  the `(t1435)` tag was never recorded there. Resolution (user's call): an empty
-  marker commit `225a8b6b5` carries the `(t1435)` tag and names `d490b2373` as
-  the commit holding the diff, so tag-based lookup (`aitask_issue_update.sh`,
-  changelog) resolves. History was deliberately NOT rewritten — the sweeping
-  commit was still unpushed, but the other agent was live in the same tree.
+- **Commit history anomaly (resolved):** while this task was in review, the
+  concurrent t1207 session committed the entire shared git index, sweeping all
+  five t1435 paths into its commit `d490b2373`. With the diff entangled in
+  another task's commit, an empty marker commit `225a8b6b5` was created to carry
+  the `(t1435)` tag that `aitask_issue_update.sh` and the changelog key on;
+  history was deliberately not rewritten while the other agent was live.
+  Shortly afterwards that session rewrote its own commit (`d490b2373` →
+  `2913892eb`) without the t1435 paths, which returned the five files to the
+  working tree uncommitted. They were then committed properly as **`d5fc5a9e5`**
+  (`bug: Print help instead of running the full install for setup --help
+  (t1435)`, 5 files, +259/-1) by amending the empty marker — the only rewritten
+  commit was this task's own unpushed, unreferenced one.
+  **Sequencing lesson (t1435):** `git add` followed by `git commit` is not
+  atomic; a concurrent session that commits the index in that window captures
+  the staged files. Use `git commit -o -- <paths>` so the commit is restricted
+  to named paths, and `git add` only what a pathspec cannot reach (a brand-new
+  untracked file), immediately before the commit.
