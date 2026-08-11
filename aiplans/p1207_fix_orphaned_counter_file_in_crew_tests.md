@@ -502,12 +502,12 @@ Standard: merge to `main`, archive the task and this plan.
 - The ~270 assertions across these 11 files have never been enforced. Turning enforcement on may
   reveal genuine pre-existing failures, forking the task into unplanned repair
   work — with a standing temptation to weaken the assertion instead of fixing
-  the code · severity: medium · → mitigation: triage_enforced_crew_test_failures
+  the code · severity: medium · → mitigation: t1485
 
 ### Planned mitigations
 - timing: pre-phase | name: snapshot_suite_baseline | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — 256 files source asserts.sh | desc: Capture the t923 harness's per-file FAIL-count + exit-status baseline over every file sourcing asserts.sh before the library edit, and re-check after Steps 1 and 2.
 - timing: post-phase | name: assert_negctrl_anchor | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — negative control may pass vacuously | desc: Hard-fail the per-file negative control when its injection anchor is missing, assert the injected line landed, and require a passing pre-injection run as positive control.
-- timing: after | name: triage_enforced_crew_test_failures | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — newly enforced assertions may reveal real failures | desc: Repair any genuine pre-existing failures that enforcement exposes in the 11 crew/brainstorm test files in a dedicated task, never by weakening the assertion.
+- timing: after | name: triage_enforced_crew_test_failures | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — newly enforced assertions may reveal real failures | desc: Repair any genuine pre-existing failures that enforcement exposes in the 11 crew/brainstorm test files in a dedicated task, never by weakening the assertion. | created: t1485
 
 ## Final Implementation Notes
 
@@ -607,3 +607,16 @@ Standard: merge to `main`, archive the task and this plan.
   - *Left the one genuine failure failing.* Repairing brainstorm's `NO_PLAN`
     path is product work; weakening the assertion to get green would restore the
     blindness. Routed to the `triage_enforced_crew_test_failures` follow-up.
+
+- **Follow-ups created:**
+  - **t1485** (`upstream_defect`, `followup_of: 1207`) — carries both upstream
+    defects. It also **absorbs the confirmed `after` mitigation
+    `triage_enforced_crew_test_failures`** by user decision at Step 8d: that
+    mitigation existed to repair whatever genuine failures the new enforcement
+    exposed, exactly one surfaced, and it is the same brainstorm `NO_PLAN`
+    defect — so spawning it separately would have produced two tasks for one
+    defect. The mitigation line records `created: t1485` rather than being
+    dropped, so the obligation is traceable to where it went.
+  - No manual-verification follow-up: every claim in this task is
+    machine-verifiable and was verified (guard test, per-file negative controls,
+    the 245-file cohort sweep, and the pre-fix worktree control).
