@@ -3,18 +3,19 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 folded_tasks: [1017]
-created_at: 2026-07-19 08:43
-updated_at: 2026-08-02 07:59
-boardidx: 70
-boardcol: now
+assigned_to: dario-e@beyond-eye.com
 artifacts:
   - handle: art:trail-shadow-review-loop
     kind: implementation_trail
     name: "Shadow review-loop automation: landing order"
+created_at: 2026-07-19 08:43
+updated_at: 2026-08-11 14:08
+boardcol: now
+boardidx: 70
 ---
 
 Design and build a specialized shadow review-loop that automates the plan-review and implementation-review feedback cycles between the shadow agent and the followed (main) agent, removing the manual juggling the current workflow requires. This likely needs a redesign of how the shadow agent works and how it interacts with minimonitor — brainstorm possible solutions at planning time.

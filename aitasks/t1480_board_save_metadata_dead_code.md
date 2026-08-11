@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 1243
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-10 22:09
-updated_at: 2026-08-11 00:09
+updated_at: 2026-08-11 00:10
 ---
 
 ## Context
