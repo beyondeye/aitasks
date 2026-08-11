@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1468_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [bash_scripts, task_workflow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 created_at: 2026-08-10 16:29
-updated_at: 2026-08-10 16:29
+updated_at: 2026-08-11 18:53
 ---
 
 ## Context

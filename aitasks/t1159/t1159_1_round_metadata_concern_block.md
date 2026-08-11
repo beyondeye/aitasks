@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/fable5
 created_at: 2026-08-11 15:32
-updated_at: 2026-08-11 17:09
+updated_at: 2026-08-11 17:10
 ---
 
 Add round metadata to the shadow concern block: grammar, parser accessor, producer wording, auto-offer dedup lift, and picker display. First child of t1159 (shadow review-loop automation); the full parent design is in `aiplans/p1159_shadow_review_loop_automation.md` and the child plan is `aiplans/p1159/p1159_1_round_metadata_concern_block.md`.
