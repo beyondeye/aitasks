@@ -1,0 +1,80 @@
+---
+priority: medium
+effort: low
+depends: []
+issue_type: bug
+status: Ready
+labels: [task_workflow]
+gates: [risk_evaluated]
+anchor: 1468
+followup_kind: upstream_defect
+created_at: 2026-08-11 14:30
+updated_at: 2026-08-11 14:30
+---
+
+## Origin
+
+Spawned from t1468_2 during Step 8b review.
+
+## Upstream defect
+
+- `tests/golden/procs/task-workflow/SKILL-default.md:1 — the three SKILL-*.md
+  goldens are stale at HEAD: commit 4f8d0387e (t1466) edited
+  .claude/skills/task-workflow/SKILL.md without regenerating them (goldens last
+  updated in 4ba78d1c7, t1272), so tests/test_skill_render_task_workflow.sh has
+  3 failing golden diffs independent of any current work.`
+
+## Diagnostic context
+
+t1468_2 added `task-creation-batch.md` to `WRAPPED_FILES_VARYING` in
+`tests/test_skill_render_task_workflow.sh` and regenerated the affected goldens.
+Running the suite then showed 3 failures — `golden SKILL × {default,fast,remote}`
+— which at first looked caused by that change.
+
+They are not. Proven two ways:
+
+1. `.claude/skills/task-workflow/SKILL.md` in the working tree was **byte-identical
+   to HEAD** (`diff` against `git show HEAD:...` was empty) — t1468_2 never touched
+   that file.
+2. Rendering **HEAD's own copy** of `SKILL.md` against
+   `aitasks/metadata/profiles/default.yaml` still differs from the committed
+   golden, so the staleness exists at HEAD independently of any working-tree
+   change.
+
+`git log` confirms the provenance: the source last changed in `4f8d0387e`
+(t1466, "Gate lock acquisition on holder liveness") while the goldens last
+changed in `4ba78d1c7` (t1272). The diff is exactly t1466's content — the new
+`LOCK_LIVE_HOLDER:` / `LOCK_UNVERIFIABLE_HOLDER:` branches in Step 4, the
+expanded `RECLAIM_STATUS:` description, and the matching Step-7 guard bullet.
+
+t1468_2 initially regenerated the three files to get a green suite, but that was
+reverted on review: curing a pre-existing regression fixture inside an unrelated
+task obscures provenance. Hence this task.
+
+This is a repeat of a known failure mode — CLAUDE.md and
+`aidocs/framework/skill_authoring_conventions.md:467` both require goldens to be
+regenerated in the **same commit** as the template/procedure edit.
+
+## Suggested fix
+
+Regenerate the three goldens with the documented loop
+(`aidocs/framework/skill_authoring_conventions.md:484-497`):
+
+```bash
+PYTHON="$(source .aitask-scripts/lib/python_resolve.sh && require_ait_python)"
+for profile in default fast remote; do
+  "$PYTHON" .aitask-scripts/lib/skill_template.py \
+    .claude/skills/task-workflow/SKILL.md \
+    aitasks/metadata/profiles/$profile.yaml claude \
+    > tests/golden/procs/task-workflow/SKILL-${profile}.md
+done
+```
+
+Then confirm `bash tests/test_skill_render_task_workflow.sh` is fully green
+(184/184). Review the diff before committing to confirm it contains only t1466's
+intended content and no unrelated drift.
+
+Worth considering as part of the fix: nothing mechanically enforces the
+same-commit rule, which is why this drifted silently for two tasks. A pre-commit
+check or a CI step that fails when a wrapped source file is newer than its
+golden would close the loop.
