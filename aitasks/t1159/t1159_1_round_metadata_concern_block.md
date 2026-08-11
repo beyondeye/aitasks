@@ -67,3 +67,5 @@ Producers are plain shared `.md` files — NO goldens regeneration, do NOT touch
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-11T14:09:59Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-11T19:31:08Z status=pass attempt=1 type=human
