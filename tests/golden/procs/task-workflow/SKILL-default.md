@@ -165,7 +165,7 @@ If none of the checks trigger, proceed to Step 4 as normal.
     Signal field formats:
     - `LOCK_RECLAIM:<prev_hostname>|<prev_locked_at>|<current_hostname>` — multi-PC reclaim (cross-host).
     - `RECLAIM_CRASH:<prev_locked_at>|<prev_hostname>|<prev_pid>` — same-host crash (PID anchor is dead). Common case after a tmux/host-shell crash.
-    - `RECLAIM_STATUS:<prev_status>|<prev_assigned_to>` — anomaly fallback (lock missing or pre-PID-anchor lock).
+    - `RECLAIM_STATUS:<prev_status>|<prev_assigned_to>` — anomaly fallback: the lock is missing, is a pre-PID-anchor lock, recorded no session process, or is this session's own. A lock whose holder is a *different* live or unverifiable session on this host never reaches here — it is refused at acquire time (below).
 
     When the procedure returns:
     - `reclaim` → ownership is held here (`OWNED:` confirms). Continue to the **Re-entry Routing** gate at the end of Step 4 (it checks `resume_point`); if no resume applies, proceed to Step 5 normally.
@@ -182,6 +182,25 @@ If none of the checks trigger, proceed to Step 4 as normal.
       ```
       Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed. Otherwise: abort.
     - If "Pick a different task": Return to the calling skill's task selection. Do NOT proceed.
+  - `LOCK_LIVE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — **another session of yours on this machine is holding this task and is still running.** Nothing was claimed: the refusal happens before the lock, the status write and the commit, so the task is untouched and there is nothing to undo. This is not a crash — do **not** describe it as one, and do not run the Crash Recovery Procedure. Parse the `|`-separated fields and use `AskUserQuestion`:
+    - Question: "Task t\<N\> is already held by another session of yours on this machine (pid \<pid\>, since \<locked_at\>), and that session is still running. Nothing has been claimed."
+    - Header: "Live holder"
+    - Options — **list them in this order**; the safe option must come first, because taking the lock here means two agents working the same task:
+      - "Pick a different task" (description: "Leave the other session alone and select another task")
+      - "Force-claim anyway" (description: "Take the lock while the other session keeps running — both agents will work this task and duplicate each other")
+    - If "Pick a different task": return to the calling skill's task selection. Do NOT proceed.
+    - If "Force-claim anyway": re-run with `--force`:
+      ```bash
+      ./.aitask-scripts/aitask_pick_own.sh <task_num> --force --email "<email>"
+      ```
+      Parse the output again. If `FORCE_UNLOCKED` + `OWNED`: proceed to Step 5. Otherwise: abort.
+  - `LOCK_UNVERIFIABLE_HOLDER:<owner>|<locked_at>|<hostname>|<pid>` — a session of yours on this machine holds the task and **its liveness could not be established** — it is neither provably running nor provably gone (an uninspectable process, or an identity token too coarse to rule out a recycled PID). As above, nothing was claimed and this is not a crash. Same prompt shape, same option order:
+    - Question: "Task t\<N\> is held by a session on this machine (pid \<pid\>, since \<locked_at\>) that could not be verified as either running or gone. Nothing has been claimed."
+    - Header: "Unverified"
+    - Options:
+      - "Pick a different task" (description: "Leave the lock intact and select another task")
+      - "Reclaim anyway" (description: "Take the lock — do this only if you know that session is gone")
+    - Handle both branches exactly as for `LOCK_LIVE_HOLDER:` above.
   - `LOCK_ERROR:<message>` — Lock system error (fetch failure, race exhaustion, etc.). Display the error and suggest running `./.aitask-scripts/aitask_lock_diag.sh` for troubleshooting. Use `AskUserQuestion`:
     - Question: "Lock system error: \<message\>. How to proceed?"
     - Header: "Lock error"
@@ -349,6 +368,7 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
   - Parse output as in Step 4:
     - `OWNED:<task_id>` — Success. Proceed.
     - `LOCK_FAILED:<owner>|<locked_at>|<hostname>` — Parse the `|`-separated fields. Use `AskUserQuestion` with options: "Force unlock and claim" / "Abort task". If force unlock, re-run with `--force`. If abort, execute the **Task Abort Procedure** (see `task-abort.md`).
+    - `LOCK_LIVE_HOLDER:` / `LOCK_UNVERIFIABLE_HOLDER:` — another session of yours on this machine holds the task and is running (or could not be verified as gone). Handle exactly as in Step 4, including the option order (safe option first). Reaching this from *this* guard is unusual — it means ownership was lost between Step 4 and here — so state that in the display before prompting.
     - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort". Handle as in Step 4.
     - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort.
     - Script fails entirely — display error and abort.
