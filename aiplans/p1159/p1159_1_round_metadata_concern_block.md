@@ -115,6 +115,40 @@ Confirmed unchanged and load-bearing:
   `contains_any_concern_block` guard globs **every** `*.md` under the shadow dir,
   authoring and rendered.
 
+### Round-2 review corrections (shadow concerns, all verified valid)
+
+6. **The producers carry a contradictory omit-when-clean rule.** All four
+   instruct the agent to emit **no** block on a clean review:
+   `plan-challenge.md:120-122` and `impl-challenge.md:445-447` ("Emit the block
+   **only when you have at least one concern**. If … genuinely clean, or
+   suppression left you with nothing to forward, omit the block entirely and say
+   so."), `plan-assumptions.md:123-124` (same shape, "at least one assumption
+   worth forwarding"), `plan-diagnose-errors.md:107-109` (rules bullet) **and**
+   its step-2 prose at `:39-40` ("**say so plainly and stop** — emit no concern
+   block"). Adding the metadata-only directives without deleting these leaves
+   both instructions live and the token-count guard green; an agent following
+   the old rule emits no clean-round record. Step 2 now **replaces** all five
+   sites, and the guard gains a negative assertion that the omit wording is gone.
+7. **A metadata-only block would light the monitor's `!` badge forever.**
+   `_has_fresh_concerns` (`monitor_app.py:2094-2106`) keys on
+   `_concern_sig_offered` **only**; the offer pass marks an empty-parse block
+   *examined* (`:1124-1126`) and returns with "The badge stands" (`:1131-1134`)
+   — deliberate for *malformed* blocks, wrong for a valid clean-round block
+   (non-None signature, nothing to pick, nothing to investigate). New step 3b
+   marks a metadata-only block **offered** in the offer pass, so no toast and no
+   standing badge, while `_concern_sig_latest` (the freshness input) is untouched.
+8. **`reviewed_at` reaches a markup-enabled `Static` verbatim.**
+   `#concern-context` (`monitor_shared.py:2529`) parses Rich markup; the repo
+   documents this exact hazard at `:1548-1550` — "an unescaped `[/]` raises
+   MarkupError and takes the modal down" — with `escape()` as the convention.
+   A malformed header like `Round: 2 @ [/]` would crash the picker. Step 4 now
+   escapes the suffix at the markup boundary and tests markup-shaped garbage.
+9. **No test wired the callers to the modal.** The original verification tested
+   `parse_block_meta`, `format_block_meta`, and `ConcernPickerModal` in
+   isolation; omitting either caller's `block_meta=` argument would leave all of
+   them green while that surface never shows round metadata. The action-flow
+   tests in both TUIs now assert the **pushed modal instance** carries the meta.
+
 ## Pre-phase (risk mitigations)
 
 1. **[narrow_width_context_budget]** Before touching `_context_line()`, add a
@@ -236,6 +270,27 @@ code fence, before the rules list** — this keeps the existing
 >   the header to show the round, to re-offer the picker when a later round
 >   repeats the same concerns, and to judge concern freshness.
 
+**Replace the contradictory omit-when-clean rule (five sites — MUST be deleted,
+not merely outvoted).** Each producer's rules list ends with a bullet
+instructing the agent to omit the block on a clean review; `plan-diagnose-errors.md`
+additionally says it in step-2 prose. Both new round-header sites coexist with
+that rule as far as the token-count guard is concerned, so the old rule must be
+**replaced in place** — the Site B bullet above takes the old bullet's slot:
+
+| file | old rule site | action |
+|---|---|---|
+| `plan-challenge.md:120-122` | "Emit the block **only when you have at least one concern**. … omit the block entirely and say so." | replace bullet with Site B |
+| `plan-assumptions.md:123-124` | "Emit the block **only when you have at least one assumption worth forwarding** … omit it entirely and say so." | replace bullet with Site B |
+| `plan-diagnose-errors.md:107-109` | "Emit the block **only when you found at least one genuine error/retry signal** … omit the block entirely and say so." | replace bullet with Site B |
+| `plan-diagnose-errors.md:39-40` | "**say so plainly and stop** — emit no concern block." | reword: "**say so plainly** and emit the metadata-only block — the two fences with only the round header between them — so the round is still recorded." |
+| `impl-challenge.md:445-447` | "Emit the block **only when you have at least one concern**. … omit the block entirely and say so." | replace bullet with Site B |
+
+(Placing Site B in the old bullet's slot keeps each rules list the same length
+and keeps the clean-review instruction where readers last saw it.) After the
+edit, `grep -c "omit the block entirely\|omit it entirely\|emit no concern block"`
+over the four producers must return **0 hits per file** — verify the count, and
+the guard's negative assertion (Verification below) pins it from then on.
+
 **Example blocks:** prepend `Round: 1 @ 2026-08-11T14:03:27Z` as the first line
 inside each producer's ```` ``` ```` example, above the first `- [` item.
 Examples must **never** gain the sentinel fences (t1123
@@ -281,6 +336,61 @@ round_suffix = f" (round {meta.round})" if meta else ""
 
 inserted before `stale_suffix` so the existing stale marker stays last.
 
+### 3b. Monitor clean-round handling — `.aitask-scripts/monitor/monitor_app.py`
+
+A metadata-only block has a **non-None** `concern_block_signature` (complete
+fences), so `_scan_concern_signatures` stores it in `_concern_sig_latest` and
+the `!` badge lights (`_has_fresh_concerns` keys on `_concern_sig_offered`
+membership only). The offer pass marks it merely *examined* and returns
+(`:1124-1134`), so the badge stands until the user presses `c` — correct for a
+malformed block (there is something to investigate), wrong for a valid clean
+round (there is nothing to pick).
+
+In the offer pass's empty-parse branch (`:1131-1134`), split the two cases:
+
+```python
+concerns = parse_concerns(text)
+if not concerns:
+    if (parse_block_meta(text) is not None
+            and not unrecovered_markers(text)):
+        # Valid metadata-only clean-round block: nothing to pick, nothing
+        # to investigate — treat as handled. Marking it OFFERED (same call
+        # the `c` path makes at :2979) clears the badge; the signature
+        # stays in `_concern_sig_latest`, so downstream freshness (t1448)
+        # still sees the round advance.
+        self._mark_concern_sig(
+            self._concern_sig_offered, pane_id, sig, captured_sig
+        )
+        return
+    # Malformed or empty-parse block: no misleading toast. The badge
+    # stands, and `c` gives the user the precise reason.
+    return
+```
+
+Add `parse_block_meta` and `unrecovered_markers` to `monitor_app.py`'s imports
+(`unrecovered_markers` is already imported at `:53`; only `parse_block_meta` is
+new). `parse_block_meta` and `unrecovered_markers` both read the same forgiving
+region as `parse_concerns`, so the three describe the same block.
+
+**Scope note:** the offer pass runs only for the focused agent, so an
+*unfocused* agent's clean round badges until that agent is next focused (the
+offer pass then clears it without a keypress). That residual is accepted:
+clearing it tick-side would require parsing the raw `-p -e` capture, which the
+`_scan_concern_signatures` contract explicitly forbids ("This is a TRIGGER,
+never a parse"). Document the residual in the step-3b comment.
+
+Also refine both TUIs' `c`-path empty-parse message: when
+`parse_block_meta(text)` is not None and nothing was lost, notify
+`f"Clean review (round {meta.round}) — no concerns"` instead of the generic
+"No concerns detected on the shadow pane" (`monitor_app.py:2972`,
+`minimonitor_app.py:2251`). The monitor `c` path already marks the signature
+offered for any complete block (`:2977-2981`) — unchanged.
+
+**Minimonitor needs no badge change:** it has no `!` badge (it omits the
+`has_concerns` keyword — the t1448 task records this asymmetry as deliberate),
+and its auto-offer returns silently on a metadata-only block (verified above:
+`has_concern_block` False → not truncated → no lost markers → return).
+
 ### 4. Picker display — both TUIs + the shared modal
 
 `monitor_shared.py`:
@@ -306,6 +416,15 @@ inserted before `stale_suffix` so the existing stale marker stays last.
 - `_context_line()` (`:2495-2503`) appends `format_block_meta(self._block_meta)`
   to **both** return shapes (the `< 2` partitions branch and the two-partition
   branch).
+- **Markup safety (required):** `#concern-context` is a markup-enabled `Static`
+  (`:2529`), and `reviewed_at` is verbatim untrusted producer text — a header
+  like `Round: 2 @ [/]` raises `MarkupError` and takes the modal down (the repo
+  documents this exact failure mode with `escape()` as the convention,
+  `monitor_shared.py:1548-1550`; `from rich.markup import escape` is already
+  imported at `:49`). `format_block_meta` stays pure/plain-text;
+  `_context_line()` applies `escape()` to the suffix at the markup boundary:
+  `escape(format_block_meta(self._block_meta))`. The round is an `int` and the
+  toast suffixes interpolate only that int, so the notify paths need no escape.
 
 Callers pass `block_meta=parse_block_meta(text)`:
 
@@ -405,6 +524,19 @@ The counted tokens use the **placeholder** grammar (`<N>`, `<timestamp>`), so th
 concrete example header (`Round: 1 @ 2026-08-11T14:03:27Z`) cannot inflate the
 count and mask a deleted rule site.
 
+Plus the **omit-rule absence predicate** (the negative half of the step-2
+replacement — without it, a producer carrying BOTH the round-header rule and a
+surviving omit rule passes the positive guard while instructing contradictory
+behavior):
+
+```python
+def _retains_omit_block_rule(text: str) -> bool:
+    flat = " ".join(text.split())
+    return ("omit the block entirely" in flat
+            or "omit it entirely" in flat
+            or "emit no concern block" in flat)
+```
+
 - `test_producer_set_is_the_known_set` (reuses `KNOWN_PRODUCERS`, unchanged — no
   new producer file);
 - `test_every_producer_states_the_round_header_rule`;
@@ -421,6 +553,14 @@ count and mask a deleted rule site.
   assert its first non-blank body line matches
   `^\s*Round: \d+ @ \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$` and that the next
   non-blank line starts `- [`.
+- `test_no_producer_retains_the_omit_block_rule`: offenders =
+  `[name for name, text in self._producers().items() if _retains_omit_block_rule(text)]`
+  must be empty — the step-2 replacement is what satisfies it. **Negative
+  control:** each of the three omit phrases individually flips the predicate
+  `True` on synthetic text; text with none of them is `False`. (This is the
+  assertion that fails today's producers *before* step 2 runs — confirm it does
+  by running it once pre-edit; a guard that cannot fail on the current tree is
+  not guarding the replacement.)
 
 Rendered-surface guard — add to `TestRenderedShadowDocsKeepTheGuarantees`
 (`:1091`):
@@ -429,8 +569,11 @@ Rendered-surface guard — add to `TestRenderedShadowDocsKeepTheGuarantees`
   predicate over `_rendered_producers()`. Without it, a profile conditional that
   dropped the rule would leave the authoring guard green while the surface the
   agent actually reads has no rule (the t1311 rationale).
+- `test_no_rendered_producer_retains_the_omit_block_rule` — same absence
+  predicate over `_rendered_producers()` (a render that resurrected the old
+  wording via a conditional would otherwise pass).
 
-### `tests/test_minimonitor_concern_action.py` (extend `AutoOfferTests`)
+### `tests/test_minimonitor_concern_action.py` (extend `AutoOfferTests` + action flow)
 
 - round 1 → one notify; round 2 with **identical** concerns → a **second**
   notify (dedup lifted);
@@ -439,7 +582,28 @@ Rendered-surface guard — add to `TestRenderedShadowDocsKeepTheGuarantees`
 - a header-free block behaves exactly as today (the existing
   `test_closed_block_fires_once` / `test_surrounding_churn_does_not_refire`
   already pin this — confirm they still pass unmodified, which is the
-  back-compat proof).
+  back-compat proof);
+- **caller wiring:** in the `action_pick_concerns` happy-path test (the existing
+  `push_screen` interception), assert the pushed `ConcernPickerModal` instance's
+  `_block_meta` equals `parse_block_meta` of the captured text when a header is
+  present, and is `None` for a header-free block — this is what catches an
+  omitted `block_meta=` argument that every isolated test would miss;
+- `c`-path clean round: metadata-only capture → notify
+  `"Clean review (round N) — no concerns"`, no modal pushed.
+
+### `tests/test_monitor_concern_action.py` (extend)
+
+- **metadata-only clean round through the offer pass:** no toast; signature
+  marked **offered** (`_has_fresh_concerns` returns `False` afterwards — no
+  standing `!` badge); `_concern_sig_latest` still carries the signature
+  (freshness retained);
+- **malformed-block badge contract unchanged:** an all-malformed block (parse
+  empty, `unrecovered_markers` non-empty) still marks only *examined* and the
+  badge **stands** — pins that step 3b split the cases rather than widening the
+  clean-round path;
+- **caller wiring:** the monitor's `c`-path test asserts the pushed modal's
+  `_block_meta`, same as minimonitor's;
+- `c`-path clean round: notify names the round, signature marked offered.
 
 ### `tests/test_concern_picker_modal.py`
 
@@ -448,6 +612,10 @@ Rendered-surface guard — add to `TestRenderedShadowDocsKeepTheGuarantees`
 - `format_block_meta`: `None` → `""`; ISO input → `"  ·  round 2, 14:03:27Z"`;
   empty `reviewed_at` → `"  ·  round 2"`; garbage `reviewed_at` (no `T`, long) →
   truncated, never raises;
+- **markup-shaped garbage renders instead of crashing:** `reviewed_at` of
+  `"[/]"`, `"[bold red]x"`, and `"]"` → the modal composes and the context line
+  renders (drive the composited render, not just `_context_line()`'s return —
+  the `MarkupError` fires at render time);
 - `_context_line()` with and without `block_meta`, on **both** partition shapes.
 
 ### Suite / render
@@ -474,9 +642,20 @@ cleanup, archival, and merge.
   the producer half is guarded by tests, the doc half is not · severity: medium
   · → mitigation: authoring + rendered guard predicates (step 2 / Verification);
   the docstring-table row is pinned by review, not by a test
+- The step-2 replacement deletes a load-bearing producer rule (omit-when-clean)
+  at five sites; a missed site leaves contradictory instructions live ·
+  severity: medium · → mitigation: `_retains_omit_block_rule` absence guard,
+  authoring + rendered, with a pre-edit failing run as its own negative control
+- Step 3b changes the monitor's offer-pass state machine (offered vs examined
+  marking), a surface with documented races around its awaits · severity:
+  medium · → mitigation: the malformed-block badge-stands test pins the
+  untouched branch; the change reuses the exact `_mark_concern_sig` call the
+  `c` path already makes
 - `ConcernPickerModal` is shared by both TUIs, and the context line gains ~20
-  characters at a tier as narrow as `_PICKER_NARROW_MIN_WIDTH` · severity:
-  medium · → mitigation: inline pre-phase narrow_width_context_budget
+  characters at a tier as narrow as `_PICKER_NARROW_MIN_WIDTH`; `reviewed_at`
+  is untrusted text on a markup surface · severity: medium · → mitigation:
+  inline pre-phase narrow_width_context_budget + `escape()` at the markup
+  boundary with markup-shaped garbage tests
 - `impl-challenge.md` carries per-profile goldens; an edit without regeneration
   breaks `test_skill_render_aitask_shadow.sh` · severity: low · → mitigation:
   step 6 in the same commit (fails loudly, never silently)
