@@ -487,3 +487,81 @@ Merge to `main`, archive task + plan per the standard flow.
 - timing: pre-phase | name: pin_tui_switcher_hint_text | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: tui_switcher regex-template and escaped-bracket edits (code-health) | desc: Characterization test pinning the exact rendered hint strings before the style swap, so the replacement is provably text-identical apart from the style token.
 - timing: post-phase | name: guard_allowlist_selfcheck | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: waiver-list rot (code-health) | desc: Assert waiver/finding set equality and that every waiver names an existing pinning test, so a stale or invalidated waiver fails loudly instead of becoming a silent exemption.
 - timing: post-phase | name: pin_the_upstream_oracle | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: guard depends on Textual internals (code-health) | desc: Module-scope imports so a rename is a loud ImportError, plus a discrimination test asserting the oracle still accepts a good token and rejects a bad one.
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced four silently-inert style tokens with resolvable
+  ones and collapsed 16 duplicated literals into 3 named constants
+  (`monitor_shared.STATE_STYLE_{PROMPT,DONE,IDLE,ACTIVE}`,
+  `tui_switcher.TUI_KEY_HINT_STYLE`, `TUI_RUNNING_STYLE`), each carrying the
+  hex-not-name rationale at its definition. Fixed the false contrast/verification
+  claim in `aidocs/framework/monitor_idle_and_prompt_detection.md`. Retargeted
+  `test_monitor_completed_status.py` (20 literals) and
+  `test_monitor_session_divider.py` (2 collision sentinels) to derive from the
+  constants. Added three test files: a characterization pin for the switcher hint
+  text (`test_tui_switcher_hint_text.py`), the static scan guard
+  (`test_textual_markup_colours.py`), and the colour contract —
+  ratification + composited liveness — (`test_markup_colour_contract.py`).
+
+- **Deviations from plan:**
+  - `bright_green` → `#00ff00`, not `ansi_bright_green` as first proposed. The
+    ANSI name parses but carries an ANSI flag that remaps through the *theme's*
+    palette at render time (#98e024 dark / #60cb00 light — a chartreuse), so it
+    is neither the intended shade nor pinnable. Measured across four themes.
+  - Rule A's oracle became `textual.markup.parse_style` rather than a Rich-name
+    blocklist. Strictly better: same zero false positives (493 candidates → 15
+    findings) and it also catches typos (`blu`, `bodl`, `$acent`), which closed
+    the task's only goal-achievement risk and made the planned
+    `extend_markup_scan_to_typos` follow-up unnecessary.
+  - Scan extended to `tests/` as well as `.aitask-scripts/`.
+  - Fixed the *pre-existing* `CompositedColourTests` in
+    `test_monitor_session_divider.py`, which asserted literal hexes on screen —
+    same environment-dependence as the two assertions of mine that were caught
+    in review.
+
+- **Issues encountered:**
+  - The scanner initially flagged 39 prose tokens (`[applink]`, `[READ ONLY]`,
+    `[str]`). Fixed by requiring at least one *triggering* word (style keyword,
+    parsable colour, hex/`$var`, or known Rich-only name) and by treating
+    `on`/`not`/`auto`/`link` as permitted-but-non-triggering. Single-letter
+    abbreviations are excluded entirely.
+  - The scanner scanned itself: its waiver reasons and negative-control fixtures
+    quote the bad tokens. Resolved with a two-entry `SELF_REFERENTIAL_MODULES`
+    exclusion, itself guarded (entries must exist, carry a reason, and stay ≤3).
+  - Two composited assertions of mine asserted a literal hex *on screen* and
+    were reported red in the reviewer's environment; three such assertions
+    failed there, including the pre-existing divider one. Not reproducible
+    locally (5 repeat runs, 4 TERM/COLORTERM settings, 0–3 pause counts, with
+    and without pytest). All three shared the literal-on-screen shape while
+    every reference-based assertion passed, so the styles do resolve there and
+    only the reported RGB differs. Removed all literal-on-screen assertions;
+    the composited tier now compares runs against same-context reference
+    controls only, and values are ratified in a pure-string tier.
+  - The legend test was vacuous: `painted()` keyed segments by stripped text
+    with `setdefault`, so the legend's four identical `●` collapsed to the first
+    (`active`) one. Replaced with an ordered `segments()` walk plus
+    `glyph_before()`, which locates the DONE dot by position relative to the
+    word "done"; added a discrimination test and the two session-bar call sites.
+  - Another session held uncommitted t1159_1 (concern clean-round) work in
+    three of the files touched here. Committed via a content-verified selective
+    patch (12 of 25 hunks) rather than whole-file staging.
+
+- **Key decisions:**
+  - Two oracles, deliberately: bracketed tokens carry a syntactic marker of
+    intent and get the exact oracle; bare strings have none and get the
+    conservative Rich-only blocklist (running `parse_style` over bare strings
+    produces 44 prose false positives). Rule B's safety rests on an asserted
+    invariant — no Rich-only name is a bare alphabetic word.
+  - Waivers keyed `(path, qualname, token)`: immune to line drift, and narrower
+    than per-file so a future markup site in a waived file is not absorbed. Each
+    reason must name its consumer as `file:function` and a `pinned_by=` test
+    that exists, making the claim checkable rather than prose.
+  - Composited assertions never name a literal; ratification never mounts a
+    widget. Each tier answers one question.
+
+- **Upstream defects identified:** (all verified by mounting the literal string
+  in a real Textual app; all are markup-*structure* defects, a different class
+  from the colour-resolution defect this task fixed)
+  - `.aitask-scripts/board/aitask_board.py:172,184 — the closing tags [/e24329] omit the '#' of the opening [#e24329]; Textual raises MarkupError("closing tag does not match any open tag") and the compositor crashes. Reachable from _issue_indicator/_pr_indicator for any task carrying a GitLab issue or MR URL.`
+  - `.aitask-scripts/monitor/monitor_app.py:1495 — "[bold yellow][AUTO][/]" renders as two spaces: the literal [AUTO] is consumed as an unknown tag, so the auto-switch badge is invisible exactly when auto-switch is on. Needs the bracket escaped.`
+  - `.aitask-scripts/logview/logview_app.py:74 — the header's [{state}] and " [raw]" are parsed as tags in a Static sink and vanish, so the live/paused/static and raw indicators never render.`
