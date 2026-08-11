@@ -1,6 +1,18 @@
-"""Persistence-seam contract for `Task.reload_and_save_board_fields` (t1243_2).
+"""Contracts for the board's disk-write seams.
 
-The board's only disk-write path for board fields. Before t1243_2 it snapshotted
+Two of them, sharing one temp-tree fixture:
+
+* **`Task.reload_and_save_board_fields` (t1243_2)** — the board's only disk-write
+  path for board *fields*. Everything from here to the end of the module header
+  is about that seam.
+* **`TaskManager._write_user_layer` / `auto_refresh_minutes` (t1480)** — the
+  board's disk-write path for the per-user *config* layer, plus the read-only
+  settings view beside it. See `UserLayerWriteContractTests` and
+  `AutoRefreshMinutesIsReadOnlyTests` at the end of the file.
+
+--- t1243_2 -----------------------------------------------------------------
+
+Before t1243_2 `reload_and_save_board_fields` snapshotted
 `boardcol`/`boardidx` by name, reloaded, re-applied both, and saved — which drops
 any board key it does not name (blocking t1243_8's `boardgroup`) and writes back
 keys the caller never mutated. This file pins the replacement contract:
@@ -42,6 +54,7 @@ from __future__ import annotations
 import ast
 import contextlib
 import inspect
+import json
 import shutil
 import sys
 import tempfile
@@ -173,6 +186,21 @@ class _TreeCase(unittest.TestCase):
 
     def task_path(self, tree: Path, i: int) -> Path:
         return tree / "aitasks" / fixture_name(i)
+
+    def _manager(self, tree: Path):
+        """A real `TaskManager` bound to `tree` via the module globals.
+
+        Lives here rather than on one subclass (it started on
+        `CallSiteMappingTests`, t1480 lifted it) because both the call-site spy
+        tests and the config-layer tests need the same boot.
+        """
+        tasks_dir = tree / "aitasks"
+        for attr, value in (("TASKS_DIR", tasks_dir),
+                            ("METADATA_FILE", tasks_dir / "metadata" / "board_config.json")):
+            patcher = mock.patch.object(B, attr, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return B.TaskManager()
 
     def allow_semantic_key(self) -> None:
         """Pin `Task`'s board-key vocabulary for these tests.
@@ -597,15 +625,8 @@ class CallSiteMappingTests(_TreeCase):
             f"non-literal argument was not reported: {got}")
 
     # --- runtime spy through the real TaskManager methods ---
-
-    def _manager(self, tree: Path):
-        tasks_dir = tree / "aitasks"
-        for attr, value in (("TASKS_DIR", tasks_dir),
-                            ("METADATA_FILE", tasks_dir / "metadata" / "board_config.json")):
-            patcher = mock.patch.object(B, attr, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        return B.TaskManager()
+    # (`_manager` lives on `_TreeCase` — t1480 lifted it so the config-layer
+    # tests at the end of this file share the same boot.)
 
     def _spy(self):
         records = []
@@ -732,6 +753,152 @@ class MergeFieldOwnershipTests(unittest.TestCase):
         self.assertEqual(shared & set(aitask_merge._KEEP_LOCAL_FIELDS), set(),
                          "a shared board key must opt in to its own merge rule, "
                          "never inherit silent local-wins")
+
+# --- t1480: the USER config layer ------------------------------------------
+#
+# `_write_user_layer` used to open with `if not user_data: return`. It could
+# never fire — `_config_layers()` always puts a `"settings"` key in the dict it
+# splits — so the guard was dead, while reading as "the local file is written
+# only sometimes". These tests pin the semantics it misrepresented, NOT its
+# absence: dropping it changes no observable behaviour at any live call site,
+# which is exactly what made it dead code.
+#
+# Nothing here calls `_write_user_layer` with an empty payload. No caller can
+# produce one, and asserting on it would promote a private method's destructive
+# edge into a supported contract — the opposite of retiring dead code.
+
+
+def _unchanged_skip_body(self, user_data: dict) -> None:
+    """The REJECTED reading of the guard: skip when the disk already agrees.
+
+    t1480 chose "always write" over this. It is the only alternative the task
+    put on the table, so it is the mutation that has to make a real test fail.
+    """
+    path = B.local_path_for(str(B.METADATA_FILE))
+    try:
+        on_disk = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        on_disk = None
+    if on_disk == user_data:
+        return
+    B.save_local_config(str(path), user_data)
+
+
+class _UserLayerCase(_TreeCase):
+    """Fixture plus the assertion the negative control re-runs.
+
+    Same shape as `_TreeCase`'s `_assert_*` helpers above: the assertion lives
+    on the base so the real test and the control exercise the *same* code, and
+    the control cannot drift into asserting something weaker.
+    """
+
+    def local_path(self, tree: Path) -> Path:
+        return tree / "aitasks" / "metadata" / "board_config.local.json"
+
+    def _spy_local_writes(self):
+        """Call THROUGH, never stub — a stub would disable the write and leave
+        every assertion downstream of it vacuous (the `_spy_project_writes`
+        discipline from test_board_group_filtering.py)."""
+        calls: list[str] = []
+        original = B.save_local_config
+
+        def spy(p, d):
+            calls.append(str(p))
+            return original(p, d)
+
+        patcher = mock.patch.object(B, "save_local_config", spy)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return calls
+
+    #: Pins WHICH assertion the control must trip.
+    UNCHANGED_MESSAGE = "an unchanged payload must still issue the write"
+
+    def _assert_unchanged_payload_still_writes(self, tree: Path) -> None:
+        """Byte comparison is NOT an oracle here: a `settings`-only round trip
+        re-serializes identically (the point test_board_columns_seam.py's mirror
+        control makes about itself). The call-through spy is."""
+        manager = self._manager(tree)
+        local = self.local_path(tree)
+        # Precondition (t1480 inline mitigation `prove_the_unchanged_precondition`):
+        # the payload really is unchanged. If this ever stops holding,
+        # `_unchanged_skip_body` would write anyway and the negative control
+        # would pass while proving nothing.
+        self.assertEqual(json.loads(local.read_text(encoding="utf-8")),
+                         {"settings": manager.settings},
+                         "the in-memory user payload must equal the on-disk "
+                         "file for this assertion to discriminate")
+
+        calls = self._spy_local_writes()
+        manager.save_settings()
+
+        self.assertEqual(calls, [str(local)], self.UNCHANGED_MESSAGE)
+
+
+class UserLayerWriteContractTests(_UserLayerCase):
+    """`save_settings()` writes `board_config.local.json` UNCONDITIONALLY."""
+
+    def test_a_settings_empty_board_still_writes_the_user_layer(self):
+        """The refutation of the reading the dead guard invited: *"a
+        settings-empty board leaves `board_config.local.json` untouched."*
+
+        The whole dict is asserted, not a subset — that also catches a
+        `collapsed_groups` key leaking back in from `_settings_for_save`.
+        """
+        tree = self.make_tree()
+        manager = self._manager(tree)
+        local = self.local_path(tree)
+        self.assertNotEqual(json.loads(local.read_text(encoding="utf-8")),
+                            {"settings": {}}, "control: the seeded file is not "
+                                              "already the expected result")
+
+        manager.settings = {}
+        manager.save_settings()
+
+        self.assertEqual(json.loads(local.read_text(encoding="utf-8")),
+                         {"settings": {}})
+
+    def test_an_unchanged_payload_still_writes_the_user_layer(self):
+        """The discriminating test — it fails under `_unchanged_skip_body`."""
+        self._assert_unchanged_payload_still_writes(self.make_tree())
+
+
+class UserLayerNegativeControlTests(_UserLayerCase):
+    """One mutation, one named failing assertion."""
+
+    def test_negative_control_unchanged_skip_body_stops_the_write(self):
+        tree = self.make_tree()
+        with mock.patch.object(B.TaskManager, "_write_user_layer",
+                               _unchanged_skip_body):
+            with self.assertRaises(AssertionError) as ctx:
+                self._assert_unchanged_payload_still_writes(tree)
+        # Pin WHICH assertion failed, so the control cannot go green on an
+        # unrelated AssertionError and report a test that does not discriminate.
+        self.assertIn(self.UNCHANGED_MESSAGE, str(ctx.exception))
+
+
+class AutoRefreshMinutesIsReadOnlyTests(_TreeCase):
+    """t1480 deleted the setter — it had zero callers, and could not have had
+    useful ones: the settings dialog dismisses with several keys at once."""
+
+    def test_the_getter_reflects_settings(self):
+        tree = self.make_tree()
+        manager = self._manager(tree)
+        manager.settings["auto_refresh_minutes"] = 7
+        self.assertEqual(manager.auto_refresh_minutes, 7)
+        manager.settings.pop("auto_refresh_minutes")
+        self.assertEqual(manager.auto_refresh_minutes, 0, "the default")
+
+    def test_the_property_has_no_setter(self):
+        tree = self.make_tree()
+        manager = self._manager(tree)
+        manager.settings["auto_refresh_minutes"] = 3
+        self.assertIsNone(type(manager).auto_refresh_minutes.fset)
+        with self.assertRaises(AttributeError):
+            manager.auto_refresh_minutes = 7
+        self.assertEqual(manager.settings["auto_refresh_minutes"], 3,
+                         "the refused write left `settings` alone — so the "
+                         "AttributeError is the property's, not an unrelated one")
 
 
 if __name__ == "__main__":

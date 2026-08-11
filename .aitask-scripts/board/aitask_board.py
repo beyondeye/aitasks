@@ -1373,9 +1373,13 @@ class TaskManager:
         return split_config(data, project_keys=_PROJECT_KEYS, user_keys=_USER_KEYS)
 
     def _write_user_layer(self, user_data: dict) -> None:
-        """Write `board_config.local.json`; tag a failure `local`."""
-        if not user_data:
-            return
+        """Write `board_config.local.json`; tag a failure `local`.
+
+        Writes UNCONDITIONALLY — there is no "nothing to write" short-circuit.
+        A guard on an empty payload used to sit here (t1480); it could never
+        fire, and it read as "the local file is written only sometimes", which
+        is false.
+        """
         try:
             save_local_config(str(local_path_for(str(METADATA_FILE))), user_data)
         except OSError as exc:
@@ -1420,11 +1424,14 @@ class TaskManager:
 
     @property
     def auto_refresh_minutes(self) -> int:
-        return self.settings.get("auto_refresh_minutes", 0)
+        """Read-only view of `settings["auto_refresh_minutes"]`.
 
-    @auto_refresh_minutes.setter
-    def auto_refresh_minutes(self, value: int):
-        self.settings["auto_refresh_minutes"] = value
+        Deliberately has no setter (t1480 retired a dead one). Settings writes
+        arrive as whole-payload updates into `self.settings` — the settings
+        dialog dismisses with several keys at once, not all of which have
+        properties — so a per-key setter would be a second, partial write path.
+        """
+        return self.settings.get("auto_refresh_minutes", 0)
 
     def grouped_topic_lanes(self, tasks, sort_mode):
         """Cached by-topic lanes: rebuild buckets only when the membership/anchor
