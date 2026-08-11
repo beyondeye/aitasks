@@ -149,3 +149,26 @@ refresh for the two artifacts.
 7. Regenerate the example trail; re-render + regolden the `aitask-trail` skill;
    `./.aitask-scripts/aitask_skill_verify.sh` clean.
 8. `bash tests/run_all_python_tests.sh` (read the LAST line for the verdict).
+
+## Coordination — t1470 (By-Trail parallel-safety)
+
+**t1470** (`surface_intrawave_parallel_safety_in_bytrail_view`, Ready,
+high/high) consumes follow-up provenance in the By-Trail view but deliberately
+does **not** depend on this child: it reads `issue_type` and `followup_kind`
+from live task metadata via `_followup_marker`
+(`board/aitask_board.py:3315`), so it works with the schema still at `1.0.0`.
+
+Two things this child owes it:
+
+- **`entry.snapshot.followup_kind` is the ghost fallback.** Archived /
+  missing / cross-repo trail entries resolve to no live `Task`, so the live
+  path cannot serve them. Once this child lands, t1470 wires the snapshot
+  field in as a one-line fallback for exactly that case.
+- **Tell the user to refresh before t1470 is verified.** The `1.1.0` bump
+  invalidates `art:trail-gates-framework-landing` and
+  `art:trail-shadow-review-loop` until refreshed, and t1470's acceptance
+  criteria are written against both. If this child lands first, the refresh is
+  a prerequisite for verifying t1470 — the resulting `ERROR:invalid_trail` is
+  expected, not a t1470 defect.
+
+Whichever lands first, re-read the other's scope section before planning.

@@ -113,9 +113,40 @@ would be worse than the current blank.
   - **advisory coupling** — intra-wave `advisory_precedes` / `coordinates_with`
     edges, plus `observations[]` whose `affects[]` names this entry. Three
     states: coupled / independent / **not assessed**.
+- **Type-aware coupling (this task's share of the follow-up-provenance work).**
+  t1468 carries and *displays* the kind but never lets it influence a judgment;
+  making it a coupling term is this task's job:
+  - a `manual_verification` entry contends on **human attention**, not on
+    files — two of them in one wave are not parallel the way two bug fixes are,
+    and one should follow whatever it `verifies` (already a trail relation
+    type, and already in the entry's live `verifies:` frontmatter).
+  - a `risk_mitigation` follow-up is by construction aimed at the same surface
+    as its origin task — a coupling hint available with no file-overlap
+    machinery.
+  - **Two live sources, both off the resolved `Task`** — `build_trail_lanes`
+    already resolves every entry to one, so this needs **nothing** from
+    t1468_5 and must not wait on it:
+    - `issue_type` — where `manual_verification` actually lives. It has always
+      been an `issue_type` value (~68 tasks carry it; `t1457` and `t1394` on
+      the live gates trail among them) and is **not** a `followup_kind`.
+      Reading it from live board metadata is not the same as adding it to the
+      trail schema — that remains t1468_5's, and stays out of scope.
+    - `followup_kind` via the existing `_followup_marker` seam
+      (`aitask_board.py:3315`) — for `risk_mitigation` / `upstream_defect`.
+      **Only 6 tasks carry it today**; t1468_6 (Ready) is the backfill, so
+      until it lands this term is legitimately absent on almost every entry.
+      Plan the fixture accordingly rather than assuming corpus coverage.
+  - Once t1468_5 lands, `entry.snapshot.followup_kind` becomes the fallback for
+    **ghosts** (archived / cross-repo entries) — the only case the live path
+    cannot serve. Design the lookup so that fallback is a one-line addition.
+  - Absent kind ⇒ **not assessed** on this term, never "independent" — the same
+    rule as a missing relation edge. Given the 6-task corpus, "not assessed" is
+    the *common* case at first, so it must read as informative, not broken.
 - Per-card rendering on `TrailTaskCard`, and a wave-level roll-up on
   `TrailColumn` (`:3036`) answering "N of M startable, K coupled, J not
-  assessed".
+  assessed". The provenance glyph t1468_3 already puts in the
+  `TrailTaskCard` title is existing vocabulary — do not duplicate or relocate
+  it, and do not collide with it.
 - Fix `TrailDetailScreen._sections` (`:3417`) to attribute observations by
   `affects[]` — the focused entry's own observations first, the rest clearly
   separated as trail-level context.
@@ -139,15 +170,27 @@ would be worse than the current blank.
 
 ## Explicitly out of scope — coordinate, do not absorb
 
-- **`issue_type` / task-kind awareness → t1468**
-  (`mark_followup_task_provenance_and_surface_on_board`). Its "surfaces that
-  are structurally blind" table already claims the trail: *"entry `snapshot` is
-  `additionalProperties: false` with no `issue_type`; `schema_version` is
-  `const 1.0.0` — yes, most expensive"*. It also owns the carrier decision
-  (new `issue_type` values vs. an orthogonal provenance field). **Do not add
-  `issue_type` to the trail schema or to `trail_gather.py` here.** This task
-  must be useful without it and consume whatever t1468 lands. Add the reverse
-  pointer to t1468.
+- **Follow-up provenance plumbing → t1468 children.** t1468 resolved its carrier
+  question in favour of an orthogonal `followup_kind:` frontmatter field
+  (vocabulary in `.aitask-scripts/lib/followup_kinds.py`), not new `issue_type`
+  values. Two things follow, both **already owned elsewhere**:
+  - **t1468_3 (landed).** `TrailTaskCard.compose`
+    (`aitask_board.py:3414-3416`) already appends the provenance glyph to the
+    card title via `_followup_marker` (`:3315`), reading the **live task's**
+    metadata. `TrailGhostCard` deliberately skips it (`:3469` — a ghost stub
+    carries empty metadata). **Do not re-add or relocate this glyph**; treat it
+    as existing card vocabulary a new badge must not collide with.
+  - **t1468_5 (Ready, `depends: [t1468_4]`).** Owns the whole trail data path:
+    `entry.snapshot.followup_kind` as an optional enum in **both** schema
+    copies, `schema_version` bumped to `1.1.0`,
+    `SCHEMA_NORMALIZATION_LOCK = {"1.1.0": "1.0.0"}`, the gatherer's `MEMBER:`
+    record gaining `<followup_kind>` before the free-text `<path>`, and the
+    skill writer populating it. `trail_gather.py` has **zero** `followup_kind`
+    references today. **Do not touch the trail schema or `trail_gather.py`
+    here.**
+
+  See "Type-aware coupling" under Scope A for the part this task *does* own.
+  Reverse pointer recorded in t1468_5.
 - **Predicted file overlap → t1343** (`parallel_agent_file_conflict_advisory`,
   Ready, high/high). It owns declared per-task file manifests and the overlap
   signal; t1344 refines granularity for worktrees. Leave a named seam so a
@@ -157,16 +200,26 @@ would be worse than the current blank.
   (`aitask_create.sh:1672`) uses it to propose **folding** at create time; it is
   agent-declared and never validated against a diff.
 
-## Sequencing — two live conflicts in this exact file
+## Sequencing
 
-- **t1243** (board task-groups) is **uncommitted in the working tree**:
-  `aitask_board.py` modified, `tests/test_board_group_focus.py` untracked,
-  ~448 changed lines including `lib/board_groups.py` and `GroupHeader`.
-- **t1468** flipped to `status: Implementing` on 2026-08-10 and also edits
-  `aitask_board.py` card rendering.
+**Cleared as of 2026-08-11.** The two conflicts recorded at creation time have
+landed: t1243_9 / t1243_10 (board group headers, focus-unit abstraction,
+collapse persistence + match badge) and t1468_1 / t1468_2 / t1468_3
+(`followup_kind` field, creation seams, board card glyph). The working tree is
+clean of `aitask_board.py` changes. Re-verify before picking — the remaining
+t1243 children (`_11`, `_12`) and t1468 children still name that file.
 
-Land after or alongside both — do not start into a conflicting tree. Re-check
-both before planning.
+**Live hazard if t1468_5 lands first.** Its bump to `schema_version: 1.1.0`
+invalidates every stored 1.0.0 trail until refreshed — currently
+`art:trail-gates-framework-landing` and `art:trail-shadow-review-loop`, the two
+artifacts this task's acceptance criteria are written against. Refresh both
+(`/aitask-trail --refresh <handle>`) before verifying anything here, and do not
+read the resulting `ERROR:invalid_trail` as a defect in this task's work.
+
+**No hard `depends` on t1468_5**, deliberately: the chain is
+`t1468_3 → t1468_4 → t1468_5` (medium then high effort), and every axis in this
+task — including the type-aware coupling term — works off live task metadata
+without it.
 
 ## Render-surface constraints (verified)
 
@@ -230,3 +283,18 @@ both before planning.
    state to read, and no misleading readiness claim.
 8. A trail generated after part B declares intra-wave coupling, or records in
    `method_note` that it was not assessed.
+9. Type-aware coupling works off **live** metadata with `trail_gather.py` and
+   both schema copies unchanged at `1.0.0` — proving no dependency on t1468_5.
+   Verified in two parts, because the two sources have very different corpus
+   coverage today:
+   - **`issue_type` — verifiable on real data now.** On the live gates trail,
+     `t1457` (W2) and `t1394` (W8), both `issue_type: manual_verification`, are
+     flagged as contending on human attention. Neither carries a `verifies:`
+     list, so the "follows what it verifies" ordering must degrade to "not
+     assessed" for them rather than fabricating an edge.
+   - **`followup_kind` — fixture-only until t1468_6 backfills.** With just 6
+     tasks carrying the field repo-wide, assert this on a seeded fixture task,
+     not on the live trails. A live-trail assertion here would be vacuous:
+     every entry would pass by being absent.
+   Both branches must be driven — a test that only exercises the absent case
+   proves nothing about the flag.
