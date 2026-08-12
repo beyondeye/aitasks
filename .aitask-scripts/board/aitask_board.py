@@ -2606,9 +2606,32 @@ class EmptyColumnPlaceholder(Static):
 
     can_focus = True
 
+    #: The two states this placeholder can report. They used to render
+    #: identically, and that is how a stray search filter came to be read as
+    #: "the board rendered no cards" for a whole verification run (t1491).
+    EMPTY_LABEL = "(empty)"
+    FILTERED_LABEL = "(hidden by filter)"
+
     def __init__(self, col_id: str):
-        super().__init__("(empty)", classes="empty-placeholder")
+        super().__init__(self.EMPTY_LABEL, classes="empty-placeholder")
         self.column_id = col_id
+
+    def set_filtered(self, filtered: bool) -> None:
+        """Say WHY the column body is blank: filtered out, or genuinely empty.
+
+        Deliberately carries no count. "Rendered rows" and "hidden tasks"
+        diverge across column shapes — an expanded group contributes its members
+        AND its header, a collapsed group contributes only a header for N
+        members, and an expanded parent contributes one card per child — and
+        none of those match `ColumnHeader`'s count, which counts parent tasks.
+        The only number that would be correct here is the one the header already
+        shows one row above, since this widget is shown only when NOTHING in the
+        column is visible.
+
+        Label only: identity, `column_id` and focusability are untouched, so
+        every path that anchors focus on this widget is unaffected.
+        """
+        self.update(self.FILTERED_LABEL if filtered else self.EMPTY_LABEL)
 
 
 class GroupHeader(Static):
@@ -8659,7 +8682,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return index_cache[0]
 
         cols_with_visible = set()
+        # Columns that mounted at least one unit this pass, visible or not. It is
+        # what separates "a filter emptied this column" from "this column holds
+        # nothing" for the placeholder label below (t1491) — one bit, immune to
+        # the row-vs-task counting ambiguity a number would carry.
+        cols_with_units = set()
         for unit in self._filter_units(cols):
+            cols_with_units.add(unit.column_id)
             v = task_matches_filter(unit.task_data, visible, self.search_filter)
             # A child unit is never rescued: children have no children, and in
             # By-Topic / By-Trail child tasks mount as top-level cards. Read with
@@ -8689,6 +8718,11 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         narrowing = visible is not None or bool(self.search_filter)
         headers = list(self._filter_group_headers(cols))
         for header in headers:
+            # Counted as a unit for the same reason it feeds `cols_with_visible`:
+            # a COLLAPSED group mounts a header and no member cards, so without
+            # this a column holding only collapsed groups would look unpopulated
+            # to the placeholder label and read "(empty)" while holding tasks.
+            cols_with_units.add(header.column_id)
             v = self._group_header_matches(header, visible, self.search_filter,
                                            child_index)
             set_unit_display(header, v)
@@ -8708,10 +8742,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     count = n
             header.set_match_count(count)
 
-        # A column showing no content falls back to its focusable placeholder.
+        # A column showing no content falls back to its focusable placeholder,
+        # labelled with WHY it is blank (t1491). The label is set before the
+        # display flip so a placeholder never becomes visible carrying the
+        # previous pass's reason.
         for placeholder in self._filter_placeholders(cols):
-            set_unit_display(placeholder,
-                             placeholder.column_id not in cols_with_visible)
+            show = placeholder.column_id not in cols_with_visible
+            if show:
+                placeholder.set_filtered(placeholder.column_id in cols_with_units)
+            set_unit_display(placeholder, show)
 
         # Focus must never rest on a widget this pass just hid. Textual does not
         # move it for us: Screen.set_focus gates on `visible` (the visibility

@@ -18,6 +18,12 @@ Two contracts, both regressions of the same incident:
    fail here without the fix is the positive contract below: focus lands on a
    board focus anchor.
 
+2. **A column emptied by a filter says so.** `(empty)` and "everything here is
+   hidden" rendered identically, which is precisely how the incident was
+   misdiagnosed as a relaunch bug for a whole verification run. The label is
+   pinned once per column shape, because the shapes disagree about what a
+   "hidden" row even is: an expanded group mounts its members *and* a header, a
+   collapsed group mounts only a header for N members.
 """
 
 import os
@@ -78,6 +84,12 @@ class BoardStartupFocusTest(FixtureBoardTestBase, unittest.IsolatedAsyncioTestCa
             if placeholder.column_id == col_id:
                 return placeholder
         self.fail(f"no EmptyColumnPlaceholder mounted for column {col_id!r}")
+
+    def _label(self, app, col_id):
+        """The placeholder's RENDERED text — not the model that produced it."""
+        return self._placeholder(app, col_id).render().plain.strip()
+
+    # --- 1. startup focus ---------------------------------------------------
 
     async def test_startup_focus_is_a_board_anchor(self):
         """Focus after boot is a board focus anchor, not the search Input.
@@ -180,6 +192,84 @@ class BoardStartupFocusTest(FixtureBoardTestBase, unittest.IsolatedAsyncioTestCa
             await pilot.press("escape")
             await self._settle(pilot)
             self.assertFalse(app.query_one("#search_box", self.ab.Input).has_focus)
+
+    # --- 2. placeholder label, one case per column shape ---------------------
+
+    async def test_placeholder_labels_per_column_shape(self):
+        """`(hidden by filter)` vs `(empty)`, across every column shape.
+
+        The two group rows are the cases that defeat any COUNT-based label: an
+        expanded group contributes members + a header, a collapsed group
+        contributes a header alone for N members.
+        """
+        app = self.ab.KanbanApp()
+        async with app.run_test(size=(160, 48)) as pilot:
+            await self._settle(pilot)
+
+            # Off-transition first, so the on-transition below cannot pass
+            # vacuously: with no filter, only the genuinely empty column shows a
+            # placeholder at all, and it reads "(empty)".
+            self.assertEqual(self._label(app, "c3"),
+                             self.ab.EmptyColumnPlaceholder.EMPTY_LABEL)
+            for col_id in ("c0", "c1", "c2"):
+                self.assertEqual(
+                    self._placeholder(app, col_id).styles.display, "none",
+                    f"column {col_id} shows a placeholder while holding tasks")
+
+            app.search_filter = NO_MATCH
+            app.apply_filter()
+            await self._settle(pilot)
+
+            filtered = self.ab.EmptyColumnPlaceholder.FILTERED_LABEL
+            empty = self.ab.EmptyColumnPlaceholder.EMPTY_LABEL
+            for col_id, expected, shape in (
+                ("c0", filtered, "ungrouped cards"),
+                ("c1", filtered, "expanded group"),
+                ("c2", filtered, "collapsed group (header only, no member cards)"),
+                ("c3", empty, "no tasks at all"),
+            ):
+                with self.subTest(column=col_id, shape=shape):
+                    self.assertEqual(self._label(app, col_id), expected)
+                    self.assertNotEqual(
+                        self._placeholder(app, col_id).styles.display, "none",
+                        f"column {col_id} ({shape}) hides its placeholder while "
+                        "showing no content")
+
+    async def test_collapsed_group_column_really_mounts_no_member_cards(self):
+        """Guard the c2 case above: it must exercise the header-only path.
+
+        If the collapse seed ever stopped taking, c2 would mount member cards
+        and the collapsed-group row would silently degrade into a second copy of
+        the expanded-group row.
+        """
+        app = self.ab.KanbanApp()
+        async with app.run_test(size=(160, 48)) as pilot:
+            await self._settle(pilot)
+            cards = [c for c in app.query(self.ab.TaskCard) if c.column_id == "c2"]
+            headers = [h for h in app.query(self.ab.GroupHeader)
+                       if h.column_id == "c2"]
+            self.assertEqual(cards, [], "c2's group is not collapsed")
+            self.assertEqual(len(headers), 1)
+            self.assertTrue(headers[0].collapsed)
+
+    async def test_label_reverts_when_the_filter_is_cleared(self):
+        """A column repopulated by clearing the filter drops the label again."""
+        app = self.ab.KanbanApp()
+        async with app.run_test(size=(160, 48)) as pilot:
+            await self._settle(pilot)
+            app.search_filter = NO_MATCH
+            app.apply_filter()
+            await self._settle(pilot)
+            self.assertEqual(self._label(app, "c0"),
+                             self.ab.EmptyColumnPlaceholder.FILTERED_LABEL)
+
+            app.search_filter = ""
+            app.apply_filter()
+            await self._settle(pilot)
+            self.assertEqual(self._placeholder(app, "c0").styles.display, "none")
+            self.assertEqual(self._label(app, "c3"),
+                             self.ab.EmptyColumnPlaceholder.EMPTY_LABEL)
+
 
 if __name__ == "__main__":
     unittest.main()
