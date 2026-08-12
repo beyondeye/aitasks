@@ -349,16 +349,27 @@ capture_shadow_text(shadow_pane)` (`:2350`) and before the
 block:
 
 ```python
-last_change = self._monitor.get_last_change_wall(snap.pane.pane_id)   # sync, cached
+recency = self._shadow_read_recency
+last_change = None
+if contains_block_evidence(text):        # no block ⇒ no age ⇒ no lookup
+    last_change = self._monitor.get_last_change_wall(snap.pane.pane_id)
 age = compute_block_age_staleness(text, last_change, eps)
-self._shadow_stale_combined = combine_staleness(
-    self._shadow_feedback_stale, age
+self._record_combined_staleness(
+    combine_staleness(recency.stale, age),
+    format_shadow_stale_banner(
+        recency.stale, age, parse_block_meta(text), recency.analyzed_at, now
+    ),
 )
-self._set_shadow_stale_banner(<text for the combined verdict>)
 ```
 
+The write goes through `_record_combined_staleness` — the **same** method the
+picker path uses — which records the verdict unless that would clear a standing
+`True`. See B4b for why "preserve any non-`None` prior" is wrong.
+
 No new tmux traffic: `get_last_change_wall` is a dict lookup
-(`monitor_core.py:1463`) and `text` is already captured.
+(`monitor_core.py:1463`) and `text` is already captured. It is additionally
+gated on `contains_block_evidence`, mirroring the cost gate inside
+`compute_shadow_staleness`: with no block there is no age to compare.
 
 **Banner text — reason precedence is defined, not incidental.** Both signals can
 be `True` at once, so the message is chosen by an explicit ladder (a pure
@@ -437,9 +448,21 @@ documented in Part C.
 
    - `_shadow_read_recency` ← written only when `read_stale is not None`
      (preserve-on-indeterminate applies to *that* signal).
-   - `_shadow_stale_combined` and the banner ← written when the **combined**
-     verdict is `True` **or** `False`; preserved untouched only when the
-     combined verdict is `None`.
+   - `_shadow_stale_combined` and the banner ← go through the shared
+     `_record_combined_staleness(combined, banner_text)` method, which records
+     the verdict **unless** doing so would clear a standing warning — i.e. it
+     preserves only when the new verdict is `None` **and the prior verdict was
+     `True`**.
+
+   **Preserving any non-`None` prior would be a defect, not a safety margin.**
+   A prior `False` is not a warning, so `None` over `False` is an *escalation*
+   and must be recorded: a pane that had no block (verdict `False`, correctly)
+   and then grows a pre-round-header block moves to `None`, and swallowing that
+   transition would present an unverifiable block as current — exactly the
+   failure this task exists to remove, one tick later.
+
+   The rule lives in **one method** shared by the tick path and the picker
+   path; two inlined copies of a three-way condition is how they would diverge.
 
    Pass the tri-state plus `stale_detail` to the modal.
 2. `minimonitor_app.py` toast (`:2393-2397`): `stale_suffix` reads
@@ -704,12 +727,20 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
       deep re-capture yields a full round-2 block ⇒ the verdict is computed
       from the **deeper** text (`applicable is True` with a real verdict, not
       the truncated capture's `None`).
-  - **Write-back, both halves of the rule:**
-    - *Preserve:* `get_pane_option` reports failure **and** the block carries no
-      usable header ⇒ combined is `None` ⇒ `_shadow_read_recency`,
-      `_shadow_stale_combined` and the banner text are all **unchanged**
-      (`assertIs` against the prior values), while the modal still receives the
-      fail-safe `None`.
+  - **Write-back, all three halves of the rule** — and the two preserve/record
+    cases must be *mutually exclusive*, so that neither "always preserve" nor
+    "never preserve" can satisfy both:
+    - *Preserve a standing warning:* prior verdict `True`, new combined `None`
+      ⇒ `_shadow_stale_combined` and the banner text **unchanged** (`assertIs`
+      against the prior values). Reachability matters here: while read recency
+      is `True` the join returns `True` regardless, so the only way to reach a
+      `None` over a standing `True` is a **block-age-driven** warning that later
+      loses its header. Drive it that way or the test is vacuous.
+    - *Escalate over a non-warning:* prior verdict `False` (a pane with no
+      block), then a **pre-round-header block appears** on the same app ⇒
+      combined must become `None` and the unknown banner must render. This is
+      the regression guard for over-preservation; it fails if the rule preserves
+      any non-`None` prior.
     - *Establish:* `get_pane_option` reports failure (read recency `None`) but
       the block's header is older than `last_change` ⇒ combined is `True` ⇒
       `_shadow_stale_combined` and the banner **are** written, while
@@ -865,11 +896,17 @@ retired.
   analyzed_at)` tuple with `_shadow_feedback_stale` as a read-only property
   (one writable source, no desync, existing readers untouched), plus an explicit
   reason-precedence ladder as a pure, table-tested function.
-- **The action-path write-back gate was wrong.** Gating on `read_stale is not
-  None` would have discarded a combined `True` driven by block age alone —
-  a positive stale finding, thrown away. Corrected to one rule per value: the
-  read-recency tuple preserves on its own `None`; the combined verdict and
-  banner preserve only when the **combined** verdict is `None`.
+- **The action-path write-back gate was wrong (twice).** First: gating on
+  `read_stale is not None` would have discarded a combined `True` driven by
+  block age alone — a positive stale finding, thrown away. Corrected to one rule
+  per value. Then the corrected combined rule was *itself* too broad — it
+  preserved any non-`None` prior, so a pane that recorded `False` (no block) and
+  then grew a pre-header block stayed `False` with an empty banner, presenting
+  an unverifiable block as current. Final rule: preserve **only** a standing
+  `True`; record everything else, because `None` over `False` is an escalation,
+  not a clear. Centralized in `_record_combined_staleness` and pinned by two
+  mutually exclusive tests (over-preserve fails the escalation case;
+  never-preserve fails the standing-warning case).
 - **`strptime` accepts non-zero-padded components.** Verified:
   `2026-8-1T1:2:3Z` parses and would have produced a confident freshness verdict
   from malformed metadata. Resolved with a canonical round-trip check against
