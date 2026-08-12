@@ -297,18 +297,52 @@ TMPDIR_T10="$(setup_test_repo)"
 )
 cleanup_test_repo "$TMPDIR_T10"
 
-# --- Test 11: brainstorm archive succeeds with no-plan session ---
-echo "Test 11: brainstorm archive handles no-plan HEAD gracefully"
+# --- Test 11: brainstorm archive exports the HEAD proposal ---
+echo "Test 11: brainstorm archive exports HEAD proposal and archives"
 TMPDIR_T11="$(setup_test_repo)"
 (
     cd "$TMPDIR_T11"
     bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
-    # Archive without generating any plan — HEAD node has no plan_file
+    # init seeds HEAD=n000_init with a proposal, so finalize succeeds. There is
+    # no "HEAD has no plan" state: t891_3/t891_4 replaced the plan data model
+    # with proposals, which create_node always writes (t1485).
     output=$(bash .aitask-scripts/aitask_brainstorm_archive.sh 999 2>&1)
-    assert_contains_ci "archive outputs NO_PLAN warning" "NO_PLAN" "$output"
+    assert_contains "archive emits the exported proposal path" "PLAN:" "$output"
+    plan_path=$(printf '%s\n' "$output" | sed -n 's/^PLAN://p' | head -n1)
+    assert_contains "exported file is named for the HEAD node" \
+        "p999_n000_init.md" "$plan_path"
+    assert_file_exists "exported proposal exists on disk" "$plan_path"
     assert_contains_ci "archive outputs ARCHIVED" "ARCHIVED:999" "$output"
 )
 cleanup_test_repo "$TMPDIR_T11"
+
+# --- Test 12: archive stops at a finalize failure (no archive, no cleanup) ---
+echo "Test 12: brainstorm archive aborts when finalize fails"
+TMPDIR_T12="$(setup_test_repo)"
+(
+    cd "$TMPDIR_T12"
+    WT=".aitask-crews/crew-brainstorm-999"
+    bash .aitask-scripts/aitask_brainstorm_init.sh 999 >/dev/null 2>&1
+    # Make the HEAD node's proposal unreadable so read_proposal raises. The
+    # archive script's die is the only thing standing between a broken session
+    # and archive + crew cleanup — pin it (t1485).
+    rm -f "$WT/br_proposals/n000_init.md"
+    # `set -e` is active: capture the status via `|| rc=$?` so a failing archive
+    # does not abort the subshell before the assertions run.
+    rc=0
+    output=$(bash .aitask-scripts/aitask_brainstorm_archive.sh 999 2>&1) || rc=$?
+    assert_exit_nonzero_rc "archive exits nonzero when finalize fails" "$rc"
+    assert_contains "die names the finalize failure" \
+        "Failed to finalize session" "$output"
+    assert_not_contains "no ARCHIVED: emitted after a finalize failure" \
+        "ARCHIVED:" "$output"
+    assert_not_contains "no PLAN: emitted after a finalize failure" \
+        "PLAN:" "$output"
+    assert_dir_exists "crew worktree not cleaned up after a finalize failure" "$WT"
+    assert_not_contains "session not marked archived after a finalize failure" \
+        "status: archived" "$(cat "$WT/br_session.yaml")"
+)
+cleanup_test_repo "$TMPDIR_T12"
 
 # ============================================================
 # Summary

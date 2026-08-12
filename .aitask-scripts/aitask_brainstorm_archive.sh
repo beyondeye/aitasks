@@ -3,11 +3,11 @@
 #
 # Usage: ait brainstorm archive <task_num>
 #
-# Copies HEAD node's plan to aiplans/, marks session archived,
+# Exports HEAD node's proposal to aiplans/, marks session archived,
 # sets crew status to Completed, and cleans up the crew worktree.
 #
 # Output:
-#   PLAN:<path>              Plan file copied to aiplans/
+#   PLAN:<path>              Proposal exported to aiplans/
 #   ARCHIVED:<task_num>      Session archived and crew cleaned up
 
 set -euo pipefail
@@ -32,14 +32,14 @@ show_help() {
     cat <<'HELP'
 Usage: ait brainstorm archive <task_num>
 
-Finalize a brainstorm session: copy HEAD node's plan to aiplans/,
+Finalize a brainstorm session: export HEAD node's proposal to aiplans/,
 mark session as archived, and clean up the crew worktree.
 
 Arguments:
   <task_num>    Task number (required)
 
 Output:
-  PLAN:<path>              Plan file copied to aiplans/
+  PLAN:<path>              Proposal exported to aiplans/
   ARCHIVED:<task_num>      Session archived and crew cleaned up
 
 Example:
@@ -68,21 +68,18 @@ done
 
 [[ -z "$TASK_NUM" ]] && die "Missing required <task_num>. Run 'ait brainstorm archive --help' for usage."
 
-# --- Finalize: copy HEAD plan to aiplans/ ---
+# --- Finalize: export HEAD proposal to aiplans/ ---
 info "Finalizing brainstorm session for task $TASK_NUM..."
 finalize_output=$("$PYTHON" "$SCRIPT_DIR/brainstorm/brainstorm_cli.py" finalize --task-num "$TASK_NUM" 2>&1) || {
-    if echo "$finalize_output" | grep -q "has no plan_file"; then
-        warn "HEAD node has no plan file — skipping plan finalize"
-        echo "NO_PLAN"
-    else
-        die "Failed to finalize session: $finalize_output"
-    fi
+    die "Failed to finalize session: $finalize_output"
 }
 
-# Parse PLAN:<path> from output (if finalize succeeded)
-if echo "$finalize_output" | grep -q "^PLAN:"; then
-    PLAN_PATH="${finalize_output#PLAN:}"
-    echo "PLAN:${PLAN_PATH}"
+# Surface the exported proposal path (PLAN:<path>) emitted by the CLI. The
+# capture merges stderr, so match the line rather than prefix-stripping the
+# whole string.
+plan_line=$(printf '%s\n' "$finalize_output" | grep '^PLAN:' || true)
+if [[ -n "$plan_line" ]]; then
+    echo "$plan_line"
 fi
 
 # --- Archive session (also sets crew status to Completed) ---
