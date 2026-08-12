@@ -186,14 +186,23 @@ window that started inside a block: the block exists, its header was clipped.
 
 ```python
 class BlockAge(NamedTuple):
-    applicable: bool          # is there a block whose age could be asked about?
-    stale: bool | None        # None = a block exists but its age is unknowable
-    reviewed_epoch: float | None
+    applicable: bool                # is there a block whose age could be asked about?
+    stale: bool | None              # None = a block exists but its age is unknowable
+    reviewed_epoch: float | None    # when the block says it was produced
+    last_change_wall: float | None  # what it was compared against
 
 def compute_block_age_staleness(
     capture_text: str, last_change_wall: float | None, eps: float
 ) -> BlockAge:
 ```
+
+It carries **both operands of the comparison**, not just one. The banner's
+`block Ns older` is `last_change_wall − reviewed_epoch` — how far the block
+predates the agent's latest change. A tuple holding only `reviewed_epoch` would
+leave the formatter able to compute nothing but `now − reviewed_epoch`, which
+answers a different question ("how old is the block") and would silently render
+a plausible-but-wrong number. Keeping both operands also makes the verdict fully
+explicable from the tuple alone.
 
 It takes the **capture text**, not a pre-parsed `meta`, so the function itself
 owns the applicability decision — no caller can get that question wrong, and
@@ -203,14 +212,14 @@ Contract table (mirrors the `compute_shadow_staleness` docstring style):
 
 | condition | result |
 |---|---|
-| no block evidence at all (`not contains_block_evidence`) | `(False, None, None)` — **inapplicable** |
-| block present, no `Round:` header (every pre-t1159_1 block) | `(True, None, None)` |
-| block present, header clipped by the capture window (`block_head_truncated`) | `(True, None, None)` |
-| block present, `Round:`-shaped header that fails the grammar | `(True, None, None)` |
-| header parses, `reviewed_at` empty or unparseable | `(True, None, None)` |
-| header parses, followed pane not observed yet (`last_change_wall is None`) | `(True, None, epoch)` |
-| header parses, `last_change_wall > epoch + eps` | `(True, True, epoch)` |
-| otherwise | `(True, False, epoch)` |
+| no block evidence at all (`not contains_block_evidence`) | `(False, None, None, None)` — **inapplicable** |
+| block present, no `Round:` header (every pre-t1159_1 block) | `(True, None, None, last_change)` |
+| block present, header clipped by the capture window (`block_head_truncated`) | `(True, None, None, last_change)` |
+| block present, `Round:`-shaped header that fails the grammar | `(True, None, None, last_change)` |
+| header parses, `reviewed_at` empty or unparseable | `(True, None, None, last_change)` |
+| header parses, followed pane not observed yet (`last_change_wall is None`) | `(True, None, epoch, None)` |
+| header parses, `last_change_wall > epoch + eps` | `(True, True, epoch, last_change)` |
+| otherwise | `(True, False, epoch, last_change)` |
 
 Sync and pure — no tmux, no I/O. `eps` is the caller's refresh epsilon, the same
 value the read-recency compare uses.
@@ -306,12 +315,33 @@ class ReadRecency(NamedTuple):
 
 stored as `self._shadow_read_recency`, with `_shadow_feedback_stale` kept as a
 **read-only property** returning `._shadow_read_recency.stale` (defaulting via
-`getattr` so the `__new__`-built test apps keep working). Existing readers —
-the tests, and t1159_2's planned `_service_review_loop` — are unaffected, and
-there is exactly one writable source, so verdict and timestamp cannot desync.
-The one existing *assignment* to `_shadow_feedback_stale` (`:2334`, the
-no-shadow clear) becomes a tuple write; the pre-phase sweep must confirm there
-are no others.
+`getattr` so the `__new__`-built test apps keep working). Pure *readers* — the
+8 `assertIs`/`assertIsNone` sites in
+`tests/test_minimonitor_concern_action.py`, and t1159_2's planned
+`_service_review_loop` — are unaffected, and there is exactly one writable
+source, so verdict and timestamp cannot desync.
+
+**Every existing assignment must be converted — there are four, not one**
+(counted, not assumed):
+
+| site | today | becomes |
+|---|---|---|
+| `minimonitor_app.py:429` | `self._shadow_feedback_stale: bool \| None = None` | `self._shadow_read_recency = ReadRecency(None, None)` |
+| `:2192` | `= True` (inside `_update_shadow_freshness`) | tuple write carrying `analyzed_at` |
+| `:2198` | `= False` | tuple write carrying `analyzed_at` |
+| `:2334` | `= None` (no-shadow clear) | `ReadRecency(None, None)` |
+
+Missing any of them raises `AttributeError: can't set attribute` at runtime, not
+at import — so the pre-phase sweep must bucket all four, and the grep in that
+sweep already covers `_shadow_feedback_stale`.
+
+**Four test sites also *assign* it** and must be reseeded through
+`_shadow_read_recency` instead:
+`tests/test_minimonitor_concern_action.py:866, 933, 941, 959` (each is
+`app._shadow_feedback_stale = True` seeding a prior standing warning).
+Prefer adding a `prior_recency=` parameter to `_fresh_app` (line 876) over
+poking the attribute at each site, so a future test cannot reintroduce the
+direct assignment.
 
 A new cheap step runs **every** tick, after `text = await
 capture_shadow_text(shadow_pane)` (`:2350`) and before the
@@ -348,8 +378,12 @@ shadow has not even *looked* — and the existing wording stays intact for the
 case users already know. The block-age wording exists for the new case the live
 session exposed, where the shadow demonstrably re-read and the old message
 ("agent moved on") would read as a contradiction. `analyzed Ns ago` comes from
-`recency.analyzed_at`, which is exactly why it had to be persisted; `block Ns
-older` is `last_change − reviewed_epoch` via `format_stale_duration`.
+`now − recency.analyzed_at`, which is exactly why the timestamp had to be
+persisted. `block Ns older` is `age.last_change_wall − age.reviewed_epoch` via
+`format_stale_duration` — **both operands come from the `BlockAge` tuple**, not
+from `now`. `now − reviewed_epoch` is a different quantity (the block's absolute
+age) and would render a plausible wrong number; the two are only equal when the
+agent changed at this instant.
 
 **A pane with no block never reaches the `None` banner.** `age.applicable` is
 `False` there, so the combined verdict is exactly `_shadow_feedback_stale` and
@@ -573,9 +607,12 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
       with a parseable header, a real `True`/`False` verdict
     - `_HEAD_TRUNCATED` ⇒ `applicable is True`, `stale is None`
     - `_INVALID_ROUND_BLOCK` ⇒ `applicable is True`, `stale is None`
-    - header parses but `reviewed_at` is `""` or garbage ⇒ `(True, None, None)`
-    - `last_change_wall is None` ⇒ `(True, None, epoch)` — epoch still reported
+    - header parses but `reviewed_at` is `""` or garbage ⇒ `(True, None, None, last_change)`
+    - `last_change_wall is None` ⇒ `(True, None, epoch, None)` — epoch still reported
     - the two real verdicts, including one inside `eps` that must be `False`
+  - Every row also asserts `last_change_wall` is echoed back on the tuple, so
+    the banner's `block Ns older` operand cannot be dropped from the contract
+    without a failure here.
   - `ContainsBlockEvidenceTests` — pin the predicate directly, and explicitly
     assert it **diverges from `contains_any_concern_block`** on the
     metadata-only block. Without that assertion the two look interchangeable and
@@ -621,6 +658,15 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
     wording carrying both clauses. Add the `None` and `False` rows. Cover the
     ladder as a pure-function table on `format_shadow_stale_banner` too, so a
     wiring bug and a wording bug fail separately.
+  - **The two durations must come from different subtractions.** Drive the
+    ladder with `now`, `last_change_wall`, `reviewed_epoch` and `analyzed_at`
+    all **mutually distinct and far apart** (e.g. `reviewed_epoch=1000`,
+    `last_change_wall=1300`, `analyzed_at=1100`, `now=2000`) and pin both
+    rendered durations exactly: `analyzed 15m00s ago` (`now − analyzed_at`) and
+    `block 5m00s older` (`last_change_wall − reviewed_epoch`). With equal or
+    near-equal inputs a `now − reviewed_epoch` implementation passes; with these
+    it renders `16m40s` and fails. Add the same distinctness to the both-stale
+    row.
   - **No-block regression guard.** A shadow pane with **no concern block** (the
     explain-only session) and a clean read stamp ⇒ banner stays `""` and
     `_shadow_stale_combined is False`; with a stale read stamp ⇒ exactly today's
@@ -829,6 +875,22 @@ retired.
   from malformed metadata. Resolved with a canonical round-trip check against
   the single format constant, and three non-zero-padded negative tests without
   which the check could be deleted unnoticed.
+
+- **`BlockAge` could not supply the banner's own number.** The draft tuple
+  carried `reviewed_epoch` but not `last_change_wall`, so
+  `format_shadow_stale_banner` could compute only `now − reviewed_epoch` — the
+  block's absolute age, not how far it predates the agent's change — and would
+  have rendered a plausible wrong duration. Resolved by carrying **both operands
+  of the comparison** on the tuple, with a test whose four time inputs are
+  mutually distinct so the wrong subtraction fails on the number, not just on
+  the wording.
+- **The property conversion undercounted its own blast radius.** The draft
+  claimed one existing assignment to `_shadow_feedback_stale`; there are
+  **four** in production (`:429`, `:2192`, `:2198`, `:2334`) and **four** more
+  in the tests (`test_minimonitor_concern_action.py:866, 933, 941, 959`). A
+  missed one fails at runtime with `AttributeError`, not at import. All eight
+  are now enumerated, and the test seeds move behind a `prior_recency=`
+  parameter on `_fresh_app` so the direct assignment cannot come back.
 
 ### Reassessment after inline insertion
 
