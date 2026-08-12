@@ -81,7 +81,11 @@ export PYTHONUNBUFFERED=1
 # pane, under the same wall-clock budget. It runs against its own synthetic
 # project so it never touches the real .git/index.lock — but the budget half of
 # the rationale above applies unchanged, so it is carved out too.
-SERIAL_CARVE_OUT=(test_board_header_row_live.py test_board_startup_focus_live.py)
+# test_codebrowser_startup_focus_live.py boots the real `ait codebrowser` in a
+# tmux pane under the same wall-clock budget, also against its own synthetic
+# project (a deliberately non-git one). Same budget rationale.
+SERIAL_CARVE_OUT=(test_board_header_row_live.py test_board_startup_focus_live.py
+                  test_codebrowser_startup_focus_live.py)
 
 is_carved() {
     local base="${1##*/}" c

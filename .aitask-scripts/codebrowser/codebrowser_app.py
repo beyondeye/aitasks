@@ -45,7 +45,7 @@ _TMUX = TmuxClient()
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Container
-from textual.screen import ModalScreen
+from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
 from textual.widgets import Button, Header, Footer, Input, Label, Static, DirectoryTree
 # FooterKey/FooterLabel/KeyGroup are private Textual APIs — pinned to 8.1.1
@@ -298,6 +298,33 @@ class ContextualFooter(Footer):
                 )
                 fk.compact = fk_compact
                 yield fk
+
+
+class CodeBrowserScreen(Screen):
+    """The codebrowser's default screen, with Textual's auto-focus off (t1495).
+
+    `Screen._update_auto_focus` runs inside `Screen._compose` — before the
+    app's `on_mount` — and focuses the first focusable widget matching the
+    selector. Measured live in a real pty, `compose()`'s two branches pick
+    differently: inside a git repo the winner is `RecentFilesList#recent_files`
+    (harmless), but in the `RuntimeError` fallback the sidebar contributes no
+    focusable widget and the winner is `Input#file_search_input`. Every
+    non-`priority` letter binding — `q` (Quit) included — then arrives as
+    search text, so a codebrowser launched outside a git repo could not be
+    quit. Same defect the board carried in t1491.
+
+    `""` is what actually disables it: `None` means "inherit `App.AUTO_FOCUS`"
+    (i.e. `"*"`), while an empty selector is falsy and skips the loop. Scoped
+    to THIS screen deliberately — modal screens are pushed separately and keep
+    the app-level `"*"`, so every dialog still focuses its first control.
+
+    With auto-focus off, the browser is briefly focus-less until
+    `CodeBrowserApp._claim_startup_focus` anchors it. That interval is safe by
+    construction: an unfocused screen routes keys straight to the App
+    bindings, so `q` quits throughout it.
+    """
+
+    AUTO_FOCUS = ""
 
 
 class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
@@ -635,8 +662,55 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._clear_codebrowser_focus()
         self._apply_focus(value)
 
+    def get_default_screen(self) -> Screen:
+        """Use `CodeBrowserScreen`, whose auto-focus is off — see it (t1495)."""
+        return CodeBrowserScreen()
+
+    def _claim_startup_focus(self) -> None:
+        """Anchor startup focus on a real browse target (t1495).
+
+        `CodeBrowserScreen.AUTO_FOCUS` already stops `#file_search_input` from
+        claiming the keyboard; this is the positive half — giving focus a real
+        target so navigation works from the first keystroke instead of after a
+        Tab or a click.
+
+        Reuses `_focus_recent_or_tree`, the same preference order
+        `action_toggle_focus` falls back to, rather than restating it here.
+        Deferred from `on_mount` via `call_after_refresh` because the sidebar's
+        children mount asynchronously and are not queryable synchronously.
+        """
+        screen = self.screen
+        if screen is None or isinstance(screen, ModalScreen):
+            return
+        try:
+            recent = screen.query_one("#recent_files", RecentFilesList)
+        except Exception:
+            recent = None
+        try:
+            file_tree = screen.query_one("#file_tree")
+        except Exception:
+            file_tree = None
+        try:
+            code_viewer = screen.query_one("#code_viewer", CodeViewer)
+        except Exception:
+            code_viewer = None
+        if recent is None and file_tree is None and code_viewer is None:
+            # `_focus_recent_or_tree` ends in `code_viewer.focus()`, so it must
+            # not be called with nothing to focus. Leaving the screen unfocused
+            # is safe: keys then route straight to the App bindings.
+            screen.set_focus(None)
+            return
+        self._focus_recent_or_tree(recent, file_tree, code_viewer)
+
     def on_mount(self) -> None:
         """Apply any pending focus and start the env-var poll."""
+        # Queued BEFORE the pending-focus callbacks on purpose (t1495).
+        # `call_after_refresh` runs in queue order, so anything below that
+        # does touch focus still wins over this anchor. Claiming
+        # unconditionally is what keeps the `--focus file:line` path from
+        # regressing: it used to inherit an anchor from Textual's auto-focus,
+        # and skipping the claim there would leave it with no focus at all.
+        self.call_after_refresh(self._claim_startup_focus)
         if self._initial_focus:
             pending = self._initial_focus
             self._initial_focus = None

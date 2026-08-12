@@ -102,6 +102,101 @@ Two remedies:
   `hasattr(focused, "cycle_prev")` / `getattr` for the method instead. See
   `aitask_board.action_nav_left`.
 
+## Startup focus: `AUTO_FOCUS` can hand the keyboard to a text `Input`
+
+`Screen._update_auto_focus` runs inside `Screen._compose` — **before** the
+app's `on_mount` — and focuses the first *focusable* widget in DOM order that
+matches the resolved selector:
+
+```python
+auto_focus = self.app.AUTO_FOCUS if self.AUTO_FOCUS is None else self.AUTO_FOCUS
+```
+
+Two consequences that have each cost a bug:
+
+- **`App.AUTO_FOCUS` defaults to `"*"`.** A TUI that sets nothing is opted *in*.
+- **`Screen.AUTO_FOCUS = None` means "inherit the app's"** — it disables
+  nothing. Only a falsy selector (`""`) actually skips the loop.
+
+When the winner is a text `Input`, every **non-`priority`** binding is swallowed
+as text. Only `priority=True` bindings (typically arrows/tab/escape) keep
+working, so the TUI still feels alive — which is why t1491 was first filed as a
+*relaunch* bug rather than "`q` does not quit".
+
+### The two-layer fix
+
+Both layers are needed; neither alone is sufficient:
+
+1. A `Screen` subclass with `AUTO_FOCUS = ""`, returned from
+   `App.get_default_screen()`. Scope it to the **default screen** so pushed
+   modals keep the app-level `"*"` and still focus their first control.
+2. A `_claim_startup_focus()` deferred from `on_mount` via `call_after_refresh`,
+   anchoring focus on a real widget. Layer 1 alone leaves the screen unfocused —
+   safe (keys route to the App bindings) but with no navigation anchor; layer 2
+   alone leaves a ~100–250ms window in which the `Input` owns the keyboard.
+
+Reference implementations: `board/aitask_board.py` (`BoardScreen`,
+`KanbanApp._claim_startup_focus`) and `codebrowser/codebrowser_app.py`
+(`CodeBrowserScreen`, `CodeBrowserApp._claim_startup_focus`). Reuse the app's
+existing focus-cycle helper for the anchor rather than restating its preference
+order — the codebrowser's claim calls `_focus_recent_or_tree`, which
+`action_toggle_focus` already owns.
+
+### Verify in a real pty — a headless pin may not fail
+
+`Screen._update_auto_focus` can pick a **different widget under `App.run_test`
+than under a real terminal**, because the two drivers differ in what is mounted
+and visible at compose time. Measured on the board at Textual 8.2.7, same
+fixture and size: a real terminal picked `Input#search_box`, `run_test` picked
+`HorizontalScroll#board_container` — where `q` quit fine. So a passing headless
+test is **not** evidence.
+
+The divergence is not universal: it depends on how many focusable widgets the
+branch has. The codebrowser's non-git branch has so few that `run_test` picks
+the `Input` too, and its headless pin does fail pre-fix. Determine it per app;
+do not assume either way.
+
+To diagnose, trace rather than read the screen: wrap
+`textual.screen.Screen._update_auto_focus` to log the resolved selector and the
+widget it left focused, inject it via a `sitecustomize.py` on `PYTHONPATH` (which
+preserves the real entry point), and run the TUI in a tmux pane. Pass the env
+with an `env` prefix on the command — `tmux set-environment` only reaches panes
+tmux spawns itself, not a command typed into an already-running shell. Always
+run the probe against a TUI whose behaviour is already known first: an empty
+trace means the probe never fired, and that reads exactly like "nothing was
+picked".
+
+### Audit status (t1495)
+
+Verified live in a tmux pane at Textual 8.2.7. "Picked" is the widget
+auto-focus left focused at compose.
+
+| App | picked at compose | bare `q` | status |
+|---|---|---|---|
+| `board/aitask_board.py` | auto-focus disabled → claim anchors `TaskCard` | quits | fixed (t1491) |
+| `codebrowser` (git repo) | `RecentFilesList#recent_files` | quits | not affected |
+| `codebrowser` (non-git) | **`Input#file_search_input`** | **swallowed** | **fixed (t1495)** |
+| `monitor/monitor_app.py` | `VerticalScroll#pane-list` | quits | not affected |
+| `brainstorm/brainstorm_app.py` | `ContentTabs` | quits | not affected |
+| `settings/settings_app.py` | `ContentTabs` | quits | not affected |
+| `logview/logview_app.py` | — | — | immune via an `on_mount` focus (t1486) |
+
+The three "not affected" apps land on a scroll container or a tab bar, which
+bind arrows and not letters. They still have **no startup focus anchor**, so no
+row/card is selected until the user presses Tab or clicks — a UX gap, not this
+defect.
+
+**Unaudited — treat as unknown, not clear.** These set no `AUTO_FOCUS` either
+and have not been driven in a pty: `monitor/minimonitor_app.py`,
+`syncer/syncer_app.py`, `chatlink/chatlink_app.py`, `applink/applink_app.py`,
+`diffviewer/diffviewer_app.py`, `agentcrew/agentcrew_dashboard.py`. Static
+reading suggests none mounts a text `Input` on its default screen, but that is
+exactly the claim t1495 existed to stop taking on trust.
+
+The only other place that disables auto-focus today is
+`lib/agent_command_screen.py` (`AgentCommandScreen.AUTO_FOCUS = ""`), a modal
+shared by several apps.
+
 ## Modals pushed by multiple Apps must carry their own DEFAULT_CSS
 
 A `lib/` `ModalScreen` that can be pushed by more than one App must define its
