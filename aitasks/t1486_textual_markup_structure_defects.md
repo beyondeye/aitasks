@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -74,3 +76,5 @@ frontmatter points at a GitLab host).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-11T20:14:21Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-12T05:27:27Z status=pass attempt=1 type=human
