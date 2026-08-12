@@ -21,3 +21,10 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1485
+
+## Verification Checklist
+
+- [ ] Run `ait brainstorm archive <N>` against a REAL brainstorm session (one with actual proposal nodes and a live crew worktree, not the init-only test fixture): confirm the PLAN:<path> line names the real HEAD node, the exported proposal actually lands in aiplans/, ARCHIVED:<N> prints, and the crew worktree is cleaned up
+- [ ] Force a real finalize failure on a live session — e.g. a fast-tracked module still in implementation and unsynced, which raises the "Cannot finalize: module(s) ... not synced" ValueError — and confirm the archive aborts with "Failed to finalize session", emits no ARCHIVED: and no PLAN:, and leaves both the session status and the crew worktree untouched
+- [ ] Confirm the reworded --help / header output of `ait brainstorm archive --help` reads correctly ("exports HEAD node's proposal", "Proposal exported to aiplans/") and matches what the command actually does
+- [ ] TODO: verify .aitask-scripts/aitask_brainstorm_archive.sh end-to-end in tmux
