@@ -76,7 +76,10 @@ t1159_1 landed (commit `fabd8e615`).
 - **minimonitor's `c` path reads a tick-cached staleness that can be two ticks
   old**, because `_update_shadow_freshness` is throttled to odd ticks
   (`minimonitor_app.py:2344-2346`) and `action_pick_concerns` reuses the cache
-  (`:2282`).
+  (`:2282`). Worse than lag: the cached verdict describes the *tick's* capture,
+  while the modal shows the *action's* capture — which may be a newer round, or
+  the deeper re-capture taken at `:2230-2235`. The full monitor does not share
+  this: its `c` path recomputes read recency live at `monitor_app.py:3048-3050`.
 
 ## Design
 
@@ -259,7 +262,7 @@ the user on every tick. So the toast is **explicitly not** the owner of the
 | surface | owns | signal it reads |
 |---|---|---|
 | minimonitor `#mini-shadow-stale` banner | the **continuous** warning, incl. the became-stale transition | combined (read recency ⊕ block age), recomputed **every tick** |
-| picker modal (`c`, both apps) | the **actionable** warning at forward time | combined, with a live read-recency recompute when the cache is indeterminate |
+| picker modal (`c`, both apps) | the **actionable** warning at forward time | combined, **recomputed from the action's own capture** — never the tick cache |
 | auto-offer toast (both apps) | the **one-shot** "new concerns arrived" announcement | combined, but only on the tick a *new* block is announced — deliberately never re-fires |
 | `ait monitor` (no continuous banner) | picker + toast only | the `!` badge's clearing edge stays **t1448**'s |
 
@@ -313,20 +316,50 @@ documented in Part C.
 
 **B4b. Call sites**
 
-1. `minimonitor_app.py` `action_pick_concerns` (~2280-2300): read
-   `_shadow_stale_combined`; when the underlying read recency is `None`
-   (throttle not yet run, or an indeterminate read) **recompute it live** via
-   `compute_shadow_staleness` and re-combine — the user pressed `c`
-   deliberately, the same reasoning that already pays for the deep re-capture at
-   `:2226-2238`. Removes the two-tick lag and stops "pressed `c` before the first
-   tick" from rendering as unknown. Pass the tri-state plus `stale_detail`.
+1. `minimonitor_app.py` `action_pick_concerns` (~2280-2300): **recompute
+   everything locally from the action's own final capture — never read
+   `_shadow_stale_combined`.**
+
+   The tick's verdict describes the tick's capture. By the time `c` is pressed
+   the pane may carry a *newer round*, and the action may itself have replaced
+   `text` with a deeper re-capture (`:2230-2235`). Reusing the cached verdict
+   would label round 2's concerns with round 1's freshness — the same
+   snapshot-incoherence the `block_meta=parse_block_meta(text)` wiring exists to
+   avoid, since both must describe one capture. Conditioning the refresh on
+   "cache is `None`" does not fix it: a cached `True`/`False` is exactly the
+   wrong-but-confident case.
+
+   ```python
+   eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
+   read_stale, _ = await compute_shadow_staleness(
+       self._monitor, shadow_pane, snap.pane.pane_id, eps
+   )
+   last_change = self._monitor.get_last_change_wall(snap.pane.pane_id)
+   age = compute_block_age_staleness(text, last_change, eps)   # the SAME text
+   stale = combine_staleness(read_stale, age)
+   ```
+
+   Unconditional, so the two-tick lag disappears entirely rather than being
+   narrowed. Cost is one `get_pane_option` per keypress — the same trade the
+   deep re-capture at `:2226-2238` already makes on the reasoning that the user
+   deliberately asked to look now. `text` here is whichever capture produced
+   `concerns`, including the deeper retry.
+
+   **Write-back:** refresh `_shadow_feedback_stale`, `_shadow_stale_combined`
+   and the banner from these values **only when `read_stale is not None`** —
+   the preserve-on-indeterminate rule is global, and an action path must not be
+   the one place that clobbers a standing warning. Pass the tri-state plus
+   `stale_detail` to the modal.
 2. `minimonitor_app.py` toast (`:2393-2397`): `stale_suffix` reads
    `_shadow_stale_combined` — `True` → `" (⚠ STALE — agent moved on)"`, `None` →
    `" (⚠ freshness unknown)"`, `False` → `""`. Left **after** the dedup return
    on purpose; a comment records that the banner owns the transition case.
-3. `monitor_app.py` `c` path (~3047-3072): drop `stale=bool(stale)`; compute
-   block age from the already-parsed `meta` + `get_last_change_wall(pane_id)`,
-   combine, pass the tri-state plus `stale_detail`.
+3. `monitor_app.py` `c` path (~3047-3072): drop `stale=bool(stale)`. It already
+   recomputes read recency live at `:3048-3050`, so only the block-age half is
+   new: `compute_block_age_staleness(text, get_last_change_wall(pane_id), eps)`
+   — **from the same `text` that produced `concerns`**, not from a pre-parsed
+   `meta` (the function takes capture text so it can decide applicability
+   itself). Combine, pass the tri-state plus `stale_detail`.
 4. `monitor_app.py` auto-offer toast (~1156-1180): same tri-state suffix, same
    one-shot semantics.
 
@@ -530,9 +563,32 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
     parseable header **older** than the last change must give `True`, and with a
     header **newer** must give `False` — otherwise "always `None`" would pass the
     negative control.
-  - Live recompute: with `_shadow_feedback_stale = None` and a stale-looking
-    stamp, `c` recomputes and yields `True` (spy the `get_pane_option` call
-    count so the recompute is proven to have happened, not inferred).
+  - **Picker snapshot coherence — both directions.** The cached tick verdict
+    must never reach the modal; the modal's verdict must describe the block it
+    is showing.
+    - *Cached stale → newer fresh block:* tick sees round 1 with
+      `reviewed_at` = T0 and `last_change` = T1 > T0, so
+      `_shadow_stale_combined is True`. Before the next tick, re-stub the
+      capture to a round-2 block whose `reviewed_at` is **after** T1, and press
+      `c` ⇒ the pushed modal must receive `stale is False` and
+      `block_meta.round == 2`. Reusing the cache gives `True` here — the test
+      fails loudly on the wrong-but-confident case.
+    - *Cached fresh → newer stale state:* tick sees round 1 as current
+      (`_shadow_stale_combined is False`); before the next tick the followed
+      pane's `get_last_change_wall` advances past the block's `reviewed_at`;
+      press `c` ⇒ modal receives `stale is True`.
+    - Assert the recompute actually happened rather than inferring it: spy the
+      `get_pane_option` call count across the keypress (it must increment on
+      **every** `c`, not only when the cache was `None`).
+    - Coherence with the deeper retry: a head-truncated first capture whose
+      deep re-capture yields a full round-2 block ⇒ the verdict is computed
+      from the **deeper** text (`applicable is True` with a real verdict, not
+      the truncated capture's `None`).
+  - **Write-back is preserve-on-indeterminate:** with a standing stale banner
+    and a `get_pane_option` that reports failure, pressing `c` must leave
+    `_shadow_feedback_stale`, `_shadow_stale_combined` and the banner text
+    **unchanged** (`assertIs` on the identity of the prior value), while the
+    modal itself still receives the fail-safe combined verdict.
   - Toast suffixes for all three states, on a **new** block each time (the only
     condition under which the toast is reachable).
 - **`tests/test_concern_picker_modal.py`**
@@ -664,6 +720,16 @@ retired.
   have left a `Ready` task instructing a future agent to redo the same work.
   Resolved by editing t1461 itself (B4c) as a separate, path-scoped
   `./ait git` commit.
+
+- **The picker would have shown a stale verdict for a block it was not
+  displaying.** The draft read `_shadow_stale_combined` from the previous tick
+  and refreshed read recency only when that cache was `None` — so a round
+  arriving between the tick and the keypress, or the action's own deeper
+  re-capture, would have been labelled with the previous capture's freshness,
+  confidently and wrongly. Resolved by recomputing read recency **and** block
+  age unconditionally from the action's own final `text` and combining locally,
+  with write-back to the tick state gated on `read_stale is not None`. Both
+  directions are now pinned by tests, plus the deeper-retry coherence case.
 
 ### Reassessment after inline insertion
 
