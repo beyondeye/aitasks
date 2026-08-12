@@ -403,3 +403,76 @@ declared gates via `./ait gates run 1491`, then archive with
 
 No mitigations proposed: both dimensions are `low` and every identified risk is
 already covered by the plan's own verification.
+
+## Final Implementation Notes
+
+- **Actual work done:** Root-caused live (isolated `-L` tmux server, synthetic
+  fixture) and fixed in `.aitask-scripts/board/aitask_board.py`:
+  - `BoardScreen(Screen)` with `AUTO_FOCUS = ""`, returned from
+    `KanbanApp.get_default_screen()` — `#search_box` never takes startup focus.
+  - `KanbanApp._claim_startup_focus()` (deferred from `on_mount`) anchors focus
+    on the leftmost column's anchor, via a new `_first_board_focus_target()`
+    shared with `action_focus_board`.
+  - `EmptyColumnPlaceholder.set_filtered()` + a `cols_with_units` accumulator in
+    `apply_filter`, so a filter-emptied column reads `(hidden by filter)` and a
+    genuinely empty one still reads `(empty)`.
+  - Tests: `tests/test_board_startup_focus.py` (9 headless cases),
+    `tests/test_board_startup_focus_live.py` (live tmux), and the latter added to
+    `SERIAL_CARVE_OUT` in `tests/run_all_python_tests.sh`.
+  - Task file rewritten against the confirmed root cause (the filed premise was a
+    misdiagnosis).
+
+- **Deviations from plan:** two, both from evidence found during implementation.
+
+  1. **The fix grew a second layer.** The plan had only the `on_mount` focus
+     claim. A live `Screen.set_focus` trace showed Textual focusing the Input at
+     t=0.024s while the claim landed at t=0.131s — a real window in which the
+     Input owned the keyboard. `BoardScreen.AUTO_FOCUS = ""` closes it by
+     construction. `""`, not `None`: `Screen._update_auto_focus` treats `None` as
+     "inherit `App.AUTO_FOCUS`" (`"*"`), so `None` would have re-enabled the bug.
+     Scoped to the default screen so pushed modals keep auto-focusing.
+  2. **The placeholder label carries no count.** The plan's `(N hidden by
+     filter)` had no consistent N — an expanded group contributes members *and* a
+     header, a collapsed group contributes one header for N members, an expanded
+     parent contributes one card per child, and none of those match
+     `ColumnHeader`'s parent-only count. Raised in plan review and replaced with
+     a count-free `(hidden by filter)` before implementation.
+
+- **Issues encountered:**
+  - **Three sibling tests failed on the focus change**
+    (`test_board_move_command`, `test_board_footer_multirow`,
+    `test_board_empty_column_focus`). All three assumed *"nothing holds focus at
+    boot"* — two used it to reach `check_action`'s False branch, one sampled an
+    "idle" background from what was now a focused widget. The invariants were
+    intact, so the fixtures were retargeted (`app.screen.set_focus(None)`
+    explicitly) rather than the assertions weakened.
+  - **A stale fixture cost a detour.** The scratch fixture held a `cp -r` copy of
+    `.aitask-scripts`, so several live probes silently exercised pre-fix code and
+    produced a spurious "Tab is broken" reading. Replaced with a symlink; `Tab`
+    works, and the fix in fact repairs it (pre-fix, Tab at boot moved focus *away*
+    from the search box, because the Input already held it).
+  - `tmux send-keys Escape` immediately followed by another key reaches the pty
+    as one ESC-prefixed `alt+<key>`; the live test's teardown needed a bare `q`.
+  - `tmux send-keys Tab` sends a raw `\t`, which Textual (kitty keyboard protocol
+    negotiated) does not deliver as `tab` — a harness limitation, not a defect.
+
+- **Key decisions:**
+  - Reproduced before planning rather than fixing to a hypothesis; the filed
+    premise turned out to be wrong, and a positive control (relaunch after a
+    *real* quit renders every card) is what disproved it.
+  - Two commits — focus fix, then the diagnostic relabel — so the root-cause fix
+    stays narrowly reviewable.
+  - Each fix layer has its own discriminating pin: removing `_claim_startup_focus`
+    fails the live pin (with `q` visible in the search box in the FAIL message);
+    setting `AUTO_FOCUS = None` fails the headless pin. The AUTO_FOCUS pin is
+    structural by necessity — the window is ~130ms and `run_test` auto-focuses
+    `#board_container`, so neither surface can catch it behaviourally. It asserts
+    the *resolution rule* Textual applies, not the literal `""`.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_app.py`, `.aitask-scripts/codebrowser/codebrowser_app.py`, `.aitask-scripts/brainstorm/brainstorm_app.py`, `.aitask-scripts/settings/settings_app.py` — none sets `AUTO_FOCUS`, so each inherits `App.AUTO_FOCUS = "*"` and is exposed to the same defect wherever its first focusable widget is a text `Input`. Not verified per-TUI here; worth an audit task.
+
+- **Build verification:** full Python suite `PASSED (runner=pytest, exit=0)` —
+  4296 passed, 2 skipped, plus the 3 serial live tests. `shellcheck
+  tests/run_all_python_tests.sh` reports 0 errors/warnings (2 pre-existing SC1091
+  info lines, unchanged from HEAD).
