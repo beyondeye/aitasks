@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1449
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-12 14:39
-updated_at: 2026-08-12 15:04
+updated_at: 2026-08-12 18:26
 ---
 
 ## Origin
@@ -71,3 +72,8 @@ the quit key worked fine. Verify each TUI in a real pty:
   structural `AUTO_FOCUS` pin (`tests/test_board_startup_focus.py`).
 - t1486 — the same defect family fixed earlier in logview (`on_mount` focusing the
   RichLog so single-key bindings fire without a prior mouse click).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-12T15:27:15Z status=pass attempt=1 type=human
