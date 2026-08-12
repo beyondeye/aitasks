@@ -360,3 +360,83 @@ Step 9 (Post-Implementation) then runs the merge, gates and archival as usual.
 ### Planned mitigations
 - timing: pre-phase | name: concurrent_negative_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — concurrency-only manifestation | desc: run two concurrent instances of the unmodified lock suite and record the failures before editing, so the post-fix concurrent green is a proven flip
 - timing: post-phase | name: guard_no_residual_fixture_literals | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — stale literal after the re-key | desc: assert no fixed fixture id survives and that the lock path literal is spelled exactly once, in the GATE_LOCK_BASE assignment
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in three parts.
+  **Part A** (`.aitask-scripts/aitask_brainstorm_archive.sh`): deleted the
+  unreachable `has no plan_file` branch and its `NO_PLAN` echo, so any finalize
+  failure now `die`s; replaced the whole-string prefix strip
+  (`${finalize_output#PLAN:}`) with a line-matched extraction, since the capture
+  merges stderr; corrected the header prose left stale by t891_4 ("copies HEAD
+  node's plan" → "exports HEAD node's proposal", in both the file header and
+  `show_help`). **Part B** (`tests/test_brainstorm_cli.sh`): retargeted Test 11
+  to the real contract (emits `PLAN:`, path names the HEAD node, exported file
+  exists on disk, `ARCHIVED:999`) and added Test 12 pinning the failure path.
+  **Part C** (`tests/test_gate_lock_characterization.sh`): per-run id namespace
+  `ID_BASE="9$$"` with `IDS`, a single `GATE_LOCK_BASE` constant, three explicit
+  spelling helpers (`raw_lock_dir` / `basename_lock_dir` / `alias_lock_dir`),
+  `lock_dir_for_id` re-expressed in terms of `raw_lock_dir`, `LOCK_DIRS` and the
+  fixture loop built from `IDS`, a leaked-dir pre-flight clear, and all ~40 call
+  sites re-keyed.
+
+- **Pre-phase mitigation `concurrent_negative_control` — recorded results.**
+  All three gating rules held before any edit:
+  - baseline (sequential): `rc=0`, `Results: 46/46 passed, 0 failed`,
+    `All tests PASSED` — the `/tmp` key space was clean, so the failures below
+    cannot be attributed to a leaked dir from a killed earlier run.
+  - concurrent pair: `Results: 36/46 passed, 10 failed` and
+    `Results: 46/46 passed, 0 failed`.
+  - signature match (the required lock-identity evidence):
+    `FAIL: die leaves the foreign lock dir intact (never releases an unowned lock) (dir not found: /tmp/aitask_gate_lock_987652)`
+    — byte-identical to the evidence recorded in the task description.
+
+- **Post-phase mitigation `guard_no_residual_fixture_literals` — passed.**
+  `grep -nE '98765[0-9]'` prints nothing; `grep -n '/tmp/aitask_gate_lock_'`
+  prints exactly one line (the `GATE_LOCK_BASE` assignment). It initially found
+  a **second** occurrence — the t635_30 flip-contract comment at line 20 spelled
+  the path in prose. Per the plan's rule the occurrence was eliminated rather
+  than the rule relaxed: that comment now says "pre-hold `basename_lock_dir
+  <id>`". The same comment block's "Only 2a/2b hardcode both spellings" sentence
+  was updated to name 2a/2b/3 and the three helpers.
+
+- **Verification results.** Sequential: 46/46, five consecutive runs.
+  Concurrent pair: 46/46 both sides across three rounds. 4-way: 46/46 all four,
+  with a `/tmp` watcher observing four **disjoint** `9<pid>` id families — direct
+  proof of path isolation rather than an inference. The post-fix signature grep
+  matches nothing. `tests/test_brainstorm_cli.sh`: **38/0/38, exit 0** (was
+  29/1/30, exit 1). `shellcheck` reports the identical finding set as `HEAD`
+  (7 × SC1091 source-following info, pre-existing) — no new diagnostics.
+  `grep -rn 'NO_PLAN\|has no plan_file'` is clean outside task/plan files.
+
+- **Deviations from plan:** none in substance. Two in-flight corrections:
+  (1) the comment-elimination described above; (2) Test 12's status capture had
+  to become `rc=0; output=$(…) || rc=$?` — the file runs under `set -e` (line 5),
+  so the planned `output=$(…); rc=$?` aborted the subshell the instant the
+  archive script exited non-zero, killing the whole run before its footer. That
+  is why the first Test 12 run produced no `=== Results ===` block at all.
+
+- **Issues encountered:** one post-fix concurrent round showed 2 failures in
+  Test 6b's attempt numbering (`attempt=1` twice, `attempt=2` absent). This is
+  **not** a residual path collision — those assertions read each run's own
+  `mktemp` fixture, which was never shared. It was traced to a production race
+  (see upstream defects) and reproduced with a from-scratch script that never
+  reads this test file, driving unmodified `aitask_gate.sh`: 3/25 rounds
+  anomalous. It is therefore pre-existing and out of scope for this test-only
+  task. The assertion is correctly reporting a real defect and was deliberately
+  left intact.
+
+- **Key decisions:** (a) Retire `NO_PLAN` rather than restore a reachable
+  trigger — t891_3 removed the plan data model and t891_4 removed the error on
+  purpose, so re-adding a "no plan" failure would resurrect a deleted concept;
+  the assertion was retargeted, never deleted. (b) Isolate via the task id
+  rather than adding an `AIT_GATE_LOCK_BASE` env seam to production, keeping the
+  code this file characterizes for t635_30 unchanged. (c) Hoist `GATE_LOCK_BASE`
+  so the residual-literal guard audits a realizable invariant — the guard as
+  first drafted ("only the three spelling helpers") was unsatisfiable, since
+  `lock_dir_for_id` necessarily contains the literal too.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_gate.sh:129-147 — stale-lock reclaim is not single-winner: a contender stats the old dir, decides "stale", then mv's whatever is at that path, which can be another contender's freshly-created live lock, yielding two simultaneous holders and duplicate/lost ledger attempt numbers (reproduced 3/25 rounds against unmodified code); the "Single-winner reclaim: rename is atomic" comment at :134 is only true when no third state change intervenes between stat and mv`
+  - `.aitask-scripts/aitask_gate.sh:122 — the gate mutex path /tmp/aitask_gate_lock_<key> is neither repo-scoped nor env-overridable, so two aitasks checkouts on one machine share a lock namespace for the same task id and serialize (or corrupt) each other's unrelated gate appends`
+  - `tests/test_parallel_child_create.sh:76-77,180-182,214,220 — same fixed-/tmp-lock collision this task fixes for the gate suite: hard-coded /tmp/aitask_child_lock_100 (pre-created, backdated, stat-shimmed and rmdir'd) against aitask_create.sh:331-333, so two concurrent runs of that file read each other's locks as foreign`
