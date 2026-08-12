@@ -850,7 +850,7 @@ retired.
 - **The producer half is unverifiable by automated test.** The routing entry is
   an LLM instruction; the drift guard proves the text is present, never that a
   live shadow obeys it. The observed defect was precisely an agent choosing
-  prose over the procedure. · severity: high · → mitigation: live_recheck_round_positive_control
+  prose over the procedure. · severity: high · → mitigation: t1498
 - The consumer half is a genuine, testable defense that holds even if the
   producer never complies — so the task's user-visible goal (stale concerns stop
   reading as current) is delivered regardless. · severity: low · → mitigation: none needed
@@ -862,7 +862,7 @@ retired.
 ### Planned mitigations
 - timing: pre-phase | name: enumerate_staleness_sinks | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: four call sites must stay in agreement (code-health) | desc: grep out every staleness producer/renderer/assertion and bucket each hit as wired, deliberately-unchanged, or test-to-update before any wiring.
 - timing: post-phase | name: unknown_banner_noise_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: shared-modal behaviour change + legacy-block banner noise (code-health, goal-achievement) | desc: render the picker in all three staleness states at both narrow widths, confirm exactly one banner per state and that the counts stay readable.
-- timing: after | name: live_recheck_round_positive_control | type: manual_verification | priority: high | effort: medium | inline_risk: high | added_complexity: high | addresses: the routing entry is an LLM instruction no automated test can prove (goal-achievement) | desc: live shadow session — run round 1, change the followed pane, send "refetch and recheck round 2", confirm a fresh Round 2 block is emitted and that `c` reported round 1 as stale beforehand.
+- timing: after | name: live_recheck_round_positive_control | type: manual_verification | priority: high | effort: medium | inline_risk: high | added_complexity: high | addresses: the routing entry is an LLM instruction no automated test can prove (goal-achievement) | desc: live shadow session — run round 1, change the followed pane, send "refetch and recheck round 2", confirm a fresh Round 2 block is emitted and that `c` reported round 1 as stale beforehand. | created: t1498
 
 ### Closed at plan review (2026-08-12)
 
