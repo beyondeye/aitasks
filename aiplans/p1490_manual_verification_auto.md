@@ -186,6 +186,7 @@ was never driven.
     terminal resize does not repair it. No error output on either stream. Data
     loading is evidently fine (the counts are right), so this is a card-mount /
     teardown-state defect, unrelated to t1486's markup change.
+    **Spawned as t1491** (`followup_kind: upstream_defect`).
 
 ## Cleanup
 
