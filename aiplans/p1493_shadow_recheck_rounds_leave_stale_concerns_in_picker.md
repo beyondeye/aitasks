@@ -140,39 +140,80 @@ else — `""`, garbage, a different shape, a non-`Z` suffix — returns `None`
 ("cannot tell"), never a guess. Docstring states the same-host clock-trust
 assumption explicitly.
 
+**B1b. `concern_parser.py` — the applicability predicate**
+
+Block age is a question you can only ask *about a block*. "There is no block"
+and "there is a block whose age I cannot establish" are **different states**,
+and collapsing them makes an explain-only shadow (a very common use — the user
+never asked for a review) permanently report "freshness unknown". So the
+distinction gets its own named runtime predicate:
+
+```python
+def contains_block_evidence(text: str) -> bool:
+    """True when the capture shows a concern block whose age could be asked about."""
+    return (_last_block_region(text, require_close=False) is not None
+            or block_head_truncated(text))
+```
+
+Deliberately **not** `contains_any_concern_block`: that one requires ≥1 parsed
+*item*, so a metadata-only clean round — a block whose age very much matters —
+would read `False`; and its docstring scopes it to the **authoring** check for
+shadow docs, not to runtime. The `block_head_truncated` arm covers the capture
+window that started inside a block: the block exists, its header was clipped.
+
 **B2. `monitor_core.py` — two pure functions, beside `compute_shadow_staleness`**
 
 ```python
+class BlockAge(NamedTuple):
+    applicable: bool          # is there a block whose age could be asked about?
+    stale: bool | None        # None = a block exists but its age is unknowable
+    reviewed_epoch: float | None
+
 def compute_block_age_staleness(
-    meta: "BlockMeta | None", last_change_wall: float | None, eps: float
-) -> tuple[bool | None, float | None]:
+    capture_text: str, last_change_wall: float | None, eps: float
+) -> BlockAge:
 ```
+
+It takes the **capture text**, not a pre-parsed `meta`, so the function itself
+owns the applicability decision — no caller can get that question wrong, and
+there is exactly one validated reader of the three-way distinction.
 
 Contract table (mirrors the `compute_shadow_staleness` docstring style):
 
 | condition | result |
 |---|---|
-| `meta is None` (no header — every pre-t1159_1 block) | `(None, None)` |
-| `reviewed_at` unparseable | `(None, None)` |
-| followed pane not observed yet (`last_change_wall is None`) | `(None, epoch)` |
-| `last_change_wall > epoch + eps` | `(True, epoch)` |
-| otherwise | `(False, epoch)` |
+| no block evidence at all (`not contains_block_evidence`) | `(False, None, None)` — **inapplicable** |
+| block present, no `Round:` header (every pre-t1159_1 block) | `(True, None, None)` |
+| block present, header clipped by the capture window (`block_head_truncated`) | `(True, None, None)` |
+| block present, `Round:`-shaped header that fails the grammar | `(True, None, None)` |
+| header parses, `reviewed_at` empty or unparseable | `(True, None, None)` |
+| header parses, followed pane not observed yet (`last_change_wall is None`) | `(True, None, epoch)` |
+| header parses, `last_change_wall > epoch + eps` | `(True, True, epoch)` |
+| otherwise | `(True, False, epoch)` |
 
-Sync and pure — no tmux, no I/O. `eps` is the caller's refresh epsilon, same
+Sync and pure — no tmux, no I/O. `eps` is the caller's refresh epsilon, the same
 value the read-recency compare uses.
 
 ```python
-def combine_staleness(read: bool | None, block: bool | None) -> bool | None:
-    """Fail-safe join: True wins, then None, then False."""
+def combine_staleness(read: bool | None, block: BlockAge) -> bool | None:
+    """Fail-safe join. Block age contributes nothing when inapplicable."""
 ```
 
-- either is `True` → `True`
-- both are `False` → `False`
-- otherwise → `None`
+- `not block.applicable` → **return `read` unchanged** (no block, no age
+  question, no new uncertainty — an explain-only shadow behaves exactly as it
+  does today)
+- else either is `True` → `True`
+- else both are `False` → `False`
+- else → `None`
 
 This is requirement 3 in one place: an unknown can never *clear* a warning, and
-a pre-header block with a clean read stamp resolves to `None` ("cannot tell"),
-never `False`.
+a *present* pre-header block with a clean read stamp resolves to `None`
+("cannot tell"), never `False` — while a pane with no block at all is not
+dragged into uncertainty it has no reason to be in.
+
+Taking `BlockAge` (not a bare `bool | None`) as the second parameter is
+deliberate: the applicability flag travels **with** the verdict, so the
+inapplicable case cannot be silently passed as `None` by a future caller.
 
 **B3. Modal: tri-state banner (`monitor_shared.py`)**
 
@@ -237,11 +278,10 @@ capture_shadow_text(shadow_pane)` (`:2350`) and before the
 block:
 
 ```python
-meta = parse_block_meta(text)
 last_change = self._monitor.get_last_change_wall(snap.pane.pane_id)   # sync, cached
-block_stale, reviewed_epoch = compute_block_age_staleness(meta, last_change, eps)
+age = compute_block_age_staleness(text, last_change, eps)
 self._shadow_stale_combined = combine_staleness(
-    self._shadow_feedback_stale, block_stale
+    self._shadow_feedback_stale, age
 )
 self._set_shadow_stale_banner(<text for the combined verdict>)
 ```
@@ -256,6 +296,13 @@ No new tmux traffic: `get_last_change_wall` is a dict lookup
   (block Ns older)`.
 - `None` → `⚠ shadow freshness unknown — cannot tell whether the feedback is current`
 - `False` → `""`
+
+**A pane with no block never reaches the `None` banner.** `age.applicable` is
+`False` there, so the combined verdict is exactly `_shadow_feedback_stale` and
+the banner is byte-identical to today's — which is the whole point of the
+three-way distinction: a shadow used only to explain the screen, or one that has
+simply not been asked for a review yet, must not grow a standing warning about
+feedback that does not exist.
 
 **`_shadow_feedback_stale` keeps its exact current semantics and name** (read
 recency, tri-state); the combined verdict is a **separate** attribute
@@ -306,7 +353,10 @@ Committed **separately** from the code, through `./ait git`, path-scoped:
 ### Part C — Docs (requirement 4)
 
 - `.claude/skills/aitask-shadow/concern-format.md`
-  - add `parse_reviewed_at_epoch` to the parser-export list (~324-328);
+  - add `parse_reviewed_at_epoch` and `contains_block_evidence` to the
+    parser-export list (~324-328), the latter with an explicit note on how it
+    differs from `contains_any_concern_block` (runtime vs authoring; items not
+    required) so the two are not confused at the next touch;
   - add a **block age** row to the `## Trigger vs. action contract` table (~224);
   - rewrite `## Staleness` (335-346) from two signals to **three**, naming which
     surface uses which — carrying the B4 ownership table, including *why the
@@ -341,9 +391,11 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
   left in neither bucket is the parallel-surface defect this pre-phase exists to
   prevent. Record the bucketed list in the Final Implementation Notes.
 
-1. `concern_parser.py`: add `parse_reviewed_at_epoch` (+ `datetime` import).
-2. `monitor_core.py`: add `compute_block_age_staleness` and `combine_staleness`
-   directly after `compute_shadow_staleness`, with contract-table docstrings.
+1. `concern_parser.py`: add `parse_reviewed_at_epoch` (+ `datetime` import) and
+   `contains_block_evidence`.
+2. `monitor_core.py`: add `BlockAge`, `compute_block_age_staleness` and
+   `combine_staleness` directly after `compute_shadow_staleness`, with
+   contract-table docstrings.
 3. `monitor_shared.py`: add `format_staleness_detail`; widen
    `ConcernPickerModal.__init__`; add the `#concern-stale-unknown` branch and CSS.
 4. `minimonitor_app.py`: move the banner writes out of `_update_shadow_freshness`
@@ -408,10 +460,31 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
     all four existing classes must stay green (`SKILL.md.j2` is not `*.md`, so
     the glob does not pick it up — assert this stays true).
 - **`tests/test_shadow_seam.py`**
-  - `ComputeBlockAgeStalenessTests` — one test per contract-table row, using
+  - `ComputeBlockAgeStalenessTests` — **one test per contract-table row**, using
     `assertIs` so `None` and `False` are provably distinguishable (the pattern of
-    `test_none_is_distinguishable_from_false`, line 341+).
-  - `CombineStalenessTests` — the full 3×3 table, asserted exhaustively.
+    `test_none_is_distinguishable_from_false`, line 341+). The rows that must
+    each get their own case, reusing the block fixtures already in
+    `tests/test_minimonitor_concern_action.py:46-118`
+    (`_CLOSED_BLOCK`, `_METADATA_ONLY_BLOCK`, `_HEAD_TRUNCATED`,
+    `_INVALID_ROUND_BLOCK`, `_ROUND2_BLOCK`):
+    - empty capture / prose-only pane ⇒ `applicable is False`
+    - a block with **items but no header** (pre-t1159_1) ⇒ `applicable is True`,
+      `stale is None`
+    - a **metadata-only clean block** ⇒ `applicable is True` (the case
+      `contains_any_concern_block` would have wrongly called inapplicable) and,
+      with a parseable header, a real `True`/`False` verdict
+    - `_HEAD_TRUNCATED` ⇒ `applicable is True`, `stale is None`
+    - `_INVALID_ROUND_BLOCK` ⇒ `applicable is True`, `stale is None`
+    - header parses but `reviewed_at` is `""` or garbage ⇒ `(True, None, None)`
+    - `last_change_wall is None` ⇒ `(True, None, epoch)` — epoch still reported
+    - the two real verdicts, including one inside `eps` that must be `False`
+  - `ContainsBlockEvidenceTests` — pin the predicate directly, and explicitly
+    assert it **diverges from `contains_any_concern_block`** on the
+    metadata-only block. Without that assertion the two look interchangeable and
+    a later "simplification" would reintroduce this exact defect.
+  - `CombineStalenessTests` — exhaustive: the 3 read-recency values × the
+    inapplicable case (must return the read value **identically**, `assertIs`),
+    plus the 3 × 3 applicable table.
 - **`tests/test_minimonitor_concern_action.py`** (extend `ShadowFreshnessTests` /
   `ActionPickConcernsTests`, reusing `_fresh_app` at line 876)
 
@@ -441,6 +514,14 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
     banner updates on an **even** tick, where `_update_shadow_freshness` did not
     run at all.
 
+  - **No-block regression guard.** A shadow pane with **no concern block** (the
+    explain-only session) and a clean read stamp ⇒ banner stays `""` and
+    `_shadow_stale_combined is False`; with a stale read stamp ⇒ exactly today's
+    read-recency banner, unchanged. Then the contrast case that gives the guard
+    teeth: the *same* app with a pre-header block present ⇒ `None` and the
+    unknown banner. Two states, one fixture apart — a "always fall back to read
+    recency" implementation fails the second, an "always None" implementation
+    fails the first.
   - **Negative control for requirement 3:** a pre-header block (no
     `reviewed_at`) with a clean read stamp ⇒ the modal receives `stale is None`,
     **not** `False`. Use `assertIsNone`, and separately assert
@@ -555,6 +636,21 @@ retired.
 - timing: after | name: live_recheck_round_positive_control | type: manual_verification | priority: high | effort: medium | inline_risk: high | added_complexity: high | addresses: the routing entry is an LLM instruction no automated test can prove (goal-achievement) | desc: live shadow session — run round 1, change the followed pane, send "refetch and recheck round 2", confirm a fresh Round 2 block is emitted and that `c` reported round 1 as stale beforehand.
 
 ### Closed at plan review (2026-08-12)
+
+- **Block age was inapplicable, not unknown, on a pane with no block.** The
+  first draft returned `None` from `compute_block_age_staleness` whenever
+  `meta` was absent, and B4a ran the combined step on every tick regardless of
+  block presence — so an explain-only shadow, or any session before its first
+  review, would have combined `read=False` with `block=None` and shown
+  "freshness unknown" **permanently**, about feedback that does not exist.
+  Resolved by making the distinction three-way and structural: a new
+  `contains_block_evidence` predicate, a `BlockAge` NamedTuple carrying
+  `applicable` alongside the verdict, and a `combine_staleness` that returns
+  the read verdict untouched when block age is inapplicable. Also caught here:
+  the obvious existing predicate `contains_any_concern_block` is the **wrong**
+  one — it requires ≥1 parsed item, so a metadata-only clean round would have
+  been misclassified as "no block", and it is documented as an authoring-time
+  check rather than a runtime one.
 
 - **The toast could never have surfaced the reported transition.** Both
   auto-offers return on an unchanged block *before* any staleness verdict is
