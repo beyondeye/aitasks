@@ -472,3 +472,162 @@ until the sweep runs. Goal-achievement keeps `brainstorm`'s fixture coverage as
 and six test files). Under this plan the monitor is **not** edited, so there is
 no conflict — but every commit here must stage **explicit paths only**. Never
 `git add -A`, and never `git add` a path that also carries t1493's hunks.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-12 15:27, plan review, pre-approval)
+
+- **Requested by user:** the live pin's negative control was wrong — with
+  `AUTO_FOCUS = ""` in place, deleting the claim leaves the screen unfocused
+  and `q` still reaches the App binding, so the live test would pass with
+  layer 2 absent. Also: the session-less brainstorm fixture measures the
+  pushed `InitSessionModal`, not the dashboard.
+- **Changes made:** Phase 3 rewritten to state what each pin can and cannot
+  see; layer 2 moved to a headless test asserting focus **is not `None`**;
+  negative-control table re-pointed. Phase 1 gained a seeded on-disk brainstorm
+  session as the primary path (verification confirmed `_on_init_result(None)`
+  calls `self.exit()`, so *any* behavioural reading on a session-less fixture
+  is meaningless), with a trace-only fallback recorded as *withheld, not
+  passed*.
+- **Files affected:** the plan only (pre-approval).
+
+### Change Request 2 (2026-08-12 15:27, plan review, pre-approval)
+
+- **Requested by user:** Phase 3 ran every headless test in both fixtures,
+  including "Tab reaches the search box" — but in the non-git branch
+  `action_toggle_focus` self-loops on `CodeViewer`, so that is unreachable.
+- **Changes made:** the Tab assertion scoped to the git fixture; a non-git
+  self-loop pin added; the dead-end and the never-seeded search list recorded
+  as upstream defects. Checking this also caught a second error: the git-branch
+  cycle needs **two** Tabs from the recent-files anchor, not the board's one.
+- **Files affected:** the plan only (pre-approval).
+
+### Change Request 3 (2026-08-12 16:12, Step 8 review)
+
+- **Requested by user:** the `verify_initial_focus_flag` mitigation requires
+  both entry routes and the requested *line*; the test covered only the
+  constructor route and only the filename, so a regression in the hot handoff
+  or the deferred range callback would pass.
+- **Changes made:** the fixture file grew to 8 lines so a requested line is
+  neither the default nor EOF; the constructor test now asserts
+  `_cursor_line`; a range test was added for the selection branch; and
+  `test_hot_handoff_still_lands_its_file_and_line_after_the_claim` was added to
+  the **live** module, driving the real `AITASK_CODEBROWSER_FOCUS` tmux session
+  env var. Two further negative controls were run (below).
+- **Files affected:** `tests/test_codebrowser_startup_focus.py`,
+  `tests/test_codebrowser_startup_focus_live.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three ACs met. (1) All four TUIs were audited live
+  in an isolated tmux pane with a `Screen._update_auto_focus` trace. (2) The one
+  affected TUI — codebrowser, non-git branch — was fixed with the t1491
+  two-layer shape. (3) Two pin modules were added, and the live one carved into
+  `SERIAL_CARVE_OUT`.
+
+  Audit result (all verified in a real pty at Textual 8.2.7):
+
+  | TUI | resolved selector | picked at compose | bare `q` | verdict |
+  |---|---|---|---|---|
+  | board (control) | `""` | disabled → claim → `TaskCard` | quits | already fixed (t1491) |
+  | monitor | `*` | `VerticalScroll#pane-list` | quits | not affected |
+  | brainstorm | `*` | `ContentTabs` | quits | not affected |
+  | settings | `*` | `ContentTabs` | quits | not affected |
+  | codebrowser (git) | `*` | `RecentFilesList#recent_files` | quits | not affected |
+  | **codebrowser (non-git)** | `*` | **`Input#file_search_input`** | **swallowed** | **fixed here** |
+
+  The three "not affected" TUIs land on a scroll container or a tab bar, which
+  bind arrows rather than letters. The DOM prediction made during planning was
+  confirmed exactly by the traces.
+
+- **Deviations from plan:**
+  - **The `else` guard became an unconditional claim queued first.** The plan
+    had `_claim_startup_focus` skipped when `initial_focus` was set, to avoid
+    stealing the requested target. Running the `verify_initial_focus_flag`
+    mitigation showed `_apply_focus` never touches focus at all — it only loads
+    the file — so there was nothing to steal, and skipping the claim left the
+    `--focus` path with focus `None` where auto-focus had previously supplied an
+    anchor. That was a small regression the plan would have shipped. The claim
+    is now unconditional and queued **before** the focus-applying callbacks, so
+    anything that does touch focus later still wins.
+  - **The headless module is one flat class, not a shared base with two
+    subclasses.** `tests/test_collection_structure.py` forbids a same-module
+    base that defines `test_*` methods, because subclasses silently re-collect
+    them. Both compose branches are iterated with `subTest` instead.
+  - **The live module grew a second session/fixture** (a git one) for the
+    hot-handoff test, which the plan had not anticipated needing.
+
+- **Issues encountered:**
+  - **The probe harness silently did not fire on the first run.** The board's
+    positive control produced an *empty* trace while the board booted and quit
+    normally — exactly the "harness broken looks like nothing was picked" case
+    the pre-phase mitigation exists to catch. Cause: `tmux set-environment`
+    populates the *session* environment, applied to panes tmux spawns itself;
+    the pane's shell was already running, so a command typed with `send-keys`
+    inherited none of it. Fixed by passing the vars as an explicit `env` prefix
+    on the command line. Had the control not been required first, all four TUIs
+    would have been reported clean on no evidence.
+  - **Textual gates auto-focus on `app.app_focus`**, which raised the worry that
+    a detached tmux pane would never focus anything. It defaults to `True`
+    (`Reactive(True)`), so detached panes are fine — checked before trusting any
+    "nothing was picked" reading.
+
+- **Key decisions:**
+  - The live pin deliberately pins only the **composite** defect. Neither
+    single-layer mutation can fail it — removing layer 1 leaves the claim to
+    rescue focus ~240ms in, and removing layer 2 leaves the screen unfocused,
+    which still routes `q` to the App binding. Each layer is pinned separately
+    and headlessly instead, and the docstrings say so, so nobody "strengthens"
+    the live test into asserting something it structurally cannot see.
+  - **Headless coverage here is stronger than t1491's.** On the board,
+    `run_test` picked a different widget than a real terminal. Measured on this
+    app, the non-git branch has so few focusable widgets that `run_test` picks
+    `Input#file_search_input` too — so the headless mid-boot test genuinely
+    fails pre-fix. The live pin still ships: the terminal is the ground truth,
+    and AC 3 asks for it.
+  - The hot-handoff route is covered **live, not headless**, because
+    `_consume_codebrowser_focus` returns `None` without a real `_tmux_session` —
+    every headless assertion about it would pass vacuously against an early
+    return, and stubbing it would test the stub.
+  - The audit stayed at the four named TUIs; six further unguarded apps are
+    recorded as **unaudited** (not clear) in `aidocs/framework/tui_conventions.md`.
+
+- **Negative controls (each run in isolation, then reverted):**
+
+  | mutation | failing test(s) |
+  |---|---|
+  | `CodeBrowserScreen.AUTO_FOCUS = None` | `test_the_screen_resolves_to_no_auto_focus_selector`, `test_the_search_input_never_holds_focus_during_boot` |
+  | delete `call_after_refresh(self._claim_startup_focus)` | both `test_startup_focus_is_…` tests (+3 dependents) |
+  | full pre-fix code from HEAD | the live `test_bare_q_quits_…` test, with the swallowed `q` shown in the message |
+  | `_apply_focus_range` → no-op | live hot-handoff + both headless line/range tests |
+  | `_consume_codebrowser_focus` → always `None` | live hot-handoff only (headless correctly unaffected) |
+
+  Under each single-layer mutation the live test was confirmed to still **pass**,
+  as its docstring documents.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/codebrowser/codebrowser_app.py:1332-1345` — `_focus_recent_or_tree`
+    collapses the focus cycle to a self-loop whenever neither `#recent_files` nor
+    `#file_tree` is mounted, stranding `#file_search_input` and `#detail_pane`.
+    Pre-dates this task; pinned as status quo by
+    `test_tab_is_a_self_loop_without_a_sidebar`.
+  - `.aitask-scripts/codebrowser/codebrowser_app.py:720-725` — the `set_files`
+    seeding sits inside a `try` that queries `#file_tree` first, so the non-git
+    branch renders a search box whose file list is never populated and which can
+    therefore match nothing. The same shape recurs at `:1085-1087` in the
+    `TrackedFilesRefreshed` handler.
+  - `tests/test_board_startup_focus_live.py:201-212` — `_launch_board` returns
+    one 0.25s poll (`POLL_INTERVAL_S`) after the *header* row (`Task filter`)
+    appears at `:206-209`, but the
+    board's columns mount asynchronously, so under load the capture is taken
+    mid-mount and the `CARD_TITLE` assertion fails. Load-sensitive flake:
+    3/3 pass alone, 3/3 pass running the serial trio in order, ~2/4 fail when
+    the serial phase follows the 200s parallel phase. Fix: wait for a column
+    marker rather than the header row.
+
+- **Test-sweep result (`sweep_codebrowser_focus_tests` mitigation):** the full
+  suite was run after the fix. **No** existing test relied on "nothing is
+  focused at boot" — the only failure attributable to this change was the
+  collection-structure guard above, which was a structural violation in the new
+  module rather than a fixture assumption in an old one. No pre-existing test
+  was modified.
