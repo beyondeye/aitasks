@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1159_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-11 15:33
-updated_at: 2026-08-11 15:33
+updated_at: 2026-08-12 09:31
 ---
 
 Build the minimonitor-orchestrated auto-recheck loop: a pure state-machine module plus minimonitor wiring that, when armed, sends "refetch and recheck round N" into the SHADOW pane when the followed agent settles at a prompt after new output. The critical seam of t1159 (parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_2_auto_recheck_loop.md`). Depends on t1159_1 (round metadata: expected-round derivation and dedup lift).
