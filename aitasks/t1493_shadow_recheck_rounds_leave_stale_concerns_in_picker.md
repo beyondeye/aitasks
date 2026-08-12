@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [t1159_1]
 issue_type: bug
 status: Ready
 labels: [shadow, aitask_monitormini, tui]
