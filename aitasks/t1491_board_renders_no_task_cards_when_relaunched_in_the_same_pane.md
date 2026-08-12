@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, board]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1449
 followup_kind: upstream_defect
 created_at: 2026-08-12 09:37
-updated_at: 2026-08-12 09:37
+updated_at: 2026-08-12 10:33
 ---
 
 ## Problem
