@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -152,3 +154,5 @@ The following existing tasks have been folded into this task. Their requirements
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-12T10:09:19Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-12T11:31:40Z status=pass attempt=1 type=human
