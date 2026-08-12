@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t1468_3]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [bash_scripts, task_workflow]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:29
-updated_at: 2026-08-11 23:00
+updated_at: 2026-08-12 08:24
+completed_at: 2026-08-12 08:24
 ---
 
 ## Context
@@ -123,3 +124,14 @@ stage with an explicit path allowlist.
 > **✅ gate:plan_approved** run=2026-08-11T20:00:24Z status=pass attempt=2 type=human
 
 > **✅ gate:review_approved** run=2026-08-11T20:35:09Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-12T05:24:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4a313559d65cc41b
+
+> **✅ gate:risk_evaluated** run=2026-08-12T05:24:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1468_4/risk_evaluated_2026-08-12T05:24:10Z-risk_evaluated-a1.log`
