@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-12 08:23
-updated_at: 2026-08-12 08:31
+updated_at: 2026-08-12 09:36
 ---
 
 ## Origin
@@ -88,3 +89,8 @@ cause instead of vanishing.
 Reproduced on a clean `HEAD` worktree during t1468_4 (identical exit code and
 byte-identical output to the working tree), confirming it is independent of that
 task's changes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-12T06:36:26Z status=pass attempt=1 type=human
