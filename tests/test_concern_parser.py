@@ -27,12 +27,14 @@ from concern_parser import (  # noqa: E402
     build_clipboard_payload,
     concern_block_signature,
     contains_any_concern_block,
+    contains_block_evidence,
     has_concern_block,
     has_invalid_round_header,
     is_metadata_only_block,
     needs_addressing,
     parse_block_meta,
     parse_concerns,
+    parse_reviewed_at_epoch,
     unrecovered_markers,
 )
 
@@ -1702,6 +1704,243 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
             "rendered producer(s) still instruct omitting the block on a clean "
             "review: " + ", ".join(offenders),
         )
+
+
+class TestParseReviewedAtEpoch(unittest.TestCase):
+    """`reviewed_at` → epoch, strictly, or None (t1493).
+
+    This is the only place the block header's timestamp becomes a *time*, so a
+    lenient parse here turns malformed producer metadata into a confident
+    freshness verdict — the exact fail-open the block-age signal exists to
+    remove.
+    """
+
+    def test_the_documented_shape_converts_exactly(self):
+        # 2026-08-11T14:03:27Z, pinned as a literal epoch. A naive-local
+        # implementation (no timezone.utc attachment) produces a different
+        # number under any non-UTC TZ.
+        self.assertEqual(
+            parse_reviewed_at_epoch("2026-08-11T14:03:27Z"), 1786457007.0
+        )
+
+    def test_conversion_is_timezone_independent(self):
+        """The producer stamps UTC; the monitor may run under any TZ."""
+        import time as _time
+
+        original = os.environ.get("TZ")
+        try:
+            for tz in ("UTC", "America/New_York", "Asia/Kolkata"):
+                os.environ["TZ"] = tz
+                if hasattr(_time, "tzset"):
+                    _time.tzset()
+                self.assertEqual(
+                    parse_reviewed_at_epoch("2026-08-11T14:03:27Z"),
+                    1786457007.0,
+                    "TZ=%s changed the epoch" % tz,
+                )
+        finally:
+            if original is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original
+            if hasattr(_time, "tzset"):
+                _time.tzset()
+
+    def test_non_zero_padded_components_are_rejected(self):
+        """The leniency guard — `strptime` alone ACCEPTS all three of these.
+
+        Without this test the canonical round-trip check can be deleted and
+        every other case here still passes.
+        """
+        for bad in ("2026-8-1T14:03:27Z", "2026-08-11T1:2:3Z",
+                    "2026-8-1T1:2:3Z"):
+            with self.subTest(value=bad):
+                self.assertIsNone(parse_reviewed_at_epoch(bad))
+
+    def test_unusable_values_are_none(self):
+        for bad in ("", "   ", "garbage", "[/]", "[bold red]x", "]",
+                    "2026-08-11",                    # date only
+                    "2026-08-11T14:03:27",           # no Z
+                    "2026-08-11 14:03:27Z",          # space, not T
+                    "2026-08-11T14:03:27+00:00",     # offset, not Z
+                    "2026-08-11T14:03:27.5Z"):       # sub-second
+            with self.subTest(value=bad):
+                self.assertIsNone(parse_reviewed_at_epoch(bad))
+
+    def test_surrounding_whitespace_is_tolerated(self):
+        self.assertEqual(
+            parse_reviewed_at_epoch("  2026-08-11T14:03:27Z  "), 1786457007.0
+        )
+
+    def test_a_real_header_round_trips_through_the_parser(self):
+        """End-to-end with `parse_block_meta`, not a hand-built string."""
+        text = block(
+            "Round: 2 @ 2026-08-11T14:03:27Z",
+            "- [high | region] body",
+        )
+        meta = parse_block_meta(text)
+        self.assertEqual(parse_reviewed_at_epoch(meta.reviewed_at), 1786457007.0)
+
+
+class TestContainsBlockEvidence(unittest.TestCase):
+    """Applicability of the block-age question (t1493).
+
+    "No block" and "a block whose age I cannot establish" are different states.
+    Collapsing them makes an explain-only shadow report "freshness unknown"
+    forever, about feedback that does not exist.
+    """
+
+    def test_no_block_at_all(self):
+        self.assertFalse(contains_block_evidence(""))
+        self.assertFalse(contains_block_evidence("just some agent prose\n$ "))
+
+    def test_block_with_items(self):
+        self.assertTrue(
+            contains_block_evidence(block("- [high | region] body"))
+        )
+
+    def test_metadata_only_block_counts_as_evidence(self):
+        """A clean round is a block whose age very much matters."""
+        self.assertTrue(
+            contains_block_evidence(block("Round: 3 @ 2026-08-11T14:03:27Z"))
+        )
+
+    def test_head_truncated_block_counts_as_evidence(self):
+        """Opening fence off-screen: the block exists, its age is unknown."""
+        text = "- [high | region] body\n" + CLOSE
+        self.assertTrue(block_head_truncated(text))
+        self.assertTrue(contains_block_evidence(text))
+
+    def test_streaming_block_counts_as_evidence(self):
+        self.assertTrue(
+            contains_block_evidence(OPEN + "\nRound: 1 @ 2026-08-11T14:03:27Z")
+        )
+
+    def test_diverges_from_contains_any_concern_block(self):
+        """The reason a new predicate exists rather than reusing that one.
+
+        `contains_any_concern_block` requires >=1 parsed ITEM and is scoped to
+        the authoring-time doc check. Reusing it would classify a clean round as
+        "no block" and reintroduce the t1493 defect, so the divergence is
+        asserted rather than left as a comment.
+        """
+        clean = block("Round: 3 @ 2026-08-11T14:03:27Z")
+        self.assertFalse(contains_any_concern_block(clean))
+        self.assertTrue(contains_block_evidence(clean))
+
+
+#: The Step-3 routing directive for a recheck ask, verbatim. Load-bearing: it is
+#: the phrase the predicate below keys on to tell "routed" from "mentioned".
+_RECHECK_DIRECTIVE = (
+    "**A recheck is a full new review round, not a conversational follow-up.**"
+)
+
+
+def _routes_recheck_asks(text: str) -> bool:
+    """True when the shadow entry point routes a re-review ask (t1493).
+
+    Whitespace is collapsed first for the same reason as the producer-rule
+    predicates: these are hand-wrapped markdown files and any phrase can
+    straddle a line break.
+
+    All three parts are required. The directive alone could sit in prose
+    without a routing entry; the trigger wording alone routes nothing
+    deterministically; and without the literal injected phrase the
+    minimonitor-driven recheck (t1159_2 injects "refetch and recheck round N")
+    has no guaranteed match. A recheck that is not routed reads as a
+    conversational follow-up and emits no block, which is the whole defect.
+    """
+    flat = " ".join(text.split())
+    return (_RECHECK_DIRECTIVE in flat
+            and "refetch and recheck" in flat
+            and "recheck round" in flat)
+
+
+class TestRouterRoutesRechecks(unittest.TestCase):
+    """The shadow entry point must route a recheck ask (t1493).
+
+    The producers already emit a block on every round they run, and already
+    honour an externally named round — but nothing ever named one, because
+    nothing routed a recheck. Live evidence (2026-08-11): three successive
+    "refetch and recheck" rounds each re-entered the skill and answered in prose
+    only, one of them carrying a real new concern that never reached the picker.
+
+    Guards the authoring template AND the rendered surface the agent actually
+    reads, mirroring :class:`TestRenderedShadowDocsKeepTheGuarantees`.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    TEMPLATE = "SKILL.md.j2"
+
+    def _template_text(self):
+        path = os.path.join(self.SHADOW_DIR, self.TEMPLATE)
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_template_routes_recheck_asks(self):
+        self.assertTrue(
+            _routes_recheck_asks(self._template_text()),
+            "%s does not route a re-review / recheck ask, so a recheck reads "
+            "as a conversational follow-up and the sub-procedure's emit step "
+            "is never re-entered (t1493)" % self.TEMPLATE,
+        )
+
+    def test_template_is_not_picked_up_as_a_producer(self):
+        """The producer glob is `*.md`; a `.j2` must stay out of it.
+
+        If this ever flips, the four producer-rule classes would demand the
+        block-emit rules from the entry point too.
+        """
+        self.assertNotIn(
+            self.TEMPLATE, TestProducerShortRegionRule().  # noqa: E501
+            _producers().keys(),
+        )
+
+    def test_guard_flags_a_template_missing_the_routing(self):
+        """Negative control: prove the predicate can fail, per part.
+
+        Synthetic text, not a mutate-and-restore of a repo file — this worktree
+        is shared with concurrent sessions.
+        """
+        triggers = '- **Re-review** ("refetch and recheck round N") -> re-run.\n'
+        base = "- **Adversarially challenge a plan** -> plan-challenge.md\n"
+
+        # Nothing at all.
+        self.assertFalse(_routes_recheck_asks(base))
+        # Trigger wording but no directive — routes loosely, permits prose.
+        self.assertFalse(_routes_recheck_asks(base + triggers))
+        # Directive but no trigger wording — nothing matches the injected line.
+        self.assertFalse(_routes_recheck_asks(base + _RECHECK_DIRECTIVE))
+        # Directive + triggers, but the injected phrase is absent.
+        self.assertFalse(_routes_recheck_asks(
+            base + '- **Re-review** ("look again") -> re-run.\n'
+            + _RECHECK_DIRECTIVE
+        ))
+        # All three present.
+        self.assertTrue(_routes_recheck_asks(base + triggers + _RECHECK_DIRECTIVE))
+
+
+def _test_rendered_entry_point_routes_recheck_asks(self):
+    """The recheck routing must survive templating (t1493).
+
+    Attached to :class:`TestRenderedShadowDocsKeepTheGuarantees` rather than
+    subclassing it: that class already owns the render-on-demand fixture and
+    its skip, and a subclass would re-run all of its tests for one extra
+    assertion. Defined here, next to the predicate it uses.
+    """
+    path = os.path.join(self.RENDERED_DIR, "SKILL.md")
+    with open(path, encoding="utf-8") as fh:
+        rendered = fh.read()
+    self.assertTrue(
+        _routes_recheck_asks(rendered),
+        "the rendered '%s' entry point does not route a recheck ask (t1493)"
+        % self.PROFILE,
+    )
+
+
+TestRenderedShadowDocsKeepTheGuarantees.test_rendered_entry_point_routes_recheck_asks = (  # noqa: E501
+    _test_rendered_entry_point_routes_recheck_asks
+)
 
 
 if __name__ == "__main__":

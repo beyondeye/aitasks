@@ -18,6 +18,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from typing import NamedTuple
 from pathlib import Path
 
 # Set up import paths before any local imports
@@ -37,6 +38,8 @@ from monitor.tmux_monitor import (  # noqa: E402
     find_shadow_pane_async,
     capture_shadow_text,
     compute_shadow_staleness,
+    compute_block_age_staleness,
+    combine_staleness,
     refresh_shadow_phase_stamp,
     spawn_shadow,
     _SHADOW_DEEP_RETRY_LINES,
@@ -52,11 +55,13 @@ from monitor.monitor_shared import (  # noqa: E402
     TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_section_header, format_session_divider, format_shadow_glyph,
-    format_stale_duration, format_state_dot, is_task_completed,
+    format_state_dot, is_task_completed,
+    format_shadow_stale_banner, format_staleness_detail,
     uncertified_round_block_msg, unparsed_concerns_msg,
 )
 from monitor.concern_parser import (  # noqa: E402
     block_head_truncated, block_region, build_clipboard_payload,
+    contains_block_evidence,
     has_concern_block, has_invalid_round_header, is_metadata_only_block,
     needs_addressing,
     parse_block_meta, parse_concerns, unrecovered_markers,
@@ -86,6 +91,25 @@ from textual.containers import VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.timer import Timer  # noqa: E402
 from textual.widgets import Static  # noqa: E402
+
+
+class ReadRecency(NamedTuple):
+    """Read-recency verdict paired with the stamp that produced it (t1493).
+
+    ``_update_shadow_freshness`` used to render the banner itself and kept
+    ``analyzed_at`` local. The banner now lives in a separate every-tick step,
+    which cannot say "analyzed Ns ago" — nor tell which signal drove a stale
+    verdict — from the boolean alone. Binding the two into one value makes them
+    unable to desync, which two loose attributes could not guarantee.
+    """
+
+    stale: bool | None
+    analyzed_at: float | None
+
+
+#: Read recency before anything has been resolved. Module-level so the property
+#: default and the no-shadow reset are literally the same value.
+_UNKNOWN_RECENCY = ReadRecency(None, None)
 
 
 # Consecutive *verified* empty-window observations required before the companion
@@ -423,10 +447,18 @@ class MiniMonitorApp(
         # nothing because every marker was malformed (t1274). Same once-per-
         # episode policy as `_truncation_warned`, and cleared the same way.
         self._unparsed_warned: set[str] = set()
-        # Shadow-feedback freshness (t1104). Tri-state: None = unknown (never
-        # resolved, or a transient capture/hash failure — do NOT clear a prior
-        # warning on such a failure), False = current, True = stale.
-        self._shadow_feedback_stale: bool | None = None
+        # Shadow-feedback READ RECENCY (t1104), verdict + the stamp that
+        # produced it, written as one tuple (t1493). Tri-state verdict: None =
+        # unknown (never resolved, or a transient capture/hash failure — do NOT
+        # clear a prior warning on such a failure), False = current, True =
+        # stale. The timestamp is carried because the banner reports "analyzed
+        # Ns ago" from a step that no longer computes the verdict itself; a
+        # loose second attribute could desync from it.
+        self._shadow_read_recency: ReadRecency = ReadRecency(None, None)
+        # COMBINED verdict (read recency joined with block age) — what every
+        # user-facing surface reads. Kept separate from the read-recency
+        # verdict above so each keeps one meaning and one provenance.
+        self._shadow_stale_combined: bool | None = None
         # Throttle the staleness compare to every OTHER refresh tick (~6s at the
         # 3s default) to halve the extra pane reads; the concern auto-offer still
         # runs every tick. Odd counter ⇒ checks on the first tick a shadow is
@@ -2166,37 +2198,112 @@ class MiniMonitorApp(
             refresh_shadow_phase_stamp(
                 self._monitor, shadow_pane, self._phase_for_snap(snap, info))
 
+    @property
+    def _shadow_feedback_stale(self) -> bool | None:
+        """Read-recency verdict — the tri-state, without its timestamp (t1104).
+
+        Read-only since t1493: the verdict and the ``analyzed_at`` that produced
+        it are written together as :class:`ReadRecency`, so there is exactly one
+        writable source and they cannot desync. Kept under the original name
+        because it is the established read surface (tests, and t1159_2's planned
+        review loop). Writers assign ``_shadow_read_recency``.
+        """
+        return getattr(self, "_shadow_read_recency", _UNKNOWN_RECENCY).stale
+
+    def _shadow_freshness_eps(self) -> float:
+        """Epsilon absorbing the monitor's up-to-one-tick detection lag.
+
+        One definition, shared by the read-recency compare and the block-age
+        compare — they answer questions about the same clock and must not
+        disagree about how much jitter is tolerable.
+        """
+        return max(2.0, float(getattr(self, "_refresh_seconds", 3)))
+
     async def _update_shadow_freshness(
         self, shadow_pane: str, followed_pane: str
     ) -> None:
-        """Mark the shadow's feedback stale if the followed agent moved on (t1104).
+        """Refresh the shadow's READ-RECENCY verdict (t1104).
 
         The comparison itself is :func:`monitor_core.compute_shadow_staleness`
-        (shared with the full monitor, t1216_1); this method owns only the
-        minimonitor-specific banner policy. The tri-state it returns is what
-        makes the display failure-safe: ``None`` means "could not tell" — an
-        unreadable / malformed stamp, or a followed pane not observed yet — and
-        must leave a standing warning exactly as it was. Only an explicit
-        ``False`` clears the banner.
+        (shared with the full monitor, t1216_1). The tri-state it returns is
+        what makes the display failure-safe: ``None`` means "could not tell" —
+        an unreadable / malformed stamp, or a followed pane not observed yet —
+        and must leave the recorded verdict exactly as it was. Only an explicit
+        ``True``/``False`` is recorded.
+
+        **Banner writes are deliberately not here** (t1493). This method is
+        throttled to every other tick because it costs a tmux ``get_pane_option``;
+        the banner must also reflect *block age*, which is free to compute from
+        the capture the auto-offer already takes every tick. So the banner is
+        owned by :meth:`_refresh_shadow_stale_banner`, and this method's only job
+        is to keep ``_shadow_read_recency`` current.
         """
-        # Epsilon absorbs monitor's up-to-one-tick detection lag so a change the
-        # shadow already saw (just noticed a beat later) is not mis-read as new.
-        eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
         stale, analyzed_at = await compute_shadow_staleness(
-            self._monitor, shadow_pane, followed_pane, eps
+            self._monitor, shadow_pane, followed_pane, self._shadow_freshness_eps()
         )
         if stale is None:
             return  # indeterminate — preserve prior state
-        if stale:
-            age = format_stale_duration(time.time() - analyzed_at)
-            self._shadow_feedback_stale = True
-            self._set_shadow_stale_banner(
-                f"[bold]⚠ shadow feedback is stale — agent moved on "
-                f"(analyzed {age} ago)[/]"
-            )
-        else:
-            self._shadow_feedback_stale = False
-            self._set_shadow_stale_banner("")
+        self._shadow_read_recency = ReadRecency(stale, analyzed_at)
+
+    def _refresh_shadow_stale_banner(
+        self, capture_text: str, followed_pane: str
+    ) -> None:
+        """Combine read recency with block age and repaint the banner (t1493).
+
+        Runs on **every** tick, unlike the throttled read-recency compare, and
+        costs no tmux traffic: ``capture_text`` is the capture the auto-offer
+        already took, and ``get_last_change_wall`` is an in-process dict lookup.
+
+        This is the surface that owns the *became-stale* transition. The
+        auto-offer toast cannot: it returns early on an unchanged block (the
+        round-qualified dedup), which is precisely the shape of the defect —
+        the shadow re-reads, emits nothing, and the same block sits there
+        ageing. A toast is a "new concerns arrived" announcement and re-firing
+        it every tick would be wrong; a live banner is the right home.
+        """
+        recency = getattr(self, "_shadow_read_recency", _UNKNOWN_RECENCY)
+        # Cost gate, mirroring the one inside `compute_shadow_staleness`: with
+        # no block on the pane there is no age to compare, so do not query the
+        # followed pane's last-change at all.
+        last_change = None
+        monitor = self._monitor
+        if (contains_block_evidence(capture_text) and monitor is not None
+                and hasattr(monitor, "get_last_change_wall")):
+            with contextlib.suppress(Exception):
+                last_change = monitor.get_last_change_wall(followed_pane)
+        age = compute_block_age_staleness(
+            capture_text, last_change, self._shadow_freshness_eps()
+        )
+        self._record_combined_staleness(
+            combine_staleness(recency.stale, age),
+            format_shadow_stale_banner(
+                recency.stale, age, parse_block_meta(capture_text),
+                recency.analyzed_at, time.time(),
+            ),
+        )
+
+    def _record_combined_staleness(
+        self, combined: bool | None, banner_text: str
+    ) -> None:
+        """Persist the combined verdict + banner under the preserve rule (t1493).
+
+        The rule is *"never clear a standing **warning**"* — and a warning is
+        specifically a recorded ``True``. Preserving a prior ``False`` as well
+        would be wrong in the one direction that matters: a pane that had no
+        block (verdict ``False``, correctly) and then grows a pre-round-header
+        block moves to ``None``, and swallowing that transition would present
+        an unverifiable block as current — precisely the defect this signal
+        exists to remove. ``None`` over ``False`` is an escalation, not a
+        clear, so it is always recorded.
+
+        One method rather than the condition inlined at each site: the tick
+        path and the picker path must apply the identical rule, and two copies
+        of a three-way condition is how they would diverge.
+        """
+        if combined is None and getattr(self, "_shadow_stale_combined", None) is True:
+            return  # would clear a standing warning — preserve it
+        self._shadow_stale_combined = combined
+        self._set_shadow_stale_banner(banner_text)
 
     async def action_pick_concerns(self) -> None:
         """Forward the shadow agent's concerns to the followed agent (via clipboard).
@@ -2277,9 +2384,40 @@ class MiniMonitorApp(
             else:
                 self.notify("No concerns detected on the shadow pane")
             return
-        # Warn on the actionable surface if the shadow's feedback is known-stale
-        # (computed on the refresh tick — reuse it, no second live-sig spend).
-        stale = bool(getattr(self, "_shadow_feedback_stale", None))
+        # Recomputed here, from THIS action's capture — never the tick cache
+        # (t1493). The cached verdict describes the tick's capture; by now the
+        # pane may carry a newer round, and `text` may have been replaced by the
+        # deeper re-capture above. Labelling round 2's concerns with round 1's
+        # freshness is the same snapshot incoherence the `block_meta=` wiring
+        # below exists to prevent, so both must come from one capture. The user
+        # pressed `c` deliberately, which is the same reasoning that already
+        # pays for that deeper re-capture.
+        eps = self._shadow_freshness_eps()
+        read_stale, analyzed_at = await compute_shadow_staleness(
+            self._monitor, shadow_pane, snap.pane.pane_id, eps
+        )
+        last_change = None
+        if self._monitor is not None and hasattr(
+            self._monitor, "get_last_change_wall"
+        ):
+            with contextlib.suppress(Exception):
+                last_change = self._monitor.get_last_change_wall(snap.pane.pane_id)
+        age = compute_block_age_staleness(text, last_change, eps)
+        stale = combine_staleness(read_stale, age)
+        block_meta = parse_block_meta(text)
+        # Write-back, one rule per value. Read recency preserves on ITS own
+        # indeterminate; the combined verdict goes through the shared
+        # preserve rule (a standing True is never cleared, everything else is
+        # recorded). A combined True driven by block age alone is a positive
+        # finding and must be established even when read recency is None.
+        if read_stale is not None:
+            self._shadow_read_recency = ReadRecency(read_stale, analyzed_at)
+        self._record_combined_staleness(
+            stale,
+            format_shadow_stale_banner(
+                read_stale, age, block_meta, analyzed_at, time.time()
+            ),
+        )
         # Resolved and stashed here: the dismissal callback receives only the
         # result, so the followed pane — the sole source of a task id — is out
         # of reach by then (t1427_2).
@@ -2294,7 +2432,8 @@ class MiniMonitorApp(
                 raw_block=block_region(text) or "",
                 rejected_entries=entries,
                 store_unavailable=not self._concern_pick_task_id,
-                block_meta=parse_block_meta(text),
+                block_meta=block_meta,
+                stale_detail=format_staleness_detail(age, block_meta),
             ),
             callback=self._on_concerns_picked,
         )
@@ -2331,7 +2470,8 @@ class MiniMonitorApp(
         shadow_pane = await find_shadow_pane_async(self._monitor, snap.pane.pane_id)
         if not shadow_pane:
             # No shadow: nothing can be stale — clear any standing warning.
-            self._shadow_feedback_stale = None
+            self._shadow_read_recency = _UNKNOWN_RECENCY
+            self._shadow_stale_combined = None
             self._set_shadow_stale_banner("")
             return
         # Freshness (t1104) — independent of whether a concern block is present,
@@ -2352,6 +2492,11 @@ class MiniMonitorApp(
         text = await capture_shadow_text(shadow_pane)
         if text is None:
             return
+        # Combine read recency with block age and repaint, EVERY tick and before
+        # any early return below: a pane whose block never changes is exactly
+        # the case that must still go stale, and a pane with no block at all
+        # must keep behaving as it did before block age existed (t1493).
+        self._refresh_shadow_stale_banner(text, snap.pane.pane_id)
         if not has_concern_block(text):
             # A block whose opening fence fell outside the window looks exactly
             # like "no concerns" to the strict predicate. Say so once per pane
@@ -2391,10 +2536,18 @@ class MiniMonitorApp(
             return
         self._last_concern_block_payload[shadow_pane] = dedup_key
         round_suffix = f" (round {meta.round})" if meta else ""
-        stale_suffix = (
-            " (⚠ STALE — agent moved on)"
-            if getattr(self, "_shadow_feedback_stale", None) else ""
-        )
+        # The COMBINED verdict, tri-state (t1493). This toast fires only when a
+        # NEW block is announced — the dedup return above is deliberate — so it
+        # reports the freshness of the block it is announcing. The
+        # became-stale-later transition belongs to the live banner, which is the
+        # only surface that re-renders on an unchanged block.
+        combined = getattr(self, "_shadow_stale_combined", None)
+        if combined is True:
+            stale_suffix = " (⚠ STALE — agent moved on)"
+        elif combined is None:
+            stale_suffix = " (⚠ freshness unknown)"
+        else:
+            stale_suffix = ""
         # Name the disposition split up front (t1274) so the toast already says
         # how much of the block is actually asking for action.
         actionable = sum(1 for c in concerns if needs_addressing(c))

@@ -360,6 +360,66 @@ An idle agent (e.g. sitting at a plan-approval prompt the shadow just read) has 
 changed since the stamp, so it correctly reads **current**; an agent that emits new
 output after the shadow read it reads **stale**.
 
+### Block age vs read recency (t1493)
+
+Read recency answers *"did the shadow look recently?"* — never *"was the block on
+screen produced by that look?"*. A shadow that refetches the pane and then answers
+in **prose** restamps `@aitask_shadow_analyzed_at` without emitting anything, so
+read recency clears while the previous round's concerns sit there being re-offered
+as current. That is not hypothetical: a recheck round can produce no block at all
+(prose only), and a concern raised in such a round never reaches the picker — which
+is why the routing rule below and this signal exist together.
+
+So there are **three** freshness signals, and every surface must say which it uses:
+
+| signal | question | implementation |
+|---|---|---|
+| **block identity** | has *this block's text* changed? | `concern_parser.concern_block_signature` |
+| **read recency** | did the shadow *look* after the agent's last change? | `monitor_core.compute_shadow_staleness` |
+| **block age** | was this block *produced* after the agent's last change? | `monitor_core.compute_block_age_staleness` |
+
+- **Source.** The block's own `Round: <N> @ <ts>` header (t1159_1).
+  `concern_parser.parse_reviewed_at_epoch` converts `<ts>` to an epoch —
+  strictly, via a canonical round-trip, returning `None` for anything but the
+  documented shape.
+- **Clock trust.** The producer shell-sources `date -u +%Y-%m-%dT%H:%M:%SZ` in
+  the shadow pane; `get_last_change_wall` derives from `time.time()` in the
+  monitor process. **Same host**, so the epochs are directly comparable. This
+  assumption is stated rather than implicit: it is what makes a bare subtraction
+  legitimate.
+- **Applicability is a third state, not uncertainty.** `BlockAge.applicable` is
+  false when the capture shows no block at all, and `combine_staleness` then
+  returns read recency untouched. Without that, a shadow used only to explain the
+  screen would show "freshness unknown" forever, about feedback that does not
+  exist. A block that *is* present but whose age cannot be established (no
+  header, clipped header, unparseable timestamp) yields `None` — real
+  uncertainty, which never clears a standing warning and never reads as current.
+- **Join.** `monitor_core.combine_staleness` — `True` wins, then `None`, then
+  `False`.
+
+**Two derived attributes in minimonitor, deliberately distinct:**
+`_shadow_read_recency` is a `ReadRecency(stale, analyzed_at)` tuple written only
+by the throttled compare (the verdict and the stamp that produced it, bound
+together so they cannot desync; `_shadow_feedback_stale` is a read-only property
+over its verdict). `_shadow_stale_combined` is the joined verdict every
+user-facing surface reads. Anything choosing a trigger — including the review-loop
+automation — should pick between them deliberately.
+
+**Surface ownership.** The minimonitor `#mini-shadow-stale` banner owns the
+continuous warning **including the became-stale transition**, recomputed every
+tick. The concern picker owns the actionable warning and recomputes from its own
+capture (never the tick cache — a newer round may have arrived, or the action may
+have taken a deeper re-capture). The auto-offer toast is one-shot: both apps
+return early on an unchanged block, so a block that goes stale in place can never
+re-toast, and that is correct — a toast announces arrival, not ageing. `ait
+monitor` has no continuous banner, so its picker is the sole owner there; the `!`
+badge's clearing edge is t1448's.
+
+**Canonical recheck phrase.** The shadow entry point (`SKILL.md.j2` Step 3) routes
+re-review asks, and the phrase any automation should inject is **`refetch and
+recheck round N`**. That routing is what makes a recheck re-enter the review
+sub-procedure and emit a fresh block instead of answering conversationally.
+
 ## Concern rejection store
 
 A per-task record of the concerns the user has rejected, so the shadow can drop

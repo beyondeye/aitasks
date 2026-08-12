@@ -31,6 +31,8 @@ from monitor.tmux_monitor import (  # noqa: E402
     load_project_tmux_config,
     capture_shadow_text,
     compute_shadow_staleness,
+    compute_block_age_staleness,
+    combine_staleness,
     refresh_shadow_phase_stamp,
     find_shadow_pane_status,
     spawn_shadow,
@@ -47,6 +49,7 @@ from monitor.monitor_shared import (  # noqa: E402
     format_compare_mode_glyph, format_mark_glyph, format_pane_status,
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
+    format_staleness_detail,
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS, block_head_truncated, block_region,
@@ -1154,8 +1157,18 @@ class MonitorApp(
                 # badge stands, and `c` gives the user the precise reason.
                 return
             eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
-            stale, _ = await compute_shadow_staleness(
+            read_stale, _ = await compute_shadow_staleness(
                 self._monitor, shadow_pane, pane_id, eps
+            )
+            # Block age (t1493): read recency alone cannot see a shadow that
+            # re-read the pane and then emitted nothing — it restamps its read
+            # stamp and reads "current" while stale concerns sit on screen.
+            last_change = None
+            if hasattr(self._monitor, "get_last_change_wall"):
+                with contextlib.suppress(Exception):
+                    last_change = self._monitor.get_last_change_wall(pane_id)
+            stale = combine_staleness(
+                read_stale, compute_block_age_staleness(text, last_change, eps)
             )
             # Re-check AFTER the awaits: the toast is an unsolicited interruption
             # and must describe what is on screen NOW. The signature stays marked
@@ -1177,7 +1190,14 @@ class MonitorApp(
             actionable = sum(1 for c in concerns if needs_addressing(c))
             info = len(concerns) - actionable
             info_suffix = f" (+{info} informational)" if info else ""
-            stale_suffix = " (⚠ STALE — agent moved on)" if stale else ""
+            # Tri-state (t1493): "could not tell" is its own state and must not
+            # render as silence, which reads as "current".
+            if stale is True:
+                stale_suffix = " (⚠ STALE — agent moved on)"
+            elif stale is None:
+                stale_suffix = " (⚠ freshness unknown)"
+            else:
+                stale_suffix = ""
             self.notify(
                 f"Shadow raised {actionable} concern(s){info_suffix} — "
                 f"press 'c' to pick" + stale_suffix
@@ -3046,9 +3066,20 @@ class MonitorApp(
                     modal_owns_guard = True
                 return
             eps = max(2.0, float(getattr(self, "_refresh_seconds", 3)))
-            stale, _ = await compute_shadow_staleness(
+            read_stale, _ = await compute_shadow_staleness(
                 self._monitor, shadow_pane, pane_id, eps
             )
+            # Block age from the SAME `text` that produced `concerns`, so the
+            # verdict and the block it labels always describe one capture
+            # (t1493). The monitor has no continuous staleness banner, so the
+            # picker is its only owner of this warning.
+            last_change = None
+            if hasattr(self._monitor, "get_last_change_wall"):
+                with contextlib.suppress(Exception):
+                    last_change = self._monitor.get_last_change_wall(pane_id)
+            age = compute_block_age_staleness(text, last_change, eps)
+            stale = combine_staleness(read_stale, age)
+            block_meta = parse_block_meta(text)
             # pane_id stays PINNED across these awaits, unlike the toast path: `c`
             # is an explicit action against the agent selected when it was
             # pressed, so its modal and marker belong to that agent even if the
@@ -3063,12 +3094,13 @@ class MonitorApp(
                 ConcernPickerModal(
                     concerns,
                     narrow=False,  # the monitor is full-width, unlike minimonitor
-                    stale=bool(stale),
+                    stale=stale,  # tri-state (t1493) — None renders its own banner
                     unrecovered=unrecovered_markers(text),
                     raw_block=block_region(text) or "",
                     rejected_entries=entries,
                     store_unavailable=not task_id,
-                    block_meta=parse_block_meta(text),
+                    block_meta=block_meta,
+                    stale_detail=format_staleness_detail(age, block_meta),
                 ),
                 callback=self._on_concerns_picked,
             )

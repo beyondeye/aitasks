@@ -222,6 +222,7 @@ closing fence cannot stand in for a newer, still-streaming block):
 | `parse_concerns(text)` | the **explicit** user action (picker hotkey) | tolerated absent — parses the newest block to EOF | the user asked for it; scrollback may have truncated the close |
 | `has_concern_block(text)` | the **auto-offer** trigger | **required** after the last opening fence, plus ≥1 parsed concern | do not offer the picker for an incomplete, empty, or malformed block |
 | `concern_block_signature(raw)` | the **freshness** trigger (has this block changed?) | **required** | a reflow-stable digest, compared for equality only |
+| `contains_block_evidence(text)` | the **block-age applicability** test (is there a block to age?) | tolerated absent — and an orphan closing fence also counts | "no block" must stay distinct from "block of unknown age" |
 | `unrecovered_markers(text)` | the **loss report** shown beside the picked list | tolerated absent — same region as `parse_concerns` | marker-looking lines that yielded no concern |
 
 `unrecovered_markers` is what makes the remaining losses **visible**. A
@@ -322,25 +323,72 @@ metadata-only clean-round block replaced.
   Claude tree; the `.agents/` and `.opencode/` shadow trees carry a `SKILL.md`
   wrapper only (no mirrored sub-procedure files).
 - **Parser:** `.aitask-scripts/monitor/concern_parser.py` — pure (`Concern`,
-  `BlockMeta`, `parse_concerns`, `parse_block_meta`, `is_metadata_only_block`,
-  `has_invalid_round_header`, `has_concern_block`, `concern_block_signature`,
-  `contains_any_concern_block`, `block_head_truncated`, `unrecovered_markers`,
+  `BlockMeta`, `parse_concerns`, `parse_block_meta`, `parse_reviewed_at_epoch`,
+  `is_metadata_only_block`, `has_invalid_round_header`, `has_concern_block`,
+  `concern_block_signature`, `contains_any_concern_block`,
+  `contains_block_evidence`, `block_head_truncated`, `unrecovered_markers`,
   `block_region`, `needs_addressing`, `DISPOSITIONS`,
   `build_clipboard_payload`).
+  - `contains_block_evidence` vs `contains_any_concern_block` — **not
+    interchangeable.** The first is the *runtime* applicability test for the
+    block-age signal: is there a block here at all? It is true for a
+    metadata-only clean round and for a head-truncated capture. The second
+    requires at least one parsed **item** and exists for the *authoring-time*
+    check that no shadow doc embeds a parser-live example. Using the second at
+    runtime would classify a clean round as "no block".
+  - `parse_reviewed_at_epoch` is the only place the header's timestamp becomes
+    a *time*. It is strict — the documented shape and nothing else, verified by
+    a canonical round-trip (plain `strptime` accepts `2026-8-1T1:2:3Z`) — and
+    returns `None` rather than guessing, because a confident freshness verdict
+    from malformed metadata is worse than no verdict.
 - **Consumer:** the concern-picker modal + trigger wiring (`monitor_shared.py`,
   `minimonitor_app.py`). The shadow lookup, capture and staleness helpers behind
   them are shared in `monitor_core.py`, so the full monitor uses one
   implementation rather than a copy.
 
-## Staleness
+## Staleness — three signals, do not conflate them
 
-The concern-forward surfaces also carry a **staleness** signal (t1104): when the
-followed agent has moved on since the shadow produced these concerns, the auto-offer
-notify appends a STALE marker and the picker modal shows a red banner, so a stale
-block is not forwarded unaware. See the "Feedback freshness" section of
-`aidocs/framework/shadow_agent.md` for the mechanism — it compares **timestamps**
-(when the shadow last read the agent vs when the agent last changed), which is a
-different question from `concern_block_signature` above (has *this block's text*
-changed). Do not conflate the two.
+The concern-forward surfaces carry a **staleness** signal so a stale block is not
+forwarded unaware. There are **three** distinct questions behind it, and each is
+answered by a different piece of code:
+
+| signal | question | implementation |
+|---|---|---|
+| **block identity** | has *this block's text* changed? | `concern_block_signature` (above) |
+| **read recency** | did the shadow *look* after the agent's last change? | `monitor_core.compute_shadow_staleness` (t1104) |
+| **block age** | was this block *produced* after the agent's last change? | `monitor_core.compute_block_age_staleness` (t1493) |
+
+Read recency and block age are joined by `monitor_core.combine_staleness`, which
+is **fail-safe**: `True` wins, then `None` ("cannot tell"), then `False`. An
+unknown therefore never *clears* a standing warning, and a block whose age cannot
+be established never reads as "current".
+
+**Block age is only asked about a block.** `combine_staleness` returns read
+recency untouched when `BlockAge.applicable` is false, so a shadow used purely to
+explain the screen — one that has never emitted a block — behaves exactly as it
+did before block age existed. "There is no block" and "there is a block whose age
+I cannot establish" are different states; only the second is uncertainty.
+
+Why block age had to exist: read recency is keyed on when the shadow last
+*looked*. A shadow that refetches the pane and then answers in prose restamps its
+read stamp without emitting anything, so read recency clears while last round's
+concerns sit on screen being re-offered as current.
+
+**Which surface owns which warning:**
+
+| surface | owns | reads |
+|---|---|---|
+| minimonitor `#mini-shadow-stale` banner | the continuous warning, **including the became-stale transition** | combined, recomputed every tick |
+| concern-picker modal (`c`, both apps) | the actionable warning at forward time | combined, recomputed from the action's own capture |
+| auto-offer toast (both apps) | the one-shot "new concerns arrived" announcement | combined, at announcement time only |
+
+The toast deliberately does **not** re-fire when a block goes stale in place:
+both apps return early on an unchanged block (round-qualified payload dedup in
+minimonitor, block-signature gating in the monitor), and re-announcing every tick
+would change what a toast means. The live banner owns that transition. `ait
+monitor` has no such banner, so there its picker is the only owner.
+
+See the "Feedback freshness" section of `aidocs/framework/shadow_agent.md` for the
+stamping and comparison mechanism.
 
 See `aidocs/framework/shadow_agent.md` for the shadow companion's overall pipeline.

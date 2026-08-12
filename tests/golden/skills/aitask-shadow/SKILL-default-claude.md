@@ -261,6 +261,26 @@ costs one short sentence, never a refusal.
   the user's ask is honored ("adversarial review" with no qualifier →
   default, and an inferred tier is always announced with the recommended
   alternative named); otherwise it asks, recommending advanced.
+- **Re-review after the agent moved on — a recheck round** ("refetch and
+  recheck", "refetch and recheck round N", "recheck", "re-review", "look
+  again", "check it again", "is it fixed now", "review it again after the
+  changes") → **refetch the followed screen (Step 1), then re-run the review
+  sub-procedure that produced your previous round, end to end.** If you have
+  not run one in this conversation, pick it with the phase-driven default
+  ladder above.
+
+  **A recheck is a full new review round, not a conversational follow-up.**
+  Never answer one in prose alone. Re-enter the sub-procedure and run its emit
+  step, so the round produces a fresh concern block carrying its own round
+  header — including when your findings are unchanged from the previous round,
+  and including when the round is clean (the metadata-only block is the
+  clean-round record). Summarizing "nothing new since last time" without a
+  block leaves the previous round's concerns as the newest thing on the pane,
+  and minimonitor keeps re-offering them.
+
+  If the ask names a round ("recheck round 3"), use that N in the header;
+  otherwise increment your own count. Say in one line which sub-procedure you
+  re-ran and which round this is.
 - **Socratic questioning of a plan** ("ask me questions about this", "make me
   think it through") → read and follow `plan-socratic.md`.
 - **Surface a plan's assumptions** ("what is this assuming?", "what has to be

@@ -863,10 +863,29 @@ class AutoOfferTests(unittest.TestCase):
 
     def test_no_shadow_clears_stale_banner(self):
         app = self._app(_CLOSED_BLOCK, async_list="%1\t\n%6\t%2")  # no shadow
-        app._shadow_feedback_stale = True  # a prior standing warning
+        app._shadow_read_recency = mm.ReadRecency(True, 1000.0)  # prior warning
         asyncio.run(app._maybe_offer_concerns())
         self.assertIsNone(app._shadow_feedback_stale)
         self.assertEqual(app._shadow_stale_banner_text, "")
+
+
+def _assert_warning_still_standing(test, app):
+    """The preserved-warning invariant, probed by MEANING not by a sentinel.
+
+    Since t1493 the banner is re-rendered from the recorded verdict on every
+    tick (it must also reflect block age, which the throttled read-recency
+    compare never sees), so a "the literal string was not touched" assertion no
+    longer describes the architecture. What must remain true is that an
+    indeterminate read never *clears* a standing warning — so this asserts the
+    verdict survived AND the banner still warns. Both fail if the code clears:
+    the verdict would be False and the banner "".
+    """
+    test.assertIs(app._shadow_feedback_stale, True)
+    test.assertTrue(
+        app._shadow_stale_banner_text,
+        "an indeterminate read CLEARED the standing staleness banner",
+    )
+    test.assertIn("stale", app._shadow_stale_banner_text.lower())
 
 
 class ShadowFreshnessTests(unittest.TestCase):
@@ -874,22 +893,44 @@ class ShadowFreshnessTests(unittest.TestCase):
 
     # eps = max(2, refresh_seconds=3) = 3 for these apps.
     def _fresh_app(self, analyzed_at, last_change, capture="",
-                   async_list="%5\t%1", option_ok=True):
+                   async_list="%5\t%1", option_ok=True, prior_recency=None):
+        """Build an app whose shadow timeline can be advanced mid-test.
+
+        `_shadow_feedback_stale` is a read-only property since t1493 (verdict
+        and its `analyzed_at` are written as one `ReadRecency` tuple, so they
+        cannot desync). Tests that need a prior standing warning pass
+        `prior_recency=` rather than poking the attribute, which is what stops
+        the direct assignment coming back.
+
+        The stamp / last-change values live in one-element holders so a test can
+        walk T0 -> T1 -> T2 on a SINGLE app, which is the only way to exercise
+        the transition the live defect showed.
+        """
         app = _mk_app(_FakeMon(async_list=async_list))
         app._find_own_agent_snapshot = lambda: _snap("%1")
         _stub_capture(self, _async_return(capture))
         app._refresh_seconds = 3
-        stamp = "" if analyzed_at is None else str(analyzed_at)
+        if prior_recency is not None:
+            app._shadow_read_recency = prior_recency
         # `(ok, value)` per the real contract (t1451): `option_ok=False` is
         # "tmux could not answer", NOT a verified-unset option.
-        app._monitor.get_pane_option = _async_return((option_ok, stamp))
+        app._stamp = ["" if analyzed_at is None else str(analyzed_at)]
+        app._ok = [option_ok]
+        app._opt_calls: list = []
+
+        async def _opt(pane, option):
+            app._opt_calls.append((pane, option))
+            return (app._ok[0], app._stamp[0])
+
+        app._monitor.get_pane_option = _opt
         # Spy the (sync) followed-pane last-change lookup so the cost gate and
         # the preserve-on-unobserved path are assertable.
         calls: list = []
+        app._lcw = [last_change]
 
         def _lcw(pane):
             calls.append(pane)
-            return last_change
+            return app._lcw[0]
 
         app._monitor.get_last_change_wall = _lcw
         app._lcw_calls = calls
@@ -930,19 +971,19 @@ class ShadowFreshnessTests(unittest.TestCase):
         # Followed pane not observed yet (last-change None) must NOT clear a
         # standing 'stale' warning.
         app = self._fresh_app(1000.0, None)
-        app._shadow_feedback_stale = True
+        app._shadow_read_recency = mm.ReadRecency(True, 1000.0)
+        app._shadow_stale_combined = True
         app._shadow_stale_banner_text = "PRIOR-WARNING"
         asyncio.run(app._maybe_offer_concerns())
-        self.assertIs(app._shadow_feedback_stale, True)
-        self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+        _assert_warning_still_standing(self, app)
 
     def test_malformed_stamp_preserves_prior_stale(self):
         app = self._fresh_app("not-a-number", 1010.0)
-        app._shadow_feedback_stale = True
+        app._shadow_read_recency = mm.ReadRecency(True, 1000.0)
+        app._shadow_stale_combined = True
         app._shadow_stale_banner_text = "PRIOR-WARNING"
         asyncio.run(app._maybe_offer_concerns())
-        self.assertIs(app._shadow_feedback_stale, True)
-        self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+        _assert_warning_still_standing(self, app)
 
     def test_option_read_failure_preserves_prior_stale(self):
         """t1451, on the user-visible surface. `get_pane_option` used to return
@@ -956,11 +997,11 @@ class ShadowFreshnessTests(unittest.TestCase):
         rather than merely re-asserting the fixed shape.
         """
         app = self._fresh_app(None, 1010.0, option_ok=False)
-        app._shadow_feedback_stale = True
+        app._shadow_read_recency = mm.ReadRecency(True, 1000.0)
+        app._shadow_stale_combined = True
         app._shadow_stale_banner_text = "PRIOR-WARNING"
         asyncio.run(app._maybe_offer_concerns())
-        self.assertIs(app._shadow_feedback_stale, True)
-        self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+        _assert_warning_still_standing(self, app)
         self.assertEqual(app._lcw_calls, [])  # cost gate holds on this path too
 
     def test_auto_offer_notify_carries_stale_marker(self):
@@ -987,3 +1028,274 @@ class ShadowFreshnessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Epoch of `_ROUND1_BLOCK`'s header (2026-08-11T14:03:27Z) and of
+# `_ROUND2_BLOCK`'s (14:09:41Z). Pinned so a timeline can be built around them.
+_R1_EPOCH = 1786457007.0
+_R2_EPOCH = 1786457381.0
+
+
+class BlockAgeStalenessTests(unittest.TestCase):
+    """The third freshness signal, end to end through the app (t1493).
+
+    The live defect: after round 1, three `refetch and recheck` rounds each
+    re-read the pane and answered in PROSE — no block. Every refetch restamped
+    `@aitask_shadow_analyzed_at`, so read recency said "current" and the picker
+    re-offered round 1's concerns with no stale warning.
+    """
+
+    def _app(self, capture, analyzed_at, last_change, option_ok=True):
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(capture))
+        app._refresh_seconds = 3
+        app._stamp = ["" if analyzed_at is None else str(analyzed_at)]
+        app._ok = [option_ok]
+        app._opt_calls: list = []
+
+        async def _opt(pane, option):
+            app._opt_calls.append((pane, option))
+            return (app._ok[0], app._stamp[0])
+
+        app._monitor.get_pane_option = _opt
+        app._lcw = [last_change]
+        app._monitor.get_last_change_wall = lambda pane: app._lcw[0]
+        return app
+
+    # -- the reported chronology, on ONE app ---------------------------------
+
+    def test_prose_only_refetch_keeps_the_block_stale(self):
+        """T0 offer -> T1 agent moves on -> T2 shadow re-reads, emits nothing.
+
+        At T2 read recency flips to *current* (the shadow really did look), so
+        pre-t1493 the banner cleared and `c` showed round 1 as fresh. Block age
+        must hold the verdict at stale, because the BLOCK still predates T1.
+        """
+        # T0: round 1 emitted; agent last changed before it; shadow read it.
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(len(app.spy_notify), 1)          # announced once
+        self.assertIs(app._shadow_stale_combined, False)  # genuinely current
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+        # T1: the followed agent moves on. Shadow has not looked since.
+        app._lcw[0] = _R1_EPOCH + 300
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertIn("stale", app._shadow_stale_banner_text.lower())
+
+        # T2: the shadow refetches (restamping) and answers in prose — the pane
+        # still carries the SAME round-1 block. Read recency now says current.
+        app._stamp[0] = str(_R1_EPOCH + 400)
+        app._shadow_freshness_tick = 0  # ensure the throttled compare runs
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(
+            app._shadow_feedback_stale, False,
+            "read recency should read 'current' here — that is the trap",
+        )
+        self.assertIs(
+            app._shadow_stale_combined, True,
+            "block age must hold the verdict at stale after a prose-only "
+            "refetch (t1493)",
+        )
+        self.assertIn("predates", app._shadow_stale_banner_text)
+        # The toast must NOT re-fire: the block is unchanged, so the dedup
+        # return is correct and the BANNER owns this transition.
+        self.assertEqual(len(app.spy_notify), 1)
+
+        # ...and pressing `c` now must label the concerns stale.
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertIs(modal._stale, True)
+
+    # -- applicability: a pane with no block must behave as it always did ----
+
+    def test_no_block_pane_is_not_dragged_into_unknown(self):
+        """An explain-only shadow has no feedback whose age could be unknown."""
+        app = self._app("just agent prose\n$ ", _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+    def test_no_block_pane_still_reports_read_recency_staleness(self):
+        app = self._app("just agent prose\n$ ", _R1_EPOCH, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertIn("moved on", app._shadow_stale_banner_text)
+
+    def test_a_pre_header_block_arriving_on_a_clean_pane_escalates(self):
+        """The same-app transition, and the sharpest form of the applicability
+        rule: no block (verdict False) -> a pre-round-header block appears.
+
+        `False` is not a standing warning, so the move to `None` is an
+        ESCALATION and must be recorded. A preserve rule that kept any prior
+        non-None verdict would swallow it and keep presenting an unverifiable
+        block as current — this task's own defect, one tick later.
+        """
+        app = self._app("just agent prose\n$ ", _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))  # pre-header block
+        app._shadow_freshness_tick = 0
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIsNone(app._shadow_stale_combined)
+        self.assertIn("unknown", app._shadow_stale_banner_text.lower())
+
+    def test_a_standing_warning_survives_a_drop_to_unknown(self):
+        """The other side of the same rule: True must NOT be cleared.
+
+        Paired with the test above so neither direction can be satisfied by a
+        blanket policy — "always preserve" fails the escalation, "never
+        preserve" fails this one.
+        """
+        # The warning must be BLOCK-AGE driven for this to be reachable: while
+        # read recency is True the join returns True regardless, so combined
+        # could never drop to None. Here the shadow has read recently
+        # (analyzed_at is after the change) and only the block is old.
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH + 400, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, False)   # read recency: current
+        self.assertIs(app._shadow_stale_combined, True)    # ...block age: stale
+        standing = app._shadow_stale_banner_text
+        self.assertIn("predates", standing)
+
+        # The round header is lost (capture degrades / an older block scrolls
+        # into the window), so block age becomes unknowable: combined -> None.
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        app._shadow_freshness_tick = 0
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertEqual(app._shadow_stale_banner_text, standing)
+
+    def test_pre_header_block_reads_unknown_not_current(self):
+        """Requirement 3's negative control, one fixture away from the case
+        above: a block IS present, so its unknown age is real uncertainty."""
+        app = self._app(_CLOSED_BLOCK, _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIsNone(app._shadow_stale_combined)
+        self.assertIsNot(app._shadow_stale_combined, False)
+        self.assertIn("unknown", app._shadow_stale_banner_text.lower())
+
+    def test_pre_header_block_reaches_the_picker_as_unknown(self):
+        app = self._app(_CLOSED_BLOCK, _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertIsNone(modal._stale)
+        self.assertIsNot(modal._stale, False)
+
+    # -- picker snapshot coherence -------------------------------------------
+
+    def test_picker_uses_its_own_capture_not_the_tick_cache(self):
+        """A newer round arriving between the tick and the keypress.
+
+        Reusing `_shadow_stale_combined` would label round 2's concerns with
+        round 1's freshness — confidently and wrongly.
+        """
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)  # cached: stale
+
+        # Round 2 lands, produced AFTER the agent's last change — and the
+        # shadow necessarily re-read the pane to produce it, so its stamp
+        # advances too. Both signals are now genuinely current.
+        app._stamp[0] = str(_R2_EPOCH)
+        _stub_capture(self, _async_return(_ROUND2_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertEqual(modal._block_meta.round, 2)
+        self.assertIs(
+            modal._stale, False,
+            "the picker labelled round 2 with the cached round-1 verdict",
+        )
+
+    def test_picker_sees_a_staleness_that_arrived_after_the_tick(self):
+        """The inverse: cached fresh, stale by the time `c` is pressed."""
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, False)
+
+        app._lcw[0] = _R1_EPOCH + 300  # agent moves on, no new tick
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertIs(modal._stale, True)
+
+    def test_picker_recomputes_read_recency_on_every_press(self):
+        """Not only when the cache is indeterminate — proven by call count."""
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        before = len(app._opt_calls)
+        asyncio.run(app.action_pick_concerns())
+        self.assertEqual(len(app._opt_calls), before + 1)
+
+    def test_picker_carries_a_detail_naming_the_round_and_the_gap(self):
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH + 300)
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertIn("round 1", modal._stale_detail)
+        self.assertIn("5m00s", modal._stale_detail)  # 300s, not now-reviewed
+
+    # -- write-back: one rule per value --------------------------------------
+
+    def test_block_age_alone_establishes_stale_despite_unreadable_stamp(self):
+        """The case a blanket `read_stale is not None` gate would discard."""
+        app = self._app(_ROUND1_BLOCK, None, _R1_EPOCH + 300, option_ok=False)
+        asyncio.run(app.action_pick_concerns())
+        modal, _ = app.spy_pushed[0]
+        self.assertIs(modal._stale, True)
+        self.assertIs(app._shadow_stale_combined, True)
+        # Read recency itself was NOT written — it stayed indeterminate.
+        # Probed with the same default the property uses: `_mk_app` builds via
+        # __new__, so "never written" shows up as the attribute being absent.
+        self.assertIsNone(
+            getattr(app, "_shadow_read_recency", mm._UNKNOWN_RECENCY).stale
+        )
+
+    def test_indeterminate_everything_preserves_a_standing_warning(self):
+        """Exercises the combined-None preserve branch specifically."""
+        app = self._app(_CLOSED_BLOCK, None, _R1_EPOCH + 300, option_ok=False)
+        app._shadow_stale_combined = True
+        app._shadow_stale_banner_text = "PRIOR-WARNING"
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertEqual(app._shadow_stale_banner_text, "PRIOR-WARNING")
+
+    # -- the banner step runs unthrottled ------------------------------------
+
+    def test_banner_updates_on_a_tick_the_throttled_compare_skips(self):
+        """The read-recency compare costs a tmux read and runs every OTHER
+        tick; block age is free and must be re-evaluated every tick, or the
+        became-stale transition waits up to two ticks to appear."""
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())   # tick 1 (odd): compare runs
+        opt_after_first = len(app._opt_calls)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+        app._lcw[0] = _R1_EPOCH + 300              # agent moves on
+        asyncio.run(app._maybe_offer_concerns())   # tick 2 (even): SKIPPED
+        self.assertEqual(
+            len(app._opt_calls), opt_after_first,
+            "the throttled read-recency compare should not have run",
+        )
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertIn("stale", app._shadow_stale_banner_text.lower())
+
+    # -- toast tri-state ------------------------------------------------------
+
+    def test_toast_marks_a_new_block_that_is_already_stale(self):
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIn("STALE", app.spy_notify[0][0])
+
+    def test_toast_marks_unknown_freshness(self):
+        app = self._app(_CLOSED_BLOCK, _R1_EPOCH, _R1_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIn("freshness unknown", app.spy_notify[0][0])
+
+    def test_toast_is_clean_when_the_block_is_genuinely_current(self):
+        app = self._app(_ROUND2_BLOCK, _R2_EPOCH, _R2_EPOCH - 10)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertNotIn("STALE", app.spy_notify[0][0])
+        self.assertNotIn("unknown", app.spy_notify[0][0])

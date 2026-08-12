@@ -52,6 +52,8 @@ from monitor.monitor_core import (  # noqa: E402
     TmuxMonitor,
     TmuxPaneInfo,
     capture_shadow_text,
+    combine_staleness,
+    compute_block_age_staleness,
     compute_shadow_staleness,
     find_shadow_pane,
     find_shadow_pane_async,
@@ -1083,6 +1085,169 @@ def _discovery(panes, shadows):
     return _coro
 
 
+# ---------------------------------------------------------------------------
+# compute_block_age_staleness / combine_staleness — the third freshness signal
+# ---------------------------------------------------------------------------
+
+_OPEN = "===AITASK-CONCERNS==="
+_CLOSE = "===END-CONCERNS==="
+#: 2026-08-11T14:03:27Z as an epoch — the header used by every block below.
+_T0 = 1786457007.0
+
+
+def _blk(*lines):
+    return "\n".join([_OPEN, *lines, _CLOSE])
+
+
+_HEADED = _blk("Round: 2 @ 2026-08-11T14:03:27Z", "- [high | region] body")
+_CLEAN = _blk("Round: 2 @ 2026-08-11T14:03:27Z")
+_NO_HEADER = _blk("- [high | region] body")
+_BAD_HEADER = _blk("Round: 0 @ 2026-08-11T14:03:27Z", "- [high | region] body")
+_BAD_TIME = _blk("Round: 2 @ 2026-8-1T1:2:3Z", "- [high | region] body")
+_TRUNCATED = "- [high | region] body\n" + _CLOSE
+
+
+class ComputeBlockAgeStalenessTests(unittest.TestCase):
+    """One test per row of the contract table (t1493).
+
+    Block age answers the question read recency cannot: was this block
+    *produced* after the agent's last change? A shadow that re-reads the pane
+    and answers in prose restamps its read stamp — clearing read recency —
+    while the old block sits there going stale.
+    """
+
+    EPS = 3.0
+
+    def _age(self, text, last_change):
+        return compute_block_age_staleness(text, last_change, self.EPS)
+
+    def test_no_block_is_inapplicable_not_unknown(self):
+        """The distinction the whole tuple exists for.
+
+        An explain-only shadow has no concern feedback, so it must not be
+        dragged into "freshness unknown" forever.
+        """
+        age = self._age("just agent prose\n$ ", 9999.0)
+        self.assertIs(age.applicable, False)
+        self.assertIsNone(age.stale)
+        self.assertIsNone(age.reviewed_epoch)
+
+    def test_block_without_header_is_applicable_but_unknown(self):
+        age = self._age(_NO_HEADER, _T0 + 100)
+        self.assertIs(age.applicable, True)
+        self.assertIsNone(age.stale)
+        self.assertIsNone(age.reviewed_epoch)
+        self.assertEqual(age.last_change_wall, _T0 + 100)
+
+    def test_head_truncated_block_is_applicable_but_unknown(self):
+        age = self._age(_TRUNCATED, _T0 + 100)
+        self.assertIs(age.applicable, True)
+        self.assertIsNone(age.stale)
+
+    def test_malformed_round_header_is_applicable_but_unknown(self):
+        age = self._age(_BAD_HEADER, _T0 + 100)
+        self.assertIs(age.applicable, True)
+        self.assertIsNone(age.stale)
+
+    def test_unparseable_timestamp_is_applicable_but_unknown(self):
+        """A non-zero-padded stamp must NOT become a confident verdict."""
+        age = self._age(_BAD_TIME, _T0 + 100)
+        self.assertIs(age.applicable, True)
+        self.assertIsNone(age.stale)
+        self.assertIsNone(age.reviewed_epoch)
+
+    def test_metadata_only_block_still_gets_a_real_verdict(self):
+        """A clean round is a block; its age is a legitimate question."""
+        age = self._age(_CLEAN, _T0 + 100)
+        self.assertIs(age.applicable, True)
+        self.assertIs(age.stale, True)
+
+    def test_unobserved_followed_pane_preserves(self):
+        age = self._age(_HEADED, None)
+        self.assertIs(age.applicable, True)
+        self.assertIsNone(age.stale)
+        self.assertEqual(age.reviewed_epoch, _T0)  # epoch still reported
+        self.assertIsNone(age.last_change_wall)
+
+    def test_change_after_the_block_is_stale(self):
+        age = self._age(_HEADED, _T0 + 100)
+        self.assertIs(age.stale, True)
+        self.assertEqual(age.reviewed_epoch, _T0)
+        self.assertEqual(age.last_change_wall, _T0 + 100)
+
+    def test_change_before_the_block_is_current(self):
+        self.assertIs(self._age(_HEADED, _T0 - 100).stale, False)
+
+    def test_within_epsilon_is_not_stale(self):
+        """Same jitter allowance the read-recency compare uses."""
+        self.assertIs(self._age(_HEADED, _T0 + 2).stale, False)
+
+    def test_both_operands_are_carried(self):
+        """The banner reports `last_change_wall - reviewed_epoch`.
+
+        A tuple holding only `reviewed_epoch` would leave a formatter able to
+        compute nothing but `now - reviewed_epoch` — the block's absolute age,
+        a different and plausible-looking wrong number.
+        """
+        age = self._age(_HEADED, _T0 + 250)
+        self.assertEqual(age.last_change_wall - age.reviewed_epoch, 250)
+
+    def test_none_is_distinguishable_from_false(self):
+        unknown = self._age(_NO_HEADER, _T0 + 100).stale
+        current = self._age(_HEADED, _T0 - 100).stale
+        self.assertIsNone(unknown)
+        self.assertIs(current, False)
+        self.assertIsNot(unknown, current)
+
+
+class CombineStalenessTests(unittest.TestCase):
+    """Fail-safe join of read recency and block age (t1493)."""
+
+    EPS = 3.0
+
+    def _age(self, text, last_change):
+        return compute_block_age_staleness(text, last_change, self.EPS)
+
+    def test_inapplicable_block_returns_read_recency_identically(self):
+        """A pane with no block behaves exactly as it did pre-t1493."""
+        na = self._age("prose", 9999.0)
+        for read in (True, False, None):
+            with self.subTest(read=read):
+                self.assertIs(combine_staleness(read, na), read)
+
+    def test_applicable_table_is_fail_safe(self):
+        stale = self._age(_HEADED, _T0 + 100)      # block stale
+        fresh = self._age(_HEADED, _T0 - 100)      # block current
+        unknown = self._age(_NO_HEADER, _T0 + 100)  # block age unknowable
+        expected = {
+            (True, "stale"): True, (True, "fresh"): True, (True, "unknown"): True,
+            (False, "stale"): True, (False, "fresh"): False,
+            (False, "unknown"): None,
+            (None, "stale"): True, (None, "fresh"): None, (None, "unknown"): None,
+        }
+        ages = {"stale": stale, "fresh": fresh, "unknown": unknown}
+        for (read, label), want in expected.items():
+            with self.subTest(read=read, block=label):
+                self.assertIs(combine_staleness(read, ages[label]), want)
+
+    def test_a_present_pre_header_block_never_reads_as_current(self):
+        """Requirement 3's negative control, at the seam.
+
+        Before block age existed, exactly this case (clean read stamp, block
+        with no header) rendered as "current".
+        """
+        got = combine_staleness(False, self._age(_NO_HEADER, _T0 + 100))
+        self.assertIsNone(got)
+        self.assertIsNot(got, False)
+
+    def test_block_age_alone_can_establish_stale(self):
+        """The reported live case: the shadow DID re-read (read recency False)
+        but emitted nothing, so the old block is what is stale."""
+        self.assertIs(
+            combine_staleness(False, self._age(_HEADED, _T0 + 100)), True
+        )
+
+
 async def _classify_for(mon, pane, content):
     """Produce a ClassifyResult the way `refresh_shadow_snapshot` would."""
     from monitor.monitor_core import _classify_one
@@ -1096,3 +1261,114 @@ async def _classify_for(mon, pane, content):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FormatShadowStaleBannerTests(unittest.TestCase):
+    """The reason ladder, as a pure table (t1493).
+
+    Both signals can be stale at once, so precedence is stated rather than
+    incidental. Kept separate from the wiring tests so a wording bug and a
+    wiring bug fail independently.
+    """
+
+    # Deliberately four MUTUALLY DISTINCT, far-apart instants. With near-equal
+    # values a `now - reviewed_epoch` implementation of "block N older" passes;
+    # with these it renders 16m40s instead of 5m00s and fails on the number.
+    REVIEWED = 1000.0
+    LAST_CHANGE = 1300.0     # -> block is 5m00s older than the change
+    ANALYZED_AT = 1100.0     # -> analyzed 15m00s ago
+    NOW = 2000.0
+
+    def _banner(self, read_stale, age, meta=None):
+        from monitor.monitor_shared import format_shadow_stale_banner
+
+        return format_shadow_stale_banner(
+            read_stale, age, meta, self.ANALYZED_AT, self.NOW
+        )
+
+    def _age(self, stale, applicable=True, with_operands=True):
+        from monitor.monitor_core import BlockAge
+
+        if not applicable:
+            return BlockAge(False, None, None, None)
+        if not with_operands:
+            return BlockAge(True, stale, None, None)
+        return BlockAge(True, stale, self.REVIEWED, self.LAST_CHANGE)
+
+    def test_read_stale_only_keeps_the_pre_t1493_wording(self):
+        got = self._banner(True, self._age(False))
+        self.assertIn("agent moved on", got)
+        self.assertIn("analyzed 15m00s ago", got)
+        self.assertNotIn("predates", got)
+
+    def test_the_two_durations_come_from_different_subtractions(self):
+        """`analyzed Ns ago` is now-analyzed_at; `block Ns older` is
+        last_change-reviewed. A single-subtraction implementation renders
+        16m40s here."""
+        got = self._banner(True, self._age(True), meta=_Meta(2))
+        self.assertIn("analyzed 15m00s ago", got)
+        self.assertIn("5m00s older", got)
+        self.assertNotIn("16m40s", got)
+
+    def test_block_stale_alone_names_the_block_not_the_agent(self):
+        """The shadow demonstrably DID re-read here, so "agent moved on" would
+        read as a contradiction."""
+        got = self._banner(False, self._age(True), meta=_Meta(2))
+        self.assertIn("round 2 predates", got)
+        self.assertNotIn("moved on", got)
+        self.assertIn("block 5m00s older", got)
+
+    def test_block_stale_with_indeterminate_read_still_warns(self):
+        got = self._banner(None, self._age(True), meta=_Meta(7))
+        self.assertIn("round 7 predates", got)
+
+    def test_combined_unknown_says_so(self):
+        got = self._banner(False, self._age(None))
+        self.assertIn("unknown", got.lower())
+
+    def test_combined_current_is_empty(self):
+        self.assertEqual(self._banner(False, self._age(False)), "")
+
+    def test_no_block_falls_through_to_read_recency(self):
+        self.assertEqual(self._banner(False, self._age(None, applicable=False)), "")
+        self.assertIn(
+            "moved on", self._banner(True, self._age(None, applicable=False))
+        )
+
+    def test_missing_operands_drop_the_duration_not_the_warning(self):
+        got = self._banner(False, self._age(True, with_operands=False), _Meta(3))
+        self.assertIn("round 3 predates", got)
+        self.assertNotIn("older", got)
+
+
+class FormatStalenessDetailTests(unittest.TestCase):
+    """Picker-banner suffix (t1493) — same subtraction discipline."""
+
+    def _detail(self, age, meta=None):
+        from monitor.monitor_shared import format_staleness_detail
+
+        return format_staleness_detail(age, meta)
+
+    def test_names_the_round_and_the_gap(self):
+        from monitor.monitor_core import BlockAge
+
+        got = self._detail(BlockAge(True, True, 1000.0, 1300.0), _Meta(4))
+        self.assertIn("round 4", got)
+        self.assertIn("5m00s", got)
+
+    def test_empty_unless_the_block_is_known_stale(self):
+        from monitor.monitor_core import BlockAge
+
+        for age in (BlockAge(True, False, 1000.0, 1300.0),
+                    BlockAge(True, None, 1000.0, 1300.0),
+                    BlockAge(False, None, None, None),
+                    BlockAge(True, True, None, None)):
+            with self.subTest(age=age):
+                self.assertEqual(self._detail(age, _Meta(4)), "")
+
+
+class _Meta:
+    """Minimal stand-in for BlockMeta — only `.round` is read by the formatters."""
+
+    def __init__(self, round_):
+        self.round = round_

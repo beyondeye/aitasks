@@ -60,6 +60,7 @@ class _Host(App):
         rejected_entries: tuple[RejectedEntry, ...] = (),
         store_unavailable: bool = False,
         block_meta=None,
+        stale_detail: str = "",
     ) -> None:
         super().__init__()
         self._concerns = concerns
@@ -70,6 +71,7 @@ class _Host(App):
         self._rejected_entries = rejected_entries
         self._store_unavailable = store_unavailable
         self._block_meta = block_meta
+        self._stale_detail = stale_detail
         self.result = self._UNSET
         self.notifications: list[tuple[str, str]] = []
 
@@ -91,6 +93,7 @@ class _Host(App):
                 rejected_entries=self._rejected_entries,
                 store_unavailable=self._store_unavailable,
                 block_meta=self._block_meta,
+                stale_detail=self._stale_detail,
             ),
             _capture,
         )
@@ -1203,3 +1206,103 @@ class RejectedStoreViewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConcernStaleTriStateTests(unittest.TestCase):
+    """`stale` is tri-state since t1493: True / False / **None**.
+
+    `None` means the freshness could not be established (a pre-round-header
+    block, an unreadable stamp). Rendering nothing for it would present
+    unverified concerns as current — the exact false confidence this task
+    removes — so it gets its own banner.
+
+    Driven through the composited render rather than `render().plain`: the
+    detail carries verbatim producer text onto a markup-enabled Static, and a
+    MarkupError there fires at render time and takes the modal down.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _banners(self, **host_kwargs):
+        async def runner():
+            app = _Host(_sample_concerns(), **host_kwargs)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return (
+                    [w.render().plain for w in app.screen.query("#concern-stale")],
+                    [w.render().plain
+                     for w in app.screen.query("#concern-stale-unknown")],
+                    _flat_text(_screen_rows(app)),
+                )
+
+        return self._run(runner())
+
+    def test_true_renders_only_the_stale_banner(self):
+        stale, unknown, _ = self._banners(stale=True)
+        self.assertEqual(len(stale), 1)
+        self.assertEqual(len(unknown), 0)
+        self.assertIn("stale", stale[0].lower())
+
+    def test_none_renders_only_the_unknown_banner(self):
+        stale, unknown, flat = self._banners(stale=None)
+        self.assertEqual(len(stale), 0)
+        self.assertEqual(len(unknown), 1)
+        self.assertIn("unknown", unknown[0].lower())
+        # And it is actually on screen, not merely mounted.
+        self.assertIn("Freshness unknown", flat)
+
+    def test_false_renders_neither(self):
+        stale, unknown, _ = self._banners(stale=False)
+        self.assertEqual(stale, [])
+        self.assertEqual(unknown, [])
+
+    def test_default_is_still_not_stale(self):
+        stale, unknown, _ = self._banners()
+        self.assertEqual(stale, [])
+        self.assertEqual(unknown, [])
+
+    def test_exactly_one_banner_per_state(self):
+        """No state may mount both — they say contradictory things."""
+        for value in (True, False, None):
+            with self.subTest(stale=value):
+                stale, unknown, _ = self._banners(stale=value)
+                self.assertLessEqual(len(stale) + len(unknown), 1)
+
+    def test_detail_is_appended_to_the_stale_banner(self):
+        _, _, flat = self._banners(
+            stale=True,
+            stale_detail=" — round 2 was produced 5m00s before the agent's "
+                         "latest change",
+        )
+        self.assertIn("round 2 was produced 5m00s", flat)
+
+    def test_markup_shaped_detail_renders_instead_of_crashing(self):
+        """The detail is built from `reviewed_at`-derived text, which is
+        verbatim producer output — an unescaped `[/]` would raise MarkupError
+        at render and take the modal down."""
+        for garbage in (" — [/]", " — [bold red]x", " — ]"):
+            with self.subTest(garbage=garbage):
+                stale, _, flat = self._banners(stale=True, stale_detail=garbage)
+                self.assertEqual(len(stale), 1)
+                self.assertIn("stale", flat.lower())
+
+    def test_unknown_banner_does_not_evict_the_counts_at_narrow_widths(self):
+        """Budget the surface: visible is not readable (t1493 post-phase)."""
+        detail = " — round 12 was produced 1h04m before the agent's latest change"
+        for width in (monitor_shared._PICKER_NARROW_MIN_WIDTH,
+                      monitor_shared._PICKER_MIN_COLS):
+            for value in (True, None):
+                with self.subTest(width=width, stale=value):
+                    async def runner():
+                        app = _Host(_mixed_concerns(), narrow=True,
+                                    stale=value, stale_detail=detail)
+                        async with app.run_test(size=(width, 30)) as pilot:
+                            await pilot.pause()
+                            await pilot.pause()
+                            return _flat_text(_screen_rows(app))
+
+                    flat = self._run(runner())
+                    self.assertIn("2 to address", flat)
+                    self.assertIn("1 informational", flat)

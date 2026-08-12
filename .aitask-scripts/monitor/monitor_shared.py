@@ -28,12 +28,14 @@ import agent_marks  # noqa: E402
 from monitor.monitor_core import workflow_phase  # noqa: E402,F401
 
 from monitor.monitor_core import (  # noqa: E402,F401
+    BlockAge,
     PaneCategory,
     PaneSnapshot,
     _TASK_ID_RE,
     GateSummaryCache,
     TaskInfo,
     TaskInfoCache,
+    combine_staleness,
 )
 
 from typing import TYPE_CHECKING, NamedTuple, Sequence
@@ -839,6 +841,92 @@ def format_stale_duration(seconds: float) -> str:
         return f"{m}m{s:02d}s"
     h, m = divmod(m, 60)
     return f"{h}h{m:02d}m"
+
+
+def _block_older_by(age: "BlockAge") -> str:
+    """How far the block predates the agent's change, or ``""`` (t1493).
+
+    ``last_change_wall - reviewed_epoch`` — **both operands from the tuple**.
+    ``now - reviewed_epoch`` is the block's absolute age, a different quantity
+    that would render a plausible wrong number; the two coincide only if the
+    agent changed at this instant.
+    """
+    if age.last_change_wall is None or age.reviewed_epoch is None:
+        return ""
+    return format_stale_duration(age.last_change_wall - age.reviewed_epoch)
+
+
+def format_shadow_stale_banner(
+    read_stale: bool | None,
+    age: "BlockAge",
+    meta: "BlockMeta | None",
+    analyzed_at: float | None,
+    now: float,
+) -> str:
+    """Minimonitor's live staleness banner, chosen by an explicit ladder (t1493).
+
+    Pure, so the wording is testable without a mounted DOM. Both signals can be
+    stale at once, so precedence is stated rather than incidental:
+
+    ==========================  =============  =================================
+    read recency                block age      banner
+    ==========================  =============  =================================
+    ``True``                    ``True``       moved-on + "block older still"
+    ``True``                    anything else  moved-on — **byte-identical to the
+                                               pre-t1493 wording**
+    not ``True``                ``True``       "round N predates the latest change"
+    combined ``None``           —              freshness unknown
+    combined ``False``          —              ``""``
+    ==========================  =============  =================================
+
+    Read recency leads when ``True`` because it is the stronger claim — the
+    shadow has not even *looked* — and users already know that message. The
+    block-age wording exists for the case the shadow demonstrably *did* re-read
+    and emitted nothing, where "agent moved on" would read as a contradiction.
+    """
+    combined = combine_staleness(read_stale, age)
+    if combined is None:
+        return (
+            "[bold]⚠ shadow freshness unknown — cannot tell whether the "
+            "feedback is current[/]"
+        )
+    if combined is False:
+        return ""
+    older = _block_older_by(age)
+    round_label = f"round {meta.round}" if meta is not None else "the block"
+    if read_stale is True:
+        detail = "" if analyzed_at is None else (
+            f"analyzed {format_stale_duration(now - analyzed_at)} ago"
+        )
+        if age.stale is True and older:
+            detail = (
+                f"{detail}; {round_label} block {older} older still"
+                if detail else f"{round_label} block {older} older"
+            )
+        suffix = f" ({detail})" if detail else ""
+        return f"[bold]⚠ shadow feedback is stale — agent moved on{suffix}[/]"
+    # Block age alone drove it: the shadow DID re-read, so say what is actually
+    # old — the block — rather than claiming the shadow never looked.
+    older_suffix = f" (block {older} older)" if older else ""
+    return (
+        f"[bold]⚠ shadow feedback is stale — {round_label} predates the "
+        f"agent's latest change{older_suffix}[/]"
+    )
+
+
+def format_staleness_detail(age: "BlockAge", meta: "BlockMeta | None") -> str:
+    """Picker-banner suffix naming *why* a block reads stale, or ``""`` (t1493).
+
+    Returned as **plain text**; the caller owns escaping at the markup boundary
+    (``reviewed_at`` is verbatim producer text, and the round travels with it).
+    """
+    if age.stale is not True:
+        return ""
+    older = _block_older_by(age)
+    if not older:
+        return ""
+    round_label = f"round {meta.round}" if meta is not None else "this block"
+    return f" — {round_label} was produced {older} before the agent's latest change"
 
 
 def format_pane_status(snap: PaneSnapshot, completed: bool = False) -> str:
@@ -2483,6 +2571,10 @@ class ConcernPickerModal(ModalScreen):
     }
     #concern-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
     #concern-stale { color: $error; text-style: bold; margin: 0 0 1 0; }
+    /* The third state (t1493): freshness could not be established. Warning,
+       not error — "cannot tell" is weaker than "known stale", and rendering
+       nothing here would read as "current", which is the defect. */
+    #concern-stale-unknown { color: $warning; text-style: bold; margin: 0 0 1 0; }
     #concern-unrecovered { color: $warning; text-style: bold; margin: 0 0 1 0; }
     #concern-context { color: $text-muted; margin: 0 0 1 0; }
     .concern-section { text-style: bold; color: $accent; height: 1; }
@@ -2521,17 +2613,25 @@ class ConcernPickerModal(ModalScreen):
 
     def __init__(
         self, concerns: list["Concern"], narrow: bool = False,
-        stale: bool = False, unrecovered: Sequence[str] = (),
+        stale: bool | None = False, unrecovered: Sequence[str] = (),
         raw_block: str = "",
         *,
         rejected_entries: Sequence[RejectedEntry] = (),
         store_unavailable: bool = False,
         block_meta: "BlockMeta | None" = None,
+        stale_detail: str = "",
     ) -> None:
         super().__init__()
         self._concerns = list(concerns)
         self._narrow = narrow
+        # Tri-state since t1493: True = known stale, False = known current,
+        # **None = could not tell**. `None` gets its own banner rather than
+        # collapsing to "no banner", which reads as "current" — the exact
+        # false-confidence this task removes. Callers pass the COMBINED verdict
+        # (read recency joined with block age via `combine_staleness`).
         self._stale = stale
+        # Plain text naming why the block reads stale; escaped at render.
+        self._stale_detail = stale_detail
         # The LINES, not a count (t1293): a count derived from the list with
         # `len()` cannot disagree with what the inspect view shows, whereas a
         # separate int parameter alongside a list parameter could.
@@ -2587,12 +2687,23 @@ class ConcernPickerModal(ModalScreen):
         partitions = self._partitions()
         with Container(id="concern-dialog"):
             yield Static("[bold]Concerns[/]", id="concern-header")
-            # Staleness warning (t1104): the followed agent has moved on since
-            # the shadow produced these concerns.
-            if self._stale:
+            # Staleness warning (t1104, tri-state since t1493). `_stale_detail`
+            # carries producer-derived text (round number, durations) onto a
+            # markup-enabled Static, so it is escaped exactly as the context
+            # line escapes `format_block_meta`.
+            if self._stale is True:
                 yield Static(
-                    "⚠ These concerns may be stale — the agent has moved on",
+                    "⚠ These concerns may be stale — the agent has moved on"
+                    + escape(self._stale_detail),
                     id="concern-stale",
+                )
+            elif self._stale is None:
+                # "Could not tell" is its own state. Rendering nothing here
+                # would present unverified concerns as current (t1493).
+                yield Static(
+                    "⚠ Freshness unknown — cannot tell whether these concerns "
+                    "are current" + escape(self._stale_detail),
+                    id="concern-stale-unknown",
                 )
             # Lossy-parse warning (t1274): the block held marker-looking lines
             # that yielded no concern, so this list is short of what the shadow

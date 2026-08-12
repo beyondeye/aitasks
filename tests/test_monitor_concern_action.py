@@ -1159,14 +1159,22 @@ class OfferConcernsTests(unittest.TestCase):
         _run(app._offer_concerns())
         self.assertIn("STALE", app.spy_notify[0][0])
 
-    def test_indeterminate_staleness_adds_no_suffix(self):
-        """`compute_shadow_staleness` is tri-state; None means 'preserve', and a
-        one-shot toast has no prior state to preserve."""
+    def test_indeterminate_staleness_says_so(self):
+        """Tri-state, and "could not tell" is now SAID rather than implied.
+
+        Behaviour change in t1493: this case used to render no suffix at all,
+        which reads as "these concerns are current" — the false confidence the
+        block-age signal exists to remove. `_CLOSED_BLOCK` carries no round
+        header, so block age is applicable-but-unknowable and the combined
+        verdict is None.
+        """
         app = self._app()
         _install_capture(self, _CaptureScript(_CLOSED_BLOCK))
         _install_staleness(self, value=(None, None))
         _run(app._offer_concerns())
-        self.assertNotIn("STALE", app.spy_notify[0][0])
+        toast = app.spy_notify[0][0]
+        self.assertIn("freshness unknown", toast)
+        self.assertNotIn("STALE", toast)  # not claimed as known-stale either
 
     def test_only_the_selected_agent_toasts(self):
         app = self._app(agents=("%1", "%2"), focused="%1")
@@ -1636,3 +1644,93 @@ class ConstructedAppTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Epoch of the round-headed fixtures below (2026-08-11T14:03:27Z / 14:09:41Z).
+_R1_EPOCH = 1786457007.0
+_ROUND1 = (
+    "===AITASK-CONCERNS===\n"
+    "Round: 1 @ 2026-08-11T14:03:27Z\n"
+    "- [high | Step 7 guard] The guard double-commits the lock.\n"
+    "- [medium | parser] Multi-block accumulation is undefined.\n"
+    "===END-CONCERNS===\n"
+)
+
+
+class MonitorBlockAgeTests(unittest.TestCase):
+    """The full monitor's half of the block-age signal (t1493).
+
+    `ait monitor` has no continuous staleness banner (minimonitor's
+    `#mini-shadow-stale` has no counterpart here, and the `!` badge's clearing
+    edge belongs to t1448), so its picker is the ONLY surface that can report
+    this. That makes these assertions load-bearing rather than a mirror for
+    symmetry's sake.
+    """
+
+    def _app_with_shadow(self, last_change=None):
+        shadow = _snap(_pane("%9", shadow_target="%1"), "idle")
+        mon = _FakeMon({"%1": shadow})
+        mon.get_last_change_wall = lambda pane: last_change
+        app = _mk_app(mon)
+        app._snapshots = {"%1": _snap(_pane("%1"))}
+        return app
+
+    def test_picker_reports_stale_when_the_block_predates_the_change(self):
+        """Read recency says CURRENT — the shadow re-read and emitted nothing.
+        Only block age can see that the block itself is old."""
+        app = self._app_with_shadow(last_change=_R1_EPOCH + 300)
+        _install_capture(self, _CaptureScript(_ROUND1))
+        _install_staleness(self, value=(False, _R1_EPOCH + 400))
+        _run(app.action_pick_concerns())
+        screen, _ = app.spy_pushed[0]
+        self.assertIs(screen._stale, True)
+        self.assertIn("round 1", screen._stale_detail)
+        self.assertIn("5m00s", screen._stale_detail)
+
+    def test_picker_is_current_when_the_block_postdates_the_change(self):
+        app = self._app_with_shadow(last_change=_R1_EPOCH - 100)
+        _install_capture(self, _CaptureScript(_ROUND1))
+        _install_staleness(self, value=(False, _R1_EPOCH))
+        _run(app.action_pick_concerns())
+        screen, _ = app.spy_pushed[0]
+        self.assertIs(screen._stale, False)
+
+    def test_picker_reports_unknown_for_a_pre_header_block(self):
+        """Requirement 3's negative control on this surface: the tri-state must
+        reach the modal as None, not collapse to False via `bool(stale)`."""
+        app = self._app_with_shadow(last_change=_R1_EPOCH)
+        _install_capture(self, _CaptureScript(_CLOSED_BLOCK))
+        _install_staleness(self, value=(False, _R1_EPOCH))
+        _run(app.action_pick_concerns())
+        screen, _ = app.spy_pushed[0]
+        self.assertIsNone(screen._stale)
+        self.assertIsNot(screen._stale, False)
+
+    def test_block_age_alone_establishes_stale_when_read_is_indeterminate(self):
+        app = self._app_with_shadow(last_change=_R1_EPOCH + 300)
+        _install_capture(self, _CaptureScript(_ROUND1))
+        _install_staleness(self, value=(None, None))
+        _run(app.action_pick_concerns())
+        screen, _ = app.spy_pushed[0]
+        self.assertIs(screen._stale, True)
+
+    def test_auto_offer_stays_silent_on_an_unchanged_block(self):
+        """...which is exactly why the picker has to carry the warning here.
+
+        The monitor gates its toast on an unseen block signature, so a block
+        that merely goes stale in place can never re-toast. Pinned so a future
+        change cannot quietly assume the toast covers this.
+        """
+        # The auto-offer path needs the focused-pane + tick-snapshot wiring
+        # that OfferConcernsTests builds; reuse it rather than a second copy.
+        app = OfferConcernsTests._app(self, content=_ROUND1)
+        app._monitor.get_last_change_wall = lambda pane: _R1_EPOCH + 300
+        _install_capture(self, _CaptureScript(_ROUND1, _ROUND1))
+        _install_staleness(self, value=(False, _R1_EPOCH + 400))
+        _run(app._offer_concerns())
+        self.assertEqual(len(app.spy_notify), 1)
+        # It DID say stale on that first, new-block announcement...
+        self.assertIn("STALE", app.spy_notify[0][0])
+        # ...and never speaks again for the same block, however stale it gets.
+        _run(app._offer_concerns())
+        self.assertEqual(len(app.spy_notify), 1, "unchanged block re-toasted")

@@ -29,7 +29,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 # `lib/` holds the gateway + launch/registry helpers and task_yaml (the
@@ -58,9 +58,19 @@ import workflow_phase  # noqa: E402  (advisory phase seam, t1420 — never a gat
 try:
     from .prompt_patterns import PromptPattern, all_patterns
     from .ansi_utils import strip_ansi
+    from .concern_parser import (
+        contains_block_evidence,
+        parse_block_meta,
+        parse_reviewed_at_epoch,
+    )
 except ImportError:  # imported top-level (tests put MONITOR_DIR on PYTHONPATH)
     from prompt_patterns import PromptPattern, all_patterns  # noqa: E402
     from ansi_utils import strip_ansi  # noqa: E402
+    from concern_parser import (  # noqa: E402
+        contains_block_evidence,
+        parse_block_meta,
+        parse_reviewed_at_epoch,
+    )
 
 
 # Abstract key name → tmux send-keys argument (for special keys). Lives here in
@@ -574,6 +584,130 @@ async def compute_shadow_staleness(
     if last_change is None:
         return None, None  # followed pane not observed yet — preserve prior state
     return (last_change > analyzed_at + eps), analyzed_at
+
+
+class BlockAge(NamedTuple):
+    """Verdict of the **block age** signal, with both comparison operands.
+
+    The third freshness signal (t1493), alongside *block identity*
+    (``concern_parser.concern_block_signature`` — has this block's text
+    changed?) and *read recency* (:func:`compute_shadow_staleness` — did the
+    shadow *look* after the agent's last change?). Block age asks the question
+    neither of those can: **was this block produced after the agent's last
+    change?** A shadow that re-reads the pane and then answers in prose restamps
+    its read stamp without emitting anything, which clears read recency while
+    leaving stale concerns on screen — the live defect this exists to catch.
+
+    ``applicable`` is **not** redundant with ``stale is None``. "There is no
+    block" and "there is a block whose age I cannot establish" are different
+    states, and only the second is uncertainty: collapsing them makes a shadow
+    used purely to explain the screen report "freshness unknown" forever, about
+    feedback that does not exist. The flag travels *with* the verdict so a
+    caller cannot pass the inapplicable case along as a bare ``None``.
+
+    Both operands of the comparison are carried because the banner reports how
+    far the block predates the change (``last_change_wall - reviewed_epoch``).
+    A tuple holding only ``reviewed_epoch`` would leave a formatter able to
+    compute nothing but ``now - reviewed_epoch``, which is the block's absolute
+    age — a different, plausible-looking, wrong number.
+    """
+
+    applicable: bool                # is there a block whose age could be asked?
+    stale: bool | None              # None = block present, age unknowable
+    reviewed_epoch: float | None    # when the block says it was produced
+    last_change_wall: float | None  # what that was compared against
+
+
+def compute_block_age_staleness(
+    capture_text: str, last_change_wall: float | None, eps: float
+) -> BlockAge:
+    """Does the newest concern block predate the followed agent's last change?
+
+    Pure and synchronous — no tmux, no I/O. Takes the **capture text** rather
+    than a pre-parsed ``BlockMeta`` so that this function, and only this
+    function, decides applicability; a caller handed a bare ``meta`` cannot tell
+    "no block" from "block without a header".
+
+    ================================================  ==========================
+    Condition                                         Result
+    ================================================  ==========================
+    no block evidence at all                          ``(False, None, None, None)``
+    block present, no ``Round:`` header (pre-t1159_1) ``(True, None, None, lcw)``
+    block present, header clipped by the window       ``(True, None, None, lcw)``
+    block present, ``Round:``-shaped but malformed    ``(True, None, None, lcw)``
+    header parses, ``reviewed_at`` empty/unparseable  ``(True, None, None, lcw)``
+    followed pane not observed yet                    ``(True, None, epoch, None)``
+    ``last_change_wall > epoch + eps``                ``(True, True, epoch, lcw)``
+    otherwise                                         ``(True, False, epoch, lcw)``
+    ================================================  ==========================
+
+    ``stale is None`` means **"cannot tell"** — a block is present but its age
+    is not establishable. It is fail-safe in the same direction
+    :func:`compute_shadow_staleness` is, but the rule is **not** the blanket
+    "preserve whatever the caller was showing" that function documents, and a
+    caller must not implement it that way:
+
+    - It must never *clear* a standing ``True`` — a false "stale" costs one
+      banner, a false "current" forwards advice the agent has already moved
+      past.
+    - It **must** be recorded over a ``False``. A pane that legitimately read
+      "current" and then grows a block whose age is unknowable has become *less*
+      certain, not more; preserving the ``False`` there hides the newly
+      unverifiable block as current, which is the precise failure this signal
+      exists to remove.
+
+    **This applies only to a caller that persists a verdict across ticks.** A
+    caller that computes the tri-state and presents it immediately — both
+    ``monitor_app`` sites, and the picker modal on either app — has no prior
+    state to preserve and simply renders what it got; ``None`` is its own
+    presentation there, not a decision. Minimonitor does retain a verdict (its
+    live banner), and centralizes every such write in
+    ``MiniMonitorApp._record_combined_staleness`` so the rule exists once.
+
+    ``eps`` is the caller's refresh epsilon — the same value the read-recency
+    compare uses, absorbing up-to-one-tick change-detection lag.
+    """
+    if not contains_block_evidence(capture_text):
+        return BlockAge(False, None, None, None)
+    meta = parse_block_meta(capture_text)
+    if meta is None:
+        return BlockAge(True, None, None, last_change_wall)
+    epoch = parse_reviewed_at_epoch(meta.reviewed_at)
+    if epoch is None:
+        return BlockAge(True, None, None, last_change_wall)
+    if last_change_wall is None:
+        return BlockAge(True, None, epoch, None)
+    return BlockAge(True, last_change_wall > epoch + eps, epoch, last_change_wall)
+
+
+def combine_staleness(read: bool | None, block: BlockAge) -> bool | None:
+    """Fail-safe join of read recency and block age (t1493).
+
+    Precedence: an inapplicable block age contributes **nothing** (the verdict
+    is read recency, unchanged — a pane with no concern block is not dragged
+    into uncertainty it has no reason to be in); otherwise ``True`` wins, then
+    ``None``, then ``False``.
+
+    So a *present* pre-header block with a clean read stamp resolves to ``None``
+    ("cannot tell"), never ``False`` — which is the whole point: before this
+    signal existed, exactly that case rendered as "current".
+
+    **This function is total and stateless**; it knows nothing about a prior
+    verdict, and most callers need none — they render the value they just
+    computed. Only a caller that *retains* a verdict between ticks (minimonitor's
+    live banner) has to decide whether a returned ``None`` may overwrite what is
+    already on screen; that decision preserves only a standing ``True`` — see
+    :func:`compute_block_age_staleness`. Such a caller must not be "improved"
+    into preserving any non-``None`` prior: recording ``None`` over ``False`` is
+    an escalation and is required.
+    """
+    if not block.applicable:
+        return read
+    if read is True or block.stale is True:
+        return True
+    if read is False and block.stale is False:
+        return False
+    return None
 
 
 def count_other_real_agents(

@@ -98,6 +98,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timezone
 from typing import NamedTuple
 
 try:
@@ -107,6 +108,12 @@ except ImportError:  # imported flat (tests put MONITOR_DIR on sys.path)
 
 _OPEN = "===AITASK-CONCERNS==="
 _CLOSE = "===END-CONCERNS==="
+
+#: The one timestamp shape producers are told to emit, shell-sourced with
+#: ``date -u +%Y-%m-%dT%H:%M:%SZ``. Used for BOTH parsing and the canonical
+#: round-trip check in :func:`parse_reviewed_at_epoch`, so the strictness check
+#: can never drift from the grammar it enforces (t1493).
+_REVIEWED_AT_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
 # Narrowest pane width at which the sentinels are guaranteed not to soft-wrap.
 # They are 21 (`_OPEN`) and 18 (`_CLOSE`) chars; below this a fence can be split
@@ -528,6 +535,64 @@ def parse_block_meta(capture_text: str) -> BlockMeta | None:
             int(match.group("round")), (match.group("at") or "").strip()
         )
     return None
+
+
+def parse_reviewed_at_epoch(reviewed_at: str) -> float | None:
+    """Epoch seconds for a block header's ``reviewed_at``, or ``None`` (t1493).
+
+    ``reviewed_at`` is verbatim producer text that :data:`_META_LINE` captures
+    as ``.*?`` — the parser validates nothing about its shape. This is the one
+    place that turns it into a *time*, so it must be strict and fail to ``None``
+    ("cannot tell") rather than guess: a confident freshness verdict derived
+    from malformed metadata is worse than no verdict at all.
+
+    **``strptime`` alone is not strict enough.** It accepts non-zero-padded
+    components, so ``2026-8-1T1:2:3Z`` parses to a real datetime. The shape is
+    therefore pinned by a **canonical round-trip** — re-format the parsed value
+    with the same :data:`_REVIEWED_AT_FMT` and require byte equality. One format
+    constant drives both directions, so the check cannot drift from the grammar.
+    A regex second-guard was rejected for exactly that drift risk.
+
+    **Clock trust.** The producer runs ``date -u +%Y-%m-%dT%H:%M:%SZ`` in the
+    shadow pane and the monitor derives its comparison point from
+    ``time.time()`` — same host, so the epochs are directly comparable. The
+    ``Z``/UTC attachment is explicit rather than naive-local, so the result does
+    not depend on the monitor process's timezone.
+
+    Pure. ``""`` (header absent or empty after ``@``) is a normal input, not an
+    error.
+    """
+    text = (reviewed_at or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.strptime(text, _REVIEWED_AT_FMT)
+    except ValueError:
+        return None
+    if parsed.strftime(_REVIEWED_AT_FMT) != text:
+        return None  # non-zero-padded components — malformed, not a time
+    return parsed.replace(tzinfo=timezone.utc).timestamp()
+
+
+def contains_block_evidence(text: str) -> bool:
+    """True when the capture shows a block whose *age* could be asked about.
+
+    The applicability half of the block-age signal (t1493). "There is no block"
+    and "there is a block whose age I cannot establish" are different states:
+    collapsing them makes an explain-only shadow — one never asked for a review
+    — report "freshness unknown" forever, about feedback that does not exist.
+
+    Deliberately **not** :func:`contains_any_concern_block`: that one requires
+    at least one parsed *item*, so a metadata-only clean round (a block whose
+    age very much matters) would read ``False``, and it is scoped to the
+    authoring-time check for shadow docs rather than to runtime.
+
+    The second arm covers the capture window that started *inside* a block: the
+    opening fence is off-screen, so the region lookup finds nothing, but a block
+    is plainly present and its age is simply unknown.
+    """
+    return (_last_block_region(text, require_close=False) is not None
+            or block_head_truncated(text))
 
 
 def has_invalid_round_header(text: str) -> bool:
