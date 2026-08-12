@@ -108,7 +108,12 @@ class _FakeMon:
 
 
 def _snap(pane_id="%1"):
-    return SimpleNamespace(pane=SimpleNamespace(pane_id=pane_id))
+    return SimpleNamespace(
+        pane=SimpleNamespace(pane_id=pane_id, current_command="claude",
+                             session_name="s", history_size=None,
+                             width=100, height=30),
+        content="", awaiting_input=False, awaiting_input_kind="",
+    )
 
 
 @unittest.skipUnless(shutil.which("tmux"), "tmux not available")
@@ -182,6 +187,16 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         app._last_concern_block_payload = {}
         app._truncation_warned = set()
         app._unparsed_warned = set()
+        # Review-loop state normally set by __init__ (t1159_2): the loop
+        # service runs on every _maybe_offer_concerns tick (disarmed here).
+        app._review_loop = mm.review_loop.ReviewLoopController()
+        app._loop_banner_text = ""
+        app._loop_baseline = None
+        app._loop_shadow_hash = None
+        app._loop_shadow_hash_streak = 0
+        app._loop_stale_false_pending = False
+        app._session = "s"
+        app._own_window_name = "agent-x"
         app.spy_notify: list = []
         app.notify = lambda msg, **kw: app.spy_notify.append(
             (msg, kw.get("severity", "information"))
@@ -191,7 +206,9 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         # both helpers from `minimonitor_app`'s globals, so the stubs are module
         # attributes now. The capture wrapper still calls the REAL helper — only
         # the scrollback depth is pinned, which is the whole point of this smoke.
-        self._patch(mm, "find_shadow_pane_async", _async_pane(self.pane_id))
+        # The lookup seam is the info form since t1159_2.
+        self._patch(mm, "find_shadow_pane_info_async",
+                    _async_pane_info(self.pane_id))
         real_capture = mm.capture_shadow_text
         self._patch(
             mm, "capture_shadow_text",
@@ -229,6 +246,116 @@ def _async_pane(pane_id):
     async def _coro(*args, **kwargs):
         return pane_id
     return _coro
+
+
+def _async_pane_info(pane_id):
+    async def _coro(*args, **kwargs):
+        # (ok, pane, command): a verified claude shadow, but the loop stays
+        # disarmed in these tests so only the pane id is consumed.
+        return (True, pane_id, "claude")
+    return _coro
+
+
+@unittest.skipUnless(shutil.which("tmux"), "tmux not available")
+class RecheckInjectionSmokeTests(unittest.TestCase):
+    """Live injection smoke (t1159_2): `_fire_shadow_recheck` against a REAL
+    tmux pane, through the real TmuxMonitor.send_keys gateway — the recheck
+    line must arrive in the pane verbatim.
+
+    The pane renders a Claude-shaped empty composer line (`❯` + NBSP) and then
+    runs `cat`, so the pre-send readiness revalidation genuinely passes and
+    the terminal echo makes the delivered line capturable.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        tmpdir = tempfile.mkdtemp(prefix="ait_t1159_inject_")
+        prev_tmpdir = os.environ.get("TMUX_TMPDIR")
+        os.environ["TMUX_TMPDIR"] = tmpdir
+        cls.addClassCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+        if prev_tmpdir is None:
+            cls.addClassCleanup(os.environ.pop, "TMUX_TMPDIR", None)
+        else:
+            cls.addClassCleanup(os.environ.__setitem__, "TMUX_TMPDIR", prev_tmpdir)
+        # ❯ = \342\235\257, NBSP = \302\240 (bash printf octal escapes).
+        res = _tmux(
+            "new-session", "-d", "-s", f"{SESSION}_inject",
+            "-x", "80", "-y", "10",
+            "bash", "-c", r"printf '\342\235\257\302\240\n'; exec cat",
+        )
+        if res.returncode != 0:
+            raise unittest.SkipTest(f"could not start tmux session: {res.stderr}")
+        panes = _tmux("list-panes", "-t", f"{SESSION}_inject",
+                      "-F", "#{pane_id}")
+        cls.pane_id = (panes.stdout.strip().splitlines()[0]
+                       if panes.stdout.strip() else None)
+        if not cls.pane_id:
+            raise unittest.SkipTest("could not resolve the composer pane id")
+        # Wait for the composer line to render — capturing before it exists
+        # makes the tick baseline differ from the fire-time fresh capture,
+        # which the revalidation rightly refuses.
+        for _ in range(50):
+            out = _tmux("capture-pane", "-p", "-t", cls.pane_id)
+            if "❯" in out.stdout:
+                break
+            time.sleep(0.1)
+        else:
+            raise unittest.SkipTest("composer pane never finished rendering")
+
+    @classmethod
+    def tearDownClass(cls):
+        _tmux("kill-server")
+
+    def setUp(self):
+        self._prev_socket = os.environ.get("AITASKS_TMUX_SOCKET")
+        os.environ["AITASKS_TMUX_SOCKET"] = SOCKET
+
+    def tearDown(self):
+        if self._prev_socket is None:
+            os.environ.pop("AITASKS_TMUX_SOCKET", None)
+        else:
+            os.environ["AITASKS_TMUX_SOCKET"] = self._prev_socket
+
+    def test_fire_delivers_the_recheck_line_verbatim(self):
+        from monitor.monitor_core import TmuxMonitor, capture_raw_tail
+        from monitor import review_loop as rl
+
+        app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
+        monitor = TmuxMonitor(session=f"{SESSION}_inject")
+        app._monitor = monitor
+        app._review_loop = rl.ReviewLoopController()
+        app._task_cache = SimpleNamespace(
+            get_task_id_for_pane=lambda pane: None)
+
+        ctrl = app._review_loop
+        ctrl.arm(pending_work=True)
+        for i in range(rl.DEBOUNCE_TICKS):
+            action = ctrl.tick(
+                agent_present=True, shadow_present=True, awaiting_input=True,
+                stale=True, work_signal=rl.NO_CHANGE, shadow_ready=True,
+                modal_open=False, now=float(i))
+        self.assertEqual(action, rl.ACTION_FIRE)
+        token = ctrl.delivery_token
+
+        tick_raw = asyncio.run(capture_raw_tail(monitor, self.pane_id))
+        self.assertIsNotNone(tick_raw, "raw tail capture failed")
+        tick_text = (
+            f"{OPEN}\nRound: 1 @ 2026-08-12T10:00:00Z\n"
+            f"- [low | smoke] x.\n{CLOSE}\n")
+        outcome, prompt = asyncio.run(app._fire_shadow_recheck(
+            self.pane_id, _snap(self.pane_id), "claude", tick_raw,
+            tick_text, token))
+        self.assertEqual(outcome, "sent", prompt)
+        self.assertTrue(prompt.startswith("refetch and recheck round 2"))
+
+        # The typed line reaches the pane verbatim (terminal echo of `cat`'s
+        # stdin; -J joins the soft-wrapped line at the 80-column width).
+        for _ in range(30):
+            cap = _tmux("capture-pane", "-p", "-J", "-t", self.pane_id)
+            if prompt in cap.stdout:
+                break
+            time.sleep(0.1)
+        self.assertIn(prompt, cap.stdout, cap.stdout)
 
 
 if __name__ == "__main__":

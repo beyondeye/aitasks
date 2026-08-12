@@ -45,10 +45,13 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     # import one implementation. All take a duck-typed `monitor` (the gateway
     # surface only), or none at all, rather than a concrete TmuxMonitor.
     match_shadow_pane,
+    match_shadow_pane_info,
     shadow_query_args,
     find_shadow_pane,
     find_shadow_pane_async,
+    find_shadow_pane_info_async,
     capture_shadow_text,
+    capture_raw_tail,
     compute_shadow_staleness,
     BlockAge,
     compute_block_age_staleness,

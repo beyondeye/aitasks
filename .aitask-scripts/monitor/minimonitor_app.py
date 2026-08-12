@@ -36,7 +36,9 @@ from monitor.tmux_monitor import (  # noqa: E402
     # monitor, which imports it the same way (`monitor_app.py`).
     find_shadow_pane,
     find_shadow_pane_async,
+    find_shadow_pane_info_async,
     capture_shadow_text,
+    capture_raw_tail,
     compute_shadow_staleness,
     compute_block_age_staleness,
     combine_staleness,
@@ -45,6 +47,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     _SHADOW_DEEP_RETRY_LINES,
     _SHADOW_TRUNCATED_MSG,
 )
+from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t1159_2)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
@@ -262,6 +265,26 @@ _BOARD_COLUMN_CMD_TIMEOUT = 20.0
 
 # -- Main app -----------------------------------------------------------------
 
+# The complete key surface of the app. Minimonitor renders no Footer — its
+# 40-column companion layout surfaces EVERY binding here instead (the
+# tui_conventions.md "surface the hint in the pane's own text" exception).
+# Module-level so tests can pin hints/BINDINGS parity executably: a binding
+# added without a hint line fails the audit test, keeping the convention's
+# all-operations requirement true by construction (t1159_2 review round 7).
+KEY_HINTS_TEXT = (
+    "i:info  q:quit  tab:agent\n"
+    "I:info (followed agent)\n"
+    "s/\u2191\u2193:switch  enter:send\n"
+    "d:detect (\u2248 strip, = raw)\n"
+    "j:tui switcher  m:full monitor\n"
+    "k:kill  n:next  e/E:shadow\n"
+    "c:concerns  p:pick task\n"
+    "L:auto-recheck loop\n"
+    "M:multi-session  ?:edit keys\n"
+    "space:mark ★ (followed agent)"
+)
+
+
 class MiniMonitorApp(
     AgentMarksMixin, ShadowRejectionsMixin, TuiSwitcherMixin, ShortcutsMixin, App
 ):
@@ -285,6 +308,17 @@ class MiniMonitorApp(
         dock: top;
         height: auto;
         background: $error;
+        color: $text;
+        padding: 0 1;
+        text-style: bold;
+    }
+
+    /* Auto-recheck loop status (t1159_2). $warning, deliberately distinct
+       from the $error stale banner above; empty text ⇒ 0 rows. */
+    #mini-loop-status {
+        dock: top;
+        height: auto;
+        background: $warning;
         color: $text;
         padding: 0 1;
         text-style: bold;
@@ -368,6 +402,12 @@ class MiniMonitorApp(
         Binding("M", "toggle_multi_session", "Multi", show=False),
         Binding("d", "cycle_compare_mode", "Detect", show=False),
         Binding("space", "toggle_mark", "Mark followed agent", show=False),
+        # show=False like every minimonitor binding: this app renders no
+        # Footer — its 40-column companion layout surfaces every binding in
+        # the #mini-key-hints Static instead (the tui_conventions.md
+        # "surface the hint in the pane's own text" exception, justified in
+        # p1159_2; the hints/bindings parity is test-pinned).
+        Binding("L", "toggle_review_loop", "Auto-recheck loop", show=False),
     ]
 
     def __init__(
@@ -464,6 +504,34 @@ class MiniMonitorApp(
         # runs every tick. Odd counter ⇒ checks on the first tick a shadow is
         # present (responsive) then every second one.
         self._shadow_freshness_tick: int = 0
+        # Auto-recheck loop (t1159_2): pure decision core + its display/input
+        # state. The banner text seam mirrors _shadow_stale_banner_text.
+        self._review_loop = review_loop.ReviewLoopController()
+        self._loop_banner_text: str = ""
+        # Work-classifier baseline: (content, awaiting_input_kind, pane_id,
+        # history_size) of the last successful followed snapshot. PRESERVED
+        # across indeterminate ticks (capture failed, agent still discovered)
+        # so a response produced during the gap still classifies as work;
+        # reset only on verified departure, pane replacement, or re-arm.
+        self._loop_baseline: (
+            tuple[str, str, str, int | None, tuple[int, int]] | None) = None
+        # Raw shadow-tail hash ring for the readiness stability conjunct.
+        self._loop_shadow_hash: int | None = None
+        self._loop_shadow_hash_streak: int = 0
+        # Monotonic stamp of the last serviced evidence tick. Overlapping
+        # refreshes (t1111_4) invoke the service concurrently; without this
+        # guard each invocation would advance the debounce streak and the
+        # hash-stability ring, collapsing the "N consecutive refreshes"
+        # guarantees into wall-clock-free counters (review round 2).
+        self._loop_last_service_at: float | None = None
+        # Sticky "a False verdict was recorded since the last committed
+        # service tick" (review round 4). The recency cache updates on its
+        # own cadence (throttle + overlapping refreshes), so the ONLY False
+        # between two committed ticks can be observed by a throttled service
+        # and then overwritten by True before the next committed one — a
+        # FIRED controller would never see its re-arm edge. The writer sets
+        # this; the next committed tick delivers False once and clears it.
+        self._loop_stale_false_pending: bool = False
         # Prioritized-agent marks (t1326): cached reader + purge scheduling.
         self._init_agent_marks()
 
@@ -471,19 +539,11 @@ class MiniMonitorApp(
         yield Static(id="mini-session-bar")
         # Live staleness warning for shadow feedback (t1104); empty ⇒ 0 rows.
         yield Static("", id="mini-shadow-stale")
+        # Auto-recheck loop status (t1159_2); empty ⇒ 0 rows.
+        yield Static("", id="mini-loop-status")
         yield VerticalScroll(id="mini-own-agent")
         yield VerticalScroll(id="mini-pane-list")
-        yield Static(
-            "i:info  q:quit  tab:agent\n"
-            "I:info (followed agent)\n"
-            "s/\u2191\u2193:switch  enter:send\n"
-            "d:detect (\u2248 strip, = raw)\n"
-            "j:tui switcher  m:full monitor\n"
-            "k:kill  n:next  e/E:shadow\n"
-            "c:concerns  p:pick task\n"
-            "space:mark ★ (followed agent)",
-            id="mini-key-hints",
-        )
+        yield Static(KEY_HINTS_TEXT, id="mini-key-hints")
 
     def on_mount(self) -> None:
         self._mount_time = time.monotonic()
@@ -2244,6 +2304,11 @@ class MiniMonitorApp(
         if stale is None:
             return  # indeterminate — preserve prior state
         self._shadow_read_recency = ReadRecency(stale, analyzed_at)
+        if stale is False:
+            # Review-loop edge accumulator (t1159_2, review round 4): a False
+            # recorded here may be overwritten before the loop's next
+            # committed evidence tick; latch it so the edge is never lost.
+            self._loop_stale_false_pending = True
 
     def _refresh_shadow_stale_banner(
         self, capture_text: str, followed_pane: str
@@ -2304,6 +2369,357 @@ class MiniMonitorApp(
             return  # would clear a standing warning — preserve it
         self._shadow_stale_combined = combined
         self._set_shadow_stale_banner(banner_text)
+
+    # -- Auto-recheck loop (t1159_2) --------------------------------------
+
+    def _set_loop_banner(self, text: str) -> None:
+        """Update the loop status line; no-op if unmounted.
+
+        Records the last-set text on ``_loop_banner_text`` (DOM-free test
+        seam, mirroring ``_shadow_stale_banner_text``) and best-effort updates
+        the ``#mini-loop-status`` Static.
+        """
+        self._loop_banner_text = text
+        with contextlib.suppress(Exception):
+            self.query_one("#mini-loop-status", Static).update(text)
+
+    def _derive_agent_presence(self, snap: PaneSnapshot | None) -> bool | None:
+        """Tri-state followed-agent presence from discovery-level liveness.
+
+        Committed snapshots DROP panes whose content capture failed, so a
+        missing snapshot alone is not departure (the discovery-facts seam
+        exists precisely for this — see monitor_core `_record_discovery_facts`).
+        True = snapshot present; False = the session was enumerated and the
+        agent window is verifiably gone; None = capture failed while the
+        agent is still discovered, or discovery itself is indeterminate.
+        """
+        if snap is not None:
+            return True
+        monitor = self._monitor
+        window_name = self._own_window_name
+        if monitor is None or not window_name:
+            return None
+        with contextlib.suppress(Exception):
+            if (self._session, window_name) in monitor.last_discovered_agents():
+                return None  # pane exists, its capture failed this cycle
+            if self._session in monitor.last_enumerated_sessions():
+                return False  # verified: enumerated, and the agent is gone
+        return None
+
+    def _loop_auto_disarm(self, reason: str) -> None:
+        """Visible auto-disarm: banner off, baseline/ring cleared, one toast."""
+        self._review_loop.disarm()
+        self._loop_baseline = None
+        self._loop_shadow_hash = None
+        self._loop_shadow_hash_streak = 0
+        self._set_loop_banner("")
+        self.notify(f"Auto-recheck loop disarmed: {reason}", severity="warning")
+
+    async def action_toggle_review_loop(self) -> None:
+        """Arm/disarm the shadow auto-recheck loop (t1159_2).
+
+        Arming refuses visibly on capability gaps on BOTH sides: the followed
+        agent needs live prompt tiers (the trigger), the shadow agent needs a
+        readiness detector (the delivery). Both are agent-capability gates —
+        never phase gates (advisory-only contract).
+        """
+        ctrl = self._review_loop
+        if ctrl.armed:
+            ctrl.disarm()
+            self._set_loop_banner("")
+            self.notify("Auto-recheck loop disarmed")
+            return
+        snap = self._find_own_agent_snapshot()
+        if snap is None or not snap.pane.pane_id:
+            self.notify("Auto-recheck unavailable: no followed agent pane",
+                        severity="warning")
+            return
+        followed_key = workflow_phase.agent_key_from_command(
+            snap.pane.current_command)
+        if not workflow_phase.live_tiers_available(followed_key):
+            self.notify(
+                f"Auto-recheck unavailable for "
+                f"'{snap.pane.current_command or 'unknown'}' — no prompt "
+                "detection yet (t1467)",
+                severity="warning")
+            return
+        ok, shadow_pane, shadow_command = await find_shadow_pane_info_async(
+            self._monitor, snap.pane.pane_id)
+        if not ok:
+            self.notify(
+                "Auto-recheck unavailable: could not query the shadow pane — "
+                "try again", severity="warning")
+            return
+        if not shadow_pane:
+            self.notify(
+                "Auto-recheck unavailable: no shadow pane — press 'e' to "
+                "launch one", severity="warning")
+            return
+        shadow_key = workflow_phase.agent_key_from_command(shadow_command)
+        if shadow_key not in review_loop.SHADOW_READY_DETECTORS:
+            self.notify(
+                f"Auto-recheck unavailable: shadow agent "
+                f"'{shadow_command or 'unknown'}' has no readiness detection "
+                "yet", severity="warning")
+            return
+        # Arm. pending_work covers an episode already pending at arm time via
+        # the explicit user action; a fresh arm keeps the work latch closed so
+        # an arm-time selection-only redraw cannot fire (review hardening 6).
+        ctrl.arm(pending_work=(self._shadow_feedback_stale is True))
+        self._loop_stale_false_pending = False  # pre-arm state, not ours
+        # Seed the classifier baseline from the arm-time snapshot (review
+        # hardening 9): a sub-tick response right after arming must still
+        # classify as work on the first tick.
+        self._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              snap.pane.pane_id, snap.pane.history_size,
+                              (snap.pane.width, snap.pane.height))
+        self._loop_shadow_hash = None
+        self._loop_shadow_hash_streak = 0
+        self._loop_last_service_at = None
+        self._set_loop_banner("⟳ auto-recheck ARMED")
+        self.notify("Auto-recheck loop armed — press 'L' again to disarm")
+
+    async def _service_review_loop(
+        self, snap: PaneSnapshot | None, shadow_ok: bool,
+        shadow_pane: str | None, shadow_command: str,
+        tick_text: str | None,
+    ) -> None:
+        """Per-tick loop service, called from ALL THREE branches of
+        `_maybe_offer_concerns` so absence is observed, not inferred.
+
+        ``shadow_ok`` False means the lookup itself failed (or was not made
+        this tick) — the loop pauses; only ``(True, None)`` is a verified
+        shadow absence (review hardening 2).
+        """
+        ctrl = self._review_loop
+        if not ctrl.armed:
+            return
+
+        # Serialize the evidence ticks (review round 2): overlapping
+        # refreshes invoke this service concurrently, and each invocation
+        # would otherwise count as its own debounce/hash-stability tick.
+        # One committed evidence tick per half refresh period, minimum 1s.
+        # MUST run before any evidence mutation (review round 3): a throttled
+        # invocation that classified and advanced the baseline would consume
+        # a work observation without ever delivering it to the controller —
+        # the next committed tick would then see "no change" and the episode
+        # would be permanently lost. A skipped invocation touches nothing.
+        now_mono = time.monotonic()
+        min_interval = max(
+            1.0, 0.5 * float(getattr(self, "_refresh_seconds", 3)))
+        if (self._loop_last_service_at is not None
+                and now_mono - self._loop_last_service_at < min_interval):
+            return
+        self._loop_last_service_at = now_mono
+
+        agent_presence = self._derive_agent_presence(snap)
+
+        # Baseline maintenance + work classification (hardenings 6/8/9).
+        # Only here, on a committed evidence tick — arm() seeds the baseline,
+        # so no upkeep is needed while disarmed.
+        work_signal = review_loop.UNKNOWN
+        if snap is not None:
+            base = self._loop_baseline
+            if base is not None and base[2] != snap.pane.pane_id:
+                base = None  # followed pane identity replaced
+            if base is not None:
+                work_signal = review_loop.classify_followed_change(
+                    base[0], base[1], snap.content, snap.awaiting_input_kind,
+                    snap.awaiting_input,
+                    workflow_phase.agent_key_from_command(
+                        snap.pane.current_command),
+                    base[3], snap.pane.history_size,
+                    base[4], (snap.pane.width, snap.pane.height),
+                )
+            self._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                                   snap.pane.pane_id, snap.pane.history_size,
+                                   (snap.pane.width, snap.pane.height))
+        elif agent_presence is False:
+            self._loop_baseline = None
+        # agent_presence None: baseline PRESERVED (hardening 8) — a response
+        # produced during a capture-failure gap still classifies as work.
+
+        # Mid-loop shadow-agent re-resolution (capability, not phase).
+        shadow_key = ""
+        if shadow_ok and shadow_pane:
+            shadow_key = workflow_phase.agent_key_from_command(shadow_command)
+            if shadow_key not in review_loop.SHADOW_READY_DETECTORS:
+                self._loop_auto_disarm(
+                    f"shadow agent '{shadow_command or 'unknown'}' has no "
+                    "readiness detection")
+                return
+
+        # Shadow readiness over a raw tail + hash ring (only while armed —
+        # this is the loop's one extra tmux read per tick). Snapshot the
+        # lifecycle generation first: a disarm/re-arm during the await below
+        # starts a NEW lifecycle, and this invocation's evidence (classified
+        # against the OLD baseline) must never be injected into it (review
+        # round 7).
+        lifecycle_gen = ctrl.generation
+        shadow_ready: bool | None = None
+        raw_tail: str | None = None
+        if shadow_ok and shadow_pane:
+            raw_tail = await capture_raw_tail(self._monitor, shadow_pane)
+            if ctrl.generation != lifecycle_gen:
+                return  # superseded lifecycle — abandon, mutate nothing
+            if raw_tail is None:
+                self._loop_shadow_hash = None
+                self._loop_shadow_hash_streak = 0
+            else:
+                tail_hash = hash(raw_tail)
+                if tail_hash == self._loop_shadow_hash:
+                    self._loop_shadow_hash_streak += 1
+                else:
+                    self._loop_shadow_hash_streak = 0
+                self._loop_shadow_hash = tail_hash
+            hash_stable = (raw_tail is not None
+                           and self._loop_shadow_hash_streak >= 1)
+            shadow_ready = review_loop.shadow_prompt_ready(
+                raw_tail, shadow_key, hash_stable)
+
+        # Unmounted apps (unit tests) have an empty screen stack; treat that
+        # as "no modal" rather than crashing the service.
+        try:
+            modal_open = isinstance(self.screen, ModalScreen)
+        except Exception:
+            modal_open = False
+        # Deliver a False the recency writer recorded between committed
+        # ticks (review round 4): the controller must observe every recorded
+        # transition or a FIRED state can wedge. Consumed exactly once, on a
+        # committed tick only — throttled invocations returned above.
+        # ORDERED delivery (review round 5): the latched False is OLDER than
+        # this tick's evidence. When the current verdict has moved on (True /
+        # None), replay the False in its own controller tick FIRST — with no
+        # work signal, since that older instant carried none — so a WORK
+        # classified this tick is not consumed by an artificial same-instant
+        # True→False edge (the shadow never read that newer output).
+        # Consume the latched edge ONLY when the controller will actually
+        # process observations this tick (review round 6): an indeterminate
+        # presence returns at the controller's presence guard before any
+        # observation runs, and discarding the flag there would lose the
+        # only False — FIRED would wedge after recovery. Verified absence
+        # auto-disarms before observations too, and a dead loop's flag is
+        # re-seeded at the next arm, so True/True is the consumption gate.
+        can_consume = (agent_presence is True
+                       and bool(shadow_ok and shadow_pane))
+        stale_input = self._shadow_feedback_stale
+        if self._loop_stale_false_pending and can_consume:
+            self._loop_stale_false_pending = False
+            if stale_input is False:
+                pass  # the current tick itself delivers the False
+            else:
+                replay = ctrl.tick(
+                    agent_present=agent_presence,
+                    shadow_present=(None if not shadow_ok
+                                    else bool(shadow_pane)),
+                    awaiting_input=None,
+                    stale=False,
+                    work_signal=review_loop.UNKNOWN,
+                    shadow_ready=None,
+                    modal_open=modal_open,
+                    now=now_mono,
+                )
+                if replay == review_loop.ACTION_AUTO_DISARM:
+                    self._loop_baseline = None
+                    self._loop_shadow_hash = None
+                    self._loop_shadow_hash_streak = 0
+                    self._set_loop_banner("")
+                    self.notify(
+                        "Auto-recheck loop disarmed: followed agent or "
+                        "shadow pane is gone", severity="warning")
+                    return
+        action = ctrl.tick(
+            agent_present=agent_presence,
+            shadow_present=(None if not shadow_ok else bool(shadow_pane)),
+            awaiting_input=(snap.awaiting_input if snap is not None else None),
+            stale=stale_input,
+            work_signal=work_signal,
+            shadow_ready=shadow_ready,
+            modal_open=modal_open,
+            now=time.monotonic(),
+        )
+
+        if action == review_loop.ACTION_AUTO_DISARM:
+            self._loop_baseline = None
+            self._loop_shadow_hash = None
+            self._loop_shadow_hash_streak = 0
+            self._set_loop_banner("")
+            self.notify("Auto-recheck loop disarmed: followed agent or "
+                        "shadow pane is gone", severity="warning")
+            return
+
+        if action == review_loop.ACTION_FIRE:
+            token = ctrl.delivery_token
+            outcome, detail = await self._fire_shadow_recheck(
+                shadow_pane, snap, shadow_key, raw_tail, tick_text, token)
+            if outcome == "sent":
+                ctrl.confirm_fire(token, time.monotonic())
+            elif outcome == "not_ready":
+                ctrl.abort_fire(token)
+            else:  # transport failure — never leave the loop armed (hardening 1)
+                self._loop_auto_disarm(detail)
+                return
+
+        # Banner reflects the post-decision state every tick.
+        if ctrl.state == review_loop.FIRED:
+            self._set_loop_banner(
+                f"⟳ recheck #{ctrl.rounds_fired} sent — waiting for shadow")
+        elif ctrl.state == review_loop.DELIVERING:
+            self._set_loop_banner("⟳ auto-recheck: delivering…")
+        elif ctrl.holding_for_shadow:
+            self._set_loop_banner("⟳ waiting for shadow to settle")
+        else:
+            self._set_loop_banner("⟳ auto-recheck ARMED")
+
+    async def _fire_shadow_recheck(
+        self, shadow_pane: str, snap: PaneSnapshot | None, shadow_key: str,
+        tick_raw_tail: str | None, tick_text: str | None, token,
+    ) -> tuple[str, str]:
+        """Verified two-step delivery into the SHADOW pane.
+
+        Returns ``('sent' | 'not_ready' | 'failed', detail)``. Receives no
+        followed pane id — structurally incapable of writing the followed
+        pane (safety contract item 1). Enter is NEVER sent after a failed
+        prompt write (it would submit foreign composer text or answer a
+        dialog); readiness is revalidated on a fresh capture immediately
+        before sending, with the delivery token re-checked after the await
+        (review hardenings 1+4).
+        """
+        ctrl = self._review_loop
+        fresh = await capture_raw_tail(self._monitor, shadow_pane)
+        if not ctrl.delivery_valid(token):
+            return "not_ready", "delivery superseded"
+        # The fresh capture must be ready AND match the tail the decision was
+        # made on — a shadow that changed between tick and delivery is not
+        # the shadow we validated.
+        hash_stable = (fresh is not None and tick_raw_tail is not None
+                       and fresh == tick_raw_tail)
+        if review_loop.shadow_prompt_ready(fresh, shadow_key,
+                                           hash_stable) is not True:
+            return "not_ready", "shadow not settled at delivery time"
+        meta = parse_block_meta(tick_text) if tick_text else None
+        expected_round = (meta.round + 1) if meta else None
+        phase = None
+        if snap is not None:
+            with contextlib.suppress(Exception):
+                task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+                if task_id:
+                    info = self._task_cache.get_task_info(
+                        task_id, snap.pane.session_name)
+                    if info is not None:
+                        phase = self._phase_for_snap(snap, info).phase
+        prompt = review_loop.compose_recheck_prompt(phase, expected_round)
+        monitor = self._monitor
+        if monitor is None:
+            return "failed", "no tmux monitor"
+        if not monitor.send_keys(shadow_pane, prompt, literal=True):
+            return ("failed",
+                    "could not write the recheck prompt to the shadow pane")
+        if not monitor.send_keys(shadow_pane, "Enter"):
+            return ("failed",
+                    "recheck text left in the shadow composer — submit or "
+                    "clear it there manually")
+        return "sent", prompt
 
     async def action_pick_concerns(self) -> None:
         """Forward the shadow agent's concerns to the followed agent (via clipboard).
@@ -2466,13 +2882,22 @@ class MiniMonitorApp(
         """
         snap = self._find_own_agent_snapshot()
         if snap is None or not snap.pane.pane_id:
+            # Review-loop service runs on EVERY branch (t1159_2): absence is
+            # observed, never inferred. shadow_ok=False = "not looked" — the
+            # loop pauses rather than reading it as a verified shadow absence.
+            await self._service_review_loop(None, False, None, "", None)
             return
-        shadow_pane = await find_shadow_pane_async(self._monitor, snap.pane.pane_id)
+        shadow_ok, shadow_pane, shadow_command = await find_shadow_pane_info_async(
+            self._monitor, snap.pane.pane_id)
         if not shadow_pane:
-            # No shadow: nothing can be stale — clear any standing warning.
+            # No shadow (offer path keeps the pre-t1159_2 fail-open collapse:
+            # a failed lookup and a verified absence both land here — nothing
+            # to show either way): nothing can be stale — clear any standing
+            # warning. The loop service DOES discriminate via shadow_ok.
             self._shadow_read_recency = _UNKNOWN_RECENCY
             self._shadow_stale_combined = None
             self._set_shadow_stale_banner("")
+            await self._service_review_loop(snap, shadow_ok, None, "", None)
             return
         # Freshness (t1104) — independent of whether a concern block is present,
         # so the warning tracks staleness even when the block is unchanged.
@@ -2490,6 +2915,10 @@ class MiniMonitorApp(
         # channel exists to avoid. Best-effort inside; never raises here.
         self._restamp_shadow_phase(shadow_pane, snap)
         text = await capture_shadow_text(shadow_pane)
+        # Review-loop service, main path (t1159_2): before the text-None
+        # return so a failed cleaned capture still services the tick.
+        await self._service_review_loop(
+            snap, shadow_ok, shadow_pane, shadow_command, text)
         if text is None:
             return
         # Combine read recency with block age and repaint, EVERY tick and before

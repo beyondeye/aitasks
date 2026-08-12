@@ -501,6 +501,105 @@ judgement about the concern, not about which round raised it.
 lock-coordinated, guards that the directory resolves under its own root, removes
 regular files and then `rmdir`s — never `rm -rf`.
 
+## Review-loop automation (auto-recheck)
+
+Minimonitor's `L` key arms an **auto-recheck loop** (t1159_2): when the
+followed agent settles at a recognized prompt with output the shadow has not
+yet read, minimonitor injects a single-line
+`refetch and recheck round <N>: …` into the **shadow** pane — automating the
+manual retyping between review rounds. The decision core is the pure module
+`.aitask-scripts/monitor/review_loop.py` (`ReviewLoopController`,
+`shadow_prompt_ready`, `classify_followed_change`, `compose_recheck_prompt`),
+serviced once per refresh tick from `_maybe_offer_concerns`. The injected
+wording leads with the exact routing trigger of the skill's Step-3 re-review
+entry (t1493), so the shadow re-enters the review sub-procedure and re-emits
+the concern block; the expected round is machine-derived
+(`parse_block_meta(previous block).round + 1`; no/invalid header ⇒ no round
+named — never guessed).
+
+This does not touch the advisory-only guardrail: the guardrail binds the
+**shadow** (it never drives the followed pane); the loop is minimonitor
+driving the shadow, which is the safe direction. Concern forwarding stays
+clipboard-only.
+
+**Safety contract** (test-pinned; the module docstring carries the same
+items):
+
+1. **The followed pane is never written.** `_fire_shadow_recheck` receives no
+   followed pane id — structurally incapable of addressing it; a unit test
+   asserts no send call names it.
+2. **Opt-in, permanently visible.** Armed only via `L`; a `#mini-loop-status`
+   banner shows the loop state the whole time it is armed.
+3. **Edge-driven, once per episode, with cooldown.** A fired recheck makes
+   the shadow re-read, which re-stamps `@aitask_shadow_analyzed_at` and
+   clears the very staleness that fired — so the controller stays FIRED until
+   it positively observes `stale is False`, then re-arms; 45s minimum between
+   fires (survives disarm/re-arm cycling).
+4. **Positive-evidence debounce.** Three consecutive ticks of
+   (`awaiting_input is True` AND `stale is True`); any negative or
+   indeterminate tick resets the streak.
+5. **Never inject into a busy shadow.** Fire requires the three-part positive
+   readiness: the agent's **empty** input composer positively detected on a
+   RAW capture tail (Claude's dim placeholder hint strips identically to
+   typed text, so cleaned captures cannot answer this), AND no dialog/prompt
+   pattern matching the tail (Enter at a dialog answers it), AND the raw tail
+   hash-stable ≥2 consecutive ticks (an animated spinner keeps a streaming
+   pane unstable). Hash stability alone is never sufficient. A satisfied
+   trigger with a busy shadow **holds** (streak kept) and fires on the first
+   ready tick.
+6. **Disarm only on verified absence; pause on uncertainty.** Agent presence
+   is derived from discovery-level liveness (a committed snapshot missing
+   while the agent is still discovered = capture failure, not departure);
+   shadow presence from the status-discriminating lookup
+   (`find_shadow_pane_info_async`). An indeterminate read pauses the loop —
+   it never destroys the user's armed state. Auto-disarm (visible) fires on
+   verified disappearance or a mid-loop shadow swap to an agent without a
+   readiness detector; an open minimonitor modal pauses (streak reset, no
+   disarm).
+7. **Single-line literal injection only** (`send_keys -l` + `Enter` through
+   the tmux gateway; no bracketed paste).
+8. **Phase never gates firing.** The advisory phase pre-selects the recheck
+   *wording* (plan-challenge vs impl-challenge vs generic) and nothing else;
+   a wrong or UNKNOWN phase still fires (negative-control-tested, like every
+   other phase consumer).
+9. **Delivery is serialized and verified two-step.** At most one delivery is
+   ever in flight: the fire permission reserves a DELIVERING state + token
+   synchronously inside `tick()`, so overlapping refresh cycles cannot
+   double-fire; readiness is revalidated on a fresh capture immediately
+   before sending (token re-checked after the await); Enter is **never** sent
+   after a failed prompt write; either partial failure auto-disarms visibly,
+   naming any text left in the shadow composer.
+10. **A new episode requires positively classified agent work.**
+    `classify_followed_change` distinguishes real output (scrollback growth —
+    `#{history_size}` delta or content change above the current
+    question-block / dialog boundary) from widget **selection-only redraws**,
+    which change captured content without any work having happened; only
+    classified work re-opens the latch (arming opens it when staleness is
+    already pending — the explicit user action covers that first round).
+
+**Bounded-capture residual (documented limitation).** The trigger and the
+classifier both read a `capture_lines`-bounded tail. Work whose settled tail
+is byte-identical and whose scrollback did not grow is invisible — the loop
+does not fire for it; the manual "refetch and recheck" path remains
+available. One ordinary plan revision measured live (2026-08-12) grew history
+28→61 and rewrote the content above the dialog, but that is a single
+rendering case, not proof of coverage: a redraw confined to the visible
+region outside the retained tail (or an alternate-screen render) can be
+substantive and still invisible. A pane **resize** is a related accepted
+tradeoff: reflow invalidates both evidence channels (content rewraps,
+`#{history_size}` re-buckets — measured growing on a bare resize), so the
+classifier reports "unknown" across a geometry change and output arriving in
+the same capture as the resize is absorbed rather than misread; further
+output on the next stable-geometry tick classifies normally.
+
+Composer/spinner/dialog-boundary patterns are version-sensitive terminal UI
+text (pinned against live Claude Code 2.1.228 captures) and are maintained
+in-place when an agent's UI changes — the `prompt_patterns.py` practice
+(t1474). `SHADOW_READY_DETECTORS` ships `claude`-only; arming refuses visibly
+for a shadow agent without a detector (the shadow's agent is independently
+selectable via `E`, so a Claude followed pane can legitimately have a Codex
+shadow — a real configuration, observed live).
+
 ## Configuration
 
 - `defaults.shadow` in `codeagent_config.json` — the agent+model used for the

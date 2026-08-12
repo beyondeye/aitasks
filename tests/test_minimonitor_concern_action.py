@@ -165,6 +165,17 @@ def _mk_app(monitor=None, task_id="1427_2", rejected_rc=0, rejected_out=""):
     app._last_concern_block_payload = {}
     app._truncation_warned = set()
     app._unparsed_warned = set()
+    # Review-loop state normally set by __init__ (t1159_2): the loop service
+    # runs on every _maybe_offer_concerns tick, so every app needs it.
+    app._review_loop = mm.review_loop.ReviewLoopController()
+    app._loop_banner_text = ""
+    app._loop_baseline = None
+    app._loop_shadow_hash = None
+    app._loop_shadow_hash_streak = 0
+    app._loop_last_service_at = None
+    app._loop_stale_false_pending = False
+    app._session = "s"
+    app._own_window_name = "agent-x"
     app.spy_notify: list = []
     app.spy_pushed: list = []
     app.spy_clipboard: list = []
@@ -211,8 +222,19 @@ def _writes(app):
     return [c for c in app.spy_rejected if c[0][0] in ("add", "remove")]
 
 
-def _snap(pane_id="%1"):
-    return SimpleNamespace(pane=SimpleNamespace(pane_id=pane_id))
+def _snap(pane_id="%1", *, content="", awaiting_input=False,
+          awaiting_input_kind="", current_command="claude",
+          history_size=None):
+    return SimpleNamespace(
+        pane=SimpleNamespace(pane_id=pane_id,
+                             current_command=current_command,
+                             session_name="s",
+                             history_size=history_size,
+                             width=100, height=30),
+        content=content,
+        awaiting_input=awaiting_input,
+        awaiting_input_kind=awaiting_input_kind,
+    )
 
 
 def _pick_result(forwarded=(), rejected=(), unrejected=()):
@@ -1299,3 +1321,506 @@ class BlockAgeStalenessTests(unittest.TestCase):
         asyncio.run(app._maybe_offer_concerns())
         self.assertNotIn("STALE", app.spy_notify[0][0])
         self.assertNotIn("unknown", app.spy_notify[0][0])
+
+
+# ===========================================================================
+# Auto-recheck loop wiring (t1159_2)
+# ===========================================================================
+
+import os as _os
+
+sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+
+import review_loop_fixtures as _rlfx  # noqa: E402
+from monitor import review_loop as _rl  # noqa: E402
+from monitor.monitor_shared import workflow_phase as _wp  # noqa: E402
+
+
+class _LoopFakeMon(_FakeMon):
+    """Gateway stub for the loop tests: dispatches on the tmux verb.
+
+    ``list-panes`` serves the shadow lookup; ``capture-pane`` serves the raw
+    readiness tail (a per-call queue whose last value sticks, so a test can
+    change what the FIRE-time fresh capture sees). ``send_keys`` records every
+    delivery and pops programmable results (default success). Discovery
+    liveness facts are settable sets.
+    """
+
+    def __init__(self, async_list="", raw_tail="", list_rc=0, capture_rc=0):
+        super().__init__(async_list=async_list)
+        self.raw_tails = [raw_tail]
+        self.list_rc = list_rc
+        self.capture_rc = capture_rc
+        self.sent: list = []
+        self.send_results: list = []
+        self.on_capture = None
+        self.discovered: set = set()
+        self.enumerated: set = set()
+
+    async def tmux_run_async(self, args, timeout=5.0):
+        self.async_calls.append(args)
+        await asyncio.sleep(0)  # a real await, so gather() interleaves here
+        if args[0] == "list-panes":
+            return (self.list_rc, self._async_list)
+        if args[0] == "capture-pane":
+            if self.on_capture is not None:
+                self.on_capture()
+            tail = (self.raw_tails.pop(0) if len(self.raw_tails) > 1
+                    else self.raw_tails[0])
+            return (self.capture_rc, tail)
+        return (0, "")
+
+    def send_keys(self, pane_id, keys, literal=False):
+        self.sent.append((pane_id, keys, literal))
+        return self.send_results.pop(0) if self.send_results else True
+
+    def last_discovered_agents(self):
+        return self.discovered
+
+    def last_enumerated_sessions(self):
+        return self.enumerated
+
+
+_SHADOW_LIST_CLAUDE = "%5\t%1\tclaude\n%6\t\tzsh\n"
+_SHADOW_LIST_CODEX = "%5\t%1\tcodex\n"
+_SHADOW_LIST_NONE = "%6\t\tzsh\n"
+
+
+def _loop_app(test, *, async_list=_SHADOW_LIST_CLAUDE,
+              raw_tail=None, tick_text=_ROUND1_BLOCK, stale=True,
+              awaiting=True, capture_rc=0, list_rc=0):
+    """An app whose followed agent satisfies the trigger by default."""
+    mon = _LoopFakeMon(
+        async_list=async_list,
+        raw_tail=raw_tail if raw_tail is not None else _rlfx.CLAUDE_AT_REST_RAW,
+        list_rc=list_rc, capture_rc=capture_rc)
+    app = _mk_app(monitor=mon)
+    snap = _snap("%1", content="agent output", awaiting_input=awaiting)
+    app._find_own_agent_snapshot = lambda: snap
+    app._shadow_read_recency = mm.ReadRecency(stale, 100.0)
+    _stub_capture(test, _async_return(tick_text))
+    return app, mon, snap
+
+
+def _tick(app, n=1):
+    for _ in range(n):
+        app._loop_last_service_at = None  # each call = its own refresh tick
+        asyncio.run(app._maybe_offer_concerns())
+
+
+class ShadowInfoLookupTests(unittest.TestCase):
+    def test_three_field_format_resolves_pane_and_command(self):
+        self.assertEqual(
+            mc.match_shadow_pane_info(_SHADOW_LIST_CLAUDE, "%1"),
+            ("%5", "claude"))
+        self.assertEqual(mc.match_shadow_pane(_SHADOW_LIST_CLAUDE, "%1"), "%5")
+
+    def test_two_field_backcompat_resolves_with_empty_command(self):
+        self.assertEqual(mc.match_shadow_pane_info("%5\t%1\n", "%1"),
+                         ("%5", ""))
+        self.assertEqual(mc.match_shadow_pane("%5\t%1\n", "%1"), "%5")
+
+    def test_newest_wins_carries_its_own_command(self):
+        out = "%5\t%1\tcodex\n%9\t%1\tclaude\n"
+        self.assertEqual(mc.match_shadow_pane_info(out, "%1"),
+                         ("%9", "claude"))
+
+    def test_status_paths(self):
+        async def run(mon):
+            return await mc.find_shadow_pane_info_async(mon, "%1")
+        self.assertEqual(asyncio.run(run(None)), (False, None, ""))
+        self.assertEqual(
+            asyncio.run(run(_LoopFakeMon(async_list="x", list_rc=1))),
+            (False, None, ""))
+        self.assertEqual(
+            asyncio.run(run(_LoopFakeMon(async_list=_SHADOW_LIST_NONE))),
+            (True, None, ""))
+        self.assertEqual(
+            asyncio.run(run(_LoopFakeMon(async_list=_SHADOW_LIST_CLAUDE))),
+            (True, "%5", "claude"))
+
+
+class ReviewLoopArmTests(unittest.TestCase):
+    def test_refuses_without_followed_agent(self):
+        app, mon, _ = _loop_app(self)
+        app._find_own_agent_snapshot = lambda: None
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("no followed agent", app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_refuses_followed_agent_without_live_tiers(self):
+        app, mon, _ = _loop_app(self)
+        snap = _snap("%1", current_command="opencode")
+        app._find_own_agent_snapshot = lambda: snap
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("no prompt detection", app.spy_notify[-1][0])
+        self.assertIn("opencode", app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_refuses_shadow_agent_without_detector_naming_it(self):
+        # The live-observed configuration (t1493 session): Codex shadow of a
+        # Claude pane. Not a corner case — the message must name the agent.
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_CODEX)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("codex", app.spy_notify[-1][0])
+        self.assertIn("no readiness detection", app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_refuses_on_lookup_failure_without_arming(self):
+        app, mon, _ = _loop_app(self, list_rc=1)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("could not query", app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_refuses_without_shadow_suggesting_e(self):
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_NONE)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("press 'e'", app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_arm_seeds_baseline_and_banner_and_latch(self):
+        app, mon, snap = _loop_app(self, stale=False)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertTrue(app._review_loop.armed)
+        self.assertEqual(app._loop_baseline,
+                         (snap.content, snap.awaiting_input_kind,
+                          "%1", None, (100, 30)))
+        self.assertIn("ARMED", app._loop_banner_text)
+        # Fresh arm (stale False at arm): latch closed (hardening 6/9).
+        self.assertFalse(app._review_loop.work_seen)
+        # Toggle again disarms and clears the banner.
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertFalse(app._review_loop.armed)
+        self.assertEqual(app._loop_banner_text, "")
+
+    def test_arm_into_pending_staleness_opens_the_latch(self):
+        app, mon, _ = _loop_app(self, stale=True)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertTrue(app._review_loop.work_seen)
+
+
+class ReviewLoopFireTests(unittest.TestCase):
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def test_fire_sends_exactly_two_keys_to_the_shadow_only(self):
+        app, mon, _ = self._armed()
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 2, mon.sent)
+        (pane1, prompt, literal1), (pane2, key2, literal2) = mon.sent
+        self.assertEqual(pane1, "%5")
+        self.assertEqual(pane2, "%5")
+        self.assertTrue(literal1)
+        self.assertEqual((key2, literal2), ("Enter", False))
+        # The followed pane appears in NO send call (safety contract 1).
+        self.assertNotIn("%1", [p for p, _k, _l in mon.sent])
+        # The prompt leads with the t1493 routing trigger and carries the
+        # machine-derived round (previous block was round 1).
+        self.assertTrue(prompt.startswith("refetch and recheck round 2"))
+        self.assertNotIn("\n", prompt)
+        self.assertIn("recheck #1 sent", app._loop_banner_text)
+        self.assertEqual(app._review_loop.state, _rl.FIRED)
+
+    def test_round_is_omitted_when_the_block_has_no_meta(self):
+        app, mon, _ = self._armed(tick_text=_CLOSED_BLOCK)
+        _tick(app, 3)
+        self.assertTrue(mon.sent)
+        self.assertNotIn("round", mon.sent[0][1].split(":")[0])
+
+    def test_advisory_negative_control_any_phase_fires(self):
+        # Force every phase value — including a WRONG one and UNKNOWN —
+        # through the fire path: it must fire in every case, nothing refused.
+        # A loop that gates on phase must fail this (t1311/t1420 contract).
+        for phase in (*_wp.PHASES, "garbage"):
+            app, mon, snap = self._armed()
+            app._task_cache = SimpleNamespace(
+                get_task_id_for_pane=lambda pane: "42",
+                get_task_info=lambda tid, sess: SimpleNamespace())
+            app._phase_for_snap = (
+                lambda s, i, _p=phase: SimpleNamespace(phase=_p))
+            _tick(app, 3)
+            self.assertEqual(len(mon.sent), 2, phase)
+
+    def test_prompt_write_failure_sends_no_enter_and_disarms(self):
+        app, mon, _ = self._armed()
+        mon.send_results = [False]
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 1, mon.sent)  # Enter NEVER sent
+        self.assertFalse(app._review_loop.armed)
+        self.assertEqual(app._loop_banner_text, "")
+        self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
+
+    def test_enter_failure_names_the_leftover_text_and_disarms(self):
+        app, mon, _ = self._armed()
+        mon.send_results = [True, False]
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 2)
+        self.assertFalse(app._review_loop.armed)
+        self.assertTrue(any("left in the shadow composer" in m
+                            for m, _s in app.spy_notify), app.spy_notify)
+
+    def test_presend_revalidation_refuses_a_changed_shadow(self):
+        app, mon, _ = self._armed()
+        # Service captures see the at-rest tail; the FIRE-time fresh capture
+        # sees typed composer text (the queue's last value sticks afterwards).
+        rest = _rlfx.CLAUDE_AT_REST_RAW
+        mon.raw_tails = [rest, rest, rest, _rlfx.CLAUDE_TYPED_RAW, rest]
+        _tick(app, 3)
+        self.assertEqual(mon.sent, [])  # zero sends — no partial delivery
+        self.assertTrue(app._review_loop.armed)
+        self.assertEqual(app._review_loop.state, _rl.WAITING)
+        # The aborted episode completes on the next clean tick.
+        _tick(app, 1)
+        self.assertEqual(len(mon.sent), 2)
+
+    def test_shadow_busy_holds_with_banner(self):
+        app, mon, _ = self._armed(raw_tail=_rlfx.CLAUDE_TYPED_RAW)
+        _tick(app, 4)
+        self.assertEqual(mon.sent, [])
+        self.assertTrue(app._review_loop.armed)
+        self.assertIn("waiting for shadow to settle", app._loop_banner_text)
+
+    def test_overlapping_ticks_deliver_exactly_once(self):
+        app, mon, _ = self._armed()
+        _tick(app, 2)  # streak at 2; the next tick fires
+
+        async def overlap():
+            await asyncio.gather(app._maybe_offer_concerns(),
+                                 app._maybe_offer_concerns())
+        app._loop_last_service_at = None
+        asyncio.run(overlap())
+        self.assertEqual(len(mon.sent), 2, mon.sent)  # ONE delivery
+
+    def test_overlapping_services_count_as_one_evidence_tick(self):
+        # Review round 2 reproduction: one ordinary refresh followed by TWO
+        # overlapping services must NOT complete the 3-tick debounce — the
+        # concurrent invocations collapse to one committed evidence tick.
+        app, mon, _ = self._armed()
+        _tick(app, 1)
+
+        async def overlap():
+            await asyncio.gather(app._maybe_offer_concerns(),
+                                 app._maybe_offer_concerns())
+        app._loop_last_service_at = None
+        asyncio.run(overlap())
+        self.assertEqual(mon.sent, [])
+        self.assertEqual(app._review_loop.state, mm.review_loop.WAITING)
+        # Positive control: one more genuine tick completes the debounce.
+        _tick(app, 1)
+        self.assertEqual(len(mon.sent), 2)
+
+    def test_disarm_during_fire_capture_sends_nothing(self):
+        app, mon, snap = self._armed()
+        ctrl = app._review_loop
+        _tick(app, 2)
+        # Reserve the delivery at controller level, then have the fire-time
+        # capture race a disarm: the token re-check must yield zero sends.
+        action = ctrl.tick(
+            agent_present=True, shadow_present=True, awaiting_input=True,
+            stale=True, work_signal=_rl.NO_CHANGE, shadow_ready=True,
+            modal_open=False, now=10_000.0)
+        self.assertEqual(action, _rl.ACTION_FIRE)
+        token = ctrl.delivery_token
+        mon.on_capture = ctrl.disarm
+        outcome, _detail = asyncio.run(app._fire_shadow_recheck(
+            "%5", snap, "claude", _rlfx.CLAUDE_AT_REST_RAW,
+            _ROUND1_BLOCK, token))
+        self.assertEqual(outcome, "not_ready")
+        self.assertEqual(mon.sent, [])
+
+
+class ReviewLoopPresenceTests(unittest.TestCase):
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        return app, mon, snap
+
+    def test_lookup_failure_keeps_the_loop_armed(self):
+        app, mon, _ = self._armed()
+        mon.list_rc = 1  # transient tmux failure on the shadow lookup
+        _tick(app, 3)
+        self.assertTrue(app._review_loop.armed)
+        self.assertFalse(any("disarmed" in m for m, _s in app.spy_notify))
+
+    def test_verified_shadow_absence_disarms_visibly(self):
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_NONE  # verified: no shadow bound
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
+
+    def test_mid_loop_swap_to_undetectable_shadow_disarms_naming_it(self):
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_CODEX
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        self.assertTrue(any("codex" in m for m, _s in app.spy_notify))
+
+    def test_agent_capture_failure_pauses_and_preserves_baseline(self):
+        app, mon, snap = self._armed(stale=True)
+        app._review_loop.work_seen = False  # make the latch observable
+        base_content = "prompt A content"
+        app._loop_baseline = (base_content, "", "%1", None, (100, 30))
+        # Capture-failure tick: no snapshot, but discovery still lists the
+        # agent — the loop pauses and the baseline survives (hardening 8).
+        mon.discovered = {("s", "agent-x")}
+        app._find_own_agent_snapshot = lambda: None
+        _tick(app, 1)
+        self.assertTrue(app._review_loop.armed)
+        self.assertEqual(app._loop_baseline[0], base_content)
+        # The response produced during the gap classifies as WORK against
+        # the pre-gap baseline (content changed while not at a prompt).
+        snap2 = _snap("%1", content="revised output", awaiting_input=False)
+        app._find_own_agent_snapshot = lambda: snap2
+        _tick(app, 1)
+        self.assertTrue(app._review_loop.work_seen)
+
+    def test_throttled_invocation_never_consumes_a_work_observation(self):
+        # Review round 3 reproduction: the OVERLAPPING (throttled) invocation
+        # is the first to contain the new output. It must not advance the
+        # baseline — the next committed tick must still classify the work.
+        app, mon, snap = self._armed(stale=True)
+        app._review_loop.work_seen = False  # make the latch observable
+        _tick(app, 1)  # committed tick: baseline = snap.content
+        # New output lands; this invocation is throttled (stamp just set).
+        snap2 = _snap("%1", content="revised output", awaiting_input=False)
+        app._find_own_agent_snapshot = lambda: snap2
+        asyncio.run(app._maybe_offer_concerns())  # NO stamp reset: throttled
+        self.assertFalse(app._review_loop.work_seen)
+        self.assertNotEqual(app._loop_baseline[0], "revised output")
+        # The next committed tick sees the same output and classifies WORK.
+        _tick(app, 1)
+        self.assertTrue(app._review_loop.work_seen)
+
+    def test_verified_agent_departure_disarms(self):
+        app, mon, _ = self._armed()
+        mon.discovered = set()
+        mon.enumerated = {"s"}  # session seen; agent verifiably gone
+        app._find_own_agent_snapshot = lambda: None
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+
+    def test_recency_writer_latches_a_false_verdict(self):
+        # Prove the WRITER (review round 4): a False verdict recorded by
+        # _update_shadow_freshness must set the sticky pending flag.
+        app, mon, _ = self._armed()
+
+        async def get_pane_option(pane_id, option, timeout=2.0):
+            return (True, "1000")  # shadow stamp: epoch 1000
+
+        mon.get_pane_option = get_pane_option
+        mon.get_last_change_wall = lambda pane_id: 900.0  # older change
+        app._refresh_seconds = 3
+        asyncio.run(app._update_shadow_freshness("%5", "%1"))
+        self.assertIs(app._shadow_feedback_stale, False)
+        self.assertTrue(app._loop_stale_false_pending)
+
+    def test_missed_false_edge_still_rearms_a_fired_controller(self):
+        # Review round 4 reproduction: the ONLY stale=False lands in a
+        # throttled window and the cache is True again by the next committed
+        # tick — the pending flag must deliver the edge so FIRED re-arms.
+        app, mon, _ = self._armed()
+        _tick(app, 3)  # fire
+        self.assertEqual(app._review_loop.state, mm.review_loop.FIRED)
+        # The throttled window recorded False (writer latched it), then the
+        # agent moved again: cache back to True before the committed tick.
+        app._loop_stale_false_pending = True
+        app._shadow_read_recency = mm.ReadRecency(True, 100.0)
+        _tick(app, 1)
+        self.assertEqual(app._review_loop.state, mm.review_loop.WAITING)
+        self.assertFalse(app._loop_stale_false_pending)
+
+    def test_replayed_false_does_not_consume_newer_work(self):
+        # Review round 5 reproduction: while FIRED, the shadow reads the
+        # PRIOR episode (False latched in a throttled window), the agent then
+        # emits NEW output and the verdict is True again by the committed
+        # tick. The replayed old False must re-arm WITHOUT consuming the
+        # newer episode's work — and the loop must go on to deliver it.
+        import time as _time
+        app, mon, snap = self._armed()
+        _tick(app, 3)  # first delivery
+        self.assertEqual(app._review_loop.state, mm.review_loop.FIRED)
+        self.assertEqual(len(mon.sent), 2)
+        app._loop_stale_false_pending = True
+        app._shadow_read_recency = mm.ReadRecency(True, 100.0)
+        app._review_loop.fired_at = _time.monotonic() - 60  # cooldown spent
+        # The new output lands while the agent is producing (not at a prompt).
+        snap2 = _snap("%1", content="brand new output", awaiting_input=False)
+        app._find_own_agent_snapshot = lambda: snap2
+        _tick(app, 1)
+        self.assertEqual(app._review_loop.state, mm.review_loop.WAITING)
+        self.assertTrue(app._review_loop.work_seen,
+                        "replayed False consumed the newer episode's work")
+        # The agent settles at a prompt; the episode completes end to end.
+        snap3 = _snap("%1", content="brand new output", awaiting_input=True)
+        app._find_own_agent_snapshot = lambda: snap3
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 4, mon.sent)  # second delivery
+
+    def test_indeterminate_presence_preserves_the_pending_edge(self):
+        # Review round 6 reproduction: the pending False must survive a
+        # capture-failure tick (agent discovered, snapshot missing) — the
+        # controller's presence guard returns before observations, so
+        # consuming the flag there would lose the only edge and wedge FIRED.
+        app, mon, snap = self._armed()
+        _tick(app, 3)  # fire
+        self.assertEqual(app._review_loop.state, mm.review_loop.FIRED)
+        app._loop_stale_false_pending = True
+        app._shadow_read_recency = mm.ReadRecency(True, 100.0)
+        mon.discovered = {("s", "agent-x")}
+        app._find_own_agent_snapshot = lambda: None  # capture failed
+        _tick(app, 1)
+        self.assertTrue(app._loop_stale_false_pending)  # NOT discarded
+        self.assertEqual(app._review_loop.state, mm.review_loop.FIRED)
+        # Recovery: the snapshot returns, verdict currently True — the
+        # preserved edge is delivered and FIRED re-arms.
+        app._find_own_agent_snapshot = lambda: snap
+        _tick(app, 1)
+        self.assertFalse(app._loop_stale_false_pending)
+        self.assertEqual(app._review_loop.state, mm.review_loop.WAITING)
+
+    def test_rearm_during_readiness_await_abandons_old_evidence(self):
+        # Review round 7 reproduction: lifecycle A classifies pre-arm output,
+        # the user disarms and re-arms (lifecycle B, fresh) while A's
+        # readiness capture is in flight — A must abandon, never injecting
+        # its WORK into B's latch.
+        app, mon, snap = self._armed(stale=True)
+        _tick(app, 1)  # baseline committed for lifecycle A
+        snap2 = _snap("%1", content="pre-arm output", awaiting_input=False)
+        app._find_own_agent_snapshot = lambda: snap2
+
+        def rearm():
+            mon.on_capture = None  # only the first capture races
+            app._review_loop.disarm()
+            app._review_loop.arm(pending_work=False)
+            app._loop_baseline = (snap2.content, "", "%1", None, (100, 30))
+
+        mon.on_capture = rearm
+        _tick(app, 1)  # lifecycle A's invocation races the re-arm
+        self.assertFalse(app._review_loop.work_seen,
+                         "pre-arm evidence leaked into the new lifecycle")
+        # And the fresh lifecycle cannot fire from selection churn alone.
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 0)
+
+    def test_key_hints_surface_every_binding(self):
+        # Executable audit for the recorded show=False exception (review
+        # rounds 5+7): minimonitor has no Footer, so EVERY binding — mixin
+        # included — must appear in the #mini-key-hints text.
+        hints = mm.KEY_HINTS_TEXT
+        keys = {b.key for b in mm.MiniMonitorApp.BINDINGS}
+        self.assertIn("?", keys)  # the mixin binding is part of the surface
+        for key in sorted(keys):
+            forms = (f"{key}:", f"{key}/", f"/{key}")
+            self.assertTrue(any(f in hints for f in forms),
+                            f"binding '{key}' not surfaced in key hints")
+
+    def test_pane_replacement_resets_the_baseline(self):
+        app, mon, _ = self._armed()
+        app._loop_baseline = ("old", "", "%99", None, (100, 30))
+        _tick(app, 1)
+        self.assertEqual(app._loop_baseline[2], "%1")

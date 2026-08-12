@@ -334,33 +334,49 @@ def _pane_id_num(pane_id: str) -> int:
         return -1
 
 
-def match_shadow_pane(list_output: str, followed_pane_id: str) -> str | None:
-    """Resolve the shadow pane bound to ``followed_pane_id`` from tmux output.
+def match_shadow_pane_info(
+    list_output: str, followed_pane_id: str
+) -> tuple[str, str] | None:
+    """Resolve the shadow pane bound to ``followed_pane_id`` plus its command.
 
-    Pure (no tmux): ``list_output`` is ``list-panes -F '#{pane_id}\t
-    #{@aitask_shadow_target}'`` text. Returns the ``pane_id`` whose
-    ``@aitask_shadow_target`` equals ``followed_pane_id`` (the shadow pane carries
-    the followed pane's id — see ``shadow_agent.md``). An empty target marks a
-    non-shadow pane and is ignored (``is_shadow_target``).
+    Pure (no tmux): ``list_output`` is :func:`shadow_query_args` text —
+    ``#{pane_id}\t#{@aitask_shadow_target}\t#{pane_current_command}``. Returns
+    ``(pane_id, current_command)`` for the pane whose ``@aitask_shadow_target``
+    equals ``followed_pane_id`` (the shadow pane carries the followed pane's id
+    — see ``shadow_agent.md``), or ``None``. An empty target marks a non-shadow
+    pane and is ignored (``is_shadow_target``). A two-field line (older format
+    / test stubs) still resolves the pane, with command ``""`` — the review
+    loop reads that as an unknown shadow agent and refuses/disarms rather than
+    guessing (t1159_2).
 
-    Defense-in-depth: if more than one pane matches (an orphaned live shadow that
-    escaped cleanup — the launch guard in ``action_launch_shadow`` normally
-    prevents this), return the **newest** (largest ``%N``) deterministically. The
-    caller may notify when ``> 1`` match is seen.
+    Defense-in-depth: if more than one pane matches (an orphaned live shadow
+    that escaped cleanup — the launch guard in ``action_launch_shadow``
+    normally prevents this), return the **newest** (largest ``%N``)
+    deterministically. The caller may notify when ``> 1`` match is seen.
     """
-    matches: list[str] = []
+    matches: list[tuple[str, str]] = []
     for line in list_output.splitlines():
         parts = line.split("\t")
         if len(parts) < 2:
             continue
         pane_id, target = parts[0].strip(), parts[1].strip()
+        command = parts[2].strip() if len(parts) > 2 else ""
         if not is_shadow_target(target):
             continue
         if target == followed_pane_id:
-            matches.append(pane_id)
+            matches.append((pane_id, command))
     if not matches:
         return None
-    return max(matches, key=_pane_id_num)
+    return max(matches, key=lambda m: _pane_id_num(m[0]))
+
+
+def match_shadow_pane(list_output: str, followed_pane_id: str) -> str | None:
+    """Pane-id-only view of :func:`match_shadow_pane_info`.
+
+    Implemented on top of it so the two selection rules can never drift.
+    """
+    info = match_shadow_pane_info(list_output, followed_pane_id)
+    return info[0] if info else None
 
 
 # Hard ceiling for the shadow-pane tmux query + capture shell-out (seconds).
@@ -385,12 +401,16 @@ _SHADOW_TRUNCATED_MSG = (
 
 
 def shadow_query_args() -> list[str]:
-    """tmux argv listing every pane's id + @aitask_shadow_target value.
+    """tmux argv listing every pane's id + @aitask_shadow_target + command.
 
     Shared by the sync and async reverse-lookups so the format never drifts.
+    The third field feeds the review loop's shadow-agent resolution
+    (:func:`match_shadow_pane_info`) at zero extra tmux round trips; two-field
+    parsers keep working (they read fields 0-1 only).
     """
     return ["list-panes", "-a", "-F",
-            f"#{{pane_id}}\t#{{{SHADOW_TARGET_OPTION}}}"]
+            f"#{{pane_id}}\t#{{{SHADOW_TARGET_OPTION}}}\t"
+            "#{pane_current_command}"]
 
 
 def find_shadow_pane_status(
@@ -438,14 +458,60 @@ def find_shadow_pane(monitor, followed_pane_id: str) -> str | None:
 
 async def find_shadow_pane_async(monitor, followed_pane_id: str) -> str | None:
     """Async (event-loop safe) reverse lookup for the picker / auto-offer."""
+    _ok, pane, _command = await find_shadow_pane_info_async(
+        monitor, followed_pane_id
+    )
+    return pane
+
+
+async def find_shadow_pane_info_async(
+    monitor, followed_pane_id: str
+) -> tuple[bool, str | None, str]:
+    """Async reverse lookup with a success discriminator and the shadow's
+    command: ``(ok, pane, current_command)``.
+
+    ``ok`` is False when the query itself could not be answered (no monitor,
+    nonzero rc, timeout) — distinct from ``(True, None, "")``, a verified
+    "this agent has no shadow". The review loop is a *decision* consumer
+    (auto-disarm destroys the user's armed state), so like the launch guards
+    (t1216_4) it must not consume the fail-open collapsed view: a transient
+    tmux failure pauses the loop, only a verified absence disarms it
+    (t1159_2). Readers keep using :func:`find_shadow_pane_async`.
+    """
     if monitor is None:
-        return None
+        return False, None, ""
     rc, out = await monitor.tmux_run_async(
         shadow_query_args(), timeout=_SHADOW_CAPTURE_TIMEOUT
     )
     if rc != 0:
+        return False, None, ""
+    info = match_shadow_pane_info(out, followed_pane_id)
+    if info is None:
+        return True, None, ""
+    return True, info[0], info[1]
+
+
+async def capture_raw_tail(
+    monitor, pane_id: str, *, lines: int = 15
+) -> str | None:
+    """Raw (ANSI-carrying) tail of a pane via the gateway; ``None`` on failure.
+
+    The review loop's shadow-readiness detector (t1159_2) must see raw
+    styling: Claude Code renders its composer *placeholder hint* as dim text
+    that ANSI-stripping makes indistinguishable from typed text, so the
+    cleaned :func:`capture_shadow_text` path cannot answer "is the composer
+    empty". Deliberately tiny (default 15 lines) — it reads the prompt area,
+    not the transcript — and paid only while a loop is armed.
+    """
+    if monitor is None:
         return None
-    return match_shadow_pane(out, followed_pane_id)
+    rc, out = await monitor.tmux_run_async(
+        ["capture-pane", "-p", "-e", "-t", pane_id, "-S", f"-{lines}"],
+        timeout=_SHADOW_CAPTURE_TIMEOUT,
+    )
+    if rc != 0:
+        return None
+    return out
 
 
 async def capture_shadow_text(
@@ -745,6 +811,13 @@ class TmuxPaneInfo:
     # excluded from agent-facing discovery and from `_pane_cache`; they exist
     # only in the shadow-status capture path (see `_parse_list_panes`).
     shadow_target: str = ""
+    # Lines in the pane's scrollback history (`#{history_size}`), from
+    # discovery. A monotonic-growth signal for the review loop's work
+    # classifier (t1159_2): real output scrolls lines into history while
+    # in-place widget redraws do not (measured live — selection navigation
+    # leaves it unchanged, a plan revision grew it 28→61). None when the
+    # constructing path did not supply it (older stubs, hand-built infos).
+    history_size: int | None = None
 
 
 @dataclass
@@ -1725,6 +1798,7 @@ class TmuxMonitor:
         "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
         "#{pane_width}", "#{pane_height}",
         "#{@aitask_shadow_target}",   # shadow helper marker (t986); "" when unset
+        "#{history_size}",   # scrollback-growth work signal (t1159_2)
     ])
 
     def _parse_list_panes(
@@ -1749,7 +1823,9 @@ class TmuxMonitor:
         # Preserve an empty final @aitask_shadow_target field on non-shadow panes.
         for line in stdout.splitlines():
             parts = line.split("\t")
-            if len(parts) != 9:
+            # 10 = current format; 9 = pre-history_size lines (test stubs) —
+            # still parsed, with history_size None (t1159_2).
+            if len(parts) not in (9, 10):
                 continue
             pane_id = parts[3]
             if self.exclude_pane and pane_id == self.exclude_pane:
@@ -1760,6 +1836,12 @@ class TmuxMonitor:
                 height = int(parts[7])
             except ValueError:
                 continue
+            history_size: int | None = None
+            if len(parts) > 9:
+                try:
+                    history_size = int(parts[9])
+                except ValueError:
+                    history_size = None
             window_name = parts[1]
             seen.add(pane_id)
             if is_shadow_target(parts[8]):
@@ -1778,6 +1860,7 @@ class TmuxMonitor:
                     category=PaneCategory.AGENT,
                     session_name=session_name,
                     shadow_target=parts[8].strip(),
+                    history_size=history_size,
                 ))
                 continue
             category = self.classify_pane(window_name)
@@ -1801,6 +1884,7 @@ class TmuxMonitor:
                 height=height,
                 category=category,
                 session_name=session_name,
+                history_size=history_size,
             )
             panes.append(pane)
             self._pane_cache[pane_id] = pane
