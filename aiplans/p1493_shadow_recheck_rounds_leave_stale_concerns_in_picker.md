@@ -252,7 +252,14 @@ phrase is accurate for read recency but over-broad here: it reads as "preserve
 any prior", which includes `False`, and preserving a `False` is exactly the
 over-preservation the recorder rule forbids. Document instead: a returned `None`
 must not clear a standing `True`, and **must** be recorded over a `False`.
-Deciding that is the caller's recorder (B4b), not these functions.
+
+And scope that rule to the callers it actually applies to. **Only a caller that
+retains a verdict between ticks needs it** — that is minimonitor's live banner,
+and nothing else. Both `monitor_app` sites and the picker modal on either app
+compute the tri-state and present it immediately; they hold no prior verdict, so
+`None` is simply one of three presentations there and no preserve logic belongs
+in them. Saying "the caller's recorder" without that qualification would send a
+future editor looking for a recorder in `monitor_app` that should not exist.
 
 **B3. Modal: tri-state banner (`monitor_shared.py`)**
 
