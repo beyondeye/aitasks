@@ -5,6 +5,10 @@ depends: []
 issue_type: manual_verification
 status: Implementing
 labels: [shadow, aitask_monitormini, tui]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: risk_mitigation
