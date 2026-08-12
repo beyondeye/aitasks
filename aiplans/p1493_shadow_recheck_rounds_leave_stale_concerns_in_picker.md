@@ -954,3 +954,105 @@ the post-phase converts the shared-modal UX change into a checked outcome, but
 neither moves an axis to `low` — the widened shared-modal contract and the
 unverifiable producer half are unchanged by them, and the latter is carried by
 the spawned `after` mitigation rather than resolved in this plan.
+
+## Final Implementation Notes
+
+- **Actual work done:** Both halves landed as planned. *Producer:* one Step 3
+  routing entry in `SKILL.md.j2` for recheck asks (pinning the literal `refetch
+  and recheck round N` that t1159_2 will inject), plus a "never answer a recheck
+  in prose" clause; 3 entry-point goldens regenerated, all closures rerendered.
+  *Consumer:* `parse_reviewed_at_epoch` + `contains_block_evidence`
+  (`concern_parser.py`); `BlockAge` + `compute_block_age_staleness` +
+  `combine_staleness` (`monitor_core.py`); `format_shadow_stale_banner` +
+  `format_staleness_detail` + `_block_older_by` and a tri-state
+  `ConcernPickerModal` with a new `#concern-stale-unknown` banner
+  (`monitor_shared.py`); `ReadRecency` tuple + `_shadow_feedback_stale` property
+  + `_refresh_shadow_stale_banner` + `_record_combined_staleness` and the two
+  minimonitor call sites; the two `monitor_app` call sites; `tmux_monitor.py`
+  re-export. Docs: three-signal + surface-ownership sections in
+  `concern-format.md` and `shadow_agent.md`. t1461's tri-state bullet marked
+  handled in its own file (separate commit `938af6c2a`).
+
+- **Pre-phase `enumerate_staleness_sinks` — bucketed result.** The sweep found
+  no sink outside the plan's four named sites, but did surface the two the plan
+  had not enumerated:
+  - *Wired:* `minimonitor_app.py` 429 / 2185-2199 / 2282 / 2334 / 2394-2397 +
+    the new every-tick step; `monitor_app.py` 1157/1180 and 3049/3066;
+    `monitor_shared.py` modal + CSS.
+  - *Deliberately unchanged:* `compute_shadow_staleness` itself (read recency,
+    semantics untouched); its docstring cross-refs at `monitor_core.py`
+    1451/2859; `_set_shadow_stale_banner` (same seam, new caller);
+    `tmux_monitor.py` re-export (extended, not changed); every `is_stale` /
+    `stale_ts` hit in unrelated suites (project groups, syncer, plan_verified,
+    xdeps, crew_runner) — namespace collisions only.
+  - *Tests updated:* the four direct `_shadow_feedback_stale` assignments and
+    the throttle/cost-gate assertions, all listed below.
+
+- **Post-phase `unknown_banner_noise_check` — result.** Rendered all three
+  states at both narrow tiers (24 and 30 cols): exactly one banner mounts per
+  state, and `2 to address` / `1 informational` stay on screen in every case.
+  One judgement to record: at 24 cols the `True`-plus-detail banner wraps to 6
+  rows, making it the tallest element in the dialog. Accepted as-is because it
+  is the message that explains a non-obvious verdict; the shorter alternative
+  (`— round 12, 1h04m older`) is the fallback if it proves heavy in live use.
+  The legacy-pane case reads as honest uncertainty rather than noise, and was
+  **not** softened toward "current".
+
+- **Deviations from plan:**
+  - The plan's `_fresh_app`-based T0/T1/T2 test needed a mutable-holder fixture
+    (one-element lists for the stamp / last-change) so one app can walk the
+    timeline; a per-call stub could not express the transition.
+  - Added a cost gate the plan did not specify: `_refresh_shadow_stale_banner`
+    skips `get_last_change_wall` unless `contains_block_evidence` — this both
+    avoids pointless work and preserves the pre-existing
+    `test_no_stamp_skips_last_change_lookup` contract.
+  - Removed `format_stale_duration` from minimonitor's imports; the banner
+    formatting moved to `monitor_shared`, orphaning it.
+
+- **Issues encountered:**
+  - **A negative control that passed, and was therefore wrong.** The first
+    mutation aimed at the combined-`None` preserve branch left the three
+    preserve tests green — because their captures are empty, block age is
+    inapplicable and `combined` is never `None`. The guard actually protecting
+    them is `_update_shadow_freshness`'s own `if stale is None: return`.
+    Re-aimed there, all three fail. Recorded because the mis-aim was invisible
+    without checking *why* the mutation was survivable.
+  - **The combined-preserve rule was defective as first written** (caught at
+    review): it preserved any non-`None` prior, so a pane that recorded `False`
+    (no block) and then grew a pre-header block kept `False` and an empty
+    banner — this task's own defect, one tick later. Final rule preserves only a
+    standing `True`; `None` over `False` is an escalation. Centralized in
+    `_record_combined_staleness` and pinned by two mutually exclusive tests.
+  - **An unreachable test premise.** The first standing-warning test could never
+    fire: while read recency is `True` the join returns `True` regardless, so
+    `combined` cannot drop to `None`. Only a *block-age-driven* warning that
+    later loses its header reaches that state.
+  - **A pre-existing test whose name outlived its behaviour.**
+    `test_indeterminate_staleness_adds_no_suffix` kept passing only because
+    "freshness unknown" does not contain "STALE". Renamed and re-asserted rather
+    than left contradicting the code.
+  - **Docstring contract drift, twice.** "Preserve whatever the caller was
+    showing" was copied from `compute_shadow_staleness`, where it is correct,
+    into block age, where it is over-broad; the correction then over-generalized
+    the other way by implying every caller has a recorder. Now scoped: only a
+    caller retaining a verdict between ticks needs the rule.
+
+- **Key decisions:**
+  - Producer half is **routing only** — no fifth rule duplicated across the four
+    producers. t1159_1 already made every round emit a block and already honours
+    an externally named round; nothing named one because nothing routed a
+    recheck.
+  - **The banner, not the toast, owns the became-stale transition.** Both
+    auto-offers return early on an unchanged block (payload dedup in minimonitor
+    at `:2389`, signature gating in the monitor at `:2125`), so no toast can
+    re-fire for a block that merely ages in place. Verified in source before
+    designing around it.
+  - `BlockAge` carries **both** comparison operands so the banner's `block Ns
+    older` is `last_change - reviewed_epoch`, not `now - reviewed_epoch`.
+  - Strict timestamp parsing via canonical round-trip: plain `strptime` accepts
+    `2026-8-1T1:2:3Z`.
+  - `contains_block_evidence` is a new predicate rather than a reuse of
+    `contains_any_concern_block`, which requires ≥1 item (a clean round would
+    misclassify) and is authoring-scoped.
+
+- **Upstream defects identified:** None.
