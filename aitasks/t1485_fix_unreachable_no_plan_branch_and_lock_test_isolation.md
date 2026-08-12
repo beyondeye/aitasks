@@ -14,8 +14,9 @@ folded_tasks: [1492]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-11 18:51
-updated_at: 2026-08-12 11:05
+updated_at: 2026-08-12 13:09
 ---
 
 ## Origin
@@ -146,3 +147,8 @@ produce exactly this symptom.
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t1492** (`t1492_fix_brainstorm_cli_no_plan_warning.md`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-12T10:09:19Z status=pass attempt=1 type=human
