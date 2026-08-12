@@ -253,9 +253,10 @@ Read only the last line of the suite run for the verdict
 (`PYTHON SUITE: PASSED|FAILED (runner=…, exit=N)`); a `Results: N passed` line
 earlier belongs to one script-style module.
 
-Manual: `ait logview <some log>` shows `[live]` and, after `r`, `[raw]`;
-`ait monitor` with auto-switch toggled shows `[AUTO]` in the session bar; a task
-carrying a GitLab `issue:` URL renders `GL` on the board instead of crashing it.
+Manual: `ait logview <some log>` shows `[live]` at launch and, after pressing
+`r` with no prior mouse interaction, `[raw]`; `ait monitor` with auto-switch
+toggled shows `[AUTO]` in the session bar; a task carrying a GitLab `issue:` URL
+renders `GL` on the board instead of crashing it.
 
 Step 9 (Post-Implementation) handles merge and archival.
 
@@ -285,3 +286,117 @@ Step 9 (Post-Implementation) handles merge and archival.
 ### Planned mitigations
 - timing: post-phase | name: isolate_monitor_commit | type: chore | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — foreign hunks in monitor_app.py | desc: build the monitor_app.py commit from an index-level patch of only the line-1495 hunk and verify the committed blob
 - timing: post-phase | name: negative_control_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — Rule C heuristic; and pin efficacy | desc: one mutation at a time, prove Rule C and each behavioural pin can fail, including that Rule C correctly stays green on the literal-bracket boundary
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-11 23:33) — logview startup focus
+
+- **Requested by user:** Review concern, disposition **blocking**, verified
+  CONFIRMED: `LogViewApp` starts with the hidden `#search-box` Input focused, so
+  ordinary startup keys (`q`, `p`, `r`, `g`, `G`, `/`, `n`) are captured by an
+  invisible field instead of firing their bindings. The first version of
+  `tests/test_textual_markup_structure.py` worked around it with an explicit
+  `set_focus(RichLog)` — but the plan's manual-verification step said "press
+  `r` after launch", which no ordinary user could satisfy. Either fix the focus,
+  or revise the acceptance claim and file a tracked follow-up before committing.
+
+- **Changes made:** Took the fix branch. `on_mount` now focuses the `RichLog`
+  **first, before** the missing-file early return, so focus is correct on both
+  paths. This is not a new idiom: `action_cancel_search` and
+  `on_input_submitted` already call `query_one("#log", RichLog).focus()` to hand
+  focus back, so the fix reuses the app's own pattern.
+
+  The test then changed from *working around* the defect to *pinning its fix*:
+  the `set_focus` call is gone (the header test now presses `r` exactly as a
+  user would), and a new `LogViewStartupFocusTests` asserts focus on startup,
+  focus on the missing-file path, and — the user-visible symptom — that a bare
+  `p` reaches its binding and does **not** land in the search field.
+
+  Why it lives in this task rather than a follow-up: the two defects are
+  entangled at the test boundary. Left unfixed, the header pins could only reach
+  `[raw]` by arranging their own precondition past a real bug, which is not the
+  user's path; and the plan's own acceptance criterion would have been
+  unsatisfiable by construction. It is called out as a distinct defect class in
+  the commit body and in the test module's docstring.
+
+  Negative control: removing only the `log.focus()` line (keeping the hoisted
+  lookup, so nothing else moves) fails exactly four tests —
+  `test_the_log_holds_focus_on_startup`,
+  `test_the_log_holds_focus_even_when_the_file_is_missing`,
+  `test_a_bare_letter_key_reaches_its_binding`, and
+  `test_live_raw_and_paused_indicators_render`. Restoring it returns all 9 to
+  green.
+
+- **Files affected:** `.aitask-scripts/logview/logview_app.py`,
+  `tests/test_textual_markup_structure.py`, and this plan (manual-verification
+  step reworded to "with no prior mouse interaction", which is now satisfiable).
+
+## Final Implementation Notes
+
+- **Actual work done:** All three markup-structure defects fixed as planned —
+  `aitask_board.py` `_issue_indicator`/`_pr_indicator` close with `[/]`;
+  `monitor_app.py:1496` escapes `\[AUTO]`; `logview_app.py:_header_text` escapes
+  all three literal brackets (`[size: N]`, `[{state}]`, `[raw]`). Rule C landed
+  in `tests/test_textual_markup_colours.py` as a separate scanner
+  (`scan_source_structure` / `scan_repo_structure`, `StructureFinding`,
+  `_markup_expressions`, `_is_markup_expression`, `_CLOSE_RE`,
+  `_PLACEHOLDER_STYLE`, `STRUCTURE_REMEDIES`) with `MarkupStructureScanTests`
+  and 14 `StructureScannerDiscriminationTests` — one per row of the coverage
+  table, misses included. New `tests/test_textual_markup_structure.py` (9 tests)
+  pins the fixed sites through the live widgets. Plus one unplanned fix — see
+  Post-Review Changes above.
+
+- **Deviations from plan:**
+  1. **The logview startup-focus fix was added** (Change Request 1). Not in the
+     approved plan; it is a different defect class (input routing, not markup),
+     taken in because the plan's own manual-verification step was otherwise
+     unsatisfiable and the header pins would have had to assert past a live bug.
+  2. **`isolate_monitor_commit` became a no-op.** The mitigation assumed
+     `monitor_app.py` carried a concurrent session's uncommitted hunks (lines
+     54/1133/2992/3047). That session committed them mid-implementation as
+     `fabd8e615` (t1159_1), so by commit time the file held only this task's one
+     line. Verified rather than assumed — `git diff` on all touched files showed
+     only this task's hunks — and the intent was still honoured: staging is
+     path-explicit and never `-a`/`-A`, because that session has fresh
+     uncommitted work in ten unrelated files (`aitask_ls.sh`, `aitask_create.sh`,
+     `task_utils.sh`, the `aitask-pick` skill + goldens, website docs, and an
+     untracked `tests/test_ls_display_and_filters.sh`).
+  3. The coverage claim in the Context section was narrowed during review, from
+     "statically un-reintroducible repo-wide" to the same-expression statement,
+     after probing the four gaps. The scanner was NOT broadened: measured weight
+     in this repo is 1 cross-expression tag pair (correct) and 0 action-link
+     sites.
+
+- **Issues encountered:** The first version of the logview test failed because
+  `action_toggle_raw` never refreshes `#header-info` itself — it delegates to
+  `_read_and_append`, which updates the header on its last line and returns
+  early when there is no new data. That is why the fixture must be a non-empty
+  temp log; over an empty file the test would have failed with the fix correct.
+  Chasing it surfaced the startup-focus defect: `r` was being typed into the
+  hidden `#search-box` Input.
+
+- **Key decisions:**
+  - Rule C is a **separate scanner** from Rules A/B rather than another finding
+    type in `scan_source`. `RICH_RENDERER_WAIVERS` means "Rich consumes this
+    token, not Textual" — meaningless for a broken tag pair, since no renderer
+    accepts one. `test_rule_c_is_not_reachable_through_the_rule_b_waivers`
+    asserts `StructureFinding` never grows a `key`.
+  - The gate (named close + Rule-A candidate open + whole-expression
+    reconstruction) was chosen by measurement, not taste: 61 findings / 2 real
+    ungated, 5 / 2 gated-but-per-constant, 2 / 2 as shipped.
+  - The four coverage gaps are pinned by tests that assert **both** silence and
+    the reason (gated out, or reaches the oracle and parses), so a "not flagged"
+    assertion cannot pass vacuously.
+
+- **Negative controls (one mutation at a time, reverted between; each named
+  failing test recorded):**
+  | mutation | expected | observed |
+  |---|---|---|
+  | restore `[/e24329]` at `aitask_board.py:172` | Rule C names it; board pins fail | `MarkupStructureScanTests.test_every_closing_tag_matches_an_open_tag` FAIL reporting `aitask_board.py:172`; `BoardIndicatorMarkupTests.test_every_issue_indicator_branch_parses` FAIL + `…test_the_gitlab_indicators_keep_their_brand_colour` ERROR |
+  | unescape `[AUTO]` at `monitor_app.py:1496` | monitor pin fails; **Rule C stays green** | `MonitorAutoBadgeTests.test_the_auto_badge_is_visible_when_auto_switch_is_on` FAIL; `test_textual_markup_colours.py` OK — the documented boundary, so green is the correct result |
+  | unescape `[raw]` in `logview_app.py` | logview pin fails | `LogViewHeaderTests.test_live_raw_and_paused_indicators_render` FAIL |
+  | remove `log.focus()` from `on_mount` (keeping the hoisted lookup) | the three focus tests + the header test fail | exactly those four FAIL; restoring returns 9/9 |
+
+- **Upstream defects identified:** None. (The logview startup-focus defect was
+  found during this task but is **fixed here**, not deferred — see Post-Review
+  Changes; it is therefore not an outstanding upstream defect.)
