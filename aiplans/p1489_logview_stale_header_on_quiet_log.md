@@ -179,3 +179,57 @@ Step 9 (Post-Implementation) then runs as usual: `ait gates run 1489`
 
 ### Planned mitigations
 - timing: after | name: pin_tail_loop_truncation_refresh | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health — `_reload_from_start`'s refresh is reached in production only via `_tail_loop`'s polling thread, which no test drives | desc: Pin the truncation refresh through the real tail loop — mount with tail=True, truncate the log to zero, wait out the 0.2 s poll, assert the header shows `[size: 0]`
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned change, in two files.
+  `.aitask-scripts/logview/logview_app.py` gained `_refresh_header()`;
+  `_read_and_append` and `action_toggle_pause` were converted from their inline
+  `query_one("#header-info", Static).update(...)` calls to it, and
+  `action_toggle_raw` and `_reload_from_start` — which previously owned no
+  redraw at all — now call it after their re-read.
+  `tests/test_textual_markup_structure.py` gained `LogViewQuietLogHeaderTests`
+  (empty-log fixture, 4 tests), and `LogViewHeaderTests`' docstring was
+  retargeted: its "the fixture must hold bytes because `[raw]` cannot appear on
+  an empty file" rationale describes the bug this task removed.
+
+- **Deviations from plan:** None. Test 1 was named
+  `test_raw_round_trips_on_an_empty_log` and test 3
+  `test_raw_round_trips_when_the_log_file_is_missing` (the plan's prose already
+  specified the round-trip shape for both).
+
+- **Issues encountered:** None. The negative control was run by writing
+  `git show HEAD:<path>` over the working copy — not `git checkout`, which
+  touches the index and can race a concurrent session — with the fixed file
+  saved aside and copied back afterwards.
+
+- **Key decisions:**
+  - *Where the fix lives.* `_read_and_append` keeps its refresh in place, after
+    the early returns, rather than moving it onto every exit path: on both
+    early returns `_last_pos` is unchanged, so there is genuinely nothing to
+    redraw there. What changed is that no caller *relies* on it. The invariant
+    is stated in `_refresh_header`'s docstring so the next call site cannot
+    re-introduce the drift by delegating.
+  - *`_reload_from_start` included.* Beyond the task's literal ask, but the same
+    root cause: `_tail_loop` zeroes `_last_pos` on truncation, then delegates,
+    so a log truncated to zero left a stale `[size: N]`. One line, same rule.
+  - *Two tests for the toggle, only one of them a control.* The on-transition
+    (`[raw]` never appears) is the reported symptom. The off-transition needs
+    `[raw]` on screen *first* to have anything to go stale, so the control
+    seeds bytes, presses `r` (the full re-read reaches the old refresh), then
+    truncates before the second press.
+
+- **Verification:**
+  - Negative control against unmodified `HEAD` source: **all 4 new tests fail.**
+    The on-transition: `AssertionError: '[raw]' not found in 'File: … [size: 0]
+    [live]' : raw mode is on but the header never redrew`. The off-transition:
+    `AssertionError: '[raw]' unexpectedly found in 'File: … [size: 21] [live]
+    [raw]' : raw mode is off but the header still advertises it` — the old code
+    does not merely lag, it asserts the opposite of the truth. The truncation
+    test: `'[size: 0]' not found in '… [size: 21] [static]'`.
+  - With the fix: `python3 tests/test_textual_markup_structure.py` → 13 tests,
+    `OK`.
+  - `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED
+    (runner=pytest, exit=0)`.
+
+- **Upstream defects identified:** None
