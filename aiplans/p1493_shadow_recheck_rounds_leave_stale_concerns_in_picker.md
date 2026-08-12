@@ -137,11 +137,29 @@ def parse_reviewed_at_epoch(reviewed_at: str) -> float | None:
     """Epoch seconds for a block header's ``reviewed_at``, or ``None``."""
 ```
 
-Strict on the one documented shape `%Y-%m-%dT%H:%M:%SZ` (UTC), via
-`datetime.strptime(...).replace(tzinfo=timezone.utc).timestamp()`. Everything
-else — `""`, garbage, a different shape, a non-`Z` suffix — returns `None`
-("cannot tell"), never a guess. Docstring states the same-host clock-trust
-assumption explicitly.
+Strict on the one documented shape `%Y-%m-%dT%H:%M:%SZ` (UTC). Everything else —
+`""`, garbage, a different shape, a non-`Z` suffix — returns `None` ("cannot
+tell"), never a guess. Docstring states the same-host clock-trust assumption
+explicitly.
+
+**`strptime` alone is not strict enough.** Verified: it accepts non-zero-padded
+components, so `2026-8-1T1:2:3Z` parses to a real datetime and would yield a
+*confident* freshness verdict from malformed producer metadata — precisely the
+fail-open this task exists to remove. The shape check is a **canonical
+round-trip**, not a second regex (a regex would drift from the format string):
+
+```python
+try:
+    parsed = datetime.strptime(text, _REVIEWED_AT_FMT)
+except ValueError:
+    return None
+if parsed.strftime(_REVIEWED_AT_FMT) != text:   # rejects 2026-8-1T1:2:3Z
+    return None
+return parsed.replace(tzinfo=timezone.utc).timestamp()
+```
+
+One format constant, used for both parse and re-format, so the check cannot fall
+out of step with the grammar it enforces.
 
 **B1b. `concern_parser.py` — the applicability predicate**
 
@@ -270,10 +288,30 @@ Consequently the banner must stop being driven by read recency alone.
 
 **B4a. `minimonitor_app.py` — banner becomes the combined signal**
 
-`_update_shadow_freshness` (`:2169-2199`) keeps its current job unchanged: it
-computes **read recency** on the throttled every-other tick (it is the one that
-costs a tmux `get_pane_option`) and stores it in `_shadow_feedback_stale`. Its
-banner writes move out.
+`_update_shadow_freshness` (`:2169-2199`) keeps its current job: it computes
+**read recency** on the throttled every-other tick (it is the one that costs a
+tmux `get_pane_option`). Its banner writes move out.
+
+**But the verdict alone is not enough to move them.** Today that method renders
+`(analyzed Ns ago)` from a **local** `analyzed_at` (`:2193-2194`) that is never
+stored; a step holding only `_shadow_feedback_stale` cannot reproduce the
+detail, nor say which signal drove a `True`. So read recency becomes an atomic
+pair — verdict *and* its provenance timestamp, written together:
+
+```python
+class ReadRecency(NamedTuple):
+    stale: bool | None
+    analyzed_at: float | None
+```
+
+stored as `self._shadow_read_recency`, with `_shadow_feedback_stale` kept as a
+**read-only property** returning `._shadow_read_recency.stale` (defaulting via
+`getattr` so the `__new__`-built test apps keep working). Existing readers —
+the tests, and t1159_2's planned `_service_review_loop` — are unaffected, and
+there is exactly one writable source, so verdict and timestamp cannot desync.
+The one existing *assignment* to `_shadow_feedback_stale` (`:2334`, the
+no-shadow clear) becomes a tuple write; the pre-phase sweep must confirm there
+are no others.
 
 A new cheap step runs **every** tick, after `text = await
 capture_shadow_text(shadow_pane)` (`:2350`) and before the
@@ -290,15 +328,28 @@ self._set_shadow_stale_banner(<text for the combined verdict>)
 ```
 
 No new tmux traffic: `get_last_change_wall` is a dict lookup
-(`monitor_core.py:1463`) and `text` is already captured. Banner text:
+(`monitor_core.py:1463`) and `text` is already captured.
 
-- `True` → the existing `⚠ shadow feedback is stale — agent moved on (analyzed
-  Ns ago)` when read recency drove it; when **block age** drove it (the reported
-  case: the shadow re-read but emitted nothing) the reason is named instead —
-  `⚠ shadow feedback is stale — round N predates the agent's latest change
-  (block Ns older)`.
-- `None` → `⚠ shadow freshness unknown — cannot tell whether the feedback is current`
-- `False` → `""`
+**Banner text — reason precedence is defined, not incidental.** Both signals can
+be `True` at once, so the message is chosen by an explicit ladder (a pure
+function `format_shadow_stale_banner(recency, age, meta, now)` in
+`monitor_shared.py`, so it is unit-testable without a DOM):
+
+| read recency | block age | banner |
+|---|---|---|
+| `True` | `True` | `⚠ shadow feedback is stale — agent moved on (analyzed Ns ago; round N block older still)` |
+| `True` | anything else | `⚠ shadow feedback is stale — agent moved on (analyzed Ns ago)` — **byte-identical to today** |
+| not `True` | `True` | `⚠ shadow feedback is stale — round N predates the agent's latest change (block Ns older)` |
+| combined `None` | — | `⚠ shadow freshness unknown — cannot tell whether the feedback is current` |
+| combined `False` | — | `""` |
+
+Read recency leads when it is `True` because it is the stronger statement — the
+shadow has not even *looked* — and the existing wording stays intact for the
+case users already know. The block-age wording exists for the new case the live
+session exposed, where the shadow demonstrably re-read and the old message
+("agent moved on") would read as a contradiction. `analyzed Ns ago` comes from
+`recency.analyzed_at`, which is exactly why it had to be persisted; `block Ns
+older` is `last_change − reviewed_epoch` via `format_stale_duration`.
 
 **A pane with no block never reaches the `None` banner.** `age.applicable` is
 `False` there, so the combined verdict is exactly `_shadow_feedback_stale` and
@@ -345,11 +396,18 @@ documented in Part C.
    deliberately asked to look now. `text` here is whichever capture produced
    `concerns`, including the deeper retry.
 
-   **Write-back:** refresh `_shadow_feedback_stale`, `_shadow_stale_combined`
-   and the banner from these values **only when `read_stale is not None`** —
-   the preserve-on-indeterminate rule is global, and an action path must not be
-   the one place that clobbers a standing warning. Pass the tri-state plus
-   `stale_detail` to the modal.
+   **Write-back — one rule per value, gated on the value's own verdict.**
+   Gating everything on `read_stale is not None` would be wrong: a combined
+   `True` driven by **block age alone** (read recency indeterminate) is a
+   positive stale finding and must be established, not discarded.
+
+   - `_shadow_read_recency` ← written only when `read_stale is not None`
+     (preserve-on-indeterminate applies to *that* signal).
+   - `_shadow_stale_combined` and the banner ← written when the **combined**
+     verdict is `True` **or** `False`; preserved untouched only when the
+     combined verdict is `None`.
+
+   Pass the tri-state plus `stale_detail` to the modal.
 2. `minimonitor_app.py` toast (`:2393-2397`): `stale_suffix` reads
    `_shadow_stale_combined` — `True` → `" (⚠ STALE — agent moved on)"`, `None` →
    `" (⚠ freshness unknown)"`, `False` → `""`. Left **after** the dedup return
@@ -429,11 +487,13 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
 2. `monitor_core.py`: add `BlockAge`, `compute_block_age_staleness` and
    `combine_staleness` directly after `compute_shadow_staleness`, with
    contract-table docstrings.
-3. `monitor_shared.py`: add `format_staleness_detail`; widen
+3. `monitor_shared.py`: add `format_staleness_detail` and the pure
+   `format_shadow_stale_banner` reason ladder; widen
    `ConcernPickerModal.__init__`; add the `#concern-stale-unknown` branch and CSS.
-4. `minimonitor_app.py`: move the banner writes out of `_update_shadow_freshness`
-   into the new every-tick combined step (B4a), then wire sites 1 and 2 (incl.
-   the live read-recency recompute when the cache is `None`).
+4. `minimonitor_app.py`: introduce `ReadRecency` + the `_shadow_read_recency`
+   tuple and the `_shadow_feedback_stale` read-only property; move the banner
+   writes out of `_update_shadow_freshness` into the new every-tick combined
+   step (B4a); then wire sites 1 and 2 (site 1 recomputes unconditionally).
 5. `monitor_app.py`: wire sites 3 and 4.
 6. `.claude/skills/aitask-shadow/SKILL.md.j2`: add the recheck routing entry.
 7. Regenerate the three entry-point goldens (`impl-challenge.md` is untouched, so
@@ -478,9 +538,14 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
 ### New tests
 
 - **`tests/test_concern_parser.py`**
-  - `TestParseReviewedAtEpoch` — the documented shape converts exactly; `""`,
-    prose, a `+00:00` offset, a date-only string, and markup garbage all give
-    `None`. Pin one concrete epoch so a timezone-dependent implementation fails.
+  - `TestParseReviewedAtEpoch` — the documented shape converts exactly; pin one
+    concrete epoch so a timezone-dependent implementation fails (run at least
+    one case under a non-UTC `TZ` to prove the `timezone.utc` attachment).
+    `None` cases, each its own subtest: `""`; prose; markup garbage; a `+00:00`
+    offset; a date-only string; a space instead of `T`; a missing `Z`; and —
+    the leniency guard — **non-zero-padded components**: `2026-8-1T14:03:27Z`,
+    `2026-08-11T1:2:3Z`, `2026-8-1T1:2:3Z`. Without these three the round-trip
+    check can be deleted and every test still passes.
   - `TestRouterRoutesRechecks` — drift guard over `SKILL.md.j2` **and** the
     rendered `fast` variant (mirroring `TestRenderedShadowDocsKeepTheGuarantees`,
     line 1568). Module-level predicate `_routes_recheck_asks(text)` over
@@ -547,6 +612,15 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
     banner updates on an **even** tick, where `_update_shadow_freshness` did not
     run at all.
 
+  - **Banner reason precedence — all three `True` shapes**, asserted on
+    `_shadow_stale_banner_text` (the existing DOM-free seam at `:2147`):
+    read-driven only ⇒ the message is **byte-identical to today's**, including
+    `analyzed Ns ago` (this is what proves the persisted `analyzed_at` survived
+    the move out of `_update_shadow_freshness`); block-driven only ⇒ the
+    round-predates wording, and **not** "agent moved on"; both ⇒ the combined
+    wording carrying both clauses. Add the `None` and `False` rows. Cover the
+    ladder as a pure-function table on `format_shadow_stale_banner` too, so a
+    wiring bug and a wording bug fail separately.
   - **No-block regression guard.** A shadow pane with **no concern block** (the
     explain-only session) and a clean read stamp ⇒ banner stays `""` and
     `_shadow_stale_combined is False`; with a stale read stamp ⇒ exactly today's
@@ -584,11 +658,17 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
       deep re-capture yields a full round-2 block ⇒ the verdict is computed
       from the **deeper** text (`applicable is True` with a real verdict, not
       the truncated capture's `None`).
-  - **Write-back is preserve-on-indeterminate:** with a standing stale banner
-    and a `get_pane_option` that reports failure, pressing `c` must leave
-    `_shadow_feedback_stale`, `_shadow_stale_combined` and the banner text
-    **unchanged** (`assertIs` on the identity of the prior value), while the
-    modal itself still receives the fail-safe combined verdict.
+  - **Write-back, both halves of the rule:**
+    - *Preserve:* `get_pane_option` reports failure **and** the block carries no
+      usable header ⇒ combined is `None` ⇒ `_shadow_read_recency`,
+      `_shadow_stale_combined` and the banner text are all **unchanged**
+      (`assertIs` against the prior values), while the modal still receives the
+      fail-safe `None`.
+    - *Establish:* `get_pane_option` reports failure (read recency `None`) but
+      the block's header is older than `last_change` ⇒ combined is `True` ⇒
+      `_shadow_stale_combined` and the banner **are** written, while
+      `_shadow_read_recency` is left untouched. This is the case the earlier
+      draft's blanket `read_stale is not None` gate would have thrown away.
   - Toast suffixes for all three states, on a **new** block each time (the only
     condition under which the toast is reachable).
 - **`tests/test_concern_picker_modal.py`**
@@ -730,6 +810,25 @@ retired.
   age unconditionally from the action's own final `text` and combining locally,
   with write-back to the tick state gated on `read_stale is not None`. Both
   directions are now pinned by tests, plus the deeper-retry coherence case.
+
+- **Moving the banner out would have dropped its provenance.**
+  `_update_shadow_freshness` renders `(analyzed Ns ago)` from a **local**
+  `analyzed_at` that is never stored, so an every-tick step holding only the
+  boolean could not have reproduced the detail nor decided which signal drove a
+  `True`. Resolved by making read recency an atomic `ReadRecency(stale,
+  analyzed_at)` tuple with `_shadow_feedback_stale` as a read-only property
+  (one writable source, no desync, existing readers untouched), plus an explicit
+  reason-precedence ladder as a pure, table-tested function.
+- **The action-path write-back gate was wrong.** Gating on `read_stale is not
+  None` would have discarded a combined `True` driven by block age alone —
+  a positive stale finding, thrown away. Corrected to one rule per value: the
+  read-recency tuple preserves on its own `None`; the combined verdict and
+  banner preserve only when the **combined** verdict is `None`.
+- **`strptime` accepts non-zero-padded components.** Verified:
+  `2026-8-1T1:2:3Z` parses and would have produced a confident freshness verdict
+  from malformed metadata. Resolved with a canonical round-trip check against
+  the single format constant, and three non-zero-padded negative tests without
+  which the check could be deleted unnoticed.
 
 ### Reassessment after inline insertion
 
