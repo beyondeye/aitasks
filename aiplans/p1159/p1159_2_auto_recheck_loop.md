@@ -808,3 +808,323 @@ the sibling's task body must link both directions (t1448 ↔ new sibling).
 
 ### Planned mitigations
 - timing: pre-phase | name: live_trigger_positive_control | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (trigger inputs unverified live) | desc: Positive control — confirm awaiting_input + staleness assert on a live Claude pane before wiring the loop, and capture the shadow-readiness fixtures pinning shadow_prompt_ready
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-12 18:55) — implementation review, 3 blocking + 1 follow-up, all verified valid
+
+- **Requested by user (via review):**
+  1. *(medium, review_loop.py)* A WAITING tick with `stale is False` reset
+     only the streak, not `work_seen` — a manual shadow refetch left latched
+     (already-reviewed) work armed for a later selection-only redraw to
+     reuse.
+  2. *(medium, minimonitor_app.py)* Overlapping `_maybe_offer_concerns`
+     invocations each advanced the debounce streak and the hash-stability
+     ring — the "N consecutive refreshes" guarantees collapsed under the
+     documented t1111_4 refresh overlap (reproduced: one refresh + two
+     overlapping services reached FIRED).
+  3. *(medium, review_loop.py)* `classify_followed_change` read every
+     positive `#{history_size}` delta as work, but tmux reflow also grows it
+     (measured 471→491 on a bare 120x30→50x10 resize) — a resize at a prompt
+     could open the latch and fire with no agent work.
+  4. *(low, shadow_agent.md)* The bounded-capture residual note over-claimed
+     ("the practical residual is a no-op revision") from a single measured
+     rendering case.
+- **Changes made:** (1) The controller consumes the work latch on the
+  observed staleness **True→False edge** ("read recency positively became
+  current") — an edge, not the level, because the throttled stale cache can
+  lag a same-tick work observation; same-tick work on the edge tick IS
+  covered by the verdict's snapshot and is consumed (tests pin the edge, the
+  same-tick case, and the throttle-skew survival case; two existing fixtures
+  retargeted where they placed work on the re-arm tick, guards preserved).
+  (2) `_service_review_loop` serializes evidence ticks with a monotonic
+  min-interval guard (half the refresh period, floor 1s) — overlapping
+  invocations collapse to one committed tick; reproduction test added (one
+  refresh + two overlapping services → still WAITING, then one genuine tick
+  fires). (3) The classifier takes the pane geometry (baseline now carries
+  `(width, height)`); a geometry change classifies UNKNOWN before either
+  evidence channel is consulted (resize regression test + constant-geometry
+  positive control + None-geometry back-compat). (4) Both residual notes
+  (module docstring + shadow_agent.md) keep the limitation and drop the
+  unsupported narrowing, naming the uncovered rendering cases instead.
+- **Files affected:** `.aitask-scripts/monitor/review_loop.py`,
+  `.aitask-scripts/monitor/minimonitor_app.py`,
+  `aidocs/framework/shadow_agent.md`, `tests/test_review_loop.py`,
+  `tests/test_minimonitor_concern_action.py`,
+  `tests/test_minimonitor_concern_smoke.py`.
+- **Verification:** touched modules green (48 pure + 99 app/smoke); full
+  suite `PYTHON SUITE: PASSED (runner=pytest, exit=0)` twice consecutively
+  (one earlier transient failure did not reproduce).
+
+### Change Request 2 (2026-08-12 19:50) — implementation review round 3, 2 blocking + 1 follow-up, all verified valid
+
+- **Requested by user (via review):**
+  1. *(medium, minimonitor_app.py)* The service classified and advanced
+     `_loop_baseline` BEFORE the evidence-serialization guard — a throttled
+     overlapping invocation that was first to contain new output consumed
+     the observation without delivering it, and the next committed tick saw
+     "no change" (episode permanently lost; reproduced).
+  2. *(medium, review_loop.py)* `arm()`/`disarm()` did not reset
+     `_prev_stale`, so a True inherited from a previous lifecycle let a
+     fresh arm's first tick (WORK + stale False) fake a currency edge and
+     consume the new episode.
+  3. *(low, review_loop.py)* The resize guard returns UNKNOWN while the
+     caller still advances the baseline, so output arriving in the same
+     capture as a resize is absorbed — an undocumented false negative.
+- **Changes made:** (1) The service now checks armed + the min-interval
+  guard **before any evidence mutation** — a skipped invocation touches
+  nothing (baseline, ring, controller all untouched); the disarmed-path
+  baseline upkeep was deleted outright (arm() seeds the baseline, so it was
+  dead weight that mutated state). Regression: throttled invocation carries
+  the new output → baseline unmoved, next committed tick classifies WORK.
+  (2) `_prev_stale` is reset to None on both `arm()` and `disarm()` — edge
+  state never crosses lifecycles. Regression: stale lifecycle → disarm →
+  fresh arm → first tick WORK+False keeps the latch open. (3) Accepted and
+  documented as a deliberate tradeoff (classifier comment +
+  shadow_agent.md residual note): no valid signal exists across a reflow —
+  comparing against the pre-resize baseline would trade the false negative
+  for rewrap false positives; only work confined entirely to the resize
+  tick with nothing after is lost, the same shape as the bounded-capture
+  residual.
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `.aitask-scripts/monitor/review_loop.py`,
+  `aidocs/framework/shadow_agent.md`, `tests/test_review_loop.py`,
+  `tests/test_minimonitor_concern_action.py`.
+- **Verification:** touched modules green (49 pure + 100 app/smoke). Full
+  suite: intermittently FAILED on
+  `tests/test_board_movement.py::BoardMovementBenchmarkTests::
+  test_attribution_tier_localises_an_injected_cost` (~4 of 10 runs) — a
+  pre-existing, contention-marginal 25ms attribution bound in an unrelated
+  t1395 benchmark: passes standalone, passed on a parent-commit control
+  run, and this task's added test modules merely shift the
+  `--dist loadfile` worker packing it is sensitive to. Recorded as an
+  upstream defect for Step 8b; every non-benchmark test passes
+  (4453 passed / 1 flaky-failed on the failing runs).
+
+### Change Request 3 (2026-08-12 20:15) — implementation review round 4, 2 blocking, both verified valid
+
+- **Requested by user (via review):**
+  1. *(medium, review_loop.py)* `arm(pending_work=True)` reset `_prev_stale`
+     to None although `pending_work` IS a positive arm-time True
+     observation — a manual shadow refetch before the first tick could not
+     form the True→False edge, leaving the already-reviewed pending latch
+     open for selection-only churn to fire (reproduced:
+     arm(True) → stale=False → three selection-only stale ticks → FIRE).
+  2. *(medium, minimonitor_app.py)* `_update_shadow_freshness` writes the
+     recency cache on its own cadence (throttle + overlapping refreshes),
+     before the loop's serialization guard — the ONLY stale=False could
+     land inside a throttled service window and be overwritten by True
+     before the next committed tick, wedging a FIRED controller forever
+     (reproduced through the app path).
+- **Changes made:** (1) `arm()` seeds `_prev_stale = True if pending_work
+  else None` — the arm-time observation is the new lifecycle's first edge
+  operand, while fresh arms stay inheritance-free (round-3 rule preserved).
+  Pinned: the pending-arm/manual-refetch reproduction, plus the existing
+  fresh-arm and cross-lifecycle tests still green. (2) A sticky
+  `_loop_stale_false_pending` accumulator: the recency writer latches every
+  recorded False; the next COMMITTED service tick delivers stale=False to
+  the controller exactly once and clears it; the arm action clears any
+  pre-arm leftover. Pinned by a writer-level test (real
+  `_update_shadow_freshness` against a stubbed `get_pane_option` /
+  `get_last_change_wall`) and the FIRED-wedge reproduction (throttled False
+  then True → committed tick still re-arms to WAITING).
+- **Files affected:** `.aitask-scripts/monitor/review_loop.py`,
+  `.aitask-scripts/monitor/minimonitor_app.py`, `tests/test_review_loop.py`,
+  `tests/test_minimonitor_concern_action.py`,
+  `tests/test_minimonitor_concern_smoke.py`.
+- **Verification:** touched modules green (50 pure + 102 app/smoke). Full
+  suite under sustained box load flaked on the known t1395 benchmark and
+  once on `test_codebrowser_startup_focus_live` (hot-handoff boot budget) —
+  both pass standalone in the same session; every non-live/benchmark test
+  green in every run.
+
+### Change Request 4 (2026-08-12 20:40) — implementation review round 5, 1 blocking + 1 convention, both verified valid
+
+- **Requested by user (via review):**
+  1. *(medium, minimonitor_app.py)* The round-4 pending-False replay
+     substituted the older False for the CURRENT verdict in the same
+     controller tick that carried a newer WORK classification — the
+     artificial same-instant True→False edge consumed the genuinely
+     unreviewed episode (reproduced: FIRED → pending False + new output +
+     current True → WAITING with work_seen=False → no second delivery).
+  2. *(low, minimonitor_app.py)* The `L` binding shipped `show=False`
+     without the audit/justification `aidocs/framework/tui_conventions.md`
+     requires ("TUI footer must surface every operation").
+- **Changes made:** (1) **Ordered delivery**: when the latched False must be
+  replayed and the current verdict has moved on (True/None), the service
+  now runs the replay as its OWN controller tick first — `stale=False`,
+  `work_signal=UNKNOWN` (that older instant carried no work),
+  `awaiting_input=None` — re-arming FIRED without any edge touching the
+  current tick's evidence; the normal tick then processes the current
+  verdict and WORK, so the newer episode's latch survives and the loop
+  delivers it (reproduction pinned end-to-end: re-arm with `work_seen`
+  True, then the second send pair). A replay observing verified absence
+  auto-disarms exactly like the main tick. When the current verdict is
+  itself False, one tick suffices (no replay).
+  (2) **Recorded exception, not a flip**: minimonitor renders no Footer at
+  all — every one of its 18 pre-existing bindings is `show=False` and the
+  40-column companion surfaces ALL keys in the `#mini-key-hints` Static
+  (`L:auto-recheck loop` included), which is the convention's own
+  "surface the hint in the pane's own text" pattern (tui_conventions.md
+  ~line 330). Flipping only the new binding would create the misleading
+  partial footer the convention warns against, and adding a
+  MultiRowFooter is a minimonitor surface redesign out of this task's
+  scope. Justification recorded here (the convention's mandated place) and
+  as a comment at the binding site.
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_minimonitor_concern_action.py`.
+- **Verification:** touched modules green (50 pure + 103 app/smoke tests).
+
+### Change Request 5 (2026-08-12 21:00) — implementation review round 6, 2 blocking, both verified valid
+
+- **Requested by user (via review):**
+  1. *(medium, review_loop.py)* `tick()`'s modal pause returned before the
+     FIRED branch while the observation block (including `_prev_stale`
+     advancement) had already run — the only stale=False arriving during an
+     open modal updated the edge state without re-arming FIRED, wedging the
+     controller once staleness turned True again (reproduced directly).
+  2. *(medium, minimonitor_app.py)* `_loop_stale_false_pending` was cleared
+     before the controller was known to process observations — an
+     indeterminate-presence tick (agent discovered, capture failed) returns
+     at the presence guard, so the only edge was discarded and FIRED stayed
+     wedged after recovery (reproduced through the app path).
+- **Changes made:** (1) The FIRED re-arm is now observation-driven: the
+  DELIVERING/FIRED branches run BEFORE the modal pause, which now inhibits
+  only the WAITING debounce and the fire decision (regression: fire → False
+  under an open modal → WAITING, and a later episode completes normally).
+  (2) The service consumes the pending edge only when both presences permit
+  observation processing (`agent_presence is True` and a found shadow);
+  indeterminate ticks preserve the flag (regression: pending edge survives
+  a capture-failure tick, FIRED re-arms on the recovery tick; verified
+  absence auto-disarms before observations and the flag is re-seeded at the
+  next arm).
+- **Files affected:** `.aitask-scripts/monitor/review_loop.py`,
+  `.aitask-scripts/monitor/minimonitor_app.py`, `tests/test_review_loop.py`,
+  `tests/test_minimonitor_concern_action.py`.
+- **Verification:** touched modules green (51 pure + 104 app/smoke tests).
+
+### Change Request 6 (2026-08-12 21:25) — implementation review round 7, 2 blocking + 1 convention, all verified valid
+
+- **Requested by user (via review):**
+  1. *(medium, minimonitor_app.py)* The service carried lifecycle-A evidence
+     (classified work) across the readiness `await` with no lifecycle
+     validation — a rapid disarm/re-arm during the await let the resumed
+     invocation inject pre-arm work into the fresh lifecycle's latch
+     (reproduced end to end with a spurious recheck).
+  2. *(medium, review_loop.py)* The round-6 reorder let a modal tick return
+     from DELIVERING without resetting the preserved streak — modal then
+     abort_fire resumed WAITING with streak 3 and re-reserved on the first
+     post-modal ready tick (reproduced directly).
+  3. *(low, minimonitor_app.py)* The recorded show=False exception claimed
+     the hints Static surfaces ALL operations, but `M` and the mixin's `?`
+     were missing — the convention's audit was incomplete.
+- **Changes made:** (1) The controller exposes its supersession
+  `generation`; the service snapshots it before the readiness await and
+  abandons (no tick, no mutation) when it changed — pinned by a
+  rearm-during-await reproduction asserting the fresh lifecycle's latch
+  stays closed and no send follows. `_fire_shadow_recheck` already
+  re-validates via the delivery token. (2) DELIVERING now applies the modal
+  streak reset before returning — pinned by the modal→abort→re-debounce
+  reproduction plus a no-modal positive control preserving the round-1
+  hold-retry contract. (3) `M:multi-session` and `?:edit keys` added to the
+  hints; the hints text was extracted to a module-level `KEY_HINTS_TEXT`
+  and the audit made **executable**: a new test asserts every binding key
+  (mixin included) appears in the hints, so the recorded exception's
+  "every binding" claim can never silently rot; the binding-site comment
+  now cites the test.
+- **Files affected:** `.aitask-scripts/monitor/review_loop.py`,
+  `.aitask-scripts/monitor/minimonitor_app.py`, `tests/test_review_loop.py`,
+  `tests/test_minimonitor_concern_action.py`.
+- **Verification:** touched modules green (53 pure + 106 app/smoke tests).
+
+## Final Implementation Notes
+- **Actual work done:** All plan steps landed. New pure module
+  `.aitask-scripts/monitor/review_loop.py`: `ReviewLoopController`
+  (DISARMED/WAITING/DELIVERING/FIRED; 3-tick positive-evidence debounce;
+  45s cooldown surviving disarm/re-arm; tri-state agent/shadow presence with
+  pause-on-indeterminate; synchronous DELIVERING reservation + supersession
+  generation with confirm/abort consuming only the live token; work latch
+  fed by classified evidence with a staleness currency-edge consume;
+  public `generation` for cross-await lifecycle validation),
+  `shadow_prompt_ready` + `SHADOW_READY_DETECTORS` (three-part positive
+  readiness on RAW ANSI tails — the dim composer placeholder is the
+  typed-text discriminator; spinner + dialog negatives; hash stability
+  mandatory), `classify_followed_change` (kind-aware: AskUserQuestion chip
+  anchor via `workflow_phase.current_question_block`, native plan-approval
+  boundary pattern, kind-change=work, `#{history_size}` growth rule gated on
+  constant geometry, resize→UNKNOWN), and `compose_recheck_prompt` (leads
+  with t1493's landed routing trigger verbatim; round machine-derived from
+  `parse_block_meta(prev).round + 1`, never guessed). monitor_core:
+  `shadow_query_args` third field, `match_shadow_pane_info` (+
+  `match_shadow_pane` reimplemented on top), `find_shadow_pane_info_async`
+  with the t1216_4-style ok discriminator, `TmuxPaneInfo.history_size`
+  (9/10-field parser back-compat), `capture_raw_tail`. minimonitor: `L`
+  arm/disarm with both-sides capability refusals naming the shadow's agent,
+  `_service_review_loop` from all three `_maybe_offer_concerns` branches
+  (evidence serialized to one committed tick per half refresh; baseline
+  `(content, kind, pane_id, history, geometry)` seeded at arm, preserved
+  across indeterminate ticks; sticky pending-False edge accumulator with
+  ordered replay and consumption gating), `_derive_agent_presence` from the
+  discovery-facts seam, `_fire_shadow_recheck` verified two-step delivery
+  (pre-send revalidation + token re-check; Enter gated on the write; visible
+  disarm + recovery text on partial failure), `#mini-loop-status` banner,
+  `KEY_HINTS_TEXT` constant with executable hints/bindings parity.
+  `aidocs/framework/shadow_agent.md`: "Review-loop automation" section with
+  the 10-item safety contract, bounded-capture and resize residuals.
+- **Deviations from plan:** (1) Shadow readiness reads a NEW small raw
+  `capture-pane -e` tail (`capture_raw_tail`, armed-only) instead of the
+  tick's cleaned `capture_shadow_text` — the pre-phase discovered Claude's
+  composer placeholder hint is dim-styled text that ANSI-stripping makes
+  identical to typed text, so the cleaned capture cannot answer "is the
+  composer empty" (fixtures pin both). (2) Classifier fixtures are inline
+  literals in `tests/review_loop_fixtures.py` (the `test_prompt_detection`
+  practice) rather than files under `tests/fixtures/` — no captured-widget
+  file convention exists. (3) The loop banner's DOM-free seam is the
+  recorded-attribute pattern (`_loop_banner_text`), mirroring
+  `_shadow_stale_banner_text` — the plan's `_loop_banner_text` "seam" name
+  survived, but as an attribute, since no pure text-composer helper exists
+  for the stale banner either. (4) Seven review rounds (2 plan-time + 5
+  implementation-time) hardened the design well beyond the approved plan —
+  see Plan-review hardening rounds 1-4 and Change Requests 1-6; all
+  reproductions are test-pinned. (5) t1493 landed mid-session, discharging
+  the coordination note's "producer half must land first" dependency; the
+  composer wording embeds its routing trigger verbatim.
+- **Issues encountered:** A `git checkout --` used to revert a deliberate
+  negative-control mutation also discarded the (uncommitted) minimonitor
+  wiring; it was re-applied from context and re-verified (the mutation
+  control itself did its job: the named test failed while mutated). Full
+  suite runs under sustained box load flaked twice on load-sensitive tests
+  outside this change (see Upstream defects); both pass standalone and the
+  suite passed cleanly on a settled box multiple times.
+- **Key decisions:** edge-driven controller with every "cannot tell" state
+  pausing rather than deciding; delivery reservation made synchronously
+  inside `tick()` (asyncio interleaves only at awaits); the work latch
+  consumes on the staleness currency EDGE (never the level — the throttled
+  cache can lag same-tick work); ordered replay of a missed False before
+  current evidence; readiness patterns and dialog boundaries maintained
+  in-place per t1474; the arm refusal names the shadow's agent (the
+  live-observed Codex-shadow configuration).
+- **Upstream defects identified:**
+  - `tests/test_board_movement.py:1432 — the t1395 attribution-tier
+    negative-control bound (25ms of a 50ms injection) is contention-marginal
+    under the parallel lane: it flaked in ~4 of 10 full-suite runs on a
+    loaded box (worker packing shifts when test modules are added), passes
+    standalone and on a parent-commit control; candidate for the runner's
+    serial carve-out or a tolerance derived from a same-run baseline`
+  - `tests/test_codebrowser_startup_focus_live.py — hot-handoff live test
+    missed its boot budget once under the same sustained load; passes
+    standalone; same load-sensitivity class as the board benchmark`
+- **Notes for sibling tasks:** t1159_3 (spin-off triage arm): the picker
+  flow is untouched by this child; `ConcernPickResult` remains
+  (forwarded, rejected, unrejected). t1159_4 (docs sweep): shadow_agent.md
+  already carries the full safety contract + residuals; the website
+  minimonitor page needs `L`, the banner states, and the M/? hints line
+  (KEY_HINTS_TEXT is the source of truth, parity test-pinned). t1159_5
+  (manual verification): the live checklist should arm during a real
+  `aitask-pick` plan review and observe: refusal messages (Codex shadow —
+  a real configuration), the ARMED banner, a round-2 fire exactly once
+  after concerns are addressed, and no fire from selection-only navigation.
+  t1159_6 (status line): `_maybe_offer_concerns` now resolves the shadow
+  via `find_shadow_pane_info_async` — reuse that call's result; the two
+  transient banners are `#mini-shadow-stale` ($error) and
+  `#mini-loop-status` ($warning); pick a third distinct style.
