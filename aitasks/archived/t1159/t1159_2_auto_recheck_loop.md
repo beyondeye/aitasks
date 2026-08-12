@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t1159_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/fable5
 created_at: 2026-08-11 15:33
-updated_at: 2026-08-12 17:44
+updated_at: 2026-08-12 23:38
+completed_at: 2026-08-12 23:38
 ---
 
 Build the minimonitor-orchestrated auto-recheck loop: a pure state-machine module plus minimonitor wiring that, when armed, sends "refetch and recheck round N" into the SHADOW pane when the followed agent settles at a prompt after new output. The critical seam of t1159 (parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_2_auto_recheck_loop.md`). Depends on t1159_1 (round metadata: expected-round derivation and dedup lift).
@@ -96,3 +97,14 @@ the refusal message names the shadow's agent, since this is not a corner case.
 > **✅ gate:plan_approved** run=2026-08-12T14:44:46Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-12T20:30:33Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-12T20:38:32Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f436298c74dd9691
+
+> **✅ gate:risk_evaluated** run=2026-08-12T20:38:32Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1159_2/risk_evaluated_2026-08-12T20:38:32Z-risk_evaluated-a1.log`
