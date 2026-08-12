@@ -77,7 +77,11 @@ export PYTHONUNBUFFERED=1
 # the real repo — taking .git/index.lock via `git status --porcelain -- aitasks/`
 # — under a 45s boot budget that FAILS rather than skips. Under a loaded worker
 # pool that budget becomes a flake, so it runs in its own serial phase.
-SERIAL_CARVE_OUT=(test_board_header_row_live.py)
+# test_board_startup_focus_live.py boots the real `ait board` TWICE in a tmux
+# pane, under the same wall-clock budget. It runs against its own synthetic
+# project so it never touches the real .git/index.lock — but the budget half of
+# the rationale above applies unchanged, so it is carved out too.
+SERIAL_CARVE_OUT=(test_board_header_row_live.py test_board_startup_focus_live.py)
 
 is_carved() {
     local base="${1##*/}" c

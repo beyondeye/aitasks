@@ -7212,6 +7212,31 @@ class KanbanCommandProvider(Provider):
 
 # --- Main Application ---
 
+class BoardScreen(Screen):
+    """The board's default screen, with Textual's auto-focus disabled (t1491).
+
+    `Screen._update_auto_focus` runs inside `Screen._compose` — before the app's
+    `on_mount` — and focuses the first focusable widget matching the selector.
+    In this app that is `Input#search_box`, which made a freshly launched board
+    swallow every non-`priority` single-key binding (`q` included) as search
+    text until the user pressed Tab/Esc or clicked.
+
+    `""` is what actually disables it: `None` means "inherit `App.AUTO_FOCUS`"
+    (i.e. `"*"`), while an empty selector is falsy and skips the loop. Scoped to
+    THIS screen deliberately — modal screens are pushed separately and keep the
+    app-level `"*"`, so every dialog still focuses its first control.
+
+    With auto-focus off, the board is briefly focus-less until
+    `KanbanApp._claim_startup_focus` anchors focus on a card. That interval is
+    safe by construction: an unfocused screen routes keys straight to the App
+    bindings, so `q` quits throughout it. Leaving auto-focus on and merely
+    correcting it afterwards would instead leave a real window in which the
+    Input still owned the keyboard.
+    """
+
+    AUTO_FOCUS = ""
+
+
 class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     _shortcuts_scope = "board"
 
@@ -7938,11 +7963,22 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         footer.can_focus = False
         yield footer
 
+    def get_default_screen(self) -> Screen:
+        """Use `BoardScreen`, whose auto-focus is off — see that class (t1491)."""
+        return BoardScreen()
+
     def on_mount(self):
         self.refresh_board(refresh_locks=True)
         self._start_auto_refresh_timer()
         self._update_subtitle()
         self._apply_filter_reflow()
+        # Anchor focus on a card (t1491). `BoardScreen` has already stopped
+        # `#search_box` from taking it; this gives the keyboard a real board
+        # target so card navigation and the focus-gated bindings work from the
+        # first keystroke. Deferred for the same reason `apply_filter` is:
+        # `refresh_board` mounts the columns asynchronously, so their focus
+        # anchors are not queryable yet.
+        self.call_after_refresh(self._claim_startup_focus)
 
     def _apply_filter_reflow(self, width: int | None = None):
         """Reflow the filter row when the terminal is too narrow for both parts.
@@ -9055,6 +9091,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         else:
             search_box.focus()
 
+    def _first_board_focus_target(self):
+        """Leftmost column's focus anchor (card / group header / placeholder).
+
+        Returns None when no column has one — an empty board. Shared by the
+        Escape action and the startup claim below so the "which widget IS the
+        board" rule lives in one place.
+        """
+        for col_id in self._get_visible_col_ids():
+            target = self._column_focus_target(col_id)
+            if target is not None:
+                return target
+        return None
+
     def action_focus_board(self):
         """Escape: close modal if active, otherwise return to board from search."""
         if self._modal_is_active():
@@ -9063,12 +9112,30 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             else:
                 self.screen.dismiss()
             return
-        # Leftmost column that has a focus anchor (card or placeholder).
-        for col_id in self._get_visible_col_ids():
-            target = self._column_focus_target(col_id)
-            if target is not None:
-                target.focus()
-                return
+        target = self._first_board_focus_target()
+        if target is not None:
+            target.focus()
+
+    def _claim_startup_focus(self) -> None:
+        """Anchor startup focus on the board's leftmost card (t1491).
+
+        `BoardScreen.AUTO_FOCUS` already stops `#search_box` from claiming the
+        keyboard; this is the positive half — giving focus a real board target
+        so card navigation and the focus-gated bindings (`m`, `x`, `enter`, …)
+        work from the first keystroke instead of after a click.
+
+        Unconditional apart from the modal guard: nothing else has legitimately
+        claimed focus this early. A board with no anchor at all is left
+        focus-less, which is safe — an unfocused screen routes keys to the App
+        bindings, so `q` still quits.
+        """
+        if self._modal_is_active():
+            return
+        target = self._first_board_focus_target()
+        if target is not None:
+            target.focus()
+        elif self.screen is not None:
+            self.screen.set_focus(None)
 
     def _focused_card(self):
         """Return the currently focused TaskCard, or None.

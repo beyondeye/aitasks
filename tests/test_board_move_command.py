@@ -706,9 +706,12 @@ class MoveGatingTests(_MoveTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
-                # Nothing holds focus at boot, so the gate hides `m` — assert
-                # that first, or the "shown" half below could pass for a gate
-                # that never hides anything.
+                # Blur explicitly to reach the no-focused-card case, and assert
+                # it FIRST, or the "shown" half below could pass for a gate that
+                # never hides anything. This used to be the boot state; since
+                # t1491 the board claims startup focus, so it must be arranged.
+                app.screen.set_focus(None)
+                await pilot.pause()
                 self.assertNotIn("move_to_column", footer(app))
 
                 card = next(c for c in app.query(ab.TaskCard) if not c.is_child)

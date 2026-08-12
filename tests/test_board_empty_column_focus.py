@@ -396,6 +396,13 @@ class BoardEmptyColumnFocusTests(bf.FixtureBoardTestBase, unittest.TestCase):
                 await self._settle(pilot)
                 collapsed = [w for w in app.query(self.CollapsedColumnPlaceholder)
                              if w.column_id == "zz_left"][0]
+                # Sample the idle shade from an explicitly BLURRED widget. Since
+                # t1491 the board claims startup focus, and `zz_left` is the
+                # leftmost column — so its placeholder holds focus at boot and
+                # sampling here would capture the focus shade as "idle", making
+                # the restore assertion below compare a colour against itself.
+                app.screen.set_focus(None)
+                await self._settle(pilot)
                 idle = collapsed.styles.background
 
                 collapsed.focus()

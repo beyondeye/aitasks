@@ -176,7 +176,12 @@ class BoardMultiRowFooterTests(bf.FixtureBoardTestBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(200, 48)) as pilot:
                 await pilot.pause()
-                # Nothing holds focus at boot, so the gate hides `m`.
+                # Blur explicitly to reach the no-focused-card case. It used to
+                # be the boot state, but since t1491 the board claims startup
+                # focus, so relying on boot would silently test the SHOWN half
+                # twice and never exercise the gate's False branch.
+                app.screen.set_focus(None)
+                await pilot.pause()
                 self.assertNotIn("move_to_column", self._rendered_actions(app))
 
                 card = next(c for c in app.query(self.TaskCard) if not c.is_child)
