@@ -78,6 +78,17 @@ class LogViewApp(App):  # type: ignore[misc]
         mode = " \\[raw]" if self.raw_mode else ""
         return f"File: {self.log_path}  \\[size: {self._last_pos}]  \\[{state}]{mode}"
 
+    def _refresh_header(self) -> None:
+        """Redraw the status header.
+
+        Every method that mutates header-visible state (`_last_pos`, `paused`,
+        `raw_mode`) calls this itself. Do NOT delegate the redraw to
+        `_read_and_append`: its header update is the last statement, after two
+        early returns, so a caller that relies on it silently keeps a stale
+        header on an empty, quiet or missing log (t1489).
+        """
+        self.query_one("#header-info", Static).update(self._header_text())
+
     def on_mount(self) -> None:
         # Focus the log FIRST, and on every path including the missing-file
         # early return below. Without this, Textual auto-focuses the first
@@ -114,7 +125,7 @@ class LogViewApp(App):  # type: ignore[misc]
         text_obj = Text(decoded) if self.raw_mode else Text.from_ansi(decoded)
         log = self.query_one("#log", RichLog)
         log.write(text_obj)
-        self.query_one("#header-info", Static).update(self._header_text())
+        self._refresh_header()
 
     def _tail_loop(self) -> None:
         while not self._stop.is_set():
@@ -132,18 +143,23 @@ class LogViewApp(App):  # type: ignore[misc]
                 self.call_from_thread(self._read_and_append)
 
     def _reload_from_start(self) -> None:
+        # `_tail_loop` zeroed `_last_pos` before calling us (the log was
+        # truncated), so the size indicator is stale even when the re-read
+        # finds nothing to append.
         self.query_one("#log", RichLog).clear()
         self._read_and_append()
+        self._refresh_header()
 
     def action_toggle_pause(self) -> None:
         self.paused = not self.paused
-        self.query_one("#header-info", Static).update(self._header_text())
+        self._refresh_header()
 
     def action_toggle_raw(self) -> None:
         self.raw_mode = not self.raw_mode
         self._last_pos = 0
         self.query_one("#log", RichLog).clear()
         self._read_and_append()
+        self._refresh_header()
 
     def action_scroll_top(self) -> None:
         self.query_one("#log", RichLog).scroll_home()

@@ -149,13 +149,15 @@ class MonitorAutoBadgeTests(unittest.TestCase):
 class LogViewHeaderTests(unittest.TestCase):
     """The log viewer's header indicators must survive markup parsing.
 
-    **The fixture must hold bytes.** ``action_toggle_raw`` does not update
-    ``#header-info`` itself — it flips ``raw_mode``, rewinds ``_last_pos`` and
-    delegates to ``_read_and_append``, which refreshes the header only on its
-    last line and returns early when there is nothing to read. Over an empty
-    file the header is therefore never rebuilt and ``[raw]`` could not appear
-    even with the markup correct, so the test would pass or fail for reasons
-    unrelated to the fix.
+    **The fixture holds bytes to exercise the data path.** It originally had to:
+    ``action_toggle_raw`` delegated its redraw to ``_read_and_append``, which
+    returns early when there is nothing to read, so over an empty file the
+    header was never rebuilt and ``[raw]`` could not appear whatever the markup
+    said. t1489 fixed that refresh coupling — each mutator now calls
+    ``_refresh_header`` itself — so the empty-file path is no longer a blind
+    spot to route around. It is pinned in its own right by
+    ``LogViewQuietLogHeaderTests`` below; this class keeps its non-empty fixture
+    because ``[live]`` / ``[size:`` are what it is about.
     """
 
     def setUp(self):
@@ -196,6 +198,131 @@ class LogViewHeaderTests(unittest.TestCase):
             app = LogViewApp(self.log_path, tail=False)
             async with app.run_test(size=(120, 24)):
                 self.assertIn("[static]", _rendered(app.query_one("#header-info")))
+
+        asyncio.run(runner())
+
+
+class LogViewQuietLogHeaderTests(unittest.TestCase):
+    """A state toggle must redraw the header even with nothing to read.
+
+    ``action_toggle_raw`` used to own no redraw at all: it flipped ``raw_mode``
+    and delegated to ``_read_and_append``, whose ``#header-info`` update is the
+    last statement, after early returns on a missing file and on an empty read.
+    On a quiet log — a freshly spawned agent that has not printed yet, exactly
+    when the user is watching the header — ``[raw]`` therefore appeared only
+    when some *unrelated* action happened to refresh (t1489).
+
+    Both directions matter, and only one of them is a control.
+    ``test_raw_round_trips_on_an_empty_log`` pins the on-transition (the
+    reported symptom); its off-half would pass vacuously against the old code,
+    since ``[raw]`` was never on screen to go stale.
+    ``test_raw_clears_when_the_log_goes_quiet_while_raw_is_on`` is the
+    off-transition control: it gets ``[raw]`` rendered through the data path
+    first, so the old code has a stale marker to leave behind.
+    """
+
+    PAYLOAD = "hello from the agent\n"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.log_path = Path(self._tmp.name) / "agent.log"
+        self.log_path.write_text("", encoding="utf-8")
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_raw_round_trips_on_an_empty_log(self):
+        """The reported symptom: `r` over a log with nothing in it yet."""
+
+        async def runner():
+            app = LogViewApp(self.log_path, tail=True)
+            async with app.run_test(size=(120, 24)) as pilot:
+                header = app.query_one("#header-info")
+                self.assertNotIn("[raw]", _rendered(header))
+
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertTrue(app.raw_mode, "the r binding did not fire")
+                self.assertIn(
+                    "[raw]", _rendered(header),
+                    "raw mode is on but the header never redrew",
+                )
+
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertFalse(app.raw_mode, "the r binding did not fire")
+                self.assertNotIn("[raw]", _rendered(header))
+
+        asyncio.run(runner())
+
+    def test_raw_clears_when_the_log_goes_quiet_while_raw_is_on(self):
+        """The off-transition, arranged so a stale `[raw]` is possible.
+
+        The first press re-reads the whole file (`_last_pos` is rewound), so it
+        reaches `_read_and_append`'s trailing refresh and renders `[raw]` even
+        against the old code. Truncating then makes the second press take the
+        `not data` early return — where the old code left `[raw]` on screen with
+        raw mode already off: not merely late, but asserting the opposite of the
+        truth.
+        """
+
+        async def runner():
+            self.log_path.write_text(self.PAYLOAD, encoding="utf-8")
+            app = LogViewApp(self.log_path, tail=True)
+            async with app.run_test(size=(120, 24)) as pilot:
+                header = app.query_one("#header-info")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertIn("[raw]", _rendered(header))
+
+                self.log_path.write_text("", encoding="utf-8")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertFalse(app.raw_mode, "the r binding did not fire")
+                self.assertNotIn(
+                    "[raw]", _rendered(header),
+                    "raw mode is off but the header still advertises it",
+                )
+
+        asyncio.run(runner())
+
+    def test_raw_round_trips_when_the_log_file_is_missing(self):
+        """`_read_and_append`'s *other* early return, in both directions."""
+
+        async def runner():
+            app = LogViewApp(self.log_path.parent / "absent.log", tail=True)
+            async with app.run_test(size=(120, 24)) as pilot:
+                header = app.query_one("#header-info")
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertTrue(app.raw_mode, "the r binding did not fire")
+                self.assertIn("[raw]", _rendered(header))
+
+                await pilot.press("r")
+                await pilot.pause()
+                self.assertFalse(app.raw_mode, "the r binding did not fire")
+                self.assertNotIn("[raw]", _rendered(header))
+
+        asyncio.run(runner())
+
+    def test_a_truncated_log_updates_the_size_indicator(self):
+        """The same defect on `_reload_from_start`, the tail loop's rewind path.
+
+        `tail=False` so the 0.2 s poll thread cannot race the manual rewind;
+        the call below is exactly what `_tail_loop` issues via
+        `call_from_thread` once it sees the file shrink.
+        """
+
+        async def runner():
+            self.log_path.write_text(self.PAYLOAD, encoding="utf-8")
+            app = LogViewApp(self.log_path, tail=False)
+            async with app.run_test(size=(120, 24)) as pilot:
+                header = app.query_one("#header-info")
+                self.assertIn(f"[size: {len(self.PAYLOAD)}]", _rendered(header))
+
+                self.log_path.write_text("", encoding="utf-8")
+                app._last_pos = 0
+                app._reload_from_start()
+                await pilot.pause()
+                self.assertIn("[size: 0]", _rendered(header))
 
         asyncio.run(runner())
 
