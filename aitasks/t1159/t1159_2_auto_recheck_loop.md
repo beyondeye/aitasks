@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/fable5
 created_at: 2026-08-11 15:33
-updated_at: 2026-08-12 09:31
+updated_at: 2026-08-12 17:44
 ---
 
 Build the minimonitor-orchestrated auto-recheck loop: a pure state-machine module plus minimonitor wiring that, when armed, sends "refetch and recheck round N" into the SHADOW pane when the followed agent settles at a prompt after new output. The critical seam of t1159 (parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_2_auto_recheck_loop.md`). Depends on t1159_1 (round metadata: expected-round derivation and dedup lift).
@@ -86,3 +87,8 @@ Also from the same live session, relevant to the arm-time capability check here:
 the shadow was **Codex** (`gpt-5.6-terra`) while `SHADOW_READY_DETECTORS` ships
 `claude`-only — that real-world configuration refuses to arm. Worth confirming
 the refusal message names the shadow's agent, since this is not a corner case.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-12T14:44:46Z status=pass attempt=1 type=human
