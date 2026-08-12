@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1159_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-12 10:47
-updated_at: 2026-08-12 10:47
+updated_at: 2026-08-12 11:20
 ---
 
 After the shadow's first review round, later "refetch and recheck" rounds stop
