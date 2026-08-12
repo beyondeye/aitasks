@@ -196,33 +196,112 @@ def format_staleness_detail(
   markup-enabled `Static`, so the caller escapes it exactly as `_context_line`
   already escapes `format_block_meta` (`monitor_shared.py:2570`).
 
-**B4. Call sites — all four (user-confirmed: both surfaces)**
+**B4. Which surface owns the warning — decided, because the toast cannot**
 
-Shared shape at each site: parse `meta`, obtain `last_change_wall` for the
-followed pane, compute block age, combine with read recency, pass the tri-state.
+Verified against the source, and it changes the design: **neither auto-offer can
+re-fire in the reported chronology.**
 
-1. `minimonitor_app.py` `action_pick_concerns` (~2280-2300). The cached
-   `_shadow_feedback_stale` is reused when it is `True`/`False`; when it is
-   `None` (throttled tick not yet run, or an indeterminate read) **recompute
-   live** via `compute_shadow_staleness` — the user pressed `c` deliberately, the
-   same reasoning that already pays for the deep re-capture at `:2226-2238`. This
-   also removes the two-tick lag and stops the common "pressed `c` before the
-   first tick" case from rendering as unknown. `get_last_change_wall` is sync and
-   cache-backed: **no new tmux traffic.**
-2. `minimonitor_app.py` `_maybe_offer_concerns` toast (~2393-2397): `stale_suffix`
-   becomes tri-state — `True` → `" (⚠ STALE — agent moved on)"`, `None` →
-   `" (⚠ freshness unknown)"`, `False` → `""`.
-3. `monitor_app.py` `c` path (~3047-3072): drop `stale=bool(stale)`; combine and
-   pass the tri-state plus `stale_detail`.
-4. `monitor_app.py` auto-offer toast (~1156-1180): same tri-state suffix.
+- `minimonitor_app.py:2389-2390` — `if self._last_concern_block_payload.get(
+  shadow_pane) == dedup_key: return` executes **before** `stale_suffix` is built
+  at `:2393-2397`. In the live sequence the block text is byte-identical across
+  ticks (the refetch emitted nothing), so `dedup_key` is unchanged and the
+  function returns before any staleness verdict is consulted.
+- `monitor_app.py:2125` — the monitor's auto-offer is gated on the block
+  *signature* being unseen (`sig not in self._concern_sig_offered...`), so an
+  unchanged block is equally silent there.
 
-Sites 3 and 4 already have `eps` and the followed `pane_id` in scope, so the
-insertion is local.
+Both are correct as designed: a toast announces *"new concerns arrived"*, and
+re-firing it on a staleness transition would change its meaning and re-interrupt
+the user on every tick. So the toast is **explicitly not** the owner of the
+"these became stale" transition. Ownership per surface:
 
-This resolves **t1461**'s `bool(stale)` tri-state bullet for the picker and both
-toasts. t1461 keeps its other two bullets (the `$$`-vs-`pane_pid` sweep and the
-sync `discover_window_panes`); a note is added to this plan's Final
-Implementation Notes naming what t1461 no longer needs to do.
+| surface | owns | signal it reads |
+|---|---|---|
+| minimonitor `#mini-shadow-stale` banner | the **continuous** warning, incl. the became-stale transition | combined (read recency ⊕ block age), recomputed **every tick** |
+| picker modal (`c`, both apps) | the **actionable** warning at forward time | combined, with a live read-recency recompute when the cache is indeterminate |
+| auto-offer toast (both apps) | the **one-shot** "new concerns arrived" announcement | combined, but only on the tick a *new* block is announced — deliberately never re-fires |
+| `ait monitor` (no continuous banner) | picker + toast only | the `!` badge's clearing edge stays **t1448**'s |
+
+Consequently the banner must stop being driven by read recency alone.
+
+**B4a. `minimonitor_app.py` — banner becomes the combined signal**
+
+`_update_shadow_freshness` (`:2169-2199`) keeps its current job unchanged: it
+computes **read recency** on the throttled every-other tick (it is the one that
+costs a tmux `get_pane_option`) and stores it in `_shadow_feedback_stale`. Its
+banner writes move out.
+
+A new cheap step runs **every** tick, after `text = await
+capture_shadow_text(shadow_pane)` (`:2350`) and before the
+`has_concern_block` early return, so it also runs when the pane carries no
+block:
+
+```python
+meta = parse_block_meta(text)
+last_change = self._monitor.get_last_change_wall(snap.pane.pane_id)   # sync, cached
+block_stale, reviewed_epoch = compute_block_age_staleness(meta, last_change, eps)
+self._shadow_stale_combined = combine_staleness(
+    self._shadow_feedback_stale, block_stale
+)
+self._set_shadow_stale_banner(<text for the combined verdict>)
+```
+
+No new tmux traffic: `get_last_change_wall` is a dict lookup
+(`monitor_core.py:1463`) and `text` is already captured. Banner text:
+
+- `True` → the existing `⚠ shadow feedback is stale — agent moved on (analyzed
+  Ns ago)` when read recency drove it; when **block age** drove it (the reported
+  case: the shadow re-read but emitted nothing) the reason is named instead —
+  `⚠ shadow feedback is stale — round N predates the agent's latest change
+  (block Ns older)`.
+- `None` → `⚠ shadow freshness unknown — cannot tell whether the feedback is current`
+- `False` → `""`
+
+**`_shadow_feedback_stale` keeps its exact current semantics and name** (read
+recency, tri-state); the combined verdict is a **separate** attribute
+`_shadow_stale_combined`. Two named values with distinct provenance rather than
+one overloaded field — which also leaves t1159_2's `_service_review_loop` a
+deliberate choice of trigger instead of a silently changed one. Both are
+documented in Part C.
+
+**B4b. Call sites**
+
+1. `minimonitor_app.py` `action_pick_concerns` (~2280-2300): read
+   `_shadow_stale_combined`; when the underlying read recency is `None`
+   (throttle not yet run, or an indeterminate read) **recompute it live** via
+   `compute_shadow_staleness` and re-combine — the user pressed `c`
+   deliberately, the same reasoning that already pays for the deep re-capture at
+   `:2226-2238`. Removes the two-tick lag and stops "pressed `c` before the first
+   tick" from rendering as unknown. Pass the tri-state plus `stale_detail`.
+2. `minimonitor_app.py` toast (`:2393-2397`): `stale_suffix` reads
+   `_shadow_stale_combined` — `True` → `" (⚠ STALE — agent moved on)"`, `None` →
+   `" (⚠ freshness unknown)"`, `False` → `""`. Left **after** the dedup return
+   on purpose; a comment records that the banner owns the transition case.
+3. `monitor_app.py` `c` path (~3047-3072): drop `stale=bool(stale)`; compute
+   block age from the already-parsed `meta` + `get_last_change_wall(pane_id)`,
+   combine, pass the tri-state plus `stale_detail`.
+4. `monitor_app.py` auto-offer toast (~1156-1180): same tri-state suffix, same
+   one-shot semantics.
+
+Sites 3 and 4 already have `eps` and the followed `pane_id` in scope.
+
+**B4c. t1461 — ownership decided once, in t1461 itself**
+
+Recording the hand-off only in this plan's Final Implementation Notes would
+leave the `Ready` t1461 still instructing a future agent to implement or
+reconsider the same tri-state work. So t1461's task file is edited as part of
+this task: its `monitor_app.py:2926` / `:1118` bullet and the matching
+"Suggested fix" paragraph are marked **handled by t1493** (what was decided —
+tri-state threaded, `None` rendered as its own banner — and where), rather than
+deleted, so the provenance survives. Its other two bullets (the
+`#{pane_pid}`-vs-`$$` sweep and the sync `discover_window_panes`) are untouched.
+
+Committed **separately** from the code, through `./ait git`, path-scoped:
+
+```bash
+./ait git commit -m "ait: Mark t1461 tri-state bullet handled by t1493" \
+  -o -- aitasks/t1461_monitor_tristate_and_sync_discovery_residue.md
+```
 
 ### Part C — Docs (requirement 4)
 
@@ -230,12 +309,15 @@ Implementation Notes naming what t1461 no longer needs to do.
   - add `parse_reviewed_at_epoch` to the parser-export list (~324-328);
   - add a **block age** row to the `## Trigger vs. action contract` table (~224);
   - rewrite `## Staleness` (335-346) from two signals to **three**, naming which
-    surface uses which.
+    surface uses which — carrying the B4 ownership table, including *why the
+    toast is not the owner of the became-stale transition*.
 - `aidocs/framework/shadow_agent.md`
   - new `### Block age vs read recency` subsection under `## Feedback freshness`
-    (after line 361), with the three-signal table, the tri-state/fail-safe rule,
-    the same-host clock-trust assumption, and the canonical recheck trigger
-    phrase for t1159_2.
+    (after line 361), with the three-signal table, the per-surface ownership
+    table from B4, the tri-state/fail-safe rule, the same-host clock-trust
+    assumption, the two distinct derived attributes
+    (`_shadow_feedback_stale` = read recency, `_shadow_stale_combined` =
+    combined) and the canonical recheck trigger phrase for t1159_2.
 
 Requirement 5 (advisory-only) is preserved by construction: nothing in this
 change writes to the followed pane.
@@ -264,8 +346,9 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
    directly after `compute_shadow_staleness`, with contract-table docstrings.
 3. `monitor_shared.py`: add `format_staleness_detail`; widen
    `ConcernPickerModal.__init__`; add the `#concern-stale-unknown` branch and CSS.
-4. `minimonitor_app.py`: wire sites 1 and 2 (incl. the live recompute when the
-   cache is `None`).
+4. `minimonitor_app.py`: move the banner writes out of `_update_shadow_freshness`
+   into the new every-tick combined step (B4a), then wire sites 1 and 2 (incl.
+   the live read-recency recompute when the cache is `None`).
 5. `monitor_app.py`: wire sites 3 and 4.
 6. `.claude/skills/aitask-shadow/SKILL.md.j2`: add the recheck routing entry.
 7. Regenerate the three entry-point goldens (`impl-challenge.md` is untouched, so
@@ -283,6 +366,9 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
    once per profile (`default`, `fast`, `remote`).
 8. Docs (Part C).
 9. Tests (below).
+10. Edit `aitasks/t1461_monitor_tristate_and_sync_discovery_residue.md` per B4c and
+    commit it **separately**, path-scoped, through `./ait git` — not folded into
+    the code commit and not left as a note in these plan notes.
 
 ### Post-phase (risk mitigations)
 
@@ -328,21 +414,46 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
   - `CombineStalenessTests` — the full 3×3 table, asserted exhaustively.
 - **`tests/test_minimonitor_concern_action.py`** (extend `ShadowFreshnessTests` /
   `ActionPickConcernsTests`, reusing `_fresh_app` at line 876)
-  - **The task's headline scenario:** block header `reviewed_at` = T0, followed
-    pane `get_last_change_wall` = T1 > T0 + eps, shadow `@aitask_shadow_analyzed_at`
-    = T2 > T1 (so read recency says *current*) ⇒ the pushed modal must receive
-    `stale is True`. Assert on the **pushed modal instance**, following
-    `test_pushed_modal_carries_the_block_meta` (line 307) — an isolated helper
-    test stays green if the caller drops the wiring.
+
+  - **The reported chronology, end to end — the load-bearing test.** One test
+    driving `_maybe_offer_concerns` across the full sequence, re-stubbing
+    `get_pane_option` / `get_last_change_wall` between ticks. `_fresh_app` binds
+    both as plain attributes, so a mutable holder (a one-element list the stub
+    closes over) lets a single app walk the timeline:
+
+    | phase | `reviewed_at` (block) | `analyzed_at` | `last_change` | required outcome |
+    |---|---|---|---|---|
+    | T0 — round 1 offered | T0 | T0 | T0−10 | toast fires **once**; banner `""`; `_shadow_stale_combined is False` |
+    | T1 — agent moves on | T0 | T0 | T1 (> T0+eps) | banner shows stale; `_shadow_stale_combined is True` |
+    | T2 — prose-only refetch, **same block text** | T0 | T2 (> T1) | T1 | read recency flips to `False`, **but** `_shadow_stale_combined is True` and the banner still shows stale, naming the round |
+    | T2 — then press `c` | — | — | — | pushed modal receives `stale is True` |
+
+    The T2 row is the whole bug: pre-change it reads *current*. Assert
+    explicitly that the toast count is **still 1** after T2 (the dedup return
+    fires, by design) — that is what pins "the banner, not the toast, owns this
+    transition" instead of leaving it to be re-litigated later.
+
+    Mind the every-other-tick throttle
+    (`test_freshness_throttled_to_every_other_tick`, line 981): the read-recency
+    compare only runs on odd ticks, so each phase above needs the right tick
+    parity, or reset `_shadow_freshness_tick` between phases. The new combined
+    step runs every tick and must be asserted as such — add a case proving the
+    banner updates on an **even** tick, where `_update_shadow_freshness` did not
+    run at all.
+
   - **Negative control for requirement 3:** a pre-header block (no
     `reviewed_at`) with a clean read stamp ⇒ the modal receives `stale is None`,
     **not** `False`. Use `assertIsNone`, and separately assert
     `modal._stale is not False`.
+  - **Positive control for the negative control:** the same fixture with a
+    parseable header **older** than the last change must give `True`, and with a
+    header **newer** must give `False` — otherwise "always `None`" would pass the
+    negative control.
   - Live recompute: with `_shadow_feedback_stale = None` and a stale-looking
-    stamp, `c` recomputes and yields `True` (spy `get_pane_option` call count).
-  - Toast suffixes for all three states.
-  - Mind the every-other-tick throttle (`test_freshness_throttled_to_every_other_tick`,
-    line 981) when a test drives more than one tick.
+    stamp, `c` recomputes and yields `True` (spy the `get_pane_option` call
+    count so the recompute is proven to have happened, not inferred).
+  - Toast suffixes for all three states, on a **new** block each time (the only
+    condition under which the toast is reachable).
 - **`tests/test_concern_picker_modal.py`**
   - `stale=None` renders exactly one `#concern-stale-unknown` and zero
     `#concern-stale`; `stale=True` renders the inverse; `stale=False` renders
@@ -355,10 +466,14 @@ stale=\|#concern-stale\|#mini-shadow-stale" \
     the actionable counts stay visible with the unknown banner + detail present
     (mirrors `ConcernContextLineBudgetTests`, line 783).
 - **`tests/test_monitor_concern_action.py`** — mirror the tri-state picker
-  assertions and the block-age scenario for the full monitor. Its
+  assertions and the T2 block-age scenario for the full monitor. Its
   `_install_staleness` helper (line 305) patches the module symbol, so the
   block-age half must be driven through real `BlockMeta` + a stubbed
-  `get_last_change_wall`, not through that patch.
+  `get_last_change_wall`, not through that patch. Also assert the monitor's
+  auto-offer stays silent on the unchanged block (`_concern_sig_offered` gate,
+  `monitor_app.py:2125`) while `c` still reports it stale — the monitor has no
+  continuous banner, so the picker is its only owner and that must be proven,
+  not assumed.
 
 ### Suite / render
 
@@ -391,7 +506,8 @@ retired.
 - The auto-recheck loop itself (t1159_2), the spin-off arm (t1159_3), the badge
   currency rule (t1448).
 - t1461's remaining bullets: the `#{pane_pid}`-vs-`$$` sweep and the sync
-  `discover_window_panes`.
+  `discover_window_panes`. Only its tri-state bullet is claimed here, and it is
+  marked handled **in t1461's own file** (B4c), not merely noted in this plan.
 - Changing the concern-block grammar or the `[priority | region]` bracket.
 - Porting to `.agents/` / `.opencode/`: those trees carry only a `SKILL.md`
   stub; the sub-procedures and template are rendered from the Claude tree, so
@@ -412,6 +528,13 @@ retired.
 - Four call sites across two apps must stay in agreement; a partially-wired
   surface is the parallel-surface defect class.
   · severity: medium · → mitigation: inline pre-phase enumerate_staleness_sinks
+- **Moving the banner writes out of `_update_shadow_freshness` into a new
+  every-tick step (B4a)** touches a throttled/cost-gated path whose ordering is
+  load-bearing (the empty-stamp early return exists as a cost gate). A mistake
+  here either adds per-tick tmux traffic or freezes the banner.
+  · severity: medium · → mitigation: inline pre-phase enumerate_staleness_sinks
+  (the sweep must bucket the throttle and the cost gate explicitly), plus the
+  even-tick banner assertion in the test plan
 
 ### Goal-achievement risk: medium
 - **The producer half is unverifiable by automated test.** The routing entry is
@@ -430,6 +553,21 @@ retired.
 - timing: pre-phase | name: enumerate_staleness_sinks | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: four call sites must stay in agreement (code-health) | desc: grep out every staleness producer/renderer/assertion and bucket each hit as wired, deliberately-unchanged, or test-to-update before any wiring.
 - timing: post-phase | name: unknown_banner_noise_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: shared-modal behaviour change + legacy-block banner noise (code-health, goal-achievement) | desc: render the picker in all three staleness states at both narrow widths, confirm exactly one banner per state and that the counts stay readable.
 - timing: after | name: live_recheck_round_positive_control | type: manual_verification | priority: high | effort: medium | inline_risk: high | added_complexity: high | addresses: the routing entry is an LLM instruction no automated test can prove (goal-achievement) | desc: live shadow session — run round 1, change the followed pane, send "refetch and recheck round 2", confirm a fresh Round 2 block is emitted and that `c` reported round 1 as stale beforehand.
+
+### Closed at plan review (2026-08-12)
+
+- **The toast could never have surfaced the reported transition.** Both
+  auto-offers return on an unchanged block *before* any staleness verdict is
+  read (`minimonitor_app.py:2389-2390`; `monitor_app.py:2125`). The original
+  plan's "toast suffixes for the three states" test would have passed on a
+  freshly-arrived stale block while the actual T0→T1→T2 sequence stayed broken.
+  Resolved by naming the banner as the owner of the transition (B4), keeping the
+  toast one-shot by design, and replacing the test with the full chronology
+  table.
+- **t1461 ownership.** Recording the hand-off only in this plan's notes would
+  have left a `Ready` task instructing a future agent to redo the same work.
+  Resolved by editing t1461 itself (B4c) as a separate, path-scoped
+  `./ait git` commit.
 
 ### Reassessment after inline insertion
 
