@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [tests, bash_scripts]
 gates: [risk_evaluated]
+folded_into: 1485
 anchor: 1468
 followup_kind: upstream_defect
 created_at: 2026-08-12 10:15
-updated_at: 2026-08-12 10:15
+updated_at: 2026-08-12 10:59
 ---
 
 ## Origin
