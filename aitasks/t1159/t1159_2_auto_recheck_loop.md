@@ -51,3 +51,38 @@ Minimonitor-orchestrated. New pure module `.aitask-scripts/monitor/review_loop.p
 - `tests/test_minimonitor_concern_action.py` (extend, `_FakeMon` + `MiniMonitorApp.__new__` + spy fixtures): arm refusals both sides (followed without live tiers; claude followed + codex shadow → visible refusal, controller DISARMED); mid-loop shadow swap → auto-disarm; fire path: exactly two sends, both to the SHADOW pane id, first literal prompt then Enter, followed pane id in NO send call; recheck text carries round from previous block meta; banner seam transitions; ADVISORY NEGATIVE CONTROL: force a wrong phase and UNKNOWN through the fire path — fires in every case, nothing refused.
 - Live injection smoke: extend `tests/test_minimonitor_concern_smoke.py` or sibling shell test modeled on `tests/test_monitor_tmux_injection.sh` — a real tmux pane receives the recheck line verbatim.
 - `bash tests/run_all_python_tests.sh` — final stderr verdict line only.
+
+## Coordination — t1493 (added 2026-08-12, from live evidence)
+
+**The injected recheck may produce no block at all, which livelocks this loop.**
+Verified live (session `thinking_back`, window `agent-pick-45_9`, shadow pane
+`%183`, Codex shadow of a Claude pane): after the first plan-challenge round,
+three successive free-text `refetch and recheck` rounds each re-entered the skill
+(resolve-profile → render → `aitask_shadow_capture.sh`) and answered in **prose
+only** — no fences, no items — including one round that raised a real new
+concern. Cause: `SKILL.md.j2` Step 3 (lines 212-284) routes on the user's ask and
+has **no entry for a re-review / recheck ask**, so the recheck reads as a
+conversational follow-up rather than a fresh sub-procedure run.
+
+Consequences for this child:
+
+- `expected_round = parse_block_meta(prev capture).round + 1` never advances,
+  because no new block ever arrives.
+- The picker keeps re-presenting the FIRST round's concerns, and — since every
+  capture restamps `@aitask_shadow_analyzed_at` — the staleness banner reports
+  them as current. The loop then fires round after round with no visible change.
+- t1159_1's metadata-only clean-round block does not cover this: it addresses the
+  *clean* round, while this is a non-clean round that emits nothing.
+
+**t1493** (`shadow_recheck_rounds_leave_stale_concerns_in_picker`, bug/high,
+anchor 1159, `depends: [t1159_1]`) owns the fix: a routing entry for re-review
+asks plus a per-round "always re-emit the block" producer rule, and a
+consumer-side block-age freshness check. Its producer half should land **before,
+or together with,** this child — otherwise the loop's happy path is unreachable.
+Align `compose_recheck_prompt`'s wording with whatever routing trigger t1493
+adds, so the injected line hits the new route deterministically.
+
+Also from the same live session, relevant to the arm-time capability check here:
+the shadow was **Codex** (`gpt-5.6-terra`) while `SHADOW_READY_DETECTORS` ships
+`claude`-only — that real-world configuration refuses to arm. Worth confirming
+the refusal message names the shadow's agent, since this is not a corner case.
