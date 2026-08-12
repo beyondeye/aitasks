@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1159_1]
 issue_type: bug
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-12 10:47
-updated_at: 2026-08-12 14:39
+updated_at: 2026-08-12 14:40
 ---
 
 After the shadow's first review round, later "refetch and recheck" rounds stop
