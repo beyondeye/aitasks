@@ -286,6 +286,22 @@ assert_exit_nonzero_rc() {
     fi
 }
 
+# Like assert_exit_zero_rc, but PRINTS the command's captured output on failure.
+# Use it whenever that output is the diagnostic — scaffold breakage, tooling
+# errors, anything where the cause only exists in the text the caller already
+# captured. Reporting the bare exit code there reproduces the silent-failure
+# defect one level up: the run no longer aborts, but the reason is still gone
+# (t1488).
+assert_exit_zero_rc_out() {
+    local desc="$1" rc="$2" out="$3"
+    if [[ "$rc" -eq 0 ]]; then
+        assert_record_pass
+    else
+        assert_record_fail
+        echo "FAIL: $desc (expected zero exit, got $rc; output: $out)"
+    fi
+}
+
 # --- filesystem ------------------------------------------------------------
 
 assert_file_exists() {

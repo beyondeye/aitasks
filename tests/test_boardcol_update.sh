@@ -15,6 +15,15 @@
 # The clearing case is the one most easily broken by a naive guard: `--anchor ""`
 # is the precedent this mirrors, and a `-n "$VALUE"` test is what preserves it.
 #
+# Every invocation below CAPTURES the command's output instead of discarding it,
+# and asserts the exit code through assert_exit_zero_rc_out so the captured text
+# lands in the FAIL line. That is deliberate (t1488): this file previously ran
+# `>/dev/null 2>&1` under `set -e`, so a scaffold missing a Python module aborted
+# it at the first call with no FAIL line, no summary and no error text — it read
+# as a hang, not an assertion failure. test_scaffold_column_probe_works is the
+# guard for that class; setup_project derives the Python module closure rather
+# than listing it.
+#
 # Run: bash tests/test_boardcol_update.sh
 
 set -e
@@ -78,9 +87,12 @@ setup_project() {
     for opt in archive_utils archive_scan agentcrew_utils; do
         cp "$PROJECT_DIR/.aitask-scripts/lib/$opt.sh" .aitask-scripts/lib/ 2>/dev/null || true
     done
-    for m in board_columns board_ordering config_utils task_yaml; do
-        cp "$PROJECT_DIR/.aitask-scripts/lib/$m.py" .aitask-scripts/lib/
-    done
+    # board_columns is the only Python entry point the scaffolded scripts drive
+    # (aitask_board_column.sh execs it); its transitive lib/ deps are DERIVED
+    # rather than listed. The list this replaced had silently drifted: it
+    # omitted record_protocol.py, so every --boardcol validation failed inside
+    # the scaffold (t1488).
+    copy_lib_py_closure "$PWD" board_columns
     chmod +x .aitask-scripts/*.sh
 
     printf 'bug\nchore\nfeature\n' > aitasks/metadata/task_types.txt
@@ -120,12 +132,35 @@ seed_task() {
     } > "$path"
 }
 
+# Runs the exact seam normalize_board_column() probes, with stderr CAPTURED
+# rather than discarded. It is the guard against the whole silent-death class
+# this file used to exhibit: a scaffold missing a Python module made every
+# --boardcol call exit 1, `set -e` aborted the file at the first one, and the
+# run printed no FAIL line, no summary and no error text. Here the same
+# breakage surfaces as `ModuleNotFoundError: No module named '…'` inside a
+# named FAIL. Independent ground truth — it drives the real entry point instead
+# of re-deriving the same import list setup_project() derives.
+test_scaffold_column_probe_works() {
+    echo "=== Test: the scaffold's board-column probe is healthy ==="
+    setup_project
+
+    local out rc=0
+    out="$(./.aitask-scripts/aitask_board_column.sh list-columns \
+             --root . --task-dir aitasks --include-unordered 2>&1)" || rc=$?
+    assert_exit_zero_rc_out "scaffold column probe exits zero" "$rc" "$out"
+    assert_contains "probe lists the configured columns" "COLUMN:c1|" "$out"
+
+    teardown
+}
+
 test_accepts_configured_column() {
     echo "=== Test: --boardcol accepts a configured id ==="
     setup_project
     seed_task "aitasks/t1_alpha.md" "boardcol: c0" "boardidx: 10"
 
-    ./.aitask-scripts/aitask_update.sh --batch 1 --boardcol c1 >/dev/null 2>&1
+    local out rc=0
+    out="$(./.aitask-scripts/aitask_update.sh --batch 1 --boardcol c1 2>&1)" || rc=$?
+    assert_exit_zero_rc_out "configured id accepted" "$rc" "$out"
     assert_contains "configured id written" "boardcol: c1" \
         "$(cat aitasks/t1_alpha.md)"
 
@@ -137,7 +172,9 @@ test_accepts_unordered() {
     setup_project
     seed_task "aitasks/t1_alpha.md" "boardcol: c0" "boardidx: 10"
 
-    ./.aitask-scripts/aitask_update.sh --batch 1 --boardcol unordered >/dev/null 2>&1
+    local out rc=0
+    out="$(./.aitask-scripts/aitask_update.sh --batch 1 --boardcol unordered 2>&1)" || rc=$?
+    assert_exit_zero_rc_out "unordered accepted (exit)" "$rc" "$out"
     assert_contains "unordered accepted" "boardcol: unordered" \
         "$(cat aitasks/t1_alpha.md)"
 
@@ -167,14 +204,15 @@ test_empty_value_clears_without_validating() {
     setup_project
     seed_task "aitasks/t1_alpha.md" "boardcol: c0" "boardidx: 10"
 
-    local rc=0
-    ./.aitask-scripts/aitask_update.sh --batch 1 --boardcol "" >/dev/null 2>&1 || rc=$?
-    assert_eq "clearing succeeds" "0" "$rc"
+    local out rc=0
+    out="$(./.aitask-scripts/aitask_update.sh --batch 1 --boardcol "" 2>&1)" || rc=$?
+    assert_exit_zero_rc_out "clearing succeeds" "$rc" "$out"
     assert_no_field "boardcol cleared" "aitasks/t1_alpha.md" "boardcol"
 
     teardown
 }
 
+test_scaffold_column_probe_works
 test_accepts_configured_column
 test_accepts_unordered
 test_rejects_unknown_column
