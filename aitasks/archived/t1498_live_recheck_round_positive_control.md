@@ -3,7 +3,7 @@ priority: high
 effort: medium
 depends: []
 issue_type: manual_verification
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini, tui]
 active_gates: []
 active_gates_filtered: []
@@ -13,7 +13,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: risk_mitigation
 created_at: 2026-08-12 16:41
-updated_at: 2026-08-12 17:28
+updated_at: 2026-08-12 17:30
+completed_at: 2026-08-12 17:30
 ---
 
 ## Origin
