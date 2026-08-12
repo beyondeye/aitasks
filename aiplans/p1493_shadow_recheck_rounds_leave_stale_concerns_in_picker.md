@@ -245,6 +245,15 @@ Taking `BlockAge` (not a bare `bool | None`) as the second parameter is
 deliberate: the applicability flag travels **with** the verdict, so the
 inapplicable case cannot be silently passed as `None` by a future caller.
 
+**Both functions are total and stateless** — neither knows a prior verdict, and
+their docstrings must say so rather than borrowing
+`compute_shadow_staleness`'s "preserve whatever the caller was showing". That
+phrase is accurate for read recency but over-broad here: it reads as "preserve
+any prior", which includes `False`, and preserving a `False` is exactly the
+over-preservation the recorder rule forbids. Document instead: a returned `None`
+must not clear a standing `True`, and **must** be recorded over a `False`.
+Deciding that is the caller's recorder (B4b), not these functions.
+
 **B3. Modal: tri-state banner (`monitor_shared.py`)**
 
 - `ConcernPickerModal.__init__` widens `stale: bool = False` →
