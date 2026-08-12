@@ -136,6 +136,13 @@ task creation.
   rejection store (`aitask_shadow_rejected.sh`, `ShadowRejectionsMixin` at
   `monitor_shared.py:538`) is an adjacent disposition mechanism. Check whether a
   fully-rejected block should also clear the badge; do not duplicate its store.
+- **`t1159_6_minimonitor_concern_status_line`** (anchor 1159, added 2026-08-12)
+  — the minimonitor-side counterpart: an always-shown status line rendering the
+  concern round + review time and a staleness glyph from the same
+  `(round, reviewed_at)` metadata this task keys the monitor's `!` badge on.
+  Coordinate so the two surfaces' notions of "current" agree; this task's
+  recorded asymmetry (minimonitor has no `!` badge) stays true — the status
+  line is the minimonitor surface instead.
 
 ## Out of scope
 
