@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1449
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-12 14:39
-updated_at: 2026-08-12 18:27
+updated_at: 2026-08-12 23:22
+completed_at: 2026-08-12 23:22
 ---
 
 ## Origin
@@ -81,3 +82,14 @@ the quit key worked fine. Verify each TUI in a real pty:
 > **✅ gate:plan_approved** run=2026-08-12T15:27:15Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-12T20:06:50Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-12T20:22:11Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:cddd721e5b5dc1bb
+
+> **✅ gate:risk_evaluated** run=2026-08-12T20:22:11Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1495/risk_evaluated_2026-08-12T20:22:11Z-risk_evaluated-a1.log`
