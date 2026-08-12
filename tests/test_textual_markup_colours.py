@@ -13,9 +13,15 @@ colour tier: ``render().spans`` assertions all pass while the pixel is wrong.
 Four styles shipped inert for months before t1453 (the DONE badge in both
 monitors, two in the TUI switcher, one disabled-row style in brainstorm).
 
+Rules A and B guard a token's style *vocabulary*. Rule C (t1486) guards markup
+*structure* — a closing tag that matches no opening tag. That is a different
+failure mode: it does not go inert, it raises ``MarkupError`` and takes the
+compositor down. Two shipped that way (both GitLab indicators on the board),
+reachable from any task whose ``issue:`` frontmatter points at a GitLab host.
+
 Scope
 -----
-Two rules over ``.aitask-scripts/**/*.py`` and ``tests/**/*.py``, both AST-based
+Three rules over ``.aitask-scripts/**/*.py`` and ``tests/**/*.py``, all AST-based
 (a text grep would flag colour names appearing in comments and prose):
 
 - **Rule A — bracketed markup tokens.** Oracle: ``textual.markup.parse_style``,
@@ -25,14 +31,69 @@ Two rules over ``.aitask-scripts/**/*.py`` and ``tests/**/*.py``, both AST-based
 - **Rule B — bare style strings.** Oracle: the Rich-only name blocklist. Catches
   a style assembled at runtime, where the tag itself is dynamic
   (``style = "bright_green"`` ... ``f"[{style}]"``).
+- **Rule C — tag pairing.** Oracle: ``textual.content.Content.from_markup``,
+  again Textual's own parser. Catches ``[#e24329]GL[/e24329]`` — a closing tag
+  that names something no opening tag opened.
 
-**Why two oracles.** A bracketed token carries a syntactic marker of intent, so
-it can be handed to the exact oracle. A bare string has no such marker — running
-``parse_style`` over every short string produces 44 prose false positives in this
-repo alone (``'not found'``, ``'Sync on refresh'``, ``'Monitor not ready'``).
-The conservative blocklist is what keeps Rule B silent on prose.
+**Why two oracles for A/B.** A bracketed token carries a syntactic marker of
+intent, so it can be handed to the exact oracle. A bare string has no such marker
+— running ``parse_style`` over every short string produces 44 prose false
+positives in this repo alone (``'not found'``, ``'Sync on refresh'``,
+``'Monitor not ready'``). The conservative blocklist is what keeps Rule B silent
+on prose.
+
+Rule C's unit and gate
+----------------------
+The scanned unit is the **whole markup expression**, not the individual
+``ast.Constant``: an f-string is reconstructed from its literal parts with
+``_PLACEHOLDER_STYLE`` standing in for each interpolation, and its sub-nodes are
+not scanned separately. Without that, ``f"[bold]{n}[/bold] [dim]("`` reads as a
+mismatched close, because the AST splits it into fragments (3 false positives
+measured: ``settings_app.py``, ``stats/panes/overview.py``,
+``stats/panes/pipeline.py``).
+
+An expression is scanned only when it carries **both** a *named* closing tag
+(``[/x]``, not the auto-close ``[/]``) **and** ≥1 Rule-A *candidate* opening tag.
+The first requirement drops the bare-``[/]`` fragment noise — a ``[/]`` with
+nothing to close is how a runtime-assembled string legitimately looks in
+isolation. The second drops CLI usage grammars (``create <handle>
+[backend=<name>]``), protocol docs, and concern-parser fixtures. Measured over
+the scanned tree: no gate at all → 61 findings, 2 real; gate but per-constant →
+5 findings, 2 real; gate + reconstruction → 2 findings, 2 real.
+
+What Rule C reaches, probed rather than assumed (the "missed" rows are pinned by
+``ScannerDiscriminationTests`` too, so this table cannot drift from the code)::
+
+    "[#e24329]GL[/e24329]"          caught   (the shipped defect)
+    f"[{color}]GL[/e24329]"         caught   (placeholder supplies the open)
+    f"[{color}]GL[/color]"          caught   (close names the variable)
+    f"[bold]{n}[/bold] [dim]("      quiet    (correct: reconstruction)
+    ")[/dim]"                       quiet    (correct: a fragment)
+    "[bold]" + name + "[/bolt]"     MISSED   (assembled across expressions)
+    "[@click=app.foo]x[/bolt]"      MISSED   (action-link open)
+    f"[{a}]x[/{b}]"                 MISSED   (both names dynamic)
+    "  [bold yellow][AUTO][/]"      MISSED   (literal-bracket class)
 
 Not in scope (each for a stated reason, not by oversight):
+
+- **Markup assembled across expressions or statements** (``"[bold]" + x``, a
+  variable holding the open tag). The scanned unit is one expression; joining
+  them needs dataflow analysis. Repo instances of a tag pair split that way: 1
+  (``monitor/desync_summary.py``, and it is correct).
+- **Action-link opening tags** (``[@click=…]``). ``_is_candidate`` rejects
+  ``@``-prefixed tokens deliberately — see
+  ``test_prose_in_brackets_is_not_a_finding`` — so a bad close paired only with
+  one of those is invisible. Real ``[@click=…]`` markup sites in the repo: 0.
+- **Both tag names dynamic** (``f"[{a}]x[/{b}]"``) — the placeholder makes them
+  agree. Same undecidability as fully-dynamic tags below.
+- **The literal-bracket class** — text meant literally that Textual eats as a
+  tag (``[AUTO]``, ``[live]``, ``[raw]``; t1486 defects 2 and 3). These are
+  *syntactically valid* unknown tags, statically indistinguishable from an
+  intentional dynamic style, so no scan can separate them from intent. The
+  answer is the escaping convention (``\\[``, as at ``tui_switcher.py`` and
+  ``codebrowser/history_list.py``) plus behavioural pins: the three fixed sites
+  are held by ``tests/test_textual_markup_structure.py``, which asserts the
+  rendered plain text through the live widget.
 
 - **Textual CSS / ``DEFAULT_CSS`` / ``.tcss``** — a bad colour there raises
   ``StylesheetParseError`` at app construction. Already fails loud; every TUI
@@ -73,6 +134,7 @@ TESTS_DIR = REPO_ROOT / "tests"
 # degrade into a vacuously-green scan (t1453).
 from rich.color import ANSI_COLOR_NAMES  # noqa: E402
 from textual.color import Color  # noqa: E402
+from textual.content import Content  # noqa: E402
 from textual.markup import STYLES, parse_style  # noqa: E402
 from textual.theme import BUILTIN_THEMES  # noqa: E402
 
@@ -113,6 +175,14 @@ MODIFIERS = frozenset({"on", "not", "auto", "link"})
 _TOKEN_RE = re.compile(r"(?<!\\)\[([^\[\]\n]*)\]")
 #: Every word in a style token has this shape.
 _WORD_RE = re.compile(r"^[A-Za-z_$#][A-Za-z0-9_$#%.\-]*$")
+#: A NAMED closing tag (Rule C). The auto-close `[/]` is excluded on purpose:
+#: in isolation it is the normal shape of a runtime-assembled fragment, and
+#: admitting it makes every such fragment a finding.
+_CLOSE_RE = re.compile(r"(?<!\\)\[/([^\[\]\n]+)\]")
+#: Stands in for an f-string interpolation when Rule C reconstructs an
+#: expression. It must be a valid style so `[{color}]` reconstructs to a real
+#: opening tag; `red` is the shortest such name.
+_PLACEHOLDER_STYLE = "red"
 
 REMEDIES = textwrap.dedent(
     """
@@ -136,6 +206,27 @@ REMEDIES = textwrap.dedent(
     Style object, or a Text nested inside a Rich container such as a Table),
     add it to RICH_RENDERER_WAIVERS below with a reason naming the consumer as
     file:function and a pinned_by= composited test.
+    """
+).strip()
+
+STRUCTURE_REMEDIES = textwrap.dedent(
+    """
+    A closing tag that matches no open tag is NOT silently inert: Textual raises
+    MarkupError and the compositor crashes on the path that renders it. This is
+    the t1486 defect class.
+
+    To fix:
+      * Mismatched close  -> close with the auto-close `[/]`, or repeat the
+        opening tag EXACTLY. `[#e24329]x[/e24329]` is wrong: the closing tag
+        drops the `#`, so it names a tag that was never opened.
+      * Literal bracket   -> if the bracket is text, escape it as `\\[`. See
+        tui_switcher.py and codebrowser/history_list.py. Note this rule does
+        NOT catch that case (see "Not in scope" in the module docstring) —
+        it is listed here because it is the other half of the same fix.
+
+    A finding here is reported against the RECONSTRUCTED expression, with each
+    f-string interpolation shown as `{_PLACEHOLDER_STYLE}`, so the text may not
+    match the source verbatim. The file and line locate the real site.
     """
 ).strip()
 
@@ -369,6 +460,126 @@ def scan_repo() -> tuple[list[Finding], int]:
 
 
 # ---------------------------------------------------------------------------
+# Rule C — tag pairing (t1486)
+#
+# Kept as a SEPARATE scanner from scan_source() above, deliberately. Rules A/B
+# emit a (path, qualname, token) Finding whose key is the RICH_RENDERER_WAIVERS
+# identity — "this token is consumed by Rich, not Textual". That waiver has no
+# meaning for a broken tag pair: no renderer accepts one. Merging the two would
+# make a structural finding waivable by a Rule-B escape hatch.
+# ---------------------------------------------------------------------------
+class StructureFinding(NamedTuple):
+    """One expression whose markup does not parse.
+
+    ``markup`` is the RECONSTRUCTED text (interpolations replaced), not the
+    source slice — see STRUCTURE_REMEDIES.
+    """
+
+    relpath: str
+    markup: str
+    error: str
+    line: int
+
+    def __repr__(self) -> str:  # pragma: no cover - diagnostics only
+        return f"{self.relpath}:{self.line} {self.markup!r} -> {self.error}"
+
+
+def _markup_expressions(tree: ast.AST) -> list[tuple[ast.AST, str]]:
+    """Every top-level string expression, f-strings reconstructed whole.
+
+    A JoinedStr is returned as one entry with `_PLACEHOLDER_STYLE` substituted
+    for each interpolation, and its component nodes are NOT returned separately
+    — scanning those fragments is what produces the false positives the module
+    docstring records. Docstrings are excluded, as for Rules A/B.
+    """
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                docstrings.add(id(body[0].value))
+
+    inner: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            for sub in ast.walk(node):
+                if sub is not node:
+                    inner.add(id(sub))
+
+    out: list[tuple[ast.AST, str]] = []
+    for node in ast.walk(tree):
+        if id(node) in inner or id(node) in docstrings:
+            continue
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            out.append((node, node.value))
+        elif isinstance(node, ast.JoinedStr):
+            parts = [
+                value.value
+                if isinstance(value, ast.Constant) and isinstance(value.value, str)
+                else _PLACEHOLDER_STYLE
+                for value in node.values
+            ]
+            out.append((node, "".join(parts)))
+    return out
+
+
+def _is_markup_expression(text: str) -> bool:
+    """The Rule C gate: a named close AND a Rule-A candidate open."""
+    if not _CLOSE_RE.search(text):
+        return False
+    return any(_is_candidate(m.group(1)) for m in _TOKEN_RE.finditer(text))
+
+
+def scan_source_structure(
+    source: str, relpath: str
+) -> tuple[list[StructureFinding], int]:
+    """Scan one module for tag-pairing defects. Returns (findings, gated)."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise AssertionError(f"{relpath}: could not parse ({exc})") from exc
+
+    findings: list[StructureFinding] = []
+    gated = 0
+    for node, text in _markup_expressions(tree):
+        if not _is_markup_expression(text):
+            continue
+        gated += 1
+        try:
+            Content.from_markup(text)
+        except Exception as exc:
+            findings.append(
+                StructureFinding(
+                    relpath, text, f"{type(exc).__name__}: {exc}", node.lineno
+                )
+            )
+    return findings, gated
+
+
+def scan_repo_structure() -> tuple[list[StructureFinding], int]:
+    findings: list[StructureFinding] = []
+    gated = 0
+    for root in (SCRIPTS_DIR, TESTS_DIR):
+        for path in sorted(root.rglob("*.py")):
+            relpath = path.relative_to(REPO_ROOT).as_posix()
+            if relpath in SELF_REFERENTIAL_MODULES:
+                continue
+            found, count = scan_source_structure(
+                path.read_text(encoding="utf-8"), relpath
+            )
+            findings.extend(found)
+            gated += count
+    return findings, gated
+
+
+# ---------------------------------------------------------------------------
 # The guard
 # ---------------------------------------------------------------------------
 class MarkupColourScanTests(unittest.TestCase):
@@ -400,6 +611,18 @@ class MarkupColourScanTests(unittest.TestCase):
         self.assertIn("bright_cyan", RICH_ONLY)
         self.assertIn("dodger_blue1", RICH_ONLY)
 
+    def test_rule_c_is_not_reachable_through_the_rule_b_waivers(self):
+        """The two finding types must not share a waiver identity.
+
+        RICH_RENDERER_WAIVERS means "Rich consumes this token, not Textual".
+        No renderer accepts a broken tag pair, so a structural finding must
+        never be silenceable that way — hence the separate scanner.
+        """
+        self.assertFalse(
+            hasattr(StructureFinding, "key"),
+            "StructureFinding must not grow a waiver key",
+        )
+
     def test_no_rich_only_name_is_a_bare_alphabetic_word(self):
         """The invariant that makes Rule B safe to run over arbitrary strings.
 
@@ -408,6 +631,36 @@ class MarkupColourScanTests(unittest.TestCase):
         silently, at which point Rule B would start flagging prose.
         """
         self.assertEqual([], sorted(n for n in RICH_ONLY if n.isalpha()))
+
+
+class MarkupStructureScanTests(unittest.TestCase):
+    """Rule C over the live tree. No waiver list — see the scanner's comment."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.findings, cls.gated = scan_repo_structure()
+
+    def test_every_closing_tag_matches_an_open_tag(self):
+        self.assertEqual(
+            [], self.findings,
+            "Textual cannot parse this markup:\n"
+            + "\n".join(f"  {f!r}" for f in self.findings)
+            + "\n\n" + STRUCTURE_REMEDIES,
+        )
+
+    def test_the_structure_scan_is_not_vacuous(self):
+        """A gate that stops matching passes for the wrong reason.
+
+        171 expressions were gated in when Rule C landed. The floor is set well
+        below that so ordinary churn does not trip it, but a gate that breaks
+        outright (a regex that never matches, a reconstruction that returns
+        nothing) drops to ~0 and fails here rather than reporting all-clear.
+        """
+        self.assertGreater(
+            self.gated, 100,
+            f"only {self.gated} markup expressions reached the oracle — "
+            "the Rule C gate has probably stopped recognising markup",
+        )
 
 
 class WaiverHygieneTests(unittest.TestCase):
@@ -651,6 +904,116 @@ class ScannerDiscriminationTests(unittest.TestCase):
             '''
         )
         self.assertEqual(["Row.render"], [f.qualname for f in findings])
+
+
+class StructureScannerDiscriminationTests(unittest.TestCase):
+    """Rule C's boundary, one test per row of the docstring's coverage table.
+
+    The "must NOT be caught" half matters as much as the other: each of those
+    is a documented gap or a measured false-positive shape, and a test that
+    starts failing there means the gate moved and the docstring is now lying.
+    """
+
+    def _scan(self, source: str) -> list[StructureFinding]:
+        findings, _ = scan_source_structure(textwrap.dedent(source), "synthetic.py")
+        return findings
+
+    def _gated(self, source: str) -> int:
+        _, gated = scan_source_structure(textwrap.dedent(source), "synthetic.py")
+        return gated
+
+    # --- must be caught -----------------------------------------------------
+
+    def test_the_shipped_board_defect_is_caught(self):
+        """aitask_board.py:_issue_indicator, verbatim as it shipped."""
+        findings = self._scan('x = "[#e24329]GL[/e24329]"')
+        self.assertEqual(1, len(findings), findings)
+        self.assertIn("does not match any open tag", findings[0].error)
+
+    def test_a_dynamic_open_with_a_mismatched_named_close_is_caught(self):
+        """The placeholder supplies the opening tag the AST cannot see."""
+        findings = self._scan('x = f"[{color}]GL[/e24329]"')
+        self.assertEqual(1, len(findings), findings)
+
+    def test_a_close_naming_the_variable_rather_than_its_value_is_caught(self):
+        """`f"[{color}]x[/color]"` closes a tag named `color`, never opened."""
+        self.assertEqual(1, len(self._scan('x = f"[{color}]GL[/color]"')))
+
+    def test_nesting_is_understood_and_valid_nesting_is_quiet(self):
+        self.assertEqual([], self._scan('x = "[bold][red]a[/red][/bold]"'))
+
+    # --- must NOT be caught (false-positive shapes) -------------------------
+
+    def test_an_fstring_fragment_is_not_a_finding(self):
+        """The reconstruction's reason for existing.
+
+        Per-constant scanning splits this into `"[bold]"`, `"[/bold] [dim]("`
+        and reads the second as an unmatched close — 3 such sites in the tree.
+        """
+        source = 'x = f"[bold]{n}[/bold] [dim]("'
+        self.assertEqual([], self._scan(source))
+        self.assertEqual(1, self._gated(source), "must be scanned, not skipped")
+
+    def test_a_named_close_without_a_candidate_open_is_not_scanned(self):
+        """`")[/dim]"` is a fragment of a runtime-assembled string."""
+        self.assertEqual(0, self._gated('x = ")[/dim]"'))
+
+    def test_a_bare_auto_close_is_not_scanned(self):
+        """`[/]` alone is how half the repo's fragments legitimately look."""
+        self.assertEqual(0, self._gated('x = "Backlog [/]"'))
+
+    def test_a_cli_usage_grammar_is_not_scanned(self):
+        """lib/artifact_manifest.py shape: brackets, but not markup."""
+        self.assertEqual(0, self._gated('x = "create <handle> [backend=<name>]"'))
+
+    def test_a_docstring_is_not_scanned(self):
+        self.assertEqual(0, self._gated('"""Renders [#e24329]GL[/e24329] here."""'))
+
+    # --- documented gaps ----------------------------------------------------
+    #
+    # Each asserts BOTH that Rule C is quiet AND why: either the expression
+    # never reaches the oracle (gated out) or it reaches it and parses. Without
+    # the second half a "not caught" assertion could pass because the fixture
+    # is malformed rather than because the gap is real.
+
+    def test_gap_markup_assembled_across_expressions(self):
+        source = 'x = "[bold]" + name + "[/bolt]"'
+        self.assertEqual([], self._scan(source))
+        self.assertEqual(0, self._gated(source), "neither half carries both tags")
+
+    def test_gap_action_link_opening_tag(self):
+        source = 'x = "[@click=app.foo]x[/bolt]"'
+        self.assertEqual([], self._scan(source))
+        self.assertEqual(
+            0, self._gated(source), "_is_candidate rejects @-prefixed tokens"
+        )
+        with self.assertRaises(Exception):
+            Content.from_markup("[@click=app.foo]x[/bolt]")
+
+    def test_gap_both_tag_names_dynamic(self):
+        source = 'x = f"[{a}]x[/{b}]"'
+        self.assertEqual([], self._scan(source))
+        self.assertEqual(1, self._gated(source), "it IS scanned")
+        # ...and it is quiet because the placeholder makes the names agree.
+        Content.from_markup(f"[{_PLACEHOLDER_STYLE}]x[/{_PLACEHOLDER_STYLE}]")
+
+    def test_gap_the_literal_bracket_class(self):
+        """t1486 defects 2 and 3 are invisible to any static rule.
+
+        `[AUTO]` is a syntactically valid unknown tag. Textual drops it and
+        renders nothing, without raising — so the oracle cannot object, and
+        the only evidence is the rendered text. That is what
+        tests/test_textual_markup_structure.py exists to assert.
+        """
+        source = 'x = "  [bold yellow][AUTO][/]"'
+        self.assertEqual([], self._scan(source))
+        self.assertEqual("  ", Content.from_markup("  [bold yellow][AUTO][/]").plain)
+
+    # --- structural ---------------------------------------------------------
+
+    def test_an_unparsable_file_raises_rather_than_being_skipped(self):
+        with self.assertRaises(AssertionError):
+            scan_source_structure("def broken(:\n", "synthetic.py")
 
 
 if __name__ == "__main__":

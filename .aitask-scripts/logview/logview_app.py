@@ -69,16 +69,29 @@ class LogViewApp(App):  # type: ignore[misc]
         yield Footer()
 
     def _header_text(self) -> str:
+        # The brackets are literal text, so every one of them is escaped: this
+        # renders into a markup-parsing Static, which eats `[live]`/`[raw]` as
+        # unknown tags. `[size: N]` only survives unescaped by accident — the
+        # space and colon make it an invalid tag — so it is escaped too rather
+        # than left one formatting change away from vanishing (t1486).
         state = "paused" if self.paused else ("live" if self.tail else "static")
-        mode = " [raw]" if self.raw_mode else ""
-        return f"File: {self.log_path}  [size: {self._last_pos}]  [{state}]{mode}"
+        mode = " \\[raw]" if self.raw_mode else ""
+        return f"File: {self.log_path}  \\[size: {self._last_pos}]  \\[{state}]{mode}"
 
     def on_mount(self) -> None:
+        # Focus the log FIRST, and on every path including the missing-file
+        # early return below. Without this, Textual auto-focuses the first
+        # focusable widget — the `display: none` #search-box Input — which then
+        # swallows every letter, so q/p/r/g/G//,n silently type into an
+        # invisible field instead of firing their bindings. Same call the app
+        # already uses to hand focus back in action_cancel_search /
+        # on_input_submitted (t1486).
+        log = self.query_one("#log", RichLog)
+        log.focus()
         if not self.log_path.exists():
             self.notify(f"Log file not found: {self.log_path}", severity="warning")
             return
         self._read_and_append()
-        log = self.query_one("#log", RichLog)
         log.scroll_end(animate=False)
         if self.tail:
             self._poll_thread = threading.Thread(target=self._tail_loop, daemon=True)

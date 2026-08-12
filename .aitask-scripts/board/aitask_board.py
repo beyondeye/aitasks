@@ -169,7 +169,7 @@ def _issue_indicator(url: str) -> str:
     if "github" in host:
         return "[blue]GH[/blue]"
     elif "gitlab" in host:
-        return "[#e24329]GL[/e24329]"
+        return "[#e24329]GL[/]"
     elif "bitbucket" in host:
         return "[blue]BB[/blue]"
     return "[blue]Issue[/blue]"
@@ -181,7 +181,7 @@ def _pr_indicator(url: str) -> str:
     if "github" in host:
         return "[green]PR:GH[/green]"
     elif "gitlab" in host:
-        return "[#e24329]MR:GL[/e24329]"
+        return "[#e24329]MR:GL[/]"
     elif "bitbucket" in host:
         return "[blue]PR:BB[/blue]"
     return "[green]PR[/green]"

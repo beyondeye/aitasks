@@ -1493,7 +1493,7 @@ class MonitorApp(
         done_str = f"  [{STATE_STYLE_DONE}]{done_count} done[/]" if done_count > 0 else ""
         idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         bar = self.query_one("#session-bar", SessionBar)
-        auto_tag = "  [bold yellow][AUTO][/]" if self._auto_switch else ""
+        auto_tag = "  [bold yellow]\\[AUTO][/]" if self._auto_switch else ""
         try:
             desync = _get_desync_summary(Path.cwd(), compact=False)
         except Exception:
