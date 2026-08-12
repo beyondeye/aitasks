@@ -316,3 +316,85 @@ root.
 
 Standard: merge to the branch named in the plan header, archive `t1488` and this
 plan.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four planned changes landed as designed, with no
+  deviation in shape.
+  - `tests/lib/test_scaffold.sh` (+130, **purely additive** — 0 deletions):
+    `copy_py_closure_from <src_lib> <dst_lib> <module>…` plus the scaffold
+    wrapper `copy_lib_py_closure <repo_dir> <module>…`, backed by
+    `_copy_py_closure_visit` (recursive, marks-before-recursing) and
+    `_py_local_imports` (an `awk` line scan filtered by "does
+    `<src_lib>/<name>.py` exist"). Outputs `AIT_PY_CLOSURE_MODULES` /
+    `AIT_PY_CLOSURE_COPIED`; private `_AIT_PY_CLOSURE_VISITS` against the
+    `_AIT_PY_CLOSURE_MAX_VISITS=512` convergence ceiling.
+  - `tests/lib/asserts.sh` (+16): `assert_exit_zero_rc_out`.
+  - `tests/test_boardcol_update.sh`: closure call replaces the copy list; new
+    first test `test_scaffold_column_probe_works`; all four `aitask_update.sh`
+    / probe invocations capture and report output instead of `>/dev/null 2>&1`;
+    header comment records why.
+  - `tests/test_scaffold_py_closure.sh` (new): 13 cases / 38 assertions.
+- **Deviations from plan:** None in substance. Two additions the plan implied
+  but did not enumerate: a `test_convergence_failsafe_fires` case (drives the
+  512-visit ceiling down to 2 and asserts the `not converging` message, so
+  negative control B's expected outcome is grounded rather than assumed), and a
+  `test_real_board_columns_closure` case asserting the production graph really
+  does pull in `record_protocol.py` / `atomic_write.py` / `task_yaml.py`.
+- **Issues encountered:**
+  - The plan-mode session exited unexpectedly mid-exploration and had to be
+    re-entered; no work was lost.
+  - The HEAD-comparison control could not run in a `git worktree` — task data
+    lives on the separate `aitask-data` branch, so a detached worktree has no
+    `aitasks/metadata/`. Worked around by copying the three modified files
+    aside, `git checkout HEAD --` on them, running the control, and restoring.
+  - `assert_exit_zero_rc` alone was insufficient (raised in review): it prints
+    only the number, so the captured diagnostic still vanished. Hence
+    `assert_exit_zero_rc_out`.
+  - Destination inspection cannot prove "copied once" (raised in review): two
+    `cp`s of one file are byte-identical to one. Hence the
+    `AIT_PY_CLOSURE_COPIED` vs `AIT_PY_CLOSURE_MODULES` cross-check, bumped at
+    deliberately different points.
+- **Key decisions:**
+  - Derived closure over an extended list — the list had already drifted once,
+    and every future import would break the scaffold the same silent way.
+  - Recursion, not an array queue: bash 3.2 + `set -u` errors on expanding an
+    empty array.
+  - Existence-filtered naive scan over a Python `ast` walk: no interpreter
+    dependency at scaffold time, and the filter is what makes docstring prose
+    and stdlib names harmless. Documented blind spot: dynamic imports.
+  - A monotonic *visit* counter rather than a depth counter — no decrement on
+    any return path, and it converts runaway recursion into a bounded named
+    failure instead of a hang.
+  - `assert_exit_zero_rc_out` went into shared `asserts.sh` rather than inline:
+    it is a generic exit-code helper in the same family as the four already
+    there, not a domain-specific one.
+- **Verification performed:**
+  - `bash tests/test_boardcol_update.sh` — 13/13, exit 0 (previously: first test
+    header then a silent exit 1).
+  - `bash tests/test_scaffold_py_closure.sh` — 38/38, exit 0.
+  - Negative control A (drop `record_protocol` from the scan): run reaches its
+    summary with `FAIL: scaffold column probe exits zero (expected zero exit,
+    got 1; output: … ModuleNotFoundError: No module named 'record_protocol')`,
+    exit 1. The unit test independently fails `record_protocol.py in the
+    closure`. Reverted.
+  - Negative control B (dedup guard removed): cycle case terminates via the
+    fail-safe at 512 visits — no hang — with 10 named failures. Reverted.
+  - Negative control C (dedup degraded to cycles-only — the case destination
+    inspection could not catch): cycle case **passes**, diamond fails
+    `diamond copies d exactly once (expected '4', got '5')`. Reverted; `git
+    diff --stat` re-confirmed 130 insertions / 0 deletions.
+  - `shellcheck -x -e SC1091` on all four files: clean. SC1091 is the
+    source-following info present on every untouched test file too.
+  - Full sweep of all 69 `tests/lib/test_scaffold.sh` consumers: 68 pass.
+- **Upstream defects identified:**
+  - `tests/test_brainstorm_cli.sh:? — "archive outputs NO_PLAN warning" fails on
+    main; brainstorm archive prints only "Finalizing brainstorm session for task
+    999..." without the expected NO_PLAN warning`. Proven pre-existing: with the
+    three modified files reverted to their HEAD versions the failure reproduces
+    byte-identically (29 pass / 1 fail / 30 total, same assertion).
+- **Not done, deliberately:** the other test files that hand-copy `.py` modules
+  were not migrated to the new helper. Checked statically — `launch_modes.py`
+  has no local imports, and `gate_ledger.py`'s only local import
+  (`gate_registry_sync`) is function-local to the `sync-registry` subcommand
+  those tests never invoke — so none of them is currently red for this reason.
