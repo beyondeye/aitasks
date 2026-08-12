@@ -79,3 +79,5 @@ the quit key worked fine. Verify each TUI in a real pty:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-12T15:27:15Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-12T20:06:50Z status=pass attempt=1 type=human
