@@ -5,12 +5,16 @@ depends: [1486]
 issue_type: manual_verification
 status: Implementing
 labels: [verification, manual]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [1486]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1449
 followup_kind: manual_verification
 created_at: 2026-08-12 08:34
-updated_at: 2026-08-12 08:45
+updated_at: 2026-08-12 08:46
 ---
 
 ## Manual Verification Task
