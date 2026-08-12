@@ -172,13 +172,13 @@ Step 9 (Post-Implementation) then runs as usual: `ait gates run 1489`
 - The `_reload_from_start` refresh is only reachable in production through
   `_tail_loop`'s 0.2 s polling thread; test 3 drives `_reload_from_start`
   directly, so the thread wiring that calls it stays unpinned · severity: low ·
-  → mitigation: pin_tail_loop_truncation_refresh
+  → mitigation: t1494
 
 ### Goal-achievement risk: low
 - None identified.
 
 ### Planned mitigations
-- timing: after | name: pin_tail_loop_truncation_refresh | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health — `_reload_from_start`'s refresh is reached in production only via `_tail_loop`'s polling thread, which no test drives | desc: Pin the truncation refresh through the real tail loop — mount with tail=True, truncate the log to zero, wait out the 0.2 s poll, assert the header shows `[size: 0]`
+- timing: after | name: pin_tail_loop_truncation_refresh | type: test | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health — `_reload_from_start`'s refresh is reached in production only via `_tail_loop`'s polling thread, which no test drives | desc: Pin the truncation refresh through the real tail loop — mount with tail=True, truncate the log to zero, wait out the 0.2 s poll, assert the header shows `[size: 0]` | created: t1494
 
 ## Final Implementation Notes
 
