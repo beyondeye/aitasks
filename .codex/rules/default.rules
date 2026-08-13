@@ -25,6 +25,7 @@ prefix_rule(pattern = ["./.aitask-scripts/aitask_find_files.sh"], decision = "al
 prefix_rule(pattern = ["./.aitask-scripts/aitask_fold_content.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_fold_mark.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_fold_validate.sh"], decision = "allow", justification = "Aitasks helper script")
+prefix_rule(pattern = ["./.aitask-scripts/aitask_followup_backfill.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_gate.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_record.sh"], decision = "allow", justification = "Aitasks helper script")
 prefix_rule(pattern = ["./.aitask-scripts/aitask_gate_build.sh"], decision = "allow", justification = "Aitasks helper script")

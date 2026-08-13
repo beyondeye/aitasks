@@ -21,6 +21,11 @@ __pycache__/
 # Shadow concern-rejection store (per-task, local-only; pruned at archive)
 .aitask-shadow/
 
+# followup_kind backfill run state (manifest, preimages, journal). Local-only
+# recovery material for a one-shot maintenance script; the reviewed
+# classification table is committed into the task's plan file instead.
+.aitask-backfill/
+
 # Antigravity CLI workspace state (per-machine: absolute repo path + permissions)
 .antigravitycli/
 
