@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1449
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-12 23:14
-updated_at: 2026-08-13 12:44
+updated_at: 2026-08-13 14:04
 ---
 
 ## Origin
@@ -74,3 +75,8 @@ product bug.
   seed it from a source that exists in both branches.
 - Board flake: in `_launch_board`, wait for a marker that proves the columns
   mounted (the card title, or `(empty)`) rather than the header row.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T11:04:33Z status=pass attempt=1 type=human
