@@ -37,14 +37,13 @@
 #
 # NOTE: acquire_gate_lock is a NON-REENTRANT mkdir lock (nested acquisition of
 # the same key retries 20x at 0.3s and dies) — no test here nests acquisitions.
-# Its lock path is hardcoded under a fixed prefix (mirrored here as
-# GATE_LOCK_BASE) and is not TMPDIR-scoped, and there is no env seam for it —
-# so the task id is the ONLY isolation lever this suite has. The fixture ids in
-# IDS are therefore derived per run from $$ (t1485): fixed ids kept the suite
-# out of other suites' key space but gave zero isolation from a second instance
-# of ITSELF, which made two concurrent runs read each other's locks as the
-# "foreign" lock these tests characterize. The exit trap removes every lock dir
-# it may have touched.
+# Since t1496 the lock path is resolved through lib/stale_lock.sh's
+# ait_lock_dir, whose AITASKS_LOCK_DIR env override is the documented
+# isolation seam — this suite exports a per-run mktemp base (mirrored below as
+# GATE_LOCK_BASE), so two concurrent runs can no longer collide on lock paths
+# at all. The per-run fixture ids in IDS (derived from $$, t1485) are kept as
+# belt-and-braces: they also isolate the task FILES inside each run's fixture.
+# The exit trap removes every lock dir this run may have touched.
 #
 # Run: bash tests/test_gate_lock_characterization.sh
 # Expected runtime: ~15s (two ~6s lock-exhaustion tests).
@@ -72,10 +71,12 @@ key_for_id() {
     printf '%s' "$1"
 }
 
-# The one place this file spells the gate lock path. Mirrors the hardcoded
-# construction in acquire_gate_lock (aitask_gate.sh) — there is no env seam for
-# it, which is why the task id is the only isolation lever available below.
-GATE_LOCK_BASE='/tmp/aitask_gate_lock_'
+# The one place this file spells the gate lock path. Mirrors ait_lock_dir's
+# construction in lib/stale_lock.sh under this run's private AITASKS_LOCK_DIR
+# base (the documented isolation seam, t1496).
+AITASKS_LOCK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/test_gatelock_base_XXXXXX")"
+export AITASKS_LOCK_DIR
+GATE_LOCK_BASE="$AITASKS_LOCK_DIR/gate_"
 
 # Tests 2a/2b/3 characterize the key derivation itself, so they name each
 # spelling explicitly rather than routing through key_for_id().
@@ -104,24 +105,22 @@ done
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_gatelock_XXXXXX")"
 cleanup() {
-    rm -rf "$TMP"
+    rm -rf "$TMP" "$AITASKS_LOCK_DIR"
     local d
     for d in "${LOCK_DIRS[@]}"; do
-        rmdir "$d" 2>/dev/null || true
-        rm -rf "$d".stale.* 2>/dev/null || true
+        rm -rf "$d" "$d".gc "$d".stale.* 2>/dev/null || true
     done
 }
 trap cleanup EXIT
 
-# Pre-flight clear. Because pids are unique among LIVE processes, anything
-# already sitting at one of our paths can only be a leak from a dead run that
-# was killed before its trap fired — so removing it is safe, and (unlike the
-# former fixed-id scheme) cannot mask a concurrent peer.
+# Pre-flight clear. The lock base is this run's private mktemp dir, so nothing
+# can be sitting at our paths; kept as a harmless invariant for the (kill -9'd
+# previous run) leak case within the same base — it cannot mask a concurrent
+# peer, which now has its own base entirely.
 cleanup_lock_dir_leaks() {
     local d
     for d in "${LOCK_DIRS[@]}"; do
-        rmdir "$d" 2>/dev/null || true
-        rm -rf "$d".stale.* 2>/dev/null || true
+        rm -rf "$d" "$d".gc "$d".stale.* 2>/dev/null || true
     done
 }
 cleanup_lock_dir_leaks
@@ -296,6 +295,10 @@ chmod +x "$TMP/failpy"
 out="$( cd "$TMP" && TASK_DIR=aitasks AIT_GATES_BACKEND=python \
     AIT_PYTHON="$TMP/failpy" "$GATE" append "$ID4" tests_pass pass 2>&1 )"; rc=$?
 assert_exit_nonzero_rc "python-backend delegate failure dies" "$rc"
+# t1496: the trap is now a handler that captures $?, releases, and re-exits —
+# pin that the die's original status comes through unchanged (a bare release
+# in the trap could have replaced it with the release command's own status).
+assert_eq "die exit status preserved through the exit-trap handler" "1" "$rc"
 assert_contains "die comes from the delegate, after the lock was acquired" \
     "python gate_ledger append failed" "$out"
 assert_dir_not_exists "EXIT trap released the lock on the die path" \
@@ -314,7 +317,7 @@ assert_dir_not_exists "reclaimed-then-taken lock released on exit" \
     "$(lock_dir_for_id "$ID5")"
 
 # ============================================================
-echo "--- Test 6b: stale lock reclaimed under contention (single-winner mv) ---"
+echo "--- Test 6b: stale lock reclaimed under contention (single-winner reclaim) ---"
 # ============================================================
 mkdir "$(lock_dir_for_id "$ID7")"
 touch -t 202001010000 "$(lock_dir_for_id "$ID7")"

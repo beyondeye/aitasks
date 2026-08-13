@@ -71,10 +71,19 @@ TASK
     echo "$tmpdir"
 }
 
+# Per-run lock namespace (t1496): AITASKS_LOCK_DIR is the documented isolation
+# seam of lib/stale_lock.sh — every scaffolded aitask_create.sh below inherits
+# it, so two concurrent runs of THIS file no longer read each other's locks
+# (the old hard-coded /tmp/aitask_child_lock_100 collided exactly like the
+# fixture t1485 fixed for the gate suite).
+AITASKS_LOCK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/test_childlock_XXXXXX")"
+export AITASKS_LOCK_DIR
+CHILD_LOCK="$AITASKS_LOCK_DIR/child_100"
+trap 'rm -rf "$AITASKS_LOCK_DIR"' EXIT
+
 # Clean up stale locks that might interfere with tests
 cleanup_locks() {
-    rmdir /tmp/aitask_child_lock_100 2>/dev/null || true
-    rm -rf /tmp/aitask_child_lock_100.stale.* 2>/dev/null || true
+    rm -rf "$CHILD_LOCK" "$CHILD_LOCK.gc" 2>/dev/null || true
 }
 
 # Disable strict mode for test error handling
@@ -177,9 +186,9 @@ cleanup_locks
 TMPDIR_3="$(setup_test_repo)"
 
 # Create a stale lock (set modification time to 200 seconds ago)
-mkdir -p /tmp/aitask_child_lock_100
-touch -d "200 seconds ago" /tmp/aitask_child_lock_100 2>/dev/null || \
-    touch -t "$(date -d '200 seconds ago' '+%Y%m%d%H%M.%S' 2>/dev/null || date -v-200S '+%Y%m%d%H%M.%S')" /tmp/aitask_child_lock_100
+mkdir -p "$CHILD_LOCK"
+touch -d "200 seconds ago" "$CHILD_LOCK" 2>/dev/null || \
+    touch -t "$(date -d '200 seconds ago' '+%Y%m%d%H%M.%S' 2>/dev/null || date -v-200S '+%Y%m%d%H%M.%S')" "$CHILD_LOCK"
 
 # Child creation should succeed despite stale lock
 output=$(cd "$TMPDIR_3" && ./.aitask-scripts/aitask_create.sh --batch --parent 100 \
@@ -211,13 +220,13 @@ mkdir -p "$TMPDIR_3B/bin"
 cat > "$TMPDIR_3B/bin/stat" <<EOF
 #!/bin/sh
 case "\$*" in
-  *aitask_child_lock_100*) rmdir /tmp/aitask_child_lock_100 2>/dev/null; exit 1 ;;
+  *${CHILD_LOCK}*) rmdir "${CHILD_LOCK}" 2>/dev/null; exit 1 ;;
   *) exec "$REAL_STAT" "\$@" ;;
 esac
 EOF
 chmod +x "$TMPDIR_3B/bin/stat"
 
-mkdir -p /tmp/aitask_child_lock_100   # fresh mtime: only the shim fails stat
+mkdir -p "$CHILD_LOCK"   # fresh mtime: only the shim fails stat
 output=$(cd "$TMPDIR_3B" && PATH="$TMPDIR_3B/bin:$PATH" \
     ./.aitask-scripts/aitask_create.sh --batch --parent 100 \
     --name "after_vanished_lock" --type feature --priority medium --effort low \

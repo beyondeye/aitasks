@@ -44,6 +44,10 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # closed and every --followup-kind validation rejects.
         cp "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds_sh.sh" "$repo_dir/.aitask-scripts/lib/"
         cp "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds.py"    "$repo_dir/.aitask-scripts/lib/"
+        # stale_lock.sh is sourced at startup by aitask_create.sh and
+        # aitask_gate.sh (t1496 — the shared child/gate mutex); a stdlib-only
+        # leaf with no deps beyond terminal_compat.sh (already copied above).
+        cp "$PROJECT_DIR/.aitask-scripts/lib/stale_lock.sh"        "$repo_dir/.aitask-scripts/lib/"
     }
 
     # --- Python module closure ---------------------------------------------

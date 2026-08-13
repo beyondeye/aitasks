@@ -62,6 +62,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/stale_lock.sh
+source "$SCRIPT_DIR/lib/stale_lock.sh"
 # NOTE: lib/registry_lock.sh is sourced LAZILY inside cmd_sync_registry, not
 # here. Only that one verb needs it, and several tests scaffold a fake
 # .aitask-scripts/lib/ by hand-copying a subset of libs — an unconditional
@@ -114,50 +116,54 @@ is_terminal_status() {
     return 1
 }
 
-# Per-task mkdir lock (portable; mirrors aitask_create.sh acquire_child_lock).
-# Serializes concurrent appends to the same task file.
+# Per-task mutex (shared helper, t1496; also used by aitask_create.sh's child
+# lock). Serializes concurrent appends to the same task file. The helper's
+# stale reclaim is single-winner (guarded observation+destruction) and never
+# displaces a live holder — see lib/stale_lock.sh for the invariants.
 _GATE_LOCK_DIR=""
+_GATE_LOCK_TOKEN=""
 acquire_gate_lock() {
-    local key="$1"
-    local lock_dir="/tmp/aitask_gate_lock_${key}"
-    local max_retries=20 retry=0
-    while ! mkdir "$lock_dir" 2>/dev/null; do
-        retry=$((retry + 1))
-        if [[ $retry -ge $max_retries ]]; then
-            die "Failed to acquire gate append lock for $key after $max_retries attempts"
-        fi
-        if [[ -d "$lock_dir" ]]; then
-            local lock_mtime lock_age
-            if lock_mtime=$(stat -c %Y "$lock_dir" 2>/dev/null || stat -f %m "$lock_dir" 2>/dev/null); then
-                lock_age=$(( $(date +%s) - lock_mtime ))
-                if [[ "$lock_age" -gt 120 ]]; then
-                    # Single-winner reclaim: rename is atomic, so only one
-                    # waiter can claim the stale dir, and a lock re-acquired
-                    # at this path after the rename is never touched. The
-                    # preflight rm clears a quarantine dir leaked by a dead
-                    # PID-reused process (mv onto an existing dir would nest
-                    # instead of replacing).
-                    local stale_dest="${lock_dir}.stale.$$"
-                    rm -rf "$stale_dest" 2>/dev/null || true
-                    if mv "$lock_dir" "$stale_dest" 2>/dev/null; then
-                        warn "Removing stale gate lock for $key (age: ${lock_age}s)"
-                        rmdir "$stale_dest" 2>/dev/null || true
-                    fi
-                    continue
-                fi
-            else
-                # Lock vanished between -d and stat — retry mkdir immediately.
-                continue
-            fi
-        fi
-        sleep 0.3
-    done
+    local key="$1" lock_dir
+    lock_dir="$(ait_lock_dir "gate_${key}")" || \
+        die "Failed to resolve gate lock base for $key"
+    if ! stale_lock_acquire "$lock_dir" 20 0.3 "gate lock for $key"; then
+        # The prefix is pinned by tests/test_gate_lock_characterization.sh
+        # (Test 2a); the describe suffix is the recovery hint (t1496).
+        die "Failed to acquire gate append lock for $key after 20 attempts$(stale_lock_describe "$lock_dir")"
+    fi
     _GATE_LOCK_DIR="$lock_dir"
+    _GATE_LOCK_TOKEN="$STALE_LOCK_TOKEN"
 }
 
 release_gate_lock() {
-    [[ -n "$_GATE_LOCK_DIR" ]] && rmdir "$_GATE_LOCK_DIR" 2>/dev/null || true
+    local rc=0
+    if [[ -n "$_GATE_LOCK_DIR" ]]; then
+        stale_lock_release "$_GATE_LOCK_DIR" "$_GATE_LOCK_TOKEN" || rc=1
+    fi
     _GATE_LOCK_DIR=""
+    _GATE_LOCK_TOKEN=""
+    return "$rc"
+}
+
+# Explicit-release form: a genuinely retained lock (leaked guard, undeletable
+# dir) must surface as a command failure, never as silent success with the key
+# wedged (t1496 invariant 6).
+release_gate_lock_checked() {
+    if ! release_gate_lock; then
+        die "gate lock not released — the key stays wedged (see warning above)"
+    fi
+}
+
+# EXIT-trap form: capture the incoming status, release errexit-safely, preserve
+# a meaningful nonzero status, and flip 0 -> 1 only when the release itself
+# failed (a bare `release_gate_lock` here could turn a die's status into a
+# generic 1 or a success into a spurious failure under set -e).
+_gate_lock_exit_trap() {
+    local rc=$?
+    if ! release_gate_lock; then
+        if [[ $rc -eq 0 ]]; then rc=1; fi
+    fi
+    exit "$rc"
 }
 
 delegate_python() {
@@ -284,21 +290,20 @@ cmd_append() {
 
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
-    # shellcheck disable=SC2064
-    trap 'release_gate_lock' EXIT
+    trap '_gate_lock_exit_trap' EXIT
 
     # `--only-if-running` guard (atomic under the lock): if a terminal block was
     # already written for this run id, do nothing. Checked ONCE here, for both
     # backends — it used to be written twice, once per branch.
     if [[ -n "$only_if_running" ]] && ! _gate_run_is_running "$file" "$only_if_running"; then
-        release_gate_lock; trap - EXIT
+        release_gate_lock_checked; trap - EXIT
         return 0
     fi
 
     _gate_append_locked "$file" "$gate" "$status" "$@"
     local rc=$?
 
-    release_gate_lock
+    release_gate_lock_checked
     trap - EXIT
     return "$rc"
 }
@@ -950,8 +955,7 @@ cmd_materialize_active() {
 
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
-    # shellcheck disable=SC2064
-    trap 'release_gate_lock' EXIT
+    trap '_gate_lock_exit_trap' EXIT
 
     # Hard-fail helper for the profiled path: a re-derivation that cannot
     # complete must not leave a stale snapshot governing — drop the tuple
@@ -973,7 +977,10 @@ cmd_materialize_active() {
                 state="WARNING: stale tuple could NOT be cleared — the outdated tuple may still govern; clear it (aitask_update.sh --batch $task_id --clear-active-gates) before relying on enforcement"
             fi
         fi
-        release_gate_lock; trap - EXIT
+        # About to die anyway: a release failure already warned, and the die
+        # status must carry THIS message, so don't let set -e cut in early.
+        release_gate_lock || true
+        trap - EXIT
         die "materialize-active: $1 — $state"
     }
 
@@ -1033,7 +1040,7 @@ cmd_materialize_active() {
         && [[ "$(_yaml_list_csv "$file" active_gates_filtered)" == "$filtered" ]] \
         && [[ "$(read_yaml_field "$file" active_gates_profile)" == "$profile_name" ]] \
         && [[ "$(read_yaml_field "$file" active_gates_digest)" == "$digest" ]]; then
-        release_gate_lock
+        release_gate_lock_checked
         trap - EXIT
         # Also warn on the unchanged path: re-picking an in-flight task is the
         # COMMON case, and a warning that only fired on the first
@@ -1058,7 +1065,7 @@ cmd_materialize_active() {
         _materialize_fail "tuple write failed"
     fi
 
-    release_gate_lock
+    release_gate_lock_checked
     trap - EXIT
 
     _warn_unverifiable_active "$active"
@@ -1198,8 +1205,7 @@ cmd_begin_procedure() {
     # cmd_append here would deadlock against our own hold.
     local key="${task_id//\//_}"
     acquire_gate_lock "$key"
-    # shellcheck disable=SC2064
-    trap 'release_gate_lock' EXIT
+    trap '_gate_lock_exit_trap' EXIT
 
     local state open_field attempt run_id terminal
     state="$(_gate_run_state "$file" "$gate")"
@@ -1228,7 +1234,7 @@ cmd_begin_procedure() {
             run="$run_id" attempt="$attempt" type=machine >/dev/null
     fi
 
-    release_gate_lock
+    release_gate_lock_checked
     trap - EXIT
 
     printf 'RUN_ID:%s\nATTEMPT:%s\n' "$run_id" "$attempt"

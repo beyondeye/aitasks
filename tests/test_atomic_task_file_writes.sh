@@ -134,8 +134,12 @@ fresh_tmpdir() {
     printf '%s' "$d"
 }
 tmpdir_entries() {
+    # Staging-residue count. The per-repo lock base lib/stale_lock.sh creates
+    # under TMPDIR (aitask-locks-<uid>-<cksum>, t1496) is a deliberate
+    # persistent namespace, not atomic-write residue — exempt it, but only
+    # while EMPTY: a lock left inside it would be a real leak and must count.
     local n
-    n=$(find "$1" -mindepth 1 2>/dev/null | wc -l)
+    n=$(find "$1" -mindepth 1 -not -name 'aitask-locks-*' 2>/dev/null | wc -l)
     printf '%s' "$n" | tr -d '[:space:]'
 }
 

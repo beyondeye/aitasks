@@ -68,9 +68,25 @@ portability quirks (BSD vs GNU tooling) live in
   from the fake repo. Current baseline: `aitask_path.sh`, `terminal_compat.sh`,
   `tmux_exec.sh`, `python_resolve.sh`, `yaml_utils.sh`, `atomic_write.sh`,
   `atomic_write.py`, `cross_repo_reexec.sh`, `followup_kinds_sh.sh`,
-  `followup_kinds.py`. A lib with a runtime sibling in another language (the
+  `followup_kinds.py`, `stale_lock.sh`. A lib with a runtime sibling in another language (the
   bridge pattern — `followup_kinds_sh.sh` shells out to `followup_kinds.py`)
   must have **both** copied, or it fails closed inside every scaffolded test.
+- **Ephemeral cross-process mutexes: use `lib/stale_lock.sh`, never a
+  hand-rolled `/tmp` mkdir lock.** `stale_lock_acquire <dir> <retries>
+  <sleep> <label>` / `stale_lock_release <dir> <token>` (the token comes back
+  in `STALE_LOCK_TOKEN`; never call acquire inside a command substitution, or
+  the token is stranded in the subshell), with `ait_lock_dir <name>` resolving
+  a per-user, per-repo lock path — `AITASKS_LOCK_DIR` is the documented env
+  seam tests use for isolation instead of encoding uniqueness in task ids.
+  The helper's stale reclaim is single-winner (observation and destruction
+  serialized under a `.gc` guard) and **never displaces a live holder**: dead
+  PIDs are reclaimed, tokenless dirs only after 120s, and a wedged lock is
+  named in the caller's exhaustion error rather than self-healed (t1496 —
+  the hand-rolled copies in `aitask_gate.sh`/`aitask_create.sh` stole live
+  locks under contention). `lib/registry_lock.sh` is the separate persistent
+  registry mutex; consolidation onto this core is a planned follow-up. (This
+  lock family is distinct from `aitask_lock.sh`, the git-visible *task
+  ownership* lock.)
 - **Avoid `claude -p` / `claude --print` (headless print mode) in scripts and
   skills.** Claude Code bills headless print mode at a higher per-token rate
   than interactive invocations against an existing session. Default to
