@@ -76,3 +76,5 @@ Extend the advisory workflow-phase signal after t1420 so native Codex and OpenCo
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-13T18:29:57Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-13T20:25:18Z status=pass attempt=1 type=human
