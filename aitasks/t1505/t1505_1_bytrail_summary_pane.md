@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, trails, artifacts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-08-13 12:26
-updated_at: 2026-08-13 12:26
+updated_at: 2026-08-13 12:46
 ---
 
 ## Context
