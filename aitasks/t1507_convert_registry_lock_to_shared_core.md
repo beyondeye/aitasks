@@ -68,3 +68,5 @@ guard-replacement shims, live/dead-holder cases) to replicate for registry_lock.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-13T11:37:59Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-13T12:48:53Z status=pass attempt=1 type=human
