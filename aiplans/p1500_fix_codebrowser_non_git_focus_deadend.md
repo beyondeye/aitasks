@@ -338,3 +338,84 @@ viewer.
 ### Planned mitigations
 - timing: pre-phase | name: pin_search_index_seeding | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the `_seed_search_index` extraction refactors an untested path with two callers | desc: write and green both the boot-seeding and the tracked-file-refresh tests against unmodified source before extracting the helper
 - timing: post-phase | name: full_suite_flake_rerun | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a standalone module run cannot show the board flake is gone | desc: verify the board live-pin fix with two full `run_all_python_tests.sh` runs, the only shape that reproduces the flake
+
+## Final Implementation Notes
+
+- **Actual work done:** All three defects landed as planned, in plan order.
+  `compose()` now gates `yield FileSearchWidget(...)` on a `has_project` local,
+  so the non-git branch mounts no search box; the duplicated seeding blocks in
+  `on_mount` and `on_tracked_files_refreshed` collapsed into
+  `_seed_search_index()` with `except NoMatches` around the two `query_one`
+  calls only and `set_files` outside the guard. `_focus_recent_or_tree` and
+  `action_toggle_focus` were left untouched, as designed. On the test side:
+  the two t1495 pins were updated deliberately, two new pins cover
+  `_seed_search_index`'s two callers, `_launch_board` now waits on
+  `CARD_TITLE` **and** the derived `COLUMNS_MOUNTED_MARKER` (`Backlog (0)`),
+  and the codebrowser live pin's post-quit assertion moved from
+  `SEARCH_PLACEHOLDER` to `BOOT_MARKER`. `tui_conventions.md`'s t1495 audit row
+  is marked historical.
+
+- **Deviations from plan:** Two, both additive.
+  1. The plan said only to flip `test_the_non_git_branch_mounts_no_sidebar_focus_target`
+     and rewrite `test_tab_is_a_self_loop_without_a_sidebar`'s
+     `query_one("#file_search_input")` line. The replacement assertion turned
+     out to want more than "the box is gone": it now enumerates every
+     focusable, displayed widget on the screen and asserts the focused viewer
+     is the *only* one. A self-loop is correct only while nothing else is
+     mounted to reach, and that is the property worth pinning.
+  2. `test_the_screen_resolves_to_no_auto_focus_selector`'s failure message
+     still named `#file_search_input` as the non-git branch's first focusable
+     widget. Not listed in the plan, but it had become false; re-worded to
+     state the actual contract (the anchor comes from `_claim_startup_focus`,
+     not from DOM order).
+
+- **Issues encountered:**
+  - The plan's first draft waited only on `COLUMNS_MOUNTED_MARKER`. Review
+    pointed out that a column header proves mounting, not that the `TaskCard`
+    children painted — and the observed failure is precisely an absent
+    `CARD_TITLE`. Readiness became both markers. To keep that from hollowing
+    out the caller's assertion, the timeout became an explicit `self.fail`
+    reporting each of the three markers separately, plus an early break on the
+    settled negative (columns mounted + `(hidden by filter)`).
+  - The plan's first draft also pinned only the boot seeding. Review pointed
+    out `_seed_search_index` has two callers, so a dropped one-line delegation
+    in `on_tracked_files_refreshed` would pass everything. Added a second pin
+    driven through the real producer (`refresh_tracked_files()`), on its **own**
+    fixture tree — it `git add`s a file, and `cls.git_tree` is class-scoped.
+  - Run 1 of the post-phase full-suite verification failed on
+    `test_board_movement.py::BoardMovementBenchmarkTests::test_attribution_tier_localises_an_injected_cost`
+    (`render` absorbed 40.0 ms of a cost injected into `refocus`). Unrelated to
+    this change: that module imports nothing from the codebrowser, the test
+    passes in isolation in 6.7 s, and it passed in runs 2 and 3. A third run
+    was taken so the mitigation's "two clean full runs" bar was actually met
+    rather than declared met. Recorded as an upstream defect below.
+
+- **Key decisions:**
+  - **Structural fix over a focus-cycle patch (user-confirmed).** The task
+    offered two options. Probing established the box can never work in the
+    non-git branch — `_all_files` has no source without a `ProjectFileTree`,
+    and opening a hit needs the `_project_root` that branch lacks — so making
+    it *reachable* would only have made a permanently-empty widget focusable.
+    Not mounting it removes both defects at once and leaves the degenerate Tab
+    cycle correct by construction.
+  - **`has_project` local rather than `self._project_root is not None`.**
+    `ExplainManager(...)` can raise after the field is assigned, so the field
+    alone does not identify which branch composed; the `except` arm also resets
+    it to `None`.
+  - **Marker derived from the fixture, not hardcoded `"Backlog (0)"`.** It is
+    computed from `_COLUMNS[-1]` and a count over `_TASKS`, so adding a backlog
+    task cannot silently desync it and turn every run into a 45 s timeout.
+  - **Verification by probe before planning, not by reading.** Two premises
+    were measured first: that boot seeding already works in the git branch
+    (`#file_tree` *is* queryable in `on_mount`, contrary to what the
+    `_claim_startup_focus` comment suggests), and that the board's filter row
+    paints at 1.43 s while the columns land at 1.53 s. The first scoped defect
+    2 to the non-git branch; the second is the root cause of the flake.
+  - **Three negative controls, one mutation each.** Disabled seeding → both new
+    pins fail; dropped the event delegation → only the refresh pin fails while
+    the boot pin still passes (the asymmetry is what proves they cover
+    different callers); removed the compose gate → both non-git pins fail.
+
+- **Upstream defects identified:**
+  - `tests/test_board_movement.py:1429-1433 — test_attribution_tier_localises_an_injected_cost asserts a wall-clock upper bound (neighbour self-time < 25 ms) that the suite's own 4-worker parallel lane can violate; observed render=40.0 ms in one of three full runs, passes standalone`
+  - `CLAUDE.md:44-46 — the documented serial carve-out ("currently tests/test_board_header_row_live.py") is stale; the runner announces three: test_board_header_row_live.py, test_board_startup_focus_live.py and test_codebrowser_startup_focus_live.py`
