@@ -9,14 +9,17 @@
 #   6. cleanup failures propagated (verified removals)
 #
 # Run: bash tests/test_stale_lock.sh
-# Expected runtime: ~10s (several sub-second exhaustion budgets + one 2s
-# release guard-wait).
+# Expected runtime: ~3s (several sub-second exhaustion budgets + one 2s
+# release guard-wait). A run of ~60s+ against near-zero CPU means a fixture is
+# blocked in `wait` on a child that never received its kill — see
+# tests/lib/proc_fixtures.sh (t1512).
 
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 PASS=0
 FAIL=0
@@ -108,9 +111,7 @@ rm -rf "$L"
 # ============================================================
 echo "--- dead-PID holder is reclaimed with warn ---"
 # ============================================================
-sleep 60 &
-dead_pid=$!
-kill "$dead_pid" 2>/dev/null; wait "$dead_pid" 2>/dev/null
+dead_pid="$(dead_pid_fixture)"
 L="$(ait_lock_dir dead)"
 mkdir "$L"
 printf '%s\n' "$dead_pid" > "$L/pid"

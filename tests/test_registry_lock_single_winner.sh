@@ -27,6 +27,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# shellcheck source=lib/proc_fixtures.sh
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 
 PASS=0
 FAIL=0
@@ -66,10 +68,7 @@ entry_count() {
     printf '%s\n' "${n:-0}"
 }
 
-# A PID that has already exited AND been reaped: command substitution waits for
-# the child, so there is no zombie (kill -0 succeeds on a zombie) and no signal
-# to lose in bash's fork->exec window.
-dead_pid_fixture() { bash -c 'echo $$'; }
+# dead_pid_fixture() comes from tests/lib/proc_fixtures.sh (sourced above).
 
 # ============================================================
 echo "--- live holder: a backdated lock with a live PID is never stolen (~10s) ---"

@@ -31,6 +31,8 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+# shellcheck source=lib/proc_fixtures.sh
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"
 # The lib delegates to stale_lock.sh, which needs warn() from terminal_compat.sh
 # (every production caller sources it first — same as tests/test_stale_lock.sh).
 . "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
@@ -73,13 +75,7 @@ kill "$live_pid" 2>/dev/null
 wait "$live_pid" 2>/dev/null
 rm -rf "$d2"
 
-# A PID that has already exited AND been reaped. Command substitution waits for
-# the child, so there is no zombie (kill -0 succeeds on a zombie) and no signal
-# to lose. The former `sleep 60 & kill $!; wait $!` form raced bash's fork→exec
-# window: a signal sent microseconds after `&` is dropped, and the `wait` — which
-# is load-bearing, since only reaping makes the PID answer kill -0 with failure —
-# then blocked for the child's full 60s. It passed only by scheduling luck.
-dead_pid_fixture() { bash -c 'echo $$'; }
+# dead_pid_fixture() comes from tests/lib/proc_fixtures.sh (sourced above).
 
 # --- Case 3: dead holder → acquire STEALS --------------------------------
 d3="$TMPROOT/lock3.d"
