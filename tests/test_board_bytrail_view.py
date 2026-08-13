@@ -3331,5 +3331,616 @@ class TrailDiscoveryPilotTests(unittest.TestCase):
         asyncio.run(go())
 
 
+class ComposeLayoutCharacterizationTests(ByTrailTestBase):
+    """t1505_1 pre-phase: pin the composited BOTTOM of the By-Trail screen.
+
+    Characterization, written and confirmed green against the board *before*
+    the summary pane was added, so that mounting a new flow child into
+    ``KanbanApp.compose`` fails loudly here rather than silently.
+
+    The failure being guarded is t1278's, recorded in the board's own CSS at
+    ``aitask_board.py`` (#filter_area): Textual places two same-edge docked
+    siblings at the SAME offset, so one paints over the other while BOTH still
+    report ``display=True``, ``visible=True`` and a correct region. Textual's
+    ``Footer`` sets ``dock: bottom`` and ``MultiRowFooter`` overrides only
+    ``layout``/``height`` — it never unsets the dock — so a summary pane that
+    docked bottom too would land on the footer and erase it. No
+    ``display``/``visible``/``region`` assertion can see that; only the
+    composited frame can, which is why every assertion here goes through
+    ``_screen_rows``.
+    """
+
+    def _bytrail_frame(self, size):
+        """Boot the board into By-Trail at `size`; return (rows, board, footer)."""
+        ab = self.ab
+        captured = {}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=size) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, copy.deepcopy(_load_fixture()))
+                captured["rows"] = self._screen_rows(app)
+                captured["board"] = app.query_one("#board_container").region
+                captured["footer"] = app.query_one(ab.MultiRowFooter).region
+
+        self._run(go())
+        return captured["rows"], captured["board"], captured["footer"]
+
+    def test_footer_rows_are_composited_in_bytrail(self):
+        """The footer's own rows carry its key labels on the real frame.
+
+        This is the assertion a docked sibling breaks: the footer would still
+        report a correct region while rendering nothing to those rows.
+        """
+        rows, _board, footer = self._bytrail_frame((120, 20))
+
+        self.assertGreater(footer.height, 0, "footer collapsed to zero height")
+        self.assertLessEqual(footer.bottom, len(rows),
+                             "footer region falls outside the frame")
+
+        footer_text = " ".join(rows[footer.y:footer.bottom])
+        self.assertNotEqual(
+            footer_text.strip(), "",
+            f"footer rows composited blank — painted over? {rows[footer.y:footer.bottom]!r}")
+        # A real binding label, not just "some ink": proves these rows belong
+        # to the footer rather than to whatever overlapped it.
+        self.assertIn("Quit", footer_text,
+                      f"footer key labels missing from the frame: {footer_text!r}")
+
+    def test_board_container_does_not_overlap_the_footer(self):
+        """The lanes stop above the footer — the two never share a row."""
+        rows, board, footer = self._bytrail_frame((120, 20))
+
+        self.assertEqual((board.x, board.y), (0, 4),
+                         "lanes moved: something took height from the board")
+        self.assertLessEqual(
+            board.bottom, footer.y,
+            f"board container overlaps the footer: board={board} footer={footer}")
+        self.assertLessEqual(footer.bottom, len(rows))
+
+    def test_footer_survives_a_narrow_terminal(self):
+        """Same guarantee at a width where the footer must reflow to survive."""
+        rows, board, footer = self._bytrail_frame((80, 24))
+
+        footer_text = " ".join(rows[footer.y:footer.bottom])
+        self.assertNotEqual(footer_text.strip(), "",
+                            "footer composited blank at 80 columns")
+        self.assertLessEqual(board.bottom, footer.y)
+
+
+class TrailSummaryResolverTests(ByTrailTestBase):
+    """t1505_1: the pure resolver behind the By-Trail summary pane."""
+
+    def test_overview_is_preferred_over_recommendation_summary(self):
+        self.assertEqual(
+            self.ab.trail_summary_text(
+                {"narrative": {"overview": "the overview",
+                               "recommendation_summary": "the fallback"}}),
+            "the overview")
+
+    def test_falls_back_to_recommendation_summary(self):
+        """The only live path until t1505_3 adds `narrative.overview`."""
+        self.assertEqual(
+            self.ab.trail_summary_text(
+                {"narrative": {"recommendation_summary": "the fallback"}}),
+            "the fallback")
+
+    def test_blank_overview_falls_through_rather_than_winning(self):
+        """Whitespace-only is empty at EVERY level — a doc carrying a blank
+        `overview` must still show its recommendation_summary, not nothing."""
+        self.assertEqual(
+            self.ab.trail_summary_text(
+                {"narrative": {"overview": "   \n  ",
+                               "recommendation_summary": "the fallback"}}),
+            "the fallback")
+
+    def test_empty_when_neither_field_carries_text(self):
+        for doc in ({}, {"narrative": {}},
+                    {"narrative": {"recommendation_summary": "  "}},
+                    {"narrative": None}, None,
+                    {"narrative": {"recommendation_summary": 123}}):
+            with self.subTest(doc=doc):
+                self.assertEqual(self.ab.trail_summary_text(doc), "")
+
+    def test_result_is_stripped(self):
+        self.assertEqual(
+            self.ab.trail_summary_text(
+                {"narrative": {"recommendation_summary": "  padded  "}}),
+            "padded")
+
+
+class TrailSummaryPaneTests(ByTrailTestBase):
+    """t1505_1: the By-Trail summary pane on the composited frame."""
+
+    SUMMARY_A = "ALPHAMARK first trail summary prose."
+    SUMMARY_B = "BETAMARK second trail summary prose."
+
+    @staticmethod
+    def _doc(summary: str, *, field: str = "recommendation_summary",
+             title: str = "T", hints: dict | None = None) -> dict:
+        doc = copy.deepcopy(_load_fixture())
+        doc["title"] = title
+        doc["narrative"]["recommendation_summary"] = "unused fallback"
+        doc["narrative"].pop("overview", None)
+        doc["narrative"][field] = summary
+        if hints is not None:
+            doc["rendering_hints"] = hints
+        return doc
+
+    def _pane_rows(self, app, rows) -> str:
+        region = app.query_one("#trail_summary").region
+        return " ".join(rows[region.y:region.bottom])
+
+    def test_pane_is_visible_in_bytrail_and_shows_the_summary(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, self._doc(self.SUMMARY_A))
+                self.assertTrue(app.query_one("#trail_summary").display)
+                self.assertIn("ALPHAMARK",
+                              self._pane_rows(app, self._screen_rows(app)))
+
+        self._run(go())
+
+    def test_pane_does_not_overlap_the_footer(self):
+        """The docked-sibling guard, on the surface that actually loses.
+
+        Confirmed falsifiable: adding `dock: bottom` to #trail_summary makes
+        this fail. Note WHICH widget is the victim — the footer is docked and
+        wins the paint, so a docked pane does not eat the footer, it silently
+        loses its own last rows to it while still reporting a correct region
+        and display=True (t1278). Asserting only that the footer survives
+        therefore passes under the very fault this guards.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 20)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, self._doc(self.SUMMARY_A))
+                pane = app.query_one("#trail_summary").region
+                footer = app.query_one(ab.MultiRowFooter).region
+                self.assertLessEqual(
+                    pane.bottom, footer.y,
+                    f"summary pane overlaps the footer: pane={pane} "
+                    f"footer={footer} — is it docked?")
+                # Render-level half: no footer key label may appear on a row
+                # the pane owns.
+                self.assertNotIn(
+                    "Quit", self._pane_rows(app, self._screen_rows(app)),
+                    "footer keys composited inside the pane's own rows")
+
+        self._run(go())
+
+    def test_pane_is_absent_outside_bytrail_and_restores_board_height(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                tall = app.query_one("#board_container").region.height
+                await self._enter_synthetic_bytrail(
+                    app, pilot, self._doc(self.SUMMARY_A))
+                self.assertTrue(app.query_one("#trail_summary").display)
+                shrunk = app.query_one("#board_container").region.height
+                self.assertLess(shrunk, tall, "pane took no height from lanes")
+
+                for view in ("all", "bytopic"):
+                    app._set_base_filter(view)
+                    await pilot.pause()
+                    await pilot.pause()
+                    self.assertFalse(
+                        app.query_one("#trail_summary").display,
+                        f"pane still displayed in the {view} view")
+                    self.assertNotIn(
+                        "ALPHAMARK",
+                        "\n".join(self._screen_rows(app)),
+                        f"summary text still composited in the {view} view")
+
+                # Back to the view the baseline was measured in — the other
+                # views carry different filter-row chrome, so only `all` is a
+                # like-for-like comparison.
+                app._set_base_filter("all")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(
+                    app.query_one("#board_container").region.height, tall,
+                    "leaving By-Trail did not restore the full column height")
+
+        self._run(go())
+
+    def test_pane_hidden_when_the_trail_has_no_summary(self):
+        """An empty summary hides the pane rather than mounting a blank frame."""
+        ab = self.ab
+
+        async def go():
+            doc = copy.deepcopy(_load_fixture())
+            doc["narrative"]["recommendation_summary"] = "   "
+            doc["narrative"].pop("overview", None)
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, doc)
+                self.assertFalse(app.query_one("#trail_summary").display)
+
+        self._run(go())
+
+    def test_bracketed_prose_is_rendered_literally_not_as_markup(self):
+        """Trail prose is FREE-FORM: brackets in it are text, not Rich markup.
+
+        Textual's Static defaults to markup=True, and its Content parser
+        silently *deletes* an unrecognised tag — `[blocked]` and
+        `[risk_mitigation]` (a real followup_kind in this repo) vanish from the
+        rendered prose, losing content with no error anywhere. Rendering the
+        body through a Text() instead is what keeps it literal.
+        """
+        ab = self.ab
+        summary = ("MARKMARK [blocked] and [risk_mitigation] must survive "
+                   "verbatim.")
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(140, 24)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, self._doc(summary))
+                pane_text = self._pane_rows(app, self._screen_rows(app))
+                self.assertIn("MARKMARK", pane_text)
+                self.assertIn("[blocked]", pane_text,
+                              "bracketed text eaten as Rich markup")
+                self.assertIn("[risk_mitigation]", pane_text,
+                              "bracketed text eaten as Rich markup")
+
+        self._run(go())
+
+    def test_markup_like_prose_does_not_raise_on_trail_selection(self):
+        """A bracketed URL raises MarkupError in Textual's Content parser.
+
+        The pane body is written from `_refresh_trail_summary`, which
+        `_refresh_subtitle` drives — so an unlucky artifact would take down the
+        banner and the whole By-Trail refresh, not just the pane, at the moment
+        the user selects that trail.
+        """
+        ab = self.ab
+        summary = "See [link=https://example.dev]the docs[/link] for context."
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(140, 24)) as pilot:
+                await pilot.pause()
+                # Must not raise.
+                await self._enter_synthetic_bytrail(
+                    app, pilot, self._doc(summary))
+                pane_text = self._pane_rows(app, self._screen_rows(app))
+                self.assertIn("example.dev", pane_text)
+                # The banner still refreshed — the exception did not escape
+                # into _refresh_subtitle.
+                self.assertIn("By-Trail", app.sub_title)
+
+        self._run(go())
+
+    def _mk_info(self, handle: str, doc: dict) -> object:
+        return self.ab.TrailInfo(handle=handle, owner_id="9000",
+                                 owner_archived=False, owner_folded=False,
+                                 name=doc.get("title", ""), doc=doc)
+
+    def test_switching_trails_replaces_the_summary(self):
+        """A→B through `_activate_trail`, the `s` selection seam.
+
+        The assertion that matters is that A's text is GONE: a pane that
+        appended, or never repainted, still contains B's text and would pass a
+        presence-only check.
+        """
+        ab = self.ab
+
+        async def go():
+            doc_a = self._doc(self.SUMMARY_A, title="Trail A")
+            doc_b = self._doc(self.SUMMARY_B, title="Trail B")
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, doc_a)
+                self.assertIn("ALPHAMARK",
+                              self._pane_rows(app, self._screen_rows(app)))
+
+                app._trail_infos = [self._mk_info("art:trail-b", doc_b)]
+                app._activate_trail("art:trail-b")
+                await pilot.pause()
+                await pilot.pause()
+
+                pane_text = self._pane_rows(app, self._screen_rows(app))
+                self.assertIn("BETAMARK", pane_text)
+                self.assertNotIn("ALPHAMARK", pane_text,
+                                 "pane still shows the previous trail")
+
+        self._run(go())
+
+    def test_reloading_the_trail_replaces_the_summary(self):
+        """The other doc-rewrite seam: `_on_trail_reload` (the `d`/watch path)."""
+        ab = self.ab
+
+        async def go():
+            doc_a = self._doc(self.SUMMARY_A)
+            doc_b = self._doc(self.SUMMARY_B)
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, doc_a, handle="art:trail-test")
+                app._on_trail_reload(app._trail_gen, "art:trail-test",
+                                     doc_b, "", ["v2"])
+                await pilot.pause()
+                await pilot.pause()
+
+                pane_text = self._pane_rows(app, self._screen_rows(app))
+                self.assertIn("BETAMARK", pane_text)
+                self.assertNotIn("ALPHAMARK", pane_text,
+                                 "pane kept the pre-reload summary")
+
+        self._run(go())
+
+    def test_switch_observes_the_overview_preference_end_to_end(self):
+        """A carries only recommendation_summary; B carries an overview."""
+        ab = self.ab
+
+        async def go():
+            doc_a = self._doc(self.SUMMARY_A, title="Trail A")
+            doc_b = self._doc(self.SUMMARY_B, field="overview", title="Trail B")
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, doc_a)
+                app._trail_infos = [self._mk_info("art:trail-b", doc_b)]
+                app._activate_trail("art:trail-b")
+                await pilot.pause()
+                await pilot.pause()
+
+                pane_text = self._pane_rows(app, self._screen_rows(app))
+                self.assertIn("BETAMARK", pane_text)
+                self.assertNotIn("unused fallback", pane_text,
+                                 "fell back despite an overview being present")
+
+        self._run(go())
+
+
+class TrailSummaryExpandTests(ByTrailTestBase):
+    """t1505_1: the `v` expand key, its gate and its action guard."""
+
+    @staticmethod
+    def _doc(summary="EXPANDMARK the whole summary prose."):
+        doc = copy.deepcopy(_load_fixture())
+        doc["narrative"]["recommendation_summary"] = summary
+        doc["narrative"].pop("overview", None)
+        return doc
+
+    def test_v_opens_the_summary_modal_in_bytrail(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, self._doc())
+                app.action_focus_board()
+                await pilot.pause()
+                await pilot.press("v")
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ab.TrailSummaryScreen)
+                self.assertIn(
+                    "EXPANDMARK",
+                    self._dialog_text(app,
+                                      app.screen.query_one("#trail_summary_dialog")))
+                await pilot.press("escape")
+                await pilot.pause()
+                self.assertNotIsInstance(app.screen, ab.TrailSummaryScreen)
+
+        self._run(go())
+
+    def test_modal_shows_the_same_trail_as_the_pane_after_a_switch(self):
+        """The modal is built from the resolver's single resolved value, so it
+        cannot disagree with the pane about which trail is on screen."""
+        ab = self.ab
+
+        async def go():
+            doc_b = self._doc("BETAMARK second trail prose.")
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, self._doc("ALPHAMARK first trail prose."))
+                app._trail_infos = [ab.TrailInfo(
+                    handle="art:trail-b", owner_id="9000", owner_archived=False,
+                    owner_folded=False, name="B", doc=doc_b)]
+                app._activate_trail("art:trail-b")
+                await pilot.pause()
+
+                app.action_trail_summary_expand()
+                await pilot.pause()
+                body = self._dialog_text(
+                    app, app.screen.query_one("#trail_summary_dialog"))
+                self.assertIn("BETAMARK", body)
+                self.assertNotIn("ALPHAMARK", body)
+
+        self._run(go())
+
+    def test_modal_renders_bracketed_prose_literally(self):
+        """The modal's half of the free-form-prose contract (see the pane test
+        of the same name): brackets are content, not Rich markup."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(140, 30)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot,
+                    self._doc("MARKMARK [blocked] stays verbatim here."))
+                app.action_trail_summary_expand()
+                await pilot.pause()
+                body = self._dialog_text(
+                    app, app.screen.query_one("#trail_summary_dialog"))
+                self.assertIn("MARKMARK", body)
+                self.assertIn("[blocked]", body,
+                              "modal ate bracketed text as Rich markup")
+
+        self._run(go())
+
+    def test_v_is_gated_and_the_action_guards_itself_outside_bytrail(self):
+        """Negative control, both halves.
+
+        `check_action` hides the key; the ACTION must refuse independently,
+        because it stays reachable via the command palette, a remap, or a race
+        with a view switch — a binding gate is not an action guard.
+        """
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                # `all` view: not gated in, and the action is inert.
+                self.assertIs(app.check_action("trail_summary_expand", None),
+                              False)
+                self.assertNotIn("trail_summary_expand",
+                                 self._footer_actions(app))
+                await pilot.press("v")
+                await pilot.pause()
+                self.assertNotIsInstance(app.screen, ab.TrailSummaryScreen)
+
+                app.action_trail_summary_expand()
+                await pilot.pause()
+                self.assertNotIsInstance(
+                    app.screen, ab.TrailSummaryScreen,
+                    "action fired outside By-Trail despite the guard")
+
+        self._run(go())
+
+    def test_v_is_gated_out_when_the_trail_has_no_summary(self):
+        ab = self.ab
+
+        async def go():
+            doc = self._doc("   ")
+            app = ab.KanbanApp()
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, doc)
+                self.assertIs(app.check_action("trail_summary_expand", None),
+                              False)
+                app.action_trail_summary_expand()
+                await pilot.pause()
+                self.assertNotIsInstance(app.screen, ab.TrailSummaryScreen)
+
+        self._run(go())
+
+
+class TrailDepthLabelTests(ByTrailTestBase):
+    """t1505_1 label_trail_depth: the banner's advisory depth marker."""
+
+    @staticmethod
+    def _doc(depth=None):
+        doc = copy.deepcopy(_load_fixture())
+        doc["title"] = "Depth trail"
+        if depth is not None:
+            doc["rendering_hints"] = {"depth": depth}
+        else:
+            doc.pop("rendering_hints", None)
+        return doc
+
+    def _banner(self, doc, size=(160, 30)):
+        ab = self.ab
+        captured = {}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=size) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, doc)
+                captured["sub"] = app.sub_title
+                captured["row0"] = self._screen_rows(app)[0]
+
+        self._run(go())
+        return captured
+
+    def test_lite_depth_is_labelled(self):
+        got = self._banner(self._doc("lite"))
+        self.assertIn("· lite", got["sub"])
+        self.assertIn("· lite", got["row0"], "depth never reached the screen")
+
+    def test_deep_depth_is_labelled(self):
+        self.assertIn("· deep", self._banner(self._doc("deep"))["sub"])
+
+    def test_absent_hint_renders_nothing_and_never_deep(self):
+        """The load-bearing case: every trail written before t1505_4 has no
+        hint, so defaulting to "deep" would state a falsehood about all of
+        them. Assert the ABSENCE explicitly — "no crash" is not the claim."""
+        sub = self._banner(self._doc(None))["sub"]
+        self.assertNotIn("deep", sub)
+        self.assertNotIn("lite", sub)
+        self.assertNotIn(" · ", sub.replace(" · owner", ""))
+
+    def test_unrecognised_depth_is_ignored_not_echoed(self):
+        sub = self._banner(self._doc("gigantic-unknown-value"))["sub"]
+        self.assertNotIn("gigantic-unknown-value", sub)
+
+    def test_depth_is_dropped_before_the_freshness_marker(self):
+        """Narrow-width shed order: depth goes, the volatile marker stays."""
+        ab = self.ab
+        captured = {}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(60, 24)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot,
+                                                    self._doc("lite"))
+                app._trail_drift = ("STALE", [("stale_status", "aitasks#1", "d")])
+                app._refresh_subtitle()
+                await pilot.pause()
+                captured["sub"] = app.sub_title
+
+        self._run(go())
+        self.assertIn("⚠ stale", captured["sub"],
+                      "freshness marker lost — it must outlive the depth note")
+        self.assertNotIn("· lite", captured["sub"],
+                         "depth note survived past its budget")
+
+    def test_banner_is_unchanged_when_no_hint_is_present(self):
+        """No-regression control: with no depth hint the banner text must be
+        byte-identical to what the pre-t1505_1 ladder produced, at every width.
+        This is what proves the change cannot regress the trails that carry no
+        hint — which today is all of them."""
+        ab = self.ab
+        for width in (160, 120, 100, 80, 60, 44):
+            with self.subTest(width=width):
+                captured = {}
+
+                async def go():
+                    app = ab.KanbanApp()
+                    async with app.run_test(size=(width, 24)) as pilot:
+                        await pilot.pause()
+                        await self._enter_synthetic_bytrail(
+                            app, pilot, self._doc(None))
+                        app._trail_drift = ("STALE",
+                                            [("stale_status", "aitasks#1", "d")])
+                        # The reference: the exact ladder, called with no depth.
+                        captured["ref"] = app._trail_banner(
+                            "Depth trail", " (⚠ stale: 1)", "")
+                        app._refresh_subtitle()
+                        await pilot.pause()
+                        captured["live"] = app.sub_title
+
+                self._run(go())
+                self.assertEqual(captured["live"], captured["ref"])
+
+
 if __name__ == "__main__":
     unittest.main()

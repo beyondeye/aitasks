@@ -71,6 +71,7 @@ from textual.containers import Container, Horizontal, HorizontalScroll, Vertical
 from textual.widgets import Header, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList, DataTable, Collapsible
 from textual.widgets.selection_list import Selection
 from textual.screen import Screen, ModalScreen
+from textual.css.query import NoMatches
 from textual.binding import Binding
 from textual.message import Message
 from textual import on, work
@@ -789,6 +790,31 @@ def trail_entry_refs(doc) -> set:
             if ref:
                 refs.add(str(ref))
     return refs
+
+
+def trail_summary_text(doc) -> str:
+    """The trail's free-form summary for the By-Trail pane (t1505_1).
+
+    Prefers ``narrative.overview`` — t1505_3's advisory prose field — and falls
+    back to the always-required ``narrative.recommendation_summary``, so a trail
+    written before that field existed still shows something useful. Until
+    t1505_3 lands, `overview` is absent from the schema and the fallback is the
+    only live path.
+
+    Returns "" when neither carries text; the caller hides the pane rather than
+    showing an empty frame. Whitespace-only counts as empty at every level, so a
+    summary of spaces cannot mount a blank six-row pane.
+
+    Advisory only: nothing here may feed lane construction, ordering or
+    classification — waves and entries remain the binding structure."""
+    narrative = (doc or {}).get("narrative")
+    if not isinstance(narrative, dict):
+        return ""
+    for field in ("overview", "recommendation_summary"):
+        value = narrative.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def compute_trail_overlaps(infos):
@@ -3918,6 +3944,61 @@ class TrailDetailScreen(ModalScreen):
             yield Button("Close", id="btn_trail_detail_close")
 
     @on(Button.Pressed, "#btn_trail_detail_close")
+    def close_button(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class TrailSummaryScreen(ModalScreen):
+    """The By-Trail summary, full and scrollable (t1505_1).
+
+    The bottom pane shows a fixed six rows of the same prose; this is the
+    read-it-all surface behind `v`. It is constructed with the **already
+    resolved** text rather than a trail document, so it cannot disagree with
+    the pane about which trail's summary is on screen — `_refresh_trail_summary`
+    resolves once and both surfaces render that one value.
+
+    Modeled on TrailDetailScreen: own DEFAULT_CSS (it is pushed by an App whose
+    CSS it cannot rely on), a plain `escape` binding, and no `_shortcuts_scope`,
+    so `lib/shortcut_scopes.py` needs no manifest entry."""
+
+    DEFAULT_CSS = """
+    TrailSummaryScreen {
+        align: center middle;
+    }
+    #trail_summary_dialog {
+        width: 80%;
+        height: 80%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #trail_summary_modal_body {
+        height: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Close", show=False),
+    ]
+
+    def __init__(self, summary: str, title: str = ""):
+        super().__init__()
+        self.summary = summary or ""
+        self.trail_title = title or ""
+
+    def compose(self):
+        with Container(id="trail_summary_dialog"):
+            header = (f"Trail summary — {self.trail_title}"
+                      if self.trail_title else "Trail summary")
+            yield Static(Text(header, style="bold"))
+            with VerticalScroll(id="trail_summary_modal_body"):
+                yield Static(Text(self.summary))
+            yield Button("Close", id="btn_trail_summary_close")
+
+    @on(Button.Pressed, "#btn_trail_summary_close")
     def close_button(self):
         self.dismiss(None)
 
@@ -7369,6 +7450,12 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     #view_selector { height: 1; padding: 0 1; width: auto; }
     .type-filter-summary { height: auto; padding: 0 1; color: $text-muted; }
     .type-filter-summary.hidden { display: none; }
+    /* By-Trail summary pane (t1505_1). The explicit height is LOAD-BEARING,
+       not cosmetic: VerticalScroll inherits `height: 1fr` from
+       ScrollableContainer, so without it this pane and #board_container would
+       split the vertical space evenly instead of the pane taking six rows.
+       NEVER add `dock: bottom` — see the compose() comment and t1278. */
+    #trail_summary { height: 6; border-top: hkey $secondary-background; padding: 0 1; }
     Input { width: 1fr; }
     .col-header-btn { width: auto; height: 1; padding: 0 1; }
     .col-header-edit-btn { width: auto; height: 1; padding: 0 1; background: black; color: white; }
@@ -7587,6 +7674,9 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         Binding("s", "sync_remote", "Sync"),
         Binding("s", "trail_select", "Select Trail"),
         Binding("S", "trail_sync", "Sync"),
+        # By-Trail summary expand (t1505_1). `v` is free at App level — the
+        # `v`/`u` keys live on TaskDetailScreen under the `board.detail` scope.
+        Binding("v", "trail_summary_expand", "Summary"),
         # Git Commit (shown conditionally via check_action)
         Binding("c", "commit_selected", "Commit"),
         Binding("C", "commit_all", "Commit All"),
@@ -7813,6 +7903,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # agent for the same refresh, so it stops advertising itself.
             if action == "trail_refresh_agent" and self._trail_launch_pending:
                 return False
+        elif action == "trail_summary_expand":
+            # Live only in By-Trail, and only when there is a summary to
+            # expand — advertising `v` with nothing behind it would break the
+            # truthful-footer contract the trail keys above follow. This gate
+            # controls the footer and dispatch; `action_trail_summary_expand`
+            # re-checks the same condition, because the action stays reachable
+            # via the command palette, a remap, or a race with a view switch.
+            if self.base_filter != "bytrail":
+                return False
+            if not trail_summary_text(self._trail_doc):
+                return False
         elif action == "toggle_children":
             # The In-Flight, By-Topic and By-Trail views render every relevant
             # card (including children) directly — there is nothing to
@@ -7967,6 +8068,32 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 yield Static("", id="type_filter_summary", classes="type-filter-summary hidden")
             yield Input(placeholder="Search tasks... (Tab to focus, Esc to return to board)", id="search_box")
         yield HorizontalScroll(id="board_container")
+        # By-Trail summary pane (t1505_1). A fixed-height FLOW child yielded
+        # between the lanes and the footer — NEVER `dock: bottom`. Textual's
+        # Footer sets that dock and MultiRowFooter overrides only layout/height
+        # without unsetting it, so a docked pane would land at the footer's
+        # offset and silently paint over it while both still reported
+        # display=True, visible=True and a correct region (t1278).
+        #
+        # Starts hidden: `display` and the body text are owned solely by
+        # _refresh_trail_summary(), so the pane costs the board no height in any
+        # view but By-Trail. Not focusable — the board anchors startup focus on
+        # a TaskCard (t1491) and every card-navigation query is
+        # "TaskCard:focus"; a focusable container here would join the tab order
+        # and strand that model. The full text stays reachable via `v`.
+        # markup=False: the body carries FREE-FORM trail prose. Static defaults
+        # to markup=True, and Textual's Content parser silently deletes an
+        # unrecognised tag — a literal "[blocked]" or "[risk_mitigation]"
+        # vanishes — while a bracketed URL raises MarkupError out of
+        # _refresh_subtitle and breaks the whole By-Trail refresh. The flag is
+        # belt-and-braces with the Text() in _refresh_trail_summary: either
+        # alone is sufficient, together no future caller can reintroduce it.
+        summary = VerticalScroll(
+            Static("", id="trail_summary_body", markup=False),
+            id="trail_summary")
+        summary.display = False
+        summary.can_focus = False
+        yield summary
         # Multi-row footer (t1418): the board declares more shown bindings than
         # one row holds, and stock Textual clips the overflow into a
         # mouse-wheel-only scroll region. `hint_action` (not a literal key) lets
@@ -8072,7 +8199,25 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # " — " is the separator HeaderTitle puts between title and sub_title.
         return max(0, usable - cell_len(str(self.title)) - 3)
 
-    def _trail_banner(self, title: str, suffix: str, owner_note: str) -> str:
+    def _trail_depth_note(self) -> str:
+        """`" · lite"` / `" · deep"` from the trail's advisory
+        ``rendering_hints.depth`` (t1505_1 label_trail_depth), else `""`.
+
+        An **absent** hint renders NOTHING — never "deep". Every trail authored
+        before t1505_4 started writing the hint carries none, and defaulting
+        would state a falsehood about all of them. An *unrecognised* value is
+        also ignored rather than echoed: the header is a fixed-width budget, not
+        a place to render arbitrary artifact strings."""
+        hints = (self._trail_doc or {}).get("rendering_hints")
+        if not isinstance(hints, dict):
+            return ""
+        depth = hints.get("depth")
+        if isinstance(depth, str) and depth.strip().lower() in ("lite", "deep"):
+            return f" · {depth.strip().lower()}"
+        return ""
+
+    def _trail_banner(self, title: str, suffix: str, owner_note: str,
+                      depth_note: str = "") -> str:
         """Compose the By-Trail banner so the freshness marker always survives.
 
         HeaderTitle ellipsis-truncates the TAIL, and the marker is the tail —
@@ -8086,6 +8231,19 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         budget, dropping the trail title (recoverable — it is also on the
         selection modal and the lanes) before the marker."""
         budget = self._banner_budget()
+        # Depth is ADDITIVE-IF-IT-FITS (t1505_1): shown only while the
+        # untruncated banner still fits, then dropped whole. It is deliberately
+        # NOT threaded through the rungs below as an owner_note sibling — that
+        # would make the title shed earlier than it does today for every trail
+        # carrying a hint, and would leave no rung at which depth alone is
+        # dropped (it would survive to rung 3 and then vanish in the same cliff
+        # that drops the title). Kept out of the ladder, the rungs below stay
+        # byte-identical to their pre-t1505_1 behaviour for every trail, and the
+        # volatile freshness marker is still the last survivor.
+        if depth_note:
+            full_with_depth = f'By-Trail: "{title}"{suffix}{owner_note}{depth_note}'
+            if not budget or cell_len(full_with_depth) <= budget:
+                return full_with_depth
         full = f'By-Trail: "{title}"{suffix}{owner_note}'
         if not budget or cell_len(full) <= budget:
             return full
@@ -8103,14 +8261,51 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # matters. Bare (no parens): it is no longer a suffix to anything.
         return suffix.strip().strip("()") or without_title
 
+    def _refresh_trail_summary(self) -> str:
+        """Single owner of the By-Trail summary pane (t1505_1).
+
+        Resolves the summary ONCE and writes the pane's body text and its
+        visibility together, returning the resolved text so the expand modal
+        renders exactly what the pane shows.
+
+        **Content and visibility must move together.** ``self._trail_doc`` is
+        rewritten at two seams — ``_activate_trail`` (the `s` trail switch) and
+        ``_on_trail_reload`` (the artifact reload / version watch) — and both
+        already funnel into ``_refresh_subtitle``, which calls this. Refreshing
+        ``display`` there while writing the body anywhere else would leave the
+        pane, and the modal built from it, showing the PREVIOUS trail's summary
+        after a switch: a wrong answer that renders exactly like a right one and
+        that a presence-only test cannot see."""
+        text = ("" if self.base_filter != "bytrail"
+                else trail_summary_text(self._trail_doc))
+        try:
+            pane = self.query_one("#trail_summary")
+            body = self.query_one("#trail_summary_body", Static)
+        except NoMatches:
+            # Called before the first compose (on_mount runs _update_subtitle
+            # via refresh_board). The resolved text is still correct for the
+            # caller; the pane picks it up on the next refresh.
+            return text
+        # Text(), not the bare str: trail prose is free-form, so brackets in it
+        # are content. Rendering it as markup would silently swallow a literal
+        # "[blocked]" and would raise MarkupError on a bracketed URL — from
+        # inside _refresh_subtitle, taking the banner down with the pane. The
+        # modal renders through Text() for the same reason.
+        body.update(Text(text))
+        pane.display = bool(text)
+        return text
+
     def _refresh_subtitle(self):
-        """Single writer for the app subtitle (t1210_4).
+        """Single writer for By-Trail chrome — the app subtitle **and** the
+        summary pane (t1210_4; pane added t1505_1).
 
         By-Trail with a selected trail → the trail banner (title + freshness
         suffix); every other state → the auto-refresh status. All subtitle
         updates (view switches, drift callbacks, settings changes, resizes)
         route through here, so leaving By-Trail restores the auto-refresh
-        text."""
+        text — and, since t1505_1, hides the summary pane and gives the lanes
+        their full height back."""
+        self._refresh_trail_summary()
         if self.base_filter == "bytrail" and self.active_trail_handle:
             if self._trail_error:
                 # Left unbudgeted deliberately (t1278): a clipped tail here
@@ -8138,7 +8333,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     owner = (f"t{self._trail_owner_id}"
                              if self._trail_owner_id else "task")
                     owner_note = f" · owner {owner} archived"
-                self.sub_title = self._trail_banner(title, suffix, owner_note)
+                self.sub_title = self._trail_banner(
+                    title, suffix, owner_note, self._trail_depth_note())
             else:
                 self.sub_title = f"By-Trail: {self.active_trail_handle}"
             return
@@ -8193,6 +8389,29 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         self._render_bytrail(container)
         self.call_after_refresh(self.apply_filter)
         self._queue_refocus(refocus_filename, refocus_col_id)
+
+    def action_trail_summary_expand(self):
+        """`v` in By-Trail: open the trail summary full-height and scrollable.
+
+        Re-checks the same condition `check_action` gates on. **A binding gate
+        is not an action guard:** check_action controls footer visibility and
+        key dispatch, but the action stays reachable through the command
+        palette, a user remap, or a race with a view switch — so the guard has
+        to live here too.
+
+        The text comes from `_refresh_trail_summary()`, the single owner, rather
+        than from a second `trail_summary_text(self._trail_doc)` call, so the
+        modal always shows exactly what the pane shows."""
+        if self._modal_is_active():
+            return
+        if self.base_filter != "bytrail":
+            return
+        summary = self._refresh_trail_summary()
+        if not summary:
+            return
+        title = str((self._trail_doc or {}).get("title")
+                    or self.active_trail_handle or "")
+        self.push_screen(TrailSummaryScreen(summary, title))
 
     def action_trail_refresh_local(self):
         """`r` in By-Trail: reload task files from disk and re-project the
