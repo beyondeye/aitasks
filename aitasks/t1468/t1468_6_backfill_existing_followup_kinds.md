@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1468_5]
 issue_type: chore
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1468
+implemented_with: claudecode/opus5
 created_at: 2026-08-10 16:31
-updated_at: 2026-08-13 14:19
+updated_at: 2026-08-13 22:37
 ---
 
 ## Context
@@ -121,3 +124,8 @@ zero explicitly rather than leaving it unexamined.
    verified on real data).
 9. `shellcheck` the new script; `bash tests/run_all_python_tests.sh` (read the
    LAST line for the verdict).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T19:37:52Z status=pass attempt=1 type=human
