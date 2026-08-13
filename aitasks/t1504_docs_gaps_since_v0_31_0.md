@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: docs_gap
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 10:27
-updated_at: 2026-08-13 10:37
+updated_at: 2026-08-13 11:35
 ---
 
 Documentation gaps found by /aitask-docs-gap for the release window v0.31.0..HEAD.
@@ -171,3 +172,8 @@ decomposition time.
   rather than enumerating the agent trees.
 - **Sources:** `aiplans/archived/p635/p635_23_port_gate_skills_codex_opencode.md`;
   commits: 75ca90438
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T08:35:35Z status=pass attempt=1 type=human
