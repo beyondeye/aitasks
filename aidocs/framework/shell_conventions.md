@@ -83,10 +83,30 @@ portability quirks (BSD vs GNU tooling) live in
   PIDs are reclaimed, tokenless dirs only after 120s, and a wedged lock is
   named in the caller's exhaustion error rather than self-healed (t1496 —
   the hand-rolled copies in `aitask_gate.sh`/`aitask_create.sh` stole live
-  locks under contention). `lib/registry_lock.sh` is the separate persistent
-  registry mutex; consolidation onto this core is a planned follow-up. (This
-  lock family is distinct from `aitask_lock.sh`, the git-visible *task
-  ownership* lock.)
+  locks under contention). **A wedged `.gc` guard is the one manual-recovery
+  case**: a process killed inside the guard's few-file-op section leaves it
+  behind, and because the guard is never auto-broken every later acquire
+  reports busy with no holder in existence — remove `<lock_dir>.gc` by hand
+  once no reclaim is running. `stale_lock_describe` / `registry_lock_describe`
+  name it, and a caller whose failure is otherwise silent should surface that
+  hint.
+- **Persistent-registry mutexes: use `lib/registry_lock.sh`,** the
+  API-preserving adapter over that same core (t1507 — it used to carry its own
+  observe-then-`mv` reclaim, i.e. the t1496 race). `registry_lock_acquire <dir>
+  [timeout_secs] [label]` / `registry_lock_release <dir>` differ from the core
+  in exactly three documented ways, spelled out in the lib header: the API
+  budgets **seconds** rather than attempts (a `date +%s`-quantized deadline, so
+  the promise is "never busy before the integer clock reaches
+  `start + timeout`", *not* a real-time minimum wait); release **always returns
+  0** because every caller is `set -euo pipefail` and calls it bare after its
+  mutation already committed; and the core's tokenless age reclaim becomes
+  reachable. Its lock paths are **caller-chosen fixed shared locations** (the
+  per-user config dir, the data worktree, `/tmp`) and are deliberately not
+  routed through `ait_lock_dir`'s per-repo scoping — those ledgers are shared
+  across repositories by design. Consumers: `ait projects`, `ait attach` /
+  artifact manifests (`lib/attachment_lock.sh`), agent marks, shadow
+  rejections, `ait gates sync-registry`. (This lock family is distinct from
+  `aitask_lock.sh`, the git-visible *task ownership* lock.)
 - **Avoid `claude -p` / `claude --print` (headless print mode) in scripts and
   skills.** Claude Code bills headless print mode at a higher per-token rate
   than interactive invocations against an existing session. Default to
