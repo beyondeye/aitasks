@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: low
-depends: []
+depends: [t1468_5]
 issue_type: feature
 status: Ready
 labels: [artifacts, trails, skills, documentation]
 gates: [risk_evaluated]
 anchor: 1210
 created_at: 2026-08-13 12:27
-updated_at: 2026-08-13 12:27
+updated_at: 2026-08-13 12:28
 ---
 
 ## Context
