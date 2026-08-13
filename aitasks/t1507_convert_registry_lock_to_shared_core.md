@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -15,7 +17,7 @@ anchor: 1171
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5
 created_at: 2026-08-13 11:57
-updated_at: 2026-08-13 14:37
+updated_at: 2026-08-13 14:38
 ---
 
 ## Origin
