@@ -405,3 +405,81 @@ standing guard is added.
 process steps, not code). Goal-achievement stays **medium** — the post-phase
 check removes the transcription risk, but the half-shipped-groups exposure is
 inherent to the scope decision rather than something a check can retire.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six phases executed as planned. Four of the six
+  documented gaps were written (1 partial, 2, 5, 6); gaps 3 and 4 were deferred
+  to `t1159_4` per the confirmed scope decision. Nine website pages modified and
+  two created (142 insertions), plus three task files edited for the scope
+  handovers. Concretely:
+  - **Gap 1 (partial):** `boardgroup` row in `development/task-format.md`; in
+    `board/reference.md` a second `x` row (group-header context), a new "Group
+    Header Anatomy" block, a `boardgroup` row in Task Metadata Fields, a third
+    bullet in Board Data Fields, and `board_config.local.json` in Configuration
+    Files; in `board/how-to.md` a new "How to Group Tasks in a Column" section.
+  - **Gap 2:** merged gate+phase row bullet, a six-row phase-value table and the
+    narrow-width shed order in `minimonitor/how-to.md`; a comparison row in
+    `minimonitor/_index.md`; a status-row bullet in `monitor/how-to.md`; a new
+    "Agent Card Status Row" section in `monitor/reference.md`.
+  - **Gap 5:** "Follow-up Provenance Glyphs" legend in `board/reference.md`,
+    the glyph added to the card diagram, plus the roll-up and ghost-card rules.
+  - **Gap 6:** `skills/aitask-run-gates.md` (weight 16) and
+    `skills/aitask-gate-docs-updated.md` (weight 17), a new "Gates" category in
+    `skills/_index.md`, and a reciprocal callout in `commands/gates.md`.
+
+- **Deviations from plan:** None material. One planned target did not exist:
+  the gap text pointed at card-anatomy prose in `board/how-to.md` for the
+  follow-up glyph, but that page has no card-anatomy section — the content lives
+  entirely in `board/reference.md`, so Phase 4 landed there alone (the plan had
+  already anticipated this).
+
+- **Issues encountered:**
+  - **A stale claim in shipped docs**, not listed in the task:
+    `minimonitor/how-to.md` asserted "The one thing on the pinned card that
+    *does* change is its prioritized mark". t1420 made that untrue — the
+    advisory phase repaints there too. Rewritten to state both live elements and
+    to record that the panel deliberately carries the phase but *not* the gate
+    summary that shares that line on the list rows.
+  - **A verification command that was wrong, not the content.** The first
+    anchor-existence check grepped for `id="…"` and reported zero hits for every
+    anchor. Hugo's `--minify` emits unquoted attributes (`<h3
+    id=how-to-group-tasks-in-a-column>`), so the check was inert. Re-run against
+    the emitted form: all 8 anchors PASS. Worth remembering — a zero-match from
+    a grep is only evidence once the grep is known to match something.
+
+- **Key decisions:**
+  - **Three of six gaps had pre-existing owner tasks.** Rather than writing all
+    six, each was routed: gap 1 written as the shipped half with `t1243_13`
+    narrowed (the t1432 precedent); gaps 3+4 deferred wholesale to `t1159_4`,
+    which was blocked only on the then-`Implementing` `t1159_3`; gap 6 written
+    as the two user-invocable skill pages with the wider sweep left to
+    `t635_18`.
+  - **`aitask-gate-template` deliberately left off the site.** It has no
+    invocation syntax and reads as an authoring scaffold, unlike every other
+    documented skill.
+  - **`boardgroup`'s non-website surfaces were not swept.** The gap named
+    `task-format.md`; the seed / `AGENTS.md` / `CLAUDE.md` / `.codex` /
+    `.opencode` mirrors are section B of `t1243_13` and need an `ait setup`
+    regeneration that does not belong in a docs-gap task. Stated explicitly in
+    both task files.
+  - **Reciprocal links written in both directions** for both handovers, so
+    neither deferral can be lost.
+
+- **Verification results:**
+  - Glyph table vs `FOLLOWUP_KINDS`: **9/9 rows match**. The check was
+    negative-controlled — a single injected colour flip (`Gray`→`Cyan` on
+    `docs_gap`) was correctly caught, so the pass is not vacuous.
+  - Phase strings: all 7 found in `workflow_phase.py` (hits 5/2/3/1/1/1/4).
+  - `Binding("x"` count: exactly **2** (`toggle_children`, `toggle_group`).
+  - Group header format matched `GroupHeader._label` (glyphs at :2727, match
+    badge at :2732).
+  - `boardgroup` hit counts: task-format 1, board/reference 3, board/how-to 3.
+  - Stale pinned-card wording: **0 hits** remaining.
+  - `diffviewer`: not introduced anywhere.
+  - `hugo build --gc --minify`: **RC=0**, 235 pages. The two WARN lines are
+    pre-existing theme deprecations (`.Language.LanguageDirection`,
+    `.Site.AllPages`), unrelated to this change. All 8 new cross-link anchors
+    resolve in the built HTML.
+
+- **Upstream defects identified:** None.
