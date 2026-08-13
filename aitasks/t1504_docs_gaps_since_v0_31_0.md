@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: documentation
@@ -55,6 +57,12 @@ decomposition time.
   `aiplans/archived/p1243/p1243_9_group_focus_and_rendering.md`,
   `aiplans/archived/p1243/p1243_10_group_collapse_and_filtering.md`;
   commits: 16afd191d, e7a071022, 0683e8791
+- **PARTIAL — shipped half written here; rest owned by `t1243_13`.** Groups are
+  half-shipped: t1243_8/9/10 landed, but `G`, group formation, block moves and
+  in-board membership commands (t1243_11 / t1243_12) have not. t1504 documented
+  only what shipped, and narrowed `t1243_13` accordingly. `boardgroup`'s
+  non-website surfaces (seed, `AGENTS.md`, `CLAUDE.md`, `.codex` / `.opencode`
+  mirrors) remain section B of `t1243_13`.
 
 ## Gap: Workflow-phase signal in the monitors (t1420, t1479)
 
@@ -105,6 +113,11 @@ decomposition time.
   automates.
 - **Sources:** `aiplans/archived/p1159/p1159_2_auto_recheck_loop.md`;
   commits: afd1c5b2f
+- **DEFERRED — owned by `t1159_4`.** That sibling already scopes the minimonitor
+  page, `aidocs/framework/shadow_agent.md` and the `L` / `t` key docs, and is
+  blocked only on `t1159_3`. Writing it here would be rewritten within days.
+  t1504 added the surfaces its file list was missing (the monitor pages and
+  `workflows/shadow-agent.md`) to `t1159_4` instead.
 
 ## Gap: Concern-block round metadata (t1159_1, t1493)
 
@@ -130,6 +143,9 @@ decomposition time.
   round number to the re-derive-from-scratch behavior it already documents.
 - **Sources:** `aiplans/archived/p1159/p1159_1_round_metadata_concern_block.md`,
   the archived p1493 plan; commits: fabd8e615, 9397077f9
+- **DEFERRED — owned by `t1159_4`**, together with gap 3 above (same pages, same
+  owner). The monitor-side round prose and the `workflows/shadow-agent.md` tie-in
+  were added to that task's key-files list by t1504.
 
 ## Gap: Follow-up-kind glyph on board cards (t1468_3)
 
@@ -172,6 +188,13 @@ decomposition time.
   rather than enumerating the agent trees.
 - **Sources:** `aiplans/archived/p635/p635_23_port_gate_skills_codex_opencode.md`;
   commits: 75ca90438
+- **PARTIAL — the two user-invocable skill pages written here.**
+  `/aitask-run-gates` and `/aitask-gate-docs-updated` now have reference pages,
+  listed under a new "Gates" category in `skills/_index.md` and cross-linked
+  with `commands/gates.md`. **`aitask-gate-template` was deliberately left off
+  the site**: it is an authoring scaffold with no invocation syntax, unlike
+  every other documented skill. The wider gates docs sweep (concepts pages,
+  workflow pages, the custom-gate authoring story) remains `t635_18`.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->

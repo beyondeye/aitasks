@@ -39,13 +39,31 @@ The board page(s) — groups and the new keys. Cover:
 - **`x`** now expands/collapses "the thing under focus" — children on a card,
   the group on a header.
 
-> **Scope narrowed.** Marking (`space`, `☑`/`☐`) and bulk move-to-column (`m`)
-> were documented by **t1432**, which covered the shipped board surfaces while
-> this child was still blocked behind `t1243_12`. This child now covers only
-> task groups, `G`, the group palette entries, `x`-on-header, and the
-> `boardgroup` frontmatter surfaces in section B. Build on the marking and
-> bulk-move prose already on the board how-to / reference pages rather than
-> re-introducing it.
+> **Scope narrowed — twice.** Marking (`space`, `☑`/`☐`) and bulk
+> move-to-column (`m`) were documented by **t1432**; the **shipped half of task
+> groups** was then documented by **t1504** (the v0.31.0 docs-gap sweep), which
+> again covered the landed board surfaces while this child stayed blocked behind
+> `t1243_12`. Already written by t1504, on the live pages — do **not**
+> re-introduce it:
+>
+> - `board/how-to.md` — "How to Group Tasks in a Column": what a group is,
+>   field-based membership via `ait update --boardgroup` (including the
+>   reject-don't-coerce rule and the `""` tombstone), the 2+-member header vs the
+>   single-member plain card, `x`-on-header collapse, focus units, the `· N
+>   match` filter badge, and per-user collapse persistence in
+>   `board_config.local.json`.
+> - `board/reference.md` — the second `x` row (group header context), a "Group
+>   Header Anatomy" block, the `boardgroup` metadata / board-data-field entries,
+>   and the `board_config.local.json` row.
+> - `development/task-format.md` — the `boardgroup` frontmatter row.
+>
+> **This child now owns:** `G`, group *formation* and block moves, the group
+> command-palette entries, in-board membership commands (t1243_11 / t1243_12),
+> and **all of section B's non-website `boardgroup` surfaces** — the seed block,
+> the `AGENTS.md` regeneration, `CLAUDE.md`, and the `.codex` / `.opencode`
+> instruction mirrors, none of which t1504 touched. When t1243_12 lands, the
+> how-to's "Assigning membership" subsection will need the in-board command
+> added beside the CLI form; build on that prose rather than replacing it.
 
 Do **not** document `diffviewer` or add it to any list of TUIs (project note in
 `CLAUDE.md`).
