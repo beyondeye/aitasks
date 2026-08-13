@@ -7,8 +7,9 @@ status: Ready
 labels: [skills, opencode]
 gates: [risk_evaluated]
 anchor: 1150
+followup_kind: upstream_defect
 created_at: 2026-07-15 18:32
-updated_at: 2026-07-15 18:32
+updated_at: 2026-08-13 23:06
 boardidx: 146432
 ---
 

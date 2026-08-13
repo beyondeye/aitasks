@@ -5,8 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [testing, bash_scripts]
+followup_kind: upstream_defect
 created_at: 2026-04-28 13:41
-updated_at: 2026-04-28 13:41
+updated_at: 2026-08-13 23:07
 boardidx: 176128
 ---
 

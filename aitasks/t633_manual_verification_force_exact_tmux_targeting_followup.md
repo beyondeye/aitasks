@@ -6,8 +6,9 @@ issue_type: manual_verification
 status: Ready
 labels: [verification, manual, tmux_destructive]
 verifies: [632]
+followup_kind: manual_verification
 created_at: 2026-04-23 18:08
-updated_at: 2026-08-04 17:25
+updated_at: 2026-08-13 23:07
 boardcol: manual_verifications
 boardidx: 60
 ---

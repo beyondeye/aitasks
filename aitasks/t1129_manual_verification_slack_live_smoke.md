@@ -5,11 +5,12 @@ depends: [t1074_3]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: ['1074_3']
+verifies: [t1074_3]
+followup_kind: manual_verification
 created_at: 2026-07-05 12:39
-updated_at: 2026-07-05 12:39
-boardidx: 3142
+updated_at: 2026-08-13 23:06
 boardcol: tests
+boardidx: 3142
 ---
 
 ## Manual Verification Task

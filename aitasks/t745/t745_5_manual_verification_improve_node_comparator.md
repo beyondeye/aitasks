@@ -5,9 +5,10 @@ depends: [t745_4]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [745_1, 745_2, 745_3, 745_4]
+verifies: [t745_1, t745_2, t745_3, t745_4]
+followup_kind: manual_verification
 created_at: 2026-05-04 22:24
-updated_at: 2026-05-04 22:24
+updated_at: 2026-08-13 23:07
 ---
 
 ## Manual Verification Task

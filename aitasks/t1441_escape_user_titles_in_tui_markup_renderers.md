@@ -7,8 +7,9 @@ status: Ready
 labels: [tui, aitask_monitormini, aitask_board]
 gates: [risk_evaluated]
 anchor: 1243
+followup_kind: upstream_defect
 created_at: 2026-08-05 18:40
-updated_at: 2026-08-05 18:40
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

@@ -6,8 +6,9 @@ issue_type: test
 status: Ready
 labels: [applink, applink_dataplane]
 anchor: 1007
+followup_kind: risk_mitigation
 created_at: 2026-06-28 12:31
-updated_at: 2026-06-28 12:31
+updated_at: 2026-08-13 23:06
 boardidx: 155648
 ---
 

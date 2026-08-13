@@ -5,10 +5,11 @@ depends: [t1468_6]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1468_3, 1468_4, 1468_5]
+verifies: [t1468_3, t1468_4, t1468_5]
 anchor: 1468
+followup_kind: manual_verification
 created_at: 2026-08-10 16:35
-updated_at: 2026-08-10 16:35
+updated_at: 2026-08-13 23:07
 ---
 
 ## Manual Verification Task

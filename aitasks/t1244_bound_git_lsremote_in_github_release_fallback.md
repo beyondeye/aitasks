@@ -7,8 +7,9 @@ status: Ready
 labels: [auto-update]
 gates: [risk_evaluated]
 anchor: 1223
+followup_kind: upstream_defect
 created_at: 2026-07-26 00:15
-updated_at: 2026-07-26 00:15
+updated_at: 2026-08-13 23:06
 boardidx: 36864
 ---
 

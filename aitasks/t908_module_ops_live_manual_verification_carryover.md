@@ -5,10 +5,11 @@ depends: []
 issue_type: manual_verification
 status: Ready
 labels: []
+followup_kind: carry_over
 created_at: 2026-06-02 11:55
-updated_at: 2026-06-02 11:55
-boardidx: 110
+updated_at: 2026-08-13 23:07
 boardcol: manual_verifications
+boardidx: 110
 ---
 
 Carry-over of deferred manual-verification items from t905. Re-pick this task to continue the remaining checklist.

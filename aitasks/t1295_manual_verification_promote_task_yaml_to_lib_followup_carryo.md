@@ -7,8 +7,9 @@ status: Ready
 labels: []
 verifies: [1217]
 anchor: 1234
+followup_kind: carry_over
 created_at: 2026-07-28 14:43
-updated_at: 2026-07-28 14:43
+updated_at: 2026-08-13 23:06
 boardidx: 66560
 ---
 

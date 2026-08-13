@@ -5,10 +5,11 @@ depends: [t1162_5]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1162_1, 1162_2, 1162_3, 1162_4, 1162_5]
+verifies: [t1162_1, t1162_2, t1162_3, t1162_4, t1162_5]
 anchor: 1162
+followup_kind: manual_verification
 created_at: 2026-07-22 11:02
-updated_at: 2026-07-22 11:02
+updated_at: 2026-08-13 23:06
 ---
 
 ## Manual Verification Task

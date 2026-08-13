@@ -5,8 +5,9 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [applink, applink_control, tmux_destructive]
+followup_kind: risk_mitigation
 created_at: 2026-06-16 16:56
-updated_at: 2026-07-28 18:38
+updated_at: 2026-08-13 23:11
 boardidx: 164864
 ---
 

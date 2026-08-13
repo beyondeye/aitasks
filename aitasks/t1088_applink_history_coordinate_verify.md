@@ -10,9 +10,10 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 anchor: 1057
+followup_kind: risk_mitigation
 implemented_with: claudecode/opus4_8
 created_at: 2026-06-28 10:57
-updated_at: 2026-07-24 15:08
+updated_at: 2026-08-13 23:06
 boardidx: 133120
 ---
 

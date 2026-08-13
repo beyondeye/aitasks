@@ -7,8 +7,9 @@ status: Ready
 labels: [bash_scripts, performance]
 gates: [risk_evaluated]
 anchor: 1444
+followup_kind: upstream_defect
 created_at: 2026-08-07 17:42
-updated_at: 2026-08-07 17:42
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

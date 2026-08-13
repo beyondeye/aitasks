@@ -6,8 +6,9 @@ issue_type: refactor
 status: Ready
 labels: [ait_settings]
 anchor: 1223
+followup_kind: risk_mitigation
 created_at: 2026-07-28 01:19
-updated_at: 2026-08-03 10:46
+updated_at: 2026-08-13 23:06
 boardidx: 55296
 ---
 

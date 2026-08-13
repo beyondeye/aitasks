@@ -7,8 +7,9 @@ status: Ready
 labels: [minimonitor, tmux, tui]
 gates: [risk_evaluated]
 anchor: 1446
+followup_kind: upstream_defect
 created_at: 2026-08-07 17:11
-updated_at: 2026-08-07 17:11
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

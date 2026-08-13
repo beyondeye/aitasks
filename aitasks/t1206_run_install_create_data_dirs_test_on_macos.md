@@ -7,10 +7,11 @@ status: Ready
 labels: []
 verifies: [1193]
 anchor: 1199
+followup_kind: manual_verification
 created_at: 2026-07-21 17:54
-updated_at: 2026-07-21 17:54
-boardidx: 2118
+updated_at: 2026-08-13 23:06
 boardcol: tests
+boardidx: 2118
 ---
 
 Run `bash tests/test_install_create_data_dirs.sh` on a macOS/BSD host. Carried over from t1201 (verifies t1193, the dangling data-symlink guard in install.sh `ensure_data_root`), where it was left unverified because no macOS host was available.

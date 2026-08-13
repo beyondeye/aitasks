@@ -6,8 +6,9 @@ issue_type: manual_verification
 status: Ready
 labels: []
 verifies: [t573_1, t573_2, t573_3, t573_4]
+followup_kind: carry_over
 created_at: 2026-06-02 12:30
-updated_at: 2026-06-02 12:30
+updated_at: 2026-08-13 23:07
 boardcol: manual_verifications
 boardidx: 100
 ---

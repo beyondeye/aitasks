@@ -7,8 +7,9 @@ status: Ready
 labels: [execution_profiles]
 gates: [risk_evaluated]
 anchor: 1311
+followup_kind: upstream_defect
 created_at: 2026-07-29 22:44
-updated_at: 2026-07-29 22:44
+updated_at: 2026-08-13 23:06
 boardidx: 104448
 ---
 

@@ -5,8 +5,9 @@ depends: []
 issue_type: test
 status: Ready
 labels: [script-performance]
+followup_kind: risk_mitigation
 created_at: 2026-08-03 22:42
-updated_at: 2026-08-03 22:42
+updated_at: 2026-08-13 23:07
 boardidx: 3072
 ---
 

@@ -1,13 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1377_5]
+depends: [t1377_5]
 issue_type: bug
 status: Ready
 labels: [verification, bug]
 anchor: 1243
+followup_kind: verification_failure
 created_at: 2026-08-07 13:08
-updated_at: 2026-08-07 13:08
+updated_at: 2026-08-13 23:07
 ---
 
 ## Failed verification item from t1377_5

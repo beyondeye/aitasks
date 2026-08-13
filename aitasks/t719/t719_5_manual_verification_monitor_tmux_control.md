@@ -6,8 +6,9 @@ issue_type: manual_verification
 status: Ready
 labels: [verification, manual, tmux_destructive]
 verifies: [t719_1, t719_2, t719_3, t719_4]
+followup_kind: manual_verification
 created_at: 2026-04-30 10:32
-updated_at: 2026-07-28 18:38
+updated_at: 2026-08-13 23:07
 ---
 
 ## Manual Verification Task

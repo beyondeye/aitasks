@@ -7,8 +7,9 @@ status: Ready
 labels: [aitask_monitor, shadow, tui]
 gates: [risk_evaluated]
 anchor: 1111
+followup_kind: risk_mitigation
 created_at: 2026-07-30 08:12
-updated_at: 2026-07-30 08:12
+updated_at: 2026-08-13 23:06
 boardidx: 105472
 ---
 

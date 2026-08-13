@@ -5,9 +5,10 @@ depends: [t623_6]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [623_1, 623_2, 623_3, 623_4, 623_5, 623_6]
+verifies: [t623_1, t623_2, t623_3, t623_4, t623_5, t623_6]
+followup_kind: manual_verification
 created_at: 2026-04-23 08:56
-updated_at: 2026-05-03 18:56
+updated_at: 2026-08-13 23:07
 ---
 
 ## Manual Verification Task

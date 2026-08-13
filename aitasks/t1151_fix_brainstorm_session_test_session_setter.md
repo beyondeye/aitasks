@@ -7,8 +7,9 @@ status: Ready
 labels: [tui, switcher]
 gates: [risk_evaluated]
 anchor: 1148
+followup_kind: upstream_defect
 created_at: 2026-07-15 16:41
-updated_at: 2026-07-15 16:41
+updated_at: 2026-08-13 23:06
 boardidx: 145408
 ---
 

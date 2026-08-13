@@ -7,8 +7,9 @@ status: Ready
 labels: [framework, task_workflow]
 gates: [risk_evaluated]
 anchor: 1419
+followup_kind: upstream_defect
 created_at: 2026-08-05 12:11
-updated_at: 2026-08-05 12:11
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

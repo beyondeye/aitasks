@@ -6,8 +6,9 @@ issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
 verifies: [1382]
+followup_kind: manual_verification
 created_at: 2026-08-03 16:34
-updated_at: 2026-08-03 16:34
+updated_at: 2026-08-13 23:07
 boardidx: 25600
 ---
 

@@ -500,3 +500,186 @@ A mis-classification is then a revert of commit 2 alone.
   worktree edits and is only accidentally correct on clean paths.
 - This is the last child. When it lands, re-run the parent's end-to-end
   verification list in `aiplans/p1468_*.md` before archiving the parent.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Two new files (`.aitask-scripts/aitask_followup_backfill.sh`,
+  `.aitask-scripts/lib/followup_backfill_classify.py`), two test suites, one
+  `.gitignore` line, five whitelist touchpoints — and the backfill itself:
+  **167 active tasks gained `followup_kind`** in one revertible commit. Run id
+  `20260813-225232`; the reviewed table is reproduced below.
+
+- **Deviations from plan:**
+  - **The delta assertion is SEMANTIC, not line-level.** The plan specified "no
+    other key added, removed, reordered or reformatted". Real data refuted the
+    letter of that on the very first canary: `aitask_update.sh` rebuilds
+    frontmatter through its own serializer, which (a) emits keys in ITS canonical
+    order, (b) canonicalises task-id lists (`verifies: ['635_11']` →
+    `[t635_11]`, 19 files), and (c) collapses blank lines around the body
+    (t1399). None of these lose information and all happen on any `ait update`,
+    but a line diff calls them corruption — and did worse: `reconcile_row`
+    reported the backfill's OWN writes as `FOREIGN_DRIFT`, which would have made
+    `--abandon` refuse to restore them. `delta_report()` now compares parsed
+    frontmatter + body: no key lost, no unrelated value changed, `followup_kind`
+    added with the expected value, `updated_at` free to change. Tolerated
+    normalisations are reported, never silent, and 10 unit tests pin the BAD
+    cases (removed key, changed value, tampered body, wrong kind, extra key, a
+    real id change, internal-whitespace change).
+  - **The per-row freshness re-check is `reconcile_row` itself, not a second
+    guard.** The plan described an extra check before each preimage copy; when
+    written, it was provably unsatisfiable — `NOT_STARTED` is *defined* as
+    `hash == sha256_at_review`, so `state == NOT_STARTED && hash != review_sha`
+    can never be true. The protection is real and is exercised (Part D), but it
+    lives in the per-row `reconcile_row` call. An unreachable guard was deleted
+    rather than shipped as protection that isn't there.
+  - **`--verify-delta` assertion 3 reports foreign plan edits instead of failing
+    on them.** The plan said "the only changed path under `aiplans/` is this plan
+    file". A concurrent session had `p1467` modified; failing on someone else's
+    work would make the assertion unusable in a shared tree. It now requires THIS
+    plan file to carry the table and warns about others (commit 2 is
+    path-allowlisted, so they cannot be swept in).
+  - **`--allow-dirty-baseline` was needed:** `t1510` (another session, status
+    `Implementing`) was uncommitted. It is not in the manifest, so it was
+    excluded from the delta set-equality check and never touched.
+
+- **Issues encountered:**
+  - **Two driver bugs found by the fault-injection suite, both real:**
+    (1) `check_baseline` rejected every `--resume`, because after a partial apply
+    the rows already written are by definition dirty AND selected — the resume
+    path was unusable in any git-tracked repo. Fixed by reconciling instead of
+    blanket-rejecting: a dirty selected path is a blocker only when the dirt is
+    not explained by this run. (2) The journal was created before the global
+    preflight, so a "zero writes" abort still left an artifact.
+  - **A task file with no derivable id:**
+    `aitasks/t_refresh_codeagent_suite_default_model_expectations.md` is a
+    genuine upstream-defect follow-up whose filename carries no number, so
+    `aitask_update.sh --batch` cannot target it. The classifier emits it as
+    `UNPARSEABLE_ID` rather than dropping it — silently skipping is the exact
+    defect `t1338` records against the work report. No duplicate task filed:
+    `t1338` and `t1364` already track this class.
+  - **The corpus moved during the work** (409 → 411 → 412 files; already-marked
+    15 → 18) as concurrent sessions created and archived tasks. Every count is
+    derived at run time; none is compared against a constant.
+
+- **Key decisions:**
+  - **Rule order is prose-provenance-first** (user-confirmed), deviating from the
+    task file and parent plan: `carry_over → risk_mitigation → upstream_defect →
+    verification_failure → manual_verification → …`. Body prose records *who
+    spawned* a task; `issue_type` records *what kind of work it is*. 8 tasks
+    match both the risk-mitigation producer sentence and
+    `issue_type: manual_verification`, and the live Step-8d seam had already
+    marked two of them (`t1477`, `t1508`) `risk_mitigation` — the written order
+    would have split one cohort by creation date. Verified on live data: all 8
+    now classify `risk_mitigation`.
+  - **Patterns are anchored on the producer's full sentence** (user-confirmed),
+    including the `from t<id>` / `for t<id>` tail. The bare prefixes appear
+    inside the rule tables of `t1468` and `t1468_6` themselves, so a prefix match
+    classifies the spec as its own subject. This also fixed a real gap: the
+    `"before"` variant omits the words "follow-up".
+  - **The MV cross-field invariant holds by construction, not by a check** — rule
+    5 is the only producer of `followup_kind: manual_verification` and fires only
+    when `issue_type` already equals it. Zero violations to report.
+  - **A `## Origin` heuristic was measured and REJECTED as a residue filter:**
+    recall over known follow-ups is 59% (98 with / 69 without), so its absence is
+    not evidence of "not a follow-up". It ships as an annotation with the recall
+    printed beside it.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_yaml.py:151 — parse_frontmatter normalizes task-id
+    lists for depends/children_to_implement/folded_tasks but NOT for verifies,
+    while aitask_update.sh's serializer DOES canonicalize verifies on write. The
+    asymmetry means any read-modify-write silently rewrites verifies from
+    ['635_11'] to [t635_11]; 19 task files changed that way during this backfill.
+    Harmless individually, but a reader comparing the two forms will see spurious
+    diffs.`
+
+- **Notes for sibling tasks:**
+  - The parent task file and `aiplans/p1468_*.md` still state the OLD rule order
+    (`manual_verification` second). Correct them when closing the parent.
+  - `aitasks/` **and** `aiplans/` are symlinks into the one `.aitask-data`
+    worktree, so any `task_git status` assertion must be path-scoped or it mixes
+    plan edits into task-file accounting.
+  - `aitask_update.sh --batch` does not commit without `--commit`, and its
+    `has_update` is flag-presence not value-comparison — re-running churns
+    `updated_at`, so bulk writers must skip already-correct rows themselves.
+  - Bulk corpus writers should reuse the manifest/preimage/journal shape here:
+    recover by reconciling hashes against stored preimages (never trust the
+    journal — `lib/atomic_write.sh` does no fsync), and restore from preimage,
+    never `git checkout -- <path>`.
+  - **Compare task files semantically, not by line diff** — the serializer
+    reorders keys, canonicalises ids and normalises body blank lines.
+
+- **Verification results:**
+  - `negctrl_classifier_rules`: **RED before implementation** against the spec's
+    original rule order — 3 failing assertions, recorded verbatim:
+    `test_risk_mitigation_beats_manual_verification`:
+    `AssertionError: 'manual_verification' != 'risk_mitigation'`;
+    `test_upstream_defect_beats_manual_verification`:
+    `AssertionError: 'manual_verification' != 'upstream_defect'`;
+    `test_verification_failure_beats_manual_verification`:
+    `AssertionError: 'manual_verification' != 'verification_failure'`.
+    GREEN after a single-constant mutation (`RULE_ORDER`), assertions
+    byte-unchanged.
+  - **Independent cross-validation:** a separately-written bash implementation of
+    the same 8 rules agreed with the Python classifier on **all 412 files**. The
+    single disagreement it surfaced was the id-less filename above — a real
+    defect in the Python side, since fixed.
+  - `tests/test_followup_backfill_classify.py`: **32/32**.
+  - `tests/test_followup_backfill_recovery.sh`: **48/48** — canary→resume reaches
+    COMPLETE (the non-vacuity check on the state table), second `--apply`
+    refused, zero-write abort on pre-write drift, stop-at-the-drifted-row with
+    earlier rows recoverable, both journal-loss windows (`DONE` and
+    `INTENT`+`DONE`) reconciling as LANDED without rewriting, byte-exact preimage
+    restore, and foreign-drift refusal with the other session's edit surviving.
+  - `frontmatter_delta_canary` (`--limit 3`): caught the `verifies`
+    canonicalisation on the first three rows — the mitigation paid for itself.
+  - `corpus_wide_delta_assertion`: `[1/3]` 167 paths, exact set match;
+    `[2/3]` per-file shape clean; `[3/3]` plan file carries the table.
+  - Idempotency proven on real data: the final `--resume` applied **0** rows and
+    reported 167/167 already landed — no `updated_at` churn.
+  - `shellcheck`: clean at warning+ severity. `grep -P` and `find -printf` (both
+    GNU-only, absent on macOS) were removed in favour of `awk` and a glob;
+    hashing delegates to `artifact_sha256`.
+
+### Reviewed classification table (run 20260813-225232)
+
+Derived at run time: **411** task files scanned · **17** already marked (skipped)
+· **167** written · **226** residue · **1** unwritable (`UNPARSEABLE_ID`) ·
+**0** rule conflicts · **0** MV cross-field violations.
+
+**`carry_over`** (7): t1064 t1222 t1295 t1362 t887 t908 t910
+
+**`risk_mitigation`** (59): t1011 t1015 t1066 t1067 t1068 t1088 t1091 t1144 t1155 t1157 t1180 t1192 
+  t1195 t1203 t1250 t1258 t1259 t1260 t1261 t1267 t1276 t1277 t1281 t1288 
+  t1297 t1298 t1299 t1304 t1305 t1332 t1333 t1336 t1337 t1339 t1340 t1341 
+  t1347 t1367 t1368 t1373 t1375 t1376 t1381 t1394 t1397 t1398 t1400 t1401 
+  t1411 t1417 t1423 t1424 t1426 t1431 t1452 t1457 t1458 t1460 t1473
+
+**`upstream_defect`** (38): t1151 t1154 t1237 t1244 t1246 t1280 t1296 t1300 t1309 t1316 t1327 t1329 
+  t1330 t1331 t1334 t1338 t1345 t1356 t1360 t1363 t1385 t1390 t1396 t1399 
+  t1421 t1428 t1430 t1437 t1441 t1442 t1445 t1450 t1456 t1459 t1461 t1463 
+  t702 t879
+
+**`verification_failure`** (4): t1283 t1284 t1454 t1455
+
+**`manual_verification`** (58): t1059 t1113 t1118_5 t1120_8 t1124 t1126 t1129 t1157_10 t1162_6 t1166_6 
+  t1184 t1186_5 t1206 t1210_7 t1228 t1231_4 t1239 t1243_15 t1249 t1291 t1292 
+  t1301 t1303 t1315 t1320 t1324 t1328 t1335 t1342 t1357_8 t1372 t1386 t1387 
+  t1391 t1405_8 t1415 t1422 t1425 t1438 t1439 t1440 t1462 t1468_7 t1471 t1475 
+  t1476 t623_7 t633 t638 t696 t710 t719_5 t744 t745_5 t811 t835_7 t857 t889
+
+**`review_finding`** (1): t804
+
+`qa_test_gap` **0** and `docs_gap` **0** — asserted explicitly, not unexamined:
+both producers self-mark today, so only legacy instances could have appeared.
+
+**Not written (1):** `aitasks/t_refresh_codeagent_suite_default_model_expectations.md`
+— a genuine upstream-defect follow-up with no derivable task id.
+
+**Residue (226)** is recorded in full in the run's `classified.tsv` (rule column
+`-`). Spot-checked: some residue tasks *are* follow-ups written in freeform prose
+that matches no producer sentence (e.g. `t1364` says "Surfaced at Step 8b of
+t1354_1" rather than the template's "Spawned from … during Step 8b review"), and
+they were deliberately left unclassified rather than guessed at.

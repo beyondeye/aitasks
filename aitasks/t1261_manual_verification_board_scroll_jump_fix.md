@@ -7,8 +7,9 @@ status: Ready
 labels: [aitask_board, tui, tmux, manual_verification]
 verifies: [1248]
 anchor: 1248
+followup_kind: risk_mitigation
 created_at: 2026-07-27 00:01
-updated_at: 2026-07-27 00:01
+updated_at: 2026-08-13 23:06
 boardidx: 46080
 ---
 

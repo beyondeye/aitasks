@@ -7,8 +7,9 @@ status: Ready
 labels: [shadow, robustness]
 gates: [risk_evaluated]
 anchor: 1307
+followup_kind: risk_mitigation
 created_at: 2026-08-04 13:36
-updated_at: 2026-08-04 13:36
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

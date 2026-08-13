@@ -7,8 +7,9 @@ status: Ready
 labels: []
 verifies: [t1037_1, t1037_2, t1037_3, t1037_4]
 anchor: 1037
+followup_kind: carry_over
 created_at: 2026-07-23 16:38
-updated_at: 2026-07-23 16:38
+updated_at: 2026-08-13 23:06
 boardidx: 30720
 ---
 

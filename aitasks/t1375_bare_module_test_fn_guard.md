@@ -7,8 +7,9 @@ status: Ready
 labels: [test, bash_scripts]
 gates: [risk_evaluated]
 anchor: 1111
+followup_kind: risk_mitigation
 created_at: 2026-08-03 09:42
-updated_at: 2026-08-03 17:02
+updated_at: 2026-08-13 23:06
 boardidx: 15360
 ---
 

@@ -6,8 +6,9 @@ issue_type: bug
 status: Ready
 labels: [verification, bug]
 anchor: 1065
+followup_kind: verification_failure
 created_at: 2026-07-28 11:25
-updated_at: 2026-07-28 11:25
+updated_at: 2026-08-13 23:06
 boardidx: 56320
 ---
 

@@ -7,8 +7,9 @@ status: Ready
 labels: [aitask_board, board_columns, tui]
 gates: [risk_evaluated]
 anchor: 1243
+followup_kind: upstream_defect
 created_at: 2026-08-06 00:28
-updated_at: 2026-08-06 00:28
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

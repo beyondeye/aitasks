@@ -5,9 +5,10 @@ depends: [t835_6]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [835_1, 835_2, 835_3, 835_4, 835_5, 835_6]
+verifies: [t835_1, t835_2, t835_3, t835_4, t835_5, t835_6]
+followup_kind: manual_verification
 created_at: 2026-05-28 17:22
-updated_at: 2026-05-28 17:22
+updated_at: 2026-08-13 23:07
 ---
 
 ## Manual Verification Task

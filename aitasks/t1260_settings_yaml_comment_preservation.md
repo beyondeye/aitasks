@@ -7,8 +7,9 @@ status: Ready
 labels: [ait_settings]
 gates: [risk_evaluated]
 anchor: 1065
+followup_kind: risk_mitigation
 created_at: 2026-07-26 23:00
-updated_at: 2026-07-26 23:00
+updated_at: 2026-08-13 23:06
 boardidx: 45056
 ---
 

@@ -7,8 +7,9 @@ status: Ready
 labels: [tui, textual, shortcuts]
 gates: [risk_evaluated]
 anchor: 1418
+followup_kind: risk_mitigation
 created_at: 2026-08-05 10:52
-updated_at: 2026-08-05 10:52
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

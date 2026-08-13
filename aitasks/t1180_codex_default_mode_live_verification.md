@@ -11,9 +11,10 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 anchor: 1171
+followup_kind: risk_mitigation
 implemented_with: codex/gpt5_6_terra
 created_at: 2026-07-20 12:20
-updated_at: 2026-07-20 18:06
+updated_at: 2026-08-13 23:06
 boardidx: 129024
 ---
 

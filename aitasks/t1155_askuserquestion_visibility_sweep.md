@@ -7,8 +7,9 @@ status: Ready
 labels: [skills, aitask_explore]
 gates: [risk_evaluated]
 anchor: 1150
+followup_kind: risk_mitigation
 created_at: 2026-07-15 18:37
-updated_at: 2026-07-15 18:37
+updated_at: 2026-08-13 23:06
 boardidx: 135168
 ---
 

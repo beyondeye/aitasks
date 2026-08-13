@@ -7,8 +7,9 @@ status: Ready
 labels: [tui, monitor]
 gates: [risk_evaluated]
 anchor: 1310
+followup_kind: upstream_defect
 created_at: 2026-07-29 13:46
-updated_at: 2026-07-29 13:46
+updated_at: 2026-08-13 23:06
 boardidx: 88064
 ---
 

@@ -5,10 +5,11 @@ depends: [t1405_7]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1405_1, 1405_2, 1405_3, 1405_4, 1405_5, 1405_6, 1405_7]
+verifies: [t1405_1, t1405_2, t1405_3, t1405_4, t1405_5, t1405_6, t1405_7]
 anchor: 1405
+followup_kind: manual_verification
 created_at: 2026-08-04 16:49
-updated_at: 2026-08-04 16:49
+updated_at: 2026-08-13 23:07
 ---
 
 ## Manual Verification Task

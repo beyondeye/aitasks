@@ -5,8 +5,9 @@ depends: []
 issue_type: refactor
 status: Ready
 labels: [review, skill, task-workflow]
+followup_kind: review_finding
 created_at: 2026-05-19 17:22
-updated_at: 2026-05-19 17:22
+updated_at: 2026-08-13 23:07
 boardcol: now
 boardidx: 30
 ---

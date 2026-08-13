@@ -6,8 +6,9 @@ issue_type: enhancement
 status: Ready
 labels: [applink, applink_security]
 anchor: 985
+followup_kind: risk_mitigation
 created_at: 2026-06-24 22:27
-updated_at: 2026-06-25 09:55
+updated_at: 2026-08-13 23:06
 boardidx: 160768
 ---
 

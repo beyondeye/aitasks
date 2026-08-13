@@ -7,10 +7,11 @@ status: Implementing
 labels: []
 verifies: [t832_1, t832_2, t832_3, t832_4, t832_5, t832_6, t832_7, t832_8]
 assigned_to: dario-e@beyond-eye.com
+followup_kind: carry_over
 created_at: 2026-05-31 18:45
-updated_at: 2026-06-01 12:16
-boardidx: 120
+updated_at: 2026-08-13 23:07
 boardcol: manual_verifications
+boardidx: 120
 ---
 
 Carry-over of deferred manual-verification items from t832_9. Re-pick this task to continue the remaining checklist.

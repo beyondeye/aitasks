@@ -5,10 +5,11 @@ depends: []
 issue_type: bug
 status: Postponed
 labels: [custom_shortcuts]
+followup_kind: upstream_defect
 created_at: 2026-05-31 16:28
-updated_at: 2026-06-01 11:56
-boardidx: 50
+updated_at: 2026-08-13 23:07
 boardcol: now
+boardidx: 50
 ---
 
 ## Origin

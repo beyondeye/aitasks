@@ -7,8 +7,9 @@ status: Ready
 labels: [verification, manual, tmux_destructive]
 verifies: [t1166_1, t1166_2, t1166_3, t1166_4, t1166_5]
 anchor: 1166
+followup_kind: manual_verification
 created_at: 2026-07-20 12:11
-updated_at: 2026-07-28 18:38
+updated_at: 2026-08-13 23:06
 ---
 
 ## Manual Verification Task

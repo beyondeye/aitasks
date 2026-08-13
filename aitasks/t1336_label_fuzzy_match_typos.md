@@ -7,8 +7,9 @@ status: Ready
 labels: [aitask_explore, aitask-create, bash_scripts]
 gates: [risk_evaluated]
 anchor: 1312
+followup_kind: risk_mitigation
 created_at: 2026-07-29 18:39
-updated_at: 2026-07-29 18:39
+updated_at: 2026-08-13 23:06
 boardidx: 95232
 ---
 

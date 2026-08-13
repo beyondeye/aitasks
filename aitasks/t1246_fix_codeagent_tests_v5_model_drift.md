@@ -5,8 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [codeagent, test]
+followup_kind: upstream_defect
 created_at: 2026-07-26 00:19
-updated_at: 2026-07-26 00:19
+updated_at: 2026-08-13 23:06
 boardidx: 37888
 ---
 

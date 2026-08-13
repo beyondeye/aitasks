@@ -7,8 +7,9 @@ status: Ready
 labels: [backend, shadow]
 gates: [risk_evaluated]
 anchor: 1111
+followup_kind: upstream_defect
 created_at: 2026-07-31 10:03
-updated_at: 2026-07-31 10:03
+updated_at: 2026-08-13 23:06
 boardidx: 110592
 ---
 

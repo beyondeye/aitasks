@@ -7,8 +7,9 @@ status: Ready
 labels: [gates, claudeskills]
 gates: [risk_evaluated]
 anchor: 635
+followup_kind: upstream_defect
 created_at: 2026-08-07 15:49
-updated_at: 2026-08-07 15:49
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

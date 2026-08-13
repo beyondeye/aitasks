@@ -7,8 +7,9 @@ status: Ready
 labels: [codexcli, codeagent]
 gates: [risk_evaluated]
 anchor: 1171
+followup_kind: risk_mitigation
 created_at: 2026-07-20 23:15
-updated_at: 2026-07-20 23:15
+updated_at: 2026-08-13 23:06
 boardidx: 125952
 ---
 

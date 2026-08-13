@@ -7,8 +7,9 @@ status: Ready
 labels: [tui]
 gates: [risk_evaluated]
 anchor: 1149
+followup_kind: risk_mitigation
 created_at: 2026-07-20 19:33
-updated_at: 2026-07-20 19:33
+updated_at: 2026-08-13 23:06
 boardidx: 128000
 ---
 

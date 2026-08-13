@@ -5,9 +5,10 @@ depends: [t635_12]
 issue_type: manual_verification
 status: Ready
 labels: [gates]
-verifies: ['635_11']
+verifies: [t635_11]
+followup_kind: risk_mitigation
 created_at: 2026-06-17 00:35
-updated_at: 2026-06-28 18:14
+updated_at: 2026-08-13 23:03
 boardidx: 165888
 ---
 

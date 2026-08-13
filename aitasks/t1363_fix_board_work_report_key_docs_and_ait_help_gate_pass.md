@@ -7,8 +7,9 @@ status: Ready
 labels: [docs, web_site]
 gates: [risk_evaluated]
 anchor: 1361
+followup_kind: upstream_defect
 created_at: 2026-07-31 12:57
-updated_at: 2026-07-31 12:57
+updated_at: 2026-08-13 23:06
 boardidx: 116736
 ---
 

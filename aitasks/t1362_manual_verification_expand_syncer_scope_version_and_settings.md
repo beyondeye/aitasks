@@ -7,8 +7,9 @@ status: Ready
 labels: []
 verifies: [t1223_1, t1223_2, t1223_3, t1223_4, t1223_5, t1223_6]
 anchor: 1223
+followup_kind: carry_over
 created_at: 2026-07-31 12:11
-updated_at: 2026-07-31 12:11
+updated_at: 2026-08-13 23:06
 boardidx: 115712
 ---
 

@@ -5,10 +5,11 @@ depends: [t1243_14]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1243_3, 1243_4, 1243_5, 1243_6, 1243_7, 1243_8, 1243_9, 1243_10, 1243_11, 1243_12, 1243_13]
+verifies: [t1243_3, t1243_4, t1243_5, t1243_6, t1243_7, t1243_8, t1243_9, t1243_10, t1243_11, t1243_12, t1243_13]
 anchor: 1243
+followup_kind: manual_verification
 created_at: 2026-07-28 01:21
-updated_at: 2026-07-28 01:21
+updated_at: 2026-08-13 23:06
 ---
 
 ## Manual Verification Task

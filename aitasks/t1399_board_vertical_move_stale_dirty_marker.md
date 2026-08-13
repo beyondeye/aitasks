@@ -7,11 +7,11 @@ status: Ready
 labels: [aitask_board, tui, python]
 gates: [risk_evaluated]
 anchor: 1243
+followup_kind: upstream_defect
 created_at: 2026-08-03 22:42
-updated_at: 2026-08-04 09:44
+updated_at: 2026-08-13 23:07
 boardidx: 4096
 ---
-
 
 ## Origin
 

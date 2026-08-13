@@ -7,8 +7,9 @@ status: Ready
 labels: [reporting]
 gates: [risk_evaluated]
 anchor: 1162
+followup_kind: risk_mitigation
 created_at: 2026-07-28 18:05
-updated_at: 2026-07-28 18:05
+updated_at: 2026-08-13 23:06
 boardidx: 74752
 ---
 

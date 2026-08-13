@@ -7,8 +7,9 @@ status: Ready
 labels: [workflow, git, profiles]
 gates: [risk_evaluated]
 anchor: 1233
+followup_kind: risk_mitigation
 created_at: 2026-07-28 01:10
-updated_at: 2026-07-28 01:10
+updated_at: 2026-08-13 23:06
 boardidx: 53248
 ---
 

@@ -6,8 +6,9 @@ issue_type: manual_verification
 status: Ready
 labels: [task_workflow, gates, claudeskills]
 anchor: 635
+followup_kind: risk_mitigation
 created_at: 2026-08-03 16:53
-updated_at: 2026-08-03 16:53
+updated_at: 2026-08-13 23:07
 boardidx: 28672
 ---
 

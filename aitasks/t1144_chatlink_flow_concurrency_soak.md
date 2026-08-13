@@ -7,8 +7,9 @@ status: Folded
 labels: [chat_surface, python, testing]
 folded_into: 1157
 anchor: 1120
+followup_kind: risk_mitigation
 created_at: 2026-07-10 09:06
-updated_at: 2026-07-17 11:50
+updated_at: 2026-08-13 23:06
 boardidx: 137216
 ---
 

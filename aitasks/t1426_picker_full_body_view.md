@@ -7,8 +7,9 @@ status: Ready
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 anchor: 1037
+followup_kind: risk_mitigation
 created_at: 2026-08-05 11:40
-updated_at: 2026-08-05 11:40
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

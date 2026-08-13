@@ -7,8 +7,9 @@ status: Ready
 labels: [verification, backend]
 gates: [risk_evaluated]
 anchor: 635
+followup_kind: risk_mitigation
 created_at: 2026-08-10 15:17
-updated_at: 2026-08-10 15:17
+updated_at: 2026-08-13 23:07
 ---
 
 ## Origin

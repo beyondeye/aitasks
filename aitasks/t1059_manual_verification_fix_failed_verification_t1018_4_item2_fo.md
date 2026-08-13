@@ -6,10 +6,11 @@ issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
 verifies: [1039]
+followup_kind: manual_verification
 created_at: 2026-06-22 17:26
-updated_at: 2026-06-22 17:26
-boardidx: 70
+updated_at: 2026-08-13 23:03
 boardcol: tests
+boardidx: 70
 ---
 
 ## Manual Verification Task

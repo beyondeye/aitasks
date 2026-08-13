@@ -5,8 +5,9 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [aitask_changelog]
+followup_kind: upstream_defect
 created_at: 2026-07-31 11:12
-updated_at: 2026-07-31 11:12
+updated_at: 2026-08-13 23:06
 boardidx: 114688
 ---
 

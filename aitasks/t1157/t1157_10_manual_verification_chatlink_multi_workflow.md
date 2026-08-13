@@ -5,10 +5,11 @@ depends: [t1157_9]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1157_1, 1157_2, 1157_3, 1157_4, 1157_5, 1157_6, 1157_7, 1157_8, 1157_9]
+verifies: [t1157_1, t1157_2, t1157_3, t1157_4, t1157_5, t1157_6, t1157_7, t1157_8, t1157_9]
 anchor: 1157
+followup_kind: manual_verification
 created_at: 2026-07-17 16:57
-updated_at: 2026-07-17 16:57
+updated_at: 2026-08-13 23:06
 ---
 
 ## Manual Verification Task
