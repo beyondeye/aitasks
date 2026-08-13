@@ -404,15 +404,61 @@ agent unresolved             → "live tiers unavailable: pane command '<cmd>'
 The composer needs the raw command to say this, so `compose` takes an optional
 `current_command` used **only** in that message — never in a matching decision.
 
-**UI** — `awaiting_input_kind` is not rendered as text on any card today (it
-feeds counts at `monitor_app.py:1505-1510` / `minimonitor_app.py:931-936`,
-ordering at `:1368-1380`, and the phase), so inventing a new badge would be
-scope creep. Expose it instead through the surface that already exists to
-explain the phase: `_UNKNOWN_TEXT` (`workflow_phase.py:513-517`) gains an
-`unresolved_agent` cause, so `render_phase` renders
-`phase: unknown (agent unresolved)` and `render_phase_narrow` its narrow twin.
-Both renderers read that one table, so the cause cannot appear on one surface
-and vanish on the other — the property t1479 built it for.
+**UI — the qualifier must be ORTHOGONAL to the phase, not a phase value.**
+`awaiting_input_kind` is not rendered as text on any card today (it feeds counts
+at `monitor_app.py:1505-1510` / `minimonitor_app.py:931-936`, ordering at
+`:1368-1380`, and the phase), so inventing a new badge would be scope creep —
+the phase label is the right surface. But an `_UNKNOWN_TEXT` cause is **not**,
+and this is the trap: `_phase_body` (`:520-534`) consults that table only inside
+`if sig.phase == UNKNOWN_PHASE`. A task **with** ledger history falls back to
+`IMPLEMENT` / `POSTIMPL` and renders `IMPLEMENT ⏸` — indistinguishable from a
+scoped pane — even though `_ledger()` (`:407-409`) took that very `⏸` from the
+`awaiting_input` an **unscoped** match produced. Provenance that only survives
+when the phase is unknown is provenance that disappears exactly when the phase
+is most confident.
+
+So resolution becomes its **own field with its own vocabulary**, rendered as a
+suffix in *both* branches:
+
+```python
+RESOLUTIONS = ("scoped", "no_markers", "unresolved", "absent", "unknown")
+```
+
+`PhaseSignal` gains `resolution: str = "unknown"`, validated by `format_signal`
+and degraded by `parse_signal` like every other vocabulary field, and carried on
+the wire as `RESOLUTION:`. The format is key-based, so an old reader ignores the
+new key and a new reader defaults a missing one — no `@aitask_shadow_phase`
+compatibility break with a stale minimonitor (t1116).
+
+`compose` sets it from what it was actually given:
+
+| `agent` | `current_command` | resolution |
+|---|---|---|
+| non-empty, has markers | — | `scoped` |
+| non-empty, no markers | — | `no_markers` |
+| `""` | supplied | `unresolved` (the caller tried; the command did not map) |
+| `""` | not supplied | `absent` (the caller said nothing) |
+
+`_phase_body` appends the suffix **outside** the UNKNOWN branch, from a single
+`_RESOLUTION_SUFFIX` table with a wide and a narrow column — the same
+one-table-two-columns shape `_UNKNOWN_TEXT` uses, so the forms cannot drift:
+
+```
+full:    phase: IMPLEMENT ⏸ (agent unresolved)   /   phase: unknown (agent unresolved)
+narrow:  IMPLEMENT ⏸?                             /   unknown?
+```
+
+Narrow gets a single `?`, not a word: that line is ~36 cells shared with the gate
+summary (t1479), and a qualifier that pushes the counts off the row is not
+readable even though it is present. `scoped` and `absent` render **no** suffix —
+`absent` is a caller that never asked, and marking it would put a qualifier on
+every CLI invocation.
+
+**This also removes a latent fragility.** `_phase_body`'s existing `ledger_only`
+cause is selected by `"no prompt markers" in sig.detail` (`:529`) — a substring
+sniff on a human-readable string that *this task rewrites*. With `resolution` as
+an explicit field, that branch reads `sig.resolution == "no_markers"` and the
+detail wording is free to change without silently killing the rendering.
 
 **Review loop** — `minimonitor_app.py:2438` (arm gate) and `:2530` (change
 classification) take the key from `snap.agent_key`. The two **shadow**-side
@@ -548,9 +594,26 @@ bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
      `json.loads(frame)["payload"]["awaiting_input_scoped"]` is `False` / `True`,
      that `agent_key` is absent / `"claude"`, and that `"v"` is still `1` (the
      additive-field contract).
-   - *phase render*: `render_phase` / `render_phase_narrow` for an unresolved
-     pane both produce the `unresolved_agent` wording, and neither produces it
-     for a resolved one — both directions, both renderers.
+   - *phase render — the full 2×2×2 matrix*, because the whole point is that the
+     qualifier survives a **confident** phase: {`render_phase`,
+     `render_phase_narrow`} × {empty ledger → `UNKNOWN`, `plan_approved pass` →
+     `IMPLEMENT`, `review_approved pass` → `POSTIMPL`} × {`resolution="scoped"`,
+     `"unresolved"`}. Assert the qualifier is present in **every** unresolved
+     cell — including `IMPLEMENT ⏸`, the cell that renders clean today — and
+     absent in every scoped cell. A test that only covered the no-ledger case
+     would pass against the rejected `_UNKNOWN_TEXT` design, so it must include
+     the ledger cases to discriminate at all.
+     Also assert the narrow forms stay within the ~36-cell budget (t1479) and
+     that `scoped` / `absent` add nothing.
+   - *resolution vocabulary*: `RESOLUTIONS` pinned by value; `format_signal`
+     refuses a non-member; `parse_signal` degrades one to `"unknown"`; a
+     round-trip over every member is exact; and a line **without** a
+     `RESOLUTION:` key parses to `"unknown"` rather than raising — the stale-writer
+     (t1116) compatibility case.
+   - *no substring sniffing*: assert `_phase_body`'s `no_markers` branch fires
+     from `sig.resolution`, by composing a signal whose `detail` deliberately
+     omits the phrase "no prompt markers" — this fails against the current
+     substring implementation, which is what makes it a real guard.
    - *compose*: an unresolved pane's `detail` names the pane command and does
      **not** say "no agent supplied"; a caller that passed no agent at all still
      gets the original wording. These are the two cases the split exists for, so
@@ -695,6 +758,20 @@ augmented with the pre-/post-phase blocks, which is the plan being approved.
   pinned by Verification 5.9 and 5.10. The exact fix — an engine-owned
   `@aitask_agent` stamp — is scoped out to §7 rather than half-built here)
   · → mitigation: none (design change, decisions 4 + §4b)
+- Resolution provenance rendered as an `_UNKNOWN_TEXT` cause would vanish
+  precisely when the phase is most confident: `_phase_body` (`:520-534`) consults
+  that table only when `phase == UNKNOWN`, so a task with ledger history would
+  render `IMPLEMENT ⏸` — with the `⏸` supplied by the unscoped match itself —
+  identically to a scoped pane. · severity: low (residual — `resolution` is an
+  independent vocabulary field rendered as a suffix in both branches (§4b), and
+  Verification 5.10's 2×2×2 matrix includes the ledger cells that the rejected
+  design would have passed) · → mitigation: none (design change, §4b)
+- `_phase_body` selects its `ledger_only` cause by testing
+  `"no prompt markers" in sig.detail` — a substring dependency on a
+  human-readable string that this task rewrites, so the rendering could die
+  silently. · severity: low (residual — the branch moves to the explicit
+  `resolution` field and Verification 5.10 pins it with a detail that omits the
+  phrase) · → mitigation: none (design change, §4b)
 - Provenance fields that nothing reads would make the code look honest while
   every visible surface still presents an unresolved pane identically — and
   five snapshot-derived sites currently re-derive the agent from
