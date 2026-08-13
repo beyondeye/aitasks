@@ -1,5 +1,67 @@
 # Changelog
 
+## v0.32.0
+
+### Features
+
+- **Grouped board columns — data model** (t1243_8): Added a `boardgroup` task field so cards can be grouped inside a board column, with merge-aware resolution so concurrent edits from two sessions no longer clobber each other.
+- **Grouped board columns — focus and rendering** (t1243_9): The board now draws a header for each group, and arrow-key navigation moves over groups as single units. `x` collapses or expands the focused group.
+- **Grouped board columns — collapse and filtering** (t1243_10): Collapsed groups stay collapsed across restarts and survive column renames, merges and deletions. While a filter is active, each group header shows how many of its cards match.
+- **Move a task to a column from minimonitor** (t1377_2): The minimonitor task prompt now offers "move to a board column" alongside picking the task, with a column picker showing each column in its own colour.
+- **Create a new column from minimonitor** (t1377_3): You can create a brand-new board column on the spot and move the task straight into it, without leaving minimonitor or opening the board.
+- **Column merge engine** (t1377_4): Merging one or more columns into another moves all their tasks in a single operation, refusing cleanly rather than half-applying when the board has changed underneath you.
+- **Board column management dialog** (t1377_5): `e` on the board opens a Columns dialog — add, edit, reorder with `Shift+Up`/`Shift+Down`, and merge columns, all from one place.
+- **Workflow phase on agent cards** (t1420): The monitors now show which workflow phase a followed agent is in and whether it is waiting on you. The shadow companion uses the same signal to pick its default mode instead of asking.
+- **Review round headers** (t1159_1): Shadow review blocks now carry a `Round: N @ <time>` header, so repeat review rounds are told apart — notifications name the round, and a clean round clears the previous round's badges instead of leaving them stuck.
+- **Automatic shadow re-review** (t1159_2): The shadow can now re-run its review automatically when the followed agent revises its plan, waiting for real evidence of a change and honouring a cooldown so it never fires on stale or half-drawn output.
+- **Reject a concern so it stays rejected** (t1427_1, t1427_2, t1427_3): The concern picker gained a three-state mark — forward, reject, or neither — with `r`/`R` and a viewer for what you have already rejected. Rejected concerns are stored per task and suppressed by every review producer, so the same objection stops coming back round after round.
+- **Follow-up kind on tasks** (t1468_1, t1468_2): New `followup_kind` field records *why* an auto-spawned follow-up exists (risk mitigation, QA, review finding, docs gap, …), set automatically at every one of the twelve places the framework creates a task.
+- **Follow-up kind on the board** (t1468_3): Board cards show a coloured glyph for their follow-up kind, and collapsed group headers roll the kinds of their members up into the header.
+- **Follow-up kind in `ait ls` and pick** (t1468_4): `ait ls` now always shows a task's type, shows its follow-up kind when it has one, and gained `--type`, `--followup-kind` and `--no-followup-kind` filters. Task picking surfaces the same information.
+
+### Bug Fixes
+
+- **Board showed no cards when relaunched in the same pane** (t1491): Relaunching the board in a pane that had just run it left every column looking empty. Also, a column emptied by a filter now says so instead of claiming it is empty.
+- **Startup focus audit across all TUIs** (t1495): Audited every Textual TUI live for the same startup-focus defect and fixed the one other affected surface (codebrowser on a non-git branch).
+- **Lock reclaim reported crashes that never happened** (t1465): The lock's process anchor recorded the short-lived claim script rather than the session, so re-claiming a task always announced a crash. It now anchors to the real session and reports `alive`, `dead`, or `unknown` honestly.
+- **Claiming a task held by a live session was silent** (t1466): Acquiring a lock held by a still-running session of your own now refuses with a clear message and distinct exit codes, instead of quietly stealing it.
+- **Gate lock stale reclaim race** (t1496): Two sessions reclaiming the same stale lock could both win. Reclaim is now single-winner, scoped per repository and per user, and never displaces a live holder.
+- **Gate attempt counter advanced by two** (t1262): Each gate procedure attempt was counted twice, so retry budgets burned at double speed.
+- **`ait setup --help` ran a full install** (t1435): `--help` and `-h` now print usage and exit, both for `ait setup` and for the bootstrap shim in a fresh directory.
+- **Broken-pipe error storms from YAML output** (t1444): Readers that exit early — `head`, a closed pager — no longer make the YAML emitters flood the terminal with write errors, while genuine disk-full failures stay loud.
+- **Minimonitor quit on a transient tmux hiccup** (t1446): Auto-close now requires two consecutive confirmed-empty observations; any tmux failure or partial listing resets the count instead of exiting.
+- **Shadow staleness read a tmux failure as "all clear"** (t1451): A failed pane query is now reported as unknown rather than silently suppressing the staleness warning. Companion-pane cleanup also became marker-driven.
+- **Stale review concerns after a recheck** (t1493): The concern picker kept showing the previous round's items after a recheck, with no indication they were out of date. It now tracks block age and shows a distinct banner when staleness cannot be determined.
+- **Wrong colour names left TUI styling inert** (t1453): Four unresolvable colour names silently rendered as unstyled text across the monitors and TUI switcher; sixteen duplicated literals were collapsed into named constants with a scan guard against regressions.
+- **Literal brackets rendered as markup** (t1486): `[size: N]`, `[AUTO]` and issue/PR indicators could be swallowed or mis-styled by the markup parser in the board, monitor and log viewer.
+- **Log viewer header went stale on a quiet log** (t1489): Toggling raw mode or reloading a log that was not being appended to left the header showing the old state.
+- **Parent card disappeared when only its child matched** (t1469): Filtering the board now keeps a parent card visible when one of its children matches the filter.
+- **Stale prompt patterns missed waiting agents** (t1474): Agents sitting on a trust-folder prompt were not flagged as awaiting input; hyperlink escape sequences in captured output are now stripped correctly.
+- **Test scaffolding reported false passes** (t1207): Shell test files whose bodies run in subshells reported zero failures and exited clean no matter what failed. Eleven suites now use a fail-closed counter.
+- **Test-fixture and dead-code cleanups** (t1480, t1482, t1485, t1488): Removed dead board-settings persistence code, regenerated four stale skill goldens, deleted an unreachable branch in brainstorm archival, and fixed a test scaffold that copied an incomplete module set.
+- **Rejected-entry format comment** (t1464): Two comments documented the wrong field layout for rejected concern records.
+
+### Improvements
+
+- **Merged gate and phase into one minimonitor row** (t1479): Gate status and workflow phase now share a single row that sheds detail gracefully as the pane narrows, instead of costing two lines.
+- **Distinguishable session dividers** (t1449): Repository session dividers in both monitors are now bold cyan, clearly distinct from the section headers above them.
+- **Stale gate witnesses shown everywhere** (t1416): Gate summaries, dependency status and archive checks all now agree on when a signed gate has gone stale, instead of only the enforcing path knowing.
+- **Trail gathering uses the shared record protocol** (t1436): Replaced a private copy of the delimiter-safety logic with the shared implementation.
+
+### Performance
+
+- **Batched dependency checks for `ait ls`** (t1472): `ait ls` now resolves dependency-unblock status for every task in one call instead of one call per task.
+
+### Documentation
+
+- **Column management docs** (t1377_6): Documented the new Columns dialog, column merging and the minimonitor move-to-column flow across the board and minimonitor guides.
+- **Concern rejection docs** (t1427_4): Documented rejecting a concern, removed three passages describing the old picker, and added a rejection-store section to the shadow reference.
+- **Docs gaps since v0.31.0** (t1504): Documented board groups, the merged gate/phase status row, follow-up kind glyphs and the gate skills across eleven website pages.
+
+### Maintenance
+
+- **Gate skills ported to the other agents** (t635_23): The three gate skills now ship for Codex CLI and OpenCode as well as Claude Code, and the "Claude-only" prose they carried was retired.
+
 ## v0.31.0
 
 ### Features
