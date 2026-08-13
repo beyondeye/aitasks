@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: high
-depends: [t1159_2]
+depends: [t1159_6, t1159_7]
 issue_type: feature
 status: Ready
 labels: [shadow, aitask_monitormini, task_workflow, review_loop]
 gates: [risk_evaluated]
 anchor: 1159
 created_at: 2026-08-13 10:00
-updated_at: 2026-08-13 10:00
+updated_at: 2026-08-13 10:05
 ---
 
 Make shadow review-loop **non-convergence visible and actionable**.
@@ -107,10 +107,44 @@ only, like every other shadow surface.
 - Do **not** add a silent round cap that ends the loop without the user.
 - Do **not** change the configured review tier as part of this task.
 
+## Coordination — sequenced after the rest of t1159 (2026-08-13)
+
+`depends: [t1159_6, t1159_7]` is deliberate, not incidental. t1159_2 landed
+(`afd1c5b2f`) leaving this task technically unblocked, but three of the four
+remaining t1159 children own surfaces this task must **reuse rather than
+duplicate**. `t1159_3` and `t1159_4` are covered transitively (`_6` → `_5` →
+`_4` → `_3`).
+
+- **t1159_7 (refactor) owns the telemetry hook site.** It is chartered to
+  disentangle `_service_review_loop` — the same method convergence telemetry
+  attaches to — and proposes promoting the evidence plumbing into a pure
+  `EvidenceChannel`/`ObservationLog`. Feed round outcomes through whatever seam
+  `_7` settles on; do not add a parallel accumulator to the service body. `_7`
+  must keep ~88 existing tests green *unmodified*, so landing telemetry first
+  would enlarge the surface it has to preserve.
+- **t1159_6 (concern status line) owns the signal surface.** It adds the
+  always-on minimonitor line carrying the round and a staleness glyph from
+  `parse_block_meta`. The non-convergence indicator of scope item (2) is a
+  **field on that line**, not a fourth widget — `_6` already has to decide
+  whether its line subsumes the transient `#mini-shadow-stale` banner, and
+  `t1159_2` added `#mini-loop-status` beside it.
+- **t1159_3 (spin-off triage arm) owns outcome (a).** Its picker arm already
+  creates drafts with `--followup-of <task_id> --followup-kind review_finding`
+  and then calls `aitask_shadow_rejected.sh add … --producer spinoff` for loop
+  hygiene. Outcome (a) must call that seam, not reimplement it.
+
+Note that **t1159_7 is itself an instance of outcome (c)** — after seven review
+rounds on t1159_2 the user accepted the expanded scope and spawned a
+post-implementation refactor task by hand. That is the behaviour this task
+automates, and it is the reference case for the outcome's wording.
+
 ## Notes
 
 - Recursion worth naming: the task blocked by the non-converging loop
   (`t1159_2`) *is* the loop. Verification must not depend on that task settling.
+- Accepted cost of this sequencing: the remaining t1159 children — including
+  `_7`, itself a high-churn refactor — run **without** the gauge this task
+  builds.
 - Related but **out of scope**, worth its own task: consuming repos cannot
   receive the t1493 recheck routing at all. `thinking_backend` and
   `thinking_app` are byte-identical to tag `v0.31.0`; this repo's main is 49

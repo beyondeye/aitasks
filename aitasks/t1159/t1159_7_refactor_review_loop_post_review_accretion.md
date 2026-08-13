@@ -35,3 +35,11 @@ Review the code quality of the t1159_2 auto-recheck loop implementation and refa
 
 - **t1159_3** (spin-off triage arm) and **t1159_6** (concern status line) both edit `minimonitor_app.py`; whichever lands second rebases trivially if this refactor keeps `_service_review_loop`'s entry signature stable — otherwise coordinate.
 - **t1159_5** (aggregate manual verification) should ideally run AFTER this refactor so the human-verified build is the final shape.
+- **t1503** (surface review-loop non-convergence, `depends: [t1159_6, t1159_7]`)
+  will feed per-round outcome telemetry (new vs repeat findings) through
+  whatever evidence seam this refactor settles on — the `EvidenceChannel` /
+  `ObservationLog` direction above is the intended attachment point. It is
+  sequenced after this task so it does not add fresh accretion to
+  `_service_review_loop`. This task is also the reference case for t1503's
+  outcome (c) "accept the expanded scope and price it": it was spawned by hand
+  after seven review rounds, which is the behaviour t1503 automates.

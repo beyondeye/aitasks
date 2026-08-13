@@ -31,3 +31,8 @@ Add an always-shown concern status line to minimonitor: a persistent line showin
 - **t1448** (shadow concern badge currency, depends: [1159, 1420]) keys the full monitor's `!` badge freshness off the same `(round, reviewed_at)` pair — coordinate the two so their notions of "current" agree; do not duplicate its badge logic. t1448 records minimonitor's lack of a `!` badge as a deliberate asymmetry; this status line is the minimonitor-side surface instead.
 - **t1159_2** (auto-recheck loop) adds `#mini-loop-status`; this line is a separate widget beside it.
 - **t1493** (recheck rounds leave stale concerns in picker): its consumer-side block-age freshness check may share display logic with this line's staleness glyph.
+- **t1503** (surface review-loop non-convergence, `depends: [t1159_6, t1159_7]`)
+  plans its non-convergence indicator as a **field on this status line**, not a
+  fourth widget. Keep the line's update seam extensible with an extra field, and
+  record whichever subsume-vs-coexist decision you take against
+  `#mini-shadow-stale` / `#mini-loop-status` so t1503 inherits it.
