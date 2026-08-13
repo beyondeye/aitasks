@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-11 15:34
-updated_at: 2026-08-13 10:10
+updated_at: 2026-08-13 12:32
 ---
 
 Add the "spin off as separate task" triage arm to the concern picker: a fourth per-row state that, on confirm, creates a draft aitask per spun-off concern via `aitask_create.sh --batch`. Closes the folded-t1017 steerability requirement of t1159 (parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_3_spinoff_triage_arm.md`). Depends on t1159_1 only (the modal's `block_meta` keyword ordering); independent of t1159_2 — can run in parallel with it.
@@ -51,3 +52,8 @@ t1017 (folded into t1159): shadow reviews surface secondary concerns that either
 - Spin-off flow: `_run_create_cmd` spy called once per concern with `--batch --silent --desc-file -` + `--followup-of`/`--followup-kind` in argv and the canonical marker line on stdin; draft-path (not id) reporting; no-task-id → warning, no subprocess; store `add --producer spinoff` follows success only.
 - Collision tests: two same-region concerns in ONE confirmation → distinct paths, both created; TWO distinct confirmations frozen to the identical epoch second (patched clock) → distinct paths, first batch's drafts intact.
 - AST guard registration passes; `bash tests/run_all_python_tests.sh` — final stderr verdict line only.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T09:32:17Z status=pass attempt=1 type=human
