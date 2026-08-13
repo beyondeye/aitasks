@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 followup_kind: upstream_defect
+implemented_with: claudecode/fable5
 created_at: 2026-08-12 14:40
-updated_at: 2026-08-12 15:46
+updated_at: 2026-08-13 09:45
 ---
 
 ## Origin
@@ -81,3 +82,8 @@ Bullet 3 is a self-contained test fix and can be done independently: apply the
 same per-run id namespace t1485 used (see
 `tests/test_gate_lock_characterization.sh` for the `GATE_LOCK_BASE` + `ID_BASE`
 pattern, and prove it with a pre-edit concurrent negative control).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T06:45:44Z status=pass attempt=1 type=human
