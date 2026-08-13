@@ -69,22 +69,67 @@ it does not, and the phase remains advisory-only throughout.
    tested"* — so it ships with a characterization test taken **before** the
    change plus an explicit compatibility note.
 
-4. **Fail-open, never fail-closed, on an unrecognized command.** A pane whose
-   `current_command` is a wrapper (`node`, `bash`, a shim) resolves to `""` and
-   keeps today's flat-list behaviour. Scoping removes only patterns that
-   *provably belong to another agent*; unknown names (a caller's custom pattern,
-   a test's) survive. `prompt_patterns=[]` must still disable detection
-   entirely — the filter operates on the **supplied list**, never on the module
-   dict.
+4. **Fail-open on an unrecognized command — but it must never *claim* to be
+   scoped.** Measured on the live tmux server during planning, the fail-open
+   path is the **common case, not an edge**. An `agent-*` window holds three
+   `PaneCategory.AGENT` panes (the category comes from the window-name prefix,
+   `monitor_core.py:1741-1749`), and only one of them resolves:
 
-5. **One canonical command→agent mapper.** `workflow_phase.agent_key_from_command`
+   | pane | `pane_current_command` | `agent_key_from_command` |
+   |---|---|---|
+   | followed agent | `claude` | `claude` |
+   | **shadow (also Claude Code)** | **`node`** | `""` |
+   | companion TUI | `python` | `""` |
+
+   So `pane_current_command` is **not a reliable agent identifier**, and a
+   fail-open that silently applies the flat list to two panes in three would
+   leave the per-agent outcome mostly unrealized while reading, from the code,
+   as though it had been achieved. The rule therefore has two halves:
+
+   - **Matching** stays fail-open: an unresolved key removes nothing, so no
+     detection that works today is lost. Scoping removes only patterns that
+     *provably belong to another agent*; unknown names (a caller's custom
+     pattern, a test's) survive; `prompt_patterns=[]` still disables detection
+     entirely, because the filter operates on the **supplied list**, never on the
+     module dict.
+   - **Reporting** stops pretending. `ClassifyResult` carries the resolution
+     outcome (`agent_key: str`, `scoped: bool`), so "this kind was matched under
+     scoped rules" and "this kind came from the unscoped flat list" are
+     **distinguishable states** rather than one indistinguishable one. Every
+     consumer that reasons about the kind can then tell which it has, and the
+     phase composer already does the right thing for `agent=""` (ledger-only,
+     `detail` = "no agent supplied", `workflow_phase.py:419-422`).
+
+   The residual exposure is narrow and is closed by construction rather than by
+   the key: a new pattern is admitted only if the pre-phase measured it
+   **disjoint from every existing pattern** (criterion (d)), and §5 asserts that
+   disjointness against real captured Claude pane text. A foreign match on an
+   unscoped pane therefore requires a pattern that was measured not to match it.
+
+   The real fix — an engine-owned `@aitask_agent` pane option stamped at launch
+   by `aitask_codeagent.sh`, exact instead of inferred — is **out of scope here**
+   and is spawned as a follow-up (§7). Nothing in this task may be written as
+   though `current_command` were authoritative.
+
+5. **One canonical command→agent mapper, in `lib/`.** `workflow_phase.agent_key_from_command`
    (`:135-145`) keys off `QUESTION_WIDGET_KINDS`; classification needs the same
-   mapping keyed off `PROMPT_PATTERNS_BY_AGENT`. Two mappers would drift the
-   moment an agent is added to one table only. The mapper moves to
-   `prompt_patterns.py` (the lower layer — `workflow_phase` already imports
-   nothing from `monitor/`, so the dependency direction is checked in step 3)
-   and `workflow_phase.agent_key_from_command` becomes a delegating alias,
-   keeping its public name and behaviour.
+   mapping keyed off `PROMPT_PATTERNS_BY_AGENT`, and two mappers would drift the
+   moment an agent is added to one table only. But the mapper must **not** live
+   in `monitor/prompt_patterns.py`: the dependency direction is strictly one-way
+   — `monitor_core.py:38-39` puts `lib/` on `sys.path` and imports
+   `workflow_phase`, while `workflow_phase.py:41` inserts only its own `lib/`
+   directory and declares itself stdlib-only. Importing `monitor/` from it would
+   invert the layering and break its standalone `signal` CLI.
+
+   So the canonical mapper goes in a **new, tiny `lib/agent_keys.py`** (stdlib
+   only, no tmux, no Textual — the same contract as `gate_ledger.py`), holding
+   the agent-key tuple and `agent_key_from_command`. `workflow_phase.py` imports
+   it from its own directory and **re-exports the name**, so
+   `workflow_phase.agent_key_from_command` keeps its signature and every existing
+   caller (`monitor_app.py:1631`, `minimonitor_app.py:1067`, `:2438`,
+   `review_loop.py`) is untouched. `monitor/prompt_patterns.py` reaches it with a
+   `__file__`-derived `sys.path` insert plus an `ImportError` fallback, the idiom
+   `review_loop.py:54` already uses. Pinned by an import-direction test (§5.8).
 
 6. **The review loop does NOT unlock as a side effect.** `live_tiers_available`
    currently doubles as minimonitor's arming gate for the auto-recheck loop
@@ -162,22 +207,40 @@ body may assume.
    section 1; the flip table is authored **here**, before the change, and each
    flip is justified in the same commit.)
 
-## 1. Per-agent prompt scoping — `monitor/prompt_patterns.py` + `monitor/monitor_core.py`
+## 1. Per-agent prompt scoping — `lib/agent_keys.py` (new) + `monitor/prompt_patterns.py` + `monitor/monitor_core.py`
 
-**`prompt_patterns.py`** gains two pure helpers and keeps `all_patterns()`
-untouched (five call sites depend on it):
+**New `lib/agent_keys.py`** — stdlib only, no imports outside the standard
+library, so both layers can reach it without inverting the `monitor → lib`
+direction (decision 5):
 
 ```python
+AGENT_KEYS: tuple[str, ...] = ("claude", "codex", "opencode")
+
+
 def agent_key_from_command(current_command: str) -> str:
     """Canonical pane-command → per-agent table key, or "" when unrecognised.
 
-    THE one mapper: `workflow_phase.agent_key_from_command` delegates here, so a
-    new agent cannot land in one table's key set and not the other. Exact
-    basename match — a pane running `claude-something-else` is not Claude Code.
-    `"all"` is a pattern group, never an agent, and is excluded.
+    THE one mapper, so an agent cannot land in one per-agent table's key set and
+    not another's. Exact basename match — a pane running `claude-something-else`
+    is not Claude Code. `"all"` is a pattern GROUP, never an agent key.
+
+    KNOWN LIMIT (measured, t1467): `pane_current_command` is not an authoritative
+    agent identifier. A Claude Code *shadow* pane reports `node` and a companion
+    TUI reports `python`, yet both are PaneCategory.AGENT. `""` therefore means
+    "could not resolve", never "not an agent", and callers must degrade rather
+    than conclude. See `aidocs/framework/monitor_idle_and_prompt_detection.md`.
     """
+```
 
+`workflow_phase.py` imports it from its own directory and **re-exports**
+`agent_key_from_command` under its existing name, keeping every current caller
+working unchanged.
 
+**`prompt_patterns.py`** delegates to it (via a `__file__`-derived path insert
+with an `ImportError` fallback, the `review_loop.py:54` idiom) and gains one
+pure helper; `all_patterns()` is untouched, five call sites depend on it:
+
+```python
 def scope_patterns(patterns: list[PromptPattern],
                    agent: str) -> list[PromptPattern]:
     """`patterns` minus every pattern that provably belongs to a DIFFERENT agent.
@@ -195,8 +258,22 @@ def scope_patterns(patterns: list[PromptPattern],
 take a new keyword-only `agent: str = ""`; the default preserves today's
 behaviour for any caller that does not pass it. Inside `classify_content`, the
 scan iterates `scope_patterns(prompt_patterns, agent)` instead of
-`prompt_patterns`. The five call sites all have `pane` in scope and pass
-`agent=prompt_patterns_mod.agent_key_from_command(pane.current_command)`:
+`prompt_patterns`, and `ClassifyResult` (`:180-187`) gains two fields carrying
+the resolution outcome (decision 4):
+
+```python
+    agent_key: str = ""      # resolved per-agent key, "" = unresolved
+    scoped: bool = False     # True only when matching WAS narrowed to that key
+```
+
+`scoped=False` is the honest default: a `ClassifyResult` built by the fail-closed
+`except` path (`:231-233`) or by a caller that passed no agent has not been
+scoped, and must not read as though it had. `_apply_bookkeeping` (`:2142-2150`)
+carries both onto `PaneSnapshot` beside `awaiting_input_kind`, so every consumer
+that reasons about the kind can tell which regime produced it.
+
+The five call sites all have `pane` in scope and pass
+`agent=agent_key_from_command(pane.current_command)`:
 
 - `:2167` `_finalize_capture` (sync)
 - `:2259` shadow capture (`_classify_one` via lambda)
@@ -307,14 +384,40 @@ bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
    the **cross-agent negative control** (a `codex_yes_proceed` body on a pane
    with `current_command="claude"` must NOT report a codex kind — this fails
    against today's build, which is what makes it discriminating), the fail-open
-   control (`current_command="node"` still matches the flat list), the
-   `prompt_patterns=[]` disable path under scoping, and the custom-pattern
-   survival case. `_check_all_patterns_flattens_per_agent_groups` (`:172`)
-   derives its count from `PROMPT_PATTERNS_BY_AGENT`, so it absorbs new patterns
-   — but its three explicit name assertions (`:180-182`) get siblings for the
-   new names.
+   control (`current_command="node"` still matches the flat list **and reports
+   `scoped is False`, `agent_key == ""`**), the `prompt_patterns=[]` disable path
+   under scoping, and the custom-pattern survival case.
+   `_check_all_patterns_flattens_per_agent_groups` (`:172`) derives its count
+   from `PROMPT_PATTERNS_BY_AGENT`, so it absorbs new patterns — but its three
+   explicit name assertions (`:180-182`) get siblings for the new names.
    **Positive control first:** the scoping tests must fail against the
    unmodified module, asserted by running them once before the change.
+
+1b. **Call-site coverage, deterministically — `tests/test_monitor_finalize_offload.py`
+   (+ `tests/test_monitor_shadow_status.py`).** The live post-phase is
+   *acceptance evidence*, not the detector: it depends on a real tmux server and
+   on both CLIs' auth, and a failed fixture would let a missed call site ship.
+   So every one of the five paths gets a deterministic assertion driving the
+   **monitor entry point**, not `classify_content` directly — that is the whole
+   point, since the function can be correct while one caller never passes
+   `agent=`. One table-driven case per path, each feeding a pane with
+   `current_command="claude"` and content carrying **codex** prompt text, and
+   asserting `awaiting_input_kind != "codex_yes_proceed"` and `scoped is True`:
+
+   | path | entry point |
+   |---|---|
+   | sync | `TmuxMonitor._finalize_capture` (`monitor_core.py:2167`) |
+   | shadow capture | the `_classify_one` lambda at `:2259` |
+   | async single | `:2341` |
+   | off-loop single | `:2391` |
+   | off-loop batch | `_classify_batch` via `:2525` |
+
+   Plus the mirror case (claude text on a `codex` pane) and the existing
+   sync-vs-offload parity assertions (`test_monitor_finalize_offload.py:208`,
+   `:320`, `:335`) extended to compare `agent_key` / `scoped` too — so the two
+   lanes cannot diverge on the new fields. These tests must **fail against a
+   build where any single call site is reverted**; verify by reverting each of
+   the five in turn and confirming exactly the corresponding case fails.
 2. **`tests/test_workflow_phase.py`** — `test_opencode_live_tiers_unavailable`
    (`:194-205`) **flips by design**: `assertFalse(live_tiers_available("codex"))`
    / `("opencode")` become `assertTrue` for whichever agent actually got markers.
@@ -349,6 +452,21 @@ bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
    opencode` CLI cases (the file has none today), asserting the default
    ledger-only behaviour is unchanged and that `--agent` alone (without
    `--awaiting-input yes`) still cannot override the ledger.
+8. **Import-direction / standalone-CLI guard** (new,
+   `tests/test_workflow_phase_standalone.sh` or a case in the drift guard) —
+   `workflow_phase.py` must stay reachable **without `monitor/` on the path**:
+   run `python3 .aitask-scripts/lib/workflow_phase.py signal <fixture>` from a
+   directory outside the repo with a **scrubbed `PYTHONPATH`**, and assert exit 0
+   plus a well-formed `PHASE:` line. Plus a source-level assertion that
+   `workflow_phase.py` and `lib/agent_keys.py` import **nothing** from `monitor.`
+   (the same AST/source shape `tests/test_gate_ledger_public_api.py` already uses
+   for the no-private-imports contract). This is the guard that would have caught
+   the layering inversion this plan originally proposed.
+9. **Unscoped-pane honesty** (in `test_prompt_detection.py`) — a pane with
+   `current_command="node"` (the measured **shadow** case) reports
+   `scoped is False` and `agent_key == ""` even when a kind matched, and a
+   `current_command="claude"` pane reports `scoped is True`. Asserting both
+   directions is what stops the fields becoming a constant.
 
 ## 6. Docs
 
@@ -364,7 +482,31 @@ bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
   (Bidirectional: `prompt_patterns.py`'s docstring points back here.)
 - `.aitask-scripts/monitor/prompt_patterns.py` docstring — per section 2.
 - `aitasks/t1467_…md` — a **Coordination** section recording the review-loop
-  split and the follow-up it implies. Edit only this task's own file.
+  split and the follow-ups it implies. Edit only this task's own file.
+
+## 7. Follow-ups this task deliberately does NOT do
+
+Recorded here so they are visible at review, and raised through the normal
+Step 8b / 8d offers rather than created inline:
+
+- **`@aitask_agent` stamped pane option.** The measurement above shows
+  `pane_current_command` is inference, not identity — a Claude Code shadow reads
+  `node`. The durable fix is an engine-owned stamp written at launch by
+  `aitask_codeagent.sh`, with `current_command` demoted to a fallback rung. That
+  is a framework-launch change touching the codeagent launcher and every pane
+  consumer; it is out of scope here, and this task must not be written as though
+  `current_command` were authoritative.
+- **Upstream defect (for the Step-8 Final Implementation Notes).**
+  `.aitask-scripts/monitor/minimonitor_app.py:2459` — the shadow-side arm gate
+  resolves `agent_key_from_command(shadow_command)` and refuses when the key is
+  not in `SHADOW_READY_DETECTORS`; a Claude Code shadow pane reports `node`, so
+  the key is `""` and the lookup misses for *every* shadow, making the refusal
+  path ("no readiness detection yet") reachable for a shadow that is in fact
+  Claude Code. Measured on the live server during planning; pre-existing and
+  independent of this task.
+- **Unlocking the auto-recheck loop for Codex/OpenCode** — gated behind
+  `REVIEW_LOOP_AGENTS` by decision 6, and earns its own task once the per-agent
+  boundary strategies have live evidence.
 
 ### Post-phase (risk mitigations)
 
@@ -381,9 +523,12 @@ Runs **after** section 6, before the verification sweep.
 
 ## Verification
 
-1. Every test in section 5, with the discriminating ones (5.1 cross-agent
-   negative control, 5.6 locale degradation) **run against the pre-change build
-   first** and shown to fail.
+1. Every test in section 5, with the discriminating ones **run against a build
+   that should fail them, and shown to fail**: 5.1 (cross-agent negative
+   control) and 5.6 (locale degradation) against the pre-change build; 5.1b
+   against five builds, each reverting one `agent=` call site, confirming
+   exactly the corresponding path's case fails; 5.8 against a `workflow_phase.py`
+   that imports from `monitor/`.
 2. `bash tests/run_all_python_tests.sh` — read the **last line only**
    (`PYTHON SUITE: PASSED|FAILED (runner=…, exit=N)`); piping discards the status.
 3. `bash tests/test_workflow_phase_prompt_drift.sh`,
@@ -437,10 +582,31 @@ augmented with the pre-/post-phase blocks, which is the plan being approved.
   explicitly rather than trusting inspection)
 - Threading `agent=` through five `classify_content` call sites is exactly the
   shape where one site is missed and the unit tests stay green.
-  · severity: low (residual — the failure mode is caught only by the live
-  render in inline post-phase `prove_scoping_live`, which is why it is a live
-  capture and not another unit test) · → mitigation: inline post-phase
+  · severity: low (residual — caught **deterministically** by Verification 5.1b,
+  one case per path driven through the monitor entry point and validated by
+  reverting each call site in turn; the inline post-phase `prove_scoping_live`
+  is acceptance evidence on top, not the detector, so an unavailable live
+  fixture cannot let the regression ship) · → mitigation: inline post-phase
   prove_scoping_live
+- `pane_current_command` is **not** an authoritative agent identifier — measured
+  on the live server, a Claude Code shadow pane reports `node` and a companion
+  TUI reports `python`, while all three panes in an `agent-*` window are
+  `PaneCategory.AGENT`. A fail-open that silently applied the flat list to two
+  panes in three would leave the per-agent outcome mostly unrealized while
+  reading as achieved. · severity: low (residual — the resolution outcome is
+  carried explicitly as `agent_key` / `scoped` so unscoped is a *distinguishable*
+  state rather than a silent one (decision 4); new patterns are admitted only if
+  measured disjoint from every existing one; both directions pinned by
+  Verification 5.9. The exact fix — an engine-owned `@aitask_agent` stamp — is
+  scoped out to §7 rather than half-built here) · → mitigation: none (design
+  change, decision 4)
+- Placing the canonical mapper in `monitor/` would invert the one-way
+  `monitor → lib` dependency and break `workflow_phase.py`'s standalone `signal`
+  CLI (it inserts only its own `lib/` directory and declares itself stdlib-only).
+  · severity: low (residual — the mapper lives in the new stdlib-only
+  `lib/agent_keys.py`, and Verification 5.8 runs the CLI from outside the repo
+  with a scrubbed `PYTHONPATH` and asserts no `monitor.` import in either lib
+  module) · → mitigation: none (design change, decision 5)
 
 ### Goal-achievement risk: medium
 
