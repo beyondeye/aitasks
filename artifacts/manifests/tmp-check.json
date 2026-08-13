@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1786655200,
+  "current": "sha256:c1082ccbc7ac1ed2583d341a17b29f19b9693cefe41fd8f49e50aeb5ab67dfec",
+  "handle": "art:tmp-check",
+  "updated_at": 1786655200,
+  "versions": [
+    "sha256:c1082ccbc7ac1ed2583d341a17b29f19b9693cefe41fd8f49e50aeb5ab67dfec"
+  ]
+}

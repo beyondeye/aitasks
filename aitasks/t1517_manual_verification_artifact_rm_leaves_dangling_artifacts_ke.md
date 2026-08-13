@@ -14,7 +14,10 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 followup_kind: manual_verification
 created_at: 2026-08-13 23:57
-updated_at: 2026-08-14 00:02
+updated_at: 2026-08-14 00:06
+artifacts:
+  - handle: art:tmp-check
+    kind: report
 ---
 
 ## Manual Verification Task
