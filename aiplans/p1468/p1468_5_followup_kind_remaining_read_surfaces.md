@@ -523,18 +523,18 @@ Step 8d from the `refresh_and_verify_live_trails` mitigation line below.
   drive the writer — so "it works" rests on a prose contract plus manual
   verification. · severity: medium (residual — the three-part executable guard
   of step 4.3/4.4/6 bounds it; the true end-to-end lands in the spawned
-  follow-up) · → mitigation: refresh_and_verify_live_trails
+  follow-up) · → mitigation: t1508 (refresh_and_verify_live_trails)
 - The two live trail artifacts become invalid on landing and are refreshed only
   by a human re-running the trail skill. A verbal "tell the user" instruction
   leaves nothing tracked, and t1470's acceptance criteria depend on the refresh
   having happened. · severity: medium (residual — tracked as a spawned
   follow-up rather than a verbal hand-off) ·
-  → mitigation: refresh_and_verify_live_trails
+  → mitigation: t1508 (refresh_and_verify_live_trails)
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_pipe_record_consumers | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a missed fixed-maxsplit consumer silently re-reads the trailing path as the kind | desc: Pin the current field tuples of TASK: and MEMBER: by position, with a passing positive control, before any field insertion.
 - timing: pre-phase | name: trail_v1_clean_rejection_fixture | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the schema const bump's blast radius is wider than the task recorded | desc: Add a schema_version 1.0.0 fixture that must be rejected on the const rule after the bump (never a false STALE), plus a lock tripwire asserting SCHEMA_NORMALIZATION_LOCK has exactly one entry keyed by the schema's own const.
-- timing: after | name: refresh_and_verify_live_trails | type: manual_verification | priority: high | effort: low | inline_risk: high | added_complexity: low | addresses: goal-achievement — the agent-authored snapshot producer is undrivable by tests, and the two live artifacts stay invalid until a human refreshes them | desc: Re-run /aitask-trail refresh for art:trail-gates-framework-landing and art:trail-shadow-review-loop at schema 1.1.0, then inspect BOTH a member task carrying a known followup_kind (the value is stored) AND an ordinary member with no kind (the key is absent, never the literal "unknown"/"invalid") — the second is the common path and the only end-to-end proof of the writer's omission rule. Both artifacts must end at freshness current, not ERROR:invalid_trail. t1470 depends on this task (step 7).
+- timing: after | name: refresh_and_verify_live_trails | type: manual_verification | priority: high | effort: low | inline_risk: high | added_complexity: low | addresses: goal-achievement — the agent-authored snapshot producer is undrivable by tests, and the two live artifacts stay invalid until a human refreshes them | desc: Re-run /aitask-trail refresh for art:trail-gates-framework-landing and art:trail-shadow-review-loop at schema 1.1.0, then inspect BOTH a member task carrying a known followup_kind (the value is stored) AND an ordinary member with no kind (the key is absent, never the literal "unknown"/"invalid") — the second is the common path and the only end-to-end proof of the writer's omission rule. Both artifacts must end at freshness current, not ERROR:invalid_trail. t1470 depends on this task (step 7). | created: t1508
 
 ## Final Implementation Notes
 
