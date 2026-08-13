@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [docs, web_site]
+assigned_to: dario-e@beyond-eye.com
 followup_kind: docs_gap
 created_at: 2026-08-13 10:27
-updated_at: 2026-08-13 10:27
+updated_at: 2026-08-13 10:37
 ---
 
 Documentation gaps found by /aitask-docs-gap for the release window v0.31.0..HEAD.

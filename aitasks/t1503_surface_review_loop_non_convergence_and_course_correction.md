@@ -9,6 +9,8 @@ gates: [risk_evaluated]
 anchor: 1159
 created_at: 2026-08-13 10:00
 updated_at: 2026-08-13 10:05
+boardcol: now
+boardidx: 1094
 ---
 
 Make shadow review-loop **non-convergence visible and actionable**.
