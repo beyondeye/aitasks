@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1786626143,
+  "current": "sha256:6446c1868be81fb84fcc29101568862653fe20c58902aee366c9dccb5d3a1c79",
+  "handle": "art:trail-t1505-1-livecheck",
+  "updated_at": 1786626143,
+  "versions": [
+    "sha256:6446c1868be81fb84fcc29101568862653fe20c58902aee366c9dccb5d3a1c79"
+  ]
+}
