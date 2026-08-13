@@ -106,10 +106,28 @@ it does not, and the phase remains advisory-only throughout.
    disjointness against real captured Claude pane text. A foreign match on an
    unscoped pane therefore requires a pattern that was measured not to match it.
 
-   The real fix — an engine-owned `@aitask_agent` pane option stamped at launch
-   by `aitask_codeagent.sh`, exact instead of inferred — is **out of scope here**
-   and is spawned as a follow-up (§7). Nothing in this task may be written as
-   though `current_command` were authoritative.
+   **Resolution ladder (in scope, decided after the pre-phase measurement).**
+   `pane_current_command` alone leaves Codex permanently unresolved, which would
+   ship §1–§4 wired-but-dormant for it. So resolution gains a second rung:
+
+   1. the pane's own command (today's rule, exact for Claude and OpenCode);
+   2. **one level of child processes** — Codex's node wrapper spawns the real
+      `codex` binary as its direct child, so the answer is one `pgrep -P` away.
+      `pane_pid` is already on `TmuxPaneInfo` (`monitor_core.py:805`), so no
+      launch-site changes are needed and manually-started panes are covered too.
+
+   Bounded deliberately at **one** level: deeper descent starts matching
+   grandchildren an agent merely *spawned* (`codex-code-mode-host` is already at
+   depth 2), which would resolve a pane to whatever it happens to be running.
+   Any failure — no `pgrep`, timeout, unreadable table, more than one matching
+   child — returns `""`, i.e. exactly today's behaviour, so the rung can only
+   add resolution, never break it. Cached per `pane_pid` (stable for the pane's
+   life) so the subprocess runs once per pane, not once per tick.
+
+   The **durable** fix — an engine-owned `@aitask_agent` pane option stamped at
+   launch, exact instead of inferred — stays a follow-up (§7): it touches ~5
+   launch sites and covers only framework-launched panes. Nothing in this task
+   may be written as though `current_command` were authoritative.
 
 5. **One canonical command→agent mapper, in `lib/`.** `workflow_phase.agent_key_from_command`
    (`:135-145`) keys off `QUESTION_WIDGET_KINDS`; classification needs the same
@@ -194,6 +212,71 @@ body may assume.
    A row `no` in the availability table. **Do not infer geometry from the
    binary.**
 
+   **MEASUREMENT RESULTS (executed 2026-08-13; Codex CLI 0.146.0, OpenCode
+   1.18.18; isolated tmux socket `ait1467`, 163×50 pane, captured via
+   `capture-pane -p -e -S -N` + `ansi_utils.strip_ansi`).**
+
+   *Static pass — mostly negative, and that is itself the finding.* Codex stores
+   its literals as **split 8-byte instruction immediates** (`Yes, pro` + `ceed`
+   in adjacent `mov`s), so exact wording is **not** statically recoverable; a
+   naive `grep -c "Yes, proceed"` returns 0 on a binary that plainly contains it,
+   which would have been read as "the pattern is dead". OpenCode's one contiguous
+   i18n bundle belongs to its **desktop/web** UI (`settings.*`, `editor.*`,
+   `activityBar.*` namespaces), not the TUI; the TUI's option labels live in a
+   Bun/JSC bundle as a hardcoded array (`"Allow once"` / `"Always allow"` /
+   `"Reject"`) that shows **no** locale variants. Conclusion: the static pass
+   cannot size either agent, and the localization risk is **lower** than assumed
+   for the TUI surface — but is asserted, not trusted, by the §5.6 control.
+
+   *Live pass — both agents have a question widget.* This was the open question
+   the whole Tier A half depended on, and the answer is yes for both:
+
+   | agent | currency marker (distance above bottom) | block boundary | in 6-line window? |
+   |---|---|---|---|
+   | Codex | `tab to add notes \| enter to submit answer` (**1**) | `Question 1/1 (1 unanswered)` — a `Question N/M` header, once, only while live (**9**) | yes |
+   | OpenCode | `↑↓ select  enter submit  esc dismiss` (**2**) | topmost line of the contiguous `┃` gutter block (**13**) | yes |
+
+   Codex's `Question N/M` header is a direct analogue of Claude's `☐ <Header>`
+   chip. OpenCode has no single header line, so its boundary is the **top of the
+   contiguous `┃`-gutter run** — structural in the same sense (the widget renders
+   as one gutter-marked block and the anchor must sit inside it), not a distance.
+
+   *Native permission dialogs — measured, and deliberately phase-less.* Both are
+   generic tool confirmations, so per the t1420 design they get a **currency
+   marker but no `NATIVE_KIND_PHASE` row**:
+
+   | agent | bottom-anchored marker (distance) | dialog header |
+   |---|---|---|
+   | Codex | `Press enter to confirm or esc to cancel` (**1**); `Yes, proceed (y)` (**5**) | `Would you like to run the following command?` (13) |
+   | OpenCode | `Allow once   Allow always   Reject` (**2**) | `△ Permission required` (10) |
+
+   `codex_yes_proceed` therefore **still fires** on 0.146.0 (distance 5, inside
+   the window) — it is not dead. OpenCode, having no patterns at all, currently
+   reads as **idle while blocked on a permission dialog**; fixing that is real
+   monitor value independent of the phase work, the same class as t1474.
+   OpenCode's dialog wraps a right-hand status column into the same lines, so its
+   patterns must tolerate trailing content rather than anchoring on `$`.
+
+   *Blocking finding — Codex panes do not resolve to an agent.* `claude` is a
+   native ELF binary, so tmux reports `claude`. `opencode`'s npx bin is likewise
+   native → `opencode`. **Codex is a node wrapper that spawns the real binary as
+   a child**, so `pane_current_command` is `node` and
+   `agent_key_from_command` returns `""`:
+
+   ```
+   3419311  node /home/ddt/.local/share/mise/installs/node/25.2.1/bin/codex
+   3419337   \_ .../codex-linux-x64/vendor/.../bin/codex        ← the real agent
+   ```
+
+   Confirmed on the user's live session too: the Codex shadow bound to this very
+   task's pane reads `node`. **Everything in §1–§4 is unreachable for Codex until
+   agent identity is resolved** — the tables would be wired and dormant. This
+   supersedes the §7 note that deferred the identity problem, and it corrects
+   that note's premise: the `node` panes are **Codex** shadows, not Claude ones.
+   Note it is **install-shaped**, not universal: a natively-installed Codex would
+   report `codex`, so the fix must improve resolution without assuming either
+   shape.
+
 2. `[characterize_classify_content]` Add characterization assertions to
    `tests/test_prompt_detection.py` pinning **today's** `classify_content`
    behaviour at the seam section 1 changes — for each existing pattern name, the
@@ -225,12 +308,36 @@ def agent_key_from_command(current_command: str) -> str:
     is not Claude Code. `"all"` is a pattern GROUP, never an agent key.
 
     KNOWN LIMIT (measured, t1467): `pane_current_command` is not an authoritative
-    agent identifier. A Claude Code *shadow* pane reports `node` and a companion
-    TUI reports `python`, yet both are PaneCategory.AGENT. `""` therefore means
-    "could not resolve", never "not an agent", and callers must degrade rather
-    than conclude. See `aidocs/framework/monitor_idle_and_prompt_detection.md`.
+    agent identifier. A Codex pane reports `node` (its launcher is a node wrapper
+    that spawns the real binary as a child) and a companion TUI reports `python`,
+    yet both are PaneCategory.AGENT. `""` therefore means "could not resolve",
+    never "not an agent", and callers must degrade rather than conclude. Use
+    `agent_key_from_pane` to get the second rung. See
+    `aidocs/framework/monitor_idle_and_prompt_detection.md`.
+    """
+
+
+def agent_key_from_pane(current_command: str, pane_pid: int | None = None) -> str:
+    """Two-rung resolution: the pane's own command, then ONE level of children.
+
+    Rung 2 exists because a wrapper-style install hides the agent one level down
+    (measured: `node` → `codex`). Bounded at one level on purpose — at depth 2
+    Codex already runs `codex-code-mode-host`, so a deeper walk would resolve a
+    pane to whatever it happens to have spawned.
+
+    Every failure path returns `""`, which is exactly the pre-t1467 answer: no
+    `pgrep`, a timeout, an unreadable process table, or **more than one** matching
+    child (ambiguity suppresses rather than picking). Result is cached per
+    `pane_pid`, which is stable for the pane's lifetime, so the subprocess runs
+    once per pane rather than once per tick.
     """
 ```
+
+Portability: `pgrep -P <pid>` + `ps -o comm= -p <pid>` are the pair that works on
+both Linux and BSD/macOS (`ps --ppid` is GNU-only — see
+`aidocs/framework/sed_macos_issues.md` for why that class of flag is avoided).
+Both run with a short timeout and their failure is indistinguishable, by design,
+from "unresolved".
 
 `workflow_phase.py` imports it from its own directory and **re-exports**
 `agent_key_from_command` under its existing name, keeping every current caller
@@ -273,7 +380,7 @@ carries both onto `PaneSnapshot` beside `awaiting_input_kind`, so every consumer
 that reasons about the kind can tell which regime produced it.
 
 The five call sites all have `pane` in scope and pass
-`agent=agent_key_from_command(pane.current_command)`:
+`agent=agent_key_from_pane(pane.current_command, pane.pane_pid)`:
 
 - `:2167` `_finalize_capture` (sync)
 - `:2259` shadow capture (`_classify_one` via lambda)
@@ -307,6 +414,28 @@ Ordering within a row is first-match-wins: the **specific** widget before the
 generic confirmation, exactly as `claude_askuserquestion` precedes
 `claude_help_bar`. `codex_yes_proceed` stays untouched and stays last in its row.
 
+**The four patterns, from the measurement** (question widget first in each row,
+permission dialog second, existing generic last):
+
+| name | anchor (measured distance) | role |
+|---|---|---|
+| `codex_question` | `tab to add notes \| enter to submit answer` (1) | Tier A currency marker |
+| `codex_permission` | `Press enter to confirm or esc to cancel` (1) | generic confirm — **no** phase row |
+| `opencode_question` | `↑↓ select  enter submit  esc dismiss` (2) | Tier A currency marker |
+| `opencode_permission` | `Allow once` … `Allow always` … `Reject` (2) | generic confirm — **no** phase row |
+
+Each anchors on a **footer hint line**, not on a label a document could quote:
+these lines are key-binding legends, which is both the most stable part of a TUI
+widget across versions and the part least likely to appear in prose. The two
+permission patterns are deliberately *not* `NATIVE_KIND_PHASE` keys — a tool
+confirmation carries no workflow phase, and the drift guard's `LEAKED:-` check
+fails if one is added.
+
+OpenCode's dialog wraps a right-hand status column into the same physical lines,
+so its patterns must **not** anchor on `$` — trailing content is normal there.
+The separator run in `↑↓ select  enter submit` is written `\s+` rather than a
+fixed two-space literal, since column wrapping can reflow it.
+
 Update the module docstring: `all_patterns()` is no longer "applied to every
 AGENT pane" — replace that sentence with the scoping rule and a pointer to
 `scope_patterns`. Keep the `workflow_phase` forward pointer, rewritten from
@@ -322,15 +451,42 @@ have no such widget. Generalize with **one table, keyed by agent**, mirroring th
 
 ```python
 QUESTION_BLOCK_BOUNDARIES: dict[str, "re.Pattern[str]"] = {
-    "claude": _QUESTION_HEADER_RE,   # ☐ <Header> chip (t1420, measured)
-    # codex / opencode: filled from the pre-phase measurement, or ABSENT when no
-    # structural boundary was found — absence keeps Tier A suppressed for that
-    # agent, which is the honest outcome, not a gap to paper over.
+    "claude": _QUESTION_HEADER_RE,        # ☐ <Header> chip (t1420, measured)
+    "codex": _CODEX_QUESTION_HEADER_RE,   # "Question N/M (K unanswered)" (t1467)
+    # opencode has no header line — its boundary is the top of the contiguous
+    # `┃` gutter run, which needs a scan rather than a line match, so it is
+    # expressed as a strategy (below) rather than a regex.
 }
 
 
 def current_question_block(lines: list[str], agent: str = "claude") -> int | None:
 ```
+
+OpenCode needs a **scan**, not a line match: its widget renders as a contiguous
+run of `┃`-gutter lines with no header, so the block starts at the **topmost
+line of the gutter run that reaches the bottom of the tail**. That is structural
+in the same sense as the chip — "is the anchor inside the current widget" — and
+is expressed as a small strategy function rather than forced into a regex:
+
+```python
+_GUTTER_RE = re.compile(r"^\s*┃")   # ┃
+
+def _opencode_block_start(lines: list[str]) -> int | None:
+    """Top of the contiguous ┃-gutter run that reaches the last gutter line.
+
+    A gap of non-gutter lines ends the run, so an earlier, already-answered
+    widget higher in the scrollback is a DIFFERENT run and is excluded — the
+    same property the chip gives Claude.
+    """
+```
+
+so `QUESTION_BLOCK_STRATEGIES: dict[str, Callable]` carries `opencode`, and the
+regex table carries `claude` / `codex`; `current_question_block` consults the
+strategy first, then the regex table, then returns `None`. Two mechanisms rather
+than one is a real cost, and the alternative — a regex that matches the gutter
+character alone — is rejected because it would match **every** line of the block
+including ones above an earlier answered widget, which is exactly the staleness
+the boundary exists to exclude.
 
 The `agent="claude"` default preserves the existing call from
 `review_loop.classify_followed_change` (`:490-495`) **byte-for-byte** while that
@@ -347,12 +503,20 @@ split exists to prevent.
 
 ## 4. Fill the tables and split the arming predicate — `lib/workflow_phase.py`, `monitor/review_loop.py`, `monitor/minimonitor_app.py`
 
-- `QUESTION_WIDGET_KINDS["codex"] / ["opencode"]` ← the measured question/selection
-  widget kinds (empty tuple if none was found).
-- `NATIVE_KIND_PHASE["codex"] / ["opencode"]` ← measured native dialogs that
-  imply a phase. A **generic confirmation gets no row** — `codex_yes_proceed` is
-  and stays a deliberately absent key, and the drift guard's `LEAKED:-` check
-  already fails if it is added.
+- `QUESTION_WIDGET_KINDS["codex"] = ("codex_question",)` and
+  `["opencode"] = ("opencode_question",)` — the measured question widgets.
+- `NATIVE_KIND_PHASE["codex"] / ["opencode"]` stay **`{}`**. This is a measured
+  result, not an omission: neither CLI has an `ExitPlanMode` analogue, so the
+  only native dialogs either one renders are tool confirmations, which carry no
+  workflow phase by construction. Their comments change from "t1467 owns
+  inventorying" to a statement of what the inventory **found**, so a later reader
+  does not re-open a closed question. `codex_yes_proceed`, `codex_permission` and
+  `opencode_permission` remain deliberately absent keys; the drift guard's
+  `LEAKED:-` check fails if any is added.
+
+  Consequence worth stating plainly: for Codex and OpenCode the phase comes from
+  **Tier A or the ledger, never Tier B** — which is a narrower claim than
+  "comparable to Claude" and is what the availability table must say.
 - `agent_key_from_command` (`:135-145`) becomes a one-line delegation to
   **`agent_keys.agent_key_from_command`** (the new stdlib-only `lib/` module),
   keeping its name, signature and docstring intent. `monitor/prompt_patterns.py`
@@ -581,11 +745,26 @@ bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
    prompt_patterns.agent_key_from_command is agent_keys.agent_key_from_command`
    — identity, not equal behaviour on a sample, so a forked reimplementation
    fails even if it happens to agree on the fixtures.
-9. **Unscoped-pane honesty** (in `test_prompt_detection.py`) — a pane with
-   `current_command="node"` (the measured **shadow** case) reports
-   `scoped is False` and `agent_key == ""` even when a kind matched, and a
-   `current_command="claude"` pane reports `scoped is True`. Asserting both
-   directions is what stops the fields becoming a constant.
+9. **Unscoped-pane honesty** (in `test_prompt_detection.py`) — a pane whose
+   command resolves through **neither** rung reports `scoped is False` and
+   `agent_key == ""` even when a kind matched, and a `current_command="claude"`
+   pane reports `scoped is True`. Asserting both directions is what stops the
+   fields becoming a constant.
+9b. **Resolution ladder** (new, `tests/test_agent_keys.py`) — `agent_key_from_pane`
+   against a **real** process tree, not a mock: spawn `sh -c 'exec sleep 30'`
+   wrappers so the child's `comm` is controllable, and assert
+   - rung 1 wins when the pane command itself resolves (no subprocess at all —
+     assert by patching the child lookup to raise, proving it is never reached);
+   - rung 2 resolves the measured `node` → `codex` shape;
+   - **more than one** matching child returns `""` (ambiguity suppresses);
+   - a missing `pgrep`, a non-zero exit, and a timeout each return `""` — driven
+     by pointing the helper at a `PATH` without `pgrep`, not by mocking, so the
+     real failure path is exercised;
+   - the cache calls the subprocess **once** per `pane_pid` across repeated
+     calls (assert a call counter, since a per-tick subprocess is the cost this
+     design exists to avoid);
+   - depth is bounded: a grandchild named `codex` under a non-agent child does
+     **not** resolve (the `codex-code-mode-host` shape).
 10. **Provenance is actually exposed** — one assertion per §4b consumer, on the
    **emitted artifact** rather than on the field, since the fields are only worth
    having if something downstream differs:
@@ -662,14 +841,16 @@ Step 8b / 8d offers rather than created inline:
   Claude Code. Measured on the live server during planning; pre-existing and
   independent of this task.
 
-  **This lands on `t1509`** (shadow-readiness detectors for non-Claude shadows,
-  same `anchor: 1159`), which is `Ready` and unstarted. t1509's premise is
-  *detector coverage* — a Codex/OpenCode shadow having no detector. The finding
-  above is a different failure on the same line: the **Claude** shadow has a
-  detector and still misses, because the key never resolves. Adding detectors
-  without fixing the resolution would leave that case broken, so the two must be
-  read together. Recorded in this task's own Coordination section as the reverse
-  pointer; t1509's file is not ours to edit.
+  **Corrected by the measurement.** The `node` panes are **Codex** shadows, not
+  Claude ones (the shadow bound to this task's own pane runs
+  `codex -m gpt-5.6-terra $aitask-shadow %361 1467`). So the defect's real shape
+  is: a Codex pane — followed *or* shadow — never resolves to an agent key, and
+  the `SHADOW_READY_DETECTORS` miss is one symptom of that single cause.
+  **`agent_key_from_pane`'s rung 2 fixes it at the root**, provided the shadow
+  path is switched to the two-rung resolver too; `minimonitor_app.py:2459` and
+  `:2546` resolve from `shadow_command` with no pane snapshot, so they need the
+  shadow pane's pid threaded to benefit. Wiring that is **t1509's** call, not
+  this task's — this task supplies the resolver and says so.
 - **The pattern work here strengthens t1509's negative half** (its own
   Coordination note): `shadow_prompt_ready`'s exclusion consults
   `PROMPT_PATTERNS_BY_AGENT[agent]`, so §2's measured Codex/OpenCode dialog
@@ -805,27 +986,48 @@ augmented with the pre-/post-phase blocks, which is the plan being approved.
   with a scrubbed `PYTHONPATH` and asserts no `monitor.` import in either lib
   module) · → mitigation: none (design change, decision 5)
 
-### Goal-achievement risk: medium
+- Adding a subprocess to the per-pane classify path could cost a `pgrep` on
+  every tick for every unresolved pane, on the hot refresh loop.
+  · severity: low (residual — cached per `pane_pid`, which is stable for the
+  pane's life, and Verification 5.9b asserts a call count of exactly one rather
+  than trusting the cache by inspection) · → mitigation: none (design change,
+  decision 4)
+- A child-process descent is inference, and a deeper or greedier walk would
+  resolve a pane to whatever it happened to spawn (`codex-code-mode-host` sits
+  at depth 2 under a real Codex). · severity: low (residual — bounded at one
+  level, ambiguity (>1 matching child) returns `""`, and every failure path
+  degrades to the pre-t1467 answer; the exact seam stays §7)
+  · → mitigation: none (design change, decision 4)
 
-- The whole Tier A half for these agents depends on a **structural block
-  boundary** existing in their TUIs, comparable to Claude's `☐` chip. Neither
-  CLI has an `AskUserQuestion` widget; if neither renders a stable boundary,
-  Tier A cannot ship for them and the task delivers Tier B only.
-  · severity: medium (residual — the inline pre-phase settles it **before** any
-  dependent code is written and decision 7 pre-decides the fallback, so a
-  negative result costs one rung rather than a rewrite; but measuring earlier
-  cannot make a boundary exist, so the delivery probability is unchanged)
+### Goal-achievement risk: low
+
+**Reassessed after the pre-phase measurement** — the two `medium` bullets below
+were the open questions the inline pre-phase existed to settle, and it settled
+one positively and the other negatively, with both now recorded as fact rather
+than risk.
+
+- ~~Whether a structural block boundary exists~~ — **RESOLVED positively.**
+  Codex renders `Question N/M (K unanswered)`, a direct analogue of Claude's
+  chip; OpenCode renders a contiguous `┃` gutter run. Tier A ships for both.
+  · severity: resolved · → mitigation: inline pre-phase inventory_prompt_surfaces_live
+- ~~Whether a phase-bearing native dialog exists~~ — **RESOLVED negatively.**
+  Neither CLI has an `ExitPlanMode` analogue, so `NATIVE_KIND_PHASE` stays empty
+  for both and the phase comes from Tier A or the ledger. This is a real
+  narrowing of "comparable to Claude", which §6 must state rather than imply
+  away. · severity: low (residual — documented in the availability table and
+  asserted by the absence-safety controls; no capability is lost, since a tool
+  confirmation never carried a phase for Claude either)
   · → mitigation: inline pre-phase inventory_prompt_surfaces_live
-- Codex and OpenCode have no `ExitPlanMode` equivalent, so there may be **no
-  phase-bearing native dialog** to map — leaving Tier B empty too, and the task
-  delivering only the scoping and the honest availability statement.
-  · severity: medium (residual — same shape as above: known early, honestly
-  documented, but not made less likely) · → mitigation: inline pre-phase
-  inventory_prompt_surfaces_live
-- The live pass needs working auth and quota on both CLIs; a sandbox refusal or
-  rate limit would leave the static pass as the only evidence.
-  · severity: low · → mitigation: none (recorded verbatim and that agent's row
-  ships `no`; decision 7 makes a dropped rung a planned outcome)
+- Codex's identity resolution is install-shaped: a wrapper-style install needs
+  rung 2, and a future launcher change could move it again.
+  · severity: low (residual — the ladder degrades to today's behaviour at every
+  failure, and the durable `@aitask_agent` seam is recorded in §7)
+  · → mitigation: none (design change, decision 4)
+- Patterns are pinned to Codex 0.146.0 / OpenCode 1.18.18 footer wording; a TUI
+  rewording silently disables the marker. · severity: low (residual — anchored
+  on key-binding legends, the most stable part of a TUI widget, and each pattern
+  records the version it was measured against; the same standing exposure
+  `claude_askuserquestion` already carries) · → mitigation: none
 
 ### Planned mitigations
 - timing: pre-phase | name: inventory_prompt_surfaces_live | type: test | priority: high | effort: medium | inline_risk: medium | added_complexity: low | addresses: goal-achievement — whether a structural question-block boundary and a phase-bearing native dialog exist at all for Codex/OpenCode; code-health — geometrically wrong regexes and the OpenCode localization blast radius | desc: Enumerate candidate markers statically from the shipped codex binary and the opencode i18n bundle (including ≥2 non-English locales), then drive each CLI in an isolated tmux fixture through its approval / live-question / answered-question / idle states, capturing via the monitor's own capture-pane + strip_ansi path and recording line, distance above bottom, strip survival, disjointness from existing patterns, and boundary existence — before any pattern is authored.
