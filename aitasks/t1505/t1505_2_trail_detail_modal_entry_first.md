@@ -16,10 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 implemented_with: claudecode/opus5
 created_at: 2026-08-13 12:26
-updated_at: 2026-08-13 23:55
-artifacts:
-  - handle: art:trail-t1505-2-live
-    kind: implementation_trail
+updated_at: 2026-08-13 23:56
 ---
 
 ## Context
