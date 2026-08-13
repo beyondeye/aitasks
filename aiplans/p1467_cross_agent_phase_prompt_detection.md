@@ -354,8 +354,13 @@ split exists to prevent.
   and stays a deliberately absent key, and the drift guard's `LEAKED:-` check
   already fails if it is added.
 - `agent_key_from_command` (`:135-145`) becomes a one-line delegation to
-  `prompt_patterns.agent_key_from_command`, keeping its name, signature and
-  docstring intent (decision 5).
+  **`agent_keys.agent_key_from_command`** (the new stdlib-only `lib/` module),
+  keeping its name, signature and docstring intent. `monitor/prompt_patterns.py`
+  imports **the same `lib/agent_keys` helper** — it does **not** define its own
+  and `workflow_phase` does **not** delegate to it; delegating downward into
+  `monitor/` is exactly the layering inversion decision 5 exists to prevent.
+  One owner, two re-exports, and §5.8 asserts the two public names resolve to
+  the identical function object so a future edit cannot fork them.
 - **New, in `review_loop.py`** (it owns the loop, and the predicate is about the
   loop, not about the phase):
 
@@ -374,6 +379,70 @@ split exists to prevent.
   longer be the reason): *"Auto-recheck unavailable for '<cmd>' — the recheck
   loop is Claude-only for now"*. The **shadow**-side gate
   (`SHADOW_READY_DETECTORS`, `:2459`) is untouched.
+
+## 4b. Who consumes the resolution provenance
+
+Decision 4's `agent_key` / `scoped` fields are worthless unless something reads
+them: a field nobody consumes makes the *code* look honest while every visible
+surface still presents an unresolved `node` pane exactly like a scoped one.
+Named consumers, all four paths:
+
+**Phase** — `GateSummaryCache.phase_for` (`monitor_core.py:3221-3234`) takes the
+agent from `snap.agent_key` instead of re-deriving it, and `compose`
+(`workflow_phase.py:419-426`) grows a **third** case between its existing two.
+Today `agent=""` yields *"live tiers unavailable: no agent supplied"*, which
+blames the caller; that is right when the caller genuinely said nothing, and
+wrong when the caller tried and the pane's command was unresolvable. Split them:
+
+```
+no agent supplied            → caller error (unchanged wording)
+agent unresolved             → "live tiers unavailable: pane command '<cmd>'
+                               does not resolve to a known agent (see
+                               @aitask_agent follow-up)"
+```
+
+The composer needs the raw command to say this, so `compose` takes an optional
+`current_command` used **only** in that message — never in a matching decision.
+
+**UI** — `awaiting_input_kind` is not rendered as text on any card today (it
+feeds counts at `monitor_app.py:1505-1510` / `minimonitor_app.py:931-936`,
+ordering at `:1368-1380`, and the phase), so inventing a new badge would be
+scope creep. Expose it instead through the surface that already exists to
+explain the phase: `_UNKNOWN_TEXT` (`workflow_phase.py:513-517`) gains an
+`unresolved_agent` cause, so `render_phase` renders
+`phase: unknown (agent unresolved)` and `render_phase_narrow` its narrow twin.
+Both renderers read that one table, so the cause cannot appear on one surface
+and vanish on the other — the property t1479 built it for.
+
+**Review loop** — `minimonitor_app.py:2438` (arm gate) and `:2530` (change
+classification) take the key from `snap.agent_key`. The two **shadow**-side
+sites (`:2459`, `:2546`) keep resolving from `shadow_command`: there is no
+snapshot for the shadow pane, so there is nothing to consume. That is a
+deliberate exception, stated here so it does not read as a missed site — and it
+is precisely the path the §7 upstream defect concerns.
+
+**Applink** — `pusher.py:414-432` adds two **additive optional** payload fields
+beside `awaiting_input_kind`:
+
+```python
+        # Additive optional fields — no protocol `v` bump (aidocs/applink/
+        # protocol.md "Versioning": clients ignore fields they don't recognize).
+        if snap.agent_key:
+            frame["payload"]["agent_key"] = snap.agent_key
+        frame["payload"]["awaiting_input_scoped"] = snap.scoped
+```
+
+This follows the `status` precedent already in that function verbatim, including
+its comment citing the versioning rule, so no schema change and no `v` bump. A
+mobile client can then distinguish the two regimes; one that does not, ignores
+them.
+
+**Single-derivation rule.** After this, `agent_key_from_command` is called from
+exactly **two** kinds of site: the five `classify_content` call sites (which
+produce the value) and the two shadow-command sites (which have no snapshot).
+Every other consumer reads `snap.agent_key`. §5.10 pins that with an asserted
+hit count, so a later re-derivation cannot creep back in and silently diverge
+from the value that actually scoped the match.
 
 ## 5. Tests
 
@@ -461,12 +530,37 @@ bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
    `workflow_phase.py` and `lib/agent_keys.py` import **nothing** from `monitor.`
    (the same AST/source shape `tests/test_gate_ledger_public_api.py` already uses
    for the no-private-imports contract). This is the guard that would have caught
-   the layering inversion this plan originally proposed.
+   the layering inversion this plan originally proposed. Plus the single-owner
+   assertion: `workflow_phase.agent_key_from_command is
+   prompt_patterns.agent_key_from_command is agent_keys.agent_key_from_command`
+   — identity, not equal behaviour on a sample, so a forked reimplementation
+   fails even if it happens to agree on the fixtures.
 9. **Unscoped-pane honesty** (in `test_prompt_detection.py`) — a pane with
    `current_command="node"` (the measured **shadow** case) reports
    `scoped is False` and `agent_key == ""` even when a kind matched, and a
    `current_command="claude"` pane reports `scoped is True`. Asserting both
    directions is what stops the fields becoming a constant.
+10. **Provenance is actually exposed** — one assertion per §4b consumer, on the
+   **emitted artifact** rather than on the field, since the fields are only worth
+   having if something downstream differs:
+   - *applink* (`tests/test_applink_pusher*.py`): serialize a `pane_status`
+     frame for a `node` pane and for a `claude` pane; assert
+     `json.loads(frame)["payload"]["awaiting_input_scoped"]` is `False` / `True`,
+     that `agent_key` is absent / `"claude"`, and that `"v"` is still `1` (the
+     additive-field contract).
+   - *phase render*: `render_phase` / `render_phase_narrow` for an unresolved
+     pane both produce the `unresolved_agent` wording, and neither produces it
+     for a resolved one — both directions, both renderers.
+   - *compose*: an unresolved pane's `detail` names the pane command and does
+     **not** say "no agent supplied"; a caller that passed no agent at all still
+     gets the original wording. These are the two cases the split exists for, so
+     a build that collapsed them must fail here.
+   - *single-derivation guard*: a source grep asserting a **hit count** of
+     `agent_key_from_command(` call sites — 5 producer sites + 2 shadow-command
+     sites — with the shadow exceptions named in the test's own comment, so
+     re-derivation from `current_command` beside an available snapshot fails
+     loudly rather than silently diverging. (Never a `grep -q`: a zero-match
+     grep and a renamed symbol are indistinguishable without the count.)
 
 ## 6. Docs
 
@@ -594,12 +688,22 @@ augmented with the pre-/post-phase blocks, which is the plan being approved.
   `PaneCategory.AGENT`. A fail-open that silently applied the flat list to two
   panes in three would leave the per-agent outcome mostly unrealized while
   reading as achieved. · severity: low (residual — the resolution outcome is
-  carried explicitly as `agent_key` / `scoped` so unscoped is a *distinguishable*
-  state rather than a silent one (decision 4); new patterns are admitted only if
-  measured disjoint from every existing one; both directions pinned by
-  Verification 5.9. The exact fix — an engine-owned `@aitask_agent` stamp — is
-  scoped out to §7 rather than half-built here) · → mitigation: none (design
-  change, decision 4)
+  carried explicitly as `agent_key` / `scoped` **and consumed by four named
+  paths** (§4b: phase, UI wording, review loop, applink), so unscoped is a
+  distinguishable state on the emitted artifacts and not only in the struct;
+  new patterns are admitted only if measured disjoint from every existing one;
+  pinned by Verification 5.9 and 5.10. The exact fix — an engine-owned
+  `@aitask_agent` stamp — is scoped out to §7 rather than half-built here)
+  · → mitigation: none (design change, decisions 4 + §4b)
+- Provenance fields that nothing reads would make the code look honest while
+  every visible surface still presents an unresolved pane identically — and
+  five snapshot-derived sites currently re-derive the agent from
+  `pane_current_command` independently, so the carried value could drift from
+  the one that actually scoped the match. · severity: low (residual — §4b names
+  every consumer and collapses derivation to producer-plus-two-documented-shadow
+  exceptions; Verification 5.10 asserts on the serialized frame and the rendered
+  text, not on the field, and pins the call-site count) · → mitigation: none
+  (design change, §4b)
 - Placing the canonical mapper in `monitor/` would invert the one-way
   `monitor → lib` dependency and break `workflow_phase.py`'s standalone `signal`
   CLI (it inserts only its own `lib/` directory and declares itself stdlib-only).
