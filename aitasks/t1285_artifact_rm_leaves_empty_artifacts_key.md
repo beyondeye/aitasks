@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [artifacts]
 gates: [risk_evaluated]
+folded_into: 1515
 anchor: 1142
 created_at: 2026-07-28 11:50
-updated_at: 2026-07-28 11:50
+updated_at: 2026-08-13 22:49
 boardidx: 58368
 ---
 

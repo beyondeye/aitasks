@@ -23,6 +23,28 @@ Extend the advisory workflow-phase signal after t1420 so native Codex and OpenCo
 
 ## Coordination
 
+- **Agent identity is the root blocker this task hit** (measured 2026-08-13).
+  `pane_current_command` is not authoritative: `claude` and `opencode` are native
+  binaries and report their own names, but a wrapper-style Codex install reports
+  `node` because its launcher spawns the real binary as a direct child. Every
+  per-agent table would have shipped wired-but-dormant for Codex. Resolved here
+  with a two-rung ladder (`lib/agent_keys.agent_key_from_pane`: the pane command,
+  then one level of children). The **durable** fix — an engine-owned
+  `@aitask_agent` pane option stamped at launch, exact instead of inferred — is
+  deliberately NOT in this task: it touches ~5 launch sites
+  (`agent_command_screen`, `tui_switcher` ×3, `agentcrew_runner`,
+  `history_screen`, `codebrowser_app`) and covers only framework-launched panes.
+  Worth its own task.
+- **The auto-recheck review loop was deliberately NOT unlocked.** Filling the
+  per-agent tables makes `workflow_phase.live_tiers_available` true for Codex and
+  OpenCode, which previously doubled as minimonitor's arming gate. Since that
+  loop *injects* keystrokes into the shadow pane, the gate was split off into
+  `review_loop.review_loop_agent_supported` / `REVIEW_LOOP_AGENTS` and stays
+  Claude-only. Widening it needs its own live evidence per agent — a follow-up.
+- **Tier B is empty for both agents by measurement.** Neither CLI has an
+  `ExitPlanMode` analogue, so their only native dialogs are tool confirmations,
+  which carry no workflow phase. Their phase comes from Tier A or the ledger.
+  Do not "fill in" `NATIVE_KIND_PHASE` without a new measurement.
 - **t1509** (shadow-readiness detectors for non-Claude shadows, `anchor: 1159`)
   — the **shadow** half of the same cross-agent gap this task closes for the
   **followed** half. It deliberately carries no `depends:` on this task, because
@@ -34,6 +56,21 @@ Extend the advisory workflow-phase signal after t1420 so native Codex and OpenCo
   loop injecting Enter into a shadow parked at a dialog. If the per-agent
   dialog patterns added here land first, t1509's negative half becomes reliable
   for free; coordinate rather than duplicating pattern work.
+
+  **Landed first — what t1509 inherits.** `codex` now carries `codex_question`
+  and `codex_permission` beside `codex_yes_proceed`, and `opencode` carries
+  `opencode_question` and `opencode_permission` (previously it had none at all,
+  so an OpenCode agent blocked on a permission dialog read as *idle*). That is
+  the stronger exclusion t1509 wanted.
+
+  **But t1509 must also fix the resolution, not only the detectors.** Its two
+  shadow-side sites (`minimonitor_app.py:2468`, `:2554`) resolve from
+  `shadow_command` via the one-rung `agent_key_from_command`, and there is no
+  snapshot for a shadow pane to carry a resolved key. A Codex shadow reports
+  `node`, so `SHADOW_READY_DETECTORS.get("")` misses for it regardless of which
+  detectors exist. Switching those sites to the two-rung
+  `agent_key_from_pane(shadow_command, shadow_pane_pid)` — which this task
+  supplies — is the root fix; adding detectors without it leaves the case broken.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
