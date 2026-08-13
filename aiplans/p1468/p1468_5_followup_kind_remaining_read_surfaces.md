@@ -99,17 +99,46 @@ errors, corrected throughout below:
 
 1.1 `.aitask-scripts/lib/work_report_gather.py`: add `followup_kind: str` to the
 `TaskRow` dataclass (before `path`), populate it with
-`enum_field(metadata.get("followup_kind"))` in `scan_tasks`, and emit it
-**immediately before** `sanitize_last_field(row.path)` in the `TASK:` line. New
-record:
+`followup_kind_field(metadata.get("followup_kind"))` in `scan_tasks`, and emit
+it **immediately before** `sanitize_last_field(row.path)` in the `TASK:` line.
+New record:
 
 ```
 TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<followup_kind>|<task_file_path>
 ```
 
 The single free-text field (`path`) stays LAST, so the fixed-maxsplit contract
-holds. `enum_field` yields `unknown` for an absent kind — which is the common
-case, since most tasks are genuine new work.
+holds. The field yields `unknown` for an absent kind — the common case, since
+most tasks are genuine new work.
+
+**Revision (post-review): the clamp is shared, not trail-only.** The original
+plan clamped the value in `trail_gather` alone, arguing the work report's value
+"lands in prose, where raw pass-through is harmless". Review found that wrong:
+a hand-edited or newer-framework `followup_kind: typo_kind` passed `enum_field`
+verbatim and, under the skill rule "any value other than `unknown`/`invalid` is
+recognised", would be rendered to a manager as "follow-up: typo kind" — a false
+claim of a provenance category that does not exist. Reproduced before the fix
+(`TASK:…|typo_kind|…`) and after (`TASK:…|invalid|…`).
+
+**Second revision (post-review): absence is decided from the raw input.** The
+first version of `followup_kind_field()` read absence off `enum_field`'s
+*result*, so a task literally carrying `followup_kind: unknown` returned the
+absent sentinel — the work report hid a malformed value as genuine new work
+while the board's `marker_for` painted the same string as an unrecognised
+follow-up (`·`). `unknown` / `invalid` are line-protocol **sentinels, not
+reserved words**, so a present value equal to one of them is still present and
+still not a kind. The check now runs on the raw `None` / `""` input before the
+sentinel can be admitted, and literal-`unknown` / literal-`invalid` negative
+controls pin it in both gatherer suites plus the board's marker-boundary tests
+(where the correct behaviour already existed and is now frozen, so the two
+boundaries cannot drift into disagreeing about one string).
+
+The clamp therefore moved up into `lib/followup_kinds.py` as
+`followup_kind_field()`, and **both** gatherers call it. That is what makes
+"neither sentinel ⇒ a real kind" true *by construction* on both records, so
+neither consumer needs its own copy of the vocabulary — the alternative
+(enumerating the eight kinds in the skill prose) would have been an
+unsynchronisable duplicate of the canonical dict.
 
 1.2 Update the module docstring's protocol block in the same edit — it is the
 contract consumers are written against.
@@ -261,13 +290,19 @@ becomes `invalid`. New record:
 MEMBER:<ref>|<status>|<priority>|<effort>|<boardcol>|<labels csv>|<followup_kind>|<path>
 ```
 
-Update the module docstring's protocol block. **Why clamp here and not in the
-work report:** this value lands in a schema-`enum`-validated document, so an
-out-of-vocabulary value (a typo, or a kind from a newer framework) would make
-the *whole trail* fail as `ERROR:invalid_trail` — a total failure for a cosmetic
-provenance field. Sanitizing at the write site is the only point where the
-distinction is still knowable. The work report's value lands in prose, where
-raw pass-through is harmless.
+Update the module docstring's protocol block. **Why clamp:** this value lands in
+a schema-`enum`-validated document, so an out-of-vocabulary value (a typo, or a
+kind from a newer framework) would make the *whole trail* fail as
+`ERROR:invalid_trail` — a total failure for a cosmetic provenance field.
+Sanitizing at the write site is the only point where the distinction is still
+knowable.
+
+**Superseded (post-review):** this step originally introduced a private
+`_followup_kind_field` in `trail_gather`, on the reasoning that the work
+report's value "lands in prose, where raw pass-through is harmless". Review
+disproved that (see the revision note under step 1.1) — the clamp now lives in
+`lib/followup_kinds.py` as `followup_kind_field()` and both gatherers import it.
+The trail's reason for needing it is unchanged; it simply is not the only one.
 
 4.2 **Skill writer.** `.claude/skills/aitask-trail/SKILL.md.j2`:
 - line 55 — the `MEMBER:` schema line.
@@ -500,3 +535,107 @@ Step 8d from the `refresh_and_verify_live_trails` mitigation line below.
 - timing: pre-phase | name: characterize_pipe_record_consumers | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a missed fixed-maxsplit consumer silently re-reads the trailing path as the kind | desc: Pin the current field tuples of TASK: and MEMBER: by position, with a passing positive control, before any field insertion.
 - timing: pre-phase | name: trail_v1_clean_rejection_fixture | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the schema const bump's blast radius is wider than the task recorded | desc: Add a schema_version 1.0.0 fixture that must be rejected on the const rule after the bump (never a false STALE), plus a lock tripwire asserting SCHEMA_NORMALIZATION_LOCK has exactly one entry keyed by the schema's own const.
 - timing: after | name: refresh_and_verify_live_trails | type: manual_verification | priority: high | effort: low | inline_risk: high | added_complexity: low | addresses: goal-achievement — the agent-authored snapshot producer is undrivable by tests, and the two live artifacts stay invalid until a human refreshes them | desc: Re-run /aitask-trail refresh for art:trail-gates-framework-landing and art:trail-shadow-review-loop at schema 1.1.0, then inspect BOTH a member task carrying a known followup_kind (the value is stored) AND an ordinary member with no kind (the key is absent, never the literal "unknown"/"invalid") — the second is the common path and the only end-to-end proof of the writer's omission rule. Both artifacts must end at freshness current, not ERROR:invalid_trail. t1470 depends on this task (step 7).
+
+## Final Implementation Notes
+
+- **Actual work done:** All three surfaces landed as planned. Work report:
+  `TASK:` gained `<followup_kind>` at position 9 (path stays last); the
+  `/aitask-work-report` skill, `tests/lib/work_report_{equiv,flow_equiv}.py`
+  (`TASK_FIELDS` 9→10), `tests/test_work_report_gather.sh` and the skill
+  contract test were updated. Sibling chooser: `marker_for()` extracted into
+  `lib/followup_kinds.py` with `board/aitask_board.py::_followup_marker`
+  delegating (name and signature preserved for t1470);
+  `find_next_sibling` / `find_ready_siblings` widened; a two-cell
+  `_followup_prefix()` renders the glyph in `_SiblingRow` and on
+  `NextSiblingDialog`'s `Suggested:` line; the applink `pick_next_sibling`
+  payload carries the kind (`null` when absent) and `monitor_port_design.md`
+  records the real shape (it was already stale — it omitted `blocked_by`).
+  Trail: schema bumped to **1.1.0** in both byte-identical copies (`const` +
+  `$id`), optional `entry.snapshot.followup_kind` enum derived from
+  `FOLLOWUP_KINDS`, `SCHEMA_NORMALIZATION_LOCK = {"1.1.0": "1.0.0"}` with
+  `NORMALIZATION_VERSION` deliberately unbumped, `MEMBER:` gained the field,
+  and the skill writer populates it plus a generic sentinel-omission rule.
+  All three `aidocs` example fixtures regenerated (exactly one entry carries
+  the new property, so the validated corpus holds both shapes).
+
+- **Deviations from plan:**
+  1. **The clamp is shared, not trail-only.** The plan clamped in
+     `trail_gather` alone, arguing the work report's value "lands in prose,
+     where raw pass-through is harmless". Review disproved that: a
+     `followup_kind: typo_kind` would have been rendered to a manager as
+     "follow-up: typo kind", asserting a provenance category that does not
+     exist. `followup_kind_field()` now lives in `lib/followup_kinds.py` and
+     both gatherers call it, so "neither sentinel ⇒ a real kind" holds by
+     construction and no consumer needs its own copy of the vocabulary.
+  2. **Absence is decided from the raw input.** The first version of that
+     helper read absence off `enum_field`'s *result*, so a task literally
+     carrying `followup_kind: unknown` returned the absent sentinel — the
+     report hid a malformed value as genuine new work while the board painted
+     `·` for the same string. The sentinels are values, not reserved words.
+  3. **Executable producer coverage replaced the plan's "end-to-end producer
+     test".** The trail's snapshot producer is agent-authored prose, so no
+     unit test can drive it. Coverage is three-part instead (gatherer unit
+     test, skill-contract pin across all three goldens, schema round-trip
+     including sentinel rejection); the true end-to-end is the spawned
+     manual-verification follow-up.
+  4. **Plan step 7 (t1470 sequencing) is executed at Step 8d**, after the
+     mitigation task exists — see below.
+
+- **Issues encountered:**
+  - Adding `from record_protocol import …` to `followup_kinds.py` broke
+    `tests/test_followup_kind_roundtrip.sh`: the scaffold hand-copied
+    `followup_kinds.py` with a bare `cp`, so the shell bridge failed closed
+    with **no error text at all**. Fixed by routing it through the existing
+    `copy_py_closure_from` helper — the exact t1488 failure mode that helper
+    was built to prevent. All 30 scaffold-using bash tests pass.
+  - `main` advanced 3 commits mid-session (t1496, t1504, v0.32.0). Verified
+    no overlap with the files committed here.
+  - A concurrent session holds uncommitted work in
+    `.aitask-scripts/monitor/monitor_shared.py` (shadow-rejection / concern
+    picker). Only this task's 8 hunks were staged, via a
+    `git hash-object` + `git update-index` blob so the working tree was never
+    disturbed; the staged tree was then materialised with `git archive` and
+    the suite re-run inside it, including the other session's three concern
+    test modules.
+  - One full-suite run failed on `test_board_startup_focus_live.py`, a live
+    tmux boot-budget test; it passes in isolation and on re-run, and touches
+    nothing in this change.
+
+- **Key decisions:**
+  - **Bump, do not dual-accept.** The trail's single-version design was
+    respected: one `const`, one lock entry. A multi-version loader would have
+    meant turning `const` into an enum and rewriting the tripwire, fighting a
+    deliberate property for no gain.
+  - **`followup_kind` is not a drift dimension.** Kept out of
+    `GATHERER_DRIFT_CODES` and out of `_reconstruct_old_task_records`'s
+    completeness set, with a test asserting a snapshot *without* it still
+    reconstructs to a precise `plan_changed` rather than a lossy `other`.
+  - **Enum, with clamping at the write site.** The schema enum matches
+    `priority`/`effort` precedent for closed framework vocabularies; the
+    gatherer clamp is what keeps an out-of-vocabulary value from failing a
+    whole document.
+  - Negative controls were run for every non-obvious guard: breaking each
+    `monitor_core` lookup reddened only the filesystem-backed cache test
+    while the stub-based router and widget-level render tests stayed green;
+    reverting the absence fix reddened exactly the new literal-`unknown`
+    assertions while the board tests stayed green (the board was never wrong).
+
+- **Upstream defects identified:**
+  - `.claude/skills/aitask-trail/SKILL.md.j2:403` — the snapshot-population rule had no instruction to omit `unknown`/`invalid` MEMBER sentinels, so a task with no `priority` would already have produced `"priority": "unknown"` and failed the pre-existing `priority` enum, invalidating the whole trail. Fixed here as a generic rule covering all optional enum-typed snapshot fields, not just the new one.
+  - `aidocs/applink/monitor_port_design.md:142` — the recorded `pick_next_sibling` response shape was stale: it omitted the `blocked_by` field that `router.py` has been emitting since the blocking-hint work. Corrected in the same edit.
+  - `tests/lib/test_scaffold.sh:45` — the scaffold copied `followup_kinds.py` with a bare `cp` while a closure copier (`copy_py_closure_from`, t1488) existed for exactly this hazard; any new import in that module would break dependent scaffolds silently. Migrated.
+
+- **Notes for sibling tasks:**
+  - Two pipe records changed shape (`TASK:`, `MEMBER:`). Re-read the module
+    docstring protocol block; never assume the old indices.
+  - The trail schema is 1.1.0 and still single-version: a future *field*
+    means another `const` bump and another round of trail refreshes. Adding a
+    new **follow-up kind** needs only the schema enum updated in both copies
+    (a drift guard enforces it) — no version bump, since older documents stay
+    valid.
+  - `lib/followup_kinds.py` is now the single boundary for both rendering
+    (`marker_for`) and line-protocol encoding (`followup_kind_field`). New
+    surfaces should call one of those rather than reading `followup_kind`
+    directly.
+  - **t1468_6** (backfill) will set `followup_kind` on existing tasks; every
+    surface added here reads it live, so no further wiring is needed there.
