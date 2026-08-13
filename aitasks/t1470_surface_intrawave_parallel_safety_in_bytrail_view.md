@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [1508]
 issue_type: feature
 status: Ready
 labels: [aitask_board, tui, skills, planning, artifacts]
 gates: [risk_evaluated]
 anchor: 1210
 created_at: 2026-08-10 11:35
-updated_at: 2026-08-10 11:35
+updated_at: 2026-08-13 14:03
 ---
 
 ## Problem
@@ -209,17 +209,29 @@ collapse persistence + match badge) and t1468_1 / t1468_2 / t1468_3
 clean of `aitask_board.py` changes. Re-verify before picking — the remaining
 t1243 children (`_11`, `_12`) and t1468 children still name that file.
 
-**Live hazard if t1468_5 lands first.** Its bump to `schema_version: 1.1.0`
-invalidates every stored 1.0.0 trail until refreshed — currently
+**Live hazard — t1468_5 HAS landed (2026-08-13).** Its bump to
+`schema_version: 1.1.0` invalidated every stored 1.0.0 trail until refreshed —
 `art:trail-gates-framework-landing` and `art:trail-shadow-review-loop`, the two
-artifacts this task's acceptance criteria are written against. Refresh both
-(`/aitask-trail --refresh <handle>`) before verifying anything here, and do not
-read the resulting `ERROR:invalid_trail` as a defect in this task's work.
+artifacts this task's acceptance criteria are written against. Until they are
+refreshed they return `ERROR:invalid_trail`; that is a consequence of t1468_5,
+**not a defect in this task's work**.
 
-**No hard `depends` on t1468_5**, deliberately: the chain is
+The refresh is tracked as **t1508** (`refresh_and_verify_live_trails`), and this
+task now carries a `depends` edge on it. That edge is **verification-scoped**:
+it exists so nobody verifies this task against invalid artifacts, not because
+the implementation needs anything from t1468_5. If you want to start
+implementing early, you may drop it **deliberately** — but do not verify until
+t1508 is Done.
+
+**Still no hard `depends` on t1468_5 itself**, deliberately: the chain is
 `t1468_3 → t1468_4 → t1468_5` (medium then high effort), and every axis in this
 task — including the type-aware coupling term — works off live task metadata
-without it.
+without it. The t1508 edge is strictly narrower: t1508 only exists *because*
+t1468_5 landed, so it can never block this task in a world where it did not.
+
+**Reverse pointer:** recorded in t1468_5's plan
+(`aiplans/archived/p1468/p1468_5_*.md`, "Coordination — t1470") and in t1508's
+`## Blocks` section.
 
 ## Render-surface constraints (verified)
 
