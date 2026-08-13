@@ -125,3 +125,5 @@ defects identified" in `aiplans/archived/p1142_manual_verification_auto.md`.
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t1285** (`t1285_artifact_rm_leaves_empty_artifacts_key.md`)
+
+> **✅ gate:review_approved** run=2026-08-13T20:47:37Z status=pass attempt=1 type=human
