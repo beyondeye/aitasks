@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 12:26
-updated_at: 2026-08-13 22:03
+updated_at: 2026-08-13 23:44
 ---
 
 ## Context
@@ -133,3 +134,8 @@ do not delete a guard because it now fails.
 **Trail artifact availability:** t1468_5's schema bump to `1.1.0` invalidates both
 stored artifacts until t1468_7 refreshes them. An `ERROR:invalid_trail` on those
 handles is expected and is not a defect of this child.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T20:44:29Z status=pass attempt=1 type=human
