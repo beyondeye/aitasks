@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 11:57
-updated_at: 2026-08-13 12:51
+updated_at: 2026-08-13 14:37
 ---
 
 ## Origin
@@ -60,3 +61,8 @@ t1496's plan (`aiplans/archived/p1496_fix_gate_lock_stale_reclaim_race_and_scopi
 after archival) documents the protocol invariants, and `tests/test_stale_lock.sh` +
 `tests/test_gate_lock_single_winner.sh` show the test patterns (deterministic
 guard-replacement shims, live/dead-holder cases) to replicate for registry_lock.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T11:37:59Z status=pass attempt=1 type=human
