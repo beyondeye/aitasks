@@ -661,6 +661,22 @@ Step 8b / 8d offers rather than created inline:
   path ("no readiness detection yet") reachable for a shadow that is in fact
   Claude Code. Measured on the live server during planning; pre-existing and
   independent of this task.
+
+  **This lands on `t1509`** (shadow-readiness detectors for non-Claude shadows,
+  same `anchor: 1159`), which is `Ready` and unstarted. t1509's premise is
+  *detector coverage* — a Codex/OpenCode shadow having no detector. The finding
+  above is a different failure on the same line: the **Claude** shadow has a
+  detector and still misses, because the key never resolves. Adding detectors
+  without fixing the resolution would leave that case broken, so the two must be
+  read together. Recorded in this task's own Coordination section as the reverse
+  pointer; t1509's file is not ours to edit.
+- **The pattern work here strengthens t1509's negative half** (its own
+  Coordination note): `shadow_prompt_ready`'s exclusion consults
+  `PROMPT_PATTERNS_BY_AGENT[agent]`, so §2's measured Codex/OpenCode dialog
+  patterns make "no dialog is showing" reliable for those agents for free. That
+  is a reason to land §2's patterns as authored here rather than duplicating
+  pattern work in t1509 — but note the exclusion is only reached once the key
+  resolves, which is the defect above.
 - **Unlocking the auto-recheck loop for Codex/OpenCode** — gated behind
   `REVIEW_LOOP_AGENTS` by decision 6, and earns its own task once the per-agent
   boundary strategies have live evidence.
