@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [t1159_6]
+depends: [t1159_2]
 issue_type: refactor
 status: Ready
 labels: [shadow, aitask_monitormini]
 anchor: 1159
 followup_kind: review_finding
 created_at: 2026-08-13 09:33
-updated_at: 2026-08-13 09:33
+updated_at: 2026-08-13 09:34
 ---
 
 Review the code quality of the t1159_2 auto-recheck loop implementation and refactor where warranted. Spawned at the user's request after t1159_2's archival: the implementation went through **seven adversarial review rounds** (2 at plan time, 5 post-implementation — see `aiplans/archived/p1159/p1159_2_auto_recheck_loop.md`, "Plan-review hardening" rounds 1-4 and Change Requests 1-6), each of which patched a real edge case *in place*. The result is significantly more robust than the approved design but also significantly different from it, and the accretion shows: many small interacting guards were bolted on where the defect surfaced rather than where the concept belongs.
