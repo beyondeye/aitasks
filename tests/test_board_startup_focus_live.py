@@ -90,6 +90,23 @@ _META_ORDER = ["priority", "effort", "issue_type", "status"]
 _META_BASE = {"priority": "medium", "effort": "low",
               "issue_type": "chore", "status": "Ready"}
 
+_LAST_COLUMN = _COLUMNS[-1]
+#: The LAST configured column's header, e.g. `Backlog (0)`. Half of the
+#: readiness condition in `_launch_board`: `CARD_TITLE` proves cards painted,
+#: this proves the board is *complete* rather than half-mounted — `refresh_board`
+#: mounts in `column_order`, so the last column's header is the tail of that
+#: sequence. Derived from the fixture rather than hardcoded so adding a backlog
+#: task to `_TASKS` cannot silently desync the count and turn every run into a
+#: `BOOT_TIMEOUT_S` timeout.
+COLUMNS_MOUNTED_MARKER = (
+    f"{_LAST_COLUMN['title']} "
+    f"({sum(1 for _tid, col, _idx, _slug in _TASKS if col == _LAST_COLUMN['id'])})"
+)
+#: Asserted on below; named here so the readiness loop can recognise a
+#: definitive negative — columns mounted but the cards filtered away — instead
+#: of spinning to the deadline.
+FILTERED_MARKER = "(hidden by filter)"
+
 
 def _tmux(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["tmux", "-L", SOCKET, *args],
@@ -199,17 +216,44 @@ class BoardStartupFocusLiveTests(unittest.TestCase):
         return "<filter row not found>"
 
     def _launch_board(self, label: str) -> str:
+        """Launch the board and return a capture of it FULLY painted.
+
+        Readiness is both `CARD_TITLE` and `COLUMNS_MOUNTED_MARKER`, not the
+        filter row. `Task filter` is yielded by `BoardScreen.compose`, whereas
+        the columns are mounted afterwards by `refresh_board` — measured in a
+        live pane, the filter row lands at 1.43s and the columns at 1.53s, and
+        that gap widens when the serial phase follows a ~200s four-worker
+        parallel one. Waiting on the filter row therefore returned a mid-mount
+        capture and the caller's `CARD_TITLE` assertion flaked (t1500).
+
+        The column marker is required *alongside* the card title rather than
+        instead of it: a header proves `refresh_board` reached the last column,
+        not that the `TaskCard` children painted.
+
+        A board that never gets there still FAILS — the timeout names which of
+        the three markers was missing, which is the diagnostic the caller's
+        assertion used to give.
+        """
         self._send("./ait board", "Enter")
         deadline = time.monotonic() + BOOT_TIMEOUT_S
+        capture = ""
         while time.monotonic() < deadline:
             capture = self._capture()
-            if "Task filter" in capture:
+            if CARD_TITLE in capture and COLUMNS_MOUNTED_MARKER in capture:
                 # One more interval so row 0 is not caught mid-frame.
                 time.sleep(POLL_INTERVAL_S)
                 return self._capture()
+            if COLUMNS_MOUNTED_MARKER in capture and FILTERED_MARKER in capture:
+                # Mounted, but the cards are filtered away — a settled negative,
+                # not a slow paint. Report it now instead of at the deadline.
+                break
             time.sleep(POLL_INTERVAL_S)
-        self.fail(f"[{label}] board did not boot within {BOOT_TIMEOUT_S}s.\n"
-                  f"--- pane ---\n{self._capture()}")
+        self.fail(
+            f"[{label}] board never finished painting within {BOOT_TIMEOUT_S}s "
+            f"(filter row: {'Task filter' in capture}, "
+            f"columns mounted: {COLUMNS_MOUNTED_MARKER in capture}, "
+            f"cards drawn: {CARD_TITLE in capture}).\n"
+            f"--- pane ---\n{self._capture()}")
 
     def _wait_for_shell(self, label: str) -> None:
         """Poll until the pane leaves the interpreter, else FAIL with the cause.
@@ -236,6 +280,10 @@ class BoardStartupFocusLiveTests(unittest.TestCase):
     # --- the pin ------------------------------------------------------------
 
     def test_bare_q_quits_then_the_board_relaunches_in_the_same_pane(self):
+        # `_launch_board` already waits on CARD_TITLE, but these are not
+        # redundant: it returns a RE-capture taken after the settling beat, so
+        # they still catch a board that repainted — filtered itself, say —
+        # between satisfying the wait and being read.
         capture = self._launch_board("first launch")
         self.assertIn(CARD_TITLE, capture,
                       f"first launch rendered no task cards:\n{capture}")
@@ -253,7 +301,7 @@ class BoardStartupFocusLiveTests(unittest.TestCase):
                       f"relaunch rendered no task cards:\n{capture}")
         self.assertEqual(capture.count("(empty)"), 1,
                          f"relaunch shows filtered-out columns:\n{capture}")
-        self.assertNotIn("(hidden by filter)", capture,
+        self.assertNotIn(FILTERED_MARKER, capture,
                          f"relaunch booted with an active filter:\n{capture}")
 
         # Leave the pane back at the shell. A bare `q` is deliberate: after the

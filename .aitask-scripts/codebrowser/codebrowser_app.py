@@ -45,6 +45,7 @@ _TMUX = TmuxClient()
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Container
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen, Screen
 from textual.timer import Timer
 from textual.widgets import Button, Header, Footer, Input, Label, Static, DirectoryTree
@@ -717,12 +718,26 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.call_after_refresh(self._apply_focus, pending)
         self.call_after_refresh(self._consume_and_apply_focus)
         self.set_interval(1.0, self._consume_and_apply_focus)
+        self._seed_search_index()
+
+    def _seed_search_index(self) -> None:
+        """Feed the fuzzy-search box the tree's git-tracked file list.
+
+        Shared by boot (`on_mount`) and every later `TrackedFilesRefreshed`, so
+        the two paths cannot drift.
+
+        Both widgets exist only in the project branch of `compose()`, which is
+        why a missing one is a normal outcome rather than an error — but only
+        the *lookup* is allowed to go missing. `set_files` runs outside the
+        guard so a real failure surfaces instead of being swallowed with it
+        (t1500).
+        """
         try:
             tree = self.query_one("#file_tree", ProjectFileTree)
             search = self.query_one("#file_search", FileSearchWidget)
-            search.set_files(sorted(tree._tracked_files))
-        except Exception:
-            pass
+        except NoMatches:
+            return
+        search.set_files(sorted(tree._tracked_files))
 
     def action_handle_escape_key(self) -> None:
         """Escape: clear search if active, delegate to screen's handle_escape, dismiss modals, or no-op."""
@@ -743,16 +758,27 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        # Local flag, not `self._project_root is not None`: `ExplainManager()`
+        # can raise *after* the field is assigned, and the `except` arm resets
+        # it — so only this flag tracks which branch was actually composed.
+        has_project = False
         with Horizontal():
             try:
                 self._project_root = get_project_root()
                 self.explain_manager = ExplainManager(self._project_root)
+                has_project = True
                 yield LeftSidebar(self._project_root, id="left_sidebar")
             except RuntimeError:
+                self._project_root = None
                 with Container(id="left_sidebar"):
                     yield Static("Error: not inside a git repository")
             with Container(id="code_pane"):
-                yield FileSearchWidget(id="file_search")
+                # Fuzzy search is fed from the tree's git-tracked file list and
+                # resolves a hit against `_project_root`; outside a repository
+                # it has neither, so mounting it here would only add an
+                # unreachable, permanently-empty focus target (t1500).
+                if has_project:
+                    yield FileSearchWidget(id="file_search")
                 yield Static("No file selected", id="file_info_bar")
                 yield CodeViewer(id="code_viewer")
             yield DetailPane(id="detail_pane", classes="hidden")
@@ -1082,12 +1108,7 @@ class CodeBrowserApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def on_tracked_files_refreshed(self, event: TrackedFilesRefreshed) -> None:
         """Keep the fuzzy-search widget's file list in sync after a refresh."""
-        try:
-            tree = self.query_one("#file_tree", ProjectFileTree)
-            search = self.query_one("#file_search", FileSearchWidget)
-            search.set_files(sorted(tree._tracked_files))
-        except Exception:
-            pass
+        self._seed_search_index()
 
     @work(exclusive=True)
     async def _refresh_explain_data(self, file_path: Path) -> None:

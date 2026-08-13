@@ -175,7 +175,7 @@ auto-focus left focused at compose.
 |---|---|---|---|
 | `board/aitask_board.py` | auto-focus disabled → claim anchors `TaskCard` | quits | fixed (t1491) |
 | `codebrowser` (git repo) | `RecentFilesList#recent_files` | quits | not affected |
-| `codebrowser` (non-git) | **`Input#file_search_input`** | **swallowed** | **fixed (t1495)** |
+| `codebrowser` (non-git) | **`Input#file_search_input`** | **swallowed** | **fixed (t1495)** — Input no longer mounted (t1500) |
 | `monitor/monitor_app.py` | `VerticalScroll#pane-list` | quits | not affected |
 | `brainstorm/brainstorm_app.py` | `ContentTabs` | quits | not affected |
 | `settings/settings_app.py` | `ContentTabs` | quits | not affected |
@@ -185,6 +185,13 @@ The three "not affected" apps land on a scroll container or a tab bar, which
 bind arrows and not letters. They still have **no startup focus anchor**, so no
 row/card is selected until the user presses Tab or clicks — a UX gap, not this
 defect.
+
+The "picked at compose" column records what auto-focus chose **at audit time**.
+For the non-git codebrowser that is now historical: t1500 stopped `compose()`
+mounting `FileSearchWidget` in that branch at all — the box had no tracked-file
+source and no project root to open a hit against, so it was an inert widget the
+Tab cycle could not reach. The only focusable target left there is the code
+viewer, which is also what `_claim_startup_focus` anchors on.
 
 **Unaudited — treat as unknown, not clear.** These set no `AUTO_FOCUS` either
 and have not been driven in a pty: `monitor/minimonitor_app.py`,

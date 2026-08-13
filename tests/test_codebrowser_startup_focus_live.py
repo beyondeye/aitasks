@@ -4,8 +4,14 @@
 — applied in ``Screen._compose``, before ``on_mount``. In the non-git-repo
 compose branch (``get_project_root()`` raises, so the sidebar is a bare
 ``Container`` holding one non-focusable ``Static``) the first focusable widget
-on the screen is ``Input#file_search_input``. Every non-``priority`` binding,
+on the screen was ``Input#file_search_input``. Every non-``priority`` binding,
 ``q`` (Quit) included, then arrived as *search text*.
+
+**t1500 removed that Input from this branch entirely** — it could never be
+seeded or opened without a project root, so it was an unreachable, inert focus
+target. The pre-fix account above is history; today this branch renders only
+the error `Static`, the code viewer, and the chrome. What the test asserts is
+unchanged, because it pins a *behaviour* (a bare ``q`` quits), not a widget.
 
 Reproduced in a tmux pane before the fix: a focus trace showed auto-focus
 landing on the Input, and after a bare ``q`` ``#{pane_current_command}`` was
@@ -84,6 +90,10 @@ BOOT_MARKER = "not inside a git repository"
 
 #: The search box's placeholder. Present only while the box is empty, so its
 #: disappearance is what a swallowed keystroke looks like.
+#:
+#: Since t1500 the box is mounted only in the **git** branch, so this is a
+#: diagnostic anchor for `_search_region` (which falls back to `BOOT_MARKER`)
+#: rather than something the non-git test can assert on.
 SEARCH_PLACEHOLDER = "Search files..."
 
 #: What the git fixture renders once booted (the sidebar's own header).
@@ -290,10 +300,16 @@ class CodebrowserStartupFocusLiveTests(unittest.TestCase):
         # The keystroke reached the binding rather than the box. Asserted on the
         # post-quit capture too, so a pane that exited for some *other* reason
         # (a crash, say) is not mistaken for the key having worked.
+        #
+        # Anchored on BOOT_MARKER, not the search placeholder: t1500 stopped
+        # mounting the box in this branch, so a placeholder assertion here could
+        # no longer fail and would have quietly stopped checking anything. The
+        # branch marker is what this compose arm actually renders.
         final = self._capture(pane)
         self.assertNotIn(
-            f"{SEARCH_PLACEHOLDER}\n", final,
-            "the app is gone but the search box is still on screen")
+            BOOT_MARKER, final,
+            "the app is gone from the process table but its screen is still "
+            f"drawn in the pane:\n{final}")
 
     def test_hot_handoff_still_lands_its_file_and_line_after_the_claim(self):
         """`AITASK_CODEBROWSER_FOCUS` survives the new startup focus claim.

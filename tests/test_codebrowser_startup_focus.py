@@ -8,7 +8,16 @@ Which widget that picks depends on which branch ``compose()`` took:
   which is harmless — a scroll container binds arrows, not letters;
 * in the ``RuntimeError`` fallback (``get_project_root()`` raised, i.e. not a
   git repo) the sidebar is a bare ``Container`` holding one ``Static``, neither
-  focusable, so the winner is ``Input#file_search_input``.
+  focusable, so the winner was ``Input#file_search_input``.
+
+**That second branch no longer mounts the Input at all (t1500).** The box was
+inert there — nothing seeds its file list without a ``ProjectFileTree``, and
+opening a hit needs the ``_project_root`` that branch does not have — while
+still being the first focusable widget and, after t1495 removed the accidental
+auto-focus, unreachable by Tab. ``compose()`` now skips it, leaving the code
+viewer as the sole focus target. Descriptions of the Input's role below are
+therefore **history**: they explain the defect this module was written for, not
+what the branch renders today.
 
 In that second branch every non-``priority`` letter binding — ``q`` (Quit)
 included — arrived as *search text*, so a codebrowser launched outside a git
@@ -34,10 +43,11 @@ instead.
 
 **Headless is sufficient for both layers here, unlike t1491.** On the board,
 ``App.run_test`` picked a different widget than a real terminal did, so the
-defect was headless-invisible. Measured on this app at Textual 8.2.7, the
-non-git branch has so few focusable widgets that ``run_test`` picks
-``Input#file_search_input`` too — identically to the pty. The live module still
-ships: the real terminal is the ground truth and the task asks for a live pin.
+defect was headless-invisible. Measured on this app at Textual 8.2.7 — while
+the non-git branch still mounted the box — that branch had so few focusable
+widgets that ``run_test`` picked ``Input#file_search_input`` too, identically
+to the pty. The live module still ships: the real terminal is the ground truth
+and the task asks for a live pin.
 
 Both compose branches are exercised from **one** test class, iterating the two
 fixtures with ``subTest``, rather than from a shared base with two subclasses:
@@ -78,6 +88,7 @@ from textual.widgets import Input  # noqa: E402
 
 from code_viewer import CodeViewer  # noqa: E402
 from codebrowser_app import CodeBrowserApp, CodeBrowserScreen  # noqa: E402
+from file_search import FileSearchWidget  # noqa: E402
 from file_tree import (  # noqa: E402
     ProjectFileTree,
     RecentFileItem,
@@ -215,11 +226,18 @@ class CodeBrowserStartupFocusTest(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(
                         resolved,
                         f"the codebrowser screen would auto-focus {resolved!r}; "
-                        "in the non-git branch the first focusable widget is "
-                        "#file_search_input")
+                        "the startup anchor must come from "
+                        "`_claim_startup_focus`, not from whichever widget "
+                        "happens to be first in the DOM")
 
     async def test_the_search_input_never_holds_focus_during_boot(self):
-        """`#file_search_input` must not own the keyboard at ANY point."""
+        """`#file_search_input` must not own the keyboard at ANY point.
+
+        Since t1500 the **git** leg carries this contract on its own: the
+        non-git branch no longer mounts the box, so its leg passes by
+        construction. It is still iterated — the day that branch mounts a text
+        Input again, this is one of the tests that must see it.
+        """
         for label, tree in self._branches():
             with self.subTest(branch=label):
                 async with self._booted(tree, settle=0) as (app, pilot):
@@ -269,14 +287,24 @@ class CodeBrowserStartupFocusTest(unittest.IsolatedAsyncioTestCase):
         Without this, a future change that restores a focusable sidebar widget
         here would leave the sibling tests passing for a different reason than
         the one they document.
+
+        The search input is asserted **absent** (t1500). It used to be mounted
+        — which is exactly what made it the first focusable widget and gave
+        t1495 its defect — but it could never work in this branch: its file
+        list is seeded from the tree that does not exist here, and opening a
+        hit resolves against a `_project_root` that is `None`. `compose()` now
+        skips it, which is what leaves the code viewer as the sole focus
+        target.
         """
         async with self._booted(self.nogit_tree) as (app, _pilot):
             self.assertEqual(len(app.query(RecentFilesList)), 0)
             self.assertEqual(len(app.query(ProjectFileTree)), 0)
             self.assertEqual(
-                len(app.query("#file_search_input")), 1,
-                "the search input is still mounted here — that is what made "
-                "it the first focusable widget")
+                len(app.query("#file_search_input")), 0,
+                "the search input is mounted in the non-git branch again — it "
+                "is inert here (no tracked-file source, no project root) and "
+                "unreachable by Tab, so mounting it only re-creates the "
+                "dead-end t1500 removed")
 
     # --- the Tab cycle, which differs per branch ----------------------------
 
@@ -316,19 +344,22 @@ class CodeBrowserStartupFocusTest(unittest.IsolatedAsyncioTestCase):
                 "Escape did not clear a non-empty search box")
 
     async def test_tab_is_a_self_loop_without_a_sidebar(self):
-        """Records the cycle this branch actually has, rather than assuming.
+        """The cycle degenerates to one widget here — and that is correct.
 
         `action_toggle_focus` falls through to `_focus_recent_or_tree(None,
         None, code_viewer)` when neither sidebar target is mounted, which
-        re-focuses the code viewer. `#file_search_input` is therefore
-        unreachable by Tab here.
+        re-focuses the code viewer.
 
-        That dead-end pre-dates t1495 — Tabbing away from the Input already
-        stranded it — and the box is inert in this branch anyway: `on_mount`
-        seeds it inside a `try` that queries `#file_tree` first, so the query
-        raises and the file list stays empty. Both are recorded as upstream
-        defects rather than repaired here; this test pins the status quo so a
-        later repair has to update it deliberately.
+        Until t1500 that was a **dead-end**, not a degenerate cycle: the
+        (inert, unseedable) `#file_search_input` was mounted alongside the
+        viewer and Tab could not reach it. t1500 stopped mounting it, so the
+        viewer is now genuinely the only focus target and looping back to it is
+        the right answer — which is why the fix is `compose()` and not the
+        focus cycle. `_focus_recent_or_tree` and `action_toggle_focus` are
+        deliberately unchanged.
+
+        The second assertion is what keeps the first honest: a self-loop is
+        only correct while nothing else is mounted to reach.
         """
         async with self._booted(self.nogit_tree) as (app, pilot):
             self.assertIsInstance(app.screen.focused, CodeViewer)
@@ -337,10 +368,82 @@ class CodeBrowserStartupFocusTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(
                 app.screen.focused, CodeViewer,
                 f"Tab reached {self._name(app.screen.focused)} — the non-git "
-                "focus cycle changed; update this pin and the upstream-defect "
-                "note that goes with it")
-            self.assertFalse(
-                app.query_one("#file_search_input", Input).has_focus)
+                "focus cycle changed; update this pin and the note that goes "
+                "with it")
+            reachable = [w for w in app.screen.query("*")
+                         if w.can_focus and w.display]
+            self.assertEqual(
+                [self._name(w) for w in reachable], [self._name(app.screen.focused)],
+                "another focusable widget is mounted in the non-git branch, so "
+                "the self-loop is a dead-end again rather than a degenerate "
+                "cycle — give the cycle a target or stop mounting the widget")
+
+    # --- the fuzzy-search index ---------------------------------------------
+    #
+    # `_seed_search_index` has TWO callers — `on_mount` and the
+    # `TrackedFilesRefreshed` handler — so it gets two pins. One covering only
+    # boot would let a mistaken event delegation, or a refresh that leaves
+    # `_all_files` stale, pass every other assertion in this module (t1500).
+
+    #: What `git ls-files` reports for a freshly built git fixture. The recent-
+    #: files history `_build_tree` writes afterwards is never `git add`ed, so it
+    #: is deliberately absent.
+    FIXTURE_TRACKED = ["src/alpha.py", "src/beta.py"]
+
+    async def test_the_git_branch_seeds_the_search_index_at_boot(self):
+        """`on_mount` feeds the fuzzy box the tree's git-tracked file list.
+
+        The exact list, not "non-empty": seeding it from the wrong source (the
+        recent-files history, say, or an unfiltered directory walk) would
+        satisfy a truthiness check while breaking the feature.
+
+        Only the git branch is asserted. The non-git branch mounts no
+        `FileSearchWidget` at all (t1500) — that absence is pinned by
+        `test_the_non_git_branch_mounts_no_sidebar_focus_target`, and there is
+        no index there to have an opinion about.
+        """
+        async with self._booted(self.git_tree) as (app, _pilot):
+            search = app.query_one("#file_search", FileSearchWidget)
+            self.assertEqual(
+                search._all_files, self.FIXTURE_TRACKED,
+                "the search index was not seeded from the tree's tracked files")
+
+    async def test_a_tracked_file_refresh_reseeds_the_search_index(self):
+        """A refresh reaches the index — driven through the REAL producer.
+
+        `refresh_tracked_files()` is what re-runs `git ls-files` and posts
+        `TrackedFilesRefreshed`; hand-posting the message instead would test the
+        handler while leaving the wiring between them unproven.
+
+        `git ls-files` reports staged paths, so `git add` alone moves the
+        tracked set — no commit needed.
+
+        **Its own fixture tree.** This test mutates the repository, and
+        `cls.git_tree` is class-scoped and shared with every other test here.
+        """
+        tmp = tempfile.TemporaryDirectory(prefix="aitask_t1500_refresh_")
+        self.addCleanup(tmp.cleanup)
+        tree = _build_tree(Path(tmp.name).resolve() / "with_git", want_git=True)
+
+        async with self._booted(tree) as (app, pilot):
+            search = app.query_one("#file_search", FileSearchWidget)
+            # Precondition, so the post-refresh assertion below is a real
+            # transition rather than a list that happened to contain gamma.
+            self.assertEqual(
+                search._all_files, self.FIXTURE_TRACKED,
+                "precondition failed: the boot seeding did not run")
+
+            (tree / "src" / "gamma.py").write_text(
+                "def gamma():\n    return 3\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(tree), "add", "src/gamma.py"],
+                           check=True, capture_output=True)
+
+            app.query_one("#file_tree", ProjectFileTree).refresh_tracked_files()
+            await self._settle(pilot)
+
+            self.assertEqual(
+                search._all_files, [*self.FIXTURE_TRACKED, "src/gamma.py"],
+                "the tracked-file refresh never reached the search index")
 
     # --- the claim must not displace an explicit focus request --------------
 
