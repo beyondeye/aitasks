@@ -15,13 +15,6 @@ anchor: 1210
 followup_kind: manual_verification
 created_at: 2026-08-13 23:57
 updated_at: 2026-08-14 00:07
-attachments:
-  - hash: sha256:4cfa69a4eda1854cc3e779656ebcce47a32492c460d8de1a30221587f672c687
-    name: attach_payload.txt
-    mime: text/plain
-    size: 50
-    added_at: 2026-08-14 00:07
-    backend: local
 ---
 
 ## Manual Verification Task
