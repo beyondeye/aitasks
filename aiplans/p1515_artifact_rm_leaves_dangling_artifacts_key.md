@@ -277,3 +277,60 @@ Step 9 (Post-Implementation) handles cleanup, merge to `main`, and archival.
 - timing: pre-phase | name: neighbour_key_control | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — emptied-block sweep extent | desc: guard test pinning that a top-level key following the emptied block survives the sweep
 - timing: post-phase | name: attach_suite_sweep | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — shared helper also changes `ait attach rm` | desc: run the attach/artifact/fold suites as a group and diagnose any failure naming `attachments:`
 - timing: post-phase | name: acceptance_crosscheck | type: chore | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — fix lands below where the task points | desc: map t1515's suggested fix and t1285's three acceptance criteria onto the delivered tests
+
+## Final Implementation Notes
+
+- **Actual work done:** `cmd_remove` in `.aitask-scripts/lib/frontmatter_patch.py`
+  now re-derives the field's block after deleting the matched item and, when no
+  items remain, deletes the `<field>:` header (and the rest of the block's
+  extent) before `bump_updated_at`. Module docstring updated to state the
+  contract. Regression coverage added at two levels: `tests/test_attach_meta.sh`
+  (true byte-for-byte append→remove round trip with `--now` pinned to the
+  fixture's own `updated_at`, a sibling-survives negative control, and the
+  neighbour-key tripwire) and `tests/test_artifact_cli.sh` (new fixture task
+  `t11_roundtrip` + subsection F11: create→rm asserts no `artifacts:` line, the
+  file restored modulo `updated_at`, the key *absent* as
+  `task_yaml.parse_frontmatter` sees it, and a clean `git status`). t1285 was
+  folded in first (`folded_tasks: [1285]`).
+- **Deviations from plan:**
+  1. **Change 4 (repair two live residue files) was dropped — its premise was
+     false.** The plan named `aitasks/t635_gates_framework.md:9` and
+     `aitasks/t1159_shadow_review_loop_automation.md:15` as carrying dangling
+     keys. That came from `grep -rn '^artifacts:$' aitasks/`, which matches the
+     header line of *every* block-style list, not only an empty one — both files
+     have real artifact entries directly beneath. A parser-level scan
+     (`task_yaml.parse_frontmatter`, checking `meta[key] is None`) over all 925
+     active and archived task/plan files found **zero** dangling `artifacts:` or
+     `attachments:` keys. Nothing needed repairing, so nothing was touched. The
+     lesson generalizes: a line-shape grep cannot distinguish an empty block
+     from a populated one — only the parser can.
+  2. Fixed in the shared helper `lib/frontmatter_patch.py` rather than in
+     `aitask_artifact.sh` as both task texts suggested; the caller only
+     delegates the frontmatter edit. This also repairs `ait attach rm`
+     (`aitask_attach.sh:356`), which had the identical residue.
+  3. The Step-6 checkpoint prompt was not re-issued: the `ExitPlanMode`
+     approval immediately preceding it was the same question.
+- **Issues encountered:** None during implementation. The plan's original
+  negative-control wording ("only those two assertions fail") was corrected
+  during review — five assertions read the fixed branch, and the executed
+  negative control confirmed exactly those five fail (2 in `test_attach_meta.sh`,
+  3 in `test_artifact_cli.sh`) with every control still passing.
+- **Key decisions:**
+  - Byte-for-byte equality is asserted at the unit level, where `--now` can be
+    pinned to the fixture's own stamp; at the CLI level the comparison is modulo
+    `updated_at`, which `create`/`rm` necessarily bump.
+  - When the block empties, the whole remaining extent is deleted, not just the
+    header. `block_extent` stops at the next top-level key, so this can never
+    reach an unrelated field; the `neighbour_key_control` guard pins that.
+  - Inline-flow `artifacts: []` is untouched: it has no items, so `cmd_remove`
+    still dies with "no item" before the new branch.
+- **Build verification:** 8/8 bash suites in the canonical list pass
+  (`test_attach_meta` 50/50, `test_artifact_cli` 87/87, `test_attach_local_backend`
+  41/41, `test_attach_scaffold` 39/39, `test_attach_fold_rebind` 20/20,
+  `test_attach_task_delete_decref` 45/45, `test_artifact_fold_transfer` 10/10,
+  `test_artifact_share_resolution` 61/61);
+  `bash tests/run_all_python_tests.sh --test-dir tests` →
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`. `shellcheck` on the two edited
+  test files reports only the 3 pre-existing SC1091 info findings on untouched
+  header lines.
+- **Upstream defects identified:** None.
