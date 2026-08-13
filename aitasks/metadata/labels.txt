@@ -97,6 +97,7 @@ robustness
 sanboxing
 script-performance
 shadow
+shadow-concern
 shell
 shortcuts
 skill_optiomizations
