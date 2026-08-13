@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [artifacts, task_metadata]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -18,7 +18,8 @@ anchor: 1210
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-13 21:53
-updated_at: 2026-08-13 22:49
+updated_at: 2026-08-13 23:58
+completed_at: 2026-08-13 23:58
 ---
 
 ## Origin
@@ -51,7 +52,8 @@ ait artifact rm 1505_1 art:trail-t1505-1-livecheck
 frontmatter was left as:
 
 ```yaml
-updated_at: 2026-08-13 16:04
+updated_at: 2026-08-13 23:58
+completed_at: 2026-08-13 23:58
 artifacts:
 ---
 ```
@@ -127,3 +129,14 @@ The following existing tasks have been folded into this task. Their requirements
 - **t1285** (`t1285_artifact_rm_leaves_empty_artifacts_key.md`)
 
 > **✅ gate:review_approved** run=2026-08-13T20:47:37Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-13T20:58:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:542b0123f23355c8
+
+> **✅ gate:risk_evaluated** run=2026-08-13T20:58:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1515/risk_evaluated_2026-08-13T20:58:02Z-risk_evaluated-a1.log`
