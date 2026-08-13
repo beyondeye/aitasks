@@ -116,6 +116,31 @@ it does not, and the phase remains advisory-only throughout.
       `pane_pid` is already on `TmuxPaneInfo` (`monitor_core.py:805`), so no
       launch-site changes are needed and manually-started panes are covered too.
 
+   **Caching is asymmetric (review finding, blocking).** A first draft cached the
+   resolution — including a miss — under one `(pane_pid, current_command)` key.
+   That is wrong for exactly the shape rung 2 exists to serve: the wrapper spawns
+   its child **asynchronously**, so a tick landing between the pane's `exec` and
+   the child's sees no children at all, and a pinned `""` would hold the pane at
+   ledger-only for its entire lifetime — silently defeating the Codex outcome.
+   (This file's own `_Tree` test fixture has to *poll* for the child to appear,
+   which is direct evidence the window is real.) So: a **positive** answer is
+   cached for the pane's life (a process does not become a different agent); a
+   **negative** one is provisional and retried on the escalating-then-terminal
+   backoff `TaskInfoCache._MISS_RETRY_SCHEDULE` already establishes. The terminal
+   step repeats forever for that pattern's own stated reason — a budget that
+   stops would permanently poison an entry whose miss outlived it.
+
+   **Cache identity is `(pane_id, pane_pid, current_command)`** (review finding).
+   pid+command alone is not enough: the OS recycles pids, and the recycled
+   process is very often the *same command* — `node` is both the commonest thing
+   to find at a reused pid and exactly the command that reaches rung 2 — so a
+   brand-new pane would inherit a dead pane's `codex` answer and be scoped to
+   the wrong agent, with no child check to correct it. Residual, accepted and
+   stated: entries for dead panes are not actively evicted (the cache is bounded
+   by size, not pane liveness) because nothing in this module observes pane
+   teardown; eviction on discovery-exit belongs to the monitor and is the
+   durable version of this fix.
+
    Bounded deliberately at **one** level: deeper descent starts matching
    grandchildren an agent merely *spawned* (`codex-code-mode-host` is already at
    depth 2), which would resolve a pane to whatever it happens to be running.
@@ -659,6 +684,25 @@ from the value that actually scoped the match.
 Run `bash tests/run_all_python_tests.sh` (**last line only**), each new/edited
 bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
 
+**As built** (the numbered specs below are the design; this is where they
+landed):
+
+| spec | file |
+|---|---|
+| 5.1 characterization + cross-agent controls + new patterns | `tests/test_prompt_detection.py` (20 checks) |
+| 5.1b per-call-site coverage | `tests/test_monitor_finalize_offload.py::AgentScopingCallSiteTests` (7) |
+| 5.2 Tier A per agent, resolution/render matrix | `tests/test_workflow_phase.py` (34) |
+| 5.3 drift guards + wired/anchored/stray | `tests/test_workflow_phase_prompt_drift.sh` (17) |
+| 5.4 loop predicate split, per-agent boundary | `tests/test_review_loop.py` (59) |
+| 5.5 refusal retarget + fixture provenance | `tests/test_minimonitor_concern_action.py` (137) |
+| 5.6 unrecognized-rendering degradation | `tests/test_prompt_detection.py` |
+| 5.7 per-agent CLI surface | `tests/test_gate_workflow_phase.sh` (33) |
+| 5.8 layering / standalone CLI / one mapper | `tests/test_workflow_phase_standalone.sh` (12) |
+| 5.9b resolution ladder, real process trees | `tests/test_agent_keys.py` (12) |
+| 5.10 applink frame provenance | `tests/test_applink_pane_status_provenance.py` (5) |
+| post-phase `prove_scoping_live` | `tests/test_prompt_scoping_live.py` (4) |
+| renderer fixture retarget | `tests/test_minimonitor_gate_phase_row.py` (37) |
+
 1. **`tests/test_prompt_detection.py`** — the pre-phase characterizations, plus:
    the **cross-agent negative control** (a `codex_yes_proceed` body on a pane
    with `current_command="claude"` must NOT report a codex kind — this fails
@@ -760,9 +804,14 @@ bash test individually, and `shellcheck .aitask-scripts/aitask_*.sh`.
    - a missing `pgrep`, a non-zero exit, and a timeout each return `""` — driven
      by pointing the helper at a `PATH` without `pgrep`, not by mocking, so the
      real failure path is exercised;
-   - the cache calls the subprocess **once** per `pane_pid` across repeated
-     calls (assert a call counter, since a per-tick subprocess is the cost this
-     design exists to avoid);
+   - a POSITIVE result calls the subprocess **once** per `pane_pid` across
+     repeated calls (assert a call counter, since a per-tick subprocess is the
+     cost this design exists to avoid);
+   - a NEGATIVE result is retried: first lookup empty, child appears, next
+     lookup after the backoff resolves `codex` — driven by an injected clock,
+     never a sleep. Plus the rate bound (a genuinely agent-less pane must not
+     run a subprocess every tick) and the terminal-retries-forever case.
+     Verified to FAIL against the pre-review one-cache build;
    - depth is bounded: a grandchild named `codex` under a non-agent child does
      **not** resolve (the `codex-code-mode-host` shape).
 10. **Provenance is actually exposed** — one assertion per §4b consumer, on the
@@ -1033,3 +1082,96 @@ than risk.
 - timing: pre-phase | name: inventory_prompt_surfaces_live | type: test | priority: high | effort: medium | inline_risk: medium | added_complexity: low | addresses: goal-achievement — whether a structural question-block boundary and a phase-bearing native dialog exist at all for Codex/OpenCode; code-health — geometrically wrong regexes and the OpenCode localization blast radius | desc: Enumerate candidate markers statically from the shipped codex binary and the opencode i18n bundle (including ≥2 non-English locales), then drive each CLI in an isolated tmux fixture through its approval / live-question / answered-question / idle states, capturing via the monitor's own capture-pane + strip_ansi path and recording line, distance above bottom, strip survival, disjointness from existing patterns, and boundary existence — before any pattern is authored.
 - timing: pre-phase | name: characterize_classify_content | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — per-agent scoping moving awaiting_input_kind across the badges, pane ordering, the applink wire and the review-loop latch | desc: Pin today's (awaiting_input, awaiting_input_kind) for every existing pattern across current_command in {claude, codex, opencode, node, ""} plus the prompt_patterns=[] disable path and the category gate, run green against unmodified monitor_core.py, and table the intended flips before making the change.
 - timing: post-phase | name: prove_scoping_live | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — one of the five classify_content call sites missing the agent= thread while unit tests stay green | desc: In a real tmux session with a Claude pane and a Codex pane, put each agent's prompt text on the other's pane and confirm from a captured monitor render that neither reports the foreign kind while each still reports its own.
+
+## Final Implementation Notes
+
+- **Actual work done:** New stdlib-only `lib/agent_keys.py` owns the canonical
+  pane→agent mapping (`AGENT_KEYS`, pure `agent_key_from_command`, two-rung
+  `agent_key_from_pane`); `workflow_phase` and `monitor/prompt_patterns` both
+  re-export it, so there is one mapper and the `monitor → lib` direction is
+  preserved. `classify_content` / `_classify_one` take an `agent=` and match
+  through the new subtractive `scope_patterns`; all five call sites thread it,
+  and `ClassifyResult` / `PaneSnapshot` carry `agent_key` + `scoped`. Four
+  measured patterns added (`codex_question`, `codex_permission`,
+  `opencode_question`, `opencode_permission`). `current_question_block` became
+  per-agent — a regex table for Claude's `☐` chip and Codex's `Question N/M`
+  header, plus a scan strategy for OpenCode's `┃`-gutter block — and
+  `phase_from_screen` / `compose` thread the agent through.
+  `QUESTION_WIDGET_KINDS` filled for both agents; `NATIVE_KIND_PHASE`
+  deliberately left empty for both. `PhaseSignal` gained a `resolution`
+  vocabulary field, on the wire and in both renderers as an orthogonal suffix.
+  Provenance is consumed by four paths (phase, UI wording, review loop, applink).
+  The review-loop arming gate was split onto `review_loop_agent_supported` /
+  `REVIEW_LOOP_AGENTS` so the injecting loop stays Claude-only. Docs rewritten
+  in `shadow_agent.md` and `monitor_idle_and_prompt_detection.md`.
+
+- **Deviations from plan:** Four, all forced by measurement or by review, and
+  all recorded in place above rather than left implicit.
+  1. **The static inventory pass was almost worthless, and that is a finding.**
+     Codex stores literals as split 8-byte instruction immediates, so
+     `grep -c "Yes, proceed"` returns 0 on a binary that contains it — a naive
+     read would have concluded the existing `codex_yes_proceed` pattern was
+     dead. OpenCode's one contiguous i18n bundle turned out to belong to its
+     desktop UI, not the TUI. Only the live pass could size either agent.
+  2. **Agent identity was the real blocker, and it was invisible until measured.**
+     A wrapper-style Codex install makes the pane report `node`, so every
+     per-agent table would have shipped wired-but-dormant for Codex. This forced
+     the two-rung resolution ladder into scope (user-decided) and the
+     `@aitask_agent` stamp out to a follow-up. It also corrected a wrong premise
+     in this plan's own §7: the `node` panes are **Codex** shadows, not Claude
+     ones.
+  3. **Tier B is empty for both agents by measurement.** Neither CLI has an
+     `ExitPlanMode` analogue. "Comparable to Claude" therefore means Tier A +
+     ledger, not Tier B — stated in the availability table rather than implied
+     away.
+  4. **The `_UNKNOWN_TEXT` cause for resolution was designed, reviewed, and
+     rejected.** `_phase_body` consults that table only when the phase is
+     UNKNOWN, so a task with ledger history would have rendered a confident
+     `IMPLEMENT ⏸` — with the ⏸ supplied by an unscoped match —
+     indistinguishable from a resolved pane. Replaced by an independent
+     `resolution` field rendered as a suffix in both branches.
+
+- **Issues encountered:**
+  - **The per-call-site probe found two genuinely uncovered sites.** After the
+    first pass, neutralising `agent=` at `refresh_shadow_snapshot` or
+    `capture_pane_classified_async` left every test green. Both now have their
+    own case, and all five sites were re-verified individually by mutation.
+    This is exactly the failure mode §5.1b was written for, and a unit test of
+    `classify_content` could never have caught it.
+  - **A live-fixture race masqueraded as a scoping bug.** tmux runs a
+    space-containing command through `sh -c`, so `pane_current_command` is `sh`
+    for the first moments; the first test in the class read `sh` and later ones
+    read `claude`, producing an order-dependent failure. The fixture now waits
+    for the commands to settle, not merely for the panes to exist.
+  - **Two test fixtures built `SimpleNamespace` snapshots without the new
+    fields**, which surfaced as `AttributeError` rather than a wrong value.
+    Fixed in the fixtures (deriving `agent_key` from the command) rather than by
+    making production code `getattr`-defensive, which would have hidden a real
+    missing-field bug.
+  - **Review caught a blocking cache defect after the suite was already green.**
+    Negative resolutions were cached like positive ones, so a monitor tick that
+    landed before the Codex wrapper's child existed would have pinned that pane
+    to ledger-only forever — the Codex outcome silently lost, with every test
+    passing. Fixed by splitting the caches and adopting `TaskInfoCache`'s
+    escalating-then-terminal retry schedule. The regression tests were confirmed
+    to fail against the pre-fix code by reverting it, not by assuming.
+  - **A second review round found the cache key too weak.** `(pane_pid,
+    current_command)` lets a recycled pid running the same command inherit a
+    dead pane's agent. `pane_id` is now part of the identity; the regression
+    test was confirmed to fail against the two-part key. Raised as a follow-up
+    but fixed in place — the cache is this task's own, and `pane_id` was already
+    available at all five call sites.
+  - **The shell degrade line in `aitask_gate.sh` silently drifted** from
+    `workflow_phase.UNKNOWN_LINE` when the wire format gained `RESOLUTION`.
+    `parse_signal` is total, so nothing failed. Now equal-pinned by a guard.
+
+- **Key decisions:** The mapper lives in `lib/`, not `monitor/` — the layering is
+  one-way and `workflow_phase.py` must stay a standalone CLI. Scoping is
+  subtractive, so an unresolved pane loses no detection. Resolution provenance
+  is a first-class field consumed by four paths, not a struct member nobody
+  reads. The child-descent is bounded at one level because Codex already runs
+  `codex-code-mode-host` at depth 2. Phase availability was deliberately
+  decoupled from review-loop arming: the first is advisory, the second injects.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:2468 — the shadow-side arm gate resolves agent_key_from_command(shadow_command) with the one-rung mapper, so a Codex shadow (which reports `node`) never resolves and SHADOW_READY_DETECTORS always misses for it; the same applies at :2554. Root cause is agent identity, not detector coverage — t1509's territory, noted in this task's Coordination section.`
