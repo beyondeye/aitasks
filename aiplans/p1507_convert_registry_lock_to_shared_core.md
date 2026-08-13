@@ -428,3 +428,95 @@ Step 9 (Post-Implementation) handles merge and archival.
 ### Planned mitigations
 - timing: pre-phase | name: characterize_timeout_and_silence | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "adapter fan-out across five consumers" + "stderr surface widens" and goal-achievement "timeout→retry-budget mapping" | desc: pin the current whole-second-quantized deadline behavior (measured from a tick boundary, lower bound only — an upper bound is scheduling-decided, so the re-arm behavior it proxied for is pinned separately by a clock-free shim test on the new code), the dead-holder steal, and the stderr silence of the busy path, as assertions that pass against HEAD before the rewrite and must pass identically after
 - timing: post-phase | name: guard_wedge_recovery | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "leaked .gc guard wedges the lock with no auto-recovery" | desc: test that a leaked guard makes acquire fail closed without reclaiming, add the registry_lock_describe passthrough, and document the manual `rm <lock>.gc` recovery in the lib header and shell_conventions.md
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned four files, no consumer script
+  changes (the API is unchanged). `.aitask-scripts/lib/registry_lock.sh` 88 →
+  144 lines, now delegating to `stale_lock_acquire` / `stale_lock_release` with
+  a deadline loop that converts the API's seconds into the core's retry budget,
+  re-arming from the *remaining* time each pass; `registry_lock_describe` added
+  as a `stale_lock_describe` passthrough. `tests/test_registry_lock.sh` 15 → 51
+  assertions. `tests/test_registry_lock_single_winner.sh` added (15
+  assertions). `aidocs/framework/shell_conventions.md`: the "consolidation onto
+  this core is a planned follow-up" sentence replaced by an adapter bullet
+  documenting the three boundary deltas, the caller-chosen fixed lock paths, the
+  five consumer families, and the wedged-`.gc` manual recovery.
+
+  **Pre-phase (`characterize_timeout_and_silence`) executed as specified.** The
+  three characterization assertions were written first and run against the
+  *unmodified* lib: 19/19 green. They were then re-run against the adapter:
+  19/19, identical. HEAD-greenness was re-verified after the fixture fix below
+  by extracting `git show HEAD:.aitask-scripts/lib/registry_lock.sh` (confirmed
+  the old implementation: 88 lines, `mv "$dir"` at :55, zero `stale_lock`
+  references) into an isolated tree with copies of the test, asserts,
+  `terminal_compat.sh` and `stale_lock.sh` — 19/19 there too. The deadline
+  assertion was additionally probed for discrimination: forcing `timeout=0`
+  against a live holder yields `elapsed=0` and the assertion FAILS, so it is not
+  one of the vacuous checks the plan warns about.
+
+  **Post-phase (`guard_wedge_recovery`) executed as specified**: case 9 pins the
+  leaked-guard fail-closed behavior (returns 1, no reclaim, both dirs intact)
+  and asserts `registry_lock_describe` names the lock dir, the holder pid and
+  the guard; the manual `rm <lock_dir>.gc` cure is documented in the lib header
+  and in `shell_conventions.md`.
+
+- **Deviations from plan:** None in scope. One clarification: the plan listed
+  the structural "re-published live lock is never displaced" case and the forced
+  interleaving as separate cases; the structural one is largely subsumed by the
+  interleaving case, but it was implemented anyway (case 9b) since it costs ~15
+  lines and can genuinely fail (it would catch a reclaim under a held guard or a
+  displaced live holder). Both are present.
+
+- **Issues encountered:** The converted suite appeared to hang — 2 m 4 s wall
+  time with 0.2 s of CPU. Tracing with `PS4='+ $EPOCHREALTIME '` located a 60.0 s
+  gap immediately after `kill 879056` / `wait 879056` in **case 3, pre-existing
+  and unmodified since t1073**. See the upstream-defect bullet below. After the
+  fixture fix the suite runs in ~4 s (11 s with all new cases).
+
+- **Key decisions:**
+  - *Timeout mapping.* The deadline loop re-arms from the remaining time rather
+    than calling the core once with `timeout × 20` retries. A burst of
+    dead-holder reclaims consumes the core's budget **without sleeping**, so a
+    single call could exhaust long before the deadline and report busy early —
+    the one thing this API's timeout promises not to do. A floor of 2 retries
+    preserves the old `continue`-after-steal behavior for zero/short timeouts.
+  - *`if` blocks, not `(( … )) && x=y`.* Every caller is `set -euo pipefail`; a
+    false `(( … ))` at statement level returns 1 and would abort the caller
+    mid-flow. The old code used `if` for exactly this reason and the adapter
+    matches it.
+  - *Release still returns 0.* Propagating `stale_lock_release`'s retention
+    failure would abort five `set -e` consumers *after* their protected mutation
+    had already committed. Retention is surfaced as a `warn` instead; case 14
+    pins the contract.
+  - *No exhaustion warn in the adapter.* `aitask_shadow_rejected.sh` and
+    `aitask_agent_marks.sh` both pin an exact `LOCK_BUSY` on `2>&1`-captured
+    output, so the busy path must stay silent on stderr. Case 6 asserts it
+    rather than leaving it to inspection. This is why the wedge hint is exposed
+    as `registry_lock_describe` (opt-in, caller-invoked) instead of being warned
+    automatically.
+  - *Negative control for the race pin.* Case 11 reproduces the pre-conversion
+    acquire body in the fixture with a park hook at the same seam and asserts
+    the old algorithm **loses** a re-published live lock (`owner == "a-old-token"`
+    exactly — not `!= "b-fresh-token"`, which an A that never acquired would
+    satisfy vacuously through a missing file). It passes, so case 10
+    discriminates.
+
+- **Upstream defects identified:**
+  - `tests/test_registry_lock.sh:58-64 (pre-fix) — dead-PID fixture built as
+    `sleep 60 & kill $!; wait $!` races bash's fork→exec window: a signal sent
+    microseconds after `&` is lost, and the `wait` (load-bearing — only reaping
+    makes the PID answer `kill -0` with failure; a zombie still answers
+    success) then blocks for the child's full 60 s. Pre-existing since t1073 and
+    passing only by scheduling luck; fixed here to `bash -c 'echo $$'` because
+    this task adds a second instance of the same construction. The same
+    `sleep N & kill $!` shape near a `wait` is worth sweeping for elsewhere in
+    `tests/`.
+
+- **Verification:** `test_registry_lock` 51/51; `test_registry_lock_single_winner`
+  15/15; `test_stale_lock`, `test_gate_lock_single_winner`,
+  `test_agent_marks_concurrency` PASSED; `test_shadow_rejected` 130/130;
+  `test_attach_local_backend` 41/41; `test_archive_shadow_prune` 26/26;
+  `test_projects_cmd` 42/42; `test_artifact_cli` 82/82; `test_attach_meta`
+  42/42; `test_gates_sync_registry` 93/93; `shellcheck` clean (SC1091
+  source-following info only, as elsewhere in the tree).
