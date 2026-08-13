@@ -59,3 +59,5 @@ t1017 (folded into t1159): shadow reviews surface secondary concerns that either
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-13T09:32:17Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-13T10:37:27Z status=pass attempt=1 type=human
