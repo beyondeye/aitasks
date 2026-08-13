@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 followup_kind: risk_mitigation
 created_at: 2026-08-13 11:57
-updated_at: 2026-08-13 11:57
+updated_at: 2026-08-13 12:51
 ---
 
 ## Origin
