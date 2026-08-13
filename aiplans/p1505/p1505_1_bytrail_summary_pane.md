@@ -7,50 +7,141 @@ Worktree: (current branch — profile 'fast')
 Branch: (current branch)
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-08-13 14:37
 ---
 
 # p1505_1 — By-Trail summary pane
 
 Adds a fixed-height pane at the bottom of the By-Trail view showing the trail's
 free-form summary, plus a key that expands it into a modal. Riskiest surface of
-t1505 and deliberately sequenced first; no dependency (t1468_5 does not touch
-`aitask_board.py`).
+t1505 and deliberately sequenced first.
 
-## Pre-phase (risk mitigations)
+## Context
 
-### characterize_board_compose_layout
+`/aitask-trail`'s prose rationale currently lives only inside `TrailDetailScreen`,
+one card at a time. The user's real question — "which task should I pick next, and
+why?" — is answered by the trail-*level* summary, which should be readable **while
+scanning the cards**, not behind a modal. This child adds that surface.
 
-Before mounting anything, pin the **composited** first row of the footer at a
-small terminal size with the board in By-Trail.
+It is sequenced first because it is the riskiest part of t1505: Textual layout work
+whose documented failure mode (t1278) is **invisible** to `display` / `visible`
+assertions.
 
-- Add to `tests/test_board_bytrail_view.py`, extending `ByTrailTestBase`.
-- Use a pilot run (`async with app.run_test(size=(80, 24))`) and assert against
-  what actually reaches the screen — a composited strip — not `widget.display` /
-  `widget.visible`.
-- Rationale, recorded in the board's own CSS at `aitask_board.py:7362` (t1278):
-  two same-edge docked siblings land at the **same offset**; one paints over the
-  other while both still report `display=True`, `visible=True` and a correct
-  region. That defect hid every `sub_title` write for the app's entire history.
-  A `display`/`visible` assertion cannot see it.
-- Run it **before** step 1 and confirm it passes against the unmodified board —
-  a characterization test that was never green on the old code pins nothing.
+## Verification pass (2026-08-13) — corrections to the previous plan
 
-### label_trail_depth
+This plan was re-verified against the current `main` (`91a93e8b8`). What the earlier
+draft got right, and what it got wrong:
 
-Read `rendering_hints.depth` (written later by t1505_4) and surface it on the
-trail banner / selector row.
+**Confirmed sound (verified first-hand, not taken on trust):**
 
-- Absent hint → render **nothing**. Never default to "deep": every trail written
-  before t1505_4 has no hint, and defaulting would state a falsehood about them.
-- The banner is written by `_refresh_subtitle` (`aitask_board.py`), which is the
-  documented single writer for the subtitle — add it there, not at a new site.
+- Textual's `Footer` sets `dock: bottom; height: 1`, and `MultiRowFooter`
+  (`lib/multirow_footer.py:222`) overrides only `layout`/`height` — it never unsets
+  the dock. The "never dock the pane" constraint is real.
+- `#board_container` has **no** CSS rule of its own; it resolves to `height: 1fr`
+  from `ScrollableContainer`'s `DEFAULT_CSS`. A fixed-height flow sibling therefore
+  takes its rows and the columns keep the rest, exactly as assumed.
+- `v` is **not** bound at App level. The `v`/`u` keys belong to `TaskDetailScreen`
+  (`_shortcuts_scope = "board.detail"`) — at lines **5809** (`u`) and **5823** (`v`),
+  not 5819/5833.
+- `narrative` is `additionalProperties: false` with keys `problem_statement`,
+  `recommendation_summary`, `method_note`, `caveats`. There is **no `overview`** yet
+  (t1505_3 adds it), so the fallback is the only live path today.
+- `rendering_hints` is open (`additionalProperties: {string|number|boolean}`), and
+  `aitask_board.py` reads it **nowhere** — the depth label is entirely new work.
+- The render-level assertion helper the pre-phase needs **already exists**:
+  `_screen_rows(app)` at `tests/test_board_bytrail_view.py:101`, built on
+  `app.screen._compositor.render_strips(app.screen.size)`. Its docstring already
+  cites t1278. Do not invent a new idiom.
+
+**Corrections — the previous plan was wrong on these:**
+
+| Claim in the old plan | Reality |
+|---|---|
+| class `AitaskBoard` | **`KanbanApp`** (`:7253`). No `AitaskBoard` exists. |
+| board `DEFAULT_CSS` ~7290-7400 | the attribute is **`CSS`**, at **7263–7541** |
+| `compose()` ~7964 | **7954** |
+| `BINDINGS` ~7560-7655 | **7547–7643** |
+| t1278 comment at `:7362` | comment block **7347–7363** |
+| trail helper block 609-1020 | **609–1032** |
+| `TrailDetailScreen` ~3825 | **3815** |
+| `_trail_drift_text` ~3392 | **3382** |
+| `v`/`u` at 5819/5833 | **5823** / **5809** |
+| "t1468_5 does not edit `aitask_board.py`" | it **did** (import + `_followup_marker`). It has since **landed** (`b25bb4893`), so the tree is clean and this is no longer a constraint. |
+
+**New trap found in verification:** `VerticalScroll` also defaults to `height: 1fr`.
+The pane's explicit `height` is therefore **load-bearing, not cosmetic** — omit it
+and the pane silently splits the vertical space 50/50 with the columns instead of
+erroring.
+
+**Other anchors:** `check_action` `:7705` · `_refresh_subtitle` `:8106` ·
+`_trail_banner` `:8075` · `refresh_board` `:8258` (bytrail branch `:8311`) ·
+`_set_base_filter` `:8958` · `_render_bytrail` `:10160`.
 
 ## Implementation steps
 
+### Pre-phase (risk mitigations)
+
+1. **[characterize_board_compose_layout]** Before mounting anything, add a
+   characterization test to `tests/test_board_bytrail_view.py` that pins the
+   **composited** footer row and the `#board_container` geometry at a small terminal
+   size with the board in By-Trail.
+
+   - Extend `ByTrailTestBase` (`:83`) and drive the view with
+     `_enter_synthetic_bytrail` (`:167`) — it stubs `_start_trail_drift`, which also
+     avoids t1487's in-flight-worker teardown hazard.
+   - Assert with `_screen_rows(app)` (`:101`), **not** `widget.display` /
+     `widget.visible`. Rationale, recorded in the board's own CSS at
+     `aitask_board.py:7347-7363` (t1278): two same-edge docked siblings land at the
+     **same offset**; one paints over the other while both still report
+     `display=True`, `visible=True` and a correct region. That defect hid every
+     `sub_title` write for the app's entire history.
+   - Model it on the existing `BannerRenderTests`
+     (`tests/test_board_bytrail_view.py:2328`), whose
+     `test_header_row_costs_no_board_height_and_keeps_a_separator` (`:2520`) already
+     pins `#board_container.region == (0, 4)` at `size=(120, 20)`.
+   - **Run it before step 1 and confirm it passes against the unmodified board.** A
+     characterization test that was never green on the old code pins nothing.
+
+2. **[label_trail_depth]** Surface `rendering_hints.depth` on the By-Trail banner so
+   a lite artifact is never silently mistaken for a deep one.
+
+   - Write it in `_trail_banner` (`:8075`) / `_refresh_subtitle` (`:8106`) — the
+     documented single writer — not at a new site.
+   - **An absent hint renders nothing. Never default to "deep":** every trail written
+     before t1505_4 has no hint, and defaulting would state a falsehood about them.
+     Pin the absence *explicitly* — a missing label and a "deep" label must not be
+     conflated by a test that merely asserts "no crash".
+   - **Exact shed rule — additive-if-it-fits, today's ladder otherwise.**
+     `_trail_banner` is a four-rung width-budget shedder whose contract (t1278) is
+     that the *volatile* freshness marker is the last survivor. Its current ladder is
+     `full → elide title → drop title → marker alone`.
+
+     Do **not** thread `depth_note` through those rungs as an `owner_note` sibling.
+     That was the previous draft's instruction and it is wrong twice: it makes the
+     **title shed earlier than it does today** for every trail carrying a hint, and it
+     defines **no rung at which depth alone is dropped** — depth would survive to
+     rung 3 and then vanish in the same cliff that drops the title. Instead:
+
+     1. Compute `full_with_depth = f'By-Trail: "{title}"{suffix}{owner_note}{depth_note}'`.
+        If the measured budget admits it, return it.
+     2. Otherwise fall through to **today's ladder, unchanged and depth-free**.
+
+     Depth is then strictly additive: it renders only when there is room, it is the
+     first signal shed, and the freshness marker is still last.
+
+   - **Negative control (no-regression):** with `rendering_hints.depth` absent, the
+     banner must be **byte-identical to today's output at every width in the test's
+     ladder**. That is what proves the change cannot regress the 100% of existing
+     trails that carry no hint.
+   - Pin the exact transitions: wide → depth shown; one step narrower → depth absent
+     with title **and** marker intact; very narrow → marker alone.
+
 ### 1. Pure resolver
 
-In the `# --- Implementation trails ---` helper block (~`aitask_board.py:609`,
-next to `build_trail_lanes`, `trail_entry_refs`, `canonical_trail_ref`):
+In the `# --- Implementation trails (By-Trail view, t1210_4) ---` block
+(`aitask_board.py:609-1032`), next to `canonical_trail_ref` (`:704`),
+`build_trail_lanes` (`:719`) and `trail_entry_refs` (`:783`):
 
 ```python
 def trail_summary_text(doc) -> str:
@@ -63,32 +154,69 @@ def trail_summary_text(doc) -> str:
     frame."""
 ```
 
-Pure and import-testable: no widget, no app state. Whitespace-only is empty at
-every level.
+Pure and import-testable: no widget, no app state — matching the other helpers in
+that block. Whitespace-only counts as empty at **every** level (`doc`, `narrative`,
+each field).
 
 ### 2. `TrailSummaryPane`
 
-`VerticalScroll` (id `#trail_summary`) holding a `Static`. CSS in the board's
-`DEFAULT_CSS`:
+A `VerticalScroll` (id `#trail_summary`) holding a `Static`, yielded in
+`KanbanApp.compose()` (`:7954`) **after** `yield HorizontalScroll(id="board_container")`
+and **before** the `MultiRowFooter`. CSS goes in `KanbanApp.CSS` (`:7263-7541`),
+beside the other `#`-id rules:
 
 ```
 #trail_summary { height: 6; border-top: hkey $secondary-background; padding: 0 1; }
 ```
 
-**Never `dock: bottom`.** Textual's `Footer` sets it and `MultiRowFooter`
-overrides only `layout`/`height`, so the bottom edge is already claimed. As a
-flow child yielded in `compose()` (~`:7964`) after `#board_container` (no
-explicit height rule → `1fr`) and before the footer, the pane takes its fixed
-rows and the columns keep the rest.
+**Never `dock: bottom`** — the footer already claims that edge, and that is the exact
+t1278 collision the pre-phase guards. **The explicit `height` is mandatory:**
+`VerticalScroll` inherits `height: 1fr` from `ScrollableContainer`, so without it the
+pane and the columns split the space evenly.
 
-### 3. Visibility — one writer
+### 3. Visibility **and content** — one owner
 
-`display = (base_filter == "bytrail" and trail_summary_text(doc))`.
+Add a single helper and call it from **`_refresh_subtitle` (`:8106`)**, the documented
+single writer for By-Trail chrome:
 
-Drive it from the seam that already owns view state, mirroring the discipline
-`_refresh_subtitle` documents. View switch, trail reload, drift callback and
-trail selection must all converge on that one writer — **do not** set `display`
-from four call sites. Leaving By-Trail must restore the full-height column area.
+```python
+def _refresh_trail_summary(self) -> str:
+    """Single owner of the By-Trail summary pane.
+
+    Resolves the summary ONCE and writes content and visibility together,
+    returning the resolved text so the expand modal renders exactly what the
+    pane shows."""
+    text = ("" if self.base_filter != "bytrail"
+            else trail_summary_text(self._trail_doc))
+    # write Static content AND pane.display from this one value
+    return text
+```
+
+**Content and visibility must move together — this is the correctness core of the
+step, not a tidiness preference.** `self._trail_doc` is rewritten at **two** seams:
+
+| seam | line | trigger |
+|---|---|---|
+| `_activate_trail` | `:10309` | `s` — selecting a different trail |
+| `_on_trail_reload` | `:10372` | artifact reload / `R` version watch |
+
+Both already end with `self._refresh_subtitle()`. So if the pane's `display` were
+refreshed there while its `Static` content were written anywhere else (at `compose`
+time, or in `_render_bytrail`), **selecting trail B would repaint the banner while the
+pane kept showing trail A's summary** — or a blank frame. Routing both through one
+helper at the existing convergence point (12 call sites: view switches, drift
+callbacks, settings changes, resizes, and all four exits of `_render_bytrail`) closes
+that by construction rather than by discipline.
+
+`action_trail_summary_expand` must build `TrailSummaryScreen` from this helper's
+**return value** — never re-derive from `self._trail_doc` — so the modal and the pane
+cannot disagree.
+
+Extend `_refresh_subtitle`'s docstring: it now owns By-Trail chrome (subtitle **and**
+summary pane), not just the subtitle.
+
+**Leaving By-Trail must restore the full-height column area** — `display = False`
+whenever `base_filter != "bytrail"`, guaranteed by the same helper.
 
 ### 4. Expand key
 
@@ -96,42 +224,112 @@ from four call sites. Leaving By-Trail must restore the full-height column area.
 Binding("v", "trail_summary_expand", "Summary"),
 ```
 
-`v` is free at App level — the `v`/`u` bindings at `:5819`/`:5833` are
-`board.detail` scope (`TaskDetailScreen`). Resolve via `resolve_key("board", …)`
-like the other trail actions.
+into `KanbanApp.BINDINGS` (`:7547-7643`). `v` is free at App level (verified). Resolve
+through `resolve_key("board", …)` like the other trail actions
+(`aitask_board.py:8238`, `:9089`).
 
-- Gate in `check_action` to By-Trail with a non-empty summary.
-- **Re-check the same condition inside `action_trail_summary_expand`.** A binding
-  gate is not an action guard: the action stays reachable via the command
-  palette, a remap, or a race with a view switch.
+- Gate in `check_action` (`:7705`) to By-Trail with a non-empty summary, alongside the
+  existing `trail_*` gating at `:7798-7815`.
+- **Re-check the same condition inside `action_trail_summary_expand`.** A binding gate
+  is not an action guard: the action stays reachable via the command palette, a remap,
+  or a race with a view switch.
+- `show=True` with the short label `Summary`, per the footer convention in
+  `aidocs/framework/tui_conventions.md` ("TUI footer must surface every operation").
+  `MultiRowFooter` reflows, so there is no room argument for hiding it.
 - `TrailSummaryScreen(ModalScreen)`: full text in a `VerticalScroll`, `escape` to
-  close, modeled on `TrailDetailScreen` (`:3825`).
+  close, modeled on `TrailDetailScreen` (`:3815`) — own `DEFAULT_CSS`, a plain
+  `escape` binding, `Container` + `VerticalScroll` + `Static`, dismiss on button and
+  `action_cancel`. It declares **no** `_shortcuts_scope`, exactly like
+  `TrailDetailScreen`, so `lib/shortcut_scopes.py` needs no manifest edit.
+
+### Post-phase (risk mitigations)
+
+1. **[self_supplying_live_artifact]** The live-terminal check needs a *valid* trail,
+   and both stored handles are currently invalid — reproduced during verification:
+
+   ```
+   $ ./.aitask-scripts/aitask_trail_gather.sh drift --trail art:trail-shadow-review-loop
+   INVALID:$.schema_version|const|expected '1.1.0', got '1.0.0'
+   ERROR:invalid_trail:1
+   ```
+
+   That is **t1468_5's landed schema bump**, not a t1505 defect, and t1468_7 owns the
+   refresh. Do not block on it and do not record it as a regression. Instead,
+   self-supply: `aidocs/implementation_trail_examples/gate_framework.json` is already
+   at `1.1.0` and carries a 407-character `recommendation_summary` with **no**
+   `rendering_hints` — i.e. it exercises the fallback path *and* the absent-depth-hint
+   path. Register a copy as a local artifact and run the live check against that
+   handle.
 
 ## Verification
 
-- `bash tests/run_all_python_tests.sh --test-dir tests` — read only the **last**
-  line (`PYTHON SUITE: PASSED|FAILED (runner=…, exit=N)`); piping discards the
-  exit status, so use `set -o pipefail` or `${PIPESTATUS[0]}`.
-- Resolver: `overview` preferred; falls back to `recommendation_summary`; `""`
-  when both missing/blank; whitespace-only treated as empty.
-- Pane present in By-Trail; **absent** in `all` and `bytopic`; absent in By-Trail
-  when the summary is empty.
-- **Render-level:** the footer's first row is still composited and readable with
-  the pane mounted, at a small terminal size — the assertion the pre-phase pins.
-- Expand key opens the modal in By-Trail. **Negative control:** `v` in the `all`
-  view does nothing, and calling `action_trail_summary_expand` directly outside
-  By-Trail is a no-op.
-- Depth label: shown when `rendering_hints.depth` is present; **nothing** rendered
-  when absent (assert absence explicitly — a missing label and a "deep" label must
-  not be conflated).
-- Live check in a real terminal (not only `run_test`): enter By-Trail, confirm the
-  pane renders below the columns with the footer fully visible, and that leaving
-  the view restores the full column height.
+- `bash tests/run_all_python_tests.sh --test-dir tests` — read only the **last** line
+  (`PYTHON SUITE: PASSED|FAILED (runner=…, exit=N)`, on stderr). Piping discards the
+  exit status; use `set -o pipefail` or `${PIPESTATUS[0]}`.
+- **Resolver unit tests:** `overview` preferred over `recommendation_summary`;
+  fallback when `overview` is absent; `""` when both are missing; whitespace-only
+  treated as empty at each level.
+- **Pilot tests:** pane present in By-Trail; **absent** in `all` and `bytopic`; absent
+  in By-Trail when the summary is empty; and present-then-absent across a round trip
+  into `all` and back (the single-writer guarantee).
+- **Render-level:** the footer's first row is still composited and readable, and
+  `#board_container` still starts at y=4, with the pane mounted at a small terminal
+  size. This is the assertion the pre-phase pins — a `display`/`visible` check is
+  **not** a substitute.
+- **Trail switch / reload freshness (A→B) — the test that catches a stale pane.**
+  Presence-only assertions ("a pane exists", "`v` opens a modal") pass against a pane
+  still showing the previous trail, so they are not sufficient. Build two synthetic
+  docs with **distinct** summaries, then exercise *both* doc-rewrite seams:
+  - the switch path — `_activate_trail` (`:10309`) from A to B;
+  - the reload path — `_on_trail_reload` (`:10372`) delivering B's doc for the active
+    handle.
 
-**Trail artifact availability:** t1468_5's bump to schema `1.1.0` invalidates both
-stored artifacts until t1468_7 refreshes them. `ERROR:invalid_trail` on those
-handles is **expected**, not a defect of this child — use a fixture trail for the
-tests and a refreshed trail for the live check.
+  After each, assert the **composited** pane rows (`_screen_rows`) contain B's text
+  **and no longer contain A's**, and that opening the modal shows B's body — also free
+  of A's text. Assert the disappearance explicitly; a test that only checks for B's
+  presence passes on a pane rendering both.
+- **Fallback transition:** A carrying only `recommendation_summary` → B carrying
+  `overview`, asserting the pane switches to B's `overview` text (the resolver's
+  preference order observed end-to-end, not just in the unit test).
+- **Expand key:** `v` opens the modal in By-Trail. **Negative control:** `v` in the
+  `all` view does nothing, *and* `action_trail_summary_expand` called directly outside
+  By-Trail is a no-op (the action guard, not just the binding gate).
+- **Depth label:** rendered when `rendering_hints.depth` is present; **nothing**
+  rendered when absent — asserted explicitly. Plus the narrow-width test that the
+  depth note sheds before the freshness marker.
+- **Live check in a real terminal** (not only `run_test` — `Screen._update_auto_focus`
+  and compositing can diverge between the two drivers, per
+  `aidocs/framework/tui_conventions.md` "Verify in a real pty"): enter By-Trail on the
+  self-supplied handle, confirm the pane renders below the columns with the footer
+  fully visible, `v` opens the modal, and leaving the view restores the full column
+  height.
 
-Post-implementation cleanup, archival and merge follow **Step 9** of the shared
-task workflow.
+**Test-hygiene note (t1487):** any new pilot test must stub the trail worker — use
+`_enter_synthetic_bytrail`. A Textual `@work` worker left in flight makes `run_test`
+fail the *enclosing* test with a traceback nowhere near its assertions.
+
+**Scope note:** `narrative.overview` (t1505_3) and `rendering_hints.depth` (t1505_4)
+do not exist yet. Both new code paths are therefore correct-by-construction today
+(fallback / render-nothing) and unit-tested against synthetic docs; their preferred
+branches go live when those siblings land. This is intended, not a gap.
+
+Post-implementation cleanup, archival and merge follow **Step 9** of the shared task
+workflow.
+
+## Risk
+
+### Code-health risk: medium
+- Adds a second flow child to `KanbanApp.compose()`, which has exactly one documented same-edge collision in its history (t1278). A stray `dock:` — or a missing explicit `height`, since `VerticalScroll` inherits `1fr` — silently eats the footer or halves the column area, and both failures are invisible to `display`/`visible` assertions · severity: medium · → mitigation: inline pre-phase characterize_board_compose_layout
+- `_trail_banner` (`:8075`) is a width-budget shedder whose entire contract is that the freshness marker survives narrowing; adding a fourth variable risks letting the depth note evict the marker at ordinary terminal widths · severity: medium · → mitigation: inline pre-phase label_trail_depth
+- The pane has **two** mutable surfaces (visibility and text), and `self._trail_doc` is rewritten at two seams — `_activate_trail:10309` and `_on_trail_reload:10372`. Refreshing one surface without the other leaves the pane, or the expand modal, showing the *previous* trail's summary — a wrong answer that renders as a normal one, and that presence-only tests cannot see · severity: medium · → mitigation: structural — `_refresh_trail_summary()` resolves once and writes content + visibility + modal source together (step 3), pinned by the A→B switch/reload test
+- Blast radius is narrow: one module plus one test file, with no schema, skill-template or goldens surface · severity: low · → mitigation: none needed
+
+### Goal-achievement risk: medium
+- The acceptance criterion "the footer is still fully visible" is only truly answerable in a real terminal, and this repo has a *measured* case of `run_test` and the real driver diverging (t1495, `aidocs/framework/tui_conventions.md`). A green headless suite is not evidence · severity: medium · → mitigation: live pty check in the Verification section
+- That live check needs a valid trail artifact, and both stored handles return `ERROR:invalid_trail` until t1468_7 refreshes them (reproduced during verification). A fixture-backed board test would pass while the real path stayed unverified · severity: medium · → mitigation: inline post-phase self_supplying_live_artifact
+- Both new read paths target fields that do not exist yet (`narrative.overview` → t1505_3, `rendering_hints.depth` → t1505_4), so only the fallback and render-nothing branches are exercisable end-to-end today · severity: low · → mitigation: intended and documented; the preferred branches are unit-tested against synthetic docs and go live when those siblings land
+
+### Planned mitigations
+- timing: pre-phase | name: characterize_board_compose_layout | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — silent footer/column collision when the pane is mounted | desc: Before mounting the pane, pin the composited footer row and #board_container geometry at a small terminal size via _screen_rows, confirmed green against the unmodified board first.
+- timing: pre-phase | name: label_trail_depth | type: feature | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the _trail_banner shed contract; goal-achievement — a lite trail mistaken for deep | desc: Surface rendering_hints.depth on the By-Trail banner; an absent hint renders nothing, and a narrow-width test pins that the depth note sheds before the freshness marker.
+- timing: post-phase | name: self_supplying_live_artifact | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — live acceptance needs a valid artifact t1468_5 invalidated | desc: Register a local 1.1.0 artifact from gate_framework.json and run the live terminal check against that handle, recording that ERROR:invalid_trail on the two stored handles is expected before t1468_7.
