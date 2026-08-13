@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-11 15:34
-updated_at: 2026-08-13 12:32
+updated_at: 2026-08-13 13:37
+completed_at: 2026-08-13 13:37
 ---
 
 Add the "spin off as separate task" triage arm to the concern picker: a fourth per-row state that, on confirm, creates a draft aitask per spun-off concern via `aitask_create.sh --batch`. Closes the folded-t1017 steerability requirement of t1159 (parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_3_spinoff_triage_arm.md`). Depends on t1159_1 only (the modal's `block_meta` keyword ordering); independent of t1159_2 — can run in parallel with it.
@@ -61,3 +62,14 @@ t1017 (folded into t1159): shadow reviews surface secondary concerns that either
 > **✅ gate:plan_approved** run=2026-08-13T09:32:17Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-13T10:37:27Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-13T10:37:51Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2960240cf41eaacb
+
+> **✅ gate:risk_evaluated** run=2026-08-13T10:37:51Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1159_3/risk_evaluated_2026-08-13T10:37:51Z-risk_evaluated-a1.log`
