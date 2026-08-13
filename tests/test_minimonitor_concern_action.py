@@ -36,10 +36,12 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 from monitor import minimonitor_app as mm  # noqa: E402
 from monitor import monitor_core as mc  # noqa: E402
 from monitor.concern_parser import (  # noqa: E402
+    Concern,
     build_clipboard_payload, concern_marker_line,
 )
 from monitor.monitor_shared import (  # noqa: E402
-    ConcernPickResult, format_stale_duration,
+    ConcernPickResult, format_stale_duration, _no_task_id_msg,
+    build_spinoff_name,
 )
 
 
@@ -208,9 +210,36 @@ def _install_rejection_spy(app, task_id, rc=0, out=""):
     app._run_rejected_cmd = _fake_cmd
 
     def _run_worker(coro, **kwargs):
+        app.spy_workers.append((coro, kwargs))
         asyncio.run(coro)
 
+    app.spy_workers: list = []
     app.run_worker = _run_worker
+
+
+def _draft_path_for(args) -> str:
+    """The path the real script would print for this argv's ``--name``."""
+    name = args[args.index("--name") + 1]
+    return f"aitasks/new/draft_20260813_1042_{name}.md"
+
+
+def install_create_spy(app, rc=0, out=None, raises=False):
+    """Bind the task-creation seam so no bash ever runs (t1159_3).
+
+    Mirrors :func:`_install_rejection_spy`. ``out=None`` synthesizes the
+    single stdout line the real ``--silent`` draft path emits, derived from the
+    ``--name`` in argv — so path-reporting assertions see realistic, distinct
+    paths rather than one canned constant.
+    """
+    app.spy_created: list = []
+
+    async def _fake_create(args, stdin_text=""):
+        app.spy_created.append((list(args), stdin_text))
+        if raises:
+            raise RuntimeError("create blew up")
+        return (rc, _draft_path_for(args) if out is None else out)
+
+    app._run_create_cmd = _fake_create
 
 
 def _writes(app):
@@ -237,11 +266,12 @@ def _snap(pane_id="%1", *, content="", awaiting_input=False,
     )
 
 
-def _pick_result(forwarded=(), rejected=(), unrejected=()):
+def _pick_result(forwarded=(), rejected=(), unrejected=(), spun_off=()):
     return ConcernPickResult(
         forwarded=list(forwarded),
         rejected=list(rejected),
         unrejected=tuple(unrejected),
+        spun_off=list(spun_off),
     )
 
 
@@ -1824,3 +1854,468 @@ class ReviewLoopPresenceTests(unittest.TestCase):
         app._loop_baseline = ("old", "", "%99", None, (100, 30))
         _tick(app, 1)
         self.assertEqual(app._loop_baseline[2], "%1")
+
+
+# ---------------------------------------------------------------------------
+# Spin-off triage arm (t1159_3)
+# ---------------------------------------------------------------------------
+
+def _spin_concerns(*regions):
+    """One actionable concern per region, in input order."""
+    return [
+        Concern("high", region, f"Body for {region}.")
+        for region in regions
+    ]
+
+
+def _spin_app(rejected_rc=0, rejected_out="", create_rc=0, create_out=None,
+              create_raises=False, task_id="1427_2"):
+    app = _mk_app(_FakeMon(async_list="%5\t%1"), task_id=task_id,
+                  rejected_rc=rejected_rc, rejected_out=rejected_out)
+    install_create_spy(app, rc=create_rc, out=create_out, raises=create_raises)
+    return app
+
+
+def _adds(app):
+    """Only the store WRITES, dropping the pre-creation `list` read."""
+    return [c for c in app.spy_rejected if c[0][0] == "add"]
+
+
+class SpinoffCreateTests(unittest.TestCase):
+    """The picker's spin-off arm creates drafts and suppresses them (t1159_3)."""
+
+    def test_one_create_per_concern_with_the_pinned_argv(self):
+        app = _spin_app()
+        concerns = _spin_concerns("monitor_shared.py:2048", "parser")
+        app.apply_concern_pick_result(_pick_result(spun_off=concerns), "1427_2")
+
+        self.assertEqual(len(app.spy_created), 2)
+        for (args, stdin), concern in zip(app.spy_created, concerns):
+            self.assertIn("--batch", args)
+            self.assertIn("--silent", args)
+            self.assertEqual(args[args.index("--desc-file") + 1], "-")
+            self.assertEqual(args[args.index("--followup-of") + 1], "1427_2")
+            self.assertEqual(
+                args[args.index("--followup-kind") + 1], "review_finding"
+            )
+            self.assertEqual(args[args.index("--priority") + 1], "high")
+            # Drafts only — a --commit would claim an id and need the network.
+            self.assertNotIn("--commit", args)
+            # The canonical FORWARD rendering, byte for byte: the store match
+            # next round and the receiving agent both depend on this exact text.
+            self.assertIn(concern_marker_line(concern), stdin)
+
+    def test_a_spinoff_only_result_still_dispatches(self):
+        """The pre-t1159_3 early return keyed on rejections alone would have
+        swallowed this entirely."""
+        app = _spin_app()
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("x")), "1427_2"
+        )
+        self.assertEqual(len(app.spy_created), 1)
+
+    def test_draft_paths_are_reported_and_never_ids(self):
+        app = _spin_app()
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha", "beta")), "1427_2"
+        )
+        message = "\n".join(m for m, _ in app.spy_notify)
+        # Both drafts named individually — a count plus a directory could not
+        # identify them in a shared, minute-stamped drop directory.
+        self.assertIn("shadow_alpha_", message)
+        self.assertIn("shadow_beta_", message)
+        self.assertIn("aitasks/new/", message)
+        # The batch selector, so the set stays recoverable when the list caps.
+        self.assertIn("ls aitasks/new/*", message)
+        # Drafts have NO ids until `ait create` finalizes them.
+        self.assertNotIn("t1427_2:", message)
+        self.assertIn("ait create", message)
+
+    def test_store_add_is_one_batched_call_carrying_every_marker(self):
+        app = _spin_app()
+        concerns = _spin_concerns("alpha", "beta", "gamma")
+        app.apply_concern_pick_result(_pick_result(spun_off=concerns), "1427_2")
+
+        adds = _adds(app)
+        self.assertEqual(len(adds), 1, "one mutex acquisition, not N")
+        args, stdin = adds[0]
+        self.assertEqual(args[:2], ["add", "1427_2"])
+        self.assertEqual(args[args.index("--producer") + 1], "spinoff")
+        self.assertEqual(
+            stdin, "".join(concern_marker_line(c) + "\n" for c in concerns)
+        )
+
+    def test_a_failed_create_writes_nothing_to_the_store(self):
+        """Suppressing a concern whose draft does not exist would lose it."""
+        app = _spin_app(create_rc=1, create_out="ERROR:boom")
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha")), "1427_2"
+        )
+        self.assertEqual(_adds(app), [])
+        self.assertTrue(
+            any(sev == "error" for _, sev in app.spy_notify),
+            "a failed creation must be visible",
+        )
+
+    def test_no_task_id_warns_and_runs_no_subprocess(self):
+        app = _spin_app()
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha")), None
+        )
+        self.assertEqual(app.spy_created, [])
+        self.assertEqual(app.spy_rejected, [])
+        message, severity = app.spy_notify[0]
+        self.assertEqual(severity, "warning")
+        self.assertIn("spin-off skipped", message.lower())
+        self.assertIn("no task id", message.lower())
+
+
+class NoTaskIdMessageTests(unittest.TestCase):
+    """`_no_task_id_msg` names exactly what was dropped (t1159_3)."""
+
+    def test_rejections_only_keeps_the_pre_t1159_3_wording(self):
+        msg = _no_task_id_msg(
+            _pick_result(rejected=_spin_concerns("a"))
+        )
+        self.assertEqual(
+            msg, "Rejections not persisted — no task id for this pane"
+        )
+
+    def test_spinoff_only(self):
+        msg = _no_task_id_msg(
+            _pick_result(spun_off=_spin_concerns("a"))
+        )
+        self.assertEqual(msg, "Spin-off skipped — no task id for this pane")
+
+    def test_both_name_both(self):
+        msg = _no_task_id_msg(
+            _pick_result(rejected=_spin_concerns("a"),
+                         spun_off=_spin_concerns("b"))
+        )
+        self.assertIn("Rejections not persisted", msg)
+        self.assertIn("spin-off skipped", msg)
+
+
+class SpinoffSerializationTests(unittest.TestCase):
+    """Every store-touching effect of one confirmation runs in ONE worker.
+
+    The store's mutex is per-task and NOT producer-scoped, and a LOCK_BUSY
+    means nothing was written — which for a spin-off would leave the draft on
+    disk unsuppressed. `_persist_concern_dispositions` is already sequential
+    for this reason; a second worker would reintroduce the contention.
+    """
+
+    def test_a_mixed_confirmation_takes_exactly_one_worker(self):
+        app = _spin_app(rejected_out="ADDED:1")
+        app.apply_concern_pick_result(
+            _pick_result(
+                forwarded=_spin_concerns("fwd"),
+                rejected=_spin_concerns("rej"),
+                spun_off=_spin_concerns("spin"),
+            ),
+            "1427_2",
+        )
+        # The harness runs each worker coroutine to completion synchronously,
+        # so wall-clock overlap can never be observed here. The COUNT is the
+        # guard: two workers would be two chances to contend.
+        self.assertEqual(len(app.spy_workers), 1)
+
+    def test_store_writes_are_strictly_ordered_within_that_worker(self):
+        app = _spin_app(rejected_out="ADDED:1")
+        app.apply_concern_pick_result(
+            _pick_result(
+                rejected=_spin_concerns("rej"),
+                spun_off=_spin_concerns("spin"),
+            ),
+            "1427_2",
+        )
+        producers = [
+            args[args.index("--producer") + 1]
+            for args, _ in _adds(app) if "--producer" in args
+        ]
+        self.assertEqual(producers, ["picker", "spinoff"])
+
+
+class SpinoffPartialFailureTests(unittest.TestCase):
+    """Created-but-unsuppressed is its own reported state (t1159_3)."""
+
+    def _drive(self, rejected_rc, rejected_out):
+        app = _spin_app(rejected_rc=rejected_rc, rejected_out=rejected_out)
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha")), "1427_2"
+        )
+        return app
+
+    def test_lock_busy_after_creation_says_not_suppressed_and_lists_paths(self):
+        app = self._drive(3, "LOCK_BUSY")
+        message, severity = app.spy_notify[-1]
+        self.assertEqual(severity, "warning")
+        self.assertIn("NOT suppressed", message)
+        self.assertIn("duplicate", message.lower())
+        # The user still needs to know WHICH drafts exist.
+        self.assertIn("shadow_alpha_", message)
+
+    def test_the_reason_comes_from_the_shared_outcome_vocabulary(self):
+        """Not hardcoded to LOCK_BUSY: a structurally unusable store (4) must
+        report its own distinct reason."""
+        app = self._drive(4, "store unusable")
+        message, _ = app.spy_notify[-1]
+        self.assertIn("NOT suppressed", message)
+        self.assertIn("unusable", message.lower())
+
+    def test_a_clean_store_write_claims_success_instead(self):
+        app = self._drive(0, "ADDED:1")
+        message, severity = app.spy_notify[-1]
+        self.assertEqual(severity, "information")
+        self.assertIn("parked as drafts", message)
+        self.assertNotIn("NOT suppressed", message)
+
+
+class SpinoffAlreadyParkedTests(unittest.TestCase):
+    """The store closes the window the in-flight guard cannot reach.
+
+    The picker lists concerns unfiltered and t1427's suppression only lands
+    producer-side at the NEXT shadow round, so re-confirming an unchanged block
+    would otherwise spin the same concern off a second time.
+    """
+
+    def _app_with_store(self, entries):
+        app = _spin_app()
+
+        async def _fake_rejected(args, stdin_text=""):
+            app.spy_rejected.append((list(args), stdin_text))
+            if args[0] == "list":
+                return (0, "\n".join(entries))
+            return (0, "ADDED:1")
+
+        app._run_rejected_cmd = _fake_rejected
+        return app
+
+    def test_a_concern_already_spun_off_is_skipped(self):
+        concern = _spin_concerns("alpha")[0]
+        app = self._app_with_store([
+            f"REJECTED:r1|2026-08-13 10:00|spinoff|{concern_marker_line(concern)}"
+        ])
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=[concern]), "1427_2"
+        )
+        self.assertEqual(app.spy_created, [], "duplicate draft created")
+        self.assertEqual(_adds(app), [])
+        self.assertTrue(
+            any("already spun off" in m for m, _ in app.spy_notify)
+        )
+
+    def test_a_merely_rejected_concern_is_still_creatable(self):
+        """Positive control for the producer filter: `picker` means the user
+        rejected it, which is not the same as having parked it as a task."""
+        concern = _spin_concerns("alpha")[0]
+        app = self._app_with_store([
+            f"REJECTED:r1|2026-08-13 10:00|picker|{concern_marker_line(concern)}"
+        ])
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=[concern]), "1427_2"
+        )
+        self.assertEqual(len(app.spy_created), 1)
+
+    def test_an_unreadable_store_creates_anyway(self):
+        """Fail-open: `_fetch_rejected_entries` returns [] for every non-success
+        outcome, so a store that cannot be read must not silently drop the
+        user's request."""
+        app = _spin_app()
+
+        async def _unreadable(args, stdin_text=""):
+            app.spy_rejected.append((list(args), stdin_text))
+            return (4, "store unusable") if args[0] == "list" else (0, "ADDED:1")
+
+        app._run_rejected_cmd = _unreadable
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha")), "1427_2"
+        )
+        self.assertEqual(len(app.spy_created), 1)
+
+
+class SpinoffNamingTests(unittest.TestCase):
+    """Names are collision-safe and survive `sanitize_name` (t1159_3)."""
+
+    def test_two_same_region_concerns_get_distinct_names(self):
+        app = _spin_app()
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("same", "same")), "1427_2"
+        )
+        names = [
+            args[args.index("--name") + 1] for args, _ in app.spy_created
+        ]
+        self.assertEqual(len(set(names)), 2, f"collision: {names}")
+
+    def test_two_confirmations_in_the_same_minute_get_distinct_names(self):
+        """`get_draft_filename` is minute-precision and `ait_atomic_render`
+        overwrites silently, so the per-batch nonce is the whole guard."""
+        first, second = _spin_app(), _spin_app()
+        for app in (first, second):
+            app.apply_concern_pick_result(
+                _pick_result(spun_off=_spin_concerns("same")), "1427_2"
+            )
+        name_of = lambda app: app.spy_created[0][0][
+            app.spy_created[0][0].index("--name") + 1
+        ]
+        self.assertNotEqual(name_of(first), name_of(second))
+
+    def test_an_over_long_region_keeps_the_nonce_and_index_suffix(self):
+        name = build_spinoff_name("x" * 200, "a1b2c3d4", 7)
+        self.assertLessEqual(len(name), 60)
+        self.assertTrue(name.endswith("_a1b2c3d4_7"), name)
+
+    def test_punctuation_only_region_degrades_to_a_readable_stem(self):
+        # `sanitize_name` DELETES these characters rather than replacing them,
+        # so the region contributes nothing and must not leave `shadow__nonce`.
+        name = build_spinoff_name(".../:", "a1b2c3d4", 1)
+        self.assertEqual(name, "shadow_concern_a1b2c3d4_1")
+
+    def test_region_is_reduced_exactly_as_sanitize_name_would(self):
+        name = build_spinoff_name(
+            "authoring-conv.md:103", "a1b2c3d4", 1
+        )
+        self.assertEqual(name, "shadow_authoringconvmd103_a1b2c3d4_1")
+
+
+class SpinoffReentrancyTests(unittest.TestCase):
+    """The in-flight EFFECT guard, which no app owned before t1159_3.
+
+    `MonitorApp._concern_pick_busy` guards *modal stacking* and is released on
+    dismissal — one line before the effects are even dispatched — and
+    minimonitor had no equivalent at all. So a second confirmation could land
+    while the first was still creating drafts, and the per-batch nonce would
+    give it a fresh set of paths rather than deduping it.
+    """
+
+    def _deferred_app(self, **kwargs):
+        """An app whose worker is captured instead of run, so the guard can be
+        observed while it is genuinely held.
+
+        Captured-but-unrun coroutines are closed at teardown: leaving one
+        un-awaited emits a RuntimeWarning that would pollute the suite and
+        could mask a real one. Closing an already-completed coroutine is a
+        no-op, so this is safe for the ones the test does run.
+        """
+        app = _spin_app(**kwargs)
+        app.spy_workers = []
+        app.run_worker = lambda coro, **kw: app.spy_workers.append(coro)
+        self.addCleanup(
+            lambda: [coro.close() for coro in app.spy_workers]
+        )
+        return app
+
+    def _confirm(self, app, task_id="1427_2"):
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha")), task_id
+        )
+
+    def test_a_second_confirmation_while_in_flight_is_refused(self):
+        app = self._deferred_app()
+        self._confirm(app)
+        self.assertEqual(len(app.spy_workers), 1)
+
+        self._confirm(app)
+        self.assertEqual(len(app.spy_workers), 1, "a second worker was started")
+        message, severity = app.spy_notify[-1]
+        self.assertEqual(severity, "warning")
+        self.assertIn("still running", message)
+
+        asyncio.run(app.spy_workers[0])
+        self.assertEqual(len(app.spy_created), 1, "only one batch ran")
+
+    def test_the_guard_is_released_on_completion(self):
+        """A guard, not a wedge."""
+        app = self._deferred_app()
+        self._confirm(app)
+        asyncio.run(app.spy_workers[0])
+
+        self._confirm(app)
+        self.assertEqual(len(app.spy_workers), 2)
+
+    def test_the_guard_is_released_when_the_worker_raises(self):
+        """The `finally` negative control. The worker runs with
+        exit_on_error=False, so a raise is swallowed — releasing only on the
+        success path would wedge every later confirmation for this task."""
+        app = self._deferred_app(create_raises=True)
+
+        self._confirm(app)
+        with self.assertRaises(RuntimeError):
+            asyncio.run(app.spy_workers[0])
+
+        self._confirm(app)
+        self.assertEqual(
+            len(app.spy_workers), 2, "the guard leaked after a raise"
+        )
+
+    def test_a_different_task_id_proceeds_concurrently(self):
+        """The key is per-task: two panes on different tasks touch different
+        store mutexes and must not block each other."""
+        app = self._deferred_app()
+        self._confirm(app, task_id="1427_2")
+        self._confirm(app, task_id="9999_1")
+        self.assertEqual(len(app.spy_workers), 2)
+
+
+class SpinoffEndToEndTests(unittest.TestCase):
+    """`c` -> `t` -> confirm reaches a real create call (t1159_3).
+
+    The other spin-off tests call `apply_concern_pick_result` directly, which
+    leaves the wiring between the picker's dismiss value and the mixin
+    unproven: a `_result()` that forgot `spun_off=` would keep every one of
+    them green. This drives the outermost surface the user actually touches.
+    """
+
+    def test_the_picker_result_carries_spun_off_into_a_create_call(self):
+        app = _spin_app()
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_CLOSED_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+        modal, callback = app.spy_pushed[0]
+
+        # Mark the first row spun-off through the modal's own state machine,
+        # then dismiss exactly as Textual would, with the modal's OWN result.
+        rows_state = modal._concerns
+        modal._concerns_in_state = lambda state: (
+            [rows_state[0]] if state == "spinoff" else []
+        )
+        callback(modal._result())
+
+        self.assertEqual(len(app.spy_created), 1)
+        args, stdin = app.spy_created[0]
+        self.assertEqual(args[args.index("--followup-of") + 1], "1427_2")
+        self.assertIn(concern_marker_line(rows_state[0]), stdin)
+
+
+class SpinoffFailureReasonTests(unittest.TestCase):
+    """A failed creation surfaces its ROOT CAUSE, readably (t1159_3)."""
+
+    #: Verbatim shape of the real script's failure, captured from
+    #: `aitask_create.sh --followup-of <missing>`: coloured, and preceded by a
+    #: warning when a label needed normalizing.
+    REAL_DIE = "\x1b[0;31mError: anchor target '999999' not found.\x1b[0m"
+
+    def _reason_shown(self, out, rc=1):
+        app = _spin_app(create_rc=rc, create_out=out)
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha")), "1427_2"
+        )
+        return next(m for m, sev in app.spy_notify if sev == "error")
+
+    def test_ansi_escapes_never_reach_the_notification(self):
+        message = self._reason_shown(self.REAL_DIE)
+        self.assertNotIn("\x1b", message)
+        self.assertIn("anchor target '999999' not found.", message)
+
+    def test_a_preceding_warning_does_not_mask_the_real_cause(self):
+        """stderr is merged into stdout, so a `warn` lands BEFORE the terminal
+        `die`. Reporting the first line would hide the actual failure."""
+        message = self._reason_shown(
+            "\x1b[1;33mWarning: dropped invalid label(s)\x1b[0m\n" + self.REAL_DIE
+        )
+        self.assertIn("anchor target", message)
+        self.assertNotIn("dropped invalid label", message)
+
+    def test_an_empty_capture_still_names_the_exit_status(self):
+        message = self._reason_shown("", rc=7)
+        self.assertIn("exit 7", message)

@@ -11,6 +11,7 @@ import re
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 # Set up import paths before any local imports
@@ -65,6 +66,11 @@ except ImportError:  # imported flat (tests may put MONITOR_DIR on sys.path)
     from concern_parser import (  # noqa: E402
         build_clipboard_payload, concern_marker_line, needs_addressing,
     )
+
+try:
+    from monitor.ansi_utils import strip_ansi
+except ImportError:  # imported flat, as above
+    from ansi_utils import strip_ansi  # noqa: E402
 
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
@@ -292,6 +298,25 @@ _REJECTED_SH = _SCRIPT_DIR / "aitask_shadow_rejected.sh"
 #: timeout (10s) so a contended-but-healthy writer gets to report LOCK_BUSY
 #: itself instead of being killed mid-write and blamed for a timeout.
 _REJECTED_CMD_TIMEOUT = 20.0
+
+#: Task creation, for the picker's spin-off triage arm (t1159_3). Invoked
+#: WITHOUT `--commit`, so it only ever writes a draft under `aitasks/new/` —
+#: no network, no id claim, nothing to undo but a file.
+_CREATE_SH = _SCRIPT_DIR / "aitask_create.sh"
+
+#: Draft creation is local-only (no id claim, no push), but it does shell out
+#: per concern; the same "kill only a genuinely stuck child" reasoning as the
+#: two timeouts above applies.
+_CREATE_CMD_TIMEOUT = 20.0
+
+#: `sanitize_name` (aitask_create.sh) caps a task name at 60 characters with
+#: `cut -c1-60` — a RIGHT truncation, which would eat the collision-guarding
+#: nonce and index. The budget below is spent on the region segment alone.
+_DRAFT_NAME_MAX = 60
+
+#: Hex characters of `uuid4` used per batch. Long enough that two confirmations
+#: in the same minute cannot collide, short enough to leave the region readable.
+_SPINOFF_NONCE_CHARS = 8
 
 
 class AgentMarksMixin:
@@ -617,6 +642,100 @@ class AgentMarksMixin:
                     pass
 
 
+def _sanitized_region(region: str) -> str:
+    """A region reduced to what `sanitize_name` would keep (t1159_3).
+
+    `aitask_create.sh:sanitize_name` lowercases, maps spaces to `_`, then
+    `tr -cd 'a-z0-9_'` — which **deletes** every other character rather than
+    replacing it — collapses `_` runs and strips the ends. So a real region
+    like ``authoring-conv.md:103`` becomes ``authoringconvmd103``.
+
+    Mirrored here because the caller must budget the name against its
+    POST-sanitization length: counting raw characters would under-count the
+    truncation and let the suffix fall off the 60-char cap.
+    """
+    lowered = region.lower().replace(" ", "_")
+    kept = re.sub(r"[^a-z0-9_]", "", lowered)      # tr -cd 'a-z0-9_'
+    return re.sub(r"_+", "_", kept).strip("_")     # sed 's/__*/_/g'; strip ends
+
+
+def build_spinoff_name(region: str, nonce: str, index: int) -> str:
+    """``shadow_<region>_<nonce>_<index>``, truncated suffix-preservingly.
+
+    The nonce and index are the collision guard, and `sanitize_name` truncates
+    from the RIGHT — so only the region segment may be shortened, and it is
+    shortened *here* so the name handed to `--name` is already within the cap
+    and survives sanitization unchanged.
+
+    An empty or fully-stripped region degrades to ``concern`` rather than
+    producing a doubled separator.
+    """
+    region_part = _sanitized_region(region) or "concern"
+    fixed = len("shadow_") + 1 + len(nonce) + 1 + len(str(index))
+    budget = max(1, _DRAFT_NAME_MAX - fixed)
+    return f"shadow_{region_part[:budget]}_{nonce}_{index}"
+
+
+def _create_failure_reason(out: str, rc: int) -> str:
+    """The root cause of a failed draft creation, fit for a toast (t1159_3).
+
+    Two things the raw capture gets wrong, both verified against the real
+    script:
+
+    * `aitask_create.sh` colours its `die` message, and this seam merges
+      stderr into stdout — so the text arrives wrapped in ANSI escapes that
+      would render as literal garbage in a Textual notification.
+    * The terminal `die` line is the **last** line, not the first: a label
+      warning (or any other `warn`) is emitted earlier and would otherwise be
+      reported as the failure reason, hiding the actual cause.
+    """
+    cleaned = [line.strip() for line in strip_ansi(out).splitlines() if line.strip()]
+    return cleaned[-1] if cleaned else f"exit {rc}"
+
+
+#: Draft paths listed inline before the message falls back to the nonce
+#: selector alone. Small, because this is a toast, not a report.
+_DRAFT_PATHS_SHOWN = 4
+
+
+def _format_draft_paths(paths: Sequence[str], nonce: str) -> str:
+    """The created drafts, as identifiable text (t1159_3).
+
+    A count plus a directory name would not satisfy the "report draft paths"
+    contract: ``aitasks/new/`` is a shared drop directory and draft filenames
+    are only minute-stamped, so with other sessions writing there the user
+    could not tell which files this confirmation produced.
+
+    The per-batch nonce is therefore always named as a selector, which keeps
+    the whole batch recoverable even when the list is capped. Paths are
+    escaped: they embed a producer-derived region and land on a markup-enabled
+    surface.
+    """
+    shown = [f"  {escape(p)}" for p in paths[:_DRAFT_PATHS_SHOWN]]
+    if len(paths) > _DRAFT_PATHS_SHOWN:
+        shown.append(f"  … and {len(paths) - _DRAFT_PATHS_SHOWN} more")
+    shown.append(f"(this batch: ls aitasks/new/*{escape(nonce)}*)")
+    return "\n".join(shown)
+
+
+def _no_task_id_msg(result) -> str:
+    """Refusal naming exactly which dispositions were dropped (t1159_3).
+
+    Composed rather than fixed, because the pane having no task id defeats
+    rejections and spin-offs for different reasons and the user needs to know
+    which of the things they just marked did not happen. A rejections-only
+    result keeps the pre-t1159_3 wording byte for byte.
+
+    Pure and module-level so it is unit-testable without an App.
+    """
+    parts = []
+    if result.rejected or result.unrejected:
+        parts.append("Rejections not persisted")
+    if result.spun_off:
+        parts.append("spin-off skipped" if parts else "Spin-off skipped")
+    return f"{', '.join(parts)} — no task id for this pane"
+
+
 class ShadowRejectionsMixin:
     """The concern-rejection store seam for a monitor TUI (t1427_2).
 
@@ -691,6 +810,188 @@ class ShadowRejectionsMixin:
             return []
         return parse_rejected_machine_lines(out)
 
+    async def _run_create_cmd(
+        self, args: list[str], stdin_text: str = ""
+    ) -> tuple[int, str]:
+        """Run ``aitask_create.sh`` off the event loop. The test seam (t1159_3).
+
+        Same contract as :meth:`_run_rejected_cmd`, deliberately: **total —
+        never raises, always terminates**, with the child killed *and reaped* on
+        timeout. Callers treat the result as data. Tests override this method,
+        so no bash runs in the Python suites — which is exactly why
+        ``tests/test_shadow_spinoff_create_contract.sh`` exists to exercise the
+        real script's flag contract once.
+
+        The description travels on **stdin** (``--desc-file -``) rather than
+        argv: a concern body is free text that routinely contains brackets,
+        pipes and newlines.
+        """
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                str(_CREATE_SH), *args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            out, _ = await asyncio.wait_for(
+                proc.communicate(stdin_text.encode("utf-8")),
+                timeout=_CREATE_CMD_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:  # noqa: BLE001 - already exited / unkillable
+                pass
+            return 1, (
+                f"ERROR:task creation timed out after {_CREATE_CMD_TIMEOUT}s"
+            )
+        except OSError as exc:
+            return 1, f"ERROR:cannot run {_CREATE_SH.name}: {exc}"
+        return proc.returncode or 0, out.decode("utf-8", "replace").strip()
+
+    async def _spawn_concern_tasks(self, concerns, task_id: str) -> None:
+        """Park each spun-off concern as a DRAFT task. Worker body (t1159_3).
+
+        Drafts, never committed tasks: offline-safe inside a TUI worker,
+        reversible, and cheap to discard. They carry no id until the user runs
+        ``ait create``, so everything reported here is a **path**.
+
+        **ACCEPTED LIMITATION — the duplicate guard is single-process.**
+        Two guards keep the same concern from being parked twice, and both stop
+        at this process boundary: :meth:`_concern_effects_inflight` is an
+        in-memory set, and the store check below is a read (``list`` takes no
+        lock) separated from the ``add`` by a subprocess. So two *separate*
+        monitor processes bound to the same task — a full monitor and a
+        minimonitor, say — can both read "not yet spun off", and each create a
+        draft before either records it.
+
+        This is **not closed**, deliberately. It cannot be closed with the
+        house mutex: ``lib/registry_lock.sh`` records the acquiring shell's own
+        ``$$`` and releases on an EXIT trap, and a holder whose PID is dead is
+        stolen on sight — so it serializes *one bash process's* critical
+        section and cannot span the awaits here. Closing it properly means
+        either an atomic claim verb on ``aitask_shadow_rejected.sh`` (which
+        would have to write the store BEFORE the draft exists) or relaxing
+        mutex invariants the file marks "do NOT relax".
+
+        The trade accepted instead: reaching it needs two monitor processes on
+        one task confirming the *same* concern inside a sub-second window, and
+        the damage is one extra **unfinalized** draft — reported with its full
+        path, owned by no task id, and deleted with `rm`. Nothing is lost, and
+        the store still converges (both markers land, so the next review round
+        suppresses the concern once).
+        """
+        # Already-parked concerns are dropped BEFORE anything is created. The
+        # in-flight guard cannot cover this: the picker lists concerns
+        # unfiltered and t1427's suppression only lands producer-side at the
+        # NEXT shadow round, so re-confirming an unchanged block would otherwise
+        # spin the same concern off again. Re-read rather than reusing the
+        # picker-open fetch — that snapshot is stale by exactly the batch this
+        # is guarding against.
+        already = {
+            entry.marker_line for entry in await self._fetch_rejected_entries(task_id)
+            if entry.producer == "spinoff"
+        }
+        fresh, skipped = [], 0
+        for concern in concerns:
+            if concern_marker_line(concern) in already:
+                skipped += 1
+            else:
+                fresh.append(concern)
+
+        if skipped:
+            self.notify(f"{skipped} concern(s) already spun off — skipped")
+        if not fresh:
+            # Nothing to create, so nothing to suppress either. Returning here
+            # keeps an empty set from reaching the store write below as a no-op
+            # call that would still take the mutex.
+            return
+
+        # ONE nonce for the whole confirmation: it makes this batch's paths
+        # distinct from any other batch's, including a second confirmation in
+        # the same minute (`get_draft_filename` is minute-precision and
+        # `ait_atomic_render` overwrites an existing path silently).
+        nonce = uuid.uuid4().hex[:_SPINOFF_NONCE_CHARS]
+        created: list[tuple[str, "Concern"]] = []
+        failures: list[str] = []
+
+        for index, concern in enumerate(fresh, start=1):
+            name = build_spinoff_name(concern.region, nonce, index)
+            description = (
+                f"Spun off from a shadow review concern on t{task_id}.\n\n"
+                f"{concern_marker_line(concern)}\n"
+            )
+            rc, out = await self._run_create_cmd(
+                [
+                    "--batch", "--silent",
+                    "--name", name,
+                    "--desc-file", "-",
+                    "--priority", concern.priority,
+                    "--labels", "shadow-concern",
+                    "--followup-of", task_id,
+                    "--followup-kind", "review_finding",
+                ],
+                description,
+            )
+            if rc != 0 or not out:
+                failures.append(_create_failure_reason(out, rc))
+            else:
+                # LAST line: `--silent` prints the path last, and this seam
+                # merges stderr, so a label warning can precede it.
+                created.append((strip_ansi(out).splitlines()[-1].strip(), concern))
+
+        if failures:
+            self.notify(
+                f"{len(failures)} concern(s) could not be parked: {failures[0]}",
+                severity="error",
+            )
+        if not created:
+            return
+
+        # One batched store write for the whole successful set, mirroring
+        # `_persist_concern_dispositions`: one mutex acquisition instead of N,
+        # and one partial-failure surface instead of N.
+        rc, out = await self._run_rejected_cmd(
+            ["add", task_id, "--producer", "spinoff"],
+            "".join(concern_marker_line(c) + "\n" for _, c in created),
+        )
+        message, _severity = self.rejection_outcome_message(rc, out)
+        paths = [path for path, _ in created]
+        if message:
+            # The drafts EXIST but are not suppressed. This is the one state a
+            # user must not misread, so it gets its own wording rather than
+            # being folded into the success or the failure path.
+            self.notify(
+                f"{len(created)} draft(s) created but NOT suppressed "
+                f"({message}) — the same concern(s) will be raised again next "
+                f"round; spinning them off again would create duplicate "
+                f"drafts.\n{_format_draft_paths(paths, nonce)}",
+                severity="warning",
+            )
+        else:
+            self.notify(
+                f"{len(created)} concern(s) parked as drafts — finalize with "
+                f"'ait create':\n{_format_draft_paths(paths, nonce)}"
+            )
+
+    def _concern_effects_inflight(self) -> set:
+        """Task ids whose confirmation effects are still running (t1159_3).
+
+        Owned by the MIXIN and created lazily, so neither app has to initialize
+        it. That is deliberate: the pre-existing pick guard (`_concern_pick_busy`)
+        lives in ``MonitorApp`` and minimonitor never grew an equivalent, so a
+        guard added the same way would repeat exactly that gap. It also answers
+        a different question — that one guards *modal stacking* and is released
+        on dismissal, i.e. before this method's worker has even started.
+        """
+        inflight = getattr(self, "_concern_effects_inflight_set", None)
+        if inflight is None:
+            inflight = set()
+            self._concern_effects_inflight_set = inflight
+        return inflight
+
     def apply_concern_pick_result(self, result, task_id: str | None) -> None:
         """Act on a :class:`ConcernPickResult` — the shared callback body.
 
@@ -711,27 +1012,64 @@ class ShadowRejectionsMixin:
             # copy_to_system_clipboard, never app.copy_to_clipboard: a bare
             # OSC 52 from a non-visible tmux window never reaches the system
             # clipboard. tests/test_tui_clipboard_seam.sh enforces this.
+            # Forwarding owns the clipboard alone — the spin-off path reports
+            # its draft paths by notify and never writes here, so a mixed
+            # confirmation cannot clobber the payload the user asked for.
             copy_to_system_clipboard(self, build_clipboard_payload(result.forwarded))
             self.notify("Concerns copied to clipboard.")
 
-        if not result.rejected and not result.unrejected:
+        if not result.rejected and not result.unrejected and not result.spun_off:
             return
 
         if not task_id:
-            # A VISIBLE refusal, never a silent drop: the user marked rejections
-            # and they are not being stored, which they can only find out here.
+            # A VISIBLE refusal, never a silent drop: the user marked
+            # dispositions and they are not being acted on, which they can only
+            # find out here. The message names exactly what was skipped.
             self.notify(
-                "Rejections not persisted — no task id for this pane",
-                severity="warning",
+                _no_task_id_msg(result), severity="warning"
             )
             return
 
+        # In-flight EFFECT guard (t1159_3), keyed by task id. The rejection
+        # store and `--followup-of` are both task-keyed, so two panes on
+        # different tasks may proceed together while two confirmations on the
+        # same task may not: a spin-off writes a FILE, and the per-batch nonce
+        # is designed to make batches distinct, so it can never dedupe a
+        # duplicate confirmation.
+        if task_id in self._concern_effects_inflight():
+            self.notify(
+                f"Concern effects for t{task_id} are still running — wait for "
+                "them to finish before confirming again",
+                severity="warning",
+            )
+            return
+        self._concern_effects_inflight().add(task_id)
+
+        # ONE worker, never two. The rejection store takes a single per-task
+        # mutex that is NOT producer-scoped, and `_persist_concern_dispositions`
+        # is already sequential for that exact reason. A second concurrent
+        # writer would report LOCK_BUSY against ourselves — and lose worse here,
+        # because the draft is already on disk by the time its store write runs.
         self.run_worker(
-            self._persist_concern_dispositions(result, task_id),
+            self._apply_concern_side_effects(result, task_id),
             exclusive=False,
             exit_on_error=False,
-            group="shadow-rejections",
+            group="shadow-concern-effects",
         )
+
+    async def _apply_concern_side_effects(self, result, task_id: str) -> None:
+        """Serialize every store-touching effect of one confirmation."""
+        try:
+            if result.rejected or result.unrejected:
+                await self._persist_concern_dispositions(result, task_id)
+            if result.spun_off:
+                await self._spawn_concern_tasks(result.spun_off, task_id)
+        finally:
+            # MUST be `finally`: the worker runs with `exit_on_error=False`, so
+            # a raise is swallowed, and a leaked guard would wedge every later
+            # confirmation for this task. `MonitorApp._on_inspect_closed` exists
+            # only because one guard-release path was missed once.
+            self._concern_effects_inflight().discard(task_id)
 
     async def _persist_concern_dispositions(self, result, task_id: str) -> None:
         """Write the confirmed rejections / un-rejections. Worker body.
@@ -2032,9 +2370,17 @@ class RejectedEntry(NamedTuple):
 class ConcernPickResult(NamedTuple):
     """What :class:`ConcernPickerModal` dismisses with on confirm (t1427_2).
 
-    Three independent output channels, because rejection needed a second one and
-    overloading the old ``list[Concern]`` return would have made "forward these"
-    and "reject these" indistinguishable.
+    Four independent output channels, because each disposition needed its own
+    and overloading the original ``list[Concern]`` return would have made
+    "forward these", "reject these" and "spin these off" indistinguishable.
+
+    ``spun_off`` (t1159_3) carries **no default** on purpose: it is a new
+    output channel, and a default would let a construction site that predates
+    it silently report "nothing to spin off" instead of failing loudly. Every
+    site is amended together — see the class docstring test literals in
+    ``tests/test_concern_picker_modal.py``,
+    ``tests/test_minimonitor_concern_action.py`` and
+    ``tests/test_monitor_concern_action.py``.
 
     **All-empty is a valid result** — the user confirmed without marking
     anything. Cancellation is signalled by ``None`` instead, so a consumer must
@@ -2044,6 +2390,7 @@ class ConcernPickResult(NamedTuple):
     forwarded: list["Concern"]
     rejected: list["Concern"]
     unrejected: tuple[str, ...]   # store entry ids to un-reject, e.g. ("r1", "r3")
+    spun_off: list["Concern"]     # park each as its own draft task (t1159_3)
 
 
 def parse_rejected_machine_lines(out: str) -> list[RejectedEntry]:
@@ -2068,14 +2415,17 @@ def parse_rejected_machine_lines(out: str) -> list[RejectedEntry]:
     return entries
 
 
-#: Disposition → row mark (t1427_2). Every glyph is **single-width**, which is
-#: what keeps :data:`_NARROW_PREFIX_COLS` valid: the narrow layout budgets the
-#: prefix in columns, so a double-width mark would silently eat a column of
-#: region text at exactly the widths that already have none to spare.
+#: Disposition → row mark (t1427_2, `spinoff` added t1159_3). Every glyph is
+#: **single-width**, which is what keeps :data:`_NARROW_PREFIX_COLS` valid: the
+#: narrow layout budgets the prefix in columns, so a double-width mark would
+#: silently eat a column of region text at exactly the widths that already have
+#: none to spare. `»` (U+00BB) is East-Asian-Width *Ambiguous*, i.e. width 1
+#: outside CJK locales — the same class as the three glyphs above it.
 _CONCERN_MARKS = {
     "none": "☐",
     "forward": "[bold yellow]☑[/]",
     "rejected": "[red]✗[/]",
+    "spinoff": "[bold cyan]»[/]",
 }
 
 
@@ -2085,17 +2435,19 @@ _NARROW_PREFIX_COLS = 8
 
 
 class _ConcernRow(Static):
-    """A focusable, tri-state concern row inside ConcernPickerModal.
+    """A focusable, quad-state concern row inside ConcernPickerModal.
 
     Holds one ``Concern``, its ``original_index`` in the modal's input list, and a
-    **mutually exclusive** disposition in ``{"none", "forward", "rejected"}``
-    (t1427_2). The checkbox glyph follows the t1004 convention (☑/☐, never a dot;
-    marked = bold yellow); rejection adds a red ``✗``. Navigation mirrors
-    ``_SiblingRow``; ``space`` toggles *forward* and ``r`` toggles *rejected* —
-    setting either clears the other, so a concern can never be forwarded and
-    rejected at once (``enter`` confirm is handled at the modal level).
+    **mutually exclusive** disposition in
+    ``{"none", "forward", "rejected", "spinoff"}`` (t1427_2; ``spinoff`` added
+    t1159_3). The checkbox glyph follows the t1004 convention (☑/☐, never a dot;
+    marked = bold yellow); rejection adds a red ``✗`` and spin-off a cyan ``»``.
+    Navigation mirrors ``_SiblingRow``; ``space`` toggles *forward*, ``r``
+    toggles *rejected* and ``t`` toggles *spinoff* — setting any one clears the
+    others, so a concern can never carry two dispositions at once (``enter``
+    confirm is handled at the modal level).
 
-    The three marks are all **single-width**, so :data:`_NARROW_PREFIX_COLS`
+    The four marks are all **single-width**, so :data:`_NARROW_PREFIX_COLS`
     still describes the narrow layout's prefix budget.
 
     **Two layouts (t1274).** The wide variant is one line,
@@ -2173,7 +2525,7 @@ class _ConcernRow(Static):
 
     @property
     def state(self) -> str:
-        """One of ``"none"`` / ``"forward"`` / ``"rejected"``."""
+        """One of ``"none"`` / ``"forward"`` / ``"rejected"`` / ``"spinoff"``."""
         return self._state
 
     @property
@@ -2185,11 +2537,19 @@ class _ConcernRow(Static):
     def rejected(self) -> bool:
         return self._state == "rejected"
 
+    @property
+    def spun_off(self) -> bool:
+        """True only in the ``spinoff`` state — "park this as its own task"."""
+        return self._state == "spinoff"
+
     def set_state(self, value: str) -> None:
         """Set the disposition; repaint and re-class only on a real change.
 
         The ``rejected`` CSS class tracks the state here rather than at each
-        call site, so the glyph and the dimming can never disagree.
+        call site, so the glyph and the dimming can never disagree. ``spinoff``
+        deliberately gets NO dimming class: unlike a rejection it is not a
+        "struck through" outcome — the concern is being kept, just elsewhere —
+        so the cyan ``»`` is the whole signal.
         """
         if self._state == value:
             return
@@ -2198,12 +2558,16 @@ class _ConcernRow(Static):
         self.refresh()
 
     def toggle_forward(self) -> None:
-        """``space``: forward ⇄ none. Clears a rejection by construction."""
+        """``space``: forward ⇄ none. Clears any other disposition."""
         self.set_state("none" if self._state == "forward" else "forward")
 
     def toggle_reject(self) -> None:
-        """``r``: rejected ⇄ none. Clears a forward selection by construction."""
+        """``r``: rejected ⇄ none. Clears any other disposition."""
         self.set_state("none" if self._state == "rejected" else "rejected")
+
+    def toggle_spinoff(self) -> None:
+        """``t``: spinoff ⇄ none. Clears any other disposition."""
+        self.set_state("none" if self._state == "spinoff" else "spinoff")
 
     def _region_label(self, budget: int) -> str:
         """The region, ellipsized to ``budget`` columns, or a visible placeholder."""
@@ -2235,6 +2599,14 @@ class _ConcernRow(Static):
             event.stop()
         elif event.key == "r":
             self.toggle_reject()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "t":
+            # Consumed here exactly like `r`: the full monitor binds `t` at App
+            # level (scroll_preview_tail), just as it binds `r` (refresh), and
+            # stopping the event on the focused row is what has kept `r` from
+            # reaching that binding since t1427_2.
+            self.toggle_spinoff()
             event.prevent_default()
             event.stop()
         elif event.key == "down":
@@ -2290,15 +2662,19 @@ _PICKER_NARROW_MIN_WIDTH = 30
 _PICKER_MIN_COLS = 24
 
 _CONCERN_HELP_FULL = (
-    "[dim]\\[↑/↓] navigate  \\[Space] forward  \\[r] reject  "
+    "[dim]\\[↑/↓] navigate  \\[Space] forward  \\[r] reject  \\[t] spin off  "
     "\\[R] rejected list  \\[u] unparsed  \\[Enter/OK] confirm  \\[Esc] cancel[/]"
 )
 
 #: Same keys, ~50 columns instead of ~100 — at the xnarrow tier the full line
 #: wraps to five rows and evicts the buttons. Dropping the removed `a`/`A` bulk
 #: keys (t1427_2) is what buys the room for `r` / `R` at 24 columns.
+#: `t spin` (t1159_3) spends part of that room, so
+#: :class:`ConcernHelpLineBudgetTests` asserts every token below still reaches
+#: the composited screen at :data:`_PICKER_MIN_COLS` — shorten a token here
+#: rather than widening the dialog if a future key stops fitting.
 _CONCERN_HELP_COMPACT = (
-    "[dim]↑↓ move · spc fwd · r rej · R list · u raw · ↵ ok · esc[/]"
+    "[dim]↑↓ move · spc fwd · r rej · t spin · R list · u raw · ↵ ok · esc[/]"
 )
 
 
@@ -2550,12 +2926,14 @@ class ConcernPickerModal(ModalScreen):
     one partition shows no headers at all, so plan-review blocks (whose producers
     have no disposition concept) look exactly as they did before.
 
-    **Per-row actions only (t1427_2).** ``space`` forwards, ``r`` rejects, and
-    the two are mutually exclusive on each row. The former ``a`` (select all
+    **Per-row actions only (t1427_2; ``t`` added t1159_3).** ``space``
+    forwards, ``r`` rejects, ``t`` spins off as its own draft task, and the
+    three are mutually exclusive on each row. The former ``a`` (select all
     actionable) and ``A`` (copy ALL) bulk keys were **removed outright**, not
     re-scoped: a bulk key that swept a row into "forward" would silently
     overwrite a rejection the user had just made, and rejection is persistent
-    state rather than a one-shot selection.
+    state rather than a one-shot selection. That reasoning binds ``t`` at least
+    as hard — a spin-off writes a file — so no bulk key may be reintroduced.
 
     **Two independent size knobs (t1293) — neither is derived from the other.**
     ``narrow`` is the *caller's* hint and owns only the two-line ``_ConcernRow``
@@ -2698,13 +3076,14 @@ class ConcernPickerModal(ModalScreen):
         partitions = self._partitions()
         if len(partitions) < 2:
             return (
-                f"{len(self._concerns)} concern(s)  ·  forward or reject"
+                f"{len(self._concerns)} concern(s)  ·  forward, reject, or spin off"
                 + meta_suffix
             )
         counts = {title: len(group) for title, group in partitions}
         return (
             f"{counts['Needs addressing']} to address  ·  "
-            f"{counts['Informational']} informational  ·  forward or reject"
+            f"{counts['Informational']} informational  ·  "
+            "forward, reject, or spin off"
             + meta_suffix
         )
 
@@ -2826,6 +3205,7 @@ class ConcernPickerModal(ModalScreen):
             forwarded=self._concerns_in_state("forward"),
             rejected=self._concerns_in_state("rejected"),
             unrejected=tuple(self._unreject_ids),
+            spun_off=self._concerns_in_state("spinoff"),
         )
 
     def action_show_rejected(self) -> None:

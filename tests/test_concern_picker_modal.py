@@ -208,6 +208,102 @@ class ConcernPickerModalTests(unittest.TestCase):
 
         self._run(runner())
 
+    def test_t_toggles_the_spinoff_glyph(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                row = list(app.screen.query(_ConcernRow))[0]
+                self.assertEqual(row.state, "none")
+
+                await pilot.press("t")
+                await pilot.pause()
+                self.assertEqual(row.state, "spinoff")
+                self.assertTrue(row.spun_off)
+                self.assertIn("»", row.render())
+                # A spin-off KEEPS the concern (elsewhere), so unlike a
+                # rejection it must not be dimmed as struck-through.
+                self.assertNotIn("rejected", row.classes)
+
+                await pilot.press("t")
+                await pilot.pause()
+                self.assertEqual(row.state, "none")
+                self.assertFalse(row.spun_off)
+                self.assertIn("☐", row.render())
+
+        self._run(runner())
+
+    def test_all_four_states_are_mutually_exclusive(self):
+        """Every key clears the other two. A row carrying two dispositions
+        would forward AND park the same concern."""
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                row = list(app.screen.query(_ConcernRow))[0]
+
+                for key, state, glyph in (
+                    ("space", "forward", "☑"),
+                    ("r", "rejected", "✗"),
+                    ("t", "spinoff", "»"),
+                    ("space", "forward", "☑"),
+                    ("t", "spinoff", "»"),
+                    ("r", "rejected", "✗"),
+                ):
+                    await pilot.press(key)
+                    await pilot.pause()
+                    self.assertEqual(row.state, state)
+                    rendered = row.render()
+                    self.assertIn(glyph, rendered)
+                    for other in ("☑", "✗", "»"):
+                        if other != glyph:
+                            self.assertNotIn(other, rendered)
+
+        self._run(runner())
+
+    def test_spun_off_concerns_keep_their_input_order(self):
+        """Partitioning reorders the DOM, so the result must be restored by
+        `original_index` — not by DOM position."""
+        async def runner():
+            app = _Host(_mixed_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                rows = list(app.screen.query(_ConcernRow))
+                # Mark in REVERSE presentation order; the result must still
+                # come back in the modal's input order.
+                for row in reversed(rows):
+                    row.focus()
+                    await pilot.pause()
+                    await pilot.press("t")
+                    await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+
+                spun = app.result.spun_off
+                self.assertEqual(len(spun), 3)
+                self.assertEqual(
+                    [c.body for c in spun],
+                    [c.body for c in _mixed_concerns()],
+                )
+
+        self._run(runner())
+
+    def test_a_spinoff_only_confirm_is_not_a_cancel(self):
+        """All-empty-but-one is a legitimate result; only None is a cancel."""
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("t")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertIsNotNone(app.result)
+                self.assertEqual(len(app.result.spun_off), 1)
+                self.assertEqual(app.result.forwarded, [])
+                self.assertEqual(app.result.rejected, [])
+
+        self._run(runner())
+
     def test_forward_and_reject_are_mutually_exclusive(self):
         """Neither key ever leaves a row in both states — the whole point of
         removing the bulk keys was that rejection must not be overwritten."""
@@ -281,7 +377,7 @@ class ConcernPickerModalTests(unittest.TestCase):
                 await pilot.pause()
                 self.assertIsNotNone(app.result)
                 self.assertEqual(
-                    app.result, ConcernPickResult([], [], ())
+                    app.result, ConcernPickResult([], [], (), [])
                 )
 
         self._run(runner())
@@ -839,6 +935,69 @@ class ConcernContextLineBudgetTests(unittest.TestCase):
         self.assertIn("14:03:27Z", flat)
 
 
+class ConcernHelpLineBudgetTests(unittest.TestCase):
+    """The help line survives the xnarrow tier with a fourth key (t1159_3).
+
+    Pre-phase characterization for the spin-off arm. ``_CONCERN_HELP_COMPACT``
+    exists *because* the full line wraps to five rows at this tier and evicts
+    the OK/Cancel buttons — its own comment records that — so it is already
+    tuned to roughly 50 columns and a fourth key spends budget documented as
+    scarce.
+
+    These assert the **composited strips**, not the constant: the line wraps
+    inside the dialog, so a constant containing the token proves nothing about
+    what reached the screen (the :class:`ConcernContextLineBudgetTests`
+    rationale, and `_flat_text` exists for exactly this wrapping).
+
+    What is pinned is *every* key reaching the screen and the concern rows
+    surviving alongside it — the two things a fourth key could push off.
+    """
+
+    def _flat_at(self, width: int, height: int = 30) -> str:
+        async def runner():
+            app = _Host(_mixed_concerns(), narrow=True)
+            async with app.run_test(size=(width, height)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return _flat_text(_screen_rows(app))
+
+        return asyncio.run(runner())
+
+    #: Every key the compact help names, as it appears once whitespace is
+    #: collapsed. Each must reach the screen at the narrowest supported width.
+    #: `spin` is the t1159_3 addition — the acceptance half of this pre-phase:
+    #: the fourth key must reach the screen without evicting the other seven.
+    COMPACT_TOKENS = ("move", "fwd", "rej", "spin", "list", "raw", "ok", "esc")
+
+    def test_every_compact_help_key_reaches_the_screen(self):
+        for width in (monitor_shared._PICKER_NARROW_MIN_WIDTH,
+                      monitor_shared._PICKER_MIN_COLS):
+            flat = self._flat_at(width)
+            for token in self.COMPACT_TOKENS:
+                with self.subTest(width=width, token=token):
+                    self.assertIn(token, flat)
+
+    def test_concern_rows_survive_beside_the_help_line(self):
+        """The help line must not evict the rows it describes.
+
+        A body marker per concern, so this fails if the help grew enough to
+        push the list off a 24-row screen rather than merely wrapping.
+        """
+        for width in (monitor_shared._PICKER_NARROW_MIN_WIDTH,
+                      monitor_shared._PICKER_MIN_COLS):
+            flat = self._flat_at(width)
+            for marker in ("AAA", "BBB", "CCC"):
+                with self.subTest(width=width, marker=marker):
+                    self.assertIn(marker, flat)
+
+    def test_full_help_names_every_key_at_a_comfortable_width(self):
+        flat = self._flat_at(100)
+        for token in ("navigate", "forward", "reject", "spin off",
+                      "rejected list", "unparsed", "confirm", "cancel"):
+            with self.subTest(token=token):
+                self.assertIn(token, flat)
+
+
 class FormatBlockMetaTests(unittest.TestCase):
     """`format_block_meta` is pure, plain-text, and total over garbage."""
 
@@ -900,7 +1059,10 @@ class ConcernContextMetaTests(unittest.TestCase):
 
     def test_no_meta_renders_exactly_the_pre_round_line(self):
         flat = self._flat(_mixed_concerns(), None)
-        self.assertIn("1 informational · forward or reject", flat)
+        # The wording is fixture (t1159_3 added ", or spin off"); the GUARD is
+        # the assertNotIn below, and this line is what keeps it non-vacuous by
+        # proving the context line reached the screen at all.
+        self.assertIn("1 informational · forward, reject, or spin off", flat)
         self.assertNotIn("round", flat)
 
     def test_markup_shaped_reviewed_at_renders_instead_of_crashing(self):

@@ -57,6 +57,7 @@ from monitor.monitor_core import (  # noqa: E402
 )
 from monitor.concern_parser import (  # noqa: E402
     _SENTINEL_SAFE_COLS,
+    Concern,
     build_clipboard_payload,
     concern_block_signature,
     concern_marker_line,
@@ -274,11 +275,12 @@ def _writes(app):
     return [c for c in app.spy_rejected if c[0][0] in ("add", "remove")]
 
 
-def _pick_result(forwarded=(), rejected=(), unrejected=()):
+def _pick_result(forwarded=(), rejected=(), unrejected=(), spun_off=()):
     return ConcernPickResult(
         forwarded=list(forwarded),
         rejected=list(rejected),
         unrejected=tuple(unrejected),
+        spun_off=list(spun_off),
     )
 
 
@@ -1734,3 +1736,91 @@ class MonitorBlockAgeTests(unittest.TestCase):
         # ...and never speaks again for the same block, however stale it gets.
         _run(app._offer_concerns())
         self.assertEqual(len(app.spy_notify), 1, "unchanged block re-toasted")
+
+
+# ---------------------------------------------------------------------------
+# Spin-off triage arm — full-monitor parity (t1159_3)
+# ---------------------------------------------------------------------------
+
+def _spin_concerns(*regions):
+    return [Concern("high", region, f"Body for {region}.") for region in regions]
+
+
+class MonitorSpinoffParityTests(unittest.TestCase):
+    """The full monitor gets the spin-off arm through the shared mixin.
+
+    These are deliberately duplicated from the minimonitor suite rather than
+    parameterized across apps: the whole defect class this guards against is
+    the two apps DIFFERING (`_concern_pick_busy` existed only here, and
+    minimonitor grew no equivalent), so each app is pinned in its own file
+    against its own harness.
+    """
+
+    def _app(self, create_rc=0, create_raises=False):
+        app = _mk_app()
+        _install_rejection_spy(app, task_id="1427_2", rc=0, out="ADDED:1")
+        app.spy_created: list = []
+
+        async def _fake_create(args, stdin_text=""):
+            app.spy_created.append((list(args), stdin_text))
+            if create_raises:
+                raise RuntimeError("create blew up")
+            name = args[args.index("--name") + 1]
+            return (create_rc, f"aitasks/new/draft_20260813_1042_{name}.md")
+
+        app._run_create_cmd = _fake_create
+        return app
+
+    def _deferred(self, **kwargs):
+        app = self._app(**kwargs)
+        app.spy_workers: list = []
+        app.run_worker = lambda coro, **kw: app.spy_workers.append(coro)
+        self.addCleanup(lambda: [coro.close() for coro in app.spy_workers])
+        return app
+
+    def test_spinoff_dispatches_and_creates_drafts(self):
+        app = self._app()
+        app.apply_concern_pick_result(
+            _pick_result(spun_off=_spin_concerns("alpha")), "1427_2"
+        )
+        self.assertEqual(len(app.spy_created), 1)
+        args, _ = app.spy_created[0]
+        self.assertEqual(args[args.index("--followup-kind") + 1], "review_finding")
+        self.assertNotIn("--commit", args)
+
+    def test_a_second_confirmation_while_in_flight_is_refused(self):
+        """The gap this closes: `_concern_pick_busy` is released on modal
+        dismissal, one line BEFORE the effects are dispatched, so it never
+        covered the worker."""
+        app = self._deferred()
+        result = _pick_result(spun_off=_spin_concerns("alpha"))
+
+        app.apply_concern_pick_result(result, "1427_2")
+        app.apply_concern_pick_result(result, "1427_2")
+
+        self.assertEqual(len(app.spy_workers), 1)
+        self.assertTrue(
+            any("still running" in m for m, _ in app.spy_notify)
+        )
+
+    def test_the_guard_is_released_when_the_worker_raises(self):
+        app = self._deferred(create_raises=True)
+        result = _pick_result(spun_off=_spin_concerns("alpha"))
+
+        app.apply_concern_pick_result(result, "1427_2")
+        with self.assertRaises(RuntimeError):
+            asyncio.run(app.spy_workers[0])
+
+        app.apply_concern_pick_result(result, "1427_2")
+        self.assertEqual(len(app.spy_workers), 2, "the guard leaked")
+
+    def test_a_mixed_confirmation_takes_exactly_one_worker(self):
+        app = self._deferred()
+        app.apply_concern_pick_result(
+            _pick_result(
+                rejected=_spin_concerns("rej"),
+                spun_off=_spin_concerns("spin"),
+            ),
+            "1427_2",
+        )
+        self.assertEqual(len(app.spy_workers), 1)
