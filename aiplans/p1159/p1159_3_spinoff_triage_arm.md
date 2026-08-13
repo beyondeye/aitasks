@@ -562,7 +562,158 @@ fan-out and the new non-idempotent effect class are inherent to the change.
   alone does not close · severity: high · → mitigation: the store-based
   pre-creation skip (step 5), with its producer-scoped positive control and
   fail-open control
+- **ACCEPTED, not mitigated (user decision at implementation review):** both
+  duplicate guards are single-process — the in-flight set is in-memory, and the
+  store check is an unlocked `list` separated from the `add` by a subprocess —
+  so two *separate* monitor processes on one task can both read "not yet spun
+  off" and each create a draft · severity: medium · → mitigation: **none;
+  documented acceptance** in `_spawn_concern_tasks`' docstring. It cannot be
+  closed with the house mutex: `lib/registry_lock.sh` records the acquiring
+  shell's `$$`, releases on an EXIT trap, and steals a dead-PID holder on
+  sight, so it serializes one bash process's critical section and cannot span
+  the awaits. The alternatives were an atomic claim verb on
+  `aitask_shadow_rejected.sh` (which must write the store *before* the draft
+  exists, trading a duplicate draft for a possible suppressed-but-uncreated
+  concern) or relaxing invariants that file marks "do NOT relax". Accepted
+  because reaching it needs two monitor processes confirming the same concern
+  within a sub-second window, and the damage is one extra **unfinalized**
+  draft — reported with its path, owned by no task id, removable with `rm`,
+  with no loss and a store that still converges
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_picker_help_budget | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (shared picker modal / narrow-width display budget) | desc: Characterize the picker's compact help line and rows on the composited strip at the 24-col xnarrow tier before adding the t key, then re-assert with the fourth key present
 - timing: pre-phase | name: pin_real_create_draft_contract | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (no test exercises the real aitask_create.sh flag contract) | desc: Shell test running the real aitask_create.sh once in a tmpdir with this feature's exact argv, asserting anchor/followup_kind/draft frontmatter and single-line stdout, plus a nonexistent --followup-of negative control
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-13 12:05) — plan review, both CONFIRMED
+
+- **Requested by user (via review):**
+  1. *(high, mixed picker actions)* A confirmation that both rejects and spins
+     off launched two non-exclusive workers, each calling the same rejection-store
+     writer; one can return `LOCK_BUSY`, and when the spin-off draft was already
+     created but its store `add` failed, the concern returns next round and the
+     user can create a duplicate draft.
+  2. *(high, draft-path reporting)* The pinned contract requires reporting draft
+     paths, but the plan only collected stdout paths and notified a count plus a
+     location — leaving the user unable to identify the drafts a given
+     confirmation produced, especially during concurrent work.
+- **Changes made:** Both verified against the source before changing anything.
+  (1) Confirmed the store mutex is a single per-task `LOCK_DIR` via
+  `lib/registry_lock.sh`, **not** producer-scoped, and that exit 3 means nothing
+  was written — and that `_persist_concern_dispositions`' own docstring already
+  records why its two subcommands are sequential. Fixed **structurally**: one
+  `_apply_concern_side_effects` worker awaits rejections then spin-offs, and the
+  spin-off store write became a **single batched `add`** mirroring the rejection
+  path. The residual (a genuinely concurrent *other* TUI) gets its own
+  "created but NOT suppressed" wording naming the duplicate hazard.
+  (2) The notify now lists every draft path plus the batch nonce as a selector
+  (`ls aitasks/new/*<nonce>*`), capped with `… and K more`.
+  `ConcernBlockInspectModal` was rejected as the surface — it is specifically
+  the raw *concern-block* view (t1293).
+- **Files affected:** `.aitask-scripts/monitor/monitor_shared.py`,
+  `tests/test_minimonitor_concern_action.py`,
+  `tests/test_monitor_concern_action.py`.
+
+### Change Request 2 (2026-08-13 12:20) — plan review, CONFIRMED
+
+- **Requested by user (via review):** the picker guard is released on modal
+  dismissal while the non-exclusive draft-creation worker is still running, and
+  minimonitor has no equivalent guard at all; reopening the picker and spinning
+  off the same concern starts a distinct-nonce batch and creates duplicate
+  drafts. Hold a per-pane/task in-flight effect guard until completion and test
+  repeated confirmation in both TUIs.
+- **Changes made:** Verified and found **wider** than reported:
+  `_concern_pick_busy` is monitor-only, is scoped by its own docstring to modal
+  stacking, and is released one line *before* `apply_concern_pick_result`;
+  minimonitor has none; **and** the picker lists concerns unfiltered while
+  suppression only lands producer-side at the next shadow round — so the
+  duplicate window does not close when the worker finishes. Fixed at both
+  layers: a **mixin-owned, lazily-initialized** in-flight guard keyed by task id
+  (mixin-owned precisely because app-ownership is how the original gap arose),
+  released in a `finally`; plus a **store-based pre-creation skip** filtered on
+  `producer == "spinoff"`. `_concern_pick_busy` was left untouched — it answers
+  a different question. Tests run against **both** TUIs.
+- **Files affected:** `.aitask-scripts/monitor/monitor_shared.py`,
+  `tests/test_minimonitor_concern_action.py`,
+  `tests/test_monitor_concern_action.py`.
+
+### Change Request 3 (2026-08-13 13:05) — implementation review, cross-process TOCTOU
+
+- **Requested by user (via review):** two separate monitor processes can both
+  read "no spinoff marker", then each create a draft before either records it.
+  Add a task-scoped cross-process transaction lock around check → create → store
+  add, or explicitly document acceptance.
+- **Investigation:** the race is real — `list` takes **no lock** by design
+  (rename-atomic reads) and `add` **appends unconditionally** without deduping,
+  so add-first cannot serve as a claim either. Crucially, the house mutex
+  **cannot** implement the requested lock: `lib/registry_lock.sh` records the
+  acquiring shell's own `$$` (`:64`), installs `trap … EXIT` (`:69`), and steals
+  any dead-PID holder on sight — so it serializes one bash process's critical
+  section and cannot span the awaits here. The alternatives were an atomic claim
+  verb on `aitask_shadow_rejected.sh` (which must write the store *before* the
+  draft exists, trading a duplicate draft for a possible suppressed-but-uncreated
+  concern) or relaxing invariants that file marks "do NOT relax".
+- **Decision (user):** **document acceptance.** Recorded in
+  `_spawn_concern_tasks`' docstring as an explicit ACCEPTED LIMITATION with the
+  mechanism, why it is not closed, the reachability (two monitor processes, same
+  task, same concern, sub-second window) and the damage (one extra *unfinalized*
+  draft, reported with its path, removable, no loss, store still converges), and
+  as an accepted risk bullet in `## Risk` above.
+- **Files affected:** `.aitask-scripts/monitor/monitor_shared.py`,
+  `aiplans/p1159/p1159_3_spinoff_triage_arm.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Both inline pre-phases landed first and green against the
+  pre-change tree (`ConcernHelpLineBudgetTests` at the 24-col tier; the new
+  `tests/test_shadow_spinoff_create_contract.sh` driving the **real**
+  `aitask_create.sh`). Then: `»` mark + quad-state `_ConcernRow` + `t` key;
+  `spun_off` on `ConcernPickResult` with **no default**, amended at all four
+  construction sites; help/context text; a single serialized effects worker with
+  a mixin-owned in-flight guard; `_run_create_cmd` + `_spawn_concern_tasks` with
+  a store-based pre-creation skip, per-batch-nonce naming, one batched store
+  write, and an exhaustive partial-failure contract.
+- **Deviations from plan:** (1) The AST-guard step was **inverted** per the
+  plan's own correction 3 — no row was registered, and the guard's unmodified
+  pass is the assertion. (2) Two defects found during implementation and fixed
+  beyond the plan: the failure path merges stderr, so `aitask_create.sh`'s
+  **coloured** `die` would have rendered raw ANSI in the toast, and taking the
+  *first* line reported a preceding label warning instead of the terminal cause
+  — both now handled by `_create_failure_reason` and pinned with the real
+  captured failure text. (3) The cross-process TOCTOU was documented as accepted
+  rather than fixed (CR3).
+- **Issues encountered:** A concurrent session (t1468_5) edited the same
+  `monitor_shared.py` throughout, with a large **staged** index. Its work was
+  committed as `b25bb4893` *between* my tree construction and my `commit-tree`,
+  so the first commit — built from `read-tree HEAD` at the older HEAD but
+  parented to the newer one — **silently reverted their `monitor_shared.py`
+  changes**. Caught by diffing their marker symbols against the committed blob,
+  and repaired with `git commit --amend --only -- <file>` using the merged
+  worktree content; verified afterwards that my commit touches none of their
+  lines and that their symbols are present in HEAD. The overlap was exactly one
+  file. Two transient full-suite failures were also investigated rather than
+  assumed: `test_trail_gather` was the other session mid-edit (passes on re-run),
+  and `test_board_startup_focus_live` was proven **pre-existing** by running it
+  in a detached worktree at HEAD with neither session's changes.
+- **Key decisions:** effects are serialized **structurally** (one worker) rather
+  than by retry; the in-flight guard is **mixin-owned** so neither app can omit
+  it, which is the defect that produced the original asymmetry; the name budget
+  is computed against the **post-sanitization** length because `sanitize_name`
+  truncates from the right and deletes non-`[a-z0-9_]` characters (verified as a
+  fixed point against the real bash function); forwarding keeps sole ownership of
+  the clipboard so a mixed confirmation cannot clobber the payload.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** `ConcernPickResult` now has **four** fields and
+  `spun_off` carries **no default** — any new construction site must supply it.
+  The picker's per-row state machine is quad-state; a fifth would need another
+  single-width mark and another compact-help token, and
+  `ConcernHelpLineBudgetTests` will fail if the 24-col line can no longer carry
+  them all. `_run_create_cmd` is a test seam like `_run_rejected_cmd`: no bash
+  runs in the Python suites, so any change to the create argv contract must also
+  update `tests/test_shadow_spinoff_create_contract.sh`, which is the only test
+  that executes the real script. Note that the store's `add` does **not** dedupe
+  and `list` takes **no lock** — do not build a claim/CAS on them without
+  reading CR3 first. Finally: this file's history shows a concurrent session
+  can commit between your `read-tree` and your `commit-tree`; if you build a
+  commit with plumbing, re-verify the other party's symbols survive in HEAD.
