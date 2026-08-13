@@ -18,7 +18,7 @@ Every gatherer stdout line must match one of these record schemas:
 
 ```
 COLUMN:<col_id>|<title>
-TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<task_file_path>
+TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<followup_kind>|<task_file_path>
 VELOCITY_MODEL:<model_id>|<window_days>|<start_date>|<end_date>|<model_label>
 VELOCITY:<bucket_id>|<observed_units>|<completed_count>|<avg_per_unit>|<bucket_label>
 PROJECTION:<remaining_total>|<projected_date>|<days_ahead>|<basis_completions>|<caveat>
@@ -35,6 +35,14 @@ average**, then label — do not swap counts and averages.
 Any line matching none of these prefixes, or a recognized prefix with the
 wrong field count, is a **malformed record**: treat it as an infrastructure
 failure (hard stop per Step 2) — never guess, reorder, or skip fields.
+
+`<followup_kind>` marks an auto-spawned follow-up. The gatherer **clamps it to
+the framework vocabulary**, so it is always one of: a real kind, `unknown`, or
+`invalid`. **`unknown` means the task is NOT a follow-up** — it is the sentinel
+for an absent field, and most tasks are genuine new work, so it is the common
+value. `invalid` means the value was a typo, a kind from a newer framework
+version, or otherwise untransportable. Never surface either sentinel as a kind,
+and never guess what an `invalid` one was meant to be.
 
 ## Workflow
 
@@ -195,6 +203,16 @@ For each selected task (each `TASK:` row):
 - For parents with children: pending list from `children_to_implement` in the
   task frontmatter; archived (completed) children via
   `./.aitask-scripts/aitask_query_files.sh archived-children <task_id>`.
+- Note `<followup_kind>`: any value other than `unknown` / `invalid` is a real
+  framework kind — the gatherer clamps it, so this is true by construction and
+  you must NOT re-derive it from a list of kinds in this file. Such a task is
+  an auto-spawned follow-up rather than genuine new work; carry that into its
+  report line as a short human phrase — `risk_mitigation` → "follow-up: risk
+  mitigation", `upstream_defect` → "follow-up: upstream defect", and so on
+  (underscores to spaces). It explains *why* the item is on the board, which is
+  manager-relevant. Never write the raw enum token, and say nothing about
+  provenance for `unknown` or `invalid` — inventing a category from a clamped
+  sentinel would put a false provenance claim in a manager-facing report.
 
 Child-context rules (PINNED):
 

@@ -43,7 +43,13 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # derive the vocabulary -- so BOTH must be present or the bridge fails
         # closed and every --followup-kind validation rejects.
         cp "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds_sh.sh" "$repo_dir/.aitask-scripts/lib/"
-        cp "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds.py"    "$repo_dir/.aitask-scripts/lib/"
+        # The Python half goes through the CLOSURE copier, not a bare `cp`:
+        # followup_kinds.py grew a `from record_protocol import …` in t1468_5,
+        # and a hand-maintained copy list would have left the bridge failing
+        # closed with no error text — exactly the t1488 failure this helper
+        # exists to prevent.
+        copy_py_closure_from "$PROJECT_DIR/.aitask-scripts/lib" \
+                             "$repo_dir/.aitask-scripts/lib" followup_kinds
         # stale_lock.sh is sourced at startup by aitask_create.sh and
         # aitask_gate.sh (t1496 — the shared child/gate mutex); a stdlib-only
         # leaf with no deps beyond terminal_compat.sh (already copied above).

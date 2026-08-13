@@ -51,6 +51,7 @@ from agent_launch_utils import (  # noqa: E402
     tmux_session_target,
     tmux_window_target,
 )
+from followup_kinds import normalize_followup_kind  # noqa: E402
 from task_yaml import parse_frontmatter  # noqa: E402
 import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
 import workflow_phase  # noqa: E402  (advisory phase seam, t1420 — never a gate)
@@ -3519,14 +3520,19 @@ class TaskInfoCache:
 
     def find_next_sibling(
         self, task_id: str, session_name: str = ""
-    ) -> tuple[str, str] | None:
+    ) -> tuple[str, str, str] | None:
         """Find the next Ready sibling/child task.
 
         If task_id is a child (e.g. "123_4"), returns the next Ready sibling
         under the same parent, excluding the current task. If task_id is a
         parent (e.g. "123"), returns the first Ready child of that parent.
 
-        Returns (task_id, title) or None.
+        Returns ``(task_id, title, followup_kind)`` or None. ``followup_kind``
+        is type-coerced to a string (``""`` when absent, or when frontmatter
+        held a list / int / bool) but **not** validated against the vocabulary:
+        an unrecognised value rides through verbatim so the render boundary
+        (``followup_kinds.marker_for``) can show it as unrecognised rather than
+        as "not a follow-up" (t1468_5).
         """
         if "_" in task_id:
             parent, _child = task_id.split("_", 1)
@@ -3569,24 +3575,28 @@ class TaskInfoCache:
             if not title:
                 parts = path.stem.split("_", 2)
                 title = parts[2].replace("_", " ") if len(parts) > 2 else path.stem
-            candidates.append((int(sib_child), sib_id, title))
+            candidates.append((int(sib_child), sib_id, title,
+                               normalize_followup_kind(
+                                   metadata.get("followup_kind"))))
 
         if not candidates:
             return None
         candidates.sort(key=lambda x: x[0])
-        _, sib_id, title = candidates[0]
-        return (sib_id, title)
+        _, sib_id, title, followup_kind = candidates[0]
+        return (sib_id, title, followup_kind)
 
     def find_ready_siblings(
         self, task_id: str, session_name: str = ""
-    ) -> list[tuple[str, str, list[str]]]:
+    ) -> list[tuple[str, str, list[str], str]]:
         """List pending Ready siblings of ``task_id``.
 
-        Returns rows of ``(sib_id, title, blocking_sibling_ids)`` sorted by
-        child number ascending. ``blocking_sibling_ids`` lists sibling ids
-        under the same parent that appear in this sibling's ``depends``
+        Returns rows of ``(sib_id, title, blocking_sibling_ids, followup_kind)``
+        sorted by child number ascending. ``blocking_sibling_ids`` lists sibling
+        ids under the same parent that appear in this sibling's ``depends``
         field and are not yet ``Done`` — so callers can show a
         "blocked by tX" hint while still allowing the row to be picked.
+        ``followup_kind`` carries auto-spawned-follow-up provenance under the
+        same coercion rule as ``find_next_sibling`` (t1468_5).
 
         Same parent/exclude rules as ``find_next_sibling``: when ``task_id``
         is a child, the current sibling is excluded; when ``task_id`` is a
@@ -3607,7 +3617,7 @@ class TaskInfoCache:
         # First pass: collect every sibling's status + parsed metadata so
         # the second pass can compute "blocked by sibling" without re-reading.
         sib_status: dict[str, str] = {}
-        parsed_rows: list[tuple[int, str, str, list[str]]] = []
+        parsed_rows: list[tuple[int, str, str, list[str], str]] = []
         child_re = re.compile(rf'^t{re.escape(parent)}_(\d+)_')
         for path in sorted(search_dir.glob(f"t{parent}_*_*.md")):
             m = child_re.match(path.stem)
@@ -3641,15 +3651,19 @@ class TaskInfoCache:
             depends_raw = metadata.get("depends", []) or []
             # Normalize "t42" / "42" / 42 to bare numeric strings.
             depends_norm = [str(d).lstrip("t") for d in depends_raw]
-            parsed_rows.append((int(sib_child), sib_id, title, depends_norm))
+            parsed_rows.append((
+                int(sib_child), sib_id, title, depends_norm,
+                normalize_followup_kind(metadata.get("followup_kind")),
+            ))
 
         if not parsed_rows:
             return []
 
         # Second pass: a blocker is a depends entry whose normalized form
         # matches "<parent>_<n>" of another sibling whose status is not Done.
-        rows: list[tuple[str, str, list[str]]] = []
-        for _child_num, sib_id, title, depends_norm in sorted(parsed_rows, key=lambda r: r[0]):
+        rows: list[tuple[str, str, list[str], str]] = []
+        for (_child_num, sib_id, title, depends_norm,
+                followup_kind) in sorted(parsed_rows, key=lambda r: r[0]):
             blocking: list[str] = []
             for dep in depends_norm:
                 # Only sibling deps shaped as "<parent>_<n>" are relevant
@@ -3659,7 +3673,7 @@ class TaskInfoCache:
                     continue
                 if sib_status.get(dep, "") != "Done":
                     blocking.append(dep)
-            rows.append((sib_id, title, blocking))
+            rows.append((sib_id, title, blocking, followup_kind))
         return rows
 
     def _resolve(self, task_id: str, session_name: str = "") -> TaskInfo | None:

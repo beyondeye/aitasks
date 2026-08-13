@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-TASK_FIELDS = 9  # TASK: has 8 fixed fields + 1 free-text path, always last
+TASK_FIELDS = 10  # TASK: has 9 fixed fields + 1 free-text path, always last
 
 
 def board_flow_args(repo_root: Path):

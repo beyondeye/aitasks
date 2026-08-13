@@ -3260,13 +3260,14 @@ class MonitorApp(
         if not result:
             self.notify("No ready siblings or children found", severity="warning")
             return
-        suggested_id, suggested_title = result
+        suggested_id, suggested_title, suggested_kind = result
         parent_id = self._task_cache.get_parent_id(task_id) or task_id
 
         self.push_screen(
             NextSiblingDialog(
                 task_id, current_title, current_status,
                 suggested_id, suggested_title, parent_id,
+                suggested_followup_kind=suggested_kind,
             ),
             callback=self._on_next_sibling_result,
         )

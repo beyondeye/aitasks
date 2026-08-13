@@ -212,6 +212,23 @@ class FollowupMarkerBoundaryTests(_GlyphTestBase, unittest.TestCase):
         self.assertEqual(self.marker({"followup_kind": "risk_mitigation "}),
                          ("·", None))
 
+    def test_a_literal_sentinel_string_is_still_a_present_value(self):
+        """`unknown` / `invalid` are line-protocol SENTINELS, not reserved
+        words — a task can literally carry either in its frontmatter, and when
+        it does the value is PRESENT and is not a kind (t1468_5).
+
+        The board has always got this right (both render the `·` fallback);
+        pinned here as the counterpart to `followup_kind_field`'s rule, so the
+        two boundaries cannot drift into disagreeing about the same string.
+        """
+        for sentinel in ("unknown", "invalid"):
+            with self.subTest(sentinel=sentinel):
+                self.assertEqual(self.marker({"followup_kind": sentinel}),
+                                 ("·", None))
+                self.assertIsNotNone(
+                    self.marker({"followup_kind": sentinel}),
+                    "a literal sentinel must never read as 'no follow-up'")
+
 
 # --- 2. vocabulary properties the rendering depends on ----------------------
 

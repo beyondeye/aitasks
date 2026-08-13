@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitasks.dev/schemas/implementation_trail-1.0.0.json",
+  "$id": "https://aitasks.dev/schemas/implementation_trail-1.1.0.json",
   "title": "Implementation Trail",
   "description": "Versioned, machine-readable record of a preferred implementation ordering (waves) for a selected task/topic scope, with first-class narrative rationale. One trail artifact is the single source of truth; Markdown/TUI views are deterministic projections of this document and are never persisted as a second source.",
   "type": "object",
@@ -21,7 +21,7 @@
     "schema_version": {
       "description": "Version of this schema the document conforms to. Consumers MUST reject documents whose major version they do not understand.",
       "type": "string",
-      "const": "1.0.0"
+      "const": "1.1.0"
     },
     "trail_id": {
       "description": "Stable identity of the trail across refreshes. Immutable once created; artifact content versions of the same handle share this id.",
@@ -385,6 +385,20 @@
             "gates_pending": {
               "type": "array",
               "items": { "type": "string" }
+            },
+            "followup_kind": {
+              "description": "Auto-spawned follow-up provenance at generation. OPTIONAL and OMITTED for genuine new work -- the gatherer's MEMBER record carries the transport sentinels `unknown` (no value) and `invalid` (untransportable), and neither is a kind, so the writer must omit the key rather than store one. Display provenance only: deliberately not ordering-relevant, so it is absent from the normalized input digest and from the drift-code set. Vocabulary: .aitask-scripts/lib/followup_kinds.py (a drift guard equates this enum to it).",
+              "type": "string",
+              "enum": [
+                "manual_verification",
+                "risk_mitigation",
+                "upstream_defect",
+                "verification_failure",
+                "carry_over",
+                "qa_test_gap",
+                "review_finding",
+                "docs_gap"
+              ]
             }
           }
         },

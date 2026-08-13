@@ -52,7 +52,7 @@ snapshot/verdict): surface the error to the user and stop the flow.
 ```
 SCOPE:<kind>|<topics csv>
 OWNER:<ref | none>
-MEMBER:<ref>|<status>|<priority>|<effort>|<boardcol>|<labels csv>|<path>
+MEMBER:<ref>|<status>|<priority>|<effort>|<boardcol>|<labels csv>|<followup_kind>|<path>
 INPUT:task_file|<exists>|<status>|<depends csv>|<gates csv>|<ref>
 INPUT:plan_file|<exists>|<content_hash>|<ref>
 DIGEST:<hex>
@@ -390,7 +390,7 @@ write (Step 2e.3 / Step 3.5). Requirements beyond the schema
 (`.aitask-scripts/lib/implementation_trail.schema.json` is the validator's
 copy):
 
-- `schema_version`: `"1.0.0"`. `trail_id`: handle minus `art:`.
+- `schema_version`: `"1.1.0"`. `trail_id`: handle minus `art:`.
 - All task refs (`owner`, `scope.topics`, entry `task`/`topic`, relations,
   exclusions, observation `affects`, `generation.inputs` refs) are copied
   EXACTLY as the gatherer emitted them.
@@ -401,9 +401,16 @@ copy):
   `generator.skill: "aitask-trail"`; `inputs` = the INPUT lines' (kind,
   ref) pairs, one object each; `input_digest` = the `DIGEST:` hex.
 - Entry `snapshot`s populate `status`, `depends`, `gates_pending` from the
-  INPUT task_file line and `priority`, `effort`, `boardcol` from the MEMBER
-  line — complete snapshots are the drift anchor; incomplete ones degrade
-  future drift attribution.
+  INPUT task_file line and `priority`, `effort`, `boardcol`, `followup_kind`
+  from the MEMBER line — complete snapshots are the drift anchor; incomplete
+  ones degrade future drift attribution.
+- **OMIT any optional `snapshot` field whose MEMBER value is `unknown` or
+  `invalid`.** Those two are transport sentinels, not values: `unknown` means
+  the task had no such field and `invalid` means it could not be transported.
+  Writing either into a schema-`enum` property (`priority`, `effort`,
+  `followup_kind`) fails validation and invalidates the WHOLE document. For
+  `followup_kind` this is the common path — most tasks are genuine new work
+  and carry no kind — so a stored `unknown` would break every ordinary trail.
 - `relations` with `type: hard_depends` MUST have `provenance: "fact"` and
   mirror a recorded `depends` edge (prerequisite `from` → dependent `to`);
   advisory ordering uses `advisory_precedes` with `provenance: "advisory"`.

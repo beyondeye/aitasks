@@ -11,7 +11,7 @@ Line protocol (exit 0 for every validation outcome; nonzero only for usage or
 infrastructure failures):
 
     COLUMN:<col_id>|<title>
-    TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<task_file_path>
+    TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<followup_kind>|<task_file_path>
     VELOCITY_MODEL:<model_id>|<window_days>|<start_date>|<end_date>|<model_label>
     VELOCITY:<bucket_id>|<observed_units>|<completed_count>|<avg_per_unit>|<bucket_label>
     PROJECTION:<remaining_total>|<projected_date>|<days_ahead>|<basis_completions>|<caveat>
@@ -27,6 +27,13 @@ estimate rests on, and <caveat> names the limitation consumers must surface.
 
 At most one free-text field per record and it is always LAST, so consumers
 split on '|' with a fixed maxsplit and need no escaping engine.
+
+<followup_kind> marks an auto-spawned follow-up (t1468). It is CLAMPED to the
+vocabulary in lib/followup_kinds.py, so it is always either a real kind,
+`unknown` (the task carries no `followup_kind` at all -- the common case, since
+most tasks are genuine new work) or `invalid`. Consumers must read both
+sentinels as "not a follow-up"; anything else is a real kind by construction,
+so no consumer needs its own copy of the vocabulary to say so.
 """
 from __future__ import annotations
 
@@ -52,6 +59,9 @@ from typing import Callable
 # resolution this module still owns: task_dir() for the task glob, metadata_dir()
 # for the one config path it hands to the shared reader.
 from config_utils import metadata_dir, task_dir
+# Vocabulary-clamped, so a consumer can treat "neither sentinel" as a real kind
+# without carrying its own copy of the vocabulary. Shared with trail_gather.
+from followup_kinds import followup_kind_field
 from stats_data import DAY_NAMES, collect_stats
 from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter
 
@@ -119,6 +129,7 @@ class TaskRow:
     effort: str
     pending_children: int
     remaining_items: int
+    followup_kind: str
     path: str
     filename: str
 
@@ -196,6 +207,8 @@ def scan_tasks() -> list[TaskRow]:
                 effort=enum_field(metadata.get("effort")),
                 pending_children=pending,
                 remaining_items=remaining,
+                followup_kind=followup_kind_field(
+                    metadata.get("followup_kind")),
                 path=str(path),
                 filename=path.name,
             )
@@ -581,7 +594,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(
                     f"TASK:{row.col_id}|{row.task_id}|{row.board_idx}|{row.status}"
                     f"|{row.priority}|{row.effort}|{row.pending_children}"
-                    f"|{row.remaining_items}|{sanitize_last_field(row.path)}",
+                    f"|{row.remaining_items}|{row.followup_kind}"
+                    f"|{sanitize_last_field(row.path)}",
                     file=out,
                 )
 

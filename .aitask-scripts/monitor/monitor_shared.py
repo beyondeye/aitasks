@@ -19,6 +19,9 @@ sys.path.insert(0, str(_SCRIPT_DIR))
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 
 import agent_marks  # noqa: E402
+# The ONE authority for follow-up glyphs and colours (t1468_1), shared with the
+# board's card marker — imported, never mirrored (t1468_5).
+from followup_kinds import marker_for  # noqa: E402
 
 # `PaneSnapshot` + the task-context symbols moved to monitor_core (t822_6);
 # re-exported here so `from monitor.monitor_shared import TaskInfo, …` keeps
@@ -1430,6 +1433,7 @@ class NextSiblingDialog(ModalScreen):
         suggested_title: str,
         parent_id: str,
         narrow: bool = False,
+        suggested_followup_kind: str = "",
     ) -> None:
         super().__init__()
         self._current_task_id = current_task_id
@@ -1439,6 +1443,7 @@ class NextSiblingDialog(ModalScreen):
         self._suggested_title = suggested_title
         self._parent_id = parent_id
         self._narrow = narrow
+        self._suggested_followup_kind = suggested_followup_kind
 
     def compose(self) -> ComposeResult:
         if self._narrow:
@@ -1449,7 +1454,8 @@ class NextSiblingDialog(ModalScreen):
             yield Static("[bold yellow]Pick Next Sibling[/]", id="next-sib-header")
             lines = [
                 f"Current:   [bold]t{self._current_task_id}[/]: {self._current_title}  (Status: {self._current_status})",
-                f"Suggested: [bold]t{self._suggested_id}[/]: {self._suggested_title}",
+                f"Suggested: {_followup_prefix(self._suggested_followup_kind)}"
+                f"[bold]t{self._suggested_id}[/]: {self._suggested_title}",
             ]
             if will_kill:
                 if is_parent_with_children:
@@ -1474,6 +1480,25 @@ class NextSiblingDialog(ModalScreen):
         self.dismiss(None)
 
 
+def _followup_prefix(followup_kind: str) -> str:
+    """Two-cell rich-markup prefix carrying a task's follow-up provenance.
+
+    Always exactly two cells wide — `"  "` when the task is not an auto-spawned
+    follow-up, `"<glyph> "` when it is — so marked and unmarked rows stay
+    column-aligned and the narrow (minimonitor, ~40 col) variant loses no width
+    to the marker. Glyphs are single-cell by construction (t1468_1).
+
+    `marker_for` owns the three-way rule (absent / recognised / unrecognised);
+    this is only its rendering, and it is shared by every sibling surface so the
+    picker and the `Suggested:` line can never disagree (t1468_5).
+    """
+    marker = marker_for(followup_kind)
+    if not marker:
+        return "  "
+    glyph, colour = marker
+    return f"[{colour}]{glyph}[/] " if colour else f"{glyph} "
+
+
 class _SiblingRow(Static):
     """A focusable sibling row inside ChooseSiblingModal."""
 
@@ -1489,18 +1514,20 @@ class _SiblingRow(Static):
     }
     """
 
-    def __init__(self, sib_id: str, title: str, blocking_ids: list[str], **kwargs) -> None:
+    def __init__(self, sib_id: str, title: str, blocking_ids: list[str],
+                 followup_kind: str = "", **kwargs) -> None:
         super().__init__(**kwargs)
         self._sib_id = sib_id
         self._title = title
         self._blocking_ids = blocking_ids
+        self._followup_kind = followup_kind
 
     @property
     def sib_id(self) -> str:
         return self._sib_id
 
     def render(self) -> str:
-        base = f"  [bold #7aa2f7]t{self._sib_id}[/]  {self._title}"
+        base = f"{_followup_prefix(self._followup_kind)}[bold #7aa2f7]t{self._sib_id}[/]  {self._title}"
         if self._blocking_ids:
             blockers = " ".join(f"t{b}" for b in self._blocking_ids)
             base += f"  [bold red]⛔ blocked by {blockers}[/]"
@@ -1565,7 +1592,7 @@ class ChooseSiblingModal(ModalScreen):
     def __init__(
         self,
         parent_id: str,
-        siblings: list[tuple[str, str, list[str]]],
+        siblings: list[tuple[str, str, list[str], str]],
         narrow: bool = False,
     ) -> None:
         super().__init__()
@@ -1583,8 +1610,8 @@ class ChooseSiblingModal(ModalScreen):
                 id="choose-sib-context",
             )
             with VerticalScroll(id="choose-sib-list"):
-                for sib_id, title, blocking_ids in self._siblings:
-                    yield _SiblingRow(sib_id, title, blocking_ids)
+                for sib_id, title, blocking_ids, followup_kind in self._siblings:
+                    yield _SiblingRow(sib_id, title, blocking_ids, followup_kind)
             yield Static(
                 "[dim]\\[↑/↓] navigate  \\[Enter/OK] select  \\[Esc] cancel[/]",
                 id="choose-sib-help",

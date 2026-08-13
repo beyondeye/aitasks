@@ -42,6 +42,12 @@ WRAPPER = SCRIPTS_DIR / "aitask_trail_gather.sh"
 
 TS = "2026-07-23T10:00:00Z"
 
+#: The schema version the current `const` replaced. Kept in lockstep with
+#: tests/test_trail_schema.py's constant of the same name; both call sites
+#: assert it differs from the live `const`, so a stale value fails loudly
+#: rather than silently testing the current version against itself.
+SUPERSEDED_SCHEMA_VERSION = "1.0.0"
+
 
 # --- Synthetic repo scaffolding ---------------------------------------------
 
@@ -229,7 +235,11 @@ class TrailGatherCase(unittest.TestCase):
                 "rationale": "because", "confidence": "medium",
             })
         doc = {
-            "schema_version": "1.0.0",
+            # Derived, never re-hardcoded: this fixture must track the schema
+            # across bumps, and the version itself is pinned once by
+            # VersionLockTests below (t1468_5).
+            "schema_version": (
+                trail_schema.load_schema()["properties"]["schema_version"]["const"]),
             "trail_id": trail_id,
             "title": "Test trail",
             "owner": owner or snap.get("owner", f"{self.LOCAL}#1"),
@@ -558,6 +568,30 @@ class DriftCodeTests(TrailGatherCase):
         plan.write_text("edited\n")
         result = self.drift(trail)
         self.assertIn("other", result["codes"])
+
+    def test_followup_kind_is_not_a_completeness_requirement(self):
+        """A snapshot WITHOUT `followup_kind` still reconstructs (t1468_5).
+
+        `followup_kind` is display provenance, not ordering-relevant: it is
+        deliberately absent from `_reconstruct_old_task_records`'s completeness
+        set (status + depends + gates_pending) and from GATHERER_DRIFT_CODES.
+        Had it been added there, every pre-existing snapshot would have become
+        "incomplete" overnight and every plan edit would degrade to a lossy
+        `other` instead of the precise `plan_changed`.
+        """
+        plan = self.repo.write_plan("100", "root")
+        snap = self.snapshot("--scope", "topic", "100")
+        trail = self.make_trail(snap, entries=[
+            ("mainproj#100", self.entry_snapshot(snap, "mainproj#100")),
+            ("mainproj#101", self.entry_snapshot(snap, "mainproj#101")),
+        ])
+        plan.write_text("edited\n")
+        result = self.drift(trail)
+        self.assertIn("plan_changed", result["codes"])
+        self.assertNotIn("other", result["codes"],
+                         "an absent followup_kind must not make the snapshot "
+                         "incomplete")
+        self.assertNotIn("followup_kind", trail_gather.GATHERER_DRIFT_CODES)
 
     def test_existence_reason_archived_classification(self):
         """Characterization: the archived branch of _existence_reason is a
@@ -920,6 +954,72 @@ class DeterminismTests(TrailGatherCase):
         keys = [(l.split("|")[0].split(":")[1], l.rsplit("|", 1)[1])
                 for l in inputs]
         self.assertEqual(keys, sorted(keys))
+
+    def test_member_record_field_positions(self):
+        """Characterization: pin the MEMBER: tuple by position (t1468_5).
+
+        The only consumer of this record is the aitask-trail skill writer, and
+        it reads with a fixed maxsplit. Every other test in this file indexes
+        only ``m[0]``, so a field inserted anywhere but the end would shift the
+        rest silently — the writer would store the trailing path as the new
+        field rather than failing. This makes any insertion loud.
+        """
+        path = self.repo.write_task(
+            "100", "root", status="Ready", boardcol="now",
+            labels=["ui", "backend"], followup_kind="risk_mitigation")
+        snap = self.snapshot("--scope", "task", "100")
+        member = next(m for m in snap["members"] if m[0] == "mainproj#100")
+        self.assertEqual(len(member), 8, "field count is part of the contract")
+        self.assertEqual(member[0], "mainproj#100", "f1 ref")
+        self.assertEqual(member[1], "Ready", "f2 status")
+        self.assertEqual(member[2], "low", "f3 priority")
+        self.assertEqual(member[3], "low", "f4 effort")
+        self.assertEqual(member[4], "now", "f5 boardcol")
+        self.assertEqual(member[5], "ui,backend", "f6 labels csv")
+        self.assertEqual(member[6], "risk_mitigation", "f7 followup_kind")
+        self.assertEqual(member[7], path.relative_to(self.repo.root).as_posix(),
+                         "f8 path (free text, always last)")
+
+    def test_member_followup_kind_is_clamped_to_the_vocabulary(self):
+        """Only a real kind, `unknown` or `invalid` may reach the record.
+
+        The consumer stores this into a schema `enum`, so an out-of-vocabulary
+        value would fail the whole trail as ERROR:invalid_trail. `unknown` is
+        the COMMON case — most tasks are genuine new work and carry no field at
+        all — which is why the writer's omit rule matters (t1468_5).
+        """
+        self.repo.write_task("100", "root")
+        self.repo.write_task("101", "spawned", anchor=100,
+                             followup_kind="upstream_defect")
+        self.repo.write_task("102", "typo", anchor=100,
+                             followup_kind="upstream_defct")
+        self.repo.write_task("103", "piped", anchor=100,
+                             followup_kind='"a|b"')
+        # The sentinels are values, not reserved words — a task can literally
+        # carry them, and both are PRESENT while neither is a kind.
+        self.repo.write_task("104", "literal_unknown", anchor=100,
+                             followup_kind="unknown")
+        self.repo.write_task("105", "literal_invalid", anchor=100,
+                             followup_kind="invalid")
+        snap = self.snapshot("--scope", "topic", "100")
+        kinds = {m[0]: m[6] for m in snap["members"]}
+        self.assertEqual(kinds["mainproj#100"], "unknown",
+                         "no followup_kind at all -> the absent sentinel")
+        self.assertEqual(kinds["mainproj#101"], "upstream_defect")
+        self.assertEqual(kinds["mainproj#102"], "invalid",
+                         "an out-of-vocabulary kind must never reach a "
+                         "schema enum as itself")
+        self.assertEqual(kinds["mainproj#103"], "invalid")
+        self.assertEqual(
+            kinds["mainproj#104"], "invalid",
+            "a LITERAL `followup_kind: unknown` is present and is not a kind; "
+            "letting it read as the absent sentinel would make the writer omit "
+            "the key and report the task as genuine new work, while the board "
+            "still paints it as an unrecognised follow-up")
+        self.assertEqual(kinds["mainproj#105"], "invalid")
+        self.assertNotEqual(kinds["mainproj#104"], kinds["mainproj#100"],
+                            "absence and a literal 'unknown' must stay "
+                            "distinguishable")
 
     def test_pipe_status_sanitized_in_line_raw_in_digest(self):
         self.repo.write_task("100", "root", status="Weird|Status")
@@ -1323,22 +1423,43 @@ class VersionLockTests(TrailGatherCase):
         # silently incomparable. Bump both together.
         schema = trail_schema.load_schema()
         const = schema["properties"]["schema_version"]["const"]
-        self.assertEqual(const, "1.0.0")
+        self.assertEqual(const, "1.1.0")
+        # Deliberately NOT bumped alongside the schema: 1.1.0 added an optional
+        # display-only field that never enters the normalized digest, and the
+        # lock's contract runs one way (normalization bump => schema bump).
         self.assertEqual(trail_schema.NORMALIZATION_VERSION, "1.0.0")
         self.assertEqual(
             trail_gather.SCHEMA_NORMALIZATION_LOCK.get(const),
             trail_schema.NORMALIZATION_VERSION)
 
+    def test_lock_has_exactly_one_entry_keyed_by_the_schema_const(self):
+        """The lock is single-version, and its key is the schema's own const.
+
+        `.get(const)` in the pairing test above passes just as happily with a
+        stale extra entry left behind by a bump, which would quietly re-admit
+        documents the single-version design means to reject. Pin cardinality
+        and the key's provenance, not just the mapped value (t1468_5).
+        """
+        const = trail_schema.load_schema()["properties"]["schema_version"]["const"]
+        self.assertEqual(list(trail_gather.SCHEMA_NORMALIZATION_LOCK), [const])
+
     def test_old_schema_trail_is_invalid_never_false_stale(self):
         self.repo.write_task("100", "root")
         snap = self.snapshot("--scope", "task", "100")
         trail = self.make_trail(snap)
-        doc = json.loads(trail.read_text())
-        doc["schema_version"] = "0.9.0"
-        trail.write_text(json.dumps(doc))
-        out, rc = self.run_cli("drift", "--trail", str(trail))
-        self.assertEqual(rc, 0)
-        self.assertTrue(out.startswith("ERROR:invalid_trail:"), out)
+        const = trail_schema.load_schema()["properties"]["schema_version"]["const"]
+        # Both an implausible old version and the *superseded* one: the second
+        # is the real cutover case, and the one that must not read as STALE.
+        for stale_version in ("0.9.0", SUPERSEDED_SCHEMA_VERSION):
+            with self.subTest(schema_version=stale_version):
+                self.assertNotEqual(stale_version, const)
+                doc = json.loads(trail.read_text())
+                doc["schema_version"] = stale_version
+                trail.write_text(json.dumps(doc))
+                out, rc = self.run_cli("drift", "--trail", str(trail))
+                self.assertEqual(rc, 0)
+                self.assertTrue(out.startswith("ERROR:invalid_trail:"), out)
+                self.assertNotIn("STALE", out)
         self.assertNotIn("STALE", out)
         self.assertNotIn("CURRENT", out)
 

@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 LIB_DIR = REPO_ROOT / ".aitask-scripts" / "lib"
 sys.path.insert(0, str(LIB_DIR))
 
+import followup_kinds  # noqa: E402
 import trail_schema  # noqa: E402
 from trail_schema import (  # noqa: E402
     TrailValidationError,
@@ -43,6 +44,11 @@ FIXTURE_NAMES = [
     "gate_framework.json",
     "cross_topic_multiple_trails.json",
 ]
+
+#: The schema version the current `const` replaced. Kept as a named constant so
+#: the clean-rejection guard below names the real cutover rather than an
+#: implausible sentinel. Update it in the same commit as any `const` bump.
+SUPERSEDED_SCHEMA_VERSION = "1.0.0"
 
 
 def fixture(name):
@@ -65,6 +71,79 @@ class SchemaCopyDrift(unittest.TestCase):
             LIB_SCHEMA.read_bytes(), AIDOCS_SCHEMA.read_bytes(),
             "the shipped lib schema copy drifted from the pinned aidocs "
             "contract -- edit both files together")
+
+
+class FollowupKindSnapshotProperty(unittest.TestCase):
+    """`entry.snapshot.followup_kind` — the enum, and the sentinel hazard.
+
+    The gatherer's MEMBER record carries `unknown` when a task has no
+    `followup_kind` at all, which is the COMMON case: most tasks are genuine
+    new work. `unknown` is deliberately not in the enum, so if the skill writer
+    ever stores the sentinel instead of omitting the key, EVERY ordinary trail
+    becomes ERROR:invalid_trail. These make that failure mode named and
+    executable rather than resting on the skill's prose alone (t1468_5).
+    """
+
+    ENTRY_PATH = "snapshot"
+
+    def _snapshot_doc(self, snapshot_extra):
+        doc = fixture("gate_framework.json")
+        doc["waves"][0]["entries"][0]["snapshot"].update(snapshot_extra)
+        return doc
+
+    def test_absent_key_validates(self):
+        """The ordinary path — the positive control for the two below."""
+        doc = fixture("gate_framework.json")
+        snapshot = doc["waves"][0]["entries"][0]["snapshot"]
+        self.assertNotIn("followup_kind", snapshot)
+        self.assertEqual(issues_for(doc), [])
+
+    def test_every_vocabulary_value_validates(self):
+        for kind in followup_kinds.FOLLOWUP_KINDS:
+            with self.subTest(kind=kind):
+                doc = self._snapshot_doc({"followup_kind": kind})
+                self.assertEqual(issues_for(doc), [])
+
+    def test_unknown_sentinel_is_rejected(self):
+        doc = self._snapshot_doc({"followup_kind": "unknown"})
+        issues = issues_for(doc)
+        self.assertTrue(
+            any(i.rule == "enum" and self.ENTRY_PATH in i.path for i in issues),
+            "the absent-value sentinel must never validate as a kind: %s" % issues)
+
+    def test_invalid_sentinel_is_rejected(self):
+        doc = self._snapshot_doc({"followup_kind": "invalid"})
+        issues = issues_for(doc)
+        self.assertTrue(
+            any(i.rule == "enum" and self.ENTRY_PATH in i.path for i in issues),
+            "the untransportable sentinel must never validate as a kind: %s" % issues)
+
+    def test_out_of_vocabulary_value_is_rejected(self):
+        doc = self._snapshot_doc({"followup_kind": "risk_mitigatoin"})
+        issues = issues_for(doc)
+        self.assertTrue(
+            any(i.rule == "enum" and self.ENTRY_PATH in i.path for i in issues),
+            issues)
+
+    def test_enum_equals_the_vocabulary_in_both_schema_copies(self):
+        """Drift guard: adding a kind must reach the schema.
+
+        Adding an enum value needs no `schema_version` bump (older documents
+        stay valid) — but it does need this enum updated, in both copies.
+        """
+        expected = list(followup_kinds.FOLLOWUP_KINDS)
+        for path in (AIDOCS_SCHEMA, LIB_SCHEMA):
+            with self.subTest(schema=path.name):
+                schema = json.loads(path.read_text(encoding="utf-8"))
+                snapshot = (schema["$defs"]["entry"]["properties"]
+                            ["snapshot"]["properties"])
+                self.assertEqual(snapshot["followup_kind"]["enum"], expected)
+
+    def test_property_is_optional(self):
+        """Not in `required`: an ordinary task has no provenance to record."""
+        schema = json.loads(AIDOCS_SCHEMA.read_text(encoding="utf-8"))
+        snapshot = schema["$defs"]["entry"]["properties"]["snapshot"]
+        self.assertNotIn("followup_kind", snapshot.get("required", []))
 
 
 class ValidFixtures(unittest.TestCase):
@@ -160,6 +239,24 @@ class StructuralNegativeControls(unittest.TestCase):
     def test_wrong_schema_version(self):
         doc = fixture("shadow_review_loop.json")
         doc["schema_version"] = "2.0.0"
+        self.assert_rule(doc, "const", "schema_version")
+
+    def test_superseded_schema_version_rejected_cleanly(self):
+        """A trail stored under the *previous* schema is rejected, not read.
+
+        The trail is single-version by design (`load_schema` reads exactly one
+        `const`), and `trail_gather` relies on that: an old-schema trail must
+        fail validation as ERROR:invalid_trail, never surface as a false STALE.
+        Pinning the superseded version by name — rather than only an
+        implausible `2.0.0` — is what makes a bump's cutover verifiable: this
+        test is red until the `const` actually moves (t1468_5).
+        """
+        doc = fixture("shadow_review_loop.json")
+        doc["schema_version"] = SUPERSEDED_SCHEMA_VERSION
+        self.assertNotEqual(
+            SUPERSEDED_SCHEMA_VERSION,
+            load_schema()["properties"]["schema_version"]["const"],
+            "the superseded version must not still be the current const")
         self.assert_rule(doc, "const", "schema_version")
 
     def test_bad_trail_id(self):

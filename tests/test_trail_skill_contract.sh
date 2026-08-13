@@ -110,6 +110,27 @@ for profile in "${PROFILES[@]}"; do
         "NEVER just the initiating task" "$skill"
     assert_contains "$profile: expansion members pinned by inputs" \
         "can never silently vanish on refresh" "$skill"
+
+    # (l) The snapshot PRODUCER for `followup_kind` (t1468_5). The schema
+    # property, the enum drift guard and the gatherer's MEMBER field all pass
+    # against a writer that never populates anything — this prose IS the
+    # producer, so it is the only place the instruction can be pinned.
+    assert_contains "$profile: writer populates followup_kind" \
+        "followup_kind\`
+  from the MEMBER line" "$skill"
+
+    # And the other half: the sentinels must be OMITTED, not stored. This
+    # guards the COMMON path — a task with no followup_kind emits \`unknown\`,
+    # which is not in the schema enum, so storing it would invalidate every
+    # ordinary trail.
+    assert_contains "$profile: writer omits the transport sentinels" \
+        "OMIT any optional \`snapshot\` field whose MEMBER value is \`unknown\` or" "$skill"
+    assert_contains "$profile: sentinels are named as non-values" \
+        "transport sentinels, not values" "$skill"
+
+    # (m) The writer emits the bumped schema version.
+    assert_contains "$profile: writer emits the current schema_version" \
+        '`schema_version`: `"1.1.0"`' "$skill"
 done
 
 # --- Summary ----------------------------------------------------------------

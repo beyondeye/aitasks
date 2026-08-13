@@ -5,7 +5,7 @@
 # and the board `w` flow. It emits board columns, the parent tasks they contain
 # in board order, a per-bucket throughput estimate and a completion projection:
 #     COLUMN:<col_id>|<title>
-#     TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<path>
+#     TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<followup_kind>|<path>
 #     VELOCITY_MODEL:<model_id>|<window_days>|<start>|<end>|<model_label>
 #     VELOCITY:<bucket_id>|<observed_units>|<completed_count>|<avg_per_unit>|<bucket_label>
 #     PROJECTION:<remaining_total>|<projected_date>|<days_ahead>|<basis>|<caveat>
@@ -130,6 +130,102 @@ test_ordering() {
     # Column selection order must not override board order.
     out="$("$GATHER" --columns next,now)"
     assert_eq_trim "board order wins over argument order" "101 100 102" "$(task_ids "$out")"
+}
+
+test_record_field_positions() {
+    echo "=== characterization: TASK: field positions, pinned by index ==="
+    # Every consumer of this record splits on '|' with a FIXED maxsplit, so a
+    # field inserted anywhere but the end silently shifts all of them — a missed
+    # consumer re-reads the trailing path as the new field rather than failing.
+    # This pins the whole tuple by position so any insertion is loud (t1468_5).
+    setup_tree
+    make_named "t800_demo.md" now 42 'children_to_implement: [800_1, 800_2]'
+
+    local out
+    out="$("$GATHER" --columns now)"
+    assert_eq_trim "f1 col_id"           "now"     "$(task_field "$out" 800 1 | sed 's/^TASK://')"
+    assert_eq_trim "f2 task_id"          "800"     "$(task_field "$out" 800 2)"
+    assert_eq_trim "f3 boardidx"         "42"      "$(task_field "$out" 800 3)"
+    assert_eq_trim "f4 status"           "Ready"   "$(task_field "$out" 800 4)"
+    assert_eq_trim "f5 priority"         "high"    "$(task_field "$out" 800 5)"
+    assert_eq_trim "f6 effort"           "medium"  "$(task_field "$out" 800 6)"
+    assert_eq_trim "f7 pending_children" "2"       "$(task_field "$out" 800 7)"
+    assert_eq_trim "f8 remaining_items"  "2"       "$(task_field "$out" 800 8)"
+    assert_eq_trim "f9 followup_kind"    "unknown" "$(task_field "$out" 800 9)"
+    assert_eq_trim "last field is the path" \
+        "$TASK_DIR/t800_demo.md" "$(printf '%s\n' "$out" | grep '^TASK:' | cut -d'|' -f10-)"
+}
+
+test_followup_kind_field() {
+    echo "=== followup_kind: clamped to the vocabulary, sentinels otherwise ==="
+    # The report writer renders this as manager-facing prose ("follow-up: risk
+    # mitigation"), so an out-of-vocabulary value MUST NOT reach it as itself —
+    # it would be announced as a real provenance category. Clamping is what
+    # lets the skill treat "neither sentinel" as a real kind by construction,
+    # without carrying its own copy of the vocabulary.
+    setup_tree
+    make_named "t810_demo.md" now 10 'followup_kind: risk_mitigation'
+    make_named "t811_demo.md" now 20
+    make_named "t812_demo.md" now 30 'followup_kind: "risk|mitigation"'
+    make_named "t813_demo.md" now 40 'followup_kind: typo_kind'
+    make_named "t814_demo.md" now 50 'followup_kind: "[a, b]"'
+    # The sentinels are values, not reserved words: a task can literally carry
+    # them. Both are PRESENT and neither is a kind, so both must classify as
+    # `invalid` — never as the absent sentinel, which would let a malformed
+    # value be reported as genuine new work while the board still paints it as
+    # an unrecognised follow-up.
+    make_named "t815_demo.md" now 60 'followup_kind: unknown'
+    make_named "t816_demo.md" now 70 'followup_kind: invalid'
+
+    local out
+    out="$("$GATHER" --columns now)"
+    assert_eq_trim "recognised kind rides through verbatim" \
+        "risk_mitigation" "$(task_field "$out" 810 9)"
+    # The common case: most tasks are genuine new work and carry no field.
+    assert_eq_trim "absent kind -> unknown sentinel" \
+        "unknown" "$(task_field "$out" 811 9)"
+    assert_eq_trim "record-breaking kind -> invalid sentinel" \
+        "invalid" "$(task_field "$out" 812 9)"
+    assert_eq_trim "out-of-vocabulary kind -> invalid, never itself" \
+        "invalid" "$(task_field "$out" 813 9)"
+    assert_eq_trim "non-scalar kind -> invalid" \
+        "invalid" "$(task_field "$out" 814 9)"
+    assert_eq_trim "a LITERAL 'unknown' is present, not absent -> invalid" \
+        "invalid" "$(task_field "$out" 815 9)"
+    assert_eq_trim "a LITERAL 'invalid' stays invalid" \
+        "invalid" "$(task_field "$out" 816 9)"
+    # The discriminating half: only a genuinely absent field may read `unknown`.
+    assert_eq_trim "absent and literal-'unknown' are distinguishable" \
+        "unknown invalid" \
+        "$(task_field "$out" 811 9) $(task_field "$out" 815 9)"
+    assert_eq_trim "path stays last even on a follow-up row" \
+        "$TASK_DIR/t810_demo.md" \
+        "$(printf '%s\n' "$out" | grep "^TASK:[^|]*|810|" | cut -d'|' -f10-)"
+}
+
+test_followup_kind_vocabulary_is_complete() {
+    echo "=== followup_kind: every real kind survives the clamp ==="
+    # Drift guard against a clamp that is stricter than the vocabulary: if a
+    # kind were dropped, the report would silently stop reporting it.
+    setup_tree
+    local i=0 kind
+    while read -r kind; do
+        [[ -n "$kind" ]] || continue
+        i=$((i + 1))
+        make_named "t9${i}_demo.md" now "$i" "followup_kind: $kind"
+    done < <("$PYTHON" "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds.py" --list)
+
+    local out n=0 j=0
+    out="$("$GATHER" --columns now)"
+    while read -r kind; do
+        [[ -n "$kind" ]] || continue
+        j=$((j + 1))
+        assert_eq_trim "vocabulary kind '$kind' survives" \
+            "$kind" "$(task_field "$out" "9${j}" 9)"
+        n=$((n + 1))
+    done < <("$PYTHON" "$PROJECT_DIR/.aitask-scripts/lib/followup_kinds.py" --list)
+    assert_eq_trim "the vocabulary is non-empty (guard is not vacuous)" \
+        "yes" "$([[ "$n" -gt 0 ]] && echo yes || echo no)"
 }
 
 test_tie_break() {
@@ -282,7 +378,7 @@ test_delimiter_free_text() {
     local out title path
     out="$("$GATHER" --columns now)"
     title="$(printf '%s\n' "$out" | grep '^COLUMN:' | cut -d'|' -f2-)"
-    path="$(printf '%s\n' "$out" | grep '^TASK:' | cut -d'|' -f9-)"
+    path="$(printf '%s\n' "$out" | grep '^TASK:' | cut -d'|' -f10-)"
     assert_eq_trim "title with a pipe survives maxsplit" "Now | Later" "$title"
     assert_eq_trim "path with a pipe survives maxsplit" "$TASK_DIR/t530_demo.md" "$path"
 }
@@ -653,6 +749,9 @@ test_board_equivalence() {
 # --- Run -------------------------------------------------------------------
 
 test_ordering
+test_record_field_positions
+test_followup_kind_field
+test_followup_kind_vocabulary_is_complete
 test_tie_break
 test_unordered
 test_task_selection

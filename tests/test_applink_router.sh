@@ -113,10 +113,11 @@ class StubTasks:
         return SimpleNamespace(title=f"title-{task_id}", status="Ready")
     def find_next_sibling(self, task_id, session_name=""):
         self.calls.append(("find_next_sibling", task_id, session_name))
-        return ("823_2", "second sibling")
+        return ("823_2", "second sibling", "risk_mitigation")
     def find_ready_siblings(self, task_id, session_name=""):
         self.calls.append(("find_ready_siblings", task_id, session_name))
-        return [("823_2", "second sibling", []), ("823_3", "third sibling", ["823_2"])]
+        return [("823_2", "second sibling", [], "risk_mitigation"),
+                ("823_3", "third sibling", ["823_2"], "")]
 
 
 def req(verb, payload=None, auth=None, mid="m1"):
@@ -259,11 +260,16 @@ tasks.calls.clear()
 r = rt.handle(req("pick_next_sibling", {"pane_id": "%9"}, auth=full.bearer), ConnState())
 p = r["payload"]
 check("pick_next_sibling suggest -> res", r["kind"] == "res")
-check("pick_next_sibling suggested", p["suggested"] == {"id": "823_2", "title": "second sibling"})
+check("pick_next_sibling suggested", p["suggested"] == {
+      "id": "823_2", "title": "second sibling", "followup_kind": "risk_mitigation"})
 check("pick_next_sibling current", p["current"]["id"] == "823_1" and p["current"]["status"] == "Ready")
 check("pick_next_sibling parent_id", p["parent_id"] == "823")
 check("pick_next_sibling ready_siblings carries blocked_by",
-      p["ready_siblings"][1] == {"id": "823_3", "title": "third sibling", "blocked_by": ["823_2"]})
+      p["ready_siblings"][1] == {"id": "823_3", "title": "third sibling",
+                                 "blocked_by": ["823_2"], "followup_kind": None})
+check("pick_next_sibling ready_siblings carries followup_kind",
+      p["ready_siblings"][0] == {"id": "823_2", "title": "second sibling",
+                                 "blocked_by": [], "followup_kind": "risk_mitigation"})
 # session_name threaded into the task-cache calls (cross-project resolution)
 check("pick_next_sibling threads pane.session_name to task cache",
       all(s == "projA" for (_m, _t, s) in tasks.calls)

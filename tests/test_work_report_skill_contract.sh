@@ -81,8 +81,27 @@ assert_contains "membership integrity sentence" \
     "never drafts from a partial or silently-corrected selection" "$skill"
 
 assert_contains "pinned TASK: record schema (field order)" \
-    "TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<task_file_path>" \
+    "TASK:<col_id>|<task_id>|<boardidx>|<status>|<priority>|<effort>|<pending_children>|<remaining_items>|<followup_kind>|<task_file_path>" \
     "$skill"
+
+# `unknown` is the sentinel for a task with no `followup_kind` at all — the
+# common case. Without this rule the report would announce every ordinary task
+# as a follow-up of kind "unknown" (t1468_5).
+assert_contains "followup_kind sentinel is not a kind" \
+    "\`unknown\` means the task is NOT a follow-up" "$skill"
+
+# The clamp is what makes "any value other than the two sentinels is a real
+# kind" true by construction. Without it a hand-edited or newer-framework value
+# would be rendered as manager-facing prose ("follow-up: typo kind"), asserting
+# a provenance category that does not exist.
+assert_contains "followup_kind is documented as clamped" \
+    "clamps it to
+the framework vocabulary" "$skill"
+assert_contains "writer must not re-derive the vocabulary locally" \
+    "must NOT re-derive it from a list of kinds in this file" "$skill"
+assert_contains "no provenance claim from a sentinel" \
+    "say nothing about
+  provenance for \`unknown\` or \`invalid\`" "$skill"
 
 assert_contains "pinned VELOCITY: record schema (field order)" \
     "VELOCITY:<bucket_id>|<observed_units>|<completed_count>|<avg_per_unit>|<bucket_label>" \

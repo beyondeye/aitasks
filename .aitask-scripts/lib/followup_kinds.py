@@ -25,6 +25,10 @@ from __future__ import annotations
 
 import sys
 
+# `record_protocol` is a pure, import-free policy module, so this stays cheap
+# for the TUI call sites (the board imports this module on the PyPy fast path).
+from record_protocol import INVALID_ENUM, UNKNOWN_ENUM, enum_field
+
 # kind -> (glyph, colour, label). Declaration order is the canonical order.
 FOLLOWUP_KINDS: "dict[str, tuple[str, str, str]]" = {
     "manual_verification":  ("◇", "cyan",         "manual verification"),
@@ -93,6 +97,86 @@ def label_for(kind) -> str:
     """Human-readable label, or ``""`` when the kind is unknown/absent."""
     entry = FOLLOWUP_KINDS.get(normalize_followup_kind(kind))
     return entry[2] if entry else ""
+
+
+def followup_kind_field(value) -> str:
+    """The line-protocol field for a task's ``followup_kind`` (t1468_5).
+
+    Wraps ``record_protocol.enum_field`` and additionally **clamps to the
+    vocabulary**: anything that is neither absent nor a real kind becomes
+    ``invalid``. So the emitted value is always one of the eight kinds,
+    ``unknown`` (the task had no ``followup_kind`` at all — the common case,
+    since most tasks are genuine new work) or ``invalid``.
+
+    Clamping is what lets every consumer treat "neither sentinel" as
+    "recognised" **by construction**, without carrying its own copy of the
+    vocabulary. Both consumers need that guarantee for different reasons, and
+    neither can get it from ``enum_field`` alone, which preserves any
+    transport-safe string:
+
+    - the trail writer stores the value into a schema ``enum``, where an
+      out-of-vocabulary value fails the WHOLE document as
+      ``ERROR:invalid_trail``;
+    - the work report renders it as manager-facing prose, where a typo or a
+      kind from a newer framework version would otherwise be announced as a
+      real provenance category ("follow-up: typo kind").
+
+    This is the last point at which "not a kind" is still knowable, so the
+    clamp belongs here rather than in each consumer.
+
+    **Absence is decided from the RAW input, never from the encoded result.**
+    ``unknown`` is a *sentinel*, not a reserved word, so a task can literally
+    carry ``followup_kind: unknown`` in its frontmatter — that value is
+    PRESENT and is not a kind, so it must classify as ``invalid``. Reading
+    absence off ``enum_field``'s output instead would let it impersonate the
+    absent sentinel: the work report would hide a malformed value as genuine
+    new work while :func:`marker_for` still painted the same string as an
+    unrecognised follow-up on the board. The two surfaces disagreeing about
+    one frontmatter value is exactly what this module exists to prevent.
+
+    One difference from :func:`normalize_followup_kind` is deliberate: a
+    non-string (a hand-edited list, an int) classifies as ``invalid`` here —
+    it *is* present — where the normalizer coerces it to "not a follow-up"
+    because it exists to decide *equality* for merges, not presence. Both
+    still agree on the outcome that matters: no consumer reports such a task
+    as carrying a kind.
+    """
+    if value is None or value == "":
+        return UNKNOWN_ENUM
+    field = enum_field(value)
+    return field if field in VALID_FOLLOWUP_KINDS else INVALID_ENUM
+
+
+def marker_for(kind):
+    """``(glyph, colour)`` for a follow-up kind, or ``None`` when it is absent.
+
+    The framework's render boundary over ``followup_kind`` — shared by the board
+    card (t1468_3) and the monitor/minimonitor sibling picker (t1468_5) so the
+    same value never grows a second, subtly different totality rule.
+
+    Deliberately NOT :func:`glyph_for` / :func:`colour_for`: those were written
+    for validation and answer ``("·", None)`` for an **absent** kind exactly as
+    they do for an unknown one, which on any task list would paint a marker on
+    every ordinary task. The three cases must stay distinct:
+
+    - absent / empty / junk (``None``, a list, an int, a hand-edited dict —
+      ``normalize_followup_kind`` coerces all of them) -> ``None``, so the
+      caller yields no marker at all;
+    - a recognised kind -> its own glyph and severity-family colour;
+    - present but unrecognised (a typo, or a kind from a newer framework
+      version) -> the :data:`UNKNOWN_GLYPH` fallback with **no** colour. It
+      still renders, because a bad value that silently vanishes is
+      indistinguishable from a task that was never a follow-up.
+
+    Returning a tuple-or-``None`` rather than a bare glyph string is what keeps
+    "no marker" structurally distinct from "a marker that happens to be ``·``",
+    so every call site is a single ``if marker:``.
+    """
+    normalized = normalize_followup_kind(kind)
+    if not normalized:
+        return None
+    entry = FOLLOWUP_KINDS.get(normalized)
+    return (entry[0], entry[1]) if entry else (UNKNOWN_GLYPH, None)
 
 
 def main(argv) -> int:

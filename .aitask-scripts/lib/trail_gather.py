@@ -25,7 +25,7 @@ outcome including ERROR lines, 2 usage, 3 infra):
 
     SCOPE:<kind>|<topics csv>
     OWNER:<ref | none>
-    MEMBER:<ref>|<status>|<priority>|<effort>|<boardcol>|<labels csv>|<path>
+    MEMBER:<ref>|<status>|<priority>|<effort>|<boardcol>|<labels csv>|<followup_kind>|<path>
     INPUT:task_file|<exists>|<status>|<depends csv>|<gates csv>|<ref>
     INPUT:plan_file|<exists>|<content_hash or ->|<ref>
     DIGEST:<hex>
@@ -136,6 +136,9 @@ import trail_schema  # noqa: E402
 from archive_iter import find_archived_markdown_by_id  # noqa: E402
 from cross_repo_notation import parse_ref  # noqa: E402
 from gate_ledger import archive_status_from_text  # noqa: E402
+# The vocabulary-clamped field builder; shared with work_report_gather so
+# "neither sentinel means a real kind" holds by construction on both records.
+from followup_kinds import followup_kind_field  # noqa: E402
 from record_protocol import (  # noqa: E402
     INVALID_ENUM, enum_field, has_record_breaking, sanitize_last_field,
 )
@@ -152,7 +155,20 @@ STABLE_READ_MAX_SCANS = 3
 # schema stores no normalization provenance, so comparability is guaranteed
 # by pairing the two versions. Keep this mapping in lockstep with
 # trail_schema; tests/test_trail_gather.py goes red on a one-sided bump.
-SCHEMA_NORMALIZATION_LOCK = {"1.0.0": "1.0.0"}
+#
+# EXACTLY ONE ENTRY, always: the trail is single-version by design (load_schema
+# reads one `const`), so a leftover key from an earlier bump would quietly
+# re-admit documents this design means to reject as ERROR:invalid_trail.
+#
+# schema 1.1.0 pairs with normalization 1.0.0 (t1468_5): the bump added the
+# OPTIONAL, display-only `entry.snapshot.followup_kind`, which never enters the
+# normalized digest -- the digest hashes input records, and the snapshot
+# reconstruction in _reconstruct_old_task_records reads only status + depends +
+# gates_pending. The lock's contract runs one way: a *normalization* bump
+# requires a schema bump, not the reverse. Should followup_kind ever enter the
+# digest, NORMALIZATION_VERSION must bump too and every stored digest becomes
+# incomparable.
+SCHEMA_NORMALIZATION_LOCK = {"1.1.0": "1.0.0"}
 
 # The complete set of drift codes this deterministic helper can emit -- a
 # strict subset of the schema's freshness.drift_reasons enum.
@@ -503,6 +519,7 @@ def member_line(row: TaskRow) -> str:
             + f"|{enum_field(meta.get('effort'))}"
             + f"|{enum_field(meta.get('boardcol'))}"
             + f"|{labels_csv}"
+            + f"|{followup_kind_field(meta.get('followup_kind'))}"
             + f"|{sanitize_last_field(str(row.path))}")
 
 

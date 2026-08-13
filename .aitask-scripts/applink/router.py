@@ -641,13 +641,18 @@ class FrameRouter:
         suggested = self._tasks.find_next_sibling(task_id, session_name)
         ready = self._tasks.find_ready_siblings(task_id, session_name)
         parent_id = self._tasks.get_parent_id(task_id) or task_id
+        # `followup_kind` is null (not "") when the task is not an auto-spawned
+        # follow-up, so a client can tell "no provenance" from a value without
+        # having to know the empty string is a sentinel (t1468_5).
         suggested_payload = None
         if suggested is not None:
-            sug_id, sug_title = suggested
-            suggested_payload = {"id": sug_id, "title": sug_title}
+            sug_id, sug_title, sug_kind = suggested
+            suggested_payload = {"id": sug_id, "title": sug_title,
+                                 "followup_kind": sug_kind or None}
         ready_payload = [
-            {"id": sid, "title": stitle, "blocked_by": list(blocked)}
-            for (sid, stitle, blocked) in ready
+            {"id": sid, "title": stitle, "blocked_by": list(blocked),
+             "followup_kind": kind or None}
+            for (sid, stitle, blocked, kind) in ready
         ]
         return self._res(msg_id, "pick_next_sibling", {
             "suggested": suggested_payload,

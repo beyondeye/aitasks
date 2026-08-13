@@ -1579,7 +1579,7 @@ class MiniMonitorApp(
         if not result:
             self.notify("No ready siblings or children found", severity="warning")
             return
-        suggested_id, suggested_title = result
+        suggested_id, suggested_title, suggested_kind = result
         parent_id = self._task_cache.get_parent_id(task_id) or task_id
 
         pane_id = snap.pane.pane_id
@@ -1588,6 +1588,7 @@ class MiniMonitorApp(
                 task_id, current_title, current_status,
                 suggested_id, suggested_title, parent_id,
                 narrow=True,
+                suggested_followup_kind=suggested_kind,
             ),
             callback=lambda r: self._on_own_next_result(r, pane_id, task_id, sess),
         )

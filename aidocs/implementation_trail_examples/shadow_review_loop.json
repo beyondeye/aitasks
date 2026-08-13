@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "trail_id": "trail-shadow-review-loop",
   "title": "Shadow review-loop landing order",
   "owner": "aitasks#1208",
@@ -113,7 +113,8 @@
             "status": "Ready",
             "priority": "medium",
             "effort": "medium",
-            "depends": []
+            "depends": [],
+            "followup_kind": "manual_verification"
           },
           "rationale": "A live check that the capture foundation works end-to-end. It gates confidence in, not the mechanics of, the t1159 extension.",
           "expected_outcome": "Documented pass/fail evidence for the capture foundation under real tmux conditions.",

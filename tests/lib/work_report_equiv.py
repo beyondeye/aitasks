@@ -22,7 +22,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-TASK_FIELDS = 9  # TASK: has 8 fixed fields + 1 free-text path, always last
+TASK_FIELDS = 10  # TASK: has 9 fixed fields + 1 free-text path, always last
 
 
 def board_columns(repo_root: Path):

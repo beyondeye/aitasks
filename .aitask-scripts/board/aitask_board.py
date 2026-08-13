@@ -63,7 +63,7 @@ from board_groups import (
 # mirrored: a second map in this file — or a `.fk-<kind>` colour class in the
 # CSS, which cannot read a Python dict — would be an unsynchronisable copy.
 # `_followup_marker` below is the render boundary over it.
-from followup_kinds import FOLLOWUP_KINDS, UNKNOWN_GLYPH, normalize_followup_kind
+from followup_kinds import FOLLOWUP_KINDS, UNKNOWN_GLYPH, marker_for
 
 from textual.app import App, ComposeResult
 from textual.content import Content
@@ -3339,34 +3339,24 @@ def _followup_marker(metadata):
     """`(glyph, colour)` for a task's `followup_kind`, or `None` when it is not
     an auto-spawned follow-up (t1468_3).
 
-    The board's totality boundary over `followup_kind`. `lib/task_yaml.py`
-    deliberately leaves frontmatter values type-honest, so a hand-edited or
-    foreign field arrives as `None`, a list, a dict, an int or a bool —
-    `normalize_followup_kind` (imported from the vocabulary module, never
-    copied) coerces every one of those to `""`. Never read the raw value in a
-    `compose`.
+    The board's metadata-shaped adapter over the shared render boundary
+    `followup_kinds.marker_for` (extracted in t1468_5 when the minimonitor
+    sibling picker needed the same three-way rule — absent vs recognised vs
+    unrecognised — and a second copy would have been free to drift). This
+    function keeps the metadata-dict signature every board call site uses;
+    `marker_for` owns the semantics, including the deliberate divergence from
+    `glyph_for` / `colour_for` for an *absent* kind.
 
-    Deliberately NOT `followup_kinds.glyph_for()` / `colour_for()`: those were
-    written for validation and answer `("·", None)` for an **absent** kind just
-    as they do for an unknown one, which here would paint a marker on every
-    ordinary task. The two cases must diverge on a board:
-
-    - absent / empty / junk -> ``None``, so no widget is yielded at all;
-    - a recognised kind      -> its own glyph and severity-family colour;
-    - present but unrecognised (a typo, or a kind from a newer framework
-      version) -> the ``·`` fallback with **no** colour. It still renders —
-      mirroring `_trail_badge_text`'s `·` — because a bad value that silently
-      vanishes is indistinguishable from a task that was never a follow-up.
+    `lib/task_yaml.py` deliberately leaves frontmatter values type-honest, so a
+    hand-edited or foreign field arrives as `None`, a list, a dict, an int or a
+    bool — `marker_for` normalizes every one of those to "no marker". Never
+    read the raw value in a `compose`.
 
     Returning a tuple-or-``None`` rather than a bare glyph string is what keeps
     "no marker" structurally distinct from "a marker that happens to be `·`",
     so every call site is a single `if marker:`.
     """
-    kind = normalize_followup_kind((metadata or {}).get("followup_kind"))
-    if not kind:
-        return None
-    entry = FOLLOWUP_KINDS.get(kind)
-    return (entry[0], entry[1]) if entry else (UNKNOWN_GLYPH, None)
+    return marker_for((metadata or {}).get("followup_kind"))
 
 
 def _followup_glyph_text(marker) -> Text:

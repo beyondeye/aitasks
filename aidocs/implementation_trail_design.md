@@ -170,8 +170,10 @@ state, never auto-healed (§11, §12).
 ## 6. Schema walkthrough
 
 `aidocs/implementation_trail.schema.json` (Draft 2020-12, root
-`additionalProperties: false`, `schema_version` const `1.0.0`). Field groups,
-tied to the fixtures:
+`additionalProperties: false`, `schema_version` const `1.1.0`). The schema is
+deliberately **single-version**: the loader reads exactly one `const`, so a
+document stored under an earlier version is rejected as `ERROR:invalid_trail`
+rather than read — never a false `STALE`. Field groups, tied to the fixtures:
 
 - **Identity** — `schema_version`, `trail_id`, `title`, `owner`, `scope`
   (`kind: task|topic|multi_topic|ad_hoc`, canonical `topics`, optional
