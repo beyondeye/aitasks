@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1449
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 15:44
-updated_at: 2026-08-13 15:54
+updated_at: 2026-08-13 22:57
 ---
 
 ## Origin
@@ -86,3 +87,8 @@ variable t1500's flake turned on.
 - CLAUDE.md: derive the documented carve-out list from
   `tests/run_all_python_tests.sh`'s actual constant, or at minimum update the
   prose and add a guard test asserting the doc and the runner agree.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T19:57:49Z status=pass attempt=1 type=human
