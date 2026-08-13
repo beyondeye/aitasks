@@ -21,3 +21,9 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1515
+
+## Verification Checklist
+
+- [ ] Live branch-mode artifact round trip: on this repo (aitasks/ symlinked to .aitask-data/), pick a scratch task, run `ait artifact create <task> <file> --kind report --handle art:tmp-check` then `ait artifact rm <task> art:tmp-check`; confirm the task frontmatter has NO `artifacts:` key afterwards and matches its pre-create state modulo updated_at. The e2e test (tests/test_artifact_cli.sh F11) runs in a legacy-mode fixture repo, so task_git routing to the data branch is not covered by automation.
+- [ ] Live attachment round trip: same check via `ait attach add <task> <file>` then `ait attach rm <task> <name>`; confirm no bare `attachments:` key is left behind. The shared helper lib/frontmatter_patch.py changed for attachments too, and no CLI-level attach test asserts the key disappears.
+- [ ] Board sanity: open `ait board` on a task whose last artifact was just removed and confirm the trail / artifact surfaces render normally now that the key is absent rather than parsing as None.
