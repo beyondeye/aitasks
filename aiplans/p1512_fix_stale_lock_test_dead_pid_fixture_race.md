@@ -177,3 +177,80 @@ enforcement. (Consistent with the "docs over a narrow source scan guard" rule.)
 
 Step 9 handles cleanup, gate verification (`risk_evaluated`), and archival.
 Current-branch mode: no worktree or branch cleanup is required.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, all four steps.
+  1. New `tests/lib/proc_fixtures.sh` (28 lines) holding `dead_pid_fixture()`
+     behind an idempotent `_AIT_PROC_FIXTURES_LOADED` guard, with the canonical
+     anti-pattern rationale. It also explicitly names the *sound* neighbouring
+     shape (a live-holder `sleep 120 &` killed after an assertion), so a future
+     reader does not over-apply the warning to the 15 legitimate sites the
+     sweep cleared.
+  2. `tests/test_stale_lock.sh` — the three racy lines at 111-113 collapsed to
+     `dead_pid="$(dead_pid_fixture)"`; source line added after `asserts.sh`.
+  3. Local `dead_pid_fixture` definitions deleted from
+     `tests/test_registry_lock.sh` and
+     `tests/test_registry_lock_single_winner.sh`, each replaced by the shared
+     source plus a one-line pointer comment. Call sites unchanged (7 and 2).
+  4. Re-sweep recorded in the plan body (Step 4 table) rather than deferred.
+
+- **Deviations from plan:** One addition not in the approved plan — the
+  `Expected runtime:` line in `test_stale_lock.sh`'s header said `~10s`, and
+  the measured post-fix runtime is `~3s`. Leaving it would have left a future
+  reader unable to tell a healthy run from a degraded one, which is precisely
+  the signal this task exists to protect. Corrected to `~3s` and extended with
+  the diagnostic tell ("a run of ~60s+ against near-zero CPU means a fixture is
+  blocked in `wait`") plus a pointer to `tests/lib/proc_fixtures.sh`.
+
+- **Issues encountered:** None blocking. Two things worth recording:
+  - **The defect reproduced live during planning**, which turned a suspected
+    flake into a measured one: pre-fix `62.805s` wall against `0.174s` user CPU
+    (79/79 still passing). That near-zero-CPU-vs-minutes-of-wall signature is
+    the same tell t1507 used, and it is what makes the fix verifiable rather
+    than merely plausible: post-fix `2.864 / 2.868 / 2.814s` over three runs.
+  - **A concurrent session was active in this repo throughout implementation.**
+    It landed `c9f692fc9 (t1505_1)` mid-task and left a large in-flight change
+    set across `.aitask-scripts/monitor/`, `lib/workflow_phase.py`, `aidocs/`
+    and ~10 other `tests/` files. The code commit was therefore path-scoped to
+    this task's four files explicitly; `git add -A` / `git commit -a` would
+    have swallowed another agent's uncommitted work.
+
+- **Key decisions:**
+  - **Promoted the helper to a shared lib instead of making a third copy.** The
+    task's suggested fix was to paste t1507's helper into `test_stale_lock.sh`.
+    But it already existed in *two* files with **already-divergent** rationale
+    comments (6 lines in `test_registry_lock.sh`, 3 in
+    `test_registry_lock_single_winner.sh`) — a third copy would have made the
+    drift structural. Confirmed with the user before implementing. Granularity
+    precedent: the existing 14-line `tests/lib/venv_python.sh`.
+  - **Rejected a grep-based source guard** against the anti-pattern's return.
+    Legitimate live-holder fixtures emit the identical `sleep N &` … `kill`
+    token sequence, so a guard loose enough to catch the bad shape false-fires
+    on 15 good sites, and one tight enough to avoid that is evaded by a blank
+    line. The rationale comment in the shared lib is the durable enforcement.
+  - **Did not normalize `test_agent_marks_concurrency.sh:126`** (`sleep 0 &` +
+    `wait`, no `kill`). It is already sound — `sleep 0` self-terminates, so
+    there is no signal to lose. Changing it would be cosmetic churn in a file
+    this task has no other reason to touch.
+  - **Did not add a timing assertion** to the test. The runtime expectation is
+    documented in the header for a human to notice, not asserted: an upper
+    bound on wall time is scheduling-decided and would flake on a loaded box —
+    trading a rare 60s hang for a recurring false failure.
+
+- **Upstream defects identified:** None.
+
+## Verification results (post-implementation)
+
+| Check | Baseline | After |
+|---|---|---|
+| `test_stale_lock.sh` runtime | 62.805s wall / 0.174s user | **2.864 / 2.868 / 2.814s** (3 runs) |
+| `test_stale_lock.sh` assertions | 79/79 passed | 79/79 passed — unchanged |
+| `test_registry_lock.sh` | 51/51, 11.097s | 51/51, 11.278s |
+| `test_registry_lock_single_winner.sh` | 15/15, 11.172s | 15/15, 11.101s |
+| `dead_pid_fixture` probe (via the real lib) | — | `kill -0` fails, 3/3 |
+| `shellcheck tests/lib/proc_fixtures.sh` | — | clean |
+
+Shellcheck over the three edited test files reports only pre-existing findings
+(SC1091 source-following info, already present on the `asserts.sh` lines; one
+SC2115 warning at `test_stale_lock.sh:327`, untouched by this task).
