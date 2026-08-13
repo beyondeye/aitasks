@@ -174,6 +174,17 @@ t1278 collision the pre-phase guards. **The explicit `height` is mandatory:**
 `VerticalScroll` inherits `height: 1fr` from `ScrollableContainer`, so without it the
 pane and the columns split the space evenly.
 
+**The body must not render its text as markup.** `Static` defaults to
+`markup=True`, and trail prose is free-form, so brackets in it are *content*.
+Textual's `Content` parser silently **deletes** an unrecognised tag — a literal
+`[blocked]` or `[risk_mitigation]` (a real `followup_kind` in this repo) disappears
+with no error — and a bracketed URL such as `[link=https://example.dev]docs[/link]`
+raises `MarkupError`. That exception would escape from `_refresh_trail_summary` into
+`_refresh_subtitle`, taking the **banner and the whole By-Trail refresh** down at the
+moment the user selects that trail, not just the pane. Construct the body with
+`markup=False` **and** write it through `Text(...)` (step 3): either alone suffices,
+both together mean no later caller can reintroduce it.
+
 ### 3. Visibility **and content** — one owner
 
 Add a single helper and call it from **`_refresh_subtitle` (`:8106`)**, the documented
@@ -207,6 +218,10 @@ pane kept showing trail A's summary** — or a blank frame. Routing both through
 helper at the existing convergence point (12 call sites: view switches, drift
 callbacks, settings changes, resizes, and all four exits of `_render_bytrail`) closes
 that by construction rather than by discipline.
+
+The helper writes the body as `Text(text)`, never a bare `str` — see the free-form
+prose note in step 2. `TrailSummaryScreen` renders through `Text(...)` for the same
+reason, so both surfaces treat brackets as content.
 
 `action_trail_summary_expand` must build `TrailSummaryScreen` from this helper's
 **return value** — never re-derive from `self._trail_doc` — so the modal and the pane
@@ -288,6 +303,11 @@ through `resolve_key("board", …)` like the other trail actions
   **and no longer contain A's**, and that opening the modal shows B's body — also free
   of A's text. Assert the disappearance explicitly; a test that only checks for B's
   presence passes on a pane rendering both.
+- **Free-form prose is literal, in BOTH surfaces:** a summary containing
+  `[blocked]` / `[risk_mitigation]` renders those brackets verbatim in the pane and
+  in the modal (not swallowed as markup), and a summary containing a bracketed URL
+  does not raise — the banner still refreshes, proving the exception cannot escape
+  into `_refresh_subtitle`.
 - **Fallback transition:** A carrying only `recommendation_summary` → B carrying
   `overview`, asserting the pane switches to B's `overview` text (the resolver's
   preference order observed end-to-end, not just in the unit test).
@@ -315,6 +335,132 @@ branches go live when those siblings land. This is intended, not a gap.
 
 Post-implementation cleanup, archival and merge follow **Step 9** of the shared task
 workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four planned steps plus both pre-phase and the post-phase
+  mitigation landed as designed. `trail_summary_text` (pure resolver) sits in the
+  trail-helper block; `#trail_summary` is a flow child yielded between
+  `#board_container` and `MultiRowFooter` with `height: 6`; `_refresh_trail_summary()`
+  is the single owner of the pane's text + visibility and is driven from
+  `_refresh_subtitle`; `v` → `TrailSummaryScreen`, gated in `check_action` and
+  re-guarded inside the action. `_trail_depth_note()` + a fourth `_trail_banner`
+  parameter implement `label_trail_depth`. 28 tests added across 5 classes.
+
+- **Deviations from plan:** None in approach. Two additions the plan did not
+  anticipate, both forced by evidence found while implementing:
+  1. `Static(markup=False)` + `body.update(Text(...))` for the pane body (see
+     Post-Review Changes below).
+  2. The *characterization* test could not be the guard the plan assumed — see the
+     next bullet.
+
+- **Issues encountered:**
+  - **The pre-phase characterization test did not discriminate, and the negative
+    control is what revealed it.** The plan (and the parent task) assumed a docked
+    pane would eat the *footer*. It does not: the footer is docked and wins the paint,
+    so injecting `dock: bottom` left every footer assertion green while the **pane**
+    silently lost its last two rows to the footer (pane `y=14..20` vs footer `y=18`).
+    A characterization test written before the pane exists cannot assert on the pane,
+    so the real guard had to move into the pane's own suite as
+    `test_pane_does_not_overlap_the_footer` (`pane.bottom <= footer.y`, plus a
+    render-level check that no footer key label appears on a pane row). That test was
+    confirmed red under the injected dock. The three characterization tests were kept
+    — they were green pre-change and still pin the footer/board-geometry invariant —
+    but they are **not** the docked-sibling guard the plan claimed. Anyone extending
+    this should note the general lesson: identify which widget *loses* the collision
+    before writing the assertion.
+  - `_on_trail_reload` / `_activate_trail` both already funnel into
+    `_refresh_subtitle`, so the single-owner hook needed exactly one call site, as
+    planned.
+  - A round-trip through `ait artifact create` + `ait artifact rm` left a dangling
+    empty `artifacts:` key in the task frontmatter (see Upstream defects).
+  - One self-inflicted test bug: the "restores full column height" assertion compared
+    the `all` view's baseline against the `bytopic` view's chrome. Fixed by returning
+    to `all` before asserting.
+
+- **Key decisions:**
+  - **Depth is additive-if-it-fits rather than threaded through `_trail_banner`'s shed
+    ladder.** Threading it would have made the title shed earlier for every
+    hint-carrying trail and left no rung dropping depth alone. As implemented, the
+    existing four rungs are byte-identical for hint-less trails — pinned by
+    `test_banner_is_unchanged_when_no_hint_is_present`, which compares the live
+    subtitle against the ladder called with no depth at six widths.
+  - **Pane is `can_focus = False`.** The board anchors startup focus on a `TaskCard`
+    (t1491) and every navigation query is `TaskCard:focus`; a focusable container
+    would join the tab order. The read-everything path is `v`.
+  - **An unrecognised `rendering_hints.depth` renders nothing** rather than being
+    echoed — the header is a fixed width budget, not a place for arbitrary artifact
+    strings.
+  - **The live-check artifact was removed after use** rather than left on the task.
+    To recreate: copy `aidocs/implementation_trail_examples/gate_framework.json`, set a
+    distinct `trail_id`/`title`, add `rendering_hints: {"depth": "lite"}`, then
+    `ait artifact create <task> <file> --kind implementation_trail --handle art:<id>`.
+    Note `aitask_trail_gather.sh drift` reports `ERROR:undriftable_input` on that
+    document — that is a *drift-input* verdict, not a schema failure;
+    `trail_schema.validate_trail` returns no issues.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_artifact.sh` — `ait artifact rm` leaves a dangling empty
+    `artifacts:` key in the task's frontmatter after removing the task's only
+    artifact, instead of removing the key. Harmless to the board today (every reader
+    goes through `meta.get("artifacts") or []`) but it is residue a create/remove
+    round trip should not leave, and it makes a task look like it still owns
+    artifacts. Observed on `aitasks/t1505/t1505_1_bytrail_summary_pane.md` and cleaned
+    up by hand in this task.
+
+- **Notes for sibling tasks:**
+  - **t1505_2** edits `TrailDetailScreen._sections()` in the same file. `narrative`
+    is read *only* there (now plus `trail_summary_text`); when it surfaces `overview`
+    in the modal, reuse `trail_summary_text` rather than re-deriving the
+    overview→recommendation_summary preference.
+  - **Free-form trail prose must never be rendered as Rich markup.** Textual's
+    `Static` defaults to `markup=True`, silently deletes unrecognised tags, and raises
+    `MarkupError` on a bracketed URL. Any new surface rendering `narrative` /
+    `rationale` / `observations` text needs `markup=False` or `Text(...)`. This bites
+    t1505_2 directly — `_sections()` builds a `Text`, so it is safe today, but any new
+    `Static(str)` there would not be.
+  - **t1505_3** adds `narrative.overview`. `trail_summary_text` already prefers it, so
+    no board change is needed when it lands — `test_switch_observes_the_overview_
+    preference_end_to_end` already covers the preference end-to-end against a
+    synthetic doc.
+  - **t1505_4** writes `rendering_hints.depth`. The banner label already consumes it;
+    only `"lite"` and `"deep"` are recognised, so the skill must write exactly those.
+  - The two stored trail handles return `ERROR:invalid_trail` until t1468_7 refreshes
+    them to 1.1.0. Confirmed live during this task (the selector shows both as
+    "unreadable"). That is expected and is not a t1505 regression.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-13 16:20)
+
+- **Requested by user:** `#trail_summary_body` was constructed as `Static("")`, whose
+  default `markup=True` parses every raw string later passed to
+  `_refresh_trail_summary`. Free-form trail prose containing `[blocked]` would be
+  silently consumed, and a bracketed link would raise `MarkupError` and break the
+  pane/banner refresh. `TrailSummaryScreen` already avoided this via `Text(...)`.
+  Asked to render the body literally and to pin bracketed text in both surfaces.
+- **Verified before fixing (concern CONFIRMED, and slightly worse than reported):**
+  `Static.__init__` defaults `markup=True`; through Textual's `Content` parser
+  `"[blocked] gate not satisfied"` → `" gate not satisfied"` and
+  `"note [risk_mitigation] applies"` → `"note  applies"` (silent content loss, and
+  `risk_mitigation` is a live `followup_kind` in this repo), while
+  `"see [link=https://x.dev]docs[/link]"` raises
+  `MarkupError: Expected markup value`. Because the body is written from
+  `_refresh_trail_summary`, which `_refresh_subtitle` drives, that exception escapes
+  into the **banner and the whole By-Trail refresh**, not just the pane.
+- **Changes made:** constructed the body as
+  `Static("", id="trail_summary_body", markup=False)` and changed the write to
+  `body.update(Text(text))` — belt-and-braces, so no later caller can reintroduce it.
+  Added three tests: literal `[blocked]`/`[risk_mitigation]` in the pane, a bracketed
+  URL that must not raise (asserting the banner still refreshed), and the modal's half
+  of the same contract. The two pane tests were confirmed **red before the fix** (one
+  on content loss, one on the real `MarkupError`); the modal test passed before and
+  after, confirming that surface was already safe.
+- **Also checked, not a defect:** the banner path renders the trail *title* literally
+  — `HeaderTitle` does not parse markup — so no equivalent pre-existing hazard exists
+  there and nothing outside the pane needed changing.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_bytrail_view.py`.
 
 ## Risk
 
