@@ -200,3 +200,52 @@ No defects. Two observations worth carrying forward:
   gracefully (`✗ unreadable` in the trail picker, no crash), which is the
   correct behaviour for an invalid document, but anyone opening By-Trail before
   the refresh will see it.
+
+## Final Implementation Notes
+
+- **Actual work done:** No production code changed — this is a verification
+  task. The 23-item checklist was driven to terminal state (21 pass, 2 skip)
+  and annotated in place with per-item evidence; this plan is the execution
+  record. Every surface landed by t1468_3 / t1468_4 / t1468_5 was exercised.
+- **Deviations from plan:** None — there was no prior plan; the checklist was
+  the specification. Two items were skipped rather than run, for the
+  non-duplication reason recorded above.
+- **Issues encountered:**
+  - The first colour probe read segments **strip-wide**, so a glyph painted on
+    a neighbouring card in the same full-width composited row was attributed to
+    the card under test — it reported a `▼ #ff0000` on a malformed-value card
+    that has no glyph at all. Narrowed to the card's x-window before any
+    verdict was recorded. A strip is screen-wide; a card is not.
+  - "Uncoloured" cannot be pinned to a hex. Textual resolves colours through
+    the active app theme, so the same `red` is `#ff0000` on the board and
+    `#f4005f` under a bare probe `App`. Item 12 was therefore settled against
+    in-app ground truth — the `·` must match the *ordinary card text colour on
+    the same card* — not against a literal.
+  - `--children 1468` initially returned nothing for t1468_7 because the task
+    had just been claimed and `aitask_ls.sh` lists only `Ready` tasks. Retested
+    against t1157, which has a Ready marked child.
+- **Key decisions:**
+  - **Items 22-23 skipped, not deferred.** Deferring would have spawned a
+    carry-over task duplicating t1508, which already owns this work with a
+    stricter checklist and which t1470 depends on. Skip is terminal, so it does
+    not block archival, and the reason is recorded on each item.
+  - **Malformed and unknown `followup_kind` values were never written into the
+    real repo.** They exist only in temporary fixture trees — seeding the live
+    corpus with junk to verify junk handling would have left the junk behind.
+  - **Live terminal for what "at a glance" means, fixtures for what the corpus
+    must not contain.** Items 1-7 are UX claims about the real board, so a
+    fixture would not have answered them; items 11-13 need data the repo must
+    never hold.
+- **Upstream defects identified:** None.
+- **Notes for sibling tasks (t1468_8 — board task-detail followup_kind):**
+  - `lib/followup_kinds.py::marker_for` is the shared render boundary and
+    already handles all three cases (absent → `None`, recognised →
+    `(glyph, colour)`, present-but-unrecognised → `("·", None)`). Call it
+    rather than `glyph_for` / `colour_for`, which collapse absent and unknown.
+  - The board's `_followup_marker` delegates to it, so a task-detail surface
+    gets identical semantics for free.
+  - When asserting colour on a new surface, assert the *relationship* (glyph
+    colour vs the surface's default text colour), not a hex — see the theme
+    issue above.
+  - `label_for(kind)` gives the human string ("risk mitigation"); a detail
+    pane has room for it, unlike the card, which uses the glyph.
