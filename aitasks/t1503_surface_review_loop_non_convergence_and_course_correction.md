@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [t1159_2]
 issue_type: feature
 status: Ready
 labels: [shadow, aitask_monitormini, task_workflow, review_loop]
