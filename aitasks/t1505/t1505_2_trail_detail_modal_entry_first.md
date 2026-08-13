@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1505_1]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, trails, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-08-13 12:26
-updated_at: 2026-08-13 12:26
+updated_at: 2026-08-13 22:03
 ---
 
 ## Context
