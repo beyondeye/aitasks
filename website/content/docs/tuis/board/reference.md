@@ -52,6 +52,7 @@ depth: [advanced]
 | `m` | Move the marked task(s) — or the focused card — to a column | Board (parent cards only; hidden in In-Flight, By-Topic and By-Trail views) |
 | `n` | Create a new task | Board |
 | `x` | Toggle expand/collapse child tasks | Board (parent or child card) |
+| `x` | Expand / collapse the focused task group | Board (focused group header) |
 | `Space` | Mark / unmark the focused task (`☑` / `☐`) | Board (parent cards only; hidden in In-Flight, By-Topic and By-Trail views) |
 | `c` | Commit focused modified task | Board (shown when task is modified) |
 | `C` | Commit all modified tasks | Board (shown when any task is modified; hidden in By-Trail view) |
@@ -93,7 +94,7 @@ depth: [advanced]
 
 ```
 ┌─────────────────────────────────┐  ← Border color = priority
-│ ☐ t47 *  playlists support      │  ← Mark (☑ marked / ☐ unmarked), task number (cyan), * if modified (orange), title (bold)
+│ ▲ ☐ t47 *  playlists support    │  ← Follow-up glyph (only on follow-up tasks), mark (☑ marked / ☐ unmarked), task number (cyan), * if modified (orange), title (bold)
 │ 💪 medium | 🏷️ ui,api | GH | PR:GH | @alice │  ← Effort, labels, issue/PR indicator, contributor
 │ 🔒 alice@example.com            │  ← Lock indicator (if locked)
 │ 🚫 blocked | 👤 alice           │  ← Status/blocked, assigned to
@@ -105,6 +106,21 @@ depth: [advanced]
 
 Not all lines are shown on every card — lines only appear when the corresponding data exists.
 
+### Group Header Anatomy
+
+Tasks that share a `boardgroup` slug are drawn under a group header row inside their column:
+
+```
+▾ perf work (3) · 2 match · ▲2 ◈1
+│ │          │        │       └─ Follow-up roll-up: a per-kind tally of the members' glyphs
+│ │          │        └────────- Match count — only during a filter pass
+│ │          └─────────────────- Member count
+│ └────────────────────────────- Group title, humanized from the slug (perf_work → perf work)
+└──────────────────────────────- ▾ expanded / ▸ collapsed
+```
+
+A group of a single member draws no header — it renders as a plain card, while keeping its slug. See [How to Group Tasks in a Column]({{< relref "/docs/tuis/board/how-to" >}}#how-to-group-tasks-in-a-column).
+
 ### Priority Color Coding
 
 | Priority | Border Color |
@@ -114,6 +130,31 @@ Not all lines are shown on every card — lines only appear when the correspondi
 | Low / Normal | Gray |
 
 The focused card always shows a double cyan border, regardless of priority.
+
+### Follow-up Provenance Glyphs
+
+A task carrying a [`followup_kind`]({{< relref "/docs/development/task-format" >}}#frontmatter-fields) — one that was auto-spawned by a workflow seam rather than created as new work — shows a coloured glyph at the start of its card:
+
+| Glyph | Follow-up kind | Color |
+|-------|----------------|-------|
+| `◇` | Manual verification | Cyan |
+| `▲` | Risk mitigation | Yellow |
+| `▼` | Upstream defect | Red |
+| `✗` | Verification failure | Red |
+| `↻` | Carry-over | Cyan |
+| `◐` | QA test gap | Magenta |
+| `◈` | Review finding | Magenta |
+| `▤` | Docs gap | Gray |
+| `·` | Unrecognized kind | None |
+
+Reading the glyphs:
+
+- An ordinary task draws **nothing** — no glyph and no blank placeholder, so cards for genuine new work are unchanged.
+- A task whose `followup_kind` is not one of the known kinds still renders, as the uncoloured `·`, rather than being dropped.
+- A **group header** rolls up its members' kinds as a per-kind tally (`▲2 ◈1`), in the order of the table above with unrecognized kinds last. A collapsed group mounts no member cards, so the header is the only place that provenance can surface.
+- A **trail ghost card** carries no glyph by design — a ghost is a referenced task with no local file, so there is nothing to classify.
+
+`ait ls` and the pick flow surface the same provenance in text form — see [Task Management]({{< relref "/docs/commands/task-management" >}}).
 
 ### Issue Platform Indicators
 
@@ -336,12 +377,14 @@ The board reads and displays the following frontmatter fields from task files:
 | `file_references` | list | Read-only | Pointers to source files / line ranges (e.g., `foo.py:10-20`). Pressing **Enter** on a focused row opens `ait codebrowser` at the referenced location. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}). |
 | `boardcol` | string | Auto-managed | Column ID (set by board operations) |
 | `boardidx` | integer | Auto-managed | Sort index within column (set by board operations) |
+| `boardgroup` | string | Auto-managed | Group slug within the column (see [Group Header Anatomy](#group-header-anatomy)) |
 
 ### Board Data Fields
 
-Two metadata fields are managed internally by the board:
+Three metadata fields are managed internally by the board:
 
 - **`boardcol`** — The column ID where the task is placed (e.g., `"now"`, `"backlog"`, `"unordered"`). Tasks without this field appear in the "Unsorted / Inbox" column.
+- **`boardgroup`** — The group slug within the column. The slug **is** the group's identity — there is no group registry, no group ID and no stored title — so two spellings are two different groups, and `ait update --boardgroup` rejects a slug outside `[a-z0-9_]+` rather than normalizing one into the other. An explicit `""` means "deliberately ungrouped", which is not the same as the field being absent.
 - **`boardidx`** — The sort index within a column. Lower values appear higher; ties are broken by filename. Values are widely spaced rather than consecutive, and may be negative — a movement writes only the moved task's file, placing it in the gap between its new neighbours rather than renumbering the column. Only the relative order is meaningful. When repeated moves into the same position exhaust a gap, that single column is re-spaced automatically.
 
 These fields are always written last in the frontmatter and are updated using a reload-and-save mechanism that prevents overwriting other metadata fields changed externally.
@@ -422,9 +465,10 @@ Runs `git checkout -- <filepath>` to discard local changes and restore the last 
 | File | Format | Purpose |
 |------|--------|---------|
 | `aitasks/metadata/board_config.json` | JSON | Board column definitions, order, and settings (auto-refresh) |
+| `aitasks/metadata/board_config.local.json` | JSON | User-local view state: which columns and which groups you have collapsed |
 | `aitasks/metadata/task_types.txt` | Text (one per line) | Valid issue types for the Type cycle field |
 
-Both files are auto-created with defaults if they don't exist.
+These files are auto-created with defaults if they don't exist. The `.local.json` layer is yours alone — collapsing a column or a group changes only your view, never a teammate's.
 
 ### Environment Variables
 

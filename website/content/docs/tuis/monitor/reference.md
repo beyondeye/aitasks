@@ -86,6 +86,19 @@ The `SHADOW` zone is **skipped** by `Tab` unless the selected agent has a bound 
 
 Agent panes whose window name contains a task ID (e.g., `agent-t42-claudecode`) are linked to the corresponding task file — that is what powers the `i` (Task Info) and `n` (Next Sibling) shortcuts.
 
+### Agent Card Status Row
+
+For a linked agent pane, the status row ends with two task-derived fields, in this order:
+
+| Field | Form | Notes |
+|-------|------|-------|
+| Gate summary | `gates: 1/4 pass, 1 pending` | Omitted when the task declares no gates |
+| Workflow phase | `phase: IMPLEMENT` | Omitted when no phase resolves |
+
+Phase values are `PLAN`, `IMPLEMENT`, `POSTIMPL`, or an `unknown (…)` variant that names why the phase could not be determined (gate recording off, ledger-only, or waiting). A trailing `⏸` means the agent is waiting for input; it can appear on any phase, including an unknown one.
+
+Both fields are **advisory** — nothing in the monitor is gated on them. Monitor renders the phase in its labelled form; [minimonitor]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-read-the-agent-list) merges the same two fields onto one label-free line to fit its narrower pane.
+
 ### Multi-session view
 
 By default both `ait monitor` and [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) aggregate every active code agent across every aitasks tmux session on this tmux server into a **single unified list**. Sessions are auto-discovered via:

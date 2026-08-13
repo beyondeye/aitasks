@@ -29,6 +29,7 @@ Minimonitor is the persistent sidebar companion of a code agent pane. It gives y
 | Shows agents | Yes, across all aitasks tmux sessions (default) | Yes, across all aitasks tmux sessions (default) |
 | Shows non-agent panes | Yes, under an `OTHER (N)` header | Yes, under a `── other (n) ──` header |
 | Preview zone with keystroke forwarding | Yes | No |
+| Gate summary and workflow phase | Both, appended to the agent card's status row (`gates: …  phase: …`) | Both, merged onto one line below the task title (`IMPLEMENT ⏸ · 1/4 1p`); the pinned card shows the phase only |
 | Multi-session toggle | `M` (in-memory, per-TUI) | `M` (in-memory, per-TUI) |
 | Session grouping | `── session ──` dividers + inline `[project]` tag on each row | `── session ──` dividers only |
 | Intended placement | Its own tmux window | A side split inside an agent window |

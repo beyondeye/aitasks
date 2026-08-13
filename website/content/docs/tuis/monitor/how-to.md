@@ -62,6 +62,7 @@ Each card shows:
 - For agent panes carrying a task ID in the window name, the associated task number
 - A **shadow marker** `◆` when a shadow agent is bound to that pane, colored by the shadow's own state. It gains a `!` (`◆!`) when the shadow has raised concerns you have not picked yet — see [How to Pick Shadow Concerns](#how-to-pick-shadow-concerns). Panes with no shadow show nothing at all here.
 - A **prioritized mark** at the far left: `★` when you have marked the agent, dim `☆` when you have not — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized).
+- For agent panes carrying a task ID, the end of the status row carries the task's **gate summary** and then its **workflow phase** — `gates: 1/4 pass  phase: IMPLEMENT`. A trailing `⏸` on the phase means the agent is waiting on your input, and an `unknown (…)` phase is a "cannot tell" state that names its own cause rather than a missing one. Either part is omitted when there is nothing to say. The phase is **advisory** — it never gates anything. The [minimonitor how-to]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-read-the-agent-list) lists the phase values in full.
 
 The **`CODE AGENTS (N)`** header above the agent cards repeats the same four
 states as a color legend, so you can read a card's dot without memorizing the

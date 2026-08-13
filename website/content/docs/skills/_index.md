@@ -29,6 +29,15 @@ Core workflow skills for picking and implementing tasks.
 | [`/aitask-pickweb`](aitask-pickweb/) | Sandboxed variant for Claude Code Web — local metadata storage, requires follow-up with /aitask-web-merge |
 | [`/aitask-web-merge`](aitask-web-merge/) | Merge completed Claude Web branches to main and archive task data |
 
+### Gates
+
+Run and satisfy a task's verification gates. For the CLI equivalents, see [Gates]({{< relref "/docs/commands/gates" >}}).
+
+| Skill | Description |
+|-------|-------------|
+| [`/aitask-run-gates`](aitask-run-gates/) | Run a task's declared gates and explain the result — the conversational front of the gate orchestrator |
+| [`/aitask-gate-docs-updated`](aitask-gate-docs-updated/) | The `docs_updated` verifier — updates the project's documentation, with your confirmation, during task review |
+
 ### Task Management
 
 Create, organize, and wrap tasks.

@@ -33,6 +33,13 @@ ait gate fail 42 lint --reason "..."   # Record a manual failure
 ait gate log 42 build_verified         # Read the last run's log
 ```
 
+> **From a code agent:** [`/aitask-run-gates`]({{< relref "/docs/skills/aitask-run-gates" >}})
+> drives the same orchestrator as `ait gates run` and explains the outcome in
+> prose — which gate blocks, what to do next, whether the task can archive.
+> Gates whose verifier is a procedure an agent must carry out have their own
+> skills, such as
+> [`/aitask-gate-docs-updated`]({{< relref "/docs/skills/aitask-gate-docs-updated" >}}).
+
 ## ait gates run
 
 Dispatches the verifiers for every machine gate that is runnable right now,

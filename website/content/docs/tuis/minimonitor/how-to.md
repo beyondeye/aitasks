@@ -45,6 +45,22 @@ Each agent card in the list shows:
 - The agent window name (truncated to 20 characters on narrow layouts)
 - A matching label: `PROMPT <n>s` when the agent is waiting for you, `DONE <n>s` when its task is finished, or `IDLE <n>s` when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds). `DONE` reflects the pane's *task* — its status reads `Done`, or it has been archived — so an agent still printing output after its task landed reads `DONE`, while an agent waiting on you reads `PROMPT` even when its task is done
 - For agents whose window name carries a task ID, a second dimmed line showing the task's title
+- For those same agents, a third dimmed line carrying the task's **workflow phase** and its **gate summary** together — `IMPLEMENT ⏸ · 1/4 1p 1f`. Either half may be empty; the line is omitted only when both are
+
+The phase is **advisory**: it is a hint about where the task sits in its workflow, and it never gates a key, a spawn, or anything else you can do here.
+
+| Phase | Meaning |
+|-------|---------|
+| `PLAN` | The task is in planning |
+| `IMPLEMENT` | The plan is approved and being implemented |
+| `POSTIMPL` | Implementation is done; the task is at review, merge or archival |
+| `unknown (rec off)` | Cannot tell — this task's execution profile does not record gates |
+| `unknown (ledger)` | Cannot tell — only the gate ledger could be read; the agent's screen showed no workflow prompt |
+| `unknown ⏸` | Cannot tell — the agent is waiting on you, but the phase did not resolve |
+
+A trailing **⏸** on any phase means the agent is waiting for your input. The `unknown (…)` values are a real "cannot tell" state, named so you can see *why* — they are not the same as having no phase. When no phase resolves at all and the task has no gate counts either, the line is simply absent.
+
+At narrow pane widths the line sheds detail in a fixed order, so the counts are what survive: first the gate summary abbreviates (`1/4 pass, 1 pending, 1 failed` → `1/4 1p 1f`), then the phase is clipped, then the phase is dropped entirely.
 
 A card in the **other** section is deliberately much plainer — a dim `○`, the window name, and the pane's current command (`○ zsh  nvim`). It carries no mark, status dot, status label, task title or gate line, because none of those mean anything for a pane that is not an agent, and the ~40-column sidebar has no room to spare for them.
 
@@ -122,10 +138,15 @@ The pinned card's header names what it is following: `── this agent ──` 
 > and name are frozen when the panel is first built, so renaming the window
 > afterwards does not change them.
 >
-> The one thing on the pinned card that *does* change is its prioritized mark
-> (**★** / **☆**). That is not a status badge but a note you left yourself, and
-> it can change without the agent changing at all — you marked it from another
-> project, or it expired — so it is kept current.
+> Two things on the pinned card *do* stay current. Its prioritized mark
+> (**★** / **☆**) is not a status badge but a note you left yourself, and it can
+> change without the agent changing at all — you marked it from another project,
+> or it expired. Its **workflow phase** is kept current too: this panel *is* the
+> followed agent, and the shadow companion you launch from it picks its review
+> mode from that phase, so showing it only on the list rows — which exclude the
+> followed agent by construction — would put it everywhere except the one place
+> it is for. The panel carries the phase and deliberately **not** the gate
+> summary that shares that line on the list rows.
 
 ### How to Pick a Task by Number
 

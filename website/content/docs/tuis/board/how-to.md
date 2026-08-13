@@ -26,6 +26,44 @@ Task positions are stored in the `boardidx` field of each task file's frontmatte
 
 > **Note:** Child tasks cannot be moved between columns or reordered — only parent tasks can be repositioned.
 
+### How to Group Tasks in a Column
+
+A **group** is a named cluster of tasks inside a single column — a way to keep related work together without giving it a column of its own.
+
+**Assigning membership:**
+
+Group membership lives in the task file, in the `boardgroup` field:
+
+```bash
+ait update --batch 47 --boardgroup perf_work    # add t47 to the "perf work" group
+ait update --batch 47 --boardgroup ""           # take it back out
+```
+
+The slug **is** the group's identity — there is no separate group registry — so a slug outside `[a-z0-9_]+` is rejected rather than cleaned up. Silently lowercasing `Perf_Work` or turning `perf-work` into `perf_work` would merge two distinct groups into one, and merging groups is destructive enough to require you to mean it.
+
+**Reading a group:**
+
+- A group with two or more members draws a **header row** above them: `▾ perf work (3)`. The title is the slug with underscores as spaces.
+- A group with a single member draws no header — it renders as a plain card. It keeps its slug, so a member moving away never silently dissolves the group.
+- See [Group Header Anatomy]({{< relref "/docs/tuis/board/reference" >}}#group-header-anatomy) for the full header line.
+
+**Collapsing and expanding:**
+
+1. Focus the group header with the arrow keys
+2. Press **x**
+
+A collapsed group renders as its header alone, with the members hidden. Arrow keys move over *units* rather than individual cards, so a collapsed group is a single stop no matter how many tasks it holds.
+
+> **Note:** **x** acts on whatever is focused — on a task card it toggles child tasks, on a group header it toggles the group.
+
+**Groups and filters:**
+
+When a [filter or search](#how-to-search-and-filter-tasks) is active, the header gains a match count: `▾ perf work (3) · 2 match`. That is how many members *would* show if the group were expanded — so a collapsed group tells you it still holds matches instead of looking empty.
+
+**What is remembered:**
+
+Which groups you have collapsed is stored in `aitasks/metadata/board_config.local.json`, your own local layer — collapsing a group changes your view only, never a teammate's. Collapse state follows a column through renames, merges and deletions, and entries naming a column or group that no longer exists are dropped when the board loads.
+
 ### How to Mark Tasks
 
 Marking selects a set of tasks for a bulk operation.

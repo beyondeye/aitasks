@@ -45,6 +45,7 @@ Detailed description of what needs to be done.
 | `children_to_implement` | `[t10_1, t10_2]` | Remaining child tasks (parent tasks only) |
 | `boardcol` | column ID | Board UI column placement |
 | `boardidx` | integer | Board UI sort index within column |
+| `boardgroup` | slug (`[a-z0-9_]+`), or `""` | Board UI group membership within a column. Set with `ait update --boardgroup` (update-only — there is no creation flag). An invalid slug is **rejected, not coerced**, because the slug *is* the group's identity. `""` is an explicit "ungrouped" tombstone, distinct from the field being absent. See [Board groups]({{< relref "/docs/tuis/board/how-to" >}}#how-to-group-tasks-in-a-column). |
 | `folded_tasks` | `[138, 129_5]` | Task IDs folded into this task by `/aitask-explore` or `/aitask-fold` (deleted on archival) |
 | `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
 | `anchor` | task id (`130`, `130_2`) | Topic-group key pointing at a subject's **root** task, so loosely-related and follow-up tasks cluster together. Absent ⇒ the task is its own root. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}). |
