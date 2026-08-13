@@ -298,7 +298,7 @@ load-bearing), `bash tests/test_parallel_child_create.sh` twice concurrently
   → mitigation: inline pre-phase enumerate_scaffold_startup_deps
 - A second mutex lib lands beside `registry_lock.sh`, which keeps the same
   latent `mv` race — deliberate blast-radius containment, debt until
-  converted. · severity: low · → mitigation: convert_registry_lock_to_shared_core
+  converted. · severity: low · → mitigation: t1507
 
 ### Goal-achievement risk: low
 - The defect is a 3/25 timing race; a test green on unfixed code proves
@@ -312,4 +312,4 @@ load-bearing), `bash tests/test_parallel_child_create.sh` twice concurrently
 - timing: pre-phase | name: negative_control_single_winner | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement "race test could prove nothing" + code-health "load-bearing mutex" | desc: Record a focused RED reproduction of the stale-reclaim defect against unmodified HEAD before any source edit.
 - timing: pre-phase | name: enumerate_scaffold_startup_deps | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "startup source breaks hand-rolled scaffolds" | desc: Enumerate fixtures copying aitask_gate.sh/aitask_create.sh and patch any hand-rolled lib list in the same commit as the new source line.
 - timing: post-phase | name: wedged_lock_recovery_hint | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "no more self-heal for live holders" | desc: Exhaustion die names lock dir, holder PID, and any .gc dir after the pinned message prefix, with a test.
-- timing: after | name: convert_registry_lock_to_shared_core | type: refactor | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health "second mutex lib beside registry_lock.sh" | desc: Convert lib/registry_lock.sh onto the shared stale_lock core, closing its identical latent mv race, revalidating ait projects bootstrap bursts and ait attach transactions.
+- timing: after | name: convert_registry_lock_to_shared_core | type: refactor | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health "second mutex lib beside registry_lock.sh" | desc: Convert lib/registry_lock.sh onto the shared stale_lock core, closing its identical latent mv race, revalidating ait projects bootstrap bursts and ait attach transactions. | created: t1507
