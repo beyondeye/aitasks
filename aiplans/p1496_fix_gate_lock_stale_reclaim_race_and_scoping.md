@@ -113,11 +113,46 @@ ait_lock_dir <name>                                        # echoes resolved pat
    process — and show `append` steals it (HEAD judges by mtime alone). Paste
    the observed output into this plan. This is a one-off recorded control, not
    a permanent dual-layout test.
+
+   **RECORDED (2026-08-13, HEAD 065ab5a0c, `aitask_gate.sh` clean vs HEAD):**
+
+   ```
+   === holder pid 2516783 alive: yes
+   === running append against the held lock (HEAD code) ...
+   Warning: Removing stale gate lock for 92516778 (age: 208774006s)
+   > **✅ gate:tests_pass** run=2026-08-13T06:46:46Z status=pass attempt=1
+   === append rc=0
+   === holder still alive: yes
+   === holder's lock dir survived: NO — STOLEN
+   === ledger blocks written: 1
+   NEGCTRL: RED — live holder's lock was stolen and append proceeded (defect present)
+   ```
+
+   Deterministic RED: HEAD displaced a live holder's lock purely on mtime and
+   proceeded into the critical section. The fixed code must fail this exact
+   construction closed (exhaust + holder's dir intact).
 2. `[enumerate_scaffold_startup_deps]` Before adding the startup `source`
    line, enumerate every fixture copying `aitask_gate.sh` or
    `aitask_create.sh` and confirm each builds `.aitask-scripts/lib/` via
    `setup_fake_aitask_repo`; any hand-rolled `cp` list found gets its own
    `stale_lock.sh` line in the same commit. Record the list.
+
+   **RECORDED (2026-08-13):** 23 fixtures copy `aitask_create.sh` and/or
+   `aitask_gate.sh` (`test_anchor_create`, `test_anchor_update`,
+   `test_characterize_batch_label_frontmatter`, `test_archive_verification_gate`,
+   `test_archive_carryover_anchor`, `test_auto_merge_file_ref`,
+   `test_draft_finalize`, `test_gate_guarded_archival`,
+   `test_create_project_flag`, `test_create_silent_stdout`,
+   `test_issue_import_contributor`, `test_atomic_task_file_writes`,
+   `test_file_references`, `test_followup_kind_roundtrip`, `test_label_autoadd`,
+   `test_create_manual_verification`, `test_create_manual_verification_gates`,
+   `test_update_risk`, `test_pr_contributor_metadata`,
+   `test_parallel_child_create`, `test_verifies_field`,
+   `test_verification_followup`, `test_verification_followup_anchor`) — **every
+   one** builds its lib tree via `setup_fake_aitask_repo`; their extra `cp
+   lib/` lines are additions on top of it, so the single scaffold `cp` line
+   covers all. The remaining gate tests run `$PROJECT_DIR/.aitask-scripts/...`
+   in place (real lib present). No hand-rolled list needs patching.
 
 ### Implementation
 
@@ -184,6 +219,70 @@ load-bearing), `bash tests/test_parallel_child_create.sh` twice concurrently
 (`test_gate_ledger.sh`, `test_gate_guarded_archival.sh`,
 `test_create_manual_verification.sh`, `test_create_project_flag.sh`, …), and
 `shellcheck` on the three touched scripts.
+
+## Final Implementation Notes
+
+- **Actual work done:** As planned, plus one review-driven correction (see
+  Post-Review Changes). NEW `.aitask-scripts/lib/stale_lock.sh` (guarded
+  single-winner mutex: `.gc` serializes publish/release/reclaim; live PID
+  never displaced; owner-token release via `STALE_LOCK_TOKEN`; per-uid+repo
+  base with `AITASKS_LOCK_DIR` seam; verified removals). `aitask_gate.sh` and
+  `aitask_create.sh` reduced to wrappers with pinned die texts + recovery
+  hints, `*_checked` explicit releases, and status-preserving EXIT-trap
+  handlers. Bullet 3: `test_parallel_child_create.sh` on the seam (concurrent
+  double-run 24/24+24/24). `test_gate_lock_characterization.sh` rebased onto
+  the seam (47/47; Test 5 now also pins die-status preservation). NEW
+  `tests/test_stale_lock.sh` (79/79) and
+  `tests/test_gate_lock_single_winner.sh` (17/17, stable ×5). Scaffold `cp`
+  line + `shell_conventions.md` subsection and baseline-list update.
+- **Deviations from plan:** (1) Guard release is a bare authoritative `rmdir`,
+  not the rm+absence-check shape — the absence check misreads a contender's
+  instant guard replacement as retention (review finding, see Post-Review
+  Changes). (2) `tests/test_atomic_task_file_writes.sh` needed a fixture
+  retarget: its TMPDIR-residue counter now exempts the (empty) persistent
+  `aitask-locks-*` base while still counting any lock leaked inside it.
+  (3) No allowlist touchpoints: the lib is sourced, never skill-invoked
+  (per `aitasks_extension_points.md`).
+- **Issues encountered:** Capturing `stale_lock_acquire` via `$(...)` strands
+  `STALE_LOCK_TOKEN` in the subshell — surfaced by the unit tests' own
+  "not owner" warnings; documented as a lib-header constraint and the tests
+  switched to stderr-to-file capture. Test shim `case` patterns initially
+  required a leading space that single-arg `rmdir` calls never have.
+- **Key decisions:** Fail-closed everywhere (never steal a live holder; never
+  auto-break `.gc`; publish unwind only under a genuinely held guard);
+  pid-liveness + random token instead of start-time identity (PID reuse =
+  documented orphaned-lock limitation); per-uid 0700 base, cross-user sharing
+  via an admin-provided `AITASKS_LOCK_DIR` only.
+- **Upstream defects identified:** `.aitask-scripts/lib/registry_lock.sh:52-58
+  — same observe-then-destruct steal shape this task fixed (holder observed
+  dead, then `mv` acts on whatever is at the path); latent two-holder window
+  under contention for `ait projects` / `ait attach`. Already covered: the
+  Step 8d "after" mitigation `convert_registry_lock_to_shared_core` creates
+  the follow-up task for exactly this — do not double-create from this bullet.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-13 10:20)
+- **Requested by user:** Step-8 review surfaced two CONFIRMED findings:
+  (1) guard release used `rm -rf` + absence check, so a contender's *instant
+  replacement* of the freed guard was misread as "our guard retained" — the
+  acquire path then unwound its own valid published lock, outside any held
+  guard; (2) the unit tests' cleanup shims matched only the lock path, never
+  `.gc`, leaving the guard-release behavior untested.
+- **Changes made:** Guard release is now `_stale_lock_gc_release` — a bare
+  `rmdir` whose own exit status is authoritative (success = we removed our
+  guard, regardless of instant recreation; guard dirs are always empty, so a
+  failure is genuine retention and means we still hold the guard, which is
+  what legitimizes the fail-closed unwind). `_stale_lock_rm_verified` is
+  documented as lock-dir-only-under-guard. Added three deterministic unit
+  cases: acquire-side guard-replacement (shimmed `rmdir` real-removes,
+  instantly recreates, returns real status — RED under the old absence check),
+  release-side replacement, and genuine guard-`rmdir` failure on the publish
+  path (fail closed, lock unwound under the held guard, guard named in the
+  warn). Suite now 79/79; integration 17/17, characterization 47/47,
+  parallel-create 24/24 re-verified.
+- **Files affected:** `.aitask-scripts/lib/stale_lock.sh`,
+  `tests/test_stale_lock.sh`.
 
 ## Risk
 
