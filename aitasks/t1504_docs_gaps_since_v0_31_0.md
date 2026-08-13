@@ -1,0 +1,168 @@
+---
+priority: medium
+effort: high
+depends: []
+issue_type: documentation
+status: Ready
+labels: [docs, web_site]
+followup_kind: docs_gap
+created_at: 2026-08-13 10:27
+updated_at: 2026-08-13 10:27
+---
+
+Documentation gaps found by /aitask-docs-gap for the release window v0.31.0..HEAD.
+Each section below is self-contained and can become its own child task at
+decomposition time.
+
+46 tasks were analyzed: 17 documented, 19 not doc-relevant, 6 gaps.
+
+## Gap: Board topic groups (t1243_8, t1243_9, t1243_10)
+
+- **Target doc page(s):** `website/content/docs/tuis/board/how-to.md`,
+  `website/content/docs/tuis/board/reference.md`,
+  `website/content/docs/development/task-format.md`
+- **What shipped:** A whole board grouping feature across three tasks.
+  t1243_8 added the `boardgroup` frontmatter field (appended to `BOARD_KEYS`),
+  a pure `lib/board_groups.py` with slug normalization, base-aware merge
+  resolution for the field, and `--boardgroup` on `ait update` (update-only,
+  reject-don't-coerce validation, `""` as a tombstone). t1243_9 added the
+  `GroupHeader` focusable row, the focus-*unit* abstraction so arrow keys move
+  over units rather than cards, single-member groups rendering as plain cards,
+  collapsed groups rendering as the header alone, `x` toggling group collapse,
+  and group-aware move dispatch. t1243_10 added the pure group-key algebra
+  (`group_key` / `parse_group_key` / `remap_group_keys` / `column_remap`),
+  collapse state persisted through `TaskManager.save_settings()` and remapped
+  across column edit / delete / merge, orphan-collapse pruning on load, and
+  per-group filter match counts on the header.
+- **What to write:** The board pages currently do not mention groups at all —
+  grep for `boardgroup` or "group" across `website/content/docs/` returns
+  nothing board-related. `how-to.md` needs a "How to Group Tasks" section
+  (what a group is, how `boardgroup` assigns membership, `x` to collapse and
+  expand, how a collapsed group behaves during a filter pass and what the
+  match count on the header means, that single-member groups render as plain
+  cards). `reference.md` needs the `x` binding and the group-header row in its
+  keybinding / anatomy tables. `development/task-format.md` needs a
+  `boardgroup` row in the frontmatter field table — the file already gained a
+  `followup_kind` row from t1468_1, so the table is the established home; note
+  the update-only semantics and the `""` clearing form.
+- **Sources:** `aiplans/archived/p1243/p1243_8_boardgroup_field_and_model.md`,
+  `aiplans/archived/p1243/p1243_9_group_focus_and_rendering.md`,
+  `aiplans/archived/p1243/p1243_10_group_collapse_and_filtering.md`;
+  commits: 16afd191d, e7a071022, 0683e8791
+
+## Gap: Workflow-phase signal in the monitors (t1420, t1479)
+
+- **Target doc page(s):** `website/content/docs/tuis/minimonitor/how-to.md`,
+  `website/content/docs/tuis/minimonitor/_index.md`,
+  `website/content/docs/tuis/monitor/how-to.md`,
+  `website/content/docs/tuis/monitor/reference.md`
+- **What shipped:** t1420 added the `lib/workflow_phase.py` seam — a
+  `PhaseSignal` carrying phase / waiting / source / provenance, derived from an
+  agent-neutral workflow-prompt table (Tier A), a per-agent native prompt map
+  (Tier B), and the gate ledger's resume point. The phase is rendered on full-
+  monitor agent cards, on minimonitor list rows, and in the docked followed-
+  agent panel, and is stamped onto the shadow pane so the shadow skill can pick
+  a default mode from it. t1479 then merged minimonitor's gate line and phase
+  line into one width-budgeted row (`format_gate_phase_row`), with a label-free
+  `render_phase_narrow` variant and per-cause UNKNOWN wording.
+- **What to write:** Neither monitor page mentions a phase at all. The
+  minimonitor `how-to.md` card-anatomy prose (around the "gate line" wording at
+  line 49) needs updating to describe the merged gate+phase row, what each
+  phase value means, and how the row degrades at narrow widths. The monitor
+  pages need the phase on the agent card and in the docked panel. Explain what
+  "waiting" means versus a phase name, and what an UNKNOWN phase indicates —
+  it is a distinct "cannot tell" state, not "no phase".
+- **Sources:** `aiplans/archived/p1420_advisory_workflow_phase_signal_for_shadow.md`,
+  `aiplans/archived/p1479_merge_minimonitor_gates_and_phase_into_one_row.md`;
+  commits: d8967df91, 876fbabf2
+
+## Gap: Shadow auto-recheck loop (t1159_2)
+
+- **Target doc page(s):** `website/content/docs/tuis/minimonitor/how-to.md`,
+  `website/content/docs/workflows/shadow-agent.md`
+- **What shipped:** A new minimonitor **L** binding arming a shadow auto-recheck
+  loop, backed by a pure `monitor/review_loop.py` `ReviewLoopController`
+  (DISARMED / WAITING / DELIVERING / FIRED). When armed, the loop watches the
+  followed agent for classified work evidence, debounces over three ticks,
+  honours a 45s cooldown that survives disarm and re-arm, waits for positive
+  shadow-prompt readiness before delivering, and composes a recheck prompt whose
+  round number is machine-derived from the previous block rather than guessed.
+  Arming is refused with a message naming the shadow's agent when either side
+  lacks the capability.
+- **What to write:** `how-to.md` needs an "auto-recheck" section next to
+  "How to Pick Shadow Concerns", plus an **L** row in the keybinding table
+  (currently ends at `c`). Describe what arming does, that the loop only
+  delivers when the shadow is idle and ready, that repeated deliveries are rate-
+  limited, and when arming is refused. `workflows/shadow-agent.md` should cover
+  it in the review-round narrative — the page already explains that every review
+  round re-derives findings from scratch, which is the context this loop
+  automates.
+- **Sources:** `aiplans/archived/p1159/p1159_2_auto_recheck_loop.md`;
+  commits: afd1c5b2f
+
+## Gap: Concern-block round metadata (t1159_1, t1493)
+
+- **Target doc page(s):** `website/content/docs/tuis/minimonitor/how-to.md`,
+  `website/content/docs/tuis/monitor/how-to.md`,
+  `website/content/docs/workflows/shadow-agent.md`
+- **What shipped:** t1159_1 added a `Round: N @ <time>` header to every shadow
+  concern block, parsed into `BlockMeta`. Minimonitor's dedup key became round-
+  qualified so a fresh round re-offers, the toast gained a `(round N)` suffix,
+  and the monitor learned to handle a clean round (an offer pass that clears the
+  badge while retaining the signature). Blocks whose round header fails strict
+  certification, or whose round value breaks the grammar, now warn and open the
+  raw block inspect view in both `c` paths instead of reporting a false "no
+  concerns" all-clear. t1493 then fixed recheck rounds leaving stale concerns in
+  the picker.
+- **What to write:** The docs describe the concern picker and the auto-offer
+  toast in detail but say nothing about rounds beyond one passing mention of
+  "later review rounds". Both monitor `how-to.md` pages need: what a round is
+  and where the number comes from, that a new round re-offers concerns you have
+  already seen, the `(round N)` toast suffix, and — importantly — that a block
+  with an unusable round header warns and shows you the raw block rather than
+  claiming there is nothing to pick. `workflows/shadow-agent.md` should tie the
+  round number to the re-derive-from-scratch behavior it already documents.
+- **Sources:** `aiplans/archived/p1159/p1159_1_round_metadata_concern_block.md`,
+  the archived p1493 plan; commits: fabd8e615, 9397077f9
+
+## Gap: Follow-up-kind glyph on board cards (t1468_3)
+
+- **Target doc page(s):** `website/content/docs/tuis/board/reference.md`
+  (and the card-anatomy prose in `website/content/docs/tuis/board/how-to.md`)
+- **What shipped:** A coloured glyph for the task's `followup_kind` on
+  `TaskCard`, `InFlightTaskCard` and `TrailTaskCard`, plus a rollup of the
+  member kinds on `GroupHeader`. `TrailGhostCard` deliberately carries no glyph.
+  Unknown kinds render a distinct unknown glyph rather than being dropped.
+- **What to write:** `followup_kind` reached the docs from its siblings —
+  `development/task-format.md` has the field table row (t1468_1) and
+  `commands/task-management.md` covers `ait ls` / pick surfacing (t1468_4) —
+  but the board's own reference page never gained the glyph. Add the glyph to
+  the card-anatomy / legend section: which kinds map to which glyph and colour,
+  that the group header rolls up its members' kinds, and that a trail ghost card
+  shows none.
+- **Sources:** `aiplans/archived/p1468/p1468_3_board_card_followup_kind_glyph.md`;
+  commits: d00e90e2e
+
+## Gap: Gate skills missing from the skills reference (t635_23)
+
+- **Target doc page(s):** `website/content/docs/skills/_index.md` plus new
+  per-skill pages under `website/content/docs/skills/`
+- **What shipped:** `aitask-run-gates`, `aitask-gate-template` and
+  `aitask-gate-docs-updated` each gained their three wrapper surfaces
+  (`.agents/skills/<skill>/SKILL.md`, `.opencode/skills/<skill>/SKILL.md`,
+  `.opencode/commands/<skill>.md`), so all three are now available across every
+  supported coding agent rather than in the Claude tree alone. The Claude-only
+  prose was retired at its canonical sources.
+- **What to write:** `website/content/docs/skills/` has a page for every other
+  user-invocable skill but none for the gate skills, and `_index.md` does not
+  list them. `commands/gates.md` documents the `ait gates` CLI, not the skills.
+  Add reference pages for `/aitask-run-gates` (the conversational front of the
+  gate orchestrator) and `/aitask-gate-docs-updated` (the `docs_updated`
+  verifier procedure), list both in `_index.md`, and cross-link to
+  `commands/gates.md`. `aitask-gate-template` is an authoring scaffold rather
+  than a user command — decide whether it belongs on the site at all, and if so
+  frame it for someone writing a new gate. Per the writing conventions, describe
+  availability generically ("Claude Code and all other supported coding agents")
+  rather than enumerating the agent trees.
+- **Sources:** `aiplans/archived/p635/p635_23_port_gate_skills_codex_opencode.md`;
+  commits: 75ca90438
