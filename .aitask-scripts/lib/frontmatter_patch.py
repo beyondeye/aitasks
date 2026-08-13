@@ -27,6 +27,9 @@ Usage:
   frontmatter_patch.py append <file> <field> [--now <ts>] key=value [key=value ...]
   frontmatter_patch.py remove <file> <field> --match-key <k> --match-val <v> [--now <ts>]
 
+`remove` drops the `<field>:` header too when it takes the block's last item, so
+the field is absent rather than left bare (a bare header parses as None, not []).
+
 Subcommands exit non-zero with a message on misuse / unrepresentable input.
 """
 
@@ -246,6 +249,18 @@ def cmd_remove(path, field, match_key, match_val, stamp):
     start, end = target
     del lines[start:end + 1]
     fm_end -= (end + 1 - start)
+    # Removing the last item removes the FIELD, header line included. A bare
+    # `artifacts:` parses as None -- neither [] nor absent -- so the task reads
+    # as still owning artifacts and any consumer iterating it without an
+    # `or []` guard raises TypeError. Absence is the field's empty state, and
+    # it is exactly what cmd_append re-creates, so an append -> remove round
+    # trip is byte-identical again (t1515). block_extent stops at the next
+    # top-level key, so this can never reach an unrelated field; whatever is
+    # left inside the block belonged to the field and goes with it.
+    block_end = block_extent(lines, header, fm_end)
+    if not parse_items(lines, header, block_end):
+        del lines[header:block_end]
+        fm_end -= block_end - header
     bump_updated_at(lines, fm_start, fm_end, stamp)
     atomic_write_text(path, "".join(lines))
 

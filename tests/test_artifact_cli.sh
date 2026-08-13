@@ -35,6 +35,7 @@ mk_task t7_doomed > aitasks/t7_doomed.md
 mk_task t8_prot   > aitasks/t8_prot.md
 mk_task t9_folded Folded > aitasks/t9_folded.md
 mk_task t10_attonly > aitasks/t10_attonly.md
+mk_task t11_roundtrip > aitasks/t11_roundtrip.md   # owns no artifact until F11
 mk_task t16_2_child > aitasks/t16/t16_2_child.md
 printf 'attachments_gc_grace: 0\n' > aitasks/metadata/project_config.yaml
 git add -A; git commit -q -m init
@@ -242,6 +243,32 @@ rm -f artifacts/manifests/zz-malformed.json
 "$ART" rm 5 art:t5-rbp >/dev/null 2>&1
 assert_file_not_exists "same rm succeeds after repairing the malformed manifest" "artifacts/manifests/t5-rbp.json"
 assert_not_contains "entry removed on the successful re-run" "art:t5-rbp" "$("$ART" ls 5 2>&1)"
+
+# F11. removing a task's ONLY artifact drops the whole `artifacts:` key, so a
+# create -> rm round trip restores the task file (t1515 / folded t1285). A bare
+# `artifacts:` header parses as None, not [] — latent only because every reader
+# today guards with `or []`.
+printf 'round trip\n' > rt.txt
+rt_before="$(grep -v '^updated_at:' aitasks/t11_roundtrip.md)"
+"$ART" create 11 rt.txt --kind report --handle art:t11-rt >/dev/null 2>&1
+assert_eq "create wrote an artifacts: block to start from" "1" \
+    "$(grep -c '^artifacts:' aitasks/t11_roundtrip.md)"
+"$ART" rm 11 art:t11-rt >/dev/null 2>&1
+assert_eq "no bare artifacts: key survives the round trip" "0" \
+    "$(grep -c '^artifacts:' aitasks/t11_roundtrip.md)"
+assert_eq "create -> rm restores the task file (modulo updated_at)" \
+    "$rt_before" "$(grep -v '^updated_at:' aitasks/t11_roundtrip.md)"
+# Consumer-level ground truth: what the board actually loads, not a text grep.
+assert_eq "parsed frontmatter has no artifacts key" "absent" \
+    "$("$PY" - aitasks/t11_roundtrip.md "$PROJECT_DIR/.aitask-scripts/lib" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[2])
+from task_yaml import parse_frontmatter
+meta = parse_frontmatter(open(sys.argv[1], encoding="utf-8").read())[0]
+print("present" if "artifacts" in meta else "absent")
+PYEOF
+)"
+assert_eq "round-trip rm committed the task-file cleanup" "" "$(git status --porcelain -- aitasks/)"
 
 # ── G. decref-deleted artifact guard (board hard-delete choke point) ──────────
 printf 'doomed artifact\n' > doomed.txt

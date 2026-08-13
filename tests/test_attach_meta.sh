@@ -124,10 +124,39 @@ recs="$(read_yaml_mappings "$t" attachments)"
 assert_not_contains "removed item's name is gone" "name=bug #3.png" "$recs"
 assert_contains "sibling item survives removal"   "name=plain#3.png" "$recs"
 assert_contains "other sibling survives removal"  "name=report: v2.png" "$recs"
+# The header must NOT be dropped while siblings remain (t1515 negative control:
+# this is what fails if the emptied-field sweep fires too eagerly).
+assert_eq "field header survives while siblings remain" "1" \
+    "$(grep -c '^attachments:' "$t")"
+
+# Removing the LAST item removes the field entirely -- append/remove is a
+# byte-for-byte round trip when both are stamped with the same --now (t1515).
+t="$TMP/roundtrip.md"; mk_task "$t"
+pristine="$(cat "$t")"
+fm append "$t" attachments hash="$H1" name=only.png --now "2020-01-01 00:00"
+assert_contains "round-trip append really wrote the block" "attachments:" "$(cat "$t")"
+fm remove "$t" attachments --match-key hash --match-val "$H1" --now "2020-01-01 00:00"
+rt="$(cat "$t")"
+assert_eq "append -> remove restores the file byte-for-byte" "$pristine" "$rt"
+assert_not_contains "no bare attachments: key survives the round trip" "attachments:" "$rt"
 
 # Removing a non-existent match fails loudly (caller bug).
 assert_exit_nonzero "remove of missing hash dies" \
     "$PY" "$FM" remove "$t" attachments --match-key hash --match-val "$H1"
+
+# Neighbour-key guard (t1515): the block's extent runs to the next top-level key,
+# so it swallows a trailing blank line. Emptying the block must not reach past
+# that into the key AFTER it. This holds both before and after t1515 — it is a
+# tripwire on how far the emptied-block sweep reaches, not a bug characterization.
+t="$TMP/neighbour.md"
+printf -- '---\npriority: high\nstatus: Ready\nupdated_at: 2020-01-01 00:00\nattachments:\n  - hash: %s\n    name: neighbour.png\n\nlabels: [x, y]\n---\n\nBody paragraph one.\n' "$H1" > "$t"
+fm remove "$t" attachments --match-key hash --match-val "$H1" --now "2020-01-01 00:00"
+nb="$(cat "$t")"
+assert_contains "key following the emptied block survives" "labels: [x, y]" "$nb"
+assert_eq "following key still parses" "x,y" "$(read_yaml_list "$t" labels | paste -sd, -)"
+assert_eq "frontmatter still terminates (exactly two fences)" "2" \
+    "$(grep -c '^---$' "$t")"
+assert_contains "body survives the emptied-block removal" "Body paragraph one." "$nb"
 
 # Newline-in-name is rejected (out of scope per the reader contract).
 t="$TMP/nl.md"; mk_task "$t"
