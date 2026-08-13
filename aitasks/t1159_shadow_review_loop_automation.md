@@ -10,14 +10,14 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1159_3, t1159_4, t1159_5, t1159_6]
+children_to_implement: [t1159_3, t1159_4, t1159_5, t1159_6, t1159_7]
 folded_tasks: [1017]
 artifacts:
   - handle: art:trail-shadow-review-loop
     kind: implementation_trail
     name: "Shadow review-loop automation: landing order"
 created_at: 2026-07-19 08:43
-updated_at: 2026-08-12 23:38
+updated_at: 2026-08-13 09:33
 boardcol: now
 boardidx: 70
 ---
