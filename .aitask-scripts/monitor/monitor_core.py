@@ -57,7 +57,13 @@ import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation 
 import workflow_phase  # noqa: E402  (advisory phase seam, t1420 — never a gate)
 
 try:
-    from .prompt_patterns import PromptPattern, all_patterns
+    from .prompt_patterns import (
+        AGENT_KEYS,
+        PromptPattern,
+        agent_key_from_pane,
+        all_patterns,
+        scope_patterns,
+    )
     from .ansi_utils import strip_ansi
     from .concern_parser import (
         contains_block_evidence,
@@ -65,7 +71,13 @@ try:
         parse_reviewed_at_epoch,
     )
 except ImportError:  # imported top-level (tests put MONITOR_DIR on PYTHONPATH)
-    from prompt_patterns import PromptPattern, all_patterns  # noqa: E402
+    from prompt_patterns import (  # noqa: E402
+        AGENT_KEYS,
+        PromptPattern,
+        agent_key_from_pane,
+        all_patterns,
+        scope_patterns,
+    )
     from ansi_utils import strip_ansi  # noqa: E402
     from concern_parser import (  # noqa: E402
         contains_block_evidence,
@@ -185,6 +197,13 @@ class ClassifyResult:
     compare_value: str
     awaiting_input: bool = False
     awaiting_input_kind: str = ""
+    # Resolution provenance (t1467). `scoped` is False whenever matching was NOT
+    # narrowed to a known agent — an unresolvable pane command, or a caller that
+    # passed no agent. False is the honest default: a result built by the
+    # fail-closed `except` path was not scoped and must not read as though it
+    # were. Consumers use these to tell the two regimes apart.
+    agent_key: str = ""
+    scoped: bool = False
 
 
 def classify_content(
@@ -192,6 +211,7 @@ def classify_content(
     mode: str,
     prompt_patterns: list[PromptPattern],
     category: PaneCategory,
+    agent: str = "",
 ) -> ClassifyResult:
     """Pure, module-level CPU work extracted from ``_finalize_capture`` (t1111_4).
 
@@ -200,14 +220,27 @@ def classify_content(
     event loop. No ``self``, no shared-dict mutation, no widget access, so it is
     safe to batch off-loop via ``asyncio.to_thread``. ``prompt_patterns`` is read
     only. All ``_last_content`` / ``_last_change_time`` mutation stays loop-side.
+
+    Since t1467 matching is **scoped to the pane's own agent**: ``agent`` is a
+    resolved key from ``lib/agent_keys.agent_key_from_pane``, and patterns owned
+    by a different agent are dropped (``prompt_patterns.scope_patterns``). The
+    default ``""`` preserves the pre-t1467 flat-list behaviour, which is also
+    what an unresolvable pane command gets — so no caller is broken and no
+    working detection is lost.
+
+    The result carries the resolution outcome (``agent_key`` / ``scoped``) so
+    that "matched under scoped rules" and "matched from the unscoped flat list"
+    are distinguishable downstream instead of looking identical.
     """
     compare_value = strip_ansi(content) if mode == COMPARE_MODE_STRIPPED else content
+    agent_key = (agent or "").strip().lower()
+    scoped = agent_key in AGENT_KEYS
     awaiting_input = False
     awaiting_input_kind = ""
     if category == PaneCategory.AGENT and prompt_patterns:
         stripped_text = compare_value if mode == COMPARE_MODE_STRIPPED else strip_ansi(content)
         prompt_text = _prompt_detection_text(stripped_text)
-        for p in prompt_patterns:
+        for p in scope_patterns(prompt_patterns, agent_key):
             if p.regex.search(prompt_text):
                 awaiting_input = True
                 awaiting_input_kind = p.name
@@ -216,6 +249,8 @@ def classify_content(
         compare_value=compare_value,
         awaiting_input=awaiting_input,
         awaiting_input_kind=awaiting_input_kind,
+        agent_key=agent_key if scoped else "",
+        scoped=scoped,
     )
 
 
@@ -224,11 +259,12 @@ def _classify_one(
     mode: str,
     prompt_patterns: list[PromptPattern],
     category: PaneCategory,
+    agent: str = "",
 ) -> ClassifyResult:
     """Fail-closed single-pane classify (invariant D): a raising regex/strip
     degrades to raw content (never awaiting) so one bad pane never propagates."""
     try:
-        return classify_content(content, mode, prompt_patterns, category)
+        return classify_content(content, mode, prompt_patterns, category, agent)
     except Exception:
         return ClassifyResult(compare_value=content)
 
@@ -246,7 +282,10 @@ def _classify_batch(
     cycle, not per-pane fan-out).
     """
     return [
-        (pane, content, _classify_one(content, mode, prompt_patterns, pane.category))
+        (pane, content, _classify_one(content, mode, prompt_patterns, pane.category,
+                                      agent_key_from_pane(pane.current_command,
+                                                          pane.pane_pid,
+                                                          pane.pane_id)))
         for pane, content, mode in items
     ]
 
@@ -830,6 +869,12 @@ class PaneSnapshot:
     is_idle: bool           # idle_seconds > threshold (only meaningful for AGENT panes)
     awaiting_input: bool = False
     awaiting_input_kind: str = ""   # name of the first matching prompt pattern
+    # Resolution provenance for `awaiting_input_kind` (t1467). `scoped` False
+    # means the kind came from the UNSCOPED flat list because the pane's command
+    # did not resolve to a known agent — a common case, not an edge (a Codex
+    # pane reports `node`). Consumers must not present the two regimes alike.
+    agent_key: str = ""
+    scoped: bool = False
 
 
 # %begin / %end / %error <epoch> <cmd_id> <flags>
@@ -2147,6 +2192,8 @@ class TmuxMonitor:
             is_idle=is_idle,
             awaiting_input=result.awaiting_input,
             awaiting_input_kind=result.awaiting_input_kind,
+            agent_key=result.agent_key,
+            scoped=result.scoped,
         )
 
     def _finalize_capture(
@@ -2164,7 +2211,10 @@ class TmuxMonitor:
         """
         now = time.monotonic()
         mode = self.get_compare_mode(pane.pane_id)
-        result = classify_content(content, mode, self.prompt_patterns, pane.category)
+        result = classify_content(
+            content, mode, self.prompt_patterns, pane.category,
+            agent_key_from_pane(pane.current_command, pane.pane_pid,
+                                    pane.pane_id))
         self._next_generation()
         return self._apply_bookkeeping(pane, content, result, now)
 
@@ -2256,7 +2306,10 @@ class TmuxMonitor:
         mode = self.get_compare_mode(pane.pane_id)
         patterns = self.prompt_patterns
         result = await self._run_offloaded(
-            lambda: _classify_one(content, mode, patterns, pane.category)
+            lambda: _classify_one(
+                content, mode, patterns, pane.category,
+                agent_key_from_pane(pane.current_command, pane.pane_pid,
+                                    pane.pane_id))
         )
         return self._merge_shadow_snapshot(
             followed_pane_id, captured_pane_id, seq, pane, content, result
@@ -2338,7 +2391,10 @@ class TmuxMonitor:
         if rc != 0:
             return None
         mode = self.get_compare_mode(pane_id)
-        result = classify_content(content, mode, self.prompt_patterns, pane.category)
+        result = classify_content(
+            content, mode, self.prompt_patterns, pane.category,
+            agent_key_from_pane(pane.current_command, pane.pane_pid,
+                                    pane.pane_id))
         return self.commit_snapshot(gen, pane, content, result)
 
     async def capture_pane_content_async(
@@ -2388,7 +2444,10 @@ class TmuxMonitor:
         mode = self.get_compare_mode(pane_id)
         patterns = self.prompt_patterns
         result = await self._run_offloaded(
-            lambda: _classify_one(content, mode, patterns, pane.category)
+            lambda: _classify_one(
+                content, mode, patterns, pane.category,
+                agent_key_from_pane(pane.current_command, pane.pane_pid,
+                                    pane.pane_id))
         )
         return gen, pane, content, result
 
@@ -3222,16 +3281,23 @@ class GateSummaryCache:
                   screen_text: str | None = None,
                   awaiting_input: bool | None = None,
                   awaiting_input_kind: str = "",
-                  agent: str = "") -> "workflow_phase.PhaseSignal":
+                  agent: str = "",
+                  current_command: str | None = None
+                  ) -> "workflow_phase.PhaseSignal":
         """Compose the cached ledger half with this tick's live observation.
 
         Advisory only: the returned phase may never gate what a caller does.
+
+        ``agent`` should be the key that actually scoped the pane's prompt
+        matching (``PaneSnapshot.agent_key``); pass ``current_command`` alongside
+        it so an unresolvable pane is reported as such rather than as a caller
+        that supplied nothing (t1467).
         """
         entry = self._entry_for(info)
         return workflow_phase.compose(
             entry[1], screen_text=screen_text, awaiting_input=awaiting_input,
             awaiting_input_kind=awaiting_input_kind, agent=agent,
-            recording=entry[2])
+            recording=entry[2], current_command=current_command)
 
     def _entry_for(
         self, info: "TaskInfo | None"

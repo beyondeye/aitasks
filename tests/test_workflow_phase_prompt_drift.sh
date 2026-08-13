@@ -123,13 +123,34 @@ for agent, row in wp.NATIVE_KIND_PHASE.items():
 print("MISSING:" + (",".join(missing) if missing else "-"))
 
 # A generic confirmation must never carry a phase — absence is the safety.
+# The three t1467 additions join the list: a tool-permission dialog carries no
+# workflow phase for Codex/OpenCode any more than it does for Claude.
 generic = ["claude_proceed", "claude_help_bar", "claude_trust_folder",
-           "codex_yes_proceed"]
+           "codex_yes_proceed", "codex_permission", "opencode_permission"]
 leaked = [g for agent, row in wp.NATIVE_KIND_PHASE.items() for g in generic if g in row]
 print("LEAKED:" + (",".join(leaked) if leaked else "-"))
 
-# Guard against the tables silently emptying: claude must still be wired.
-print("CLAUDE_WIRED:" + ("1" if wp.live_tiers_available("claude") else "0"))
+# Guard against the tables silently emptying. All three supported agents were
+# measured live (t1467) and must stay wired; a row emptied by a rename or a
+# botched edit fails loudly here instead of degrading to a silent ledger-only.
+for _agent in ("claude", "codex", "opencode"):
+    print(f"{_agent.upper()}_WIRED:"
+          + ("1" if wp.live_tiers_available(_agent) else "0"))
+
+# Every agent with a question widget needs a way to find that widget's block,
+# or Tier A can never fire for it: a kind with no boundary strategy is a wiring
+# error, not a degradation.
+unanchored = [a for a, kinds in wp.QUESTION_WIDGET_KINDS.items()
+              if kinds and a not in wp.QUESTION_BLOCK_BOUNDARIES
+              and a not in wp.QUESTION_BLOCK_STRATEGIES]
+print("UNANCHORED:" + (",".join(unanchored) if unanchored else "-"))
+
+# And the reverse: a boundary for an agent that is not a known agent key is a
+# typo that would silently never be consulted.
+stray = [a for a in (set(wp.QUESTION_BLOCK_BOUNDARIES)
+                     | set(wp.QUESTION_BLOCK_STRATEGIES))
+         if a not in wp.QUESTION_WIDGET_KINDS]
+print("STRAY_BOUNDARY:" + (",".join(sorted(stray)) if stray else "-"))
 PYEOF
 )"
     check "compiled patterns match the canonical questions" "UNMATCHED:0" \
@@ -140,8 +161,14 @@ PYEOF
         "$(echo "$result" | grep '^MISSING:')"
     check "no generic confirmation carries a phase" "LEAKED:-" \
         "$(echo "$result" | grep '^LEAKED:')"
-    check "claude live tiers still wired" "CLAUDE_WIRED:1" \
-        "$(echo "$result" | grep '^CLAUDE_WIRED:')"
+    for agent_upper in CLAUDE CODEX OPENCODE; do
+        check "$agent_upper live tiers still wired" "${agent_upper}_WIRED:1" \
+            "$(echo "$result" | grep "^${agent_upper}_WIRED:")"
+    done
+    check "every question widget has a block boundary" "UNANCHORED:-" \
+        "$(echo "$result" | grep '^UNANCHORED:')"
+    check "no block boundary for an unknown agent" "STRAY_BOUNDARY:-" \
+        "$(echo "$result" | grep '^STRAY_BOUNDARY:')"
 fi
 
 echo

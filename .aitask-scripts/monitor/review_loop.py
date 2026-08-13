@@ -384,6 +384,23 @@ SHADOW_READY_DETECTORS = {
 }
 
 
+# Agents whose FOLLOWED-pane change classification has a proven boundary
+# strategy, and for which the auto-recheck loop may therefore be armed.
+#
+# Deliberately NOT `workflow_phase.live_tiers_available`: that answers "can an
+# advisory phase hint be derived?", this answers "may an INJECTING loop be
+# armed?". t1467 wired Codex and OpenCode markers, which makes the first true
+# for them — but a newly-measured marker must earn the second separately, since
+# this loop sends keys into a pane rather than changing a default. Widening it
+# is its own task, with its own live evidence.
+REVIEW_LOOP_AGENTS: tuple[str, ...] = ("claude",)
+
+
+def review_loop_agent_supported(agent: str) -> bool:
+    """May the auto-recheck loop be armed for a followed pane running ``agent``?"""
+    return (agent or "").strip().lower() in REVIEW_LOOP_AGENTS
+
+
 def shadow_prompt_ready(raw_text: str | None, agent: str,
                         hash_stable: bool) -> bool | None:
     """Three-part positive readiness; anything indeterminate is not-ready.
@@ -488,8 +505,11 @@ def classify_followed_change(prev_content: str | None, prev_kind: str,
     curr_lines = curr_plain.splitlines()
 
     if curr_kind in workflow_phase.QUESTION_WIDGET_KINDS.get(agent_key, ()):
-        start_prev = workflow_phase.current_question_block(prev_lines)
-        start_curr = workflow_phase.current_question_block(curr_lines)
+        # Pass the agent: each CLI delimits its question block differently since
+        # t1467, and measuring a Codex pane against Claude's chip would silently
+        # return None (UNKNOWN) instead of classifying it.
+        start_prev = workflow_phase.current_question_block(prev_lines, agent_key)
+        start_curr = workflow_phase.current_question_block(curr_lines, agent_key)
         if start_prev is None or start_curr is None:
             return UNKNOWN
         if prev_lines[:start_prev] != curr_lines[:start_curr]:

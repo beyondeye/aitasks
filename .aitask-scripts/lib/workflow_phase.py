@@ -11,23 +11,29 @@ Stdlib only, matching `gate_ledger.py`: no PyYAML, no tmux, no Textual. The
 live half is supplied *by the caller* as already-captured pane text plus the
 monitor's own classification result, so this module stays pure and testable.
 
-Two live tiers, and the split is the t1420/t1467 ownership seam:
+Two live tiers:
 
 - **Tier A** (`WORKFLOW_PROMPTS`) — agent-neutral. These strings are authored by
   *task-workflow*, not by any code agent, so they read identically under every
-  supported CLI. Complete here.
+  supported CLI. Its *currency* evidence is per-agent, though
+  (`QUESTION_WIDGET_KINDS` + `QUESTION_BLOCK_BOUNDARIES`), and t1467 measured
+  those for Claude Code, Codex CLI and OpenCode.
 - **Tier B** (`NATIVE_KIND_PHASE`) — per-agent native dialogs, keyed on the
-  monitor's `awaiting_input_kind`. Ships with the **Claude row only**; Codex and
-  OpenCode are explicit empty placeholders owned by **t1467**, which inventories
-  their real prompt surfaces. Nothing here may imply live coverage for an agent
-  before its markers land — ask `live_tiers_available()`.
+  monitor's `awaiting_input_kind`. **Claude only, by measurement**: neither Codex
+  nor OpenCode has an `ExitPlanMode` analogue, so the only native dialogs they
+  render are tool confirmations, which carry no phase. For those two agents the
+  phase comes from Tier A or the ledger.
+
+Nothing here may imply live coverage for an agent that has no markers — ask
+`live_tiers_available()`, and read `PhaseSignal.resolution` to tell a resolved
+agent from a pane whose command could not be mapped at all.
 
 CLI:
 
     workflow_phase.py signal <task-file> [--screen <file>|-]
                              [--awaiting-input yes|no|unknown]
                              [--kind <awaiting_input_kind>] [--agent <name>]
-                             [--profiles-dir <dir>]
+                             [--pane-command <cmd>] [--profiles-dir <dir>]
 
 Prints one `|`-delimited status line (see `format_signal`).
 """
@@ -40,6 +46,7 @@ from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gate_ledger as gl  # noqa: E402
+import agent_keys  # noqa: E402  (canonical pane→agent mapper, t1467)
 
 # --- Vocabulary -----------------------------------------------------------
 #
@@ -53,9 +60,22 @@ PHASES = ("PLAN", "IMPLEMENT", "POSTIMPL", "UNKNOWN")
 LIVENESS = ("WAITING", "RUNNING", "UNKNOWN")
 SOURCES = ("workflow-prompt", "native-prompt", "ledger", "none")
 
+# How the pane's AGENT was established — orthogonal to the phase, because it
+# stays true (and stays worth saying) whatever the phase turned out to be
+# (t1467). Folding it into an UNKNOWN-phase cause was tried and rejected: the
+# renderer consults those only when the phase is UNKNOWN, so a task with ledger
+# history would render a confident `IMPLEMENT ⏸` — with the ⏸ supplied by an
+# UNSCOPED match — indistinguishable from a fully resolved pane.
+#   scoped      — resolved to a known agent that has live-tier markers
+#   no_markers  — resolved, but this agent has no markers (ledger-only)
+#   unresolved  — the caller supplied a pane command that maps to no agent
+#   absent      — the caller supplied no agent at all (e.g. the plain CLI verb)
+RESOLUTIONS = ("scoped", "no_markers", "unresolved", "absent", "unknown")
+
 UNKNOWN_PHASE = "UNKNOWN"
 UNKNOWN_LIVENESS = "UNKNOWN"
 NO_SOURCE = "none"
+UNKNOWN_RESOLUTION = "unknown"
 
 # --- Tier A: framework-authored checkpoint prompts (agent-neutral) ---------
 #
@@ -100,6 +120,52 @@ _WORKFLOW_PROMPT_TAIL_LINES = 40
 # assumed: it appears exactly once and only in that widget.
 _QUESTION_HEADER_RE = re.compile(r"^\s*[\u2610\u2611]\s+\S")
 
+# Codex's request-user-input widget renders a "Question N/M (K unanswered)"
+# header directly above its question text \u2014 the same role Claude's chip plays,
+# and measured (t1467, Codex 0.146.0) to appear once and only while live.
+_CODEX_QUESTION_HEADER_RE = re.compile(r"^\s*Question\s+\d+\s*/\s*\d+\b")
+
+# OpenCode has NO header line: its widget renders as a contiguous run of
+# `\u2503`-gutter lines. Its block start is therefore found by a scan (see
+# _opencode_block_start) rather than by matching one line.
+_GUTTER_RE = re.compile(r"^\s*\u2503")
+
+# Per-agent block-start strategies. Regex table for agents whose widget has a
+# header line; a scan for those whose widget is delimited by shape instead.
+# Two mechanisms rather than one is a real cost, taken deliberately: a regex
+# matching the gutter character alone would match EVERY line of the block,
+# including lines of an earlier already-answered widget higher in the
+# scrollback \u2014 exactly the staleness the boundary exists to exclude.
+QUESTION_BLOCK_BOUNDARIES: dict[str, "re.Pattern[str]"] = {
+    "claude": _QUESTION_HEADER_RE,
+    "codex": _CODEX_QUESTION_HEADER_RE,
+}
+
+
+def _opencode_block_start(lines: list[str]) -> int | None:
+    """Top of the contiguous gutter run that reaches the LAST gutter line.
+
+    A gap of non-gutter lines ends the run, so an earlier, already-answered
+    widget higher in the tail is a *different* run and is excluded \u2014 the same
+    property Claude's chip and Codex's header give for free.
+    """
+    last = None
+    for idx in range(len(lines) - 1, -1, -1):
+        if _GUTTER_RE.match(lines[idx]):
+            last = idx
+            break
+    if last is None:
+        return None
+    start = last
+    while start - 1 >= 0 and _GUTTER_RE.match(lines[start - 1]):
+        start -= 1
+    return start
+
+
+QUESTION_BLOCK_STRATEGIES = {
+    "opencode": _opencode_block_start,
+}
+
 # --- Per-agent live-tier tables -------------------------------------------
 #
 # QUESTION_WIDGET_KINDS: which `awaiting_input_kind` values mean "the pane is
@@ -121,28 +187,29 @@ _QUESTION_HEADER_RE = re.compile(r"^\s*[\u2610\u2611]\s+\S")
 
 QUESTION_WIDGET_KINDS: dict[str, tuple[str, ...]] = {
     "claude": ("claude_askuserquestion",),
-    "codex": (),      # t1467
-    "opencode": (),   # t1467
+    "codex": ("codex_question",),        # request-user-input widget (t1467)
+    "opencode": ("opencode_question",),  # interactive question widget (t1467)
 }
 
 NATIVE_KIND_PHASE: dict[str, dict[str, tuple[str, str]]] = {
     "claude": {"claude_plan_approval": ("PLAN", "WAITING")},
-    "codex": {},      # t1467
-    "opencode": {},   # t1467
+    # Codex and OpenCode are empty BY MEASUREMENT, not by omission (t1467
+    # inventoried both live): neither CLI has an ExitPlanMode analogue, so the
+    # only native dialogs either renders are tool confirmations — which carry no
+    # workflow phase, for the same reason `claude_proceed` has no row here.
+    # Do not "fill these in" without a new measurement finding a phase-bearing
+    # dialog. Consequence: for these two agents the phase comes from Tier A or
+    # the ledger, never Tier B.
+    "codex": {},
+    "opencode": {},
 }
 
 
-def agent_key_from_command(current_command: str) -> str:
-    """Map a pane's running command to a per-agent table key, or ``""``.
-
-    ``""`` is the honest answer for anything unrecognised (a wrapper process, a
-    shell, a future CLI) and degrades to ledger-only via
-    :func:`live_tiers_available` — never to a guessed phase. Deliberately an
-    exact match on the known CLI names rather than a substring test: a pane
-    running ``claude-something-else`` is not Claude Code.
-    """
-    cmd = os.path.basename((current_command or "").strip()).lower()
-    return cmd if cmd in QUESTION_WIDGET_KINDS else ""
+# Re-exported, NOT reimplemented: `lib/agent_keys.py` owns the mapping so this
+# module and `monitor/prompt_patterns.py` cannot drift (t1467). The public name
+# and behaviour here are unchanged, so every existing caller is untouched.
+agent_key_from_command = agent_keys.agent_key_from_command
+agent_key_from_pane = agent_keys.agent_key_from_pane
 
 
 def live_tiers_available(agent: str) -> bool:
@@ -175,6 +242,7 @@ class PhaseSignal:
     consulted: list[str] = field(default_factory=list)
     recording: str = "unknown"
     detail: str = ""
+    resolution: str = UNKNOWN_RESOLUTION
 
 
 _DELIM = "|"
@@ -198,6 +266,8 @@ def format_signal(sig: PhaseSignal) -> str:
     phase = sig.phase if sig.phase in PHASES else UNKNOWN_PHASE
     waiting = sig.waiting if sig.waiting in LIVENESS else UNKNOWN_LIVENESS
     source = sig.source if sig.source in SOURCES else NO_SOURCE
+    resolution = (sig.resolution if sig.resolution in RESOLUTIONS
+                  else UNKNOWN_RESOLUTION)
     consulted = ",".join(_sanitize(c) for c in sig.consulted) or "-"
     return _DELIM.join([
         f"PHASE{_FIELD_SEP}{phase}",
@@ -205,6 +275,7 @@ def format_signal(sig: PhaseSignal) -> str:
         f"SOURCE{_FIELD_SEP}{source}",
         f"CONSULTED{_FIELD_SEP}{consulted}",
         f"RECORDING{_FIELD_SEP}{_sanitize(sig.recording) or 'unknown'}",
+        f"RESOLUTION{_FIELD_SEP}{resolution}",
         f"DETAIL{_FIELD_SEP}{_sanitize(sig.detail)}",
     ])
 
@@ -221,6 +292,10 @@ def parse_signal(line: str) -> PhaseSignal:
     phase = fields.get("PHASE", "")
     waiting = fields.get("WAITING", "")
     source = fields.get("SOURCE", "")
+    # A line written before t1467 carries no RESOLUTION key at all; defaulting it
+    # to the unknown member (rather than raising or guessing) is what keeps a
+    # stale minimonitor's `@aitask_shadow_phase` stamp readable (t1116).
+    resolution = fields.get("RESOLUTION", "")
     consulted = [c for c in fields.get("CONSULTED", "").split(",") if c and c != "-"]
     return PhaseSignal(
         phase=phase if phase in PHASES else UNKNOWN_PHASE,
@@ -229,6 +304,7 @@ def parse_signal(line: str) -> PhaseSignal:
         consulted=consulted,
         recording=fields.get("RECORDING", "") or "unknown",
         detail=fields.get("DETAIL", ""),
+        resolution=resolution if resolution in RESOLUTIONS else UNKNOWN_RESOLUTION,
     )
 
 
@@ -301,30 +377,49 @@ def _tail(text: str, n: int) -> list[str]:
     return lines[-n:] if len(lines) > n else lines
 
 
-def current_question_block(lines: list[str]) -> int | None:
+def current_question_block(lines: list[str], agent: str = "claude") -> int | None:
     """Index of the line that STARTS the currently-rendered question widget, or
     ``None``.
 
-    The delimiter is the widget's header chip — `` ☐ <Header> `` — which an
-    ``AskUserQuestion`` always renders directly under its top rule and above its
-    question text. Measured against Claude Code 2.1.226: it occurs exactly once,
-    only in that widget, and only for the *live* one (an answered question
-    collapses to a one-line summary carrying no chip).
+    Per agent, because each CLI delimits its widget differently (t1467):
 
-    That is what makes this a real block boundary rather than a distance
-    heuristic. A proximity bound cannot work: the widget's own inner rule sits
-    *below* the question, and a stale anchor can sit within any fixed number of
-    lines of the bottom once a later, unrelated question is rendered under it.
-    Only "is the anchor inside the current widget" is decidable, so that is what
-    is asked.
+    * **Claude** — the header chip `` ☐ <Header> ``, rendered directly under the
+      widget's top rule and above the question text. Measured against 2.1.226:
+      it occurs exactly once, only in that widget, and only for the *live* one
+      (an answered question collapses to a one-line summary carrying no chip).
+    * **Codex** — the ``Question N/M`` header, the same shape and the same
+      once-only property (measured, 0.146.0).
+    * **OpenCode** — no header at all; the block is the contiguous ``┃``-gutter
+      run (see :func:`_opencode_block_start`).
+
+    An agent with neither a boundary nor a strategy returns ``None``, so Tier A
+    suppresses and the ledger wins — absence degrades, never guesses.
+
+    Whatever the mechanism, the question asked is the same one, and it is why
+    this is a real block boundary rather than a distance heuristic: a proximity
+    bound cannot work, because the widget's own inner rule sits *below* the
+    question and a stale anchor can sit within any fixed number of lines of the
+    bottom once a later, unrelated question renders under it. Only "is the anchor
+    inside the current widget" is decidable, so that is what is asked.
+
+    The ``agent="claude"`` default keeps every pre-t1467 caller behaving
+    identically.
     """
+    key = (agent or "").strip().lower()
+    strategy = QUESTION_BLOCK_STRATEGIES.get(key)
+    if strategy is not None:
+        return strategy(lines)
+    boundary = QUESTION_BLOCK_BOUNDARIES.get(key)
+    if boundary is None:
+        return None
     for idx in range(len(lines) - 1, -1, -1):
-        if _QUESTION_HEADER_RE.match(lines[idx]):
+        if boundary.match(lines[idx]):
             return idx
     return None
 
 
-def phase_from_screen(screen_text: str) -> tuple[str, str, str] | None:
+def phase_from_screen(screen_text: str,
+                      agent: str = "claude") -> tuple[str, str, str] | None:
     """``(phase, waiting, detail)`` for the last Tier A anchor **inside the
     current question block**, or ``None``.
 
@@ -337,12 +432,16 @@ def phase_from_screen(screen_text: str) -> tuple[str, str, str] | None:
     quotes an earlier one.
     """
     lines = _tail(screen_text, _WORKFLOW_PROMPT_TAIL_LINES)
-    start = current_question_block(lines)
+    start = current_question_block(lines, agent)
     if start is None:
         return None
     n = len(lines)
     best: tuple[str, str, str] | None = None
-    for idx in range(start + 1, n):
+    # INCLUSIVE of the boundary line: it is the first line *of* the block, and
+    # for OpenCode it is the question text itself (that widget has no separate
+    # header line). Claude's chip and Codex's `Question N/M` header cannot carry
+    # an anchor, so including them costs nothing there.
+    for idx in range(start, n):
         for prompt in WORKFLOW_PROMPTS:
             if prompt.regex.search(lines[idx]):
                 best = (prompt.phase, prompt.waiting,
@@ -377,7 +476,8 @@ def compose(ledger_half: tuple[str, str],
             awaiting_input: bool | None = None,
             awaiting_input_kind: str = "",
             agent: str = "",
-            recording: tuple[str, str] = ("unknown", "")) -> PhaseSignal:
+            recording: tuple[str, str] = ("unknown", ""),
+            current_command: str | None = None) -> PhaseSignal:
     """Combine an already-derived ledger half with the live half.
 
     Precedence: ``awaiting_input is True`` ? (Tier A > Tier B) : (nothing)
@@ -402,6 +502,16 @@ def compose(ledger_half: tuple[str, str],
     if rec_state != "unknown" or rec_detail:
         consulted.append("profile")
 
+    agent_given = bool((agent or "").strip())
+    if agent_given:
+        resolution = "scoped" if live_tiers_available(agent) else "no_markers"
+    elif current_command is not None:
+        # The caller TRIED and the pane's command mapped to nothing. Distinct
+        # from "absent" because the cause, and therefore the fix, is different.
+        resolution = "unresolved"
+    else:
+        resolution = "absent"
+
     def _ledger(extra: str) -> PhaseSignal:
         detail = "; ".join(p for p in (ledger_detail, extra, rec_detail) if p)
         waiting = ("WAITING" if awaiting_input is True
@@ -414,16 +524,24 @@ def compose(ledger_half: tuple[str, str],
             consulted=consulted,
             recording=rec_state,
             detail=detail,
+            resolution=resolution,
         )
 
-    if not (agent or "").strip():
-        # Not the same thing as an agent without markers: the caller simply did
-        # not say. Naming t1467 here would promise a fix for a caller error.
+    if not agent_given:
+        if current_command is not None:
+            # Blaming the caller here would be wrong: it is the pane's command
+            # that could not be mapped, and the fix is agent identity (§7's
+            # @aitask_agent stamp), not the call site.
+            return _ledger(
+                f"live tiers unavailable: pane command "
+                f"'{_sanitize(current_command) or 'unknown'}' does not resolve "
+                f"to a known agent")
+        # The caller simply did not say. Naming a fix here would promise one for
+        # what is a caller-side omission.
         return _ledger("live tiers unavailable: no agent supplied")
     if not live_tiers_available(agent):
         return _ledger(
-            f"live tiers unavailable: no prompt markers for agent "
-            f"'{agent}' (t1467)")
+            f"live tiers unavailable: no prompt markers for agent '{agent}'")
 
     consulted.append("screen")
 
@@ -433,7 +551,7 @@ def compose(ledger_half: tuple[str, str],
         return _ledger(f"screen tiers suppressed: {why}")
 
     if _is_question_widget(agent, awaiting_input_kind):
-        found = phase_from_screen(screen_text or "")
+        found = phase_from_screen(screen_text or "", agent)
         if found is not None:
             phase, waiting, detail = found
             return PhaseSignal(
@@ -485,7 +603,8 @@ def phase_signal(task_file: str | None = None,
                  awaiting_input: bool | None = None,
                  awaiting_input_kind: str = "",
                  agent: str = "",
-                 profiles_dir: str | None = None) -> PhaseSignal:
+                 profiles_dir: str | None = None,
+                 current_command: str | None = None) -> PhaseSignal:
     """The one entry point. Supply ``task_text`` to stay pure, or ``task_file``
     to have it read. An unreadable task file is not fatal — it yields an
     all-unknown ledger half, because this signal must never break its caller."""
@@ -500,7 +619,8 @@ def phase_signal(task_file: str | None = None,
     return compose(ledger_half, screen_text=screen_text,
                    awaiting_input=awaiting_input,
                    awaiting_input_kind=awaiting_input_kind,
-                   agent=agent, recording=rec)
+                   agent=agent, recording=rec,
+                   current_command=current_command)
 
 
 UNKNOWN_LINE = format_signal(PhaseSignal(
@@ -517,21 +637,42 @@ _UNKNOWN_TEXT: dict[str, tuple[str, str]] = {
 }
 
 
+# Resolution qualifier, wide and narrow. Rendered OUTSIDE the UNKNOWN branch, so
+# it survives a confident phase — `IMPLEMENT ⏸ (agent unresolved)` is exactly the
+# case that would otherwise render clean while its ⏸ came from an unscoped match.
+# Narrow gets a bare `?`, not a word: that row is ~36 cells shared with the gate
+# summary (t1479), and a qualifier that pushes the counts off the line is present
+# but not readable. `scoped` and `absent` add nothing — `absent` is a caller that
+# never asked, and marking it would qualify every plain CLI invocation.
+_RESOLUTION_SUFFIX: dict[str, tuple[str, str]] = {
+    "unresolved": (" (agent unresolved)", "?"),
+    "no_markers": (" (no prompt markers)", "~"),
+}
+
+
 def _phase_body(sig: PhaseSignal, *, narrow: bool) -> str:
     """The label-free phase text shared by both renderers; ``""`` when there is
     nothing honest to say."""
+    suffix = _RESOLUTION_SUFFIX.get(sig.resolution, ("", ""))[1 if narrow else 0]
     if sig.phase == UNKNOWN_PHASE:
         if sig.recording == "off":
             cause = "recording_off"
-        elif "no prompt markers" in sig.detail:
+        elif sig.resolution == "no_markers":
+            # Reads the explicit field, NOT a substring of `detail`: the wording
+            # of that message is human-readable prose and has already been
+            # reworded once (t1467), which would have silently killed this
+            # branch had it stayed a phrase match.
             cause = "ledger_only"
         elif sig.waiting == "WAITING":
             cause = "waiting"
         else:
-            return ""
-        return _UNKNOWN_TEXT[cause][1 if narrow else 0]
+            return f"{UNKNOWN_PHASE.lower()}{suffix}" if suffix else ""
+        body = _UNKNOWN_TEXT[cause][1 if narrow else 0]
+        # `ledger_only` already says why in words; a second qualifier for the
+        # same cause would stutter.
+        return body if cause == "ledger_only" else f"{body}{suffix}"
     glyph = " ⏸" if sig.waiting == "WAITING" else ""
-    return f"{sig.phase}{glyph}"
+    return f"{sig.phase}{glyph}{suffix}"
 
 
 def render_phase(sig: PhaseSignal) -> str:
@@ -576,6 +717,7 @@ def _cli(argv: list[str]) -> int:
     awaiting = None
     kind = ""
     agent = ""
+    current_command = None
     profiles_dir = None
     rest = args[1:]
     i = 0
@@ -590,6 +732,12 @@ def _cli(argv: list[str]) -> int:
             kind = value
         elif flag == "--agent":
             agent = value
+        elif flag == "--pane-command":
+            # The pane's raw command, resolved here rather than by the caller so
+            # a shell caller gets the same two-rung ladder the monitor uses.
+            current_command = value
+            if not agent:
+                agent = agent_keys.agent_key_from_command(value)
         elif flag == "--profiles-dir":
             profiles_dir = value
         else:
@@ -607,7 +755,8 @@ def _cli(argv: list[str]) -> int:
         profiles_dir = default_profiles_dir(task_file)
     sig = phase_signal(task_file, screen_text=screen_text,
                        awaiting_input=awaiting, awaiting_input_kind=kind,
-                       agent=agent, profiles_dir=profiles_dir)
+                       agent=agent, profiles_dir=profiles_dir,
+                       current_command=current_command)
     sys.stdout.write(format_signal(sig) + "\n")
     return 0
 

@@ -431,6 +431,16 @@ class PushScheduler:
         # protocol.md "Versioning": clients ignore fields they don't recognize).
         if task_status is not None:
             frame["payload"]["status"] = task_status
+        # Provenance for `awaiting_input_kind` (t1467), same additive rule. A
+        # client that shows the kind can now tell whether matching was scoped to
+        # the pane's own agent or fell back to the unscoped flat list because the
+        # pane command did not resolve — the two produced identical payloads
+        # before, which is what made the fallback invisible.
+        frame["payload"]["awaiting_input_scoped"] = bool(
+            getattr(snap, "scoped", False))
+        agent_key = getattr(snap, "agent_key", "") or ""
+        if agent_key:
+            frame["payload"]["agent_key"] = agent_key
         await self._send(json.dumps(frame))
 
     async def _send(self, data) -> bool:

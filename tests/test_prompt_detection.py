@@ -49,6 +49,7 @@ def make_pane(
     pane_id: str = "%test",
     category: PaneCategory = PaneCategory.AGENT,
     window_name: str = "agent-pick-825",
+    current_command: str = "claude",
 ) -> TmuxPaneInfo:
     return TmuxPaneInfo(
         window_index="1",
@@ -56,7 +57,7 @@ def make_pane(
         pane_index="0",
         pane_id=pane_id,
         pane_pid=1,
-        current_command="claude",
+        current_command=current_command,
         width=80,
         height=24,
         category=category,
@@ -83,8 +84,14 @@ def _check_awaiting_input_detected_for_matching_prompt() -> None:
 
 
 def _check_awaiting_input_codex_pattern() -> None:
+    # `current_command="codex"` since t1467: matching is scoped to the pane's own
+    # agent, so a codex wording no longer fires on a pane running Claude. The
+    # invariant under test — codex's wording is detected on a codex pane — is
+    # unchanged; only the fixture's pane identity is corrected. The cross-agent
+    # case it used to exercise implicitly is now explicit in
+    # `_check_cross_agent_negative_control`.
     mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
-    pane = make_pane(window_name="agent-pick-825-codex")
+    pane = make_pane(window_name="agent-pick-825-codex", current_command="codex")
     content = (
         "Allow this command to run?\n"
         "  Yes, proceed (y)\n"
@@ -354,8 +361,308 @@ def _check_osc_url_churn_does_not_defeat_idle() -> None:
     )
 
 
+# --- characterization: pattern × pane-command matrix (t1467 pre-phase) --------
+#
+# Pins what classify_content answers TODAY, before per-agent scoping exists, so
+# the scoping change can be shown to move exactly what it intends. Written and
+# run green against UNMODIFIED monitor_core.py first — a characterization test
+# authored after the change pins the change, not the contract.
+#
+# Today `current_command` is not consulted at all (`all_patterns()` is applied to
+# every AGENT pane), so every command column answers identically. THAT sameness
+# is the property being pinned, and the flip table below says which cells are
+# expected to change.
+
+# One minimal body per existing pattern, in first-match-wins order.
+_CHARACTERIZATION_BODIES: list[tuple[str, str]] = [
+    ("claude_askuserquestion", "Enter to select · ↑/↓ to navigate · Esc to cancel\n"),
+    ("claude_plan_approval", "  1. Yes, auto-accept edits\n"),
+    ("claude_trust_folder", "❯ Yes, I trust this folder\n  No, exit\n"),
+    ("claude_proceed", "Do you want to proceed?\n"),
+    ("claude_help_bar", "Esc to cancel · Tab to amend\n"),
+    ("codex_yes_proceed", "  Yes, proceed (y)\n"),
+]
+
+# Every command a real pane reports, including the two measured non-resolving
+# ones (t1467: Codex's launcher makes the pane read `node`; companion TUIs read
+# `python`).
+_CHARACTERIZATION_COMMANDS = ["claude", "codex", "opencode", "node", "python", ""]
+
+# Cells expected to CHANGE when per-agent scoping lands. Everything not listed
+# here must stay byte-identical. Stated before the change, as a prediction.
+#
+#   (pattern, command) -> new kind
+#
+# The rule: a pattern whose owning agent is not the pane's resolved agent stops
+# matching. Commands that do not resolve keep the flat list (fail-open), so
+# `node` / `python` / "" are deliberately absent from this table.
+_CHARACTERIZATION_EXPECTED_FLIPS: dict[tuple[str, str], str] = {
+    ("claude_askuserquestion", "codex"): "",
+    ("claude_askuserquestion", "opencode"): "",
+    ("claude_plan_approval", "codex"): "",
+    ("claude_plan_approval", "opencode"): "",
+    ("claude_trust_folder", "codex"): "",
+    ("claude_trust_folder", "opencode"): "",
+    ("claude_proceed", "codex"): "",
+    ("claude_proceed", "opencode"): "",
+    ("claude_help_bar", "codex"): "",
+    ("claude_help_bar", "opencode"): "",
+    ("codex_yes_proceed", "claude"): "",
+    ("codex_yes_proceed", "opencode"): "",
+}
+
+
+def _characterize(pattern_name: str, body: str, command: str):
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane(pane_id="%char", current_command=command)
+    return mon._finalize_capture(pane, body)
+
+
+def _check_characterization_pattern_command_matrix() -> None:
+    """Every (pattern, pane-command) cell answers exactly as predicted.
+
+    Run green FIRST against unmodified monitor_core.py with an empty flip table,
+    which pinned the pre-t1467 behaviour (the pane command was not consulted, so
+    every column matched). The flip table was then authored as a *prediction* and
+    the scoping change made; the two failures it produced were exactly the two
+    predicted cells. Every unlisted cell must still be byte-identical, which is
+    what makes this a guard rather than a snapshot of whatever the code does.
+    """
+    for pattern_name, body in _CHARACTERIZATION_BODIES:
+        for command in _CHARACTERIZATION_COMMANDS:
+            expected = _CHARACTERIZATION_EXPECTED_FLIPS.get(
+                (pattern_name, command), pattern_name)
+            snap = _characterize(pattern_name, body, command)
+            assert snap.awaiting_input_kind == expected, (
+                f"{pattern_name} on current_command={command!r}: expected kind "
+                f"{expected!r}, got {snap.awaiting_input_kind!r}"
+            )
+            assert snap.awaiting_input == bool(expected), (
+                f"{pattern_name} on current_command={command!r}: expected "
+                f"awaiting_input={bool(expected)}"
+            )
+
+
+def _check_scoping_provenance_is_reported() -> None:
+    """`scoped` / `agent_key` distinguish the two matching regimes (t1467).
+
+    Both directions, because a field that is always False (or always True) would
+    satisfy a one-sided test while carrying no information.
+    """
+    resolved = _characterize("claude_help_bar",
+                             "Esc to cancel · Tab to amend\n", "claude")
+    assert resolved.scoped is True, "a resolved pane must report scoped=True"
+    assert resolved.agent_key == "claude", (
+        f"expected agent_key='claude', got {resolved.agent_key!r}")
+
+    # `python` is a companion TUI pane: PaneCategory.AGENT by window name, but
+    # its command resolves to no agent and it has no agent child either.
+    unresolved = _characterize("claude_help_bar",
+                               "Esc to cancel · Tab to amend\n", "python")
+    assert unresolved.awaiting_input, (
+        "fail-open: an unresolved pane must still match the flat list")
+    assert unresolved.scoped is False, (
+        "an unresolved pane must NOT report itself as scoped")
+    assert unresolved.agent_key == "", (
+        f"expected empty agent_key, got {unresolved.agent_key!r}")
+
+
+def _check_cross_agent_negative_control() -> None:
+    """A foreign agent's prompt text must not set a kind on a resolved pane.
+
+    This is the discriminating test for the whole scoping change: it FAILS
+    against the pre-t1467 build, where `all_patterns()` was applied to every
+    AGENT pane regardless of which CLI was running.
+    """
+    cases = [
+        ("claude", "codex_yes_proceed", "  Yes, proceed (y)\n"),
+        ("claude", "opencode_permission", "  Allow once   Allow always   Reject\n"),
+        ("codex", "claude_help_bar", "Esc to cancel · Tab to amend\n"),
+        ("opencode", "claude_askuserquestion",
+         "Enter to select · ↑/↓ to navigate · Esc to cancel\n"),
+    ]
+    for command, foreign_kind, body in cases:
+        snap = _characterize(foreign_kind, body, command)
+        assert snap.awaiting_input_kind != foreign_kind, (
+            f"a {command} pane must not report the foreign kind "
+            f"{foreign_kind!r} (got {snap.awaiting_input_kind!r})")
+
+
+def _check_custom_pattern_survives_scoping() -> None:
+    """A caller-supplied pattern in no registry group is never dropped.
+
+    Scoping is subtractive ("remove what provably belongs to another agent"),
+    not selective ("keep what is listed under this agent") — this is the case
+    that tells the two rules apart.
+    """
+    from monitor.prompt_patterns import PromptPattern as _PP
+    import re as _re
+    custom = _PP("project_custom_prompt", _re.compile(r"CUSTOM PROMPT MARKER"))
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05,
+                      prompt_patterns=[custom])
+    snap = mon._finalize_capture(
+        make_pane(pane_id="%custom", current_command="codex"),
+        "CUSTOM PROMPT MARKER\n")
+    assert snap.awaiting_input_kind == "project_custom_prompt", (
+        f"a custom pattern must survive scoping, got {snap.awaiting_input_kind!r}")
+
+
+def _check_new_agent_patterns_detected() -> None:
+    """The measured Codex / OpenCode widgets are detected on their own panes.
+
+    Wordings and distances measured live (t1467): Codex 0.146.0 and OpenCode
+    1.18.18, captured through `capture-pane -p -e` + strip_ansi. Each body below
+    reproduces the pane tail geometry, so this exercises the 6-line window too,
+    not just the regex.
+    """
+    cases = [
+        ("codex", "codex_question",
+         "  Question 1/1 (1 unanswered)\n"
+         "  Which color would you like?\n"
+         "\n"
+         "  › 1. Blue (Recommended)  A calm, versatile choice.\n"
+         "    2. Green               A fresh, natural choice.\n"
+         "\n"
+         "  tab to add notes | enter to submit answer | esc to interrupt\n"),
+        ("codex", "codex_permission",
+         "  $ touch /home/ddt/probe\n"
+         "\n"
+         "› 1. Yes, proceed (y)\n"
+         "  2. Yes, and don't ask again (p)\n"
+         "\n"
+         "  Press enter to confirm or esc to cancel\n"),
+        ("opencode", "opencode_question",
+         "  ┃  Choose one of these three colors.\n"
+         "  ┃  1. Red\n"
+         "  ┃  2. Blue\n"
+         "  ┃  3. Green\n"
+         "  ┃\n"
+         "  ┃  ↑↓ select  enter submit  esc dismiss\n"),
+        ("opencode", "opencode_permission",
+         "  ┃  △ Permission required\n"
+         "  ┃    ← Access external directory ~\n"
+         "  ┃\n"
+         "  ┃  - /home/ddt/*\n"
+         "  ┃\n"
+         "  ┃   Allow once   Allow always   Reject      ctrl+f fullscreen\n"),
+    ]
+    for command, expected_kind, body in cases:
+        snap = _characterize(expected_kind, body, command)
+        assert snap.awaiting_input, (
+            f"{expected_kind}: pane must read as awaiting input")
+        assert snap.awaiting_input_kind == expected_kind, (
+            f"expected {expected_kind!r}, got {snap.awaiting_input_kind!r}")
+
+
+def _check_new_agent_patterns_negative_controls() -> None:
+    """Prose about these widgets, and their idle panes, must not match.
+
+    The idle cases are measured captures of each TUI sitting at its composer —
+    the state that must read as "not waiting", or every idle agent would show as
+    blocked.
+    """
+    cases = {
+        "codex idle composer": (
+            "codex",
+            "› Summarize recent commits\n"
+            "\n"
+            "  gpt-5.6-terra high · /tmp/scratchrepo · Context 1% used\n"),
+        "opencode idle composer": (
+            "opencode",
+            "\n\n  /tmp/scratchrepo:master                          1.18.18\n"),
+        "prose describing the codex footer": (
+            "codex",
+            "the widget footer reads 'tab to add notes' and then the submit hint\n"),
+        "prose describing the opencode options": (
+            "opencode",
+            'the buttons are "Allow once" and "Reject" in that dialog\n'),
+    }
+    for label, (command, body) in cases.items():
+        snap = _characterize("n/a", body, command)
+        assert not snap.awaiting_input, (
+            f"{label}: must NOT mark awaiting_input "
+            f"(got kind {snap.awaiting_input_kind!r})")
+
+
+def _check_characterization_disable_and_category_gates() -> None:
+    """The two gates that must survive scoping untouched."""
+    for command in _CHARACTERIZATION_COMMANDS:
+        mon = TmuxMonitor(session="aitasks", idle_threshold=0.05, prompt_patterns=[])
+        snap = mon._finalize_capture(
+            make_pane(pane_id="%charoff", current_command=command),
+            "Do you want to proceed?\n")
+        assert not snap.awaiting_input, (
+            f"prompt_patterns=[] must disable detection (command={command!r})")
+        assert snap.awaiting_input_kind == ""
+
+        for category in (PaneCategory.TUI, PaneCategory.OTHER):
+            mon2 = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+            snap2 = mon2._finalize_capture(
+                make_pane(pane_id=f"%char{category}", category=category,
+                          current_command=command),
+                "Do you want to proceed?\n")
+            assert not snap2.awaiting_input, (
+                f"{category} panes must not run prompt matching "
+                f"(command={command!r})")
+
+
+def _check_unrecognized_rendering_degrades_silently() -> None:
+    """An unmatched dialog rendering must read as idle, never as a wrong kind.
+
+    OpenCode ships a full i18n bundle, and its *desktop* UI translates the
+    permission vocabulary (`settings.permissions.action.allow` exists in ~15
+    languages). The TUI labels this task anchors on were measured to come from a
+    hardcoded English array instead — so the localization exposure is smaller
+    than feared, but it is an observation about one version, not a guarantee.
+
+    This is the control for what happens when that observation stops holding:
+    the pattern simply does not match, the pane reads as not-awaiting, and the
+    phase falls back to the ledger. What must NOT happen is a *different*
+    agent's pattern claiming the dialog — which is what per-agent scoping
+    prevents and what the paired assertion below pins.
+    """
+    translated = {
+        "opencode permission, translated": (
+            "opencode",
+            "  ┃  △ Autorisation requise\n"
+            "  ┃\n"
+            "  ┃   Autoriser une fois   Toujours autoriser   Refuser\n"),
+        "codex approval, translated": (
+            "codex",
+            "  Voulez-vous exécuter la commande suivante ?\n"
+            "\n"
+            "› 1. Oui, continuer (y)\n"
+            "\n"
+            "  Appuyez sur entrée pour confirmer\n"),
+    }
+    for label, (command, body) in translated.items():
+        snap = _characterize("n/a", body, command)
+        assert not snap.awaiting_input, (
+            f"{label}: an unmatched rendering must degrade to not-awaiting, "
+            f"got kind {snap.awaiting_input_kind!r}")
+        assert snap.awaiting_input_kind == "", label
+        # And the scoping provenance still reports honestly.
+        assert snap.scoped is True, f"{label}: the pane itself did resolve"
+
+
 def main() -> int:
     tests = [
+        ("_check_unrecognized_rendering_degrades_silently",
+         _check_unrecognized_rendering_degrades_silently),
+        ("_check_characterization_pattern_command_matrix",
+         _check_characterization_pattern_command_matrix),
+        ("_check_characterization_disable_and_category_gates",
+         _check_characterization_disable_and_category_gates),
+        ("_check_scoping_provenance_is_reported",
+         _check_scoping_provenance_is_reported),
+        ("_check_cross_agent_negative_control",
+         _check_cross_agent_negative_control),
+        ("_check_custom_pattern_survives_scoping",
+         _check_custom_pattern_survives_scoping),
+        ("_check_new_agent_patterns_detected",
+         _check_new_agent_patterns_detected),
+        ("_check_new_agent_patterns_negative_controls",
+         _check_new_agent_patterns_negative_controls),
         ("_check_awaiting_input_detected_for_matching_prompt",
          _check_awaiting_input_detected_for_matching_prompt),
         ("_check_awaiting_input_codex_pattern",

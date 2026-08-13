@@ -34,6 +34,7 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 
 from monitor import minimonitor_app as mm  # noqa: E402
+from monitor.prompt_patterns import agent_key_from_command  # noqa: E402
 from monitor import monitor_core as mc  # noqa: E402
 from monitor.concern_parser import (  # noqa: E402
     Concern,
@@ -253,7 +254,14 @@ def _writes(app):
 
 def _snap(pane_id="%1", *, content="", awaiting_input=False,
           awaiting_input_kind="", current_command="claude",
-          history_size=None):
+          history_size=None, agent_key=None):
+    # `agent_key` mirrors what the real classify path stamps on the snapshot
+    # (t1467): consumers read it instead of re-deriving from current_command, so
+    # a fixture lacking it would exercise a shape that cannot occur in
+    # production. Derived from the command by default, overridable for the
+    # unresolvable-pane cases.
+    resolved = (agent_key if agent_key is not None
+                else agent_key_from_command(current_command))
     return SimpleNamespace(
         pane=SimpleNamespace(pane_id=pane_id,
                              current_command=current_command,
@@ -263,6 +271,8 @@ def _snap(pane_id="%1", *, content="", awaiting_input=False,
         content=content,
         awaiting_input=awaiting_input,
         awaiting_input_kind=awaiting_input_kind,
+        agent_key=resolved,
+        scoped=bool(resolved),
     )
 
 
@@ -1478,13 +1488,30 @@ class ReviewLoopArmTests(unittest.TestCase):
         self.assertIn("no followed agent", app.spy_notify[-1][0])
         self.assertFalse(app._review_loop.armed)
 
-    def test_refuses_followed_agent_without_live_tiers(self):
+    def test_refuses_followed_agent_the_loop_does_not_support(self):
+        """Retargeted in t1467. OpenCode now HAS prompt detection, so the
+        refusal reason changed: the recheck loop INJECTS into the shadow pane,
+        so it stays Claude-only until each agent's boundary strategy has its own
+        live evidence. The invariant — a non-Claude followed pane cannot arm the
+        loop, and the message names it — is unchanged.
+        """
+        for command in ("opencode", "codex"):
+            app, mon, _ = _loop_app(self)
+            snap = _snap("%1", current_command=command)
+            app._find_own_agent_snapshot = lambda: snap
+            asyncio.run(app.action_toggle_review_loop())
+            self.assertIn("Claude-only", app.spy_notify[-1][0], command)
+            self.assertIn(command, app.spy_notify[-1][0], command)
+            self.assertFalse(app._review_loop.armed, command)
+
+    def test_refuses_unresolvable_followed_pane(self):
+        """The measured `node` case: a Codex pane whose command resolves to no
+        agent at all must be refused too, and named by what tmux reports."""
         app, mon, _ = _loop_app(self)
-        snap = _snap("%1", current_command="opencode")
+        snap = _snap("%1", current_command="node")
         app._find_own_agent_snapshot = lambda: snap
         asyncio.run(app.action_toggle_review_loop())
-        self.assertIn("no prompt detection", app.spy_notify[-1][0])
-        self.assertIn("opencode", app.spy_notify[-1][0])
+        self.assertIn("node", app.spy_notify[-1][0])
         self.assertFalse(app._review_loop.armed)
 
     def test_refuses_shadow_agent_without_detector_naming_it(self):

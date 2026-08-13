@@ -1628,8 +1628,8 @@ class MonitorApp(
                     screen_text=snap.content,
                     awaiting_input=snap.awaiting_input,
                     awaiting_input_kind=snap.awaiting_input_kind,
-                    agent=workflow_phase.agent_key_from_command(
-                        snap.pane.current_command),
+                    agent=snap.agent_key,
+                    current_command=snap.pane.current_command,
                 )
                 phase = workflow_phase.render_phase(signal)
                 if phase:
@@ -2938,8 +2938,8 @@ class MonitorApp(
                 screen_text=snap.content,
                 awaiting_input=snap.awaiting_input,
                 awaiting_input_kind=snap.awaiting_input_kind,
-                agent=workflow_phase.agent_key_from_command(
-                    snap.pane.current_command),
+                agent=snap.agent_key,
+                current_command=snap.pane.current_command,
             )
         except Exception:
             return None

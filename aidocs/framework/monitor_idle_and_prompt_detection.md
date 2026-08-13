@@ -119,10 +119,54 @@ Inside `_finalize_capture`:
 3. The first match wins — `snap.awaiting_input = True` and
    `snap.awaiting_input_kind = pattern.name`.
 
-The per-agent grouping in `PROMPT_PATTERNS_BY_AGENT` is forward-looking:
-today every pattern is applied to every AGENT pane via `all_patterns()`;
-when per-pane code-agent detection lands later, the call site changes to
-`PROMPT_PATTERNS_BY_AGENT[pane_agent]` with no other refactor required.
+### Matching is scoped to the pane's own agent (t1467)
+
+Step 2 above searches `scope_patterns(self.prompt_patterns, agent)`, not the
+whole flat list. `scope_patterns` is **subtractive**: it removes only patterns
+that provably belong to a *different* agent. Three consequences, each
+deliberate:
+
+* an unrecognised agent removes nothing, so behaviour is exactly the pre-t1467
+  flat list — no working detection is ever lost;
+* a caller-supplied pattern whose name is in no registry group survives;
+* `prompt_patterns=[]` still disables matching entirely, because the filter runs
+  over the **supplied list**, never over the module dict.
+
+`agent` comes from `lib/agent_keys.agent_key_from_pane(pane.current_command,
+pane.pane_pid)` — the canonical mapper, shared with `lib/workflow_phase.py`
+(which re-exports it) so the two cannot drift. It lives in `lib/` because the
+dependency runs one way, `monitor/` → `lib/`, and `workflow_phase.py` must stay
+runnable as a standalone CLI. `tests/test_workflow_phase_standalone.sh` pins
+both properties.
+
+#### `pane_current_command` is not authoritative — resolution is a ladder
+
+Measured 2026-08-13 on a live session:
+
+| launcher shape | example | `pane_current_command` | resolves? |
+|---|---|---|---|
+| native binary | Claude Code, OpenCode | `claude`, `opencode` | rung 1 |
+| node wrapper spawning the real binary | Codex (npm install) | `node` | rung 2 |
+| companion TUI in an `agent-*` window | minimonitor | `python` | neither |
+
+So `agent_key_from_pane` tries the pane's own command, then **one level** of
+child processes (`pgrep -P` + `ps -o comm=`, the pair that works on both Linux
+and BSD). One level only: a real Codex already runs `codex-code-mode-host` at
+depth 2, so a deeper walk would resolve a pane to whatever it happened to spawn.
+Ambiguity (children resolving to different agents) and every failure path return
+`""`, which is the pre-t1467 answer. The result is cached per
+`(pane_pid, current_command)` — this sits on the per-tick refresh path.
+
+`""` means **"could not resolve"**, never "not an agent". Because the fallback
+is common rather than exceptional, the result carries its own provenance:
+`PaneSnapshot.agent_key` / `.scoped`, forwarded to the phase signal
+(`PhaseSignal.resolution`) and to the applink `pane_status` frame
+(`awaiting_input_scoped`, `agent_key` — additive optional fields, no protocol
+`v` bump). Consumers read those instead of re-deriving the agent, so the value
+that scoped the match is the value everyone downstream sees.
+
+The durable fix is an engine-owned `@aitask_agent` pane option stamped at launch;
+until it exists, nothing may treat `current_command` as identity.
 
 ## UI rendering
 

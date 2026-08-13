@@ -1066,7 +1066,11 @@ class MiniMonitorApp(
             screen_text=snap.content,
             awaiting_input=snap.awaiting_input,
             awaiting_input_kind=snap.awaiting_input_kind,
-            agent=workflow_phase.agent_key_from_command(snap.pane.current_command),
+            # Consume the key that actually scoped this pane's matching rather
+            # than re-deriving it (t1467): a second derivation could disagree
+            # with the one the kind was produced under.
+            agent=snap.agent_key,
+            current_command=snap.pane.current_command,
         )
 
     def _other_card_text(self, snap: PaneSnapshot) -> str:
@@ -2435,13 +2439,18 @@ class MiniMonitorApp(
             self.notify("Auto-recheck unavailable: no followed agent pane",
                         severity="warning")
             return
-        followed_key = workflow_phase.agent_key_from_command(
-            snap.pane.current_command)
-        if not workflow_phase.live_tiers_available(followed_key):
+        # `snap.agent_key` is the value that actually scoped this pane's prompt
+        # matching (t1467) — re-deriving it here could disagree with it.
+        followed_key = snap.agent_key
+        if not review_loop.review_loop_agent_supported(followed_key):
+            # Deliberately NOT `live_tiers_available`: since t1467 that is true
+            # for Codex/OpenCode too, but this loop INJECTS into the shadow pane,
+            # so it stays Claude-only until each agent's boundary strategy has
+            # its own live evidence.
             self.notify(
                 f"Auto-recheck unavailable for "
-                f"'{snap.pane.current_command or 'unknown'}' — no prompt "
-                "detection yet (t1467)",
+                f"'{snap.pane.current_command or 'unknown'}' — the recheck loop "
+                "is Claude-only for now",
                 severity="warning")
             return
         ok, shadow_pane, shadow_command = await find_shadow_pane_info_async(
@@ -2527,8 +2536,7 @@ class MiniMonitorApp(
                 work_signal = review_loop.classify_followed_change(
                     base[0], base[1], snap.content, snap.awaiting_input_kind,
                     snap.awaiting_input,
-                    workflow_phase.agent_key_from_command(
-                        snap.pane.current_command),
+                    snap.agent_key,
                     base[3], snap.pane.history_size,
                     base[4], (snap.pane.width, snap.pane.height),
                 )

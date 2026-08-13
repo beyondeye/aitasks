@@ -46,11 +46,12 @@ from monitor.prompt_patterns import all_patterns  # noqa: E402
 
 
 def _pane(pane_id: str, window_name: str = "agent-1",
-          category: PaneCategory = PaneCategory.AGENT) -> TmuxPaneInfo:
+          category: PaneCategory = PaneCategory.AGENT,
+          current_command: str = "bash") -> TmuxPaneInfo:
     idx = int(pane_id.lstrip("%"))
     return TmuxPaneInfo(
         window_index=str(idx), window_name=window_name, pane_index="0",
-        pane_id=pane_id, pane_pid=1000 + idx, current_command="bash",
+        pane_id=pane_id, pane_pid=1000 + idx, current_command=current_command,
         width=80, height=24, category=category, session_name="demo",
     )
 
@@ -416,3 +417,113 @@ class FastPreviewFocusIdentityTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AgentScopingCallSiteTests(unittest.IsolatedAsyncioTestCase):
+    """Every classify call site threads the pane's agent (t1467).
+
+    `classify_content` can be perfectly correct while ONE of its five call
+    sites forgets `agent=`, and every unit test of the function stays green.
+    The live proof (`test_prompt_scoping_live.py`) covers the wiring
+    end-to-end but needs a real tmux server; these are the deterministic
+    equivalents, one per path, so an unavailable live fixture can never let the
+    regression through.
+
+    Each case runs a CLAUDE pane over CODEX prompt text: the foreign kind must
+    not appear, and the snapshot must report itself scoped.
+    """
+
+    CODEX_BODY = "  Press enter to confirm or esc to cancel"
+    CLAUDE_BODY = "Esc to cancel · Tab to amend"
+
+    def _mon(self, content):
+        pane = _pane("%1", current_command="claude")
+        mon = _make_monitor([pane], content, patterns=all_patterns())
+
+        # capture_pane_async goes through the raw tmux seam rather than
+        # capture_pane_content_async, so stub that too or it returns None.
+        async def tmux(args, timeout=5.0):
+            return 0, content[pane.pane_id]
+
+        mon._tmux_async = tmux
+        return pane, mon
+
+    def _assert_scoped(self, snap, path: str):
+        self.assertEqual(snap.awaiting_input_kind, "", f"{path}: foreign kind leaked")
+        self.assertFalse(snap.awaiting_input, path)
+        self.assertTrue(snap.scoped, f"{path}: agent= was not threaded")
+        self.assertEqual(snap.agent_key, "claude", path)
+
+    def test_sync_finalize_path(self):
+        pane, mon = self._mon({"%1": self.CODEX_BODY})
+        self._assert_scoped(mon._finalize_capture(pane, self.CODEX_BODY), "sync")
+
+    async def test_async_single_pane_path(self):
+        pane, mon = self._mon({"%1": self.CODEX_BODY})
+        mon._run_offloaded = _sync_offloaded
+        self._assert_scoped(await mon.capture_pane_async("%1"), "async single")
+
+    async def test_offloaded_batch_path(self):
+        pane, mon = self._mon({"%1": self.CODEX_BODY})
+        mon._run_offloaded = _sync_offloaded
+        gen, classified = await mon.capture_all_classified_async()
+        snaps = mon.commit_snapshots(gen, classified)
+        self.assertEqual(set(snaps), {"%1"})
+        self._assert_scoped(snaps["%1"], "offload batch")
+
+    async def test_positive_control_own_prompt_still_detected(self):
+        """Without this, a build that simply never matched anything would pass
+        all three cases above."""
+        pane, mon = self._mon({"%1": self.CLAUDE_BODY})
+        mon._run_offloaded = _sync_offloaded
+        gen, classified = await mon.capture_all_classified_async()
+        batch = mon.commit_snapshots(gen, classified)["%1"]
+        mon2_pane, mon2 = self._mon({"%1": self.CLAUDE_BODY})
+        mon2._run_offloaded = _sync_offloaded
+        for path, snap in (("sync", mon2._finalize_capture(mon2_pane, self.CLAUDE_BODY)),
+                           ("async", await mon2.capture_pane_async("%1")),
+                           ("batch", batch)):
+            self.assertEqual(snap.awaiting_input_kind, "claude_help_bar", path)
+            self.assertTrue(snap.awaiting_input, path)
+            self.assertTrue(snap.scoped, path)
+
+    async def test_classified_async_path(self):
+        """`capture_pane_classified_async` — the off-loop single-pane path used
+        by callers that commit on the loop themselves. Found UNCOVERED by the
+        revert probe: the other four tests all passed with this site
+        neutralised."""
+        pane, mon = self._mon({"%1": self.CODEX_BODY})
+        mon._run_offloaded = _sync_offloaded
+        _gen, got_pane, content, result = await mon.capture_pane_classified_async("%1")
+        self.assertIsNotNone(result, "classify must have run")
+        self.assertEqual(result.awaiting_input_kind, "",
+                         "classified_async: foreign kind leaked")
+        self.assertTrue(result.scoped, "classified_async: agent= was not threaded")
+        self.assertEqual(result.agent_key, "claude")
+
+    async def test_shadow_refresh_path(self):
+        """`refresh_shadow_snapshot` — the shadow capture path. Also found
+        UNCOVERED by the revert probe."""
+        pane, mon = self._mon({"%1": self.CODEX_BODY})
+        mon._run_offloaded = _sync_offloaded
+        # A shadow snapshot refresh needs a previously-known shadow snapshot to
+        # re-capture; seed it through the same public seam the app uses.
+        prev = mon._finalize_capture(pane, "")
+        mon._shadow_snapshots["%followed"] = prev
+        snap = await mon.refresh_shadow_snapshot("%followed")
+        self.assertIsNotNone(snap, "shadow refresh returned nothing")
+        self.assertEqual(snap.awaiting_input_kind, "",
+                         "shadow refresh: foreign kind leaked")
+        self.assertTrue(snap.scoped, "shadow refresh: agent= was not threaded")
+
+    async def test_unresolvable_pane_falls_open_and_says_so(self):
+        """A `node` pane (the measured Codex wrapper shape, with no agent child
+        in this fixture) keeps the flat list and reports scoped=False."""
+        pane = _pane("%9", current_command="node")
+        mon = _make_monitor([pane], {"%9": self.CODEX_BODY},
+                            patterns=all_patterns())
+        snap = mon._finalize_capture(pane, self.CODEX_BODY)
+        self.assertEqual(snap.awaiting_input_kind, "codex_permission",
+                         "fail-open: an unresolved pane keeps today's behaviour")
+        self.assertFalse(snap.scoped)
+        self.assertEqual(snap.agent_key, "")

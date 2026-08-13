@@ -59,6 +59,39 @@ def question_screen(question: str, *, gap: int = 14, preamble: str = "") -> str:
             f"Enter to select · ↑/↓ to navigate · Esc to cancel")
 
 
+def codex_question_screen(question: str, *, gap: int = 8,
+                          preamble: str = "") -> str:
+    """Codex's request-user-input widget, measured live (t1467, 0.146.0).
+
+    Header is `Question N/M (K unanswered)` — the role Claude's chip plays — and
+    the footer legend sits at distance 1.
+    """
+    filler = "\n".join(f"    {i}. option line" for i in range(gap - 1))
+    return (f"{preamble}"
+            "  Question 1/1 (1 unanswered)\n"
+            f"  {question}\n"
+            "\n"
+            f"{filler}\n"
+            "\n"
+            "  tab to add notes | enter to submit answer | esc to interrupt")
+
+
+def opencode_question_screen(question: str, *, gap: int = 6,
+                             preamble: str = "") -> str:
+    """OpenCode's question widget, measured live (t1467, 1.18.18).
+
+    No header line — the block is the contiguous `┃` gutter run, so EVERY line
+    of the widget (including the question) carries the gutter. The preamble is
+    deliberately gutter-free so the run has a real top edge.
+    """
+    filler = "\n".join(f"  ┃  {i}. option line" for i in range(gap - 1))
+    return (f"{preamble}"
+            f"  ┃  {question}\n"
+            f"{filler}\n"
+            "  ┃\n"
+            "  ┃  ↑↓ select  enter submit  esc dismiss")
+
+
 PLAN_Q = "Plan saved to `aiplans/p1_demo.md`. How would you like to proceed?"
 REVIEW_Q = ("Implementation complete. Please review and test the changes. "
             "When ready, select an option:")
@@ -191,23 +224,59 @@ class AbsenceSafetyTest(unittest.TestCase):
                 self.assertEqual(sig.phase, expected, f"{agent}/{kind}/{runs}")
                 self.assertIn(sig.source, ("ledger", "none"), f"{agent}/{kind}")
 
-    def test_opencode_live_tiers_unavailable(self):
-        self.assertFalse(wp.live_tiers_available("opencode"))
-        self.assertFalse(wp.live_tiers_available("codex"))
+    def test_agent_without_markers_is_ledger_only(self):
+        """An agent with no markers degrades to the ledger and SAYS so.
+
+        Retargeted in t1467: this used to assert the property against `opencode`,
+        which now HAS markers. The invariant is unchanged and deliberately kept
+        alive by pointing it at an agent key that has none — otherwise wiring the
+        real agents would have silently retired the degradation guard.
+        """
         self.assertTrue(wp.live_tiers_available("claude"))
+        self.assertTrue(wp.live_tiers_available("codex"))
+        self.assertTrue(wp.live_tiers_available("opencode"))
+        self.assertFalse(wp.live_tiers_available("some_future_agent"))
         sig = wp.phase_signal(task_text=task_text(PLAN_RUN),
                               screen_text=question_screen(PLAN_Q),
                               awaiting_input=True,
                               awaiting_input_kind="claude_askuserquestion",
-                              agent="opencode")
+                              agent="some_future_agent")
         self.assertEqual(sig.phase, "IMPLEMENT")
         self.assertNotIn("screen", sig.consulted)
-        self.assertIn("t1467", sig.detail)
+        self.assertEqual(sig.resolution, "no_markers")
+        self.assertIn("no prompt markers", sig.detail)
 
-    def test_no_agent_supplied_is_not_blamed_on_t1467(self):
-        sig = wp.phase_signal(task_text=task_text(PLAN_RUN), agent="")
-        self.assertNotIn("t1467", sig.detail)
-        self.assertIn("no agent supplied", sig.detail)
+    def test_no_agent_supplied_is_distinct_from_unresolved(self):
+        """"The caller said nothing" and "the pane did not map" are different
+        causes with different fixes, so they must not share one message."""
+        absent = wp.phase_signal(task_text=task_text(PLAN_RUN), agent="")
+        self.assertEqual(absent.resolution, "absent")
+        self.assertIn("no agent supplied", absent.detail)
+
+        unresolved = wp.phase_signal(task_text=task_text(PLAN_RUN), agent="",
+                                     current_command="node")
+        self.assertEqual(unresolved.resolution, "unresolved")
+        self.assertIn("node", unresolved.detail)
+        self.assertNotIn("no agent supplied", unresolved.detail)
+
+    def test_codex_and_opencode_have_no_native_phase_rows(self):
+        """Empty Tier B rows are a MEASURED result, not a placeholder (t1467).
+
+        Neither CLI has an ExitPlanMode analogue, so their only native dialogs
+        are tool confirmations. Pinned so a later reader does not "fill in" a
+        row that no measurement supports.
+        """
+        for agent in ("codex", "opencode"):
+            self.assertEqual(wp.NATIVE_KIND_PHASE[agent], {})
+        for agent, kind in (("codex", "codex_permission"),
+                            ("codex", "codex_yes_proceed"),
+                            ("opencode", "opencode_permission")):
+            sig = wp.phase_signal(task_text=task_text(PLAN_RUN),
+                                  screen_text="nothing relevant",
+                                  awaiting_input=True,
+                                  awaiting_input_kind=kind, agent=agent)
+            self.assertEqual(sig.phase, "IMPLEMENT", f"{agent}/{kind}")
+            self.assertEqual(sig.source, "ledger", f"{agent}/{kind}")
 
     def test_native_positive_control(self):
         """Without this, the three negatives above would pass against a build
@@ -219,6 +288,131 @@ class AbsenceSafetyTest(unittest.TestCase):
                               agent="claude")
         self.assertEqual((sig.phase, sig.waiting, sig.source),
                          ("PLAN", "WAITING", "native-prompt"))
+
+
+class CrossAgentTierATest(unittest.TestCase):
+    """Tier A fires for Codex and OpenCode through their own widgets (t1467).
+
+    The anchors are agent-neutral (task-workflow authors them); only the currency
+    evidence differs, so these are the tests that prove each agent's block
+    boundary actually works on its measured geometry.
+    """
+
+    CASES = (
+        ("codex", "codex_question", codex_question_screen),
+        ("opencode", "opencode_question", opencode_question_screen),
+    )
+
+    def test_live_question_wins_over_ledger(self):
+        for agent, kind, screen in self.CASES:
+            sig = wp.phase_signal(task_text=task_text(PLAN_RUN),
+                                  screen_text=screen(PLAN_Q),
+                                  awaiting_input=True,
+                                  awaiting_input_kind=kind, agent=agent)
+            self.assertEqual((sig.phase, sig.waiting, sig.source),
+                             ("PLAN", "WAITING", "workflow-prompt"), agent)
+
+    def test_review_anchor_maps_to_implement(self):
+        for agent, kind, screen in self.CASES:
+            sig = wp.phase_signal(task_text=task_text(),
+                                  screen_text=screen(REVIEW_Q),
+                                  awaiting_input=True,
+                                  awaiting_input_kind=kind, agent=agent)
+            self.assertEqual((sig.phase, sig.source),
+                             ("IMPLEMENT", "workflow-prompt"), agent)
+
+    def test_stale_anchor_not_awaiting_is_suppressed(self):
+        """The whole point of the currency gate: an answered checkpoint survives
+        in scrollback, and must not override a correct ledger phase."""
+        for agent, kind, screen in self.CASES:
+            sig = wp.phase_signal(task_text=task_text(PLAN_RUN),
+                                  screen_text=screen(PLAN_Q),
+                                  awaiting_input=False,
+                                  awaiting_input_kind=kind, agent=agent)
+            self.assertEqual((sig.phase, sig.source), ("IMPLEMENT", "ledger"),
+                             agent)
+
+    def test_anchor_above_the_block_start_is_ignored(self):
+        """A stale anchor OUTSIDE the current widget must not fire — the
+        property each agent's boundary exists to provide."""
+        for agent, kind, screen in self.CASES:
+            stale = f"{PLAN_Q}\n" + "filler\n" * 3
+            sig = wp.phase_signal(
+                task_text=task_text(PLAN_RUN),
+                screen_text=screen("Which colour do you prefer?",
+                                   preamble=stale),
+                awaiting_input=True, awaiting_input_kind=kind, agent=agent)
+            self.assertEqual((sig.phase, sig.source), ("IMPLEMENT", "ledger"),
+                             agent)
+
+    def test_question_widget_kind_is_required(self):
+        """A permission dialog is live, but it is not a question widget, so the
+        anchor above it must not be read as current."""
+        for agent, screen in (("codex", codex_question_screen),
+                              ("opencode", opencode_question_screen)):
+            kind = f"{agent}_permission"
+            sig = wp.phase_signal(task_text=task_text(PLAN_RUN),
+                                  screen_text=screen(PLAN_Q),
+                                  awaiting_input=True,
+                                  awaiting_input_kind=kind, agent=agent)
+            self.assertEqual((sig.phase, sig.source), ("IMPLEMENT", "ledger"),
+                             agent)
+
+
+class ResolutionRenderTest(unittest.TestCase):
+    """The resolution qualifier must survive a CONFIDENT phase (t1467).
+
+    The 2x3x2 matrix is the discriminating shape: an implementation that folded
+    resolution into an UNKNOWN-phase cause passes the no-ledger column and fails
+    the ledger ones, which is exactly the design that was rejected.
+    """
+
+    LEDGERS = ((), (PLAN_RUN,), (PLAN_RUN, REVIEW_RUN))
+
+    def _sig(self, runs, resolution):
+        return wp.PhaseSignal(
+            phase=wp.phase_from_ledger_text(task_text(*runs))[0],
+            waiting="WAITING", source="ledger", resolution=resolution)
+
+    def test_unresolved_is_qualified_in_every_ledger_state(self):
+        for runs in self.LEDGERS:
+            sig = self._sig(runs, "unresolved")
+            wide = wp.render_phase(sig)
+            narrow = wp.render_phase_narrow(sig)
+            self.assertIn("agent unresolved", wide, f"wide/{len(runs)}")
+            self.assertIn("?", narrow, f"narrow/{len(runs)}")
+
+    def test_scoped_is_never_qualified(self):
+        for runs in self.LEDGERS:
+            sig = self._sig(runs, "scoped")
+            self.assertNotIn("unresolved", wp.render_phase(sig))
+            self.assertNotIn("?", wp.render_phase_narrow(sig))
+
+    def test_confident_phase_still_carries_the_qualifier(self):
+        """The specific cell the rejected design rendered clean."""
+        sig = self._sig((PLAN_RUN,), "unresolved")
+        self.assertEqual(sig.phase, "IMPLEMENT")
+        self.assertIn("IMPLEMENT", wp.render_phase(sig))
+        self.assertIn("agent unresolved", wp.render_phase(sig))
+
+    def test_narrow_form_stays_within_budget(self):
+        """minimonitor shares a ~36-cell line with the gate summary (t1479)."""
+        for runs in self.LEDGERS:
+            for resolution in wp.RESOLUTIONS:
+                narrow = wp.render_phase_narrow(self._sig(runs, resolution))
+                self.assertLessEqual(len(narrow), 24,
+                                     f"{resolution}/{len(runs)}: {narrow!r}")
+
+    def test_no_markers_branch_does_not_read_the_detail_string(self):
+        """`ledger_only` must fire from the FIELD, not from a phrase in detail.
+
+        Fails against the pre-t1467 substring implementation, which is what makes
+        it a real guard: the detail here deliberately omits the old phrase.
+        """
+        sig = wp.PhaseSignal(phase="UNKNOWN", waiting="UNKNOWN", source="none",
+                             resolution="no_markers",
+                             detail="something else entirely")
+        self.assertIn("ledger", wp.render_phase(sig))
 
 
 class VocabularyTest(unittest.TestCase):

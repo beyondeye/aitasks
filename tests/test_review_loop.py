@@ -595,6 +595,73 @@ class ClassifyFollowedChangeTests(unittest.TestCase):
             rl.UNKNOWN)
 
 
+class ReviewLoopAgentSupportTests(unittest.TestCase):
+    """The arming predicate is SEPARATE from `live_tiers_available` (t1467).
+
+    That separation is invisible to inspection once both look like per-agent
+    predicates, so it is asserted directly: t1467 wired Codex/OpenCode prompt
+    markers, which makes the advisory phase available for them — but this loop
+    INJECTS keys into the shadow pane, so it must stay Claude-only until each
+    agent's boundary strategy has its own live evidence.
+    """
+
+    def test_claude_is_supported(self):
+        self.assertTrue(rl.review_loop_agent_supported("claude"))
+
+    def test_wired_agents_are_still_not_loop_supported(self):
+        import workflow_phase as wp
+        for agent in ("codex", "opencode"):
+            self.assertTrue(
+                wp.live_tiers_available(agent),
+                f"{agent} should have live tiers since t1467")
+            self.assertFalse(
+                rl.review_loop_agent_supported(agent),
+                f"{agent} must NOT be armable — the loop injects, so widening "
+                f"it is its own task")
+
+    def test_unknown_and_empty_are_not_supported(self):
+        for agent in ("", "node", "python", "some_future_agent"):
+            self.assertFalse(rl.review_loop_agent_supported(agent))
+
+    def test_predicate_matches_its_constant(self):
+        """Guards against the predicate and the constant drifting apart."""
+        for agent in rl.REVIEW_LOOP_AGENTS:
+            self.assertTrue(rl.review_loop_agent_supported(agent))
+
+
+class PerAgentBlockBoundaryTests(unittest.TestCase):
+    """`classify_followed_change` must use the pane's OWN block boundary.
+
+    Measuring a Codex pane against Claude's chip returns None, which collapses
+    to UNKNOWN — safe, but it silently disables selection-only classification.
+    """
+
+    def _codex_widget(self, question: str, selected: int) -> str:
+        options = "\n".join(
+            f"  {'›' if i == selected else ' '} {i}. option {i}"
+            for i in range(1, 4))
+        return ("  Question 1/1 (1 unanswered)\n"
+                f"  {question}\n"
+                f"{options}\n"
+                "  tab to add notes | enter to submit answer | esc to interrupt")
+
+    def test_codex_selection_only_is_classified(self):
+        prev = self._codex_widget("Pick one", 1)
+        curr = self._codex_widget("Pick one", 2)
+        self.assertEqual(
+            rl.classify_followed_change(prev, "codex_question", curr,
+                                        "codex_question", True, "codex"),
+            rl.SELECTION_ONLY)
+
+    def test_codex_scrollback_growth_above_the_block_is_work(self):
+        prev = self._codex_widget("Pick one", 1)
+        curr = "new agent output\n" + self._codex_widget("Pick one", 1) + " "
+        self.assertEqual(
+            rl.classify_followed_change(prev, "codex_question", curr,
+                                        "codex_question", True, "codex"),
+            rl.WORK)
+
+
 class ComposeRecheckPromptTests(unittest.TestCase):
     def test_total_over_every_phase_and_garbage(self):
         import workflow_phase

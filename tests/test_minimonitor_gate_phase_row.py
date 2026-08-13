@@ -64,6 +64,7 @@ import gate_ledger  # noqa: E402
 import workflow_phase  # noqa: E402
 from monitor import minimonitor_app as mm  # noqa: E402
 from monitor.monitor_core import PaneCategory, TaskInfo  # noqa: E402
+from monitor.prompt_patterns import agent_key_from_command  # noqa: E402
 
 # 40-wide tmux pane minus MiniPaneCard's `padding: 0 1`; the detail rows carry a
 # further 2-space indent. Same arithmetic as `mm._row_budget` / `_detail_budget`,
@@ -98,9 +99,15 @@ class NarrowPhaseRendererTests(unittest.TestCase):
             "unknown (rec off)")
 
     def test_unknown_ledger_only_is_shortened(self):
+        # Retargeted in t1467: the `ledger_only` cause is now selected by the
+        # explicit `resolution` field instead of by a substring of `detail`.
+        # The invariant — an agent with no prompt markers renders as ledger-only,
+        # shortened on the narrow surface — is unchanged; only the input
+        # mechanism is, and the old one was a phrase match on prose this task
+        # rewrote.
         self.assertEqual(
             workflow_phase.render_phase_narrow(
-                _sig(detail="ledger only, no prompt markers seen")),
+                _sig(resolution="no_markers")),
             "unknown (ledger)")
 
     def test_unknown_waiting_keeps_the_glyph(self):
@@ -127,7 +134,7 @@ class NarrowPhaseRendererTests(unittest.TestCase):
             "phase: unknown (gate recording off)")
         self.assertEqual(
             workflow_phase.render_phase(
-                _sig(detail="ledger only, no prompt markers seen")),
+                _sig(resolution="no_markers")),
             "phase: unknown (ledger only)")
         self.assertEqual(
             workflow_phase.render_phase(_sig(waiting="WAITING")),
@@ -331,9 +338,17 @@ def _snap(*, window_name: str = "agent-pick-42", content: str = "",
         window_name=window_name, category=PaneCategory.AGENT,
         current_command=command,
     )
+    # `agent_key` / `scoped` mirror what the real classify path stamps on the
+    # snapshot (t1467); consumers read them instead of re-deriving from
+    # current_command, so a fixture lacking them would exercise a shape that
+    # cannot occur in production. The default command here is `node` — the
+    # measured Codex-wrapper case — which resolves to nothing, so `scoped` is
+    # False and `agent_key` empty unless the command itself is an agent.
+    resolved = agent_key_from_command(command)
     return SimpleNamespace(
         pane=pane, content=content, is_idle=False, idle_seconds=0.0,
         awaiting_input=awaiting_input, awaiting_input_kind=awaiting_input_kind,
+        agent_key=resolved, scoped=bool(resolved),
     )
 
 

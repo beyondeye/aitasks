@@ -112,6 +112,30 @@ check "explicit --awaiting-input no also suppresses" "IMPLEMENT" \
     "$(field "$("$GATE" workflow-phase 501 --screen "$screen" --awaiting-input no)" PHASE)"
 
 echo
+echo "=== Per-agent CLI surface (t1467) ==="
+# Codex and OpenCode gained live-tier markers, so `--agent` now resolves for
+# them. Naming an agent must NOT by itself license a screen override: the caller
+# still has to assert currency, or a shell caller that cannot observe the pane
+# would be able to override the ledger with stale scrollback.
+for agent in claude codex opencode; do
+    check "--agent $agent alone still reports the ledger" "IMPLEMENT" \
+        "$(field "$("$GATE" workflow-phase 501 --screen "$screen" --agent "$agent")" PHASE)"
+    check "--agent $agent alone keeps source=ledger" "ledger" \
+        "$(field "$("$GATE" workflow-phase 501 --screen "$screen" --agent "$agent")" SOURCE)"
+    check "--agent $agent resolves" "scoped" \
+        "$(field "$("$GATE" workflow-phase 501 --agent "$agent")" RESOLUTION)"
+done
+
+# The measured wrapper shape: a pane command that maps to no agent must report
+# itself as unresolved rather than as a caller that supplied nothing.
+check "--pane-command node is unresolved" "unresolved" \
+    "$(field "$("$GATE" workflow-phase 501 --pane-command node)" RESOLUTION)"
+check "no agent at all is 'absent'" "absent" \
+    "$(field "$("$GATE" workflow-phase 501)" RESOLUTION)"
+check "--pane-command claude resolves at rung 1" "scoped" \
+    "$(field "$("$GATE" workflow-phase 501 --pane-command /usr/bin/claude)" RESOLUTION)"
+
+echo
 echo "=== bash <-> python parity on the same fixtures ==="
 if [[ -z "$PY" ]]; then
     echo "  (skipping python-parity asserts: no interpreter resolved)"
@@ -133,6 +157,22 @@ hits=$(grep -c 'delegate_python_phase signal "$file"' "$GATE")
 check "verb delegates to the phase module" "1" "$hits"
 hits=$(grep -c 'PHASE:UNKNOWN|WAITING:UNKNOWN|SOURCE:none' "$GATE")
 check "degrades to an all-UNKNOWN line" "1" "$hits"
+
+# The shell literal necessarily duplicates `workflow_phase.UNKNOWN_LINE` (it is
+# the fallback for "python did not run", so it cannot ask python for it). Pin
+# them EQUAL rather than merely both-present: adding a wire field bumped the
+# module's line and silently left the shell's behind exactly once already
+# (t1467 added RESOLUTION). parse_signal is total, so the drift is invisible at
+# runtime — which is why it needs a guard rather than a comment.
+if [[ -n "$PY" ]]; then
+    shell_line=$(sed -n 's/.*|| echo "\(PHASE:UNKNOWN[^"]*\)".*/\1/p' "$GATE" | head -n1)
+    module_line=$("$PY" -c "
+import sys; sys.path.insert(0, '.aitask-scripts/lib')
+import workflow_phase as wp
+print(wp.UNKNOWN_LINE)")
+    check "shell degrade line matches workflow_phase.UNKNOWN_LINE" \
+        "$module_line" "$shell_line"
+fi
 
 echo
 echo "=== Registered in every place a verb lives ==="

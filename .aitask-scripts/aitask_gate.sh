@@ -28,6 +28,7 @@
 #   resume-point <task-id>                       Derive task-workflow re-entry
 #                                                stage (t635_5; python-only)
 #   workflow-phase <task-id> [--screen <f>]      Advisory workflow-phase signal
+#                  [--agent <a>|--pane-command <c>]   (+RESOLUTION provenance)
 #     [--awaiting-input yes|no|unknown]          for the shadow (t1420;
 #     [--kind <k>] [--agent <a>]                 python-only). Advisory ONLY —
 #     [--profiles-dir <d>]                       never gate on it.
@@ -698,12 +699,12 @@ cmd_resume_point() {
 # all-UNKNOWN line when python is unavailable.
 cmd_workflow_phase() {
     local task_id="${1:-}"
-    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh workflow-phase <task-id> [--screen <f>] [--awaiting-input yes|no|unknown] [--kind <k>] [--agent <a>] [--profiles-dir <d>]"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh workflow-phase <task-id> [--screen <f>] [--awaiting-input yes|no|unknown] [--kind <k>] [--agent <a>] [--pane-command <c>] [--profiles-dir <d>]"
     shift
     local file
     file="$(resolve_task_file "$task_id")"
     delegate_python_phase signal "$file" "$@" \
-        || echo "PHASE:UNKNOWN|WAITING:UNKNOWN|SOURCE:none|CONSULTED:-|RECORDING:unknown|DETAIL:phase signal unavailable"
+        || echo "PHASE:UNKNOWN|WAITING:UNKNOWN|SOURCE:none|CONSULTED:-|RECORDING:unknown|RESOLUTION:unknown|DETAIL:phase signal unavailable"
 }
 
 # effective-gates: resolve a task's effective gate set (t635_14). The task's
@@ -1309,10 +1310,17 @@ Commands:
 
   workflow-phase <task-id> [--screen <file>] [--awaiting-input yes|no|unknown]
                  [--kind <awaiting_input_kind>] [--agent <name>]
-                 [--profiles-dir <dir>]
+                 [--pane-command <cmd>] [--profiles-dir <dir>]
         ADVISORY workflow-phase signal for the shadow companion (t1420). Prints
         one `|`-delimited line: PHASE (PLAN|IMPLEMENT|POSTIMPL|UNKNOWN), WAITING,
-        SOURCE (which tier answered), CONSULTED, RECORDING, DETAIL.
+        SOURCE (which tier answered), CONSULTED, RECORDING, RESOLUTION, DETAIL.
+
+        RESOLUTION says how the pane's AGENT was established (t1467) and is
+        independent of PHASE: `scoped` (a known agent with live-tier markers),
+        `no_markers`, `unresolved` (a --pane-command that maps to no agent — a
+        wrapper-style Codex install reports `node`), `absent` (no agent given).
+        --pane-command resolves the agent for you, including one level of child
+        processes; --agent takes an already-resolved key.
 
         This is a HINT, not a gate: it may never be used to refuse an action.
         UNKNOWN is a real answer meaning "cannot tell" — distinct from PLAN.

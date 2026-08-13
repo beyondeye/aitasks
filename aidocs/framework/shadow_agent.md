@@ -699,13 +699,39 @@ Tier A's *anchors* are agent-neutral, but establishing that a prompt is
 
 | agent | ledger half | Tier A (live) | Tier B (native) |
 |---|---|---|---|
-| Claude Code | yes | yes | yes (`claude_plan_approval`) |
-| Codex CLI | yes | no markers yet — **t1467** | no — **t1467** |
-| OpenCode | yes | no markers at all — **t1467** | no — **t1467** |
+| Claude Code | yes | yes (`claude_askuserquestion` + the `☐ <Header>` chip) | yes (`claude_plan_approval`) |
+| Codex CLI | yes | yes (`codex_question` + the `Question N/M` header) | **no — measured** |
+| OpenCode | yes | yes (`opencode_question` + the `┃`-gutter block) | **no — measured** |
 
 An agent without markers degrades to the ledger-derived phase, or `UNKNOWN` —
 never to a guess. Ask `workflow_phase.live_tiers_available(agent)` rather than
-assuming; the signal's own `detail` names t1467 when that is the reason.
+assuming.
+
+**Tier B is empty for Codex and OpenCode by measurement, not by omission**
+(t1467 inventoried both live). Neither CLI has an `ExitPlanMode` analogue, so
+the only native dialogs either renders are tool confirmations — and a tool
+confirmation carries no workflow phase for them any more than it does for
+Claude. For those two agents the phase therefore comes from **Tier A or the
+ledger, never Tier B**. Do not add a row without a new measurement finding a
+phase-bearing dialog.
+
+**Agent identity is inferred, and the inference can fail.**
+`pane_current_command` is not authoritative: `claude` and `opencode` ship native
+binaries and report their own names, but a wrapper-style Codex install reports
+`node` (its launcher spawns the real binary as a direct child). Resolution is a
+two-rung ladder — `lib/agent_keys.agent_key_from_pane`, the pane's command then
+one level of children — and when both rungs fail the phase is ledger-only and
+**says so**: `PhaseSignal.resolution` is `unresolved` and both renderers append
+an "agent unresolved" qualifier. That qualifier is deliberately independent of
+the phase, so it survives a confident `IMPLEMENT ⏸` rather than only appearing
+when the phase is already unknown.
+
+**Phase available ≠ recheck loop armable.** The auto-recheck loop asks
+`review_loop.review_loop_agent_supported`, not `live_tiers_available`. The first
+answers "can an advisory hint be derived"; the second answers "may a loop that
+*injects keystrokes* into the shadow pane be armed". Codex and OpenCode satisfy
+the first since t1467 and deliberately not the second — widening it is its own
+task, with its own live evidence.
 
 ### Transport and consumption
 
