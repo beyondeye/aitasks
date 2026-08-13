@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1171
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 15:52
-updated_at: 2026-08-13 21:24
+updated_at: 2026-08-13 22:23
 ---
 
 ## Origin
@@ -58,3 +59,8 @@ dead_pid_fixture() { bash -c 'echo $$'; }
 Then re-sweep `tests/` for `sleep N &` followed within a few lines by `kill`,
 since the shape travels in families. Note that a naive grep also matches prose
 in comments — verify each hit is executable code.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-13T19:23:49Z status=pass attempt=1 type=human
