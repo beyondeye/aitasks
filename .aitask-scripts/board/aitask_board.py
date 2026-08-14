@@ -10,6 +10,7 @@ import shlex
 import subprocess
 from datetime import datetime
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -63,9 +64,13 @@ from board_groups import (
 # mirrored: a second map in this file — or a `.fk-<kind>` colour class in the
 # CSS, which cannot read a Python dict — would be an unsynchronisable copy.
 # `_followup_marker` below is the render boundary over it.
-from followup_kinds import FOLLOWUP_KINDS, UNKNOWN_GLYPH, marker_for
+from followup_kinds import (
+    FOLLOWUP_KINDS, UNKNOWN_GLYPH, label_for, marker_for,
+    normalize_followup_kind,
+)
 
 from textual.app import App, ComposeResult
+from textual.color import Color as TextualColor, ColorParseError
 from textual.content import Content
 from textual.containers import Container, Horizontal, HorizontalScroll, VerticalScroll
 from textual.widgets import Header, Static, Label, Markdown, Input, Button, LoadingIndicator, SelectionList, DataTable, Collapsible
@@ -3385,15 +3390,55 @@ def _followup_marker(metadata):
     return marker_for((metadata or {}).get("followup_kind"))
 
 
+@lru_cache(maxsize=32)
+def _followup_colour_hex(colour: str) -> str:
+    """A vocabulary colour pinned to an explicit truecolor hex (t1468_8).
+
+    `FOLLOWUP_KINDS` names most colours (`yellow`, `cyan`, …), and a NAME does
+    not composite to one value — it depends on how the style reaches the
+    compositor:
+
+    * as a Rich **base** style — `Text(glyph, style=colour)` handed straight to
+      a `Label`, which is what every card surface does — Textual resolves it
+      through its CSS palette: `yellow` -> `#ffff00`;
+    * as a Rich **span** — `Text.append(glyph, style=colour)`, which is what a
+      single-line row built from one multi-span `Text` must use — it resolves
+      through the theme's ANSI palette instead: `yellow` -> `#fd971f`.
+
+    Same kind, two different yellows, on two surfaces that promise to match.
+    A hex composites identically on BOTH paths, so pinning it here removes the
+    divergence at the one boundary every surface already shares.
+
+    Resolved through `textual.color.Color`, **never** Rich's
+    `Color.get_truecolor()`: the latter answers `#808000` for `yellow` and
+    `#008080` for `cyan`, which would silently restyle every existing card.
+    Textual's values are byte-identical to what the cards already paint, so
+    this is a no-op for them and a fix for the row.
+
+    Falls back to the raw name when Textual cannot parse it — the pre-t1468_8
+    behaviour, and never worse than it. `FollowupVocabularyTests` already fails
+    the build for an unparseable entry, so this is defence, not a policy.
+    """
+    try:
+        return TextualColor.parse(colour).hex
+    except ColorParseError:
+        return colour
+
+
 def _followup_glyph_text(marker) -> Text:
     """The glyph as a Rich `Text`, carrying its colour as a literal style.
 
     A literal Rich style resolves in `render().spans` AND in the composited
     strips; an unresolved CSS colour name resolves in neither, which is exactly
     what the colour verification reads.
+
+    The style is pinned to a hex by `_followup_colour_hex` so that a card
+    (which applies this `Text` as a base style) and the task-detail row (which
+    appends it as a span into a longer line) paint the SAME colour — a bare
+    name does not survive both paths identically.
     """
     glyph, colour = marker
-    return Text(glyph, style=colour) if colour else Text(glyph)
+    return Text(glyph, style=_followup_colour_hex(colour)) if colour else Text(glyph)
 
 
 def _trail_badge_text(entry: dict) -> str:
@@ -4860,6 +4905,227 @@ class AnchorField(Static):
         if result.returncode != 0:
             error = (result.stderr.strip() or result.stdout.strip()
                      or "anchor update failed")
+            self.app.notify(error, severity="error")
+            return
+        _reload_detail_screen(self.app, self.owner_task, self.manager)
+
+    def on_focus(self):
+        self.add_class("ro-focused")
+
+    def on_blur(self):
+        self.remove_class("ro-focused")
+
+
+class FollowupKindPickerItem(PickerItem):
+    """Focusable row for one follow-up kind -- or for clearing the field.
+
+    ``kind`` is the value that will be persisted: a vocabulary key, or ``""``
+    for the clear row. Dismisses the SCREEN, not itself (mirrors
+    ``GateChoiceItem``) -- a row that dismissed itself would leave the modal
+    standing.
+
+    Deliberately does NOT define ``on_focus`` / ``on_blur``: ``PickerItem``
+    owns the focus-visibility contract and Textual dispatches handlers down the
+    MRO, so both would fire.
+    """
+
+    def __init__(self, kind: str, current: bool):
+        super().__init__()
+        self.kind = kind
+        self.current = current
+
+    def render(self) -> Text:
+        out = Text("✓ " if self.current else "  ")
+        if not self.kind:
+            out.append("(none) — not a follow-up")
+            return out
+        out.append_text(_followup_glyph_text(marker_for(self.kind)))
+        out.append(f" {label_for(self.kind)}  ")
+        out.append(self.kind, style="dim")   # raw key, for CLI correlation
+        return out
+
+    def on_key(self, event):
+        if event.key == "enter":
+            self.screen.dismiss(self.kind)
+            event.prevent_default()
+            event.stop()
+
+    def on_click(self, event):
+        self.screen.dismiss(self.kind)
+
+
+class FollowupKindPickerScreen(ModalScreen):
+    """Pick a task's follow-up kind, or clear it (t1468_8).
+
+    Dismisses with the value to persist -- a vocabulary key, or ``""`` to clear
+    (key removal; there is no tombstone) -- or ``None`` on cancel. ``""`` and
+    ``None`` are therefore NOT interchangeable: the caller must test
+    ``is None``, not falsiness, or every cancel would silently clear the field.
+
+    **An unrecognised current value focuses Cancel, not a row.** A hand-edited
+    or future-vocabulary kind matches no row, and the clear row would otherwise
+    take default focus -- making one reflexive `Enter` delete the very value the
+    user opened this dialog to diagnose. The title names the value instead.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, task_num: str, current_kind: str):
+        super().__init__()
+        self.task_num = task_num
+        self.current_kind = current_kind
+        # Present but outside the vocabulary. A direct membership test against
+        # the canonical map -- not a second copy of the rule.
+        self.unrecognised = bool(current_kind) and current_kind not in FOLLOWUP_KINDS
+
+    def compose(self):
+        with Container(id="dep_picker_dialog", classes="picker-dialog"):
+            # A `Text`, never a markup string: `current_kind` is hand-editable
+            # frontmatter, so `followup_kind: "[bold]x"` would otherwise be
+            # markup-parsed by Label (markup=True is the default) -- silently
+            # swallowed at best, a markup error at worst.
+            title = Text(f"Set follow-up kind for {self.task_num}:")
+            if self.unrecognised:
+                title.append("  current value ")
+                title.append(self.current_kind, style="bold")
+                title.append(" is not a recognised kind")
+            yield Label(title, id="dep_picker_title")
+            # Clear row first: the common correction after the t1468_6
+            # heuristic backfill is "this isn't a follow-up at all".
+            yield FollowupKindPickerItem("", not self.current_kind)
+            for kind in FOLLOWUP_KINDS:          # canonical declaration order
+                yield FollowupKindPickerItem(kind, kind == self.current_kind)
+            yield Button("Cancel", id="btn_dep_cancel")
+
+    def on_mount(self):
+        if self.unrecognised:
+            # Safe default: Enter presses Cancel -> dismiss(None) -> no write.
+            self.query_one("#btn_dep_cancel", Button).focus()
+            return
+        items = list(self.query(FollowupKindPickerItem))
+        current = [it for it in items if it.current]
+        (current[0] if current else items[0]).focus()
+
+    @on(Button.Pressed, "#btn_dep_cancel")
+    def cancel_button(self):
+        self.dismiss(None)
+
+    def action_cancel(self):
+        self.dismiss(None)
+
+
+class FollowupKindField(Static):
+    """Focusable follow-up-provenance field. Enter opens the kind picker.
+
+    Persists by shelling out to
+    ``aitask_update.sh --batch <id> --followup-kind <val> --silent`` -- the
+    mandated new-field board pattern (see ``AnchorField``), NOT the CycleField
+    ``save_with_timestamp`` path. Three consequences, all load-bearing:
+
+    * **Clearing is key removal.** ``--followup-kind ""`` makes the shell's
+      emit skip the line; there is no tombstone. ``save_changes`` can only ever
+      *assign*, and an assigned ``""`` would round-trip back through
+      ``normalize_followup_kind`` as a present-but-unrecognised kind, painting
+      the `·` fallback on every task the user had just cleared.
+    * **The screen cannot go dirty on open.** This field is deliberately absent
+      from ``TaskDetailScreen._original_values`` / ``_current_values``, so
+      opening a task that has no ``followup_kind`` cannot light up the Save
+      button. A seeded default in that dict -- the shape the other four
+      editable fields use -- would do exactly that, because this field is
+      legitimately absent on most tasks.
+    * **The write is immediate, so it is blocked while the screen is dirty.**
+      Success calls ``_reload_detail_screen``, which REPLACES the screen with a
+      fresh instance and therefore discards any pending CycleField edit.
+      ``blocked`` is pushed in by ``TaskDetailScreen._update_save_button``; when
+      set, the hint says so and ``Enter`` notifies the remedy instead of
+      opening the picker.
+
+    The ``manual_verification`` cross-field invariant (that kind requires
+    ``issue_type: manual_verification``) is enforced by the shell and its
+    message surfaced verbatim. It is deliberately NOT re-declared here: a copy
+    in the board would be a second authority over a rule the CLI already owns.
+    """
+
+    can_focus = True
+
+    def __init__(self, kind, manager: "TaskManager", owner_task: "Task",
+                 read_only: bool = False, **kwargs):
+        super().__init__(**kwargs)
+        # Normalised once: frontmatter is type-honest, so a hand-edited list,
+        # int or bool arrives here verbatim. "" means "not a follow-up".
+        self.kind = normalize_followup_kind(kind)
+        self.manager = manager
+        self.owner_task = owner_task
+        self.read_only = read_only
+        self.blocked = False
+
+    def set_blocked(self, blocked: bool) -> None:
+        """Called by the screen when its unsaved-edit state changes."""
+        if blocked != self.blocked:
+            self.blocked = blocked
+            self.refresh()
+
+    def render(self) -> Text:
+        out = Text("  ")
+        out.append("Follow-up:", style="bold")
+        out.append(" ")
+        marker = marker_for(self.kind)
+        if not marker:
+            out.append("(none)", style="dim")
+        else:
+            out.append_text(_followup_glyph_text(marker))
+            out.append(" ")
+            # `label_for` answers "" for an unrecognised kind; show the raw
+            # value then, so a typo is diagnosable from the screen that can fix
+            # it. The glyph is already the `·` fallback -- the same
+            # degradation the card shows.
+            out.append(label_for(self.kind) or self.kind)
+        if self.read_only:
+            return out
+        if self.blocked:
+            out.append("  (save or revert pending edits first)", style="dim")
+        else:
+            out.append("  (enter to change)" if marker else "  (enter to set)",
+                       style="dim")
+        return out
+
+    def on_key(self, event):
+        if event.key != "enter" or self.read_only:
+            return
+        event.prevent_default()
+        event.stop()
+        if self.blocked:
+            self.app.notify(
+                "Save or revert your pending changes first — setting a "
+                "follow-up kind writes immediately and reloads this screen.",
+                severity="warning")
+            return
+        self._edit()
+
+    def _edit(self):
+        task_num, _ = TaskCard._parse_filename(self.owner_task.filename)
+
+        def on_result(new_kind):
+            # `is None` is cancel; `""` is an intentional clear. Testing
+            # falsiness here would turn every Escape into a clear.
+            if new_kind is None or new_kind == self.kind:
+                return
+            self._apply(task_num.lstrip("t"), new_kind)
+
+        self.app.push_screen(
+            FollowupKindPickerScreen(task_num, self.kind), on_result)
+
+    def _apply(self, task_num_bare: str, new_kind: str):
+        result = subprocess.run(
+            ["./.aitask-scripts/aitask_update.sh", "--batch", task_num_bare,
+             "--followup-kind", new_kind, "--silent"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            error = (result.stderr.strip() or result.stdout.strip()
+                     or "followup_kind update failed")
             self.app.notify(error, severity="error")
             return
         _reload_detail_screen(self.app, self.owner_task, self.manager)
@@ -6370,6 +6636,22 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                     yield CycleField("Type", _load_task_types(),
                                      meta.get("issue_type", "feature"), "issue_type",
                                      id="cf_issue_type")
+                # Follow-up provenance (t1468_8) -- the 5th row of the primary
+                # block in BOTH modes, so a card's glyph is decodable the
+                # moment the task is opened. Editable only on a live screen
+                # with a manager (the post-write reload needs one); a
+                # read-only screen shows the row ONLY when a kind is actually
+                # set, since it offers no way to set one. Mirrors AnchorField.
+                #
+                # One widget class in both modes rather than a ReadOnlyField
+                # for the read-only case: one render implementation, so the
+                # read-only line cannot drift from the editable one.
+                fk_read_only = is_done_or_ro or self.manager is None
+                if not fk_read_only or _followup_marker(meta):
+                    yield FollowupKindField(
+                        meta.get("followup_kind"), self.manager,
+                        self.task_data, read_only=fk_read_only,
+                        id="ff_followup_kind", classes="meta-ro")
 
             # --- Grouped, collapsible secondary metadata ---
             # Risk (read-only) — only present when explicitly set in metadata.
@@ -6434,10 +6716,27 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
         self._update_save_button()
         self._update_delete_button()
 
+    def has_unsaved_edits(self) -> bool:
+        """True when a CycleField edit is pending an explicit Save.
+
+        Named and field-agnostic on purpose: any field that persists
+        IMMEDIATELY must consult it, because its post-write
+        ``_reload_detail_screen`` REPLACES this screen with a fresh instance
+        that re-seeds ``_original_values`` from disk -- silently dropping the
+        pending values. ``AnchorField`` has the same exposure and should adopt
+        this (tracked as an upstream defect; not fixed by t1468_8).
+        """
+        return self._current_values != self._original_values
+
     def _update_save_button(self):
-        is_dirty = self._current_values != self._original_values
+        is_dirty = self.has_unsaved_edits()
         btn_save = self.query_one("#btn_save", Button)
         btn_save.disabled = not is_dirty
+        # Immediate-write fields must not fire while a deferred edit is
+        # pending. `query`, not `query_one`: the field is absent on a read-only
+        # screen whose task carries no followup_kind.
+        for field in self.query(FollowupKindField):
+            field.set_blocked(is_dirty)
 
     def _update_delete_button(self):
         status = self._current_values.get("status", "")

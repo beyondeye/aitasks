@@ -154,6 +154,18 @@ Reading the glyphs:
 - A **group header** rolls up its members' kinds as a per-kind tally (`▲2 ◈1`), in the order of the table above with unrecognized kinds last. A collapsed group mounts no member cards, so the header is the only place that provenance can surface.
 - A **trail ghost card** carries no glyph by design — a ghost is a referenced task with no local file, so there is nothing to classify.
 
+#### Reading and changing the kind in Task Detail
+
+The Task Detail dialog carries a **Follow-up** row directly below Type, showing the same glyph and colour as the card plus the kind's name — so the glyph on a card is decodable without leaving the board. A task that is not a follow-up shows `(none)`.
+
+Press `Enter` on the row to open a picker listing every kind, plus a **(none) — not a follow-up** row at the top that *removes* the field.
+
+- Choosing a kind writes it immediately and reloads the dialog — unlike Priority, Effort, Status and Type, it is not held until you press Save. Because of that, the row is **inert while those fields have unsaved edits**: it shows `(save or revert pending edits first)` and tells you so if you press `Enter`. Save or revert first, then set the kind.
+- Clearing **removes** `followup_kind` from the task file rather than blanking it. There is no "empty" state to leave behind.
+- `manual_verification` may only be set on a task whose `issue_type` is also `manual_verification`. Choosing it otherwise is refused, and the reason appears as an error notification.
+- A task carrying an unrecognized value shows it verbatim beside the `·` glyph, and the picker names it and starts on **Cancel** — so a stray `Enter` cannot delete the value you opened the dialog to inspect.
+- Archived and folded tasks show the row as a plain line, and only when a kind is set.
+
 `ait ls` and the pick flow surface the same provenance in text form — see [Task Management]({{< relref "/docs/commands/task-management" >}}).
 
 ### Issue Platform Indicators
@@ -413,7 +425,8 @@ For details on the underlying lock mechanism, see the [`ait lock` command refere
 
 | Dialog | Trigger | Purpose |
 |--------|---------|---------|
-| **Task Detail** | `Enter` on card / double-click | View/edit task metadata, lock status, pull request link, contributor info, and content; access Pick, Lock, Unlock, Save, Revert, Edit, Delete, Close buttons |
+| **Task Detail** | `Enter` on card / double-click | View/edit task metadata (including [follow-up provenance](#reading-and-changing-the-kind-in-task-detail)), lock status, pull request link, contributor info, and content; access Pick, Lock, Unlock, Save, Revert, Edit, Delete, Close buttons |
+| **Follow-up Kind** | `Enter` on the Follow-up row in Task Detail | Pick the task's follow-up kind, or remove it |
 | **Column Manage** | `e` / command palette "Manage Columns" | List every column with its position, color, ID and task count; Add, Edit, Delete and Merge buttons, `Enter` to edit and `Shift+Up`/`Shift+Down` to reorder |
 | **Column Edit** | Command palette "Add/Edit Column" / click `✎` in column header / Add or Edit in Column Manage | Set column title and color |
 | **Column Select** | Command palette "Edit/Delete/Collapse/Expand Column" | Pick which column to act on |
