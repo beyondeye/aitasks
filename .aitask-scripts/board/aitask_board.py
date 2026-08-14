@@ -3839,9 +3839,16 @@ class TrailSelectScreen(ModalScreen):
 
 
 class TrailDetailScreen(ModalScreen):
-    """Full narrative projection of a trail (RFC §9.1 detail modal): entry
-    focus, wave context, trail narrative, observations, exclusions, evidence,
-    and current drift reasons when stale. Read-only prose, not tooltips."""
+    """Entry-first projection of a trail (RFC §9.1 detail modal): the focused
+    entry, its wave, the drift and observations that concern it, the evidence
+    backing everything shown, the trail narrative, and exclusions. Read-only
+    prose, not tooltips.
+
+    Until t1505_2 this rendered the WHOLE document on every card — all 19
+    observations, all 56 evidence records and every drift reason of the live
+    gate-framework trail — so two cards' text was ~95% identical and the part
+    that distinguished them scrolled off the top. `_scope` now partitions the
+    document against the focused entry and `a` reveals what was withheld."""
 
     DEFAULT_CSS = """
     TrailDetailScreen {
@@ -3861,6 +3868,13 @@ class TrailDetailScreen(ModalScreen):
 
     BINDINGS = [
         Binding("escape", "cancel", "Close", show=False),
+        # No modal in this app mounts a Footer, so `show=True` would surface
+        # nowhere; the in-body hint line is the discoverability surface and it
+        # renders exactly when something is withheld. `a` is also bound at App
+        # level (`view_all`) WITHOUT priority, so this screen binding shadows
+        # it while the modal is up — pinned by a negative control asserting
+        # `base_filter` does not change.
+        Binding("a", "toggle_all", "Show all", show=False),
     ]
 
     def __init__(self, doc: dict, drift_reasons: list,
@@ -3870,6 +3884,156 @@ class TrailDetailScreen(ModalScreen):
         self.drift_reasons = drift_reasons or []
         self.entry = entry
         self.wave = wave
+        self.show_all = False
+
+    def _scope(self) -> dict:
+        """Partition the document three ways against the focused entry: owned
+        by it, owned by ANOTHER member, and UNOWNED.
+
+        Only the middle bucket is ever withheld. Unowned material — a
+        trail-level or non-member drift reason (both categories
+        ``trail_drift_by_ref`` drops), an observation affecting no member, an
+        evidence record nothing cites — has no owning card, so filing it under
+        "other" would hide it on EVERY card instead of duplicating it on every
+        card: strictly worse than the defect this scoping removes.
+
+        Displayed evidence follows what is DISPLAYED, not just the entry: an
+        observation shown here without the record it cites is an unsupported
+        claim in an evidence-backed artifact. A record cited by nothing at all
+        is unowned like the rest — and that is the whole of a lite trail's
+        evidence, since the lite writer omits per-entry ``evidence_refs``
+        while the schema still requires >= 1 record.
+
+        Read by ``_sections``, ``check_action`` and ``action_toggle_all``
+        alike; a second computation could let the hint line offer a reveal
+        that reveals nothing. With no focused entry there is no anchor to
+        scope against, so nothing is withheld and the full document renders.
+
+        Every ref comparison goes through ``canonical_trail_ref`` on BOTH
+        sides: a trail may spell a member ``aitasks#t42`` while drift reasons
+        and ``affects`` use ``aitasks#42``, and raw string comparison would
+        silently drop the match."""
+        members = {canonical_trail_ref(ref)
+                   for ref in trail_entry_refs(self.doc)}
+        entry_ref = (canonical_trail_ref(self.entry.get("task"))
+                     if self.entry is not None else "")
+        records = self.doc.get("evidence") or []
+        by_id = {str(rec.get("evidence_id")): rec for rec in records}
+
+        # THE EVIDENCE UNIVERSE — computed once, above the no-anchor branch,
+        # because both projections must agree on what "everything" is. A cited
+        # ref that resolves to NO record is still document content: it exists
+        # only in the citation, never in `evidence`, so any projection built
+        # from the records alone silently drops it. `cited_anywhere` keeps
+        # discovery order so the universe is deterministic.
+        cited_anywhere, cited_seen = [], set()
+
+        def _cite(ref):
+            ref = str(ref)
+            if ref not in cited_seen:
+                cited_seen.add(ref)
+                cited_anywhere.append(ref)
+
+        for wave in self.doc.get("waves") or []:
+            for item in wave.get("entries") or []:
+                for ref in item.get("evidence_refs") or []:
+                    _cite(ref)
+        for obs in self.doc.get("observations") or []:
+            for ref in obs.get("evidence_refs") or []:
+                _cite(ref)
+        universe = [str(rec.get("evidence_id")) for rec in records]
+        universe += [ref for ref in cited_anywhere if ref not in by_id]
+
+        totals = (len(self.doc.get("observations") or []),
+                  len(self.doc.get("exclusions") or []),
+                  len(records), len(self.drift_reasons))
+
+        if not entry_ref:
+            # No anchor: everything is in scope, nothing is withheld. Resolved
+            # here rather than compensated for in `_sections` so the one
+            # partition stays the single truth its consumers rely on — and
+            # built from `universe`, so "Showing the full trail." is true of
+            # unresolved refs too.
+            return {
+                "entry_drift": list(self.drift_reasons),
+                "unowned_drift": [], "other_drift": [],
+                "entry_obs": list(self.doc.get("observations") or []),
+                "unowned_obs": [], "other_obs": [],
+                "shown_evidence": [(ref, by_id.get(ref), "")
+                                   for ref in universe],
+                "other_evidence": [],
+                "exclusions": self.doc.get("exclusions") or [],
+                "totals": totals,
+                "withheld": 0,
+            }
+
+        by_ref = trail_drift_by_ref(self.drift_reasons)
+        entry_drift = list(by_ref.get(entry_ref, []))
+        unowned_drift, other_drift = [], []
+        for reason in self.drift_reasons:
+            _code, task_ref, _detail = reason
+            if not task_ref or task_ref == "-":
+                unowned_drift.append(reason)
+                continue
+            key = canonical_trail_ref(task_ref)
+            if key == entry_ref:
+                continue                      # already in entry_drift
+            (other_drift if key in members else unowned_drift).append(reason)
+
+        entry_obs, unowned_obs, other_obs = [], [], []
+        for obs in self.doc.get("observations") or []:
+            affects = obs.get("affects") or []
+            if isinstance(affects, str):
+                affects = [affects]
+            refs = {canonical_trail_ref(ref) for ref in affects}
+            if entry_ref in refs:
+                entry_obs.append(obs)
+            elif refs & members:
+                other_obs.append(obs)
+            else:
+                unowned_obs.append(obs)
+
+        # (ref, record-or-None, provenance) in a stable order: the entry's own
+        # citations first, then what the displayed observations pull in, then
+        # the uncited records.
+        shown_evidence, seen = [], set()
+
+        def _show(ref, provenance):
+            ref = str(ref)
+            if ref in seen:
+                return
+            seen.add(ref)
+            shown_evidence.append((ref, by_id.get(ref), provenance))
+
+        for ref in self.entry.get("evidence_refs") or []:
+            _show(ref, "")
+        for obs in entry_obs + unowned_obs:
+            for ref in obs.get("evidence_refs") or []:
+                _show(ref, f"cited by {obs.get('observation_id', '?')}")
+        for rec in records:
+            if str(rec.get("evidence_id")) not in cited_seen:
+                _show(rec.get("evidence_id"), "trail-level (uncited)")
+        # Drawn from `universe`, so an unresolved ref owned by another entry is
+        # counted and revealed like any other withheld record. Same
+        # (ref, record, provenance) shape as `shown_evidence`, so the reveal
+        # renders both through one path.
+        other_evidence = [(ref, by_id.get(ref), "")
+                          for ref in universe if ref not in seen]
+
+        return {
+            "entry_drift": entry_drift,
+            "unowned_drift": unowned_drift,
+            "other_drift": other_drift,
+            "entry_obs": entry_obs,
+            "unowned_obs": unowned_obs,
+            "other_obs": other_obs,
+            "shown_evidence": shown_evidence,
+            "other_evidence": other_evidence,
+            "exclusions": self.doc.get("exclusions") or [],
+            "totals": totals,
+            "withheld": (len(other_drift) + len(other_obs)
+                         + len(other_evidence)),
+        }
 
     def _sections(self) -> Text:
         text = Text()
@@ -3888,6 +4052,19 @@ class TrailDetailScreen(ModalScreen):
                 value = "; ".join(str(v) for v in value)
             text.append(f"{value}\n")
 
+        def drift_bullet(reason, suffix=""):
+            code, task_ref, detail = reason
+            where = f" {task_ref}" if task_ref and task_ref != "-" else ""
+            text.append(f"• {code}{where}: {detail}{suffix}\n")
+
+        def more(count, noun):
+            if count:
+                plural = "" if count == 1 else "s"
+                text.append(f"… {count} more {noun}{plural}\n")
+
+        scope = self._scope()
+        full = self.show_all or self.entry is None
+
         if self.entry is not None:
             head(f"Entry {self.entry.get('task', '?')}")
             line("classification", self.entry.get("classification"))
@@ -3896,7 +4073,6 @@ class TrailDetailScreen(ModalScreen):
             line("expected outcome", self.entry.get("expected_outcome"))
             line("why order matters", self.entry.get("why_order_matters"))
             line("caveats", self.entry.get("caveats"))
-            line("evidence", self.entry.get("evidence_refs"))
         if self.wave is not None:
             head(f"Wave W{self.wave.get('ordinal', '?')} · "
                  f"{self.wave.get('title', '')}")
@@ -3904,44 +4080,115 @@ class TrailDetailScreen(ModalScreen):
             line("why now", self.wave.get("why_now"))
             line("consequence of delay", self.wave.get("consequence_of_delay"))
 
+        drift = (scope["entry_drift"] + scope["unowned_drift"]
+                 + (scope["other_drift"] if full else []))
+        if drift:
+            label = ("Drift reasons" if full
+                     else "Drift affecting this entry")
+            head(f"{label} ({len(drift)})")
+            for reason in scope["entry_drift"]:
+                drift_bullet(reason)
+            for reason in scope["unowned_drift"]:
+                drift_bullet(reason, "  [trail-level]")
+            for reason in (scope["other_drift"] if full else []):
+                drift_bullet(reason)
+            if not full:
+                more(len(scope["other_drift"]), "reason for other entries")
+
         narrative = self.doc.get("narrative") or {}
         head(f"Trail: {self.doc.get('title', '?')}")
         line("problem", narrative.get("problem_statement"))
         line("recommendation", narrative.get("recommendation_summary"))
+        # `overview` (t1505_3) is rendered as its own field rather than through
+        # `trail_summary_text`: that resolver picks ONE of the two for the
+        # single-slot summary pane, and using it here would hide the required
+        # `recommendation_summary` whenever an overview exists.
+        line("overview", narrative.get("overview"))
         line("method note", narrative.get("method_note"))
         line("caveats", narrative.get("caveats"))
 
-        if self.drift_reasons:
-            head(f"Drift reasons ({len(self.drift_reasons)})")
-            for code, task_ref, detail in self.drift_reasons:
-                where = f" {task_ref}" if task_ref and task_ref != "-" else ""
-                text.append(f"• {code}{where}: {detail}\n")
-
-        for obs in self.doc.get("observations") or []:
-            head(f"Observation: {obs.get('kind', '?')}")
+        unowned_ids = {id(obs) for obs in scope["unowned_obs"]}
+        for obs in (scope["entry_obs"] + scope["unowned_obs"]
+                    + (scope["other_obs"] if full else [])):
+            mark = " [trail-level]" if id(obs) in unowned_ids else ""
+            head(f"Observation: {obs.get('kind', '?')}{mark}")
             line("statement", obs.get("statement"))
             line("affects", obs.get("affects"))
-        exclusions = self.doc.get("exclusions") or []
-        if exclusions:
+        if not full:
+            more(len(scope["other_obs"]),
+                 "observation not affecting this entry")
+
+        # Withheld records are appended AFTER the shown ones rather than
+        # re-sorted into document order, so toggling `a` never reshuffles what
+        # is already on screen — same reason the observation buckets keep
+        # their order above.
+        shown = list(scope["shown_evidence"])
+        if full:
+            shown += list(scope["other_evidence"])
+        if shown:
+            head("Evidence")
+            for ref, rec, provenance in shown:
+                suffix = f" — {provenance}" if provenance else ""
+                if rec is None:
+                    text.append(f"• {ref} (unresolved){suffix}\n")
+                    continue
+                text.append(f"• {rec.get('evidence_id', '?')} "
+                            f"({rec.get('source_type', '?')}): "
+                            f"{rec.get('summary', '')}{suffix}\n")
+            if not full:
+                more(len(scope["other_evidence"]), "evidence record")
+
+        if scope["exclusions"]:
             head("Exclusions")
-            for exc in exclusions:
+            for exc in scope["exclusions"]:
                 text.append(f"• {exc.get('task', '?')} "
                             f"[{exc.get('reason_code', '?')}] "
                             f"{exc.get('reason', '')}\n")
-        evidence = self.doc.get("evidence") or []
-        if evidence:
-            head("Evidence")
-            for ev in evidence:
-                text.append(f"• {ev.get('evidence_id', '?')} "
-                            f"({ev.get('source_type', '?')}): "
-                            f"{ev.get('summary', '')}\n")
+
+        # ALWAYS rendered. An omitted section and a failed render look
+        # identical to a reader — a lite trail legitimately has no
+        # observations, exclusions or relations — so the totals state the
+        # zeroes explicitly and the mode line says which projection is on
+        # screen (t1505_2).
+        obs_n, exc_n, ev_n, drift_n = scope["totals"]
+        if text.plain:
+            text.append("\n\n")
+        text.append(f"Trail totals: {obs_n} observations · {exc_n} "
+                    f"exclusions · {ev_n} evidence · {drift_n} drift "
+                    f"reasons\n")
+        if self.show_all:
+            text.append("Showing the full document — press a to scope back "
+                        "to this entry.\n")
+        elif self.entry is None:
+            text.append("Showing the full trail.\n")
+        elif scope["withheld"]:
+            text.append("Showing what concerns this entry — press a for the "
+                        "full document.\n")
+        else:
+            text.append("Showing the full trail.\n")
         return text
 
     def compose(self):
         with Container(id="trail_detail_dialog"):
             with VerticalScroll(id="trail_detail_body"):
-                yield Static(self._sections())
+                yield Static(self._sections(), id="trail_detail_text")
             yield Button("Close", id="btn_trail_detail_close")
+
+    def check_action(self, action: str, parameters):
+        if action == "toggle_all":
+            # Live while revealed too, so the user can scope back.
+            return self.show_all or bool(self._scope()["withheld"])
+        return True
+
+    def action_toggle_all(self):
+        # Re-checked here, not only in check_action: a binding gate is not an
+        # action guard — the action stays reachable through the command
+        # palette and a remap.
+        if not self.show_all and not self._scope()["withheld"]:
+            return
+        self.show_all = not self.show_all
+        self.query_one("#trail_detail_text", Static).update(self._sections())
+        self.refresh_bindings()
 
     @on(Button.Pressed, "#btn_trail_detail_close")
     def close_button(self):

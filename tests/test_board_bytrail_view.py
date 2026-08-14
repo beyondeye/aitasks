@@ -3942,5 +3942,388 @@ class TrailDepthLabelTests(ByTrailTestBase):
                 self.assertEqual(captured["live"], captured["ref"])
 
 
+class TrailDetailSectionTests(ByTrailTestBase):
+    """t1505_2: the detail modal's entry-first projection.
+
+    `_sections()` needs no App — the screen is constructed directly and its
+    `Text` asserted on, which is exact and costs no pilot boot. Before this
+    task the modal rendered the WHOLE document on every card, and the file
+    carried no assertion on its content at all.
+    """
+
+    # Fixture facts these tests lean on (gate_framework.json):
+    #   obs-red-suite       affects aitasks#635_29 only, cites ev-red-suite
+    #   obs-stale-premise   affects aitasks#635_29 only, cites ev-premise-check
+    #   obs-skill-collision affects aitasks#635_30 only
+    #   obs-missing-model-defaults  affects []  -> UNOWNED, shows on every card
+    RED_SUITE = "The Python test suite is red"
+    COLLISION = "Two UI children and one non-topic board feature"
+    UNOWNED_OBS = "codeagent per-operation defaults config lacks entries"
+
+    def _screen(self, task_ref, reasons=(), doc=None, show_all=False):
+        doc = copy.deepcopy(doc if doc is not None else _load_fixture())
+        entry = wave = None
+        for candidate in doc.get("waves") or []:
+            for item in candidate.get("entries") or []:
+                if item.get("task") == task_ref:
+                    entry, wave = item, candidate
+        self.assertIsNotNone(entry, f"{task_ref} is not a fixture member")
+        screen = self.ab.TrailDetailScreen(doc, list(reasons), entry=entry,
+                                           wave=wave)
+        screen.show_all = show_all
+        return screen
+
+    def _text(self, *args, **kwargs) -> str:
+        return self._screen(*args, **kwargs)._sections().plain
+
+    @staticmethod
+    def _lite_doc() -> dict:
+        """The t1505_4 lite shape: no observations, relations or exclusions,
+        NO per-entry `evidence_refs`, and exactly one gatherer record."""
+        return {
+            "title": "Lite trail", "trail_id": "trail-lite",
+            "narrative": {"problem_statement": "ps",
+                          "recommendation_summary": "rs"},
+            "waves": [{"wave_id": "w1", "ordinal": 1, "title": "W1",
+                       "purpose": "p", "entries": [{
+                           "entry_id": "e1", "task": "aitasks#42",
+                           "topic": "aitasks#42", "position": 1,
+                           "classification": "core", "confidence": "high",
+                           "rationale": "r", "snapshot": {"status": "Ready"},
+                       }]}],
+            "evidence": [{"evidence_id": "ev-snapshot",
+                          "source_type": "board_state",
+                          "summary": "gatherer snapshot"}],
+        }
+
+    def test_entry_leads_the_projection(self):
+        text = self._text("aitasks#635_29")
+        entry_at = text.index("Entry aitasks#635_29")
+        for later in ("Trail: ", "Observation: ", "Evidence"):
+            with self.subTest(section=later):
+                self.assertLess(entry_at, text.index(later))
+
+    def test_only_observations_affecting_this_entry_are_shown(self):
+        text = self._text("aitasks#635_29")
+        self.assertIn(self.RED_SUITE, text)
+        self.assertNotIn(self.COLLISION, text)
+        self.assertIn("… 1 more observation not affecting this entry", text)
+
+    def test_only_the_evidence_this_entry_needs_is_shown(self):
+        text = self._text("aitasks#635_29")
+        # Its own citation, plus what the displayed observations cite.
+        for shown in ("ev-premise-check", "ev-red-suite", "ev-model-defaults"):
+            with self.subTest(evidence=shown):
+                self.assertIn(shown, text)
+        for withheld in ("ev-dirty-worktree", "ev-dag-635-33", "ev-risk-gate",
+                         "ev-shared-board-surface"):
+            with self.subTest(evidence=withheld):
+                self.assertNotIn(withheld, text)
+        self.assertIn("… 4 more evidence records", text)
+
+    def test_observation_evidence_is_not_orphaned_from_its_claim(self):
+        """The provenance path, end to end: `obs-red-suite` affects this entry
+        and cites `ev-red-suite`, which the ENTRY does not cite. Scoping
+        evidence to `entry.evidence_refs` alone would render the claim and
+        withhold its support — an unsupported claim in an evidence-backed
+        artifact."""
+        text = self._text("aitasks#635_29")
+        self.assertIn(self.RED_SUITE, text)
+        self.assertIn("ev-red-suite", text)
+        self.assertIn("cited by obs-red-suite", text)
+        # The entry's own citation carries no provenance suffix.
+        own = next(ln for ln in text.splitlines()
+                   if ln.startswith("• ev-premise-check"))
+        self.assertNotIn(" — cited by", own)
+
+    def test_unresolvable_evidence_ref_is_shown_not_dropped(self):
+        doc = copy.deepcopy(_load_fixture())
+        for wave in doc["waves"]:
+            for entry in wave.get("entries") or []:
+                if entry["task"] == "aitasks#635_29":
+                    entry["evidence_refs"] = ["ev-premise-check", "ev-gone"]
+        text = self._text("aitasks#635_29", doc=doc)
+        self.assertIn("• ev-gone (unresolved)", text)
+
+    def test_unresolvable_ref_of_ANOTHER_entry_is_counted_and_revealed(self):
+        """An unresolved ref exists ONLY in a citation, never in `evidence`, so
+        a withheld projection built from the records alone drops it from both
+        the count and the reveal — content silently lost behind a key whose
+        whole promise is "show everything". The focused entry's own unresolved
+        ref (above) is rendered by a different path and cannot catch this."""
+        doc = copy.deepcopy(_load_fixture())
+        for wave in doc["waves"]:
+            for entry in wave.get("entries") or []:
+                if entry["task"] == "aitasks#635_33":
+                    entry["evidence_refs"] = ["ev-dag-635-33",
+                                              "ev-missing-other"]
+        scoped = self._screen("aitasks#635_29", doc=doc)
+        text = scoped._sections().plain
+        self.assertNotIn("ev-missing-other", text)
+        # Counted: 4 withheld records + the unresolved ref.
+        self.assertIn("… 5 more evidence records", text)
+        self.assertEqual(scoped._scope()["withheld"], 6)
+        revealed = self._text("aitasks#635_29", doc=doc, show_all=True)
+        self.assertIn("• ev-missing-other (unresolved)", revealed)
+
+    def test_refs_are_compared_canonically_not_literally(self):
+        """A trail may spell a member `aitasks#t42` while drift reasons and
+        `affects` use `aitasks#42`. Raw string comparison drops the match
+        silently, which is exactly what this test fails on."""
+        doc = self._lite_doc()
+        doc["waves"][0]["entries"][0]["task"] = "aitasks#t42"
+        doc["observations"] = [{"observation_id": "obs-x", "kind": "risk",
+                                "statement": "SPELLINGMARK statement",
+                                "affects": ["aitasks#42"],
+                                "evidence_refs": ["ev-snapshot"]}]
+        text = self._text("aitasks#t42", doc=doc,
+                          reasons=[("status_changed", "aitasks#42", "d")])
+        self.assertIn("SPELLINGMARK statement", text)
+        self.assertNotIn("[trail-level]", text,
+                         "canonical match failed: the entry's own material "
+                         "was misfiled as unowned")
+        self.assertIn("• status_changed aitasks#42: d", text)
+
+    def test_both_categories_of_unowned_drift_survive_scoping(self):
+        """`trail_drift_by_ref` drops TWO kinds of unowned reason — the
+        trail-level `-` ref AND a ref naming a task that is not a member. Both
+        are globally relevant; filing either under "for other entries" would
+        make it reachable from no card at all. A test covering only the `-`
+        case passes while the non-member reason is silently withheld."""
+        text = self._text("aitasks#635_29", reasons=[
+            ("input_missing", "-", "board scan unavailable"),
+            ("new_related_task", "aitasks#9999", "created after generation"),
+            ("task_completed", "aitasks#1147", "archived"),
+            ("status_changed", "aitasks#t635_29", "Ready -> Implementing"),
+        ])
+        self.assertIn("• input_missing: board scan unavailable  "
+                      "[trail-level]", text)
+        self.assertIn("• new_related_task aitasks#9999: created after "
+                      "generation  [trail-level]", text)
+        self.assertIn("• status_changed aitasks#t635_29: Ready -> "
+                      "Implementing", text)
+        # Owned by another member -> the only withheld drift.
+        self.assertNotIn("task_completed", text)
+        self.assertIn("… 1 more reason for other entries", text)
+
+    def test_unowned_observation_shows_on_a_card_it_does_not_name(self):
+        """`obs-missing-model-defaults` carries `affects: []` — no owning
+        card. Withholding it would hide it on EVERY card."""
+        for ref in ("aitasks#635_29", "aitasks#635_30"):
+            with self.subTest(entry=ref):
+                text = self._text(ref)
+                self.assertIn(self.UNOWNED_OBS, text)
+                self.assertIn("Observation: environment [trail-level]", text)
+
+    def test_lite_trail_reads_as_complete_and_is_genuinely_unscoped(self):
+        """After t1505_4 the common trail has no observations, no exclusions
+        and one UNCITED evidence record (the lite writer omits per-entry
+        `evidence_refs`). A cited-only ownership rule would withhold the
+        document's only evidence and offer a reveal on a document with
+        nothing to reveal."""
+        screen = self._screen("aitasks#42", doc=self._lite_doc())
+        text = screen._sections().plain
+        self.assertNotIn("Observation", text)
+        self.assertNotIn("Exclusions", text)
+        self.assertIn("• ev-snapshot (board_state): gatherer snapshot — "
+                      "trail-level (uncited)", text)
+        self.assertIn("Trail totals: 0 observations · 0 exclusions · "
+                      "1 evidence · 0 drift reasons", text)
+        self.assertIn("Showing the full trail.", text)
+        self.assertNotIn("more evidence record", text)
+        self.assertNotIn("press a", text)
+        # Assert the STATE, not just the wording: a wrong bucket assignment
+        # would still be caught if the hint prose were ever reworded.
+        self.assertEqual(screen._scope()["withheld"], 0)
+        self.assertFalse(screen.check_action("toggle_all", ()))
+
+    def test_uncited_and_withheld_evidence_are_independent_rules(self):
+        """A single-record fixture cannot tell the two apart: one record cited
+        by nobody must show, one cited only by another entry must not."""
+        doc = self._lite_doc()
+        doc["waves"][0]["entries"].append({
+            "entry_id": "e2", "task": "aitasks#43", "topic": "aitasks#42",
+            "position": 2, "classification": "core", "confidence": "high",
+            "rationale": "r", "snapshot": {"status": "Ready"},
+            "evidence_refs": ["ev-other"]})
+        doc["evidence"].append({"evidence_id": "ev-other",
+                                "source_type": "task_file",
+                                "summary": "another entry's support"})
+        screen = self._screen("aitasks#42", doc=doc)
+        text = screen._sections().plain
+        self.assertIn("ev-snapshot", text)
+        self.assertNotIn("ev-other", text)
+        self.assertIn("… 1 more evidence record", text)
+        self.assertEqual(screen._scope()["withheld"], 1)
+
+    def test_absent_narrative_overview_prints_no_empty_label(self):
+        """`narrative.overview` lands with t1505_3; until then the field is
+        absent and must render nothing rather than an empty heading."""
+        self.assertNotIn("overview:", self._text("aitasks#635_29"))
+
+    def test_overview_is_rendered_alongside_recommendation_not_instead(self):
+        """Deliberate divergence from `trail_summary_text`: that resolver
+        picks ONE field for the single-slot pane, and reusing it here would
+        hide the required `recommendation_summary` whenever an overview
+        exists."""
+        doc = copy.deepcopy(_load_fixture())
+        doc["narrative"]["overview"] = "OVERVIEWMARK prose"
+        text = self._text("aitasks#635_29", doc=doc)
+        self.assertIn("overview: OVERVIEWMARK prose", text)
+        self.assertIn("recommendation: ", text)
+
+    def test_show_all_reveals_everything_and_offers_scoping_back(self):
+        text = self._text("aitasks#635_29", show_all=True, reasons=[
+            ("task_completed", "aitasks#1147", "archived")])
+        self.assertIn(self.COLLISION, text)
+        self.assertIn("task_completed", text)
+        for evidence_id in ("ev-dirty-worktree", "ev-dag-635-33",
+                            "ev-risk-gate", "ev-shared-board-surface"):
+            with self.subTest(evidence=evidence_id):
+                self.assertIn(evidence_id, text)
+        self.assertNotIn("… ", text)
+        self.assertIn("Showing the full document — press a to scope back to "
+                      "this entry.", text)
+
+    def test_no_focused_entry_renders_the_whole_document(self):
+        """Defensive: with no entry there is nothing to scope against.
+
+        "The whole document" includes a cited ref that resolves to no record —
+        it lives only in the citation, so a projection built from the
+        `evidence` array alone drops it while the mode line still claims
+        "Showing the full trail." The no-anchor path and the scoped path must
+        agree on what "everything" is, which is why the evidence universe is
+        computed once, above the branch."""
+        doc = copy.deepcopy(_load_fixture())
+        for wave in doc["waves"]:
+            for entry in wave.get("entries") or []:
+                if entry["task"] == "aitasks#635_33":
+                    entry["evidence_refs"] = ["ev-dag-635-33", "ev-missing"]
+        screen = self.ab.TrailDetailScreen(doc, [])
+        text = screen._sections().plain
+        self.assertIn(self.RED_SUITE, text)
+        self.assertIn(self.COLLISION, text)
+        self.assertIn("• ev-missing (unresolved)", text)
+        self.assertIn("Showing the full trail.", text)
+        self.assertEqual(screen._scope()["withheld"], 0)
+        self.assertEqual(len(screen._scope()["shown_evidence"]), 8)
+
+    def test_document_bulk_is_not_duplicated_across_cards(self):
+        """[modal_assertion_tripwire] Fails if the trail-global sections
+        regress to rendering on every card.
+
+        Anchored on genuinely OWNED material: `obs-red-suite` names only
+        aitasks#635_29 and `obs-skill-collision` only aitasks#635_30. Do not
+        re-anchor this on `obs-missing-model-defaults` / `ev-model-defaults` —
+        those are unowned and SHOULD appear on both cards, so an assertion
+        against them would fail the correct implementation.
+
+        Asserting the ABSENCE is the point: a test that only checks "the entry
+        appears first" stays green after the regression this guards."""
+        a = self._text("aitasks#635_29")
+        b = self._text("aitasks#635_30")
+        self.assertIn(self.RED_SUITE, a)
+        self.assertNotIn(self.RED_SUITE, b)
+        self.assertIn(self.COLLISION, b)
+        self.assertNotIn(self.COLLISION, a)
+        self.assertIn("ev-red-suite", a)
+        self.assertNotIn("ev-red-suite", b)
+        # And the unowned material is on both, by design.
+        self.assertIn(self.UNOWNED_OBS, a)
+        self.assertIn(self.UNOWNED_OBS, b)
+
+
+class TrailDetailRevealKeyTests(ByTrailTestBase):
+    """t1505_2: the `a` reveal key on the detail modal."""
+
+    def _open_modal(self, app, pilot):
+        app.action_focus_board()
+        return pilot.press("enter")
+
+    def test_a_reveals_the_withheld_sections_without_leaving_the_modal(self):
+        ab = self.ab
+        captured = {}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, copy.deepcopy(_load_fixture()))
+                app.action_focus_board()
+                await pilot.pause()
+                await pilot.press("enter")
+                await self._settle(pilot)
+                self.assertIsInstance(app.screen, ab.TrailDetailScreen)
+                dialog = app.screen.query_one("#trail_detail_dialog")
+                # Proves the modal actually reaches the composited frame; the
+                # body SCROLLS, so its tail is asserted on the renderable
+                # below rather than on the visible slice.
+                captured["composited"] = self._dialog_text(app, dialog)
+
+                def body():
+                    return app.screen.query_one(
+                        "#trail_detail_text").render().plain
+
+                captured["before"] = body()
+                captured["filter_before"] = app.base_filter
+                await pilot.press("a")
+                await self._settle(pilot)
+                captured["kind"] = type(app.screen).__name__
+                captured["after"] = body()
+                captured["filter_after"] = app.base_filter
+                await pilot.press("escape")
+                await pilot.pause()
+
+        self._run(go())
+        self.assertEqual(captured["kind"], "TrailDetailScreen",
+                         "the reveal key must not dismiss the modal")
+        self.assertIn("Entry aitasks#1147", captured["composited"])
+        self.assertIn("press a for the full document", captured["before"])
+        self.assertIn("scope back", captured["after"])
+        self.assertIn(TrailDetailSectionTests.COLLISION, captured["after"])
+        self.assertNotIn(TrailDetailSectionTests.COLLISION,
+                         captured["before"])
+        # Negative control: `a` is bound at App level to `view_all` WITHOUT
+        # priority. The screen binding must shadow it — otherwise pressing `a`
+        # silently switches the board behind the open modal.
+        self.assertEqual(captured["filter_before"], "bytrail")
+        self.assertEqual(captured["filter_after"], "bytrail")
+
+    def test_reveal_is_gated_and_re_guarded_when_nothing_is_withheld(self):
+        """A binding gate is not an action guard: the action stays reachable
+        via the command palette and a remap, so both must refuse."""
+        doc = {"title": "Nothing withheld", "trail_id": "t",
+               "narrative": {"problem_statement": "p",
+                             "recommendation_summary": "r"},
+               "waves": [{"wave_id": "w1", "ordinal": 1, "title": "W1",
+                          "purpose": "p", "entries": [{
+                              "entry_id": "e1", "task": "aitasks#42",
+                              "topic": "aitasks#42", "position": 1,
+                              "classification": "core", "confidence": "high",
+                              "rationale": "r",
+                              "snapshot": {"status": "Ready"}}]}],
+               "evidence": [{"evidence_id": "ev-1", "source_type": "task_file",
+                             "summary": "s"}]}
+        screen = self.ab.TrailDetailScreen(
+            doc, [], entry=doc["waves"][0]["entries"][0],
+            wave=doc["waves"][0])
+        self.assertFalse(screen.check_action("toggle_all", ()))
+        screen.action_toggle_all()
+        self.assertFalse(screen.show_all)
+        self.assertNotIn("press a", screen._sections().plain)
+
+    def test_reveal_stays_available_while_revealed(self):
+        """Otherwise the user could reveal but never scope back."""
+        doc = copy.deepcopy(_load_fixture())
+        screen = self.ab.TrailDetailScreen(
+            doc, [], entry=doc["waves"][0]["entries"][0],
+            wave=doc["waves"][0])
+        self.assertTrue(screen.check_action("toggle_all", ()))
+        screen.show_all = True
+        self.assertTrue(screen.check_action("toggle_all", ()))
+        self.assertTrue(screen.check_action("cancel", ()))
+
+
 if __name__ == "__main__":
     unittest.main()

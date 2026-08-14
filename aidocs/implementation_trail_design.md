@@ -333,9 +333,38 @@ board's key surface is crowded and t1162 is concurrently claiming `w`):
   badges: classification glyph, confidence, and completion strike-through when
   the live task is Done/archived (live state read from the loaded task set,
   drift check on entry to the view).
-- **Detail modal** (`enter`): full narrative projection — problem statement,
-  recommendation summary, wave purpose/why-now/consequence-of-delay, entry
-  rationale/expected outcome/caveats, observations, exclusions, evidence.
+- **Summary pane** (bottom, always visible in this view): a fixed six-row,
+  scrollable pane carrying the trail's free-form summary — `narrative.overview`
+  when present, otherwise the required `narrative.recommendation_summary`. `v`
+  expands it into a modal. It is a normal flow child, never docked (see the
+  same-edge collision note in §11), and it hides when the summary is empty or
+  the view is left. The trail's depth (`rendering_hints.depth`) is stated on the
+  banner when the artifact records one, so a lite trail is never mistaken for a
+  deep one; an absent hint renders nothing rather than defaulting.
+- **Detail modal** (`enter`): an **entry-first projection**, not a dump of the
+  document. In order: the focused entry (classification, confidence, rationale,
+  expected outcome, why-order-matters, caveats); its wave
+  (purpose/why-now/consequence-of-delay); the drift affecting it; the trail
+  narrative; the observations affecting it; the evidence backing everything
+  shown; exclusions. It closes with an always-rendered `Trail totals:` line and
+  a mode line, so an absent section and a failed render never look alike.
+  `a` reveals what was withheld and toggles back.
+
+  **Only material owned by another entry is ever withheld. Unowned trail-level
+  facts stay on every card** — a trail-level drift reason (`task_ref` `-`), a
+  reason naming a non-member (`new_related_task`), an observation affecting no
+  member, and an evidence record nothing cites. Those have no owning card, so
+  withholding them would make them reachable from *nowhere* in the default view
+  rather than merely repeating them. Displayed evidence is the union of the
+  entry's own `evidence_refs` and those of every displayed observation: an
+  observation's claim rendered without its supporting record is an unsupported
+  claim in an evidence-backed artifact. Uncited records are always shown, which
+  is what makes a lite trail — whose single gatherer record is cited by nobody —
+  read as complete rather than scoped.
+
+  This projection exists because rendering the whole document per card made two
+  cards ~95% identical (19 observations, 56 evidence lines on the live
+  gate-framework trail) and pushed the distinguishing part off the top.
 - **Non-board entries**: archived/missing/cross-repo member tasks render as
   read-only ghost cards (no move actions).
 
@@ -345,7 +374,7 @@ board's key surface is crowded and t1162 is concurrently claiming `w`):
 |---|---|
 | No trails exist | Empty-state hint: create via task/topic action or `/aitask-trail` |
 | Trail current | Normal wave columns |
-| Trail stale | Header badge `⚠ stale: <n> reasons`; drift reasons listed in detail modal; `r` offers refresh |
+| Trail stale | Header badge `⚠ stale: <n> reasons`; the detail modal lists the focused entry's reasons plus the unowned trail-level ones, with reasons owned by other entries counted and revealed by `a`; `r` offers refresh |
 | Owner archived | Trail remains selectable (frontmatter scan includes archived); badge notes archived owner |
 | Missing blob / corrupt manifest | Error card in place of waves; read path fails closed, offers `versions` fallback |
 | Member task deleted/folded | Ghost card + drift reason; refresh re-evaluates membership |
@@ -538,7 +567,12 @@ By-Trail view (waves as columns; active trail in header):
 │ └───────────────────┘ │   conf: high  │ │   ⚑ premise    │ │ ● t1181   │ │
 │                       └────────────────┘ │     re-checked │ └───────────┘ │
 │                                          └────────────────┘               │
-│ [enter] details  [r] refresh  [m] move task  [M] move wave  [s] select    │
+├─ summary ─────────────────────────────────────────────────────────────────┤
+│ Clear the dirty/in-flight conflicts first so no wave lands on uncommitted ▲│
+│ foreign work, then fix the red baseline — proving the engine against a     │
+│ failing suite proves nothing. …                                           ▼│
+│ [enter] details  [r] refresh  [m] move task  [M] move wave  [s] select     │
+│ [v] summary                                                                │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -553,17 +587,40 @@ Trail selection modal:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Detail modal (entry focus):
+Detail modal (entry focus — entry-first, document bulk behind `a`):
 
 ```
-┌ t635_29 — W3 · Prove the orchestrator engine ──────────────┐
-│ classification: core · confidence: medium                   │
-│ Why here: verdict semantics are the contract every wave-4   │
-│ gate implements against. …                                  │
-│ Expected: demonstrated engine run with recorded ledger …    │
-│ Caveat: premise re-verified against current source.         │
-│ Evidence: ev-premise-check (task_file aitasks#635_29)       │
-└─────────────────────────────────────────────────────────────┘
+┌ t635_29 — W3 · Prove the orchestrator engine ───────────────────────┐
+│ classification: core · confidence: medium                            │
+│ Why here: verdict semantics are the contract every wave-4 gate       │
+│ implements against. …                                                │
+│ Expected: demonstrated engine run with recorded ledger …             │
+│ Caveat: premise re-verified against current source.                  │
+│                                                                      │
+│ Drift affecting this entry (2)                                       │
+│ • status_changed aitasks#635_29: Ready -> Implementing               │
+│ • input_missing: board scan unavailable  [trail-level]               │
+│ … 1 more reason for other entries                                    │
+│                                                                      │
+│ Trail: Gate framework landing order                                  │
+│ problem: … recommendation: … method note: …                          │
+│                                                                      │
+│ Observation: baseline_risk                                           │
+│ statement: The Python suite is red for causes outside the topic. …   │
+│ Observation: environment [trail-level]                               │
+│ … 1 more observation not affecting this entry                        │
+│                                                                      │
+│ Evidence                                                             │
+│ • ev-premise-check (task_file): premises re-verified …               │
+│ • ev-red-suite (test_run): suite red … — cited by obs-red-suite      │
+│ … 4 more evidence records                                            │
+│                                                                      │
+│ Exclusions                                                           │
+│ • aitasks#635_31 [non_blocking] consumes rather than gates the core  │
+│                                                                      │
+│ Trail totals: 4 observations · 3 exclusions · 7 evidence · 3 drift   │
+│ Showing what concerns this entry — press a for the full document.    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 Stale banner + refresh confirmation (in the launched skill):
