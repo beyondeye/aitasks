@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t1505_1]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [aitask_board, tui, trails, documentation]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 implemented_with: claudecode/opus5
 created_at: 2026-08-13 12:26
-updated_at: 2026-08-13 23:56
+updated_at: 2026-08-14 10:13
+completed_at: 2026-08-14 10:13
 ---
 
 ## Context
@@ -143,3 +144,14 @@ handles is expected and is not a defect of this child.
 > **✅ gate:plan_approved** run=2026-08-13T20:44:29Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-14T07:12:42Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-14T07:13:16Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f0a7e7b6963b4876
+
+> **✅ gate:risk_evaluated** run=2026-08-14T07:13:16Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1505_2/risk_evaluated_2026-08-14T07:13:16Z-risk_evaluated-a1.log`

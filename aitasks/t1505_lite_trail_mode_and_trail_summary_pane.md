@@ -12,10 +12,10 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1505_2, t1505_3, t1505_4, t1505_5]
+children_to_implement: [t1505_3, t1505_4, t1505_5]
 anchor: 1210
 created_at: 2026-08-13 11:09
-updated_at: 2026-08-13 21:54
+updated_at: 2026-08-14 10:13
 ---
 
 ## Problem
