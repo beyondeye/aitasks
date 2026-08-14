@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -19,6 +19,7 @@ followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-13 15:44
 updated_at: 2026-08-14 10:25
+completed_at: 2026-08-14 10:25
 ---
 
 ## Origin
@@ -97,3 +98,14 @@ variable t1500's flake turned on.
 > **✅ gate:plan_approved** run=2026-08-13T19:57:49Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-14T07:23:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-14T07:25:27Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d364d35039f03b7d
+
+> **✅ gate:risk_evaluated** run=2026-08-14T07:25:27Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1510/risk_evaluated_2026-08-14T07:25:27Z-risk_evaluated-a1.log`
