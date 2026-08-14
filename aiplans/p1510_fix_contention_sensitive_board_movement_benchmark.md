@@ -331,7 +331,7 @@ Final Implementation Notes.
 - The claim could be satisfied vacuously if the `undecidable` precondition fired
   under the lane, reducing the outcome to flake-avoidance · severity: medium · → mitigation: inline post-phase contention_injection
 - The `min`-estimator evidence is from this box only; the real lane's scheduling
-  behaviour could still differ · severity: low · → mitigation: full_suite_triple_run
+  behaviour could still differ · severity: low · → mitigation: t1519
 - The marked-block scoping means a future editor could move the carve-out list
   out of the markers and silently disarm the guard · severity: low · → mitigation: none identified (the guard errors on missing markers rather than passing, and the negative-control fixture pins that)
 
@@ -342,7 +342,7 @@ full-lane confirmation.)*
 
 ### Planned mitigations
 - timing: post-phase | name: contention_injection | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — claim could be satisfied vacuously via the undecidable skip under the lane | desc: Evaluate the localisation claim under pinned oversubscription and a real -n 4 --dist loadfile lane, requiring an observed `localised` verdict; a skip is not acceptance
-- timing: after | name: full_suite_triple_run | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: goal-achievement — min-estimator evidence gathered on one box only | desc: Re-run the full Python suite three times under the real parallel lane (the protocol that surfaced the defect in t1500) on a quiet box with AITASK_BOARD_ATTR_VERDICT_LOG set to one shared path, then assert the log holds exactly 3 lines and all 3 match `^localised[[:space:]]` — the suite's own PYTHON SUITE line cannot distinguish a pass from an undecidable skip
+- timing: after | name: full_suite_triple_run | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: goal-achievement — min-estimator evidence gathered on one box only | desc: Re-run the full Python suite three times under the real parallel lane (the protocol that surfaced the defect in t1500) on a quiet box with AITASK_BOARD_ATTR_VERDICT_LOG set to one shared path, then assert the log holds exactly 3 lines and all 3 match `^localised[[:space:]]` — the suite's own PYTHON SUITE line cannot distinguish a pass from an undecidable skip | created: t1519
 
 ## Step 9 (Post-Implementation)
 
