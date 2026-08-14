@@ -717,3 +717,93 @@ reachable injection window the first draft had dismissed, which is evidence the
 plan's own safety reasoning needed correction; it is now closed structurally
 (Phase 3b) and gated on measurement (Pre-phase step 2), but the correction
 itself is the reason the level is no longer `low`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Shipped Codex shadow-readiness for the minimonitor
+  auto-recheck loop. `shadow_query_args()` now carries `#{pane_pid}`, threaded
+  through `match_shadow_pane_info` → `find_shadow_pane_info_async` → both
+  `minimonitor_app` gates, which resolve the shadow's agent with the two-rung
+  `agent_key_from_pane` off the event loop (`asyncio.to_thread`) under
+  generation guards. `_claude_ready`'s body was generalized into
+  `_composer_state`, gaining a `SHADOW_*` verdict vocabulary and a public
+  `shadow_state()`; `shadow_prompt_ready` is now derived from it. Added the
+  `codex` detector, the wall-clock post-interaction settle latch, seven live
+  Codex fixtures, ~26 tests, and docs in `shadow_agent.md` +
+  `monitor_idle_and_prompt_detection.md`. Created **t1520** for OpenCode.
+
+- **Deviations from plan:**
+  - The plan's headline premise was **stale and was corrected before coding**:
+    t1467 had already landed three live Codex prompt patterns and two OpenCode
+    ones, so the "codex has 1 placeholder, opencode has 0" framing (and the
+    `depends: [1467]` question built on it) did not apply.
+  - The **actual blocker was not the detector table** but agent resolution:
+    Codex installs as a node wrapper, so `pane_current_command` reports `node`
+    and rung-1 resolution answers `""`. Discovered during planning measurement;
+    Phase 1 exists entirely because of it.
+  - Phase 1's first draft argued for a synchronous lookup citing
+    `monitor_core.py:2216` as precedent. That precedent is the **sync** capture
+    path; the async path already offloads the same call (`_classify_batch`).
+    Corrected in review round 1.
+  - Phase 3b (settle latch) and Phase 3c (delivery-time gating) were added in
+    review rounds 2 and 3; neither was in the approved plan.
+  - Fixtures live in `tests/review_loop_fixtures.py`, not inline in
+    `tests/test_review_loop.py` as the task text said — the separate module is
+    the shipped t1159_2 practice.
+
+- **Issues encountered:**
+  - The pre-phase characterization test did its job: it caught a 3-tuple stub
+    in `tests/test_minimonitor_concern_smoke.py` that the seam widening would
+    otherwise have broken only at runtime, inside a live tick.
+  - Two test-harness app builders construct `MiniMonitorApp` via `__new__` and
+    mirror `__init__` state by hand; both needed the new latch fields. The
+    second (`RecheckInjectionSmokeTests`) was missed initially and surfaced only
+    in the full-suite run, not in the targeted modules.
+  - **Measurement instrument bugs found and fixed mid-measurement**, both of
+    which would have shipped as real defects: an unanchored `esc to interrupt`
+    alternation false-positives on Codex boot text (~0.5 s), and classifying
+    `working` before `dialog` mislabels a pane that is parked at a permission
+    dialog (Codex keeps `• Running <cmd>` on screen there).
+  - One test I wrote for the byte-identical delivery race **passed against the
+    pre-fix code** — it was proving the tick-time guard, not the delivery guard.
+    Deleted rather than kept; the residual is documented instead.
+  - An intermediate full-suite run reported `test_textual_markup_colours`
+    failing; it passes standalone and in the clean re-run, is not a file this
+    task touched, and another session was writing `aitask_board.py`
+    concurrently. Recorded rather than silently dropped.
+
+- **Key decisions:**
+  - The settle latch arms on **anything that is not READY or WORKING**, not on
+    a prompt-pattern match — so it needs no pattern coverage and covers the
+    un-patterned Codex update prompt and any future one.
+  - It is released by a **monotonic wall-clock deadline**, not a tick count:
+    the evidence cadence is `max(1.0, 0.5 * refresh_seconds)` and
+    `refresh_seconds` is user-configurable from two places, flooring at 1.0 s.
+  - `SHADOW_SETTLE_SECONDS = 2.0` is the **pre-registered floor**, shipped on a
+    NULL measurement (no injectable window reproduced in 15 turn-level reps).
+    Kept because five samples per kind is not proof of impossibility and because
+    the update-prompt case proved the release half is load-bearing.
+  - Guards were **mutation-tested**, not assumed: removing the option-row check,
+    inverting dialog/working, substituting a tick-counted latch, deleting both
+    generation guards, and reverting the delivery fix each fail exactly their
+    named test. One ordering test initially passed under mutation (the fixture's
+    15-line window excluded the running line), so
+    `CODEX_PERMISSION_WITH_RUNNING_RAW` was added to make it discriminate.
+
+- **Measurement data (pre-phase step 2, codex-cli 0.146.0, 2026-08-14):**
+  permission dialog 5/5 reps and question widget 5/5 reps — longest injectable
+  ready-run 0.25 s (one sample, and it is the pre-submit artifact at t+0);
+  startup update prompt 5/5 reps — **no work ever follows**, ready and
+  byte-identical for the full 15 s window (56 consecutive identical captures).
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/prompt_patterns.py:137-161 — the Codex startup
+    update-available prompt ("Update available! X -> Y" + numbered options +
+    "Press enter to continue") matches no `codex` pattern, so `ait monitor` /
+    `ait minimonitor` will not flag a followed Codex pane parked on it as
+    awaiting user input.` Found live while capturing fixtures; t1467's territory
+    (followed-pane prompt coverage). The review loop is unaffected — t1509
+    excludes it structurally — but the monitor's awaiting-input signal is not.
+
+- **Notes for sibling tasks:** see t1520, which carries the full OpenCode
+  measurement so it need not be re-derived in another live session.
