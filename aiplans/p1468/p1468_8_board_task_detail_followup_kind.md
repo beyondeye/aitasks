@@ -735,6 +735,207 @@ in a different field, and out of scope here. The fix is to consult the
 `TaskDetailScreen.has_unsaved_edits()` predicate this task adds — no redesign
 needed.
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-14 13:05)
+
+- **Requested by user:** The detail row appends the glyph as a Rich *span*
+  inside a multi-span `Text` while `TaskCard` hands the glyph `Text` straight to
+  a `Label`, so the same vocabulary value composited as `#fd971f` in Task Detail
+  but `#ffff00` on the card. That breaks the task's and the documentation's
+  promise that the row shows *the same glyph and colour as its card*, and the
+  test suite could not catch it because it only compared the row against a
+  probe, never against a card. Use a common rendering/resolution shape or a
+  canonical resolved colour, and assert composited card and detail glyph
+  colours are equal for each kind. **Blocking.**
+
+- **Verified — confirmed.** Measured across every render path in one app:
+
+  | path | `yellow` composites as |
+  |---|---|
+  | Rich **base** style — `Label(Text(g, style=c))`, i.e. every card surface | `#ffff00` |
+  | Rich **span** — `Text.append(g, style=c)`, i.e. the detail row | `#fd971f` |
+  | explicit hex, **either** path | identical |
+  | `Content.assemble` — the `GroupHeader` roll-up | `#ffff00` |
+
+  So the row was the only outlier; the roll-up already agreed with the cards.
+
+- **Changes made:** resolve the vocabulary colour to an explicit truecolor hex
+  at the one boundary every glyph surface already shares.
+  - **`_followup_colour_hex(colour)`** (new, `lru_cache`d) —
+    `textual.color.Color.parse(colour).hex`, falling back to the raw name on
+    `ColorParseError` so a bad vocabulary entry can never raise into a render
+    pass. **Not** Rich's `Color.get_truecolor()`: that answers `#808000` for
+    `yellow` and `#008080` for `cyan`, which would have silently restyled every
+    existing card. Textual's values are byte-identical to what the cards
+    already paint, so the fix is a **no-op for the cards** and corrects only
+    the row.
+  - **`_followup_glyph_text`** now applies that hex. Because it is shared, the
+    card, In-Flight, By-Trail, the picker rows and the detail row all agree by
+    construction — there is no second resolution to keep in sync.
+  - Imports: `functools.lru_cache`, and
+    `textual.color.Color as TextualColor, ColorParseError`.
+- **Tests added** (`tests/test_board_detail_followup_kind.py`):
+  - `test_card_and_detail_row_paint_the_same_colour` — the requested
+    assertion, parametrised over the **whole** vocabulary: composites a real
+    `TaskCard` and the real `FollowupKindField` and requires
+    `card[glyph] == field[glyph]`, with a same-literal control proving the two
+    probe apps share a theme.
+  - `test_the_resolution_matches_textual_not_rich` — pins *which* resolution is
+    canonical, so a future "simplification" to `get_truecolor()` fails loudly
+    instead of restyling every card.
+  - `test_an_unparseable_colour_degrades_to_the_raw_name` — the fallback.
+  - `PROBES` changed from colour **names** to literal **hexes**: a named probe
+    is itself path-dependent and therefore cannot be compared across the two
+    surfaces.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_detail_followup_kind.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** The `Follow-up:` row landed as row 5 of
+  `#meta_editable`, editable through a picker modal, persisting via
+  `aitask_update.sh`. 3 files modified, 1 added.
+  - **`board/aitask_board.py`** (+~290): widened the `followup_kinds` import to
+    `label_for` / `normalize_followup_kind`; added `_followup_colour_hex` and
+    routed `_followup_glyph_text` through it (Change Request 1);
+    `FollowupKindPickerItem`, `FollowupKindPickerScreen` and
+    `FollowupKindField` after `AnchorField`; `TaskDetailScreen`'s
+    `has_unsaved_edits()` predicate plus the guard push in
+    `_update_save_button`; one `yield` in `compose`.
+  - **`tests/test_board_detail_followup_kind.py`** (new, 59 tests).
+  - **`website/content/docs/tuis/board/reference.md`**: a "Reading and changing
+    the kind in Task Detail" subsection and two Modal-Dialogs rows.
+  - **No CSS rule was added** — `.meta-ro` / `.meta-ro.ro-focused` already
+    supply the row layout and focus highlight, and adding a colour there would
+    be the second authority `.task-followup-glyph` deliberately avoids.
+- **Deviations from plan:**
+  - **`_followup_colour_hex` did not exist in the approved plan.** It is the
+    Change Request 1 fix; see that section for the measurements. The plan's
+    decision 8 ("`render()` returns a Rich `Text`") assumed a literal style
+    composites to one value, which is true for a hex and false for a NAME.
+  - **The colour probes became literal hexes rather than colour names.** A
+    named probe is itself path-dependent, so it could not be compared across
+    the card and the row — the very comparison the review asked for.
+  - Everything else landed as planned, including the placement, the read-only
+    rule, the `""`/`None` split, and the Enter-on-row affordance (no new key
+    binding, so `tui_conventions.md`'s footer rule is not engaged).
+- **Issues encountered:**
+  - **Base-style vs span-style colour resolution.** Isolated by probing every
+    render path in one app: `Text(g, style="yellow")` handed to a `Label`
+    composites `#ffff00`, while `Text.append(g, style="yellow")` composites
+    `#fd971f`. A hex is identical on both. `Content.assemble` (the
+    `GroupHeader` roll-up) already matched the cards, so the detail row was the
+    only outlier. Fixed at the one shared boundary.
+  - **The first colour probes were on the wrong path** and failed against a
+    correct implementation — a probe must hold the render path constant so the
+    colour is the only variable.
+  - **The live round-trip's first `assertNotIn` was wrong, not the code**: it
+    swept glyphs from the whole screen, so a sibling fixture's `▤` made the
+    post-clear assertion unfalsifiable. Scoped to the one card and switched the
+    written kind to one no other fixture carries.
+  - **`test_textual_markup_colours.py` flagged this module**: the fallback test
+    used a Rich palette name as a literal, which is exactly what that guard
+    scans for. Resolved by testing the `except ColorParseError` branch with
+    non-palette tokens and keeping the historical reference in a comment
+    (comments are not scanned, pinned by its own
+    `test_a_comment_is_not_scanned`) — a waiver-list entry would have been more
+    machinery for no added rigour.
+  - **One suite run failed on `test_minimonitor_concern_smoke.py`**
+    (`'MiniMonitorApp' object has no attribute '_loop_now'`) — a mid-edit race
+    with a concurrent session editing `minimonitor_app.py`. It passes in
+    isolation and in the next full run; no file in this task's diff is
+    involved.
+- **Key decisions:**
+  - **Persist through `aitask_update.sh`, not `save_changes`.** This is what
+    makes clearing a genuine key REMOVAL and keeps the field out of
+    `_original_values`, so the two "sharp hazards" in the task file are
+    structurally impossible rather than defended against.
+  - **The row is inert while the screen has unsaved CycleField edits** (user
+    decision, Concern A). Save-first was rejected as a surprising write;
+    draft-preservation was rejected because the reload exists to pick up
+    external changes and would need a new parameter through the single
+    sanctioned `TaskDetailScreen` construction site.
+  - **An unrecognised value focuses Cancel and is named in the title** (user
+    decision, Concern B) — the default keystroke must not destroy the value the
+    dialog exists to diagnose.
+  - **All nine kinds are offered; the shell refuses `manual_verification` on a
+    non-MV task** (user decision) — the invariant stays declared once.
+  - **Colour resolution is Textual's, not Rich's.** Rich's `get_truecolor()`
+    answers `#808000` for `yellow`; adopting it would have made the
+    cross-surface test pass while restyling every existing card.
+- **Verification results:**
+  - `tests/test_board_detail_followup_kind.py`: **59/59**. Card surfaces
+    (`followup_glyph`, `group_filtering`, `inflight_view`, `bytrail_view`):
+    **250/250** — no card regression. Detail-screen suites: 22/22.
+    `test_followup_kind_roundtrip.sh` 31/31, `test_followup_kind_seams.sh`
+    55/55.
+  - **Full Python suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)` —
+    4776 passed, 2 skipped, plus 5 in the serial carve-out.**
+  - **Four negative controls**, each failing exactly the named test(s) and each
+    restored byte-identical (sha256-verified):
+    - `[colour_over_widget_css_negative_control]`: mutating `risk_mitigation`
+      yellow→green reddens `test_the_glyph_paints_in_its_kinds_colour`
+      (*"'#98e024' != '#fd971f' : the risk_mitigation glyph must paint in
+      `yellow`"*).
+    - `[clear_path_negative_control]` (both halves): `_apply`'s clear value
+      `""`→`"none"` reddens the live round-trip (*"True is not false : clearing
+      must delete the `followup_kind:` line"*) **and**
+      `test_clearing_passes_an_empty_string_not_a_sentinel`; separately
+      short-circuiting the *set* reddens the positive control (*"'risk_mitigation'
+      != 'qa_test_gap' : the exact value must reach the frontmatter"*). Note the
+      key-PRESENCE half stayed green under that second mutation — the
+      exact-value assertion is what bit, which is precisely why the positive
+      control checks the value and not merely absence.
+    - `[dirty_guard_negative_control]`: neutering `set_blocked` reddens three,
+      including *"3 != 2 : the picker must NOT open while dirty"*.
+    - Cross-surface (Change Request 1): reverting `_followup_glyph_text` to the
+      raw name reddens `test_card_and_detail_row_paint_the_same_colour`
+      (*"'#00ffff' != '#58d1eb' : manual_verification: the card paints #00ffff
+      but the task-detail row paints #58d1eb"*).
+  - **Live board in a real tmux pane**, on a synthetic project rather than this
+    repo (nine concurrent sessions were committing into it): cards render
+    `▲/▼/·` and a bare control; the row renders
+    `Follow-up: ▲ risk mitigation  (enter to change)` as row 5; the escape
+    capture shows the glyph at `38;2;255;255;0` against the label's muted
+    `165;165;165`, so the literal style beats `.meta-ro`'s `color: $text-muted`
+    on a real pty; `.meta-ro.ro-focused` paints on arrow-nav; the picker shows
+    all nine kinds plus the clear row in canonical order with the current kind
+    focused and `✓`-marked; and cycling Priority flips the row to
+    `(save or revert pending edits first)` with `Enter` opening nothing.
+    **After the Change Request 1 fix, the card and the row composite the same
+    single `▲` colour** (`38;2;255;255;0`; the row was `253;151;31` before).
+  - **Not live-verified, deliberately:** narrow width, read-only screens and
+    the `manual_verification` refusal — all covered at composited-strip or
+    subprocess level, and the synthetic project has no archived/folded tasks
+    for the read-only case, so a live check would have been vacuous.
+- **Upstream defects identified:**
+  - `aitask_board.py:4899-4910 — AnchorField._apply calls _reload_detail_screen on success, which pushes a FRESH TaskDetailScreen whose __init__ re-seeds _original_values from disk, so any pending unsaved CycleField edit (priority / effort / status / issue_type) is silently discarded with no warning. Pre-existing, in a different field, and out of scope for t1468_8, which guards only its own row. The fix is to consult TaskDetailScreen.has_unsaved_edits() — the field-agnostic predicate this task adds for exactly this class — before opening AnchorEditScreen; no redesign needed.`
+- **Notes for sibling tasks:**
+  - **A vocabulary colour NAME does not composite to one value.** As a Rich
+    base style (every card surface) Textual resolves it through its CSS palette
+    (`yellow` -> `#ffff00`); as a Rich span (any single-line row built from one
+    multi-span `Text`) it resolves through the theme's ANSI palette
+    (`#fd971f`). Any new surface that appends the glyph into a longer `Text`
+    MUST go through `_followup_glyph_text` / `_followup_colour_hex` rather than
+    applying `FOLLOWUP_KINDS[k][1]` directly, or it will disagree with the
+    cards. `Content.assemble` behaves like the base path.
+  - **Never resolve these colours with Rich's `get_truecolor()`** — it answers
+    `#808000` for `yellow` and `#008080` for `cyan`, i.e. not what the cards
+    paint.
+  - **`TaskDetailScreen` now has two persistence models.** Four `CycleField`s
+    are deferred until Save; `AnchorField` and `FollowupKindField` write
+    immediately and reload the screen. **Any new immediate-write field must
+    consult `has_unsaved_edits()`** and refuse while it is true, or it will
+    silently discard the user's pending edits.
+  - **Clearing `followup_kind` is key removal with no tombstone.** Treat
+    *absent* as "not a follow-up"; never write `""` or `"none"` as a value, and
+    never assert `== None`.
+  - **`tests/test_textual_markup_colours.py` scans string constants**, so a
+    test that needs an unparseable colour name as a fixture must either use a
+    non-palette token or take a `RICH_RENDERER_WAIVERS` entry. Comments are not
+    scanned.
+
 ## Step 9 (Post-Implementation)
 
 Merge target `main` (current-branch mode, no worktree). Cleanup, archival and
