@@ -821,6 +821,11 @@ def _p90(xs):
     return ordered[min(len(ordered) - 1, int(round(0.9 * (len(ordered) - 1))))]
 
 
+def _min(xs):
+    """Empty-safe minimum, mirroring `_median`'s 0.0-on-empty contract."""
+    return min(xs) if xs else 0.0
+
+
 def summarise(samples: list[dict]) -> dict:
     """Per-sample ratios, THEN medianed — never a ratio of aggregates.
 
@@ -851,6 +856,17 @@ def summarise(samples: list[dict]) -> dict:
             for k in Probe.TREE},
         "tree_self_ms": {
             k: _median([s.get("tree_self", {}).get(k, 0.0) for s in samples]) * 1000
+            for k in Probe.TREE},
+        # Contention-robust companion to `tree_self_ms` (t1510). Scheduling
+        # noise is strictly ADDITIVE -- a descheduled thread only ever adds wall
+        # time to the enclosing span -- so the MINIMUM sample is the estimate of
+        # the true uncontended cost and is invariant to load as long as one
+        # sample runs clean. The median is not: it tracks the bulk of the
+        # distribution, which contention shifts wholesale. Used by the
+        # attribution negative control, where a 25 ms bound sits well inside
+        # `render`'s own 41-119 ms per-sample spread.
+        "tree_self_min_ms": {
+            k: _min([s.get("tree_self", {}).get(k, 0.0) for s in samples]) * 1000
             for k in Probe.TREE},
         "tree_calls": {
             k: _median([s.get("tree_calls", {}).get(k, 0) for s in samples])
@@ -1305,6 +1321,114 @@ BENCH_WARMUP_PAIRS = 3
 BENCH_PAIRS = 20
 SMOKE_CARDS = 20
 SMOKE_PAIRS = 2
+#: Pairs for the attribution negative control ONLY (t1510). It reads
+#: `tree_self_min_ms`, and a minimum needs enough draws to land on an
+#: uncontended sample: at SMOKE_PAIRS (4 samples) the estimate is too thin,
+#: at 6 pairs (12 samples) the measured `render` min-delta stays inside
+#: [-7.4, +7.4] ms both idle and at 2.5x CPU oversubscription.
+ATTR_PAIRS = 6
+
+#: Opt-in path for the machine-readable verdict record (t1510). Same style as
+#: BENCH_ENV. Absent -> the human stderr line only, so default behaviour is
+#: unchanged.
+ATTR_VERDICT_LOG_ENV = "AITASK_BOARD_ATTR_VERDICT_LOG"
+
+#: The negative control's decision bounds, as multiples of the injected cost.
+#: NOT widened from the pre-t1510 values -- t1510 changed the *statistic* the
+#: bounds are applied to (min, not median), leaving the thresholds alone.
+ATTR_SIGNAL_MIN = 0.8    # below this, `refocus` did not absorb the injection
+ATTR_SIGNAL_MAX = 1.5    # above this, even the signal span is distorted
+ATTR_NEIGHBOUR_MAX = 0.5  # a neighbour absorbing this much has stolen the cost
+
+#: Spans the injected cost must NOT land in. `refocus` is the signal span.
+ATTR_NEIGHBOURS = ("check_action", "layout", "render", "dom_query")
+
+
+def format_verdict_record(verdict: str, detail: str) -> str:
+    """The machine record appended to ATTR_VERDICT_LOG_ENV (t1510).
+
+    Format is **verdict token first, TAB, detail** -- deliberately NOT the
+    human stderr prose. Logging the prose line
+    (`attribution localisation: localised | ...`) would silently match nothing
+    and fail verification on a passing run.
+
+    **The shell-side acceptance matcher is `^<verdict>[[:space:]]`, NOT
+    `^<verdict>\\t`.** POSIX ERE has no `\\t` escape: GNU grep warns
+    "stray \\ before t" and matches NOTHING, and BSD grep behaves the same, so
+    the `\\t` form reports failure on a passing run everywhere except the few
+    greps (e.g. ugrep) that extend ERE. The `\\t` in the Python assertions below
+    is fine because Python's `re` *does* define it -- the two engines are not
+    interchangeable, which is exactly why `tests/test_attribution_verdict_log.sh`
+    exercises the real `grep` consumer against a real record.
+    """
+    return f"{verdict}\t{detail}"
+
+
+def attribution_localisation_verdict(clean, slow, injected_ms,
+                                     neighbours=ATTR_NEIGHBOURS,
+                                     signal="refocus"):
+    """Decide whether an injected cost landed in `signal` and nowhere else.
+
+    Pure: `clean` / `slow` are `{span: ms}` mappings (in practice
+    `summarise()["tree_self_min_ms"]`), so every branch below is reachable from
+    a unit test without a child interpreter, Textual, or a loaded box.
+
+    Returns `(verdict, detail)`:
+
+    - ``leaked``      -- the signal span did not absorb the injection, or a
+                         neighbour absorbed too much of it. A real defect.
+    - ``undecidable`` -- even the least-contended sample of the SIGNAL span is
+                         distorted, so no neighbour claim can be trusted. A
+                         defensive backstop, NOT an acceptable result: the
+                         injected cost is a `time.sleep`, which is immune to CPU
+                         contention (measured 50.09 ms at 2.5x oversubscription
+                         vs 50.19 ms idle), so this should not fire in practice.
+    - ``localised``   -- the accounting localised the cost.
+    """
+    delta = slow.get(signal, 0.0) - clean.get(signal, 0.0)
+    if delta < injected_ms * ATTR_SIGNAL_MIN:
+        return "leaked", (
+            f"injected {injected_ms:.0f} ms did not land in `{signal}` self "
+            f"time (delta {delta:.1f} ms)")
+    if delta > injected_ms * ATTR_SIGNAL_MAX:
+        return "undecidable", (
+            f"`{signal}` absorbed {delta:.1f} ms of a {injected_ms:.0f} ms "
+            f"injection -- the signal span itself is distorted, so the "
+            f"neighbour bounds cannot discriminate")
+    worst_name, worst_delta = None, None
+    for name in neighbours:
+        n_delta = slow.get(name, 0.0) - clean.get(name, 0.0)
+        if worst_delta is None or n_delta > worst_delta:
+            worst_name, worst_delta = name, n_delta
+    bound = injected_ms * ATTR_NEIGHBOUR_MAX
+    if worst_delta is not None and worst_delta >= bound:
+        return "leaked", (
+            f"`{worst_name}` absorbed {worst_delta:.1f} ms of a cost injected "
+            f"into `{signal}` (bound {bound:.1f} ms) -- self-time accounting "
+            f"is not localising")
+    return "localised", (
+        f"{signal} +{delta:.1f} ms | worst neighbour "
+        f"{worst_name} +{worst_delta:.1f} ms (bound {bound:.1f} ms)")
+
+
+def _emit_verdict(verdict: str, detail: str):
+    """Human line to stderr always; machine record to the log when opted in.
+
+    The record is written for EVERY outcome and BEFORE the caller's
+    fail()/skipTest() raises -- otherwise a skip would leave no trace and be
+    indistinguishable from "the test never ran" (an empty log). Under
+    `run_all_python_tests.sh` pytest captures stderr for passing tests and a
+    skip still leaves the suite green, so the log is the only signal that can
+    tell "evaluated and satisfied" from "declined to evaluate".
+    """
+    print(f"attribution localisation: {verdict} | {detail}", file=sys.stderr)
+    path = os.environ.get(ATTR_VERDICT_LOG_ENV)
+    if not path:
+        return
+    # O_APPEND of a sub-4096-byte record is atomic enough for the concurrent
+    # xdist workers the acceptance protocol runs under.
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(format_verdict_record(verdict, detail) + "\n")
 
 
 def _bench_cards(n: int):
@@ -1397,13 +1521,25 @@ class BoardMovementBenchmarkTests(_TreeMixin):
     def test_attribution_tier_localises_an_injected_cost(self):
         """Ungated: the t1395 tier keeps working AND is proved to discriminate.
 
-        Two runs at smoke scale. The control run pins that `refocus` self time
-        is small; the negative-control run injects a known 50 ms inside
-        `_refocus_card` and requires it to surface in THAT span and not to be
-        absorbed by its neighbours. Without the second run a tier that timed
-        everything at zero would pass just as happily as a correct one.
+        Two runs. The control run pins that `refocus` self time is small; the
+        negative-control run injects a known 50 ms inside `_refocus_card` and
+        requires it to surface in THAT span and not to be absorbed by its
+        neighbours. Without the second run a tier that timed everything at zero
+        would pass just as happily as a correct one.
+
+        **The neighbour bounds read `tree_self_min_ms`, not `tree_self_ms`
+        (t1510).** They used to compare two independently-MEDIANED quantities
+        against a 25 ms bound, but `render`'s per-sample self time spans
+        41-119 ms on an idle box -- the bound sat inside the statistic's own
+        run-to-run spread, so the suite's `-n 4 --dist loadfile` lane turned it
+        into a coin flip (observed: `render` +40.0 ms in 1 of 3 full runs,
+        passing standalone). Scheduling noise is strictly additive, so the
+        MINIMUM sample estimates the true uncontended cost and survives load.
+        Measured `render` min-delta over 9 cross-run comparisons: [-7.4, +2.7]
+        idle, [-5.5, +7.4] at 2.5x CPU oversubscription -- against the SAME
+        25 ms bound, which t1510 deliberately did not widen.
         """
-        clean = self._bench(SMOKE_CARDS, SMOKE_PAIRS, 1, tag="attr_smoke",
+        clean = self._bench(SMOKE_CARDS, ATTR_PAIRS, 1, tag="attr_smoke",
                             axes=["lateral"], attribution=True)["lateral"]
         # The tier is actually installed (a wall of zeros must not read as
         # "attributed nothing").
@@ -1417,22 +1553,19 @@ class BoardMovementBenchmarkTests(_TreeMixin):
         self.assertLessEqual(
             sum(clean["tree_self_share"][k] for k in Probe.TREE), 1.0 + 1e-9)
 
-        slow = self._bench(SMOKE_CARDS, SMOKE_PAIRS, 1, tag="attr_smoke_negctrl",
+        slow = self._bench(SMOKE_CARDS, ATTR_PAIRS, 1, tag="attr_smoke_negctrl",
                            axes=["lateral"], attribution=True,
                            negctrl="slow_refocus")["lateral"]
-        delta = slow["tree_self_ms"]["refocus"] - clean["tree_self_ms"]["refocus"]
-        self.assertGreaterEqual(
-            delta, NEGCTRL_SLEEP * 1000 * 0.8,
-            f"injected {NEGCTRL_SLEEP*1000:.0f} ms did not land in `refocus` "
-            f"self time (delta {delta:.1f} ms)")
-        # ...and it landed THERE, not in a neighbour that merely encloses it.
-        for neighbour in ("check_action", "layout", "render", "dom_query"):
-            n_delta = (slow["tree_self_ms"][neighbour]
-                       - clean["tree_self_ms"][neighbour])
-            self.assertLess(
-                n_delta, NEGCTRL_SLEEP * 1000 * 0.5,
-                f"`{neighbour}` absorbed {n_delta:.1f} ms of a cost injected "
-                "into `refocus` -- self-time accounting is not localising")
+        verdict, detail = attribution_localisation_verdict(
+            clean["tree_self_min_ms"], slow["tree_self_min_ms"],
+            NEGCTRL_SLEEP * 1000)
+        # Emit BEFORE branching: a skip must still leave a record, or it cannot
+        # be told apart from "the test never ran".
+        _emit_verdict(verdict, detail)
+        if verdict == "leaked":
+            self.fail(detail)
+        if verdict == "undecidable":
+            self.skipTest(detail)
 
     def test_column_widgets_is_unreachable_from_the_move_path(self):
         """Ungated: pins t1395's reachability correction as executable fact.
@@ -1617,6 +1750,142 @@ class BoardMovementBenchmarkTests(_TreeMixin):
         # that would read as "attributed nothing" rather than "measured nothing".
         self.assertGreater(lat["tree_calls"]["check_action"], 0,
                            "attribution tier not installed on the lateral axis")
+
+
+class SummariseStatisticsTests(unittest.TestCase):
+    """`summarise()` really computes `tree_self_min_ms` as a per-span minimum.
+
+    The verdict tests below feed the helper pre-built dicts, so on their own
+    they would stay green against a `summarise()` that emitted a median, the
+    wrong units, or the wrong key -- and an idle integration run would not
+    notice either. This pins the producer directly (t1510).
+    """
+
+    #: Deliberately asymmetric so min != median != mean for every span: a
+    #: copy-pasted median cannot coincidentally satisfy the assertions.
+    SELF_S = {"render": [0.004, 0.050, 0.060, 0.400],
+              "layout": [0.001, 0.002, 0.030, 0.040]}
+
+    def _samples(self):
+        n = len(next(iter(self.SELF_S.values())))
+        out = []
+        for i in range(n):
+            tree_self = {k: v[i] for k, v in self.SELF_S.items()}
+            out.append({
+                "e2e": 1.0, "af": 0.0, "rc": 0.0, "git": 0.0, "save": 0.0,
+                "defer": 0.0, "inclusive_refresh": 0.0, "writes": 1,
+                "filter_calls": 1, "press_covered": True,
+                "tree_self": tree_self, "tree_total": {}, "tree_calls": {},
+            })
+        return out
+
+    def test_tree_self_min_ms_is_the_minimum_in_milliseconds(self):
+        got = summarise(self._samples())
+        for span, vals in self.SELF_S.items():
+            self.assertAlmostEqual(
+                got["tree_self_min_ms"][span], min(vals) * 1000, places=9,
+                msg=f"{span}: tree_self_min_ms must be min(samples) * 1000")
+
+    def test_tree_self_min_ms_is_not_the_median(self):
+        """Negative control for the statistic itself."""
+        got = summarise(self._samples())
+        for span, vals in self.SELF_S.items():
+            self.assertNotAlmostEqual(
+                got["tree_self_min_ms"][span], got["tree_self_ms"][span],
+                places=6,
+                msg=f"{span}: min and median coincide -- this fixture cannot "
+                    "discriminate a median copy-paste")
+            self.assertLess(got["tree_self_min_ms"][span],
+                            got["tree_self_ms"][span])
+
+    def test_absent_tier_yields_zeros_not_a_crash(self):
+        samples = self._samples()
+        for s in samples:
+            s["tree_self"] = {}
+        got = summarise(samples)
+        self.assertEqual(got["tree_self_min_ms"]["render"], 0.0)
+
+
+class AttributionVerdictFormatTests(unittest.TestCase):
+    """The record really is `<token>TAB<detail>` (t1510).
+
+    This pins the PRODUCER only. `\\t` here is a Python `re` escape, which is
+    NOT the same language as the shell acceptance matcher -- POSIX ERE has no
+    `\\t`. The grep-side consumer is pinned separately by
+    `tests/test_attribution_verdict_log.sh`; neither test substitutes for the
+    other.
+    """
+
+    def test_every_verdict_starts_with_its_bare_token_and_a_tab(self):
+        for verdict in ("localised", "leaked", "undecidable"):
+            rec = format_verdict_record(verdict, "refocus +50.1 ms")
+            self.assertRegex(rec, rf"^{verdict}\t")
+            self.assertNotIn("\n", rec, "a record must be exactly one line")
+
+    def test_detail_is_preserved_after_the_tab(self):
+        rec = format_verdict_record("localised", "refocus +50.1 ms")
+        self.assertEqual(rec.split("\t", 1)[1], "refocus +50.1 ms")
+
+
+class AttributionVerdictTests(unittest.TestCase):
+    """Negative controls for `attribution_localisation_verdict` (t1510).
+
+    Pure inputs, so the `undecidable` branch -- which a quiet box will never
+    reach, since the injected cost is a contention-immune `time.sleep` -- is
+    reachable and proven here rather than being dead code.
+    """
+
+    INJECTED = 50.0
+    CLEAN = {"refocus": 0.1, "check_action": 0.5, "layout": 7.0,
+             "render": 60.0, "dom_query": 3.0}
+
+    def _slow(self, **overrides):
+        slow = dict(self.CLEAN)
+        slow["refocus"] = self.CLEAN["refocus"] + self.INJECTED
+        slow.update(overrides)
+        return slow
+
+    def test_clean_localisation(self):
+        verdict, _ = attribution_localisation_verdict(
+            self.CLEAN, self._slow(), self.INJECTED)
+        self.assertEqual(verdict, "localised")
+
+    def test_neighbour_absorbing_the_cost_is_leaked_and_named(self):
+        slow = self._slow(render=self.CLEAN["render"] + 45.0)
+        verdict, detail = attribution_localisation_verdict(
+            self.CLEAN, slow, self.INJECTED)
+        self.assertEqual(verdict, "leaked")
+        self.assertIn("render", detail)
+        self.assertIn("45.0", detail)
+
+    def test_signal_span_missing_the_cost_is_leaked(self):
+        slow = dict(self.CLEAN)
+        slow["refocus"] = self.CLEAN["refocus"] + 5.0
+        verdict, detail = attribution_localisation_verdict(
+            self.CLEAN, slow, self.INJECTED)
+        self.assertEqual(verdict, "leaked")
+        self.assertIn("did not land in `refocus`", detail)
+
+    def test_distorted_signal_span_is_undecidable(self):
+        slow = dict(self.CLEAN)
+        slow["refocus"] = self.CLEAN["refocus"] + 90.0
+        verdict, detail = attribution_localisation_verdict(
+            self.CLEAN, slow, self.INJECTED)
+        self.assertEqual(verdict, "undecidable")
+        self.assertIn("signal span itself is distorted", detail)
+
+    def test_neighbour_exactly_at_the_bound_is_leaked(self):
+        """Pin the boundary rather than leaving the comparison shape open."""
+        bound = self.INJECTED * ATTR_NEIGHBOUR_MAX
+        at = self._slow(render=self.CLEAN["render"] + bound)
+        self.assertEqual(
+            attribution_localisation_verdict(self.CLEAN, at, self.INJECTED)[0],
+            "leaked")
+        under = self._slow(render=self.CLEAN["render"] + bound - 0.01)
+        self.assertEqual(
+            attribution_localisation_verdict(self.CLEAN, under,
+                                             self.INJECTED)[0],
+            "localised")
 
 
 if __name__ == "__main__":

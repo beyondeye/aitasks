@@ -84,6 +84,13 @@ export PYTHONUNBUFFERED=1
 # test_codebrowser_startup_focus_live.py boots the real `ait codebrowser` in a
 # tmux pane under the same wall-clock budget, also against its own synthetic
 # project (a deliberately non-git one). Same budget rationale.
+#
+# This list is DOCUMENTED in CLAUDE.md's `### Testing` section, inside the
+# `serial-carve-out:begin`/`:end` marker block, and the two are kept in agreement
+# by tests/test_serial_carveout_doc_drift.sh. Adding or removing a module here
+# means editing that block in the same commit, or the guard fails.
+# Entries are BARE BASENAMES because is_carved() matches on "${1##*/}"; the doc
+# block shows them `tests/`-prefixed, and the guard normalizes both sides.
 SERIAL_CARVE_OUT=(test_board_header_row_live.py test_board_startup_focus_live.py
                   test_codebrowser_startup_focus_live.py)
 

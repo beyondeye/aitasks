@@ -42,11 +42,22 @@ ait setup --with-dev      # installs pytest + pytest-xdist into the CPython venv
 
 With the tier installed the runner runs a parallel lane —
 `-n <workers> --dist loadfile` — over every module except a small serial
-carve-out (currently `tests/test_board_header_row_live.py`, which boots the real
-board in a tmux pane against the real repo under a hard boot budget), then runs
-the carve-out by itself and combines both exit statuses. `--dist loadfile` is
-mandatory: ~39 modules chdir the process, and the default `--dist load` splits a
-single file's tests across workers.
+carve-out, then runs the carve-out by itself and combines both exit statuses.
+The carved modules are:
+
+<!-- serial-carve-out:begin — guarded by tests/test_serial_carveout_doc_drift.sh
+     against SERIAL_CARVE_OUT in tests/run_all_python_tests.sh. Edit both together. -->
+- `tests/test_board_header_row_live.py`
+- `tests/test_board_startup_focus_live.py`
+- `tests/test_codebrowser_startup_focus_live.py`
+<!-- serial-carve-out:end -->
+
+Each boots a real TUI in a tmux pane under a hard wall-clock boot budget that
+**fails rather than skips**, and a loaded worker pool turns that budget into a
+flake. `test_board_header_row_live.py` additionally runs against the real repo
+and takes `.git/index.lock`; the other two use their own synthetic projects.
+`--dist loadfile` is mandatory: ~39 modules chdir the process, and the default
+`--dist load` splits a single file's tests across workers.
 
 | knob | effect |
 |---|---|
