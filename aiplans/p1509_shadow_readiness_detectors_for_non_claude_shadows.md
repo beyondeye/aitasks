@@ -78,13 +78,19 @@ covered by conjunct (c)". Re-checking the source shows that reasoning was wrong:
 - `hash_stable` needs only `_loop_shadow_hash_streak >= 1` (:2584), i.e. **two**
   identical consecutive captures — so a **1.5 s** unchanged window is enough.
 
-The measured gap was **≥ 2 s** (a capture 2 s after the dialog was answered still
-showed no working indicator; the next at 4 s showed `• Working (3s …)`). A gap
-that spans two 1.5 s evidence ticks makes `shadow_ready` True with nothing
-running, and the loop would send its prompt + Enter before Codex resumed — the
-exact failure this feature exists to prevent. It is therefore **measured
-explicitly (Pre-phase step 2) and closed structurally (Phase 3b)**, and the
-measurement is a **required pre-ship condition**, not an optional check.
+A hand-sampled pass suggested a **≥ 2 s** gap (a capture 2 s after the dialog was
+answered showed no working indicator; the next at 4 s showed `• Working (3s …)`).
+A gap spanning two 1.5 s evidence ticks would make `shadow_ready` True with
+nothing running. That was enough to make the window a **required pre-ship
+measurement (Pre-phase step 2)** rather than an accepted residual.
+
+**→ See "Pre-phase RESULTS" below for what the instrumented measurement actually
+found.** In short: the hand-sampled reading did not survive. Codex keeps its
+working bullet up continuously through a turn — *including across the permission
+dialog* — and no genuine injectable window reproduced in 15 turn-level
+repetitions. The latch still ships (at the pre-registered floor), because the
+measurement also proved its *release* half is load-bearing, and because a null
+result from five samples is not proof of impossibility.
 
 ## The actual blocker (found during measurement)
 
@@ -144,6 +150,53 @@ currently request.
    **still ships** with a floor of 2 s: five samples not reproducing a window is
    not proof that it cannot occur. Deliberately *not* expressed in ticks — see
    Phase 3b on why a tick count is cadence-dependent.
+
+### Pre-phase RESULTS (measured 2026-08-14, codex-cli 0.146.0 / gpt-5.6-terra)
+
+Step 1 (`pin_shadow_seam_consumers`) — `ShadowSeamArityTests` added to
+`tests/test_minimonitor_concern_action.py`, **5 tests green against the
+unmodified helpers**, covering the pure indexers, the sync fail-open pair, the
+async wrapper, and both `minimonitor_app` call sites.
+
+Step 2 (`measure_post_dialog_settle`) — the first pass showed the permission
+dialog goes `dialog → working` with **no gap at all**, so the measurement was
+refined to the decidable quantity that actually matters: *the longest run of
+consecutive byte-identical `ready` captures that is followed later in the same
+turn by a `working` capture* — i.e. an interval in which the loop would have
+seen ready + hash-stable while work was still coming. Sampled at 0.25 s.
+
+| interaction | reps | longest injectable ready-run | notes |
+|---|---|---|---|
+| permission dialog (2-command turn) | 5 | 0.25 s — one sample, and it is the **pre-submit artifact** at t+0, not a mid-turn window | `• Running <cmd>` stays up continuously, *including across the dialog* |
+| question widget | 5 | 0.25 s — same artifact | same |
+| startup update prompt | 5 | n/a — **no work EVER follows**; ready + byte-identical for the full 15 s (56 consecutive identical captures) | the pathological case |
+| no-work-follows answer | covered by the update-prompt case above | | |
+
+**Result: no genuine injectable window was reproduced across 15 turn-level
+repetitions.** Per this plan's pre-registered rule, that null result does not
+cancel the latch — it ships at the documented floor,
+**`SHADOW_SETTLE_SECONDS = 2.0`**. Five samples not reproducing a window is not
+proof it cannot occur, and the update-prompt row proves the *release* half is
+load-bearing regardless.
+
+Three findings that **change the implementation** below:
+
+1. **`esc to interrupt` must NOT be an unanchored alternation.** It
+   false-positives on Codex's boot/tip text for ~0.5 s (measured directly).
+   `_CODEX_WORKING_RE` anchors on the bullet status line only:
+   `(?m)^\s*•\s+(?:Working|Running)\b`.
+2. **`dialog` must outrank `working` in `shadow_state`.** Codex keeps the
+   `• Running <cmd>` line on screen *while parked at the permission dialog*, so
+   a working-first order would let a pane still sitting at the dialog read as
+   `working` and **clear the settle latch** — reintroducing the exact bug the
+   latch exists to prevent. Order: negative patterns → structural composer scan
+   → `working` only outranks a would-be `ready`.
+3. **The real residual runs the OTHER way — over-holding, not over-firing.** An
+   answered dialog's text can stay inside the 15-line capture tail and keep
+   matching `codex_yes_proceed`, holding the shadow "not ready" until output
+   scrolls it out (seen in 2 of 5 permission reps). Fail-safe, and precisely
+   what the spawned `surface_never_settled_shadow` after-task is for. Record it
+   there.
 
 ### Phase 1 — carry the shadow pane's pid to the arm gate
 
@@ -247,10 +300,12 @@ state over a timing artifact.
       echoed user messages share the glyph. They are excluded by the dim-strip
       test instead (an option row's label and an echoed message are not dim),
       which is what the isolated-positive-half measurement above verified.
-    - `_CODEX_WORKING_RE = re.compile(r"(?m)^\s*•\s+(?:Working|Running)\b|esc to interrupt")`
+    - `_CODEX_WORKING_RE = re.compile(r"(?m)^\s*•\s+(?:Working|Running)\b")`
       — covers both `• Working (Ns • esc to interrupt)` and `• Running <cmd>`.
-      Kept separate from `_CLAUDE_SPINNER_RE`, whose `\(esc to interrupt\)`
-      requires the parenthesised form Codex does not render.
+      **No `esc to interrupt` alternation**: measured, it false-positives on
+      Codex's boot/tip text (Pre-phase finding 1). Kept separate from
+      `_CLAUDE_SPINNER_RE`, whose `\(esc to interrupt\)` requires a
+      parenthesised form Codex does not render.
     - `_codex_ready(raw_text)` delegating to `_composer_ready`.
 11. `SHADOW_READY_DETECTORS["codex"] = _codex_ready`. Rewrite the dict comment
     (:379-381) and the module contract block (:301-319) to be agent-generic and
@@ -335,6 +390,40 @@ tick-counted, dialog-only draft failed each of them:
       demonstrably resume work, or present an empty composer continuously past a
       wall-clock deadline strictly longer than the measured gap — at **every**
       configured refresh interval, not just the default.
+
+### Phase 3c — the settle latch must also gate DELIVERY (added in review round 3)
+
+`_fire_shadow_recheck` revalidates readiness on a fresh capture immediately
+before sending, but it consulted `shadow_prompt_ready` only — never the latch.
+Refusing the send there is **not sufficient on its own**, because the
+observation that caused the refusal was discarded: the controller returns to
+WAITING and, as `test_presend_revalidation_refuses_a_changed_shadow` already
+documented in so many words, "the aborted episode completes on the next clean
+tick". That is roughly **one evidence tick (~1.5 s) after an interaction was
+seen on the shadow, with no settle hold at all** — reachable without any
+sub-tick timing, and precisely the window Phase 3b exists to close.
+
+13b. Route the delivery-time revalidation through the same latch, so the
+     pre-send capture is treated as the observation it is:
+     ```python
+     state = review_loop.shadow_state(fresh, shadow_key)
+     ready = review_loop.shadow_prompt_ready(fresh, shadow_key, hash_stable)
+     if self._apply_shadow_settle_latch(state, ready) is not True:
+         return "not_ready", "shadow not settled at delivery time"
+     ```
+     The tick-time guard and the send-time guard then enforce one invariant
+     over one state, rather than two checks that disagree about what an
+     interaction means.
+
+**Accepted residual, stated precisely.** An interaction that appears AND is
+answered entirely between the tick capture and the pre-send capture, leaving a
+**byte-identical** tail, is not closed by this — or by any capture-based check,
+since by construction neither observation differs. It is undecidable from the
+evidence available, and the two captures are one await apart. Anything that
+leaves a visible trace in either capture is caught. (A test asserting otherwise
+was written, found to pass against the *pre-fix* code — i.e. it was proving the
+tick-time guard, not the delivery guard — and removed rather than kept as a
+vacuous assertion.)
 
 ### Phase 4 — fixtures and tests
 
@@ -518,10 +607,11 @@ real session, it does not stand in for the evidence that sizes it):
 
 ## Coordination
 
-- **OpenCode sibling follow-up** — created by **Phase 6 step 23** (an
-  implementation step, not a promise), carrying the measured gutter /
-  bottom-border evidence and its own acceptance criteria. Its id is recorded
-  here at step 24: `t____` (filled in at implementation time).
+- **OpenCode sibling follow-up — created as `t1520`**
+  (`aitasks/t1520_shadow_readiness_detector_for_opencode.md`), carrying the
+  measured gutter / bottom-border evidence and its own acceptance criteria.
+  It also inherits the arm-time refusal test: t1509 retargeted that test to
+  `opencode`, so t1520 must retarget it again rather than delete it.
 - **t1467** (followed-side per-agent prompt patterns) — no blocking edge, per the
   measurement above. One gap to hand over: the **Codex startup
   update-available prompt** is a real awaiting-user-input dialog that no Codex
@@ -531,6 +621,40 @@ real session, it does not stand in for the evidence that sizes it):
   assumes a loop that can arm; with this task landed, verify it with the Codex
   shadow pairing rather than substituting a Claude shadow.
 - **Step 9 (Post-Implementation)** — merge to `main`, archive t1509 and its plan.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-14 12:05)
+- **Requested by user:** `_fire_shadow_recheck` revalidates only
+  `shadow_prompt_ready` at send time and never consults the settle latch, so a
+  send can land inside the very post-interaction window t1509 added the latch to
+  block. Apply the latch/state guard to delivery-time validation and add a
+  regression test driving the between-tick interaction race. Blocking.
+- **Verified:** CONFIRMED, and the reachable failure is worse than the
+  sub-tick race described. When the delivery check refused, the refusing
+  observation was **discarded** — `test_presend_revalidation_refuses_a_changed_shadow`
+  already documented that "the aborted episode completes on the next clean
+  tick", i.e. ~1.5 s after an interaction was seen on the shadow, with no settle
+  hold, needing no timing coincidence at all.
+- **Changes made:** added **Phase 3c** to this plan and implemented it — the
+  pre-send capture is now routed through `_apply_shadow_settle_latch`, so it
+  both consults *and feeds* the latch. Added
+  `test_a_dialog_seen_only_at_delivery_arms_the_settle_latch`, and updated
+  `test_presend_revalidation_refuses_a_changed_shadow` for the deliberate
+  behaviour change (a delivery-time observation of typed composer text now
+  holds for the settle window instead of completing on the next tick). Made the
+  test harness clock advanceable (`_advance_past_settle`). Both tests were
+  mutation-checked: reverting the fix fails exactly those two.
+- **Also removed:** a third test I wrote for the byte-identical variant of the
+  race. It **passed against the pre-fix code**, which means it was exercising
+  the tick-time guard rather than the delivery guard. Its premise is incoherent
+  — if the tail comes back byte-identical, no capture-based check can
+  distinguish it — so it was deleted and the residual documented precisely in
+  `_fire_shadow_recheck` and in Phase 3c, rather than kept as a vacuous
+  assertion.
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_minimonitor_concern_action.py`,
+  `tests/test_minimonitor_concern_smoke.py`, this plan.
 
 ## Risk
 
