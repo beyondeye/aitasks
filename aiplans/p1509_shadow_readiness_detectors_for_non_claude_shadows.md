@@ -120,23 +120,30 @@ currently request.
    authored. A missed unpack site must then fail this test rather than raise a
    `TypeError` inside a live minimonitor tick.
 
-2. `[measure_post_dialog_settle]` **Measure the post-dialog settle window at the
-   real evidence cadence, before writing the guard it sizes.** Drive a live Codex
-   pane in a private tmux socket through: answer a permission dialog → capture
-   the raw tail every **1.5 s** (the committed-evidence-tick interval, not the
-   3 s refresh) → record, per repetition, the **maximum run of consecutive
-   byte-identical tails observed between the dialog disappearing and the working
-   indicator appearing**. Repeat **≥ 5 times**, and repeat the same protocol for
-   the question widget. Record the raw numbers in this plan's Final
-   Implementation Notes.
+2. `[measure_post_dialog_settle]` **Measure the post-interaction settle window in
+   WALL-CLOCK SECONDS, before writing the guard it sizes.** Drive a live Codex
+   pane in a private tmux socket and, for each interaction kind, record the
+   elapsed monotonic time from *the interaction leaving the screen* to *the
+   working indicator appearing*:
+   - the permission dialog (answered `y`),
+   - the question widget (an option submitted),
+   - the startup update prompt (dismissed) — included because Phase 3b treats it
+     as latch-arming and no prompt pattern matches it,
+   - and, as the pathological case, an interaction answered so that **no work
+     follows** (Codex's "No, tell Codex what to do differently" / Esc), to
+     confirm the deadline is the only thing that releases the latch there.
 
-   The measurement **sizes `_POST_DIALOG_SETTLE_TICKS` (`R`) in Phase 3b**:
-   `R = max_observed_identical_run` (floor 1). It is a **required pre-ship
-   condition** — Phase 3b does not ship with a guessed `R`, and if the maximum
-   run is 0 across every repetition (the window can never produce two identical
-   captures) that negative result must be recorded here explicitly and the
-   latch still ships, sized `R = 1`, because a null result from five samples is
-   not proof of impossibility.
+   Sample at **0.25 s**, far below any configured evidence cadence, so the
+   measurement describes the pane rather than the sampler. Repeat **≥ 5 times**
+   per kind. Record every raw number in this plan's Final Implementation Notes.
+
+   The measurement **sizes `SHADOW_SETTLE_SECONDS` in Phase 3b** as
+   `ceil(max_observed_gap_seconds) + 1 s` margin. It is a **required pre-ship
+   condition** — Phase 3b does not ship with a guessed value. If some repetition
+   shows no gap at all, that negative result is recorded explicitly and the latch
+   **still ships** with a floor of 2 s: five samples not reproducing a window is
+   not proof that it cannot occur. Deliberately *not* expressed in ticks — see
+   Phase 3b on why a tick count is cadence-dependent.
 
 ### Phase 1 — carry the shadow pane's pid to the arm gate
 
@@ -254,12 +261,33 @@ state over a timing artifact.
     stays `("claude",)` — out of scope, and a Claude followed pane with a Codex
     shadow is precisely the pairing being unblocked.
 
-### Phase 3b — close the post-dialog settle window structurally
+### Phase 3b — close the post-interaction settle window structurally
 
 The window measured in Pre-phase step 2 is a **timing** hazard, so a timing
 answer ("require a longer hash streak") would only move it. Close it with state:
-the loop must positively observe the shadow leave the dialog *into work* before
-an empty composer counts as ready.
+the loop must positively observe the shadow leave an interaction *into work*, or
+wait out a wall-clock deadline, before an empty composer counts as ready.
+
+Two properties are load-bearing, both from the review round; the earlier
+tick-counted, dialog-only draft failed each of them:
+
+- **The arming predicate must not depend on prompt-pattern coverage.** Codex's
+  startup update prompt is a real on-screen interaction that **no** pattern
+  matches — the prototype classifies it from the positive half alone (its `›`
+  option row carries visible non-dim text). A latch armed only by "a negative
+  pattern matched" would never arm for it, and the same class of gap reopens for
+  every future un-patterned dialog. So the latch arms on **anything that is not
+  a positively-identified empty composer and not a positively-identified working
+  state**. That is strictly more conservative, needs no pattern coverage, and
+  also covers a shadow holding user-typed text — where injecting would
+  concatenate onto what the user typed.
+- **The deadline must be wall-clock, not tick-counted.** The evidence cadence is
+  `max(1.0, 0.5 * _refresh_seconds)` and `_refresh_seconds` is user-configurable
+  from **two** places (`--interval/-i`, `minimonitor_app.py:3207/3223`, and
+  `project_config.yaml: monitor.refresh_seconds`). At `--interval 1` or `2` the
+  cadence floors at **1.0 s**, so a fixed `R` sized against the default 1.5 s
+  cadence expires ~33 % early and restores the original risk. A monotonic
+  deadline is cadence-independent by construction.
 
 12. `review_loop.py` — expose the detector's verdict instead of collapsing it to
     a bool, keeping **one** implementation:
@@ -269,32 +297,44 @@ an empty composer counts as ready.
 
     def shadow_state(raw_text: str | None, agent: str) -> str: ...
     ```
-    `_composer_ready` is refactored to return one of these (dialog = a negative
-    pattern matched; working = the working regex matched; ready = empty
-    composer; busy = a composer carrying typed text; unknown = capture failed /
-    no detector / no composer found). `shadow_prompt_ready` is then **derived**
-    from `shadow_state` — same signature, same behaviour, no second copy of the
-    rules — so the two can never disagree.
+    `_composer_ready` is refactored to return one of these: `working` = the
+    working regex matched; `ready` = a positively-identified **empty** composer;
+    `dialog` = a negative pattern matched **or** the positive scan found an
+    option-row-shaped `›` line (`^›\s*\d+\.\s`) **or** no composer line at all —
+    the structural cases that cover the un-patterned update prompt and the
+    question widget; `busy` = a composer carrying genuine typed text;
+    `unknown` = capture failed / no detector.
+    `shadow_prompt_ready` is then **derived** from `shadow_state` — same
+    signature, same behaviour, no second copy of the rules — so the two can
+    never disagree.
 
-13. `minimonitor_app.py` — a post-dialog latch on the committed evidence tick:
-    - `self._loop_shadow_post_dialog: int | None = None` (armed = a countdown,
-      `None` = clear). Reset to `None` in `arm()` and in the two existing
-      `_loop_shadow_hash_streak = 0` reset sites so a fresh lifecycle never
-      inherits it.
-    - `shadow_state == SHADOW_DIALOG` → set the latch to `R`
-      (`_POST_DIALOG_SETTLE_TICKS`, **sized by Pre-phase step 2**) and force
-      `shadow_ready = False`.
-    - `shadow_state == SHADOW_WORKING` → clear the latch (`None`). This is the
-      normal exit: the shadow demonstrably resumed work.
-    - `shadow_state == SHADOW_READY` **with the latch armed** → decrement it and
-      force `shadow_ready = False` until it reaches 0. **This escape hatch is
-      required, not optional:** answering a dialog with an option that produces
-      no work at all (Codex's "No, tell Codex what to do differently", or Esc)
-      never yields a `WORKING` observation, and a latch that only `WORKING`
-      could clear would wedge the armed loop forever.
-    - Net effect: after a dialog, a fire needs `R` consecutive ready evidence
-      ticks **on top of** the existing hash-stability streak — a window strictly
-      longer than the one measured — or a positive work observation.
+13. `minimonitor_app.py` — a **wall-clock post-interaction settle latch** on the
+    committed evidence tick:
+    - `self._loop_shadow_settle_until: float | None = None` (a monotonic
+      deadline; `None` = clear). Reset to `None` in `arm()` and at the two
+      existing `_loop_shadow_hash_streak = 0` reset sites, so a fresh lifecycle
+      never inherits it.
+    - `SHADOW_SETTLE_SECONDS` — a module constant in **seconds**, sized by
+      Pre-phase step 2 as `max_observed_gap_seconds` rounded up plus a margin.
+      Not a tick count; nothing about it references the refresh interval.
+    - Injectable clock: `self._loop_now = time.monotonic` (overridable), so the
+      tests drive the deadline deterministically rather than sleeping — the same
+      no-sleep-timing discipline `_run_offloaded` documents.
+    - `state == SHADOW_WORKING` → clear the latch (`None`). The normal exit: the
+      shadow demonstrably resumed work.
+    - `state` **not** in `(SHADOW_READY, SHADOW_WORKING)` → arm/refresh the
+      latch to `now + SHADOW_SETTLE_SECONDS` and force `shadow_ready = False`.
+      This is the pattern-coverage-independent predicate above.
+    - `state == SHADOW_READY` with the latch armed → force `shadow_ready = False`
+      while `now < deadline`; at or past it, clear the latch and let the normal
+      three-conjunct verdict stand. **The deadline is itself the escape hatch**,
+      and it always expires — so answering a dialog in a way that produces no
+      work at all (Codex's "No, tell Codex what to do differently", or Esc) can
+      never wedge the armed loop, which a clear-only-on-`WORKING` latch would.
+    - Net effect: after any interaction, a fire needs the shadow to either
+      demonstrably resume work, or present an empty composer continuously past a
+      wall-clock deadline strictly longer than the measured gap — at **every**
+      configured refresh interval, not just the default.
 
 ### Phase 4 — fixtures and tests
 
@@ -338,15 +378,31 @@ t1159_2 is this separate module; following the shipped practice)
     4-field line yields the pid; 3-field and 2-field lines still resolve with
     `pid = 0`.
 19b. **Phase 3b latch cases** (`tests/test_review_loop.py` + the app-level
-    module): `shadow_state` returns the right verdict for each Codex fixture;
-    `shadow_prompt_ready` derived from it is byte-for-byte behaviour-compatible
-    on every **Claude** fixture (a characterization guard on the refactor); and
-    a driven evidence-tick sequence `dialog → ready × R → ready` fires only on
-    the last tick, while `dialog → ready → working → ready × 2` clears the latch
-    early. Include the **wedge negative control**: a `dialog → ready …` sequence
-    that never produces a `working` observation must still fire after `R` ticks
-    — pinning the escape hatch, which is the branch a "clear only on WORKING"
-    implementation would silently omit.
+    module), all driven through the injected `_loop_now` clock — no sleeps:
+    - `shadow_state` returns the right verdict for **each** Codex fixture, and
+      `shadow_prompt_ready` derived from it is behaviour-compatible on every
+      **Claude** fixture (a characterization guard on the refactor).
+    - `CODEX_UPDATE_PROMPT_RAW` classifies as `SHADOW_DIALOG` — **not**
+      `SHADOW_BUSY`. This is the assertion that pins the structural
+      (pattern-independent) arming rule; it fails against a
+      pattern-match-only implementation.
+    - **End-to-end update-prompt sequence:** `update_prompt → ready → ready …`
+      holds until the wall-clock deadline and fires only after it, exactly as
+      the permission-dialog sequence does. Without this the un-patterned dialog
+      is untested even though it is the case that motivated the rule.
+    - `dialog → ready → working → ready` clears the latch early via the
+      `WORKING` observation.
+    - **Wedge negative control:** a `dialog → ready …` sequence that never
+      produces a `working` observation must still fire once the deadline passes
+      — pinning the escape hatch a clear-only-on-`WORKING` implementation would
+      silently omit.
+    - **Cadence independence (concern B, as an executable assertion):** run the
+      same sequence twice, once with `_refresh_seconds = 3` (1.5 s cadence) and
+      once with `_refresh_seconds = 1` (the 1.0 s floor), advancing the injected
+      clock by the respective interval per tick. **The hold must end at the same
+      wall-clock offset in both runs, i.e. after more ticks in the 1.0 s run.**
+      A tick-counted implementation passes the 1.5 s run and fails this one,
+      which is the point.
 
 19c. **Phase 1 async-resolution cases:** with `_resolve_shadow_agent_key`
     overridden to resolve after the caller bumps `ctrl.generation`, the mid-loop
@@ -431,14 +487,16 @@ lands.
 manual-verification follow-up — the follow-up confirms the shipped guard in a
 real session, it does not stand in for the evidence that sizes it):
 
-1. **Post-dialog settle measured** (Pre-phase step 2): ≥ 5 repetitions each for
-   the permission dialog and the question widget, sampled at 1.5 s, with the
-   maximum run of consecutive identical tails recorded in the Final
-   Implementation Notes — and `_POST_DIALOG_SETTLE_TICKS` set from that number
-   rather than guessed.
-2. **The latch is pinned by a driven tick sequence**, including the wedge
-   negative control (step 19b) — a latch that can only be cleared by a `working`
-   observation must fail that test.
+1. **Post-interaction settle measured in seconds** (Pre-phase step 2): ≥ 5
+   repetitions each for the permission dialog, the question widget, the startup
+   update prompt and the no-work-follows answer, sampled at 0.25 s, with every
+   raw number recorded in the Final Implementation Notes — and
+   `SHADOW_SETTLE_SECONDS` set from the measured maximum rather than guessed.
+2. **The latch is pinned by driven clock sequences** (step 19b), including all
+   four of: the update-prompt end-to-end sequence, the `SHADOW_DIALOG`
+   classification of the update prompt, the wedge negative control, and the
+   **two-cadence** run. A tick-counted or pattern-match-armed implementation
+   must fail these.
 3. **The OpenCode sibling exists** (Phase 6) with its id recorded here.
 4. **The arm refusal is still reachable** and still names the agent — proven by
    a test, not by inspection.
@@ -502,18 +560,27 @@ real session, it does not stand in for the evidence that sizes it):
   permanently `False`. The failure direction is fail-safe (the loop holds and
   never injects), but it is **silent** — indistinguishable from a shadow that is
   simply busy · severity: low · → mitigation: surface_never_settled_shadow
-- **[raised to high in review]** After a Codex dialog is answered the pane shows
-  an empty composer with no working indicator for a window measured at **≥ 2 s**,
-  while committed evidence ticks run every **1.5 s** and `hash_stable` needs only
-  two identical captures. The loop can therefore fire its prompt + Enter into a
-  shadow that has not resumed work — the safety failure the feature exists to
-  prevent. Not outside the requirement, as the first draft claimed ·
+- **[raised to high in review]** After a Codex interaction is answered the pane
+  shows an empty composer with no working indicator for a window measured at
+  **≥ 2 s**, while committed evidence ticks run every **1.5 s** (and as little as
+  **1.0 s** at `--interval 1`/`2`) and `hash_stable` needs only two identical
+  captures. The loop can therefore fire its prompt + Enter into a shadow that has
+  not resumed work — the safety failure the feature exists to prevent. Not
+  outside the requirement, as the first draft claimed ·
   severity: high · → mitigation: inline pre-phase measure_post_dialog_settle
-  (sizes it) + Phase 3b post-dialog latch (closes it)
+  (sizes it in seconds) + Phase 3b wall-clock settle latch (closes it)
+- **[added in review round 2]** Two ways the Phase 3b guard could be built such
+  that it *looks* closed but is not: arming it from a prompt-pattern match
+  (which never fires for Codex's un-patterned startup update prompt) or counting
+  evidence ticks (which under-covers at any configured refresh below the
+  default, since the cadence floors at 1.0 s while the constant would be sized
+  at 1.5 s) · severity: medium · → mitigation: none spawned — closed in-plan by
+  Phase 3b's structural arming predicate and monotonic deadline, each pinned by
+  a test in step 19b that a naive implementation fails
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_shadow_seam_consumers | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (shadow-seam tuple widening / missed unpack site) | desc: Characterize every consumer's unpack path against the unmodified helpers before widening them, so a missed call site fails a test instead of a live minimonitor tick.
-- timing: pre-phase | name: measure_post_dialog_settle | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 2 (post-dialog settle window, raised to high in review) | desc: Measure the post-dialog empty-composer window live at the 1.5s evidence-tick cadence over at least five repetitions per dialog kind, and size the Phase 3b latch from the measured maximum rather than a guess.
+- timing: pre-phase | name: measure_post_dialog_settle | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 2 (post-interaction settle window, raised to high in review) | desc: Measure the post-interaction empty-composer window live in wall-clock seconds at 0.25s sampling over at least five repetitions per interaction kind (permission, question widget, un-patterned update prompt, no-work-follows answer), and size SHADOW_SETTLE_SECONDS from the measured maximum rather than a guess.
 - timing: after | name: surface_never_settled_shadow | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement risk 1 (silent composer-pattern drift across a Codex release) | desc: When the loop is armed and the shadow never reads ready for N consecutive ticks, surface a banner hint that its composer pattern may need re-pinning, turning a silent fail-safe hold into a legible signal.
 
 **Reassessment after inlining and after the review round**
