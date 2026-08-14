@@ -160,7 +160,7 @@ canonicalize each). Returned keys:
 | `unowned_obs` | observations whose `affects` is empty/absent **or** intersects no member ref |
 | `other_obs` | the remainder (**the only withheld observations**) |
 | `shown_evidence` | records resolved from the union of this entry's `evidence_refs`, the `evidence_refs` of every observation in `entry_obs` + `unowned_obs`, and every **uncited** record (cited by no entry and no observation anywhere in the document) — each tagged with what cited it |
-| `other_evidence` | the remainder — records cited only by *another* entry or observation (**the only withheld evidence**) |
+| `other_evidence` | the remainder, as the same `(ref, record-or-None, provenance)` tuples — records cited only by *another* entry or observation, **plus any cited ref that resolves to no record at all** (**the only withheld evidence**) |
 | `withheld` | `len(other_drift) + len(other_obs) + len(other_evidence)` |
 
 Rules:
@@ -201,6 +201,15 @@ Rules:
   Checked against the shipped fixture: all 7 of `gate_framework.json`'s records
   are cited, so this bucket is empty there and the fixture-based counts below are
   unaffected.
+- **The evidence universe is `records ∪ cited-refs-that-resolve-to-nothing`,
+  computed ONCE for every projection.** An unresolved ref exists *only* in a
+  citation — never in the `evidence` array — so any projection built from the
+  records alone silently drops it. `other_evidence` therefore carries the same
+  `(ref, record-or-None, provenance)` tuples as `shown_evidence`, and the
+  reveal renders both through one path. **Compute the universe above the
+  no-anchor early return, not inside each branch:** every projection that
+  claims to show "everything" must agree on what everything is, and deriving
+  it twice is what let the same defect appear in two places.
 - `affects` is a list; treat a bare string defensively as a one-element list.
 - Exclusions are document-level, short (2 and 13 in the live trails) and carry no
   entry anchor — they are **never** withheld, only re-ordered (step 2).
@@ -436,6 +445,161 @@ and is not a defect of this child.
 
 Post-implementation cleanup, archival and merge follow **Step 9** of the shared
 task workflow.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four planned steps plus both post-phase mitigations
+  landed as designed. `TrailDetailScreen._scope()` partitions the document three
+  ways against the focused entry; `_sections()` renders entry → wave → drift
+  affecting it → narrative → observations affecting it → evidence backing
+  everything shown → exclusions, closing with an always-rendered `Trail totals:`
+  line and a mode line; `a` toggles the full document, gated in `check_action`
+  and re-guarded inside the action. 20 tests across two new classes
+  (`TrailDetailSectionTests`, `TrailDetailRevealKeyTests`). Design doc §9.1,
+  §9.2 and both §15 wireframes updated.
+
+- **Deviations from plan:** None in approach. Two shape changes forced by
+  review (see Post-Review Changes): the evidence universe became
+  `records ∪ unresolved-cited-refs`, and it is computed once above the
+  no-anchor branch rather than per-projection.
+
+- **Issues encountered:**
+  - **The plan's inherited premise about the test file was false, and the
+    verification pass caught it before any code moved.** `test_board_bytrail_view.py`
+    had **one** `TrailDetailScreen` reference (an `assertIsInstance` at `:681`)
+    and **zero** `_sections` assertions — not "3,335 lines pinning modal
+    content". There was nothing to re-point; the modal was simply untested, so
+    the content tests became a deliverable rather than a migration.
+  - **`trail_drift_by_ref` drops two unowned categories, not one.** Its
+    docstring names both (`task_ref == "-"` **and** refs naming a non-member)
+    and promises they stay visible in this modal. A two-way "mine / everything
+    else" split would have hidden them on *every* card. The fixture proved this
+    is not hypothetical: `obs-missing-model-defaults` carries `affects: []`.
+  - **Evidence had to follow what is displayed, not just the entry.**
+    `obs-red-suite` affects `aitasks#635_29` and cites `ev-red-suite`, which the
+    entry does not cite — scoping to `entry.evidence_refs` would have rendered
+    a claim while withholding its support.
+  - **Two review rounds found the same defect in two places** (see CR1/CR2):
+    the withheld projection, then the no-anchor projection, both built from the
+    `evidence` array while an unresolved ref lives only in a citation. The
+    lesson generalizes past this file: when more than one code path claims to
+    render "everything", derive that set once — fixing only the reported branch
+    leaves the shape that produced the bug.
+  - `_dialog_text(app, widget)` captures only the **visible** slice of a
+    scrolling modal body, so the totals/mode line at the bottom is not
+    assertable through it. The pilot test uses `_dialog_text` to prove the
+    modal is composited and `Static.render().plain` (the repo's existing idiom)
+    for the body's tail.
+
+- **Key decisions:**
+  - **The reveal key is screen-scoped and `show=False`.** No modal in this app
+    mounts a `Footer`, so a visible binding would surface nowhere; the in-body
+    hint line is the discoverability surface and renders exactly when something
+    is withheld. `TrailDetailScreen` declares no `_shortcuts_scope` (like
+    `TrailSummaryScreen`), so `lib/shortcut_scopes.py` needs no manifest entry.
+  - **`a` deliberately shadows the App-level `view_all`.** Screen bindings win
+    the chain and the App binding carries no `priority=True`; pinned by a
+    negative control asserting `base_filter` is unchanged after the press, and
+    confirmed live in a real terminal.
+  - **`narrative.overview` is rendered as its own field, NOT through
+    `trail_summary_text`** — contrary to t1505_1's sibling note. That resolver
+    picks *one* of two fields for the single-slot pane; reusing it here would
+    hide the schema-required `recommendation_summary` whenever an overview
+    exists (t1505_3). The modal has room for both.
+  - **An always-rendered `Trail totals:` line** is what makes "this trail has no
+    observations" distinguishable from "the observations failed to render".
+  - **No pre-phase characterization test.** Characterizing the old output would
+    have been rewritten by step 1, and t1505_1 recorded the same lesson: a
+    characterization test written before the target surface exists is not the
+    guard it appears to be.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1505_3** adds `narrative.overview`. The modal already renders it
+    (`line("overview", …)`) and `line()` skips absent fields, so no board change
+    is needed when it lands — `test_overview_is_rendered_alongside_recommendation_not_instead`
+    already covers it against a synthetic doc.
+  - **t1505_4** writes lite trails. `test_lite_trail_reads_as_complete_and_is_genuinely_unscoped`
+    encodes the shape this modal expects: no observations/exclusions/relations,
+    **no per-entry `evidence_refs`**, exactly one evidence record. Because that
+    record is then cited by nobody, the "uncited evidence is always shown" rule
+    is what makes a lite trail read as complete rather than scoped — if the lite
+    writer starts emitting `evidence_refs`, re-check that test's expectations.
+  - The unowned/uncited rules are the subtle part of this surface. Anything
+    later "simplifying" `_scope()` into a two-way mine/other split will hide
+    trail-level facts on every card while every scoping test still passes except
+    the three that pin unowned material.
+  - The two stored trail handles still return `ERROR:invalid_trail` until
+    t1468_7 refreshes them to 1.1.0 — observed again live during this task (the
+    selector shows both as "unreadable"). Expected, not a t1505 regression.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-14 00:20)
+
+- **Requested by user:** `_scope()` built `other_evidence` from the root
+  `evidence` records only, while a ref that resolves to no record exists solely
+  in the citation. A ref cited by another entry (reproduced with
+  `evidence_refs: ['ev-missing-other']` on `aitasks#635_33`) was therefore
+  neither counted as withheld nor added when `show_all` is true — pressing `a`
+  silently lost document content. Asked to preserve unresolved refs for
+  non-focused material in the withheld/full projection and to add a regression
+  test alongside the current-entry unresolved-ref test. Disposition: blocking.
+- **Verified before fixing (CONFIRMED):** rendering the `aitasks#635_29` card
+  with that fixture showed `ev-missing-other` absent from **both** views, and
+  `withheld` reported 5 where 6 was correct. The bug is asymmetric by
+  construction: the focused entry's own unresolved ref goes through `_show()`,
+  which carries `(ref, None, provenance)` and renders `(unresolved)`, whereas
+  the withheld set was a list of records — so the existing
+  `test_unresolvable_evidence_ref_is_shown_not_dropped` could never catch it.
+- **Changes made:** `cited_anywhere` became an ordered, deduped list (it was a
+  set); the withheld universe is now `records ∪ refs-that-resolve-to-nothing`,
+  and `other_evidence` carries the same `(ref, record-or-None, provenance)`
+  tuple shape as `shown_evidence`, so the reveal renders both through one path
+  and the existing `rec is None → "(unresolved)"` branch covers it.
+  `_sections()`'s full-mode append dropped its now-redundant re-tupling.
+  Added `test_unresolvable_ref_of_ANOTHER_entry_is_counted_and_revealed`,
+  asserting the ref is absent-but-counted when scoped (`… 5 more evidence
+  records`, `withheld == 6`) and rendered as `• ev-missing-other (unresolved)`
+  when revealed.
+- **Negative control:** with the universe restricted back to records only, the
+  new test fails and the pre-existing current-entry unresolved-ref test stays
+  green — confirming first-hand that the old test could not have caught this.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_bytrail_view.py`.
+
+### Change Request 2 (2026-08-14 00:38)
+
+- **Requested by user:** the `not entry_ref` early return promises a full
+  document but built `shown_evidence` from the root `evidence` records only —
+  the same defect as CR1, in the branch CR1 did not touch. Reproduced by adding
+  `ev-missing` to an entry's refs and constructing `TrailDetailScreen(doc, [])`:
+  `withheld` was 0 and the ref was absent while the mode line still read
+  "Showing the full trail." Asked to build the no-entry universe from records
+  plus unresolved citations and pin it in the no-focused-entry test.
+  Disposition: blocking.
+- **Verified before fixing (CONFIRMED):** reproduced exactly as described —
+  7 evidence bullets, `ev-missing` absent, `withheld == 0`, mode line
+  "Showing the full trail."
+- **Root cause, and why it recurred:** CR1's fix was applied *inside* the
+  anchored path, leaving two independent derivations of "everything". The
+  no-anchor branch was written before the universe rule existed and kept its
+  own records-only view. Fixing only the reported branch again would have left
+  the same shape in place.
+- **Changes made (structural, not local):** `by_id`, the ordered
+  `cited_anywhere` walk and `universe` are now computed **once, above** the
+  no-anchor branch, and both projections consume that one definition — the
+  no-anchor return builds `shown_evidence` from `universe`, and the anchored
+  path's `other_evidence` filters the same list. `totals` was hoisted with them
+  (it was also duplicated across the two returns). The no-focused-entry test
+  now carries an unresolved ref and pins `• ev-missing (unresolved)`, the
+  "Showing the full trail." mode line, `withheld == 0` and
+  `len(shown_evidence) == 8`.
+- **Negative control:** with `universe` restricted back to records only, the
+  no-focused-entry test **and** CR1's test both fail; both pass after.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`,
+  `tests/test_board_bytrail_view.py`.
 
 ## Risk
 
