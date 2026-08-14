@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini, codex, opencode]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,6 +17,7 @@ anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-13 14:34
 updated_at: 2026-08-14 16:22
+completed_at: 2026-08-14 16:22
 ---
 
 Extend the auto-recheck loop's shadow-readiness detection beyond Claude so the loop can arm when the SHADOW pane runs Codex or OpenCode. Today `SHADOW_READY_DETECTORS` (`.aitask-scripts/monitor/review_loop.py:382`) is `{"claude": _claude_ready}`, and `action_toggle_review_loop` (`minimonitor_app.py`) refuses to arm when the resolved shadow agent key is not in it.
@@ -68,3 +69,14 @@ Resolve this at planning time rather than assuming:
 > **✅ gate:plan_approved** run=2026-08-14T10:11:37Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-14T13:19:55Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-14T13:22:53Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:014cdbc5fb51d773
+
+> **✅ gate:risk_evaluated** run=2026-08-14T13:22:53Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1509/risk_evaluated_2026-08-14T13:22:53Z-risk_evaluated-a1.log`
