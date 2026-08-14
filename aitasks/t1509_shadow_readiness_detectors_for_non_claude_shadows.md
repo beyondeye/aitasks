@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 14:34
-updated_at: 2026-08-14 11:12
+updated_at: 2026-08-14 13:11
 ---
 
 Extend the auto-recheck loop's shadow-readiness detection beyond Claude so the loop can arm when the SHADOW pane runs Codex or OpenCode. Today `SHADOW_READY_DETECTORS` (`.aitask-scripts/monitor/review_loop.py:382`) is `{"claude": _claude_ready}`, and `action_toggle_review_loop` (`minimonitor_app.py`) refuses to arm when the resolved shadow agent key is not in it.
@@ -57,3 +58,8 @@ Resolve this at planning time rather than assuming:
 
 - **t1467** (cross-agent phase prompt detection, `depends: [1420]`) — owns the FOLLOWED side and the per-agent prompt-pattern inventory. See the negative-half question above; the two tasks touch adjacent surfaces and t1467's pattern work is what would harden this task's dialog exclusion.
 - **t1159_5** (aggregate manual verification of the review loop) — its checklist assumes a loop that can arm; if this task lands first, verify with the Codex-shadow pairing rather than substituting a Claude shadow.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-14T10:11:37Z status=pass attempt=1 type=human
