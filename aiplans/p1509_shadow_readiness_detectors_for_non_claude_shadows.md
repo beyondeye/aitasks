@@ -683,7 +683,7 @@ real session, it does not stand in for the evidence that sizes it):
   pane itself already advertises 0.147.0; a UI change makes readiness
   permanently `False`. The failure direction is fail-safe (the loop holds and
   never injects), but it is **silent** — indistinguishable from a shadow that is
-  simply busy · severity: low · → mitigation: surface_never_settled_shadow
+  simply busy · severity: low · → mitigation: t1524
 - **[raised to high in review]** After a Codex interaction is answered the pane
   shows an empty composer with no working indicator for a window measured at
   **≥ 2 s**, while committed evidence ticks run every **1.5 s** (and as little as
@@ -705,7 +705,7 @@ real session, it does not stand in for the evidence that sizes it):
 ### Planned mitigations
 - timing: pre-phase | name: pin_shadow_seam_consumers | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (shadow-seam tuple widening / missed unpack site) | desc: Characterize every consumer's unpack path against the unmodified helpers before widening them, so a missed call site fails a test instead of a live minimonitor tick.
 - timing: pre-phase | name: measure_post_dialog_settle | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 2 (post-interaction settle window, raised to high in review) | desc: Measure the post-interaction empty-composer window live in wall-clock seconds at 0.25s sampling over at least five repetitions per interaction kind (permission, question widget, un-patterned update prompt, no-work-follows answer), and size SHADOW_SETTLE_SECONDS from the measured maximum rather than a guess.
-- timing: after | name: surface_never_settled_shadow | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement risk 1 (silent composer-pattern drift across a Codex release) | desc: When the loop is armed and the shadow never reads ready for N consecutive ticks, surface a banner hint that its composer pattern may need re-pinning, turning a silent fail-safe hold into a legible signal.
+- timing: after | name: surface_never_settled_shadow | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement risk 1 (silent composer-pattern drift across a Codex release) | desc: When the loop is armed and the shadow never reads ready for N consecutive ticks, surface a banner hint that its composer pattern may need re-pinning, turning a silent fail-safe hold into a legible signal. | created: t1524
 
 **Reassessment after inlining and after the review round**
 (`risk-evaluation.md` Step 3 note): code-health stays **medium** — the
