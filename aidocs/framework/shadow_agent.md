@@ -540,13 +540,28 @@ items):
    indeterminate tick resets the streak.
 5. **Never inject into a busy shadow.** Fire requires the three-part positive
    readiness: the agent's **empty** input composer positively detected on a
-   RAW capture tail (Claude's dim placeholder hint strips identically to
-   typed text, so cleaned captures cannot answer this), AND no dialog/prompt
+   RAW capture tail (the dim placeholder hint strips identically to typed
+   text, so cleaned captures cannot answer this), AND no dialog/prompt
    pattern matching the tail (Enter at a dialog answers it), AND the raw tail
-   hash-stable ≥2 consecutive ticks (an animated spinner keeps a streaming
+   hash-stable ≥2 consecutive ticks (an animated indicator keeps a streaming
    pane unstable). Hash stability alone is never sufficient. A satisfied
    trigger with a busy shadow **holds** (streak kept) and fires on the first
    ready tick.
+5b. **Post-interaction settle latch.** An empty composer is also what the pane
+   shows in the gap between an interaction leaving the screen and work
+   resuming, so readiness is additionally held for
+   `review_loop.SHADOW_SETTLE_SECONDS` of **wall clock** after any observation
+   that is not positively "ready" or "working". Two properties are deliberate:
+   the latch arms on *anything* that is not READY/WORKING rather than on a
+   prompt-pattern match — Codex's startup update prompt is a real interaction
+   that no pattern matches, and the same will hold for the next un-patterned
+   dialog — and it is released by a **monotonic deadline** rather than a tick
+   count, because the committed-evidence cadence is
+   `max(1.0, 0.5 * refresh_seconds)` and `refresh_seconds` is user-configurable
+   (`ait minimonitor --interval`, `project_config.yaml: monitor.refresh_seconds`),
+   flooring at 1.0s. A positive *working* observation clears it early; the
+   deadline is the escape hatch that keeps an interaction which produces no
+   follow-up work at all from wedging the loop.
 6. **Disarm only on verified absence; pause on uncertainty.** Agent presence
    is derived from discovery-level liveness (a committed snapshot missing
    while the agent is still discovered = capture failure, not departure);
@@ -592,13 +607,35 @@ classifier reports "unknown" across a geometry change and output arriving in
 the same capture as the resize is absorbed rather than misread; further
 output on the next stable-geometry tick classifies normally.
 
-Composer/spinner/dialog-boundary patterns are version-sensitive terminal UI
-text (pinned against live Claude Code 2.1.228 captures) and are maintained
-in-place when an agent's UI changes — the `prompt_patterns.py` practice
-(t1474). `SHADOW_READY_DETECTORS` ships `claude`-only; arming refuses visibly
-for a shadow agent without a detector (the shadow's agent is independently
-selectable via `E`, so a Claude followed pane can legitimately have a Codex
-shadow — a real configuration, observed live).
+### Where the shadow's own patterns live
+
+The **shadow** pane's composer / working / option-row patterns live in
+`.aitask-scripts/monitor/review_loop.py`, **not** in `prompt_patterns.py`.
+The two are complementary and the split is deliberate: `prompt_patterns.py`
+owns *followed*-pane dialog detection (`awaiting_input`, per-agent, see
+`monitor_idle_and_prompt_detection.md`), and the review loop *reuses* those
+same per-agent patterns as its negative half while adding the positive
+composer detection they do not provide. Both are version-sensitive terminal
+UI text, pinned against live captures and maintained in-place when an agent's
+UI changes — the `prompt_patterns.py` practice (t1474). The raw fixtures are
+`tests/review_loop_fixtures.py`.
+
+`SHADOW_READY_DETECTORS` ships `claude` and `codex`. Arming refuses visibly
+for a shadow agent that resolves but has no detector (currently `opencode`),
+and separately for a shadow whose agent could **not be resolved** — those two
+are different messages on purpose, because an unresolved key is frequently a
+timing answer rather than a permanent one, and mid-loop it *holds* rather than
+auto-disarming. The shadow's agent is independently selectable via `E`, so a
+Claude followed pane can legitimately have a Codex shadow — a real
+configuration, observed live, and the one the loop was extended to support.
+
+**Resolving the shadow's agent needs its pid, not just its command.** Codex
+installs as a node wrapper, so `pane_current_command` reports `node`;
+command-only resolution (`agent_key_from_command`) answers `""` for it and no
+detector would ever be reached. `shadow_query_args()` therefore carries
+`#{pane_pid}` as a fourth field and the arm/mid-loop gates use the two-rung
+`agent_keys.agent_key_from_pane`, off the event loop (rung 2 shells out to
+`pgrep`+`ps`).
 
 ## Configuration
 

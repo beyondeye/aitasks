@@ -95,6 +95,15 @@ against raw capture bytes rather than stripped text will not match.
   would mis-classify active subagents as idle. The positive
   `awaiting_input` layer exists *because* we deliberately do not strip the
   dot.
+- **Do not** assume this file is the only place per-agent pane text is
+  matched. It owns **followed**-pane dialog detection. The minimonitor
+  auto-recheck loop matches the **shadow** pane's *composer* (is the input line
+  empty?) and *working indicator* in
+  [`monitor/review_loop.py`](../../.aitask-scripts/monitor/review_loop.py),
+  which imports `PROMPT_PATTERNS_BY_AGENT` from here and uses it as its
+  negative half. So adding an agent's dialog pattern here strengthens the
+  review loop too, but a *composer* pattern belongs there — see
+  [`shadow_agent.md`](shadow_agent.md) → "Where the shadow's own patterns live".
 - **Do not** move prompt patterns into `aitasks/metadata/project_config.yaml`
   or any other user-configurable surface. These patterns are framework
   constants, same category as `TUI_NAMES` and `DEFAULT_AGENT_PREFIXES` in

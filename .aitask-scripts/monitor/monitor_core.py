@@ -376,35 +376,43 @@ def _pane_id_num(pane_id: str) -> int:
 
 def match_shadow_pane_info(
     list_output: str, followed_pane_id: str
-) -> tuple[str, str] | None:
-    """Resolve the shadow pane bound to ``followed_pane_id`` plus its command.
+) -> tuple[str, str, int] | None:
+    """Resolve the shadow pane bound to ``followed_pane_id``, its command, its pid.
 
     Pure (no tmux): ``list_output`` is :func:`shadow_query_args` text —
-    ``#{pane_id}\t#{@aitask_shadow_target}\t#{pane_current_command}``. Returns
-    ``(pane_id, current_command)`` for the pane whose ``@aitask_shadow_target``
-    equals ``followed_pane_id`` (the shadow pane carries the followed pane's id
-    — see ``shadow_agent.md``), or ``None``. An empty target marks a non-shadow
-    pane and is ignored (``is_shadow_target``). A two-field line (older format
-    / test stubs) still resolves the pane, with command ``""`` — the review
-    loop reads that as an unknown shadow agent and refuses/disarms rather than
-    guessing (t1159_2).
+    ``#{pane_id}\t#{@aitask_shadow_target}\t#{pane_current_command}\t#{pane_pid}``.
+    Returns ``(pane_id, current_command, pane_pid)`` for the pane whose
+    ``@aitask_shadow_target`` equals ``followed_pane_id`` (the shadow pane
+    carries the followed pane's id — see ``shadow_agent.md``), or ``None``. An
+    empty target marks a non-shadow pane and is ignored (``is_shadow_target``).
+    A two- or three-field line (older format / test stubs) still resolves the
+    pane, with command ``""`` and/or pid ``0`` — the review loop reads a missing
+    command as an unknown shadow agent and refuses/disarms rather than guessing
+    (t1159_2), and a missing pid simply costs it the second resolution rung.
+
+    **The pid is what makes a Codex shadow resolvable at all** (t1509). Codex
+    installs as a node wrapper, so ``pane_current_command`` reports ``node``;
+    ``agent_keys.agent_key_from_command`` returns ``""`` for it and only the
+    pid-driven second rung of ``agent_key_from_pane`` can reach ``codex``.
 
     Defense-in-depth: if more than one pane matches (an orphaned live shadow
     that escaped cleanup — the launch guard in ``action_launch_shadow``
     normally prevents this), return the **newest** (largest ``%N``)
     deterministically. The caller may notify when ``> 1`` match is seen.
     """
-    matches: list[tuple[str, str]] = []
+    matches: list[tuple[str, str, int]] = []
     for line in list_output.splitlines():
         parts = line.split("\t")
         if len(parts) < 2:
             continue
         pane_id, target = parts[0].strip(), parts[1].strip()
         command = parts[2].strip() if len(parts) > 2 else ""
+        raw_pid = parts[3].strip() if len(parts) > 3 else ""
+        pid = int(raw_pid) if raw_pid.isdigit() else 0
         if not is_shadow_target(target):
             continue
         if target == followed_pane_id:
-            matches.append((pane_id, command))
+            matches.append((pane_id, command, pid))
     if not matches:
         return None
     return max(matches, key=lambda m: _pane_id_num(m[0]))
@@ -441,16 +449,16 @@ _SHADOW_TRUNCATED_MSG = (
 
 
 def shadow_query_args() -> list[str]:
-    """tmux argv listing every pane's id + @aitask_shadow_target + command.
+    """tmux argv listing every pane's id + @aitask_shadow_target + command + pid.
 
     Shared by the sync and async reverse-lookups so the format never drifts.
-    The third field feeds the review loop's shadow-agent resolution
-    (:func:`match_shadow_pane_info`) at zero extra tmux round trips; two-field
-    parsers keep working (they read fields 0-1 only).
+    The third and fourth fields feed the review loop's shadow-agent resolution
+    (:func:`match_shadow_pane_info`) at zero extra tmux round trips; shorter
+    parsers keep working (they read only the fields they know about).
     """
     return ["list-panes", "-a", "-F",
             f"#{{pane_id}}\t#{{{SHADOW_TARGET_OPTION}}}\t"
-            "#{pane_current_command}"]
+            "#{pane_current_command}\t#{pane_pid}"]
 
 
 def find_shadow_pane_status(
@@ -498,7 +506,7 @@ def find_shadow_pane(monitor, followed_pane_id: str) -> str | None:
 
 async def find_shadow_pane_async(monitor, followed_pane_id: str) -> str | None:
     """Async (event-loop safe) reverse lookup for the picker / auto-offer."""
-    _ok, pane, _command = await find_shadow_pane_info_async(
+    _ok, pane, _command, _pid = await find_shadow_pane_info_async(
         monitor, followed_pane_id
     )
     return pane
@@ -506,29 +514,33 @@ async def find_shadow_pane_async(monitor, followed_pane_id: str) -> str | None:
 
 async def find_shadow_pane_info_async(
     monitor, followed_pane_id: str
-) -> tuple[bool, str | None, str]:
-    """Async reverse lookup with a success discriminator and the shadow's
-    command: ``(ok, pane, current_command)``.
+) -> tuple[bool, str | None, str, int]:
+    """Async reverse lookup with a success discriminator, the shadow's command
+    and its pid: ``(ok, pane, current_command, pane_pid)``.
 
     ``ok`` is False when the query itself could not be answered (no monitor,
-    nonzero rc, timeout) — distinct from ``(True, None, "")``, a verified
+    nonzero rc, timeout) — distinct from ``(True, None, "", 0)``, a verified
     "this agent has no shadow". The review loop is a *decision* consumer
     (auto-disarm destroys the user's armed state), so like the launch guards
     (t1216_4) it must not consume the fail-open collapsed view: a transient
     tmux failure pauses the loop, only a verified absence disarms it
     (t1159_2). Readers keep using :func:`find_shadow_pane_async`.
+
+    ``pane_pid`` is ``0`` when unknown (older format / test stub). Callers pass
+    it to ``agent_keys.agent_key_from_pane``, which treats a falsy pid as "no
+    second rung" and degrades to the command-only answer (t1509).
     """
     if monitor is None:
-        return False, None, ""
+        return False, None, "", 0
     rc, out = await monitor.tmux_run_async(
         shadow_query_args(), timeout=_SHADOW_CAPTURE_TIMEOUT
     )
     if rc != 0:
-        return False, None, ""
+        return False, None, "", 0
     info = match_shadow_pane_info(out, followed_pane_id)
     if info is None:
-        return True, None, ""
-    return True, info[0], info[1]
+        return True, None, "", 0
+    return True, info[0], info[1], info[2]
 
 
 async def capture_raw_tail(

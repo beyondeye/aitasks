@@ -302,21 +302,33 @@ class ReviewLoopController:
 #
 # Never inject into a busy shadow. Readiness is POSITIVE detection of the
 # agent's idle input composer on a RAW (ANSI-carrying) capture tail — cleaned
-# captures cannot work here: Claude Code renders its composer *placeholder
-# hint* as dim text that strips to exactly what typed text strips to (measured
-# live: at-rest hint "Try ..." vs typed text are indistinguishable after
+# captures cannot work here: both Claude Code and Codex render their composer
+# *placeholder hint* as dim text that strips to exactly what typed text strips
+# to (measured live: at-rest hint vs typed text are indistinguishable after
 # strip_ansi; the hint is dim `ESC[2m...ESC[0m`, typed text is plain).
 #
 # Three conjuncts, all required (hash stability alone is NEVER sufficient —
 # it passes a shadow parked at a dialog or holding typed text):
-#   (a) positive: the composer line is empty (bare `❯` or dim-only hint);
+#   (a) positive: the composer line is empty (bare prompt glyph or dim-only
+#       hint);
 #   (b) negative: no dialog/prompt pattern for the agent matches the tail
 #       (a dialog is a different interaction — Enter there answers it), and
-#       no streaming spinner is visible;
+#       no working/streaming indicator is visible;
 #   (c) hash stability: the raw tail unchanged >= 2 consecutive ticks,
-#       computed by the caller (the animated spinner makes a streaming pane
+#       computed by the caller (the animated indicator makes a streaming pane
 #       hash-unstable, which is what blocks the streaming state's bare
 #       composer from reading as ready).
+#
+# Per-agent measurements that shaped the generic detector (t1509):
+#   * Claude's composer glyph is followed by an NBSP, which discriminates it
+#     from `❯ 1. ...` option rows. Codex's is followed by a PLAIN space and is
+#     shared with option rows AND echoed user messages, so the discriminator
+#     there is the dim-strip test plus the structural option-row check below.
+#   * A Codex dialog REPLACES the composer, so the positive half excludes
+#     dialogs structurally — verified by running it with the pattern list
+#     disabled over live permission / question-widget / update-prompt captures.
+#   * Codex keeps its `• Running <cmd>` line on screen WHILE parked at a
+#     permission dialog, so `dialog` must outrank `working` in `shadow_state`.
 
 # The composer line, after ANSI-strip: `❯` followed by NBSP and optional
 # text. Widget option rows render `❯ 1. ...` with a plain space — the NBSP
@@ -335,52 +347,152 @@ _CLAUDE_SPINNER_RE = re.compile(
 )
 
 
+# Codex's composer glyph, followed by an optional PLAIN-space-prefixed run.
+# Unlike Claude there is no NBSP discriminator: option rows (`> 1. Yes, ...`)
+# and echoed user messages share the glyph. They are excluded by the option-row
+# check and the dim-strip test instead (measured on codex-cli 0.146.0).
+_CODEX_COMPOSER_RE = re.compile("^›( .*)?$")
+
+# A numbered option row rendered with the composer glyph. Structural evidence
+# that a dialog -- not a composer -- occupies the bottom of the pane, and the
+# reason Codex's UN-PATTERNED startup update prompt is still classified as a
+# dialog rather than as a composer holding typed text.
+_CODEX_OPTION_ROW_RE = re.compile("^›\\s*\\d+\\.\\s")
+
+# Codex's working/streaming status line: `* Working (Ns * esc to interrupt)`
+# or `* Running <cmd>`.
+#
+# DELIBERATELY carries no bare `esc to interrupt` alternation (unlike
+# `_CLAUDE_SPINNER_RE`, whose parenthesised form Codex never renders): measured
+# live, an unanchored `esc to interrupt` matches Codex's boot/tip text for
+# ~0.5s. A false `working` there would CLEAR the caller's settle latch, so this
+# anchors on the bullet status line only.
+_CODEX_WORKING_RE = re.compile("(?m)^\\s*•\\s+(?:Working|Running)\\b")
+
+
+# `shadow_state` verdicts. Richer than the bool `shadow_prompt_ready` returns,
+# because the caller's settle latch has to tell "an interaction is on screen"
+# apart from "the agent is working" -- see minimonitor_app's post-interaction
+# settle latch (t1509).
+SHADOW_DIALOG = "dialog"
+SHADOW_WORKING = "working"
+SHADOW_READY = "ready"
+SHADOW_BUSY = "busy"
+SHADOW_UNKNOWN = "unknown"
+
+
+def _composer_state(raw_text: str, *, agent: str, composer_re,
+                    working_re, pad: str, option_row_re=None) -> str:
+    """Generic composer classification shared by every per-agent detector.
+
+    Returns one of the ``SHADOW_*`` verdicts. ``pad`` is the run of characters
+    stripped after the one-character prompt glyph (NBSP+space for Claude, a
+    plain space for Codex).
+
+    **Order is load-bearing** (measured, t1509): dialog patterns are checked
+    FIRST, and ``working`` can only outrank a would-be ``ready``. Codex keeps
+    its working/running line on screen while parked at a permission dialog, so
+    a working-first order would report ``working`` for a pane that is still
+    waiting on the user -- clearing the caller's settle latch at exactly the
+    wrong moment.
+    """
+    if not raw_text or not raw_text.strip():
+        return SHADOW_UNKNOWN
+    plain = strip_ansi(raw_text)
+
+    # (b) Negative first: any dialog/prompt pattern anywhere in the tail means
+    # a different interaction is pending (scan the whole tail, deliberately
+    # wider than classify_content's bottom window).
+    for pattern in PROMPT_PATTERNS_BY_AGENT.get(agent, []):
+        if pattern.regex.search(plain):
+            return SHADOW_DIALOG
+
+    # (a) Positive: bottom-up, the composer line must exist and be empty.
+    # Falling off the end without finding one is NOT ready and NOT merely
+    # unknown -- something else is occupying the pane, which the caller must
+    # treat as an interaction.
+    plain_lines = plain.splitlines()
+    raw_lines = raw_text.splitlines()
+    verdict = SHADOW_DIALOG
+    for idx in range(len(plain_lines) - 1, -1, -1):
+        line = plain_lines[idx].rstrip()
+        if not composer_re.match(line):
+            continue
+        if option_row_re is not None and option_row_re.match(line):
+            verdict = SHADOW_DIALOG  # an option row, not a composer
+            break
+        after = line[1:].strip(pad)
+        if not after:
+            verdict = SHADOW_READY  # bare composer
+            break
+        # Visible text after the prompt char: typed text or the dim
+        # placeholder hint. Decide from the raw styling -- hint is entirely
+        # dim, typed text is not.
+        raw_line = raw_lines[idx] if idx < len(raw_lines) else ""
+        without_dim = strip_ansi(_DIM_SPAN_RE.sub("", raw_line)).rstrip()
+        verdict = (SHADOW_READY
+                   if composer_re.match(without_dim)
+                   and not without_dim[1:].strip(pad)
+                   else SHADOW_BUSY)
+        break
+
+    if verdict == SHADOW_READY and working_re.search(plain):
+        return SHADOW_WORKING
+    return verdict
+
+
+def _claude_state(raw_text: str) -> str:
+    return _composer_state(raw_text, agent="claude",
+                           composer_re=_CLAUDE_COMPOSER_RE,
+                           working_re=_CLAUDE_SPINNER_RE,
+                           pad="  ")
+
+
+def _codex_state(raw_text: str) -> str:
+    return _composer_state(raw_text, agent="codex",
+                           composer_re=_CODEX_COMPOSER_RE,
+                           working_re=_CODEX_WORKING_RE,
+                           pad=" ",
+                           option_row_re=_CODEX_OPTION_ROW_RE)
+
+
+def _ready_from_state(state: str) -> bool | None:
+    """Collapse a ``SHADOW_*`` verdict to the readiness tri-state."""
+    if state == SHADOW_UNKNOWN:
+        return None
+    return state == SHADOW_READY
+
+
 def _claude_ready(raw_text: str) -> bool | None:
     """Positive+negative readiness for a Claude Code shadow pane.
 
     ``raw_text`` is the raw ``capture-pane -p -e`` tail. Returns True only
     when an EMPTY composer is positively found and nothing dialog- or
-    streaming-shaped is visible. Indeterminate reads return False/None —
+    streaming-shaped is visible. Indeterminate reads return False/None --
     never True.
     """
-    if not raw_text or not raw_text.strip():
-        return None
-    plain = strip_ansi(raw_text)
+    return _ready_from_state(_claude_state(raw_text))
 
-    # Negative first: any dialog/prompt pattern anywhere in the tail means a
-    # different interaction is pending (scan the whole tail, deliberately
-    # wider than classify_content's bottom window).
-    for pattern in PROMPT_PATTERNS_BY_AGENT.get("claude", []):
-        if pattern.regex.search(plain):
-            return False
-    if _CLAUDE_SPINNER_RE.search(plain):
-        return False
 
-    # Positive: bottom-up, the composer line must exist and be empty.
-    plain_lines = plain.splitlines()
-    raw_lines = raw_text.splitlines()
-    for idx in range(len(plain_lines) - 1, -1, -1):
-        line = plain_lines[idx].rstrip()
-        if not _CLAUDE_COMPOSER_RE.match(line):
-            continue
-        after = line[1:].strip("\u00a0 ")
-        if not after:
-            return True  # bare composer
-        # Visible text after the prompt char: typed text or the dim
-        # placeholder hint. Decide from the raw styling — hint is entirely
-        # dim, typed text is not.
-        raw_line = raw_lines[idx] if idx < len(raw_lines) else ""
-        without_dim = strip_ansi(_DIM_SPAN_RE.sub("", raw_line)).rstrip()
-        return bool(_CLAUDE_COMPOSER_RE.match(without_dim)
-                    and not without_dim[1:].strip("\u00a0 "))
-    return False  # no composer line found
+def _codex_ready(raw_text: str) -> bool | None:
+    """Positive+negative readiness for a Codex CLI shadow pane (t1509)."""
+    return _ready_from_state(_codex_state(raw_text))
 
 
 # Per-agent readiness dispatch. The shadow's agent is independently
-# selectable (`E`), so a Claude followed pane can have a Codex/OpenCode
-# shadow — those must refuse at ARM time (no detector), not hold forever.
+# selectable (`E`), so a Claude followed pane can have an OpenCode shadow --
+# agents without a detector must refuse at ARM time, not hold forever.
 SHADOW_READY_DETECTORS = {
     "claude": _claude_ready,
+    "codex": _codex_ready,
+}
+
+# The same dispatch one layer down: the richer verdict the caller's settle
+# latch needs. Keyed identically to SHADOW_READY_DETECTORS by construction,
+# since each readiness function is derived from the state function here.
+SHADOW_STATE_DETECTORS = {
+    "claude": _claude_state,
+    "codex": _codex_state,
 }
 
 
@@ -401,6 +513,46 @@ def review_loop_agent_supported(agent: str) -> bool:
     return (agent or "").strip().lower() in REVIEW_LOOP_AGENTS
 
 
+# How long a shadow must present an uninterrupted empty composer after ANY
+# on-screen interaction before the loop will fire into it.
+#
+# WALL-CLOCK SECONDS, deliberately not a tick count: the caller's committed
+# evidence cadence is `max(1.0, 0.5 * refresh_seconds)` and `refresh_seconds`
+# is user-configurable from two places (`ait minimonitor --interval` and
+# `project_config.yaml: monitor.refresh_seconds`), flooring at 1.0s. A constant
+# sized in ticks against the 1.5s default would expire ~33% early at
+# `--interval 1`, reopening the window it exists to close.
+#
+# Sized by the t1509 pre-phase measurement: across 15 turn-level repetitions
+# (permission dialog, question widget, startup update prompt) at 0.25s sampling,
+# NO genuine injectable window reproduced — Codex keeps its working indicator up
+# continuously through a turn, including across the dialog. The latch ships at
+# the pre-registered floor anyway: a null result from five samples per kind is
+# not proof of impossibility, and the measurement separately proved the RELEASE
+# half is load-bearing (after the update prompt no work EVER follows, so a latch
+# clearable only by a WORKING observation would wedge the loop permanently).
+SHADOW_SETTLE_SECONDS = 2.0
+
+
+def shadow_state(raw_text: str | None, agent: str) -> str:
+    """Classify a shadow pane's raw tail into one of the ``SHADOW_*`` verdicts.
+
+    The richer view :func:`shadow_prompt_ready` is derived from, exposed
+    because the caller's post-interaction settle latch must tell "an
+    interaction is on screen" apart from "the agent is working" — only the
+    latter is evidence the shadow genuinely resumed (t1509).
+
+    ``raw_text`` None (capture failed) or an agent with no detector both yield
+    ``SHADOW_UNKNOWN``: unknowable, never "fine to inject into".
+    """
+    if raw_text is None:
+        return SHADOW_UNKNOWN
+    detector = SHADOW_STATE_DETECTORS.get((agent or "").strip().lower())
+    if detector is None:
+        return SHADOW_UNKNOWN
+    return detector(raw_text)
+
+
 def shadow_prompt_ready(raw_text: str | None, agent: str,
                         hash_stable: bool) -> bool | None:
     """Three-part positive readiness; anything indeterminate is not-ready.
@@ -408,13 +560,11 @@ def shadow_prompt_ready(raw_text: str | None, agent: str,
     ``raw_text``: raw ANSI-carrying tail of the shadow pane (None = capture
     failed). ``hash_stable``: raw tail unchanged >= 2 consecutive ticks,
     computed by the caller.
+
+    Derived from :func:`shadow_state` so the two can never disagree about what
+    a given capture means.
     """
-    if raw_text is None:
-        return None
-    detector = SHADOW_READY_DETECTORS.get((agent or "").strip().lower())
-    if detector is None:
-        return None
-    ready = detector(raw_text)
+    ready = _ready_from_state(shadow_state(raw_text, agent))
     if ready is not True:
         return ready
     if not hash_stable:

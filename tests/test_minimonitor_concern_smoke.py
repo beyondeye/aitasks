@@ -194,6 +194,9 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         app._loop_baseline = None
         app._loop_shadow_hash = None
         app._loop_shadow_hash_streak = 0
+        # Post-interaction settle latch + injectable clock (t1509).
+        app._loop_shadow_settle_until = None
+        app._loop_now = lambda: 1000.0
         app._loop_stale_false_pending = False
         app._session = "s"
         app._own_window_name = "agent-x"
@@ -250,9 +253,11 @@ def _async_pane(pane_id):
 
 def _async_pane_info(pane_id):
     async def _coro(*args, **kwargs):
-        # (ok, pane, command): a verified claude shadow, but the loop stays
-        # disarmed in these tests so only the pane id is consumed.
-        return (True, pane_id, "claude")
+        # (ok, pane, command, pid): a verified claude shadow, but the loop
+        # stays disarmed in these tests so only the pane id is consumed. The
+        # pid field arrived with t1509 (Codex reports `node`, so the agent key
+        # needs the pid-driven second rung).
+        return (True, pane_id, "claude", 4242)
     return _coro
 
 
@@ -326,6 +331,12 @@ class RecheckInjectionSmokeTests(unittest.TestCase):
         app._review_loop = rl.ReviewLoopController()
         app._task_cache = SimpleNamespace(
             get_task_id_for_pane=lambda pane: None)
+        # Post-interaction settle latch state, normally set by __init__ (t1509).
+        # The delivery-time revalidation consults it, so this live-tmux smoke
+        # needs it too. Clock frozen: this test drives one clean delivery, and
+        # the latch starts clear, so no deadline is ever consulted.
+        app._loop_shadow_settle_until = None
+        app._loop_now = lambda: 1000.0
 
         ctrl = app._review_loop
         ctrl.arm(pending_work=True)

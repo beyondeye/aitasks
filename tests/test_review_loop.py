@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import sys
+import re
 import unittest
 from pathlib import Path
 
@@ -471,12 +472,180 @@ class ShadowPromptReadyTests(unittest.TestCase):
             False)
 
     def test_failed_capture_and_unknown_agent_are_indeterminate(self):
+        # Retargeted in t1509: `codex` HAS a detector now, so it is no longer
+        # an example of an unsupported agent. `opencode` is the agent that
+        # still reaches the arm-time refusal, and a nonsense key covers the
+        # genuinely-unknown case, so "unknown agent => indeterminate" stays
+        # pinned rather than quietly losing its subject.
         self.assertIsNone(rl.shadow_prompt_ready(None, "claude", True))
         self.assertIsNone(
-            rl.shadow_prompt_ready(fx.CLAUDE_AT_REST_RAW, "codex", True))
+            rl.shadow_prompt_ready(fx.CLAUDE_AT_REST_RAW, "opencode", True))
+        self.assertIsNone(
+            rl.shadow_prompt_ready(fx.CLAUDE_AT_REST_RAW, "gemini", True))
         self.assertIsNone(
             rl.shadow_prompt_ready(fx.CLAUDE_AT_REST_RAW, "", True))
         self.assertIsNone(rl.shadow_prompt_ready("", "claude", True))
+
+
+class CodexShadowReadinessTests(unittest.TestCase):
+    """Codex shadow readiness (t1509), pinned against live 0.146.0 captures."""
+
+    def test_at_rest_with_dim_hint_is_ready(self):
+        self.assertIs(
+            rl.shadow_prompt_ready(fx.CODEX_AT_REST_RAW, "codex", True), True)
+
+    def test_typed_working_and_every_dialog_are_not_ready(self):
+        for name in ("CODEX_TYPED_RAW", "CODEX_WORKING_RAW",
+                     "CODEX_PERMISSION_RAW", "CODEX_QUESTION_RAW",
+                     "CODEX_UPDATE_PROMPT_RAW"):
+            self.assertIsNot(
+                rl.shadow_prompt_ready(getattr(fx, name), "codex", True),
+                True, name)
+
+    def test_hash_instability_blocks_a_ready_composer(self):
+        self.assertIs(
+            rl.shadow_prompt_ready(fx.CODEX_AT_REST_RAW, "codex", False),
+            False)
+
+    def test_failed_capture_is_indeterminate(self):
+        self.assertIsNone(rl.shadow_prompt_ready(None, "codex", True))
+        self.assertIsNone(rl.shadow_prompt_ready("", "codex", True))
+
+    def test_state_verdicts_per_fixture(self):
+        expected = {
+            "CODEX_AT_REST_RAW": rl.SHADOW_READY,
+            "CODEX_TYPED_RAW": rl.SHADOW_BUSY,
+            "CODEX_WORKING_RAW": rl.SHADOW_WORKING,
+            "CODEX_PERMISSION_RAW": rl.SHADOW_DIALOG,
+            "CODEX_QUESTION_RAW": rl.SHADOW_DIALOG,
+            "CODEX_UPDATE_PROMPT_RAW": rl.SHADOW_DIALOG,
+        }
+        for name, want in expected.items():
+            self.assertEqual(rl._codex_state(getattr(fx, name)), want, name)
+
+    def test_the_unpatterned_update_prompt_is_a_dialog_not_typed_text(self):
+        """The assertion that pins the STRUCTURAL arming rule.
+
+        No codex prompt pattern matches the startup update prompt, and its
+        option row is rendered with the composer glyph followed by visible
+        text — so a detector that classified it from the composer scan alone
+        would call it SHADOW_BUSY. The caller's settle latch arms on anything
+        that is not READY/WORKING either way, but the verdict must be honest
+        about WHY, because a BUSY verdict would mean the loop is relying on
+        pattern coverage it does not have here.
+        """
+        raw = fx.CODEX_UPDATE_PROMPT_RAW
+        plain = rl.strip_ansi(raw)
+        # Negative control on the premise: no pattern matches this capture.
+        for pattern in rl.PROMPT_PATTERNS_BY_AGENT.get("codex", []):
+            self.assertIsNone(pattern.regex.search(plain), pattern.name)
+        self.assertEqual(rl._codex_state(raw), rl.SHADOW_DIALOG)
+
+
+class CodexIsolatedPositiveHalfTests(unittest.TestCase):
+    """The task's explicit safety question, as an executable assertion.
+
+    Can a Codex pane parked at a dialog satisfy the POSITIVE empty-composer
+    half? Run the detector with the codex pattern list emptied — if a dialog
+    still reads as not-ready, the exclusion is structural (the dialog replaces
+    the composer) rather than an artifact of pattern coverage.
+    """
+
+    def setUp(self):
+        self._saved = rl.PROMPT_PATTERNS_BY_AGENT.get("codex", [])
+        rl.PROMPT_PATTERNS_BY_AGENT["codex"] = []
+
+    def tearDown(self):
+        rl.PROMPT_PATTERNS_BY_AGENT["codex"] = self._saved
+
+    def test_dialogs_are_excluded_with_the_pattern_list_disabled(self):
+        for name in ("CODEX_PERMISSION_RAW", "CODEX_QUESTION_RAW",
+                     "CODEX_UPDATE_PROMPT_RAW"):
+            self.assertIsNot(rl._codex_ready(getattr(fx, name)), True, name)
+
+    def test_the_disabling_is_real(self):
+        """Negative control on the harness itself: with the patterns gone the
+        WORKING fixture must lose nothing (it never depended on them), while
+        at-rest must still be ready — proving setUp did not simply break the
+        detector into answering False for everything."""
+        self.assertEqual(rl.PROMPT_PATTERNS_BY_AGENT["codex"], [])
+        self.assertIs(rl._codex_ready(fx.CODEX_AT_REST_RAW), True)
+        self.assertIs(rl._codex_ready(fx.CODEX_WORKING_RAW), False)
+
+
+class CodexDetectorNegativeControlTests(unittest.TestCase):
+    """One mutation each, so a passing suite cannot be vacuous."""
+
+    def test_claudes_nbsp_composer_regex_would_break_codex_at_rest(self):
+        """Codex's glyph is followed by a PLAIN space, not an NBSP. Swapping in
+        Claude's composer regex must stop at-rest reading as ready — pinning
+        that the plain-space form is load-bearing and not incidental."""
+        state = rl._composer_state(
+            fx.CODEX_AT_REST_RAW, agent="codex",
+            composer_re=rl._CLAUDE_COMPOSER_RE,
+            working_re=rl._CODEX_WORKING_RE, pad=" ",
+            option_row_re=rl._CODEX_OPTION_ROW_RE)
+        self.assertNotEqual(state, rl.SHADOW_READY)
+
+    def test_without_the_working_regex_streaming_reads_as_ready(self):
+        """Codex renders the IDENTICAL empty dim-hint composer while working,
+        so the working regex is the only thing excluding the streaming state.
+        Remove it and the fixture must flip to ready."""
+        never = re.compile(r"(?!x)x")
+        self.assertEqual(
+            rl._composer_state(fx.CODEX_WORKING_RAW, agent="codex",
+                               composer_re=rl._CODEX_COMPOSER_RE,
+                               working_re=never, pad=" ",
+                               option_row_re=rl._CODEX_OPTION_ROW_RE),
+            rl.SHADOW_READY)
+        # ... and with it, it does not.
+        self.assertEqual(rl._codex_state(fx.CODEX_WORKING_RAW),
+                         rl.SHADOW_WORKING)
+
+    def test_an_unanchored_esc_to_interrupt_would_false_positive_on_boot(self):
+        """Measured live: an unanchored `esc to interrupt` alternation matches
+        Codex's boot/tip text. A false WORKING there would CLEAR the caller's
+        settle latch, so this pins the anchored form."""
+        unanchored = re.compile(
+            r"(?m)^\s*\u2022\s+(?:Working|Running)\b|esc to interrupt")
+        self.assertIsNone(
+            rl._CODEX_WORKING_RE.search(rl.strip_ansi(fx.CODEX_AT_REST_RAW)))
+        boot_tail = rl.strip_ansi(fx.CODEX_AT_REST_RAW) + "\n  esc to interrupt\n"
+        self.assertIsNotNone(unanchored.search(boot_tail))
+        self.assertIsNone(rl._CODEX_WORKING_RE.search(boot_tail))
+
+    def test_dialog_outranks_working_when_both_are_visible(self):
+        """Codex keeps its `Running <cmd>` line on screen WHILE parked at a
+        permission dialog, so a working-first order would report WORKING for a
+        pane that is still waiting on the user — clearing the caller's settle
+        latch at exactly the wrong moment. Pins the order against that
+        inversion; the other permission fixture's 15-line window excludes the
+        status line, which makes the ordering invisible there.
+        """
+        raw = fx.CODEX_PERMISSION_WITH_RUNNING_RAW
+        plain = rl.strip_ansi(raw)
+        # Premise: BOTH signals really are present in this window.
+        self.assertIsNotNone(rl._CODEX_WORKING_RE.search(plain))
+        self.assertTrue(any(p.regex.search(plain)
+                            for p in rl.PROMPT_PATTERNS_BY_AGENT["codex"]))
+        # Verdict: dialog wins.
+        self.assertEqual(rl._codex_state(raw), rl.SHADOW_DIALOG)
+        self.assertIs(rl.shadow_prompt_ready(raw, "codex", True), False)
+
+    def test_claude_readiness_is_unchanged_by_the_refactor(self):
+        """Characterization guard: `_claude_ready` is now derived from
+        `_claude_state`, so every Claude fixture must keep its old verdict."""
+        self.assertIs(
+            rl.shadow_prompt_ready(fx.CLAUDE_AT_REST_RAW, "claude", True), True)
+        for name in ("CLAUDE_TYPED_RAW", "CLAUDE_STREAMING_RAW",
+                     "CLAUDE_DIALOG_RAW"):
+            self.assertIs(
+                rl.shadow_prompt_ready(getattr(fx, name), "claude", True),
+                False, name)
+
+    def test_the_two_dispatch_tables_cannot_drift(self):
+        self.assertEqual(sorted(rl.SHADOW_READY_DETECTORS),
+                         sorted(rl.SHADOW_STATE_DETECTORS))
 
 
 class ClassifyFollowedChangeTests(unittest.TestCase):

@@ -518,6 +518,12 @@ class MiniMonitorApp(
         # Raw shadow-tail hash ring for the readiness stability conjunct.
         self._loop_shadow_hash: int | None = None
         self._loop_shadow_hash_streak: int = 0
+        # Post-interaction settle latch (t1509): a monotonic DEADLINE, not a
+        # tick count — the evidence cadence is user-configurable. None = clear.
+        self._loop_shadow_settle_until: float | None = None
+        # Injectable so the latch tests drive the deadline deterministically
+        # instead of sleeping.
+        self._loop_now = time.monotonic
         # Monotonic stamp of the last serviced evidence tick. Overlapping
         # refreshes (t1111_4) invoke the service concurrently; without this
         # guard each invocation would advance the debounce streak and the
@@ -2417,8 +2423,70 @@ class MiniMonitorApp(
         self._loop_baseline = None
         self._loop_shadow_hash = None
         self._loop_shadow_hash_streak = 0
+        self._loop_shadow_settle_until = None
         self._set_loop_banner("")
         self.notify(f"Auto-recheck loop disarmed: {reason}", severity="warning")
+
+    def _apply_shadow_settle_latch(self, state: str,
+                                   shadow_ready: bool | None) -> bool | None:
+        """Hold readiness for a wall-clock settle window after any interaction.
+
+        The shadow's empty composer is not by itself evidence that the agent is
+        idle: it is also what the pane shows in the gap between an interaction
+        leaving the screen and work resuming. Firing there sends a prompt plus
+        Enter into an agent that has not finished, which is the failure this
+        loop exists to avoid.
+
+        Two design points, both from measurement (t1509):
+
+        * **Armed by anything that is not READY or WORKING**, never by "a
+          dialog pattern matched". Codex's startup update prompt is a real
+          on-screen interaction that NO prompt pattern matches, and the same
+          holds for any future un-patterned dialog. The predicate therefore
+          depends on no pattern coverage at all, and additionally covers a
+          shadow holding user-typed text — where injecting would concatenate
+          onto what the user typed.
+        * **Released by a monotonic deadline**, never by a tick count: the
+          caller's evidence cadence is user-configurable and floors at 1.0s
+          (see ``review_loop.SHADOW_SETTLE_SECONDS``).
+
+        A positive ``WORKING`` observation clears the latch early — the shadow
+        demonstrably resumed. The deadline is itself the escape hatch, and it
+        always expires, so an interaction answered in a way that produces no
+        work at all (measured: after the update prompt, no work EVER follows)
+        cannot wedge the armed loop.
+        """
+        if state == review_loop.SHADOW_WORKING:
+            self._loop_shadow_settle_until = None
+            return shadow_ready
+        now = self._loop_now()
+        if state != review_loop.SHADOW_READY:
+            self._loop_shadow_settle_until = now + review_loop.SHADOW_SETTLE_SECONDS
+            return shadow_ready
+        # READY, with the latch possibly armed.
+        deadline = self._loop_shadow_settle_until
+        if deadline is None:
+            return shadow_ready
+        if now < deadline:
+            return False
+        self._loop_shadow_settle_until = None
+        return shadow_ready
+
+    async def _resolve_shadow_agent_key(
+        self, command: str, pid: int, pane_id: str
+    ) -> str:
+        """Two-rung shadow-agent resolution, off the Textual event loop (t1509).
+
+        Deliberately NOT routed through ``TmuxMonitor._run_offloaded``: that
+        seam's contract is "pure compute over plain data", and rung 2 shells out
+        to ``pgrep`` + ``ps`` (2s cap each). Returns ``""`` for "could not
+        resolve" — never "not an agent"; callers must degrade, not conclude.
+
+        Overridable so tests drive resolution order deterministically instead of
+        sleeping.
+        """
+        return await asyncio.to_thread(
+            workflow_phase.agent_key_from_pane, command, pid, pane_id)
 
     async def action_toggle_review_loop(self) -> None:
         """Arm/disarm the shadow auto-recheck loop (t1159_2).
@@ -2453,8 +2521,9 @@ class MiniMonitorApp(
                 "is Claude-only for now",
                 severity="warning")
             return
-        ok, shadow_pane, shadow_command = await find_shadow_pane_info_async(
-            self._monitor, snap.pane.pane_id)
+        ok, shadow_pane, shadow_command, shadow_pid = (
+            await find_shadow_pane_info_async(
+                self._monitor, snap.pane.pane_id))
         if not ok:
             self.notify(
                 "Auto-recheck unavailable: could not query the shadow pane — "
@@ -2465,7 +2534,28 @@ class MiniMonitorApp(
                 "Auto-recheck unavailable: no shadow pane — press 'e' to "
                 "launch one", severity="warning")
             return
-        shadow_key = workflow_phase.agent_key_from_command(shadow_command)
+        # Two-rung resolution, off the event loop (t1509). Rung 1 alone can
+        # never answer `codex`: it installs as a node wrapper, so the pane
+        # reports `node`. The lookup shells out to pgrep+ps (2s cap each) on a
+        # cache miss, so it must not run on the Textual loop — the async
+        # refresh path already offloads the same call (`_classify_batch`).
+        armed_gen = ctrl.generation
+        shadow_key = await self._resolve_shadow_agent_key(
+            shadow_command, shadow_pid, shadow_pane)
+        if ctrl.armed or ctrl.generation != armed_gen:
+            # The lifecycle moved while we were off-loop (another arm path, or
+            # a second keypress). Abandon silently rather than arm on stale
+            # evidence or double-notify.
+            return
+        if not shadow_key:
+            # "" means COULD NOT RESOLVE, never "not an agent" (agent_keys
+            # contract), and the miss is retried on a backoff — a shadow
+            # launched moments ago resolves late. Say so; do not claim the
+            # agent lacks a detector.
+            self.notify(
+                "Auto-recheck unavailable: could not resolve the shadow's "
+                "agent yet — try again", severity="warning")
+            return
         if shadow_key not in review_loop.SHADOW_READY_DETECTORS:
             self.notify(
                 f"Auto-recheck unavailable: shadow agent "
@@ -2485,6 +2575,8 @@ class MiniMonitorApp(
                               (snap.pane.width, snap.pane.height))
         self._loop_shadow_hash = None
         self._loop_shadow_hash_streak = 0
+        # A fresh lifecycle never inherits a settle deadline (t1509).
+        self._loop_shadow_settle_until = None
         self._loop_last_service_at = None
         self._set_loop_banner("⟳ auto-recheck ARMED")
         self.notify("Auto-recheck loop armed — press 'L' again to disarm")
@@ -2492,7 +2584,7 @@ class MiniMonitorApp(
     async def _service_review_loop(
         self, snap: PaneSnapshot | None, shadow_ok: bool,
         shadow_pane: str | None, shadow_command: str,
-        tick_text: str | None,
+        tick_text: str | None, shadow_pid: int = 0,
     ) -> None:
         """Per-tick loop service, called from ALL THREE branches of
         `_maybe_offer_concerns` so absence is observed, not inferred.
@@ -2548,10 +2640,29 @@ class MiniMonitorApp(
         # agent_presence None: baseline PRESERVED (hardening 8) — a response
         # produced during a capture-failure gap still classifies as work.
 
+        # Snapshot the lifecycle generation BEFORE the first suspension point
+        # below: a disarm/re-arm during any await starts a NEW lifecycle, and
+        # this invocation's evidence (classified against the OLD baseline) must
+        # never be injected into it (review round 7). The agent-key resolution
+        # (t1509) is now also an await, so the snapshot moved above it — an
+        # auto-disarm decided on pre-suspension evidence would otherwise destroy
+        # a freshly armed lifecycle.
+        lifecycle_gen = ctrl.generation
+
         # Mid-loop shadow-agent re-resolution (capability, not phase).
         shadow_key = ""
         if shadow_ok and shadow_pane:
-            shadow_key = workflow_phase.agent_key_from_command(shadow_command)
+            shadow_key = await self._resolve_shadow_agent_key(
+                shadow_command, shadow_pid, shadow_pane)
+            if ctrl.generation != lifecycle_gen:
+                return  # superseded lifecycle — abandon, mutate nothing
+            if not shadow_key:
+                # "" is "could not resolve", not "unsupported" — and it is
+                # frequently a TIMING answer (the wrapper spawns its child
+                # asynchronously; misses are retried on a backoff). HOLD, as
+                # for a transient tmux failure. Disarming here would destroy
+                # the user's armed state over a process-table race.
+                return
             if shadow_key not in review_loop.SHADOW_READY_DETECTORS:
                 self._loop_auto_disarm(
                     f"shadow agent '{shadow_command or 'unknown'}' has no "
@@ -2559,12 +2670,8 @@ class MiniMonitorApp(
                 return
 
         # Shadow readiness over a raw tail + hash ring (only while armed —
-        # this is the loop's one extra tmux read per tick). Snapshot the
-        # lifecycle generation first: a disarm/re-arm during the await below
-        # starts a NEW lifecycle, and this invocation's evidence (classified
-        # against the OLD baseline) must never be injected into it (review
-        # round 7).
-        lifecycle_gen = ctrl.generation
+        # this is the loop's one extra tmux read per tick). `lifecycle_gen` was
+        # snapshotted above, before the first await.
         shadow_ready: bool | None = None
         raw_tail: str | None = None
         if shadow_ok and shadow_pane:
@@ -2585,6 +2692,8 @@ class MiniMonitorApp(
                            and self._loop_shadow_hash_streak >= 1)
             shadow_ready = review_loop.shadow_prompt_ready(
                 raw_tail, shadow_key, hash_stable)
+            shadow_ready = self._apply_shadow_settle_latch(
+                review_loop.shadow_state(raw_tail, shadow_key), shadow_ready)
 
         # Unmounted apps (unit tests) have an empty screen stack; treat that
         # as "no modal" rather than crashing the service.
@@ -2703,8 +2812,27 @@ class MiniMonitorApp(
         # the shadow we validated.
         hash_stable = (fresh is not None and tick_raw_tail is not None
                        and fresh == tick_raw_tail)
-        if review_loop.shadow_prompt_ready(fresh, shadow_key,
-                                           hash_stable) is not True:
+        # The settle latch applies HERE TOO, and the delivery capture is a
+        # real observation that must feed it (t1509 review).
+        #
+        # Without this, refusing the send was not enough: the observation that
+        # caused the refusal was DISCARDED. The controller returned to WAITING
+        # and — as `test_presend_revalidation_refuses_a_changed_shadow`
+        # documents — "the aborted episode completes on the next clean tick",
+        # i.e. roughly one evidence tick after an interaction was seen on the
+        # shadow, with no settle hold at all. Feeding this capture to the latch
+        # makes the tick-time and send-time guards enforce the same invariant
+        # over the same state.
+        #
+        # ACCEPTED RESIDUAL, stated precisely: an interaction that appears AND
+        # is answered entirely between the tick capture and this one, leaving a
+        # BYTE-IDENTICAL tail, is not closed by this or any other check here —
+        # it is undecidable from the captures, since by construction neither
+        # observation differs. It is also vanishingly narrow (the two captures
+        # are one await apart). Anything that leaves a visible trace is caught.
+        state = review_loop.shadow_state(fresh, shadow_key)
+        ready = review_loop.shadow_prompt_ready(fresh, shadow_key, hash_stable)
+        if self._apply_shadow_settle_latch(state, ready) is not True:
             return "not_ready", "shadow not settled at delivery time"
         meta = parse_block_meta(tick_text) if tick_text else None
         expected_round = (meta.round + 1) if meta else None
@@ -2896,8 +3024,9 @@ class MiniMonitorApp(
             # loop pauses rather than reading it as a verified shadow absence.
             await self._service_review_loop(None, False, None, "", None)
             return
-        shadow_ok, shadow_pane, shadow_command = await find_shadow_pane_info_async(
-            self._monitor, snap.pane.pane_id)
+        shadow_ok, shadow_pane, shadow_command, shadow_pid = (
+            await find_shadow_pane_info_async(
+                self._monitor, snap.pane.pane_id))
         if not shadow_pane:
             # No shadow (offer path keeps the pre-t1159_2 fail-open collapse:
             # a failed lookup and a verified absence both land here — nothing
@@ -2927,7 +3056,7 @@ class MiniMonitorApp(
         # Review-loop service, main path (t1159_2): before the text-None
         # return so a failed cleaned capture still services the tick.
         await self._service_review_loop(
-            snap, shadow_ok, shadow_pane, shadow_command, text)
+            snap, shadow_ok, shadow_pane, shadow_command, text, shadow_pid)
         if text is None:
             return
         # Combine read recency with block age and repaint, EVERY tick and before

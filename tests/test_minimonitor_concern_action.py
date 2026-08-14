@@ -175,6 +175,10 @@ def _mk_app(monitor=None, task_id="1427_2", rejected_rc=0, rejected_out=""):
     app._loop_baseline = None
     app._loop_shadow_hash = None
     app._loop_shadow_hash_streak = 0
+    # Post-interaction settle latch + injectable clock (t1509).
+    app._loop_shadow_settle_until = None
+    app._loop_clock = [1000.0]
+    app._loop_now = lambda: app._loop_clock[0]
     app._loop_last_service_at = None
     app._loop_stale_false_pending = False
     app._session = "s"
@@ -1421,8 +1425,14 @@ class _LoopFakeMon(_FakeMon):
         return self.enumerated
 
 
-_SHADOW_LIST_CLAUDE = "%5\t%1\tclaude\n%6\t\tzsh\n"
-_SHADOW_LIST_CODEX = "%5\t%1\tcodex\n"
+_SHADOW_LIST_CLAUDE = "%5\t%1\tclaude\t4242\n%6\t\tzsh\t7\n"
+_SHADOW_LIST_CODEX = "%5\t%1\tcodex\t4243\n"
+# The agent that still has NO readiness detector after t1509 — it is what
+# keeps the arm-time refusal reachable now that Codex is supported.
+_SHADOW_LIST_OPENCODE = "%5\t%1\topencode\t4244\n"
+# The measured wrapper shape: Codex reports `node`, so only the pid-driven
+# second rung can resolve it (t1509).
+_SHADOW_LIST_NODE = "%5\t%1\tnode\t4245\n"
 _SHADOW_LIST_NONE = "%6\t\tzsh\n"
 
 
@@ -1448,36 +1458,96 @@ def _tick(app, n=1):
         asyncio.run(app._maybe_offer_concerns())
 
 
+def _advance_past_settle(app):
+    """Move the injected loop clock past the post-interaction settle deadline
+    (t1509). Explicit rather than folded into `_tick` so that every test which
+    depends on the hold expiring says so."""
+    app._loop_clock[0] += _rl.SHADOW_SETTLE_SECONDS + 0.1
+
+
 class ShadowInfoLookupTests(unittest.TestCase):
     def test_three_field_format_resolves_pane_and_command(self):
         self.assertEqual(
             mc.match_shadow_pane_info(_SHADOW_LIST_CLAUDE, "%1"),
-            ("%5", "claude"))
+            ("%5", "claude", 4242))
         self.assertEqual(mc.match_shadow_pane(_SHADOW_LIST_CLAUDE, "%1"), "%5")
 
     def test_two_field_backcompat_resolves_with_empty_command(self):
         self.assertEqual(mc.match_shadow_pane_info("%5\t%1\n", "%1"),
-                         ("%5", ""))
+                         ("%5", "", 0))
         self.assertEqual(mc.match_shadow_pane("%5\t%1\n", "%1"), "%5")
 
     def test_newest_wins_carries_its_own_command(self):
         out = "%5\t%1\tcodex\n%9\t%1\tclaude\n"
         self.assertEqual(mc.match_shadow_pane_info(out, "%1"),
-                         ("%9", "claude"))
+                         ("%9", "claude", 0))
 
     def test_status_paths(self):
         async def run(mon):
             return await mc.find_shadow_pane_info_async(mon, "%1")
-        self.assertEqual(asyncio.run(run(None)), (False, None, ""))
+        self.assertEqual(asyncio.run(run(None)), (False, None, "", 0))
         self.assertEqual(
             asyncio.run(run(_LoopFakeMon(async_list="x", list_rc=1))),
-            (False, None, ""))
+            (False, None, "", 0))
         self.assertEqual(
             asyncio.run(run(_LoopFakeMon(async_list=_SHADOW_LIST_NONE))),
-            (True, None, ""))
+            (True, None, "", 0))
         self.assertEqual(
             asyncio.run(run(_LoopFakeMon(async_list=_SHADOW_LIST_CLAUDE))),
-            (True, "%5", "claude"))
+            (True, "%5", "claude", 4242))
+
+
+class ShadowSeamArityTests(unittest.TestCase):
+    """Every consumer that DESTRUCTURES a shadow-seam result, in one place.
+
+    `match_shadow_pane_info` and `find_shadow_pane_info_async` return tuples
+    that several callers unpack positionally, so widening either one is a
+    silent-at-import, loud-at-runtime change: a missed site raises inside a
+    live minimonitor tick rather than failing a test. This class exercises
+    each unpack path — the pure indexers, both async wrappers, the sync
+    fail-open pair, and the two `minimonitor_app` call sites — so that a
+    widening either updates every consumer or fails here.
+
+    Written and confirmed green against the PRE-widening helpers (t1509
+    pre-phase), so it is a genuine characterization baseline rather than a
+    shape the widening authored.
+    """
+
+    def test_pure_indexers_unpack(self):
+        # match_shadow_pane_info -> direct consumer
+        info = mc.match_shadow_pane_info(_SHADOW_LIST_CLAUDE, "%1")
+        self.assertEqual(info[0], "%5")
+        self.assertEqual(info[1], "claude")
+        # match_shadow_pane -> indexes [0] of the same result
+        self.assertEqual(mc.match_shadow_pane(_SHADOW_LIST_CLAUDE, "%1"), "%5")
+
+    def test_sync_lookup_pair_unpacks(self):
+        mon = _FakeMon(sync_list=_SHADOW_LIST_CLAUDE)
+        ok, pane = mc.find_shadow_pane_status(mon, "%1")
+        self.assertTrue(ok)
+        self.assertEqual(pane, "%5")
+        # find_shadow_pane collapses the same pair fail-open.
+        self.assertEqual(mc.find_shadow_pane(mon, "%1"), "%5")
+
+    def test_async_wrapper_unpacks_the_info_tuple(self):
+        mon = _LoopFakeMon(async_list=_SHADOW_LIST_CLAUDE)
+        # find_shadow_pane_async destructures find_shadow_pane_info_async.
+        self.assertEqual(
+            asyncio.run(mc.find_shadow_pane_async(mon, "%1")), "%5")
+
+    def test_app_arm_site_unpacks(self):
+        """minimonitor_app's arm gate destructures the async info tuple."""
+        app, _mon, _snap_ = _loop_app(self)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertTrue(app._review_loop.armed)
+
+    def test_app_mid_loop_site_unpacks(self):
+        """The armed service tick destructures it again, every tick."""
+        app, _mon, _snap_ = _loop_app(self)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertTrue(app._review_loop.armed)
+        _tick(app)          # must not raise
+        self.assertTrue(app._review_loop.armed)
 
 
 class ReviewLoopArmTests(unittest.TestCase):
@@ -1515,12 +1585,53 @@ class ReviewLoopArmTests(unittest.TestCase):
         self.assertFalse(app._review_loop.armed)
 
     def test_refuses_shadow_agent_without_detector_naming_it(self):
-        # The live-observed configuration (t1493 session): Codex shadow of a
-        # Claude pane. Not a corner case — the message must name the agent.
+        # Retargeted in t1509 to `opencode`: Codex now HAS a detector, so it no
+        # longer reaches this branch. The refusal must stay REACHABLE and must
+        # still name the agent — losing its only subject would silently delete
+        # the guard rather than the need for it.
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_OPENCODE)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("opencode", app.spy_notify[-1][0])
+        self.assertIn("no readiness detection", app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_codex_shadow_of_a_claude_pane_now_arms(self):
+        """The pairing t1509 exists to unblock (t1493/t1498 live evidence)."""
         app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_CODEX)
         asyncio.run(app.action_toggle_review_loop())
-        self.assertIn("codex", app.spy_notify[-1][0])
-        self.assertIn("no readiness detection", app.spy_notify[-1][0])
+        self.assertTrue(app._review_loop.armed)
+
+    def test_codex_shadow_reporting_node_resolves_via_the_pid_rung(self):
+        """The ACTUAL blocker: Codex installs as a node wrapper, so rung 1
+        answers "" and only the pid-driven second rung reaches `codex`. Without
+        the pid in the seam this arm is refused no matter what detectors exist.
+        """
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_NODE)
+        seen = {}
+
+        async def _resolve(command, pid, pane_id):
+            seen.update(command=command, pid=pid, pane_id=pane_id)
+            return "codex" if command == "node" and pid == 4245 else ""
+
+        app._resolve_shadow_agent_key = _resolve
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertEqual(seen, {"command": "node", "pid": 4245,
+                                "pane_id": "%5"})
+        self.assertTrue(app._review_loop.armed)
+
+    def test_unresolvable_shadow_refuses_without_claiming_no_detector(self):
+        """"" is "could not resolve", never "unsupported" (agent_keys
+        contract), and it is frequently a TIMING answer. The message must not
+        accuse the agent of lacking a detector."""
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_NODE)
+
+        async def _resolve(command, pid, pane_id):
+            return ""
+
+        app._resolve_shadow_agent_key = _resolve
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("could not resolve", app.spy_notify[-1][0])
+        self.assertNotIn("no readiness detection", app.spy_notify[-1][0])
         self.assertFalse(app._review_loop.armed)
 
     def test_refuses_on_lookup_failure_without_arming(self):
@@ -1554,6 +1665,184 @@ class ReviewLoopArmTests(unittest.TestCase):
         app, mon, _ = _loop_app(self, stale=True)
         asyncio.run(app.action_toggle_review_loop())
         self.assertTrue(app._review_loop.work_seen)
+
+
+class ShadowAgentResolutionGenerationTests(unittest.TestCase):
+    """The agent-key lookup is now an await (t1509), so it is a suspension
+    point and needs the same generation guard the capture already had.
+
+    Both tests resolve the key by calling back into the controller mid-await,
+    simulating a disarm/re-arm that lands while the lookup is in flight.
+    """
+
+    def test_mid_loop_abandons_a_superseded_lifecycle(self):
+        app, mon, snap = _loop_app(self)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        mon._async_list = _SHADOW_LIST_OPENCODE   # unsupported => would disarm
+
+        async def _resolve(command, pid, pane_id):
+            # A re-arm lands while we are off-loop: NEW lifecycle.
+            app._review_loop.arm(pending_work=False)
+            return "opencode"
+
+        app._resolve_shadow_agent_key = _resolve
+        _tick(app, 1)
+        # The disarm decided on the OLD lifecycle's evidence must not fire.
+        self.assertTrue(app._review_loop.armed)
+        self.assertFalse(any("disarmed" in m for m, _s in app.spy_notify))
+
+    def test_arm_abandons_when_the_lifecycle_moved_during_the_lookup(self):
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_CODEX)
+
+        async def _resolve(command, pid, pane_id):
+            app._review_loop.arm(pending_work=False)   # someone else armed
+            return "codex"
+
+        app._resolve_shadow_agent_key = _resolve
+        before = len(app.spy_notify)
+        asyncio.run(app.action_toggle_review_loop())
+        # It must NOT re-arm on top of the other lifecycle, nor announce one.
+        self.assertEqual(len(app.spy_notify), before)
+
+
+class ShadowSettleLatchTests(unittest.TestCase):
+    """Post-interaction settle latch (t1509).
+
+    Driven through the injected `_loop_now` clock — no sleeps, so the cadence
+    assertions are deterministic rather than timing-dependent.
+    """
+
+    def _app(self):
+        app, mon, _ = _loop_app(self)
+        self.clock = [1000.0]
+        app._loop_now = lambda: self.clock[0]
+        return app
+
+    def _advance(self, seconds):
+        self.clock[0] += seconds
+
+    def _latch(self, app, state, ready=True):
+        return app._apply_shadow_settle_latch(state, ready)
+
+    def test_ready_passes_through_when_no_interaction_was_seen(self):
+        app = self._app()
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), True)
+
+    def test_working_clears_the_latch_early(self):
+        app = self._app()
+        self._latch(app, mm.review_loop.SHADOW_DIALOG)
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_WORKING), True)
+        # Cleared: the very next ready tick is allowed, deadline or not.
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), True)
+
+    def test_a_dialog_holds_ready_until_the_deadline_passes(self):
+        app = self._app()
+        self._latch(app, mm.review_loop.SHADOW_DIALOG)
+        self._advance(mm.review_loop.SHADOW_SETTLE_SECONDS - 0.1)
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), False)
+        self._advance(0.2)
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), True)
+
+    def test_the_unpatterned_update_prompt_arms_the_latch_too(self):
+        """End-to-end for the interaction NO prompt pattern matches. A latch
+        armed from a pattern match would never arm here, and the whole window
+        would reopen for it — so this drives the real fixture through the real
+        classifier, not a hand-passed state string."""
+        app = self._app()
+        state = mm.review_loop.shadow_state(
+            _rlfx.CODEX_UPDATE_PROMPT_RAW, "codex")
+        self.assertEqual(state, mm.review_loop.SHADOW_DIALOG)
+        self._latch(app, state)
+        self._advance(mm.review_loop.SHADOW_SETTLE_SECONDS - 0.1)
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), False)
+        self._advance(0.2)
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), True)
+
+    def test_it_never_wedges_when_no_work_ever_follows(self):
+        """The measured pathological case: after the update prompt no WORKING
+        observation EVER arrives (15s / 56 identical captures, live). A latch
+        clearable only by WORKING would hold the loop forever; the deadline is
+        the escape hatch and must always expire."""
+        app = self._app()
+        self._latch(app, mm.review_loop.SHADOW_DIALOG)
+        released = None
+        for i in range(40):                      # 40 ready ticks, no WORKING
+            if self._latch(app, mm.review_loop.SHADOW_READY) is True:
+                released = i
+                break
+            self._advance(0.25)
+        self.assertIsNotNone(released, "latch never released without WORKING")
+
+    def test_busy_and_unknown_arm_the_latch_as_well(self):
+        """The predicate is "not READY and not WORKING", not "is a dialog":
+        typed text in the shadow's composer would be concatenated by an
+        injection, and an unreadable capture is not evidence of idleness."""
+        for state in (mm.review_loop.SHADOW_BUSY,
+                      mm.review_loop.SHADOW_UNKNOWN):
+            app = self._app()
+            self._latch(app, state)
+            self.assertIs(
+                self._latch(app, mm.review_loop.SHADOW_READY), False, state)
+
+    def test_release_depends_on_ELAPSED_TIME_not_on_tick_count(self):
+        """Concern B, executable — and stated as the property that actually
+        discriminates. The committed-evidence cadence is
+        `max(1.0, 0.5 * refresh_seconds)` with `refresh_seconds` configurable
+        from `--interval` and project_config.yaml, so it floors at 1.0s rather
+        than the 1.5s default. Merely comparing two cadences does NOT
+        discriminate: a tick-counted R=2 sized for 1.5s happens to satisfy the
+        deadline at 1.0s too. What separates the implementations is whether the
+        release is a function of elapsed time or of how many ready
+        OBSERVATIONS arrived.
+        """
+        # (a) ONE ready observation, long after the deadline, releases.
+        #     A tick-counted R>1 returns False here.
+        app = self._app()
+        self._latch(app, mm.review_loop.SHADOW_DIALOG)
+        self._advance(mm.review_loop.SHADOW_SETTLE_SECONDS + 5.0)
+        self.assertIs(self._latch(app, mm.review_loop.SHADOW_READY), True)
+
+        # (b) MANY ready observations inside the window release nothing.
+        #     A tick-counted R=2 releases on the second one.
+        app = self._app()
+        self._latch(app, mm.review_loop.SHADOW_DIALOG)
+        for _ in range(10):
+            self._advance(0.05)          # 0.5s total, well inside the window
+            self.assertIs(
+                self._latch(app, mm.review_loop.SHADOW_READY), False)
+
+    def test_the_deadline_is_never_early_at_any_configured_cadence(self):
+        """The safety half, at both the default cadence and the 1.0s floor."""
+        for refresh in (3, 1):
+            cadence = max(1.0, 0.5 * refresh)
+            app = self._app()
+            app._refresh_seconds = refresh
+            t0 = self.clock[0]
+            self._latch(app, mm.review_loop.SHADOW_DIALOG)
+            ticks = 0
+            while True:
+                self._advance(cadence)
+                ticks += 1
+                if self._latch(app, mm.review_loop.SHADOW_READY) is True:
+                    break
+                self.assertLess(ticks, 50, "latch never released")
+            held = self.clock[0] - t0
+            self.assertGreaterEqual(
+                held, mm.review_loop.SHADOW_SETTLE_SECONDS,
+                f"released early at refresh={refresh}")
+            # ...and not absurdly late: within one evidence tick of the
+            # deadline, which is the best any sampled release can do.
+            self.assertLess(
+                held, mm.review_loop.SHADOW_SETTLE_SECONDS + cadence)
+
+    def test_arming_and_auto_disarm_clear_a_standing_deadline(self):
+        app = self._app()
+        self._latch(app, mm.review_loop.SHADOW_DIALOG)
+        self.assertIsNotNone(app._loop_shadow_settle_until)
+        app._loop_auto_disarm("test")
+        self.assertIsNone(app._loop_shadow_settle_until)
 
 
 class ReviewLoopFireTests(unittest.TestCase):
@@ -1630,7 +1919,42 @@ class ReviewLoopFireTests(unittest.TestCase):
         self.assertEqual(mon.sent, [])  # zero sends — no partial delivery
         self.assertTrue(app._review_loop.armed)
         self.assertEqual(app._review_loop.state, _rl.WAITING)
-        # The aborted episode completes on the next clean tick.
+        # t1509: the delivery-time observation (typed composer text) now ARMS
+        # the settle latch, so the aborted episode no longer completes on the
+        # very next tick — it waits out the settle window first. Injecting
+        # straight after seeing text in the shadow's composer would concatenate
+        # onto what the user typed.
+        _tick(app, 1)
+        self.assertEqual(mon.sent, [])
+        _advance_past_settle(app)
+        _tick(app, 1)
+        self.assertEqual(len(mon.sent), 2)
+
+    def test_a_dialog_seen_only_at_delivery_arms_the_settle_latch(self):
+        """The between-tick interaction race (t1509 review).
+
+        The service tick sees an at-rest shadow and the controller grants a
+        fire; by the time the pre-send capture runs, an interaction is on
+        screen. Refusing the send is not enough on its own: before this fix the
+        refusing observation was discarded, so the episode completed on the
+        NEXT clean tick — ~one evidence tick after a dialog was seen, with no
+        settle hold at all. The delivery capture must feed the latch.
+        """
+        app, mon, _ = self._armed()
+        rest = _rlfx.CLAUDE_AT_REST_RAW
+        mon.raw_tails = [rest, rest, rest, _rlfx.CLAUDE_DIALOG_RAW, rest]
+        _tick(app, 3)
+        self.assertEqual(mon.sent, [])                       # refused
+        self.assertTrue(app._review_loop.armed)              # not disarmed
+        # The refusing observation ARMED the latch...
+        self.assertIsNotNone(app._loop_shadow_settle_until)
+        # ...so the next clean tick must NOT complete the episode.
+        _tick(app, 1)
+        self.assertEqual(mon.sent, [], "fired inside the settle window")
+        _tick(app, 1)
+        self.assertEqual(mon.sent, [], "fired inside the settle window")
+        # Only after the wall-clock deadline does it deliver.
+        _advance_past_settle(app)
         _tick(app, 1)
         self.assertEqual(len(mon.sent), 2)
 
@@ -1711,11 +2035,37 @@ class ReviewLoopPresenceTests(unittest.TestCase):
         self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
 
     def test_mid_loop_swap_to_undetectable_shadow_disarms_naming_it(self):
+        # Retargeted to `opencode` in t1509 (see the arm-side test): a RESOLVED
+        # agent with no detector is a definitive capability gap and still
+        # auto-disarms.
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_OPENCODE
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        self.assertTrue(any("opencode" in m for m, _s in app.spy_notify))
+
+    def test_mid_loop_swap_to_a_codex_shadow_keeps_the_loop_armed(self):
         app, mon, _ = self._armed()
         mon._async_list = _SHADOW_LIST_CODEX
         _tick(app, 1)
-        self.assertFalse(app._review_loop.armed)
-        self.assertTrue(any("codex" in m for m, _s in app.spy_notify))
+        self.assertTrue(app._review_loop.armed)
+
+    def test_mid_loop_unresolvable_shadow_holds_instead_of_disarming(self):
+        """"" is a TIMING answer as often as a permanent one (the wrapper
+        spawns its child asynchronously and misses are retried on a backoff).
+        Disarming on it would destroy the user's armed state over a
+        process-table race, so the loop HOLDS, exactly as for a transient tmux
+        failure."""
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_NODE
+
+        async def _resolve(command, pid, pane_id):
+            return ""
+
+        app._resolve_shadow_agent_key = _resolve
+        _tick(app, 3)
+        self.assertTrue(app._review_loop.armed)
+        self.assertFalse(any("disarmed" in m for m, _s in app.spy_notify))
 
     def test_agent_capture_failure_pauses_and_preserves_baseline(self):
         app, mon, snap = self._armed(stale=True)
