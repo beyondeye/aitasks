@@ -67,10 +67,24 @@ Codex shadow from reading as ready. Measured working line:
 `• Working (Ns • esc to interrupt)` (per-character animated shimmer + a
 per-second timer, so the raw tail is hash-unstable) and `• Running <cmd>`.
 
-**Residual, accepted and documented:** for ~1 tick after a dialog is answered,
-Codex renders an empty composer with no working indicator yet. Same class of
-transient the Claude detector has; covered by conjunct (c) plus the
-controller's work-observed latch, not by the detector.
+**Post-dialog settle window — NOT an accepted residual (revised after review).**
+For a period after a dialog is answered, Codex renders an empty composer with no
+working indicator yet. The first draft of this plan waved that away as "~1 tick,
+covered by conjunct (c)". Re-checking the source shows that reasoning was wrong:
+
+- committed evidence ticks are throttled to
+  `max(1.0, 0.5 * _refresh_seconds)` = **1.5 s** at the default 3 s refresh
+  (`minimonitor_app.py:2518-2523`), **not** one 3 s refresh;
+- `hash_stable` needs only `_loop_shadow_hash_streak >= 1` (:2584), i.e. **two**
+  identical consecutive captures — so a **1.5 s** unchanged window is enough.
+
+The measured gap was **≥ 2 s** (a capture 2 s after the dialog was answered still
+showed no working indicator; the next at 4 s showed `• Working (3s …)`). A gap
+that spans two 1.5 s evidence ticks makes `shadow_ready` True with nothing
+running, and the loop would send its prompt + Enter before Codex resumed — the
+exact failure this feature exists to prevent. It is therefore **measured
+explicitly (Pre-phase step 2) and closed structurally (Phase 3b)**, and the
+measurement is a **required pre-ship condition**, not an optional check.
 
 ## The actual blocker (found during measurement)
 
@@ -106,6 +120,24 @@ currently request.
    authored. A missed unpack site must then fail this test rather than raise a
    `TypeError` inside a live minimonitor tick.
 
+2. `[measure_post_dialog_settle]` **Measure the post-dialog settle window at the
+   real evidence cadence, before writing the guard it sizes.** Drive a live Codex
+   pane in a private tmux socket through: answer a permission dialog → capture
+   the raw tail every **1.5 s** (the committed-evidence-tick interval, not the
+   3 s refresh) → record, per repetition, the **maximum run of consecutive
+   byte-identical tails observed between the dialog disappearing and the working
+   indicator appearing**. Repeat **≥ 5 times**, and repeat the same protocol for
+   the question widget. Record the raw numbers in this plan's Final
+   Implementation Notes.
+
+   The measurement **sizes `_POST_DIALOG_SETTLE_TICKS` (`R`) in Phase 3b**:
+   `R = max_observed_identical_run` (floor 1). It is a **required pre-ship
+   condition** — Phase 3b does not ship with a guessed `R`, and if the maximum
+   run is 0 across every repetition (the window can never produce two identical
+   captures) that negative result must be recorded here explicitly and the
+   latch still ships, sized `R = 1`, because a null result from five samples is
+   not proof of impossibility.
+
 ### Phase 1 — carry the shadow pane's pid to the arm gate
 
 `.aitask-scripts/monitor/monitor_core.py`
@@ -130,17 +162,41 @@ currently request.
    unpack the fourth value.
 6. Replace `agent_key_from_command(shadow_command)` with
    `agent_key_from_pane(shadow_command, shadow_pid, shadow_pane)` at **both**
-   the arm gate (:2468) and the mid-loop re-check (:2554).
-   Call it **inline (synchronously)** — do not add an `await`. Precedent:
-   `monitor_core.py:2216` calls the same function inline inside
-   `_finalize_capture`, which is documented as atomic on the loop, and
-   `:2311/:2396/:2449` do the same. Rung 2 is a `pgrep`+`ps` pair bounded at 2 s
-   with a positive cache keyed on `(pane_id, pid, command)`, so steady state is
-   free. Adding an `await` here would insert a suspension point *before* the
-   mid-loop's `lifecycle_gen` snapshot and needs a second generation guard —
-   avoided entirely by staying synchronous. Do **not** route it through
-   `TmuxMonitor._run_offloaded`: that seam's contract is "pure compute over
-   plain data" and this shells out.
+   the arm gate (:2468) and the mid-loop re-check (:2554), and run it **off the
+   event loop**.
+
+   *(Correction from the first draft, which argued for a synchronous call on the
+   grounds that `monitor_core.py:2216` does the same. That precedent is the
+   **sync** capture path. The **async** path — the one these two call sites live
+   on — already offloads it: `_classify_batch` (`monitor_core.py:275-290`) calls
+   `agent_key_from_pane` inside a single `asyncio.to_thread` hop. Offloading is
+   therefore the established pattern here, not the exception. On a cache miss
+   rung 2 runs `pgrep` then `ps`, each bounded at `_LOOKUP_TIMEOUT = 2.0 s`, so
+   a wedged process table could block the Textual loop for up to ~4 s — freezing
+   the UI and delaying every armed-loop evidence tick.)*
+
+   - Add one overridable app method so tests can drive resolution order
+     deterministically:
+     ```python
+     async def _resolve_shadow_agent_key(self, command, pid, pane_id) -> str:
+         return await asyncio.to_thread(
+             workflow_phase.agent_key_from_pane, command, pid, pane_id)
+     ```
+     Do **not** route it through `TmuxMonitor._run_offloaded`: that seam's
+     documented contract is "pure compute over plain data" (`monitor_core.py:1650`)
+     and this shells out.
+   - **Mid-loop (:2554): the new `await` is a suspension point, so it needs the
+     same generation guard the capture already has.** Move
+     `lifecycle_gen = ctrl.generation` to **before** the resolution await and
+     re-check `ctrl.generation != lifecycle_gen` immediately after it, returning
+     without mutating anything on a mismatch — then reuse that same snapshot for
+     the existing `capture_raw_tail` check. Without this, a disarm/re-arm during
+     the lookup could auto-disarm a *freshly armed* lifecycle on stale evidence.
+   - **Arm action (:2468): guard the equivalent race.** Snapshot
+     `(ctrl.armed, ctrl.generation)` before the await and abandon the arm
+     (notify nothing) if either changed — the user may have pressed the key
+     again, or the loop may have been armed by another path, while the lookup
+     was in flight.
 
 ### Phase 2 — distinguish "unresolved" from "unsupported"
 
@@ -198,13 +254,55 @@ state over a timing artifact.
     stays `("claude",)` — out of scope, and a Claude followed pane with a Codex
     shadow is precisely the pairing being unblocked.
 
+### Phase 3b — close the post-dialog settle window structurally
+
+The window measured in Pre-phase step 2 is a **timing** hazard, so a timing
+answer ("require a longer hash streak") would only move it. Close it with state:
+the loop must positively observe the shadow leave the dialog *into work* before
+an empty composer counts as ready.
+
+12. `review_loop.py` — expose the detector's verdict instead of collapsing it to
+    a bool, keeping **one** implementation:
+    ```python
+    SHADOW_DIALOG, SHADOW_WORKING, SHADOW_READY, SHADOW_BUSY, SHADOW_UNKNOWN = (
+        "dialog", "working", "ready", "busy", "unknown")
+
+    def shadow_state(raw_text: str | None, agent: str) -> str: ...
+    ```
+    `_composer_ready` is refactored to return one of these (dialog = a negative
+    pattern matched; working = the working regex matched; ready = empty
+    composer; busy = a composer carrying typed text; unknown = capture failed /
+    no detector / no composer found). `shadow_prompt_ready` is then **derived**
+    from `shadow_state` — same signature, same behaviour, no second copy of the
+    rules — so the two can never disagree.
+
+13. `minimonitor_app.py` — a post-dialog latch on the committed evidence tick:
+    - `self._loop_shadow_post_dialog: int | None = None` (armed = a countdown,
+      `None` = clear). Reset to `None` in `arm()` and in the two existing
+      `_loop_shadow_hash_streak = 0` reset sites so a fresh lifecycle never
+      inherits it.
+    - `shadow_state == SHADOW_DIALOG` → set the latch to `R`
+      (`_POST_DIALOG_SETTLE_TICKS`, **sized by Pre-phase step 2**) and force
+      `shadow_ready = False`.
+    - `shadow_state == SHADOW_WORKING` → clear the latch (`None`). This is the
+      normal exit: the shadow demonstrably resumed work.
+    - `shadow_state == SHADOW_READY` **with the latch armed** → decrement it and
+      force `shadow_ready = False` until it reaches 0. **This escape hatch is
+      required, not optional:** answering a dialog with an option that produces
+      no work at all (Codex's "No, tell Codex what to do differently", or Esc)
+      never yields a `WORKING` observation, and a latch that only `WORKING`
+      could clear would wedge the armed loop forever.
+    - Net effect: after a dialog, a fire needs `R` consecutive ready evidence
+      ticks **on top of** the existing hash-stability streak — a window strictly
+      longer than the one measured — or a positive work observation.
+
 ### Phase 4 — fixtures and tests
 
 `tests/review_loop_fixtures.py` (the established home for these captures — the
 task text says "inline in `test_review_loop.py`", but the shipped practice from
 t1159_2 is this separate module; following the shipped practice)
 
-12. Add one single-line raw literal per measured state, ANSI preserved:
+14. Add one single-line raw literal per measured state, ANSI preserved:
     `CODEX_AT_REST_RAW`, `CODEX_TYPED_RAW`, `CODEX_WORKING_RAW`,
     `CODEX_PERMISSION_RAW`, `CODEX_QUESTION_RAW`, `CODEX_UPDATE_PROMPT_RAW`.
     Extend the module provenance docstring with the Codex capture session
@@ -215,18 +313,18 @@ t1159_2 is this separate module; following the shipped practice)
 
 `tests/test_review_loop.py` (`ShadowPromptReadyTests`, stdlib `unittest`)
 
-13. Per-state cases mirroring the Claude ones: at-rest + `hash_stable` → `True`;
+15. Per-state cases mirroring the Claude ones: at-rest + `hash_stable` → `True`;
     typed / working / permission / question / update-prompt → **not** `True`;
     at-rest with `hash_stable=False` → `False`; `raw_text=None` → `None`.
-14. **Isolated positive half** — the task's explicit safety question, as an
+16. **Isolated positive half** — the task's explicit safety question, as an
     executable assertion. With `PROMPT_PATTERNS_BY_AGENT` patched so `"codex"`
     is empty, `_codex_ready` must still return `False` for all three dialog
     fixtures. Without this, the dialog cases only prove the pattern list fires.
-15. **Negative controls** (one mutation each, each with a named failing
+17. **Negative controls** (one mutation each, each with a named failing
     assertion): swap `_CODEX_COMPOSER_RE` for Claude's NBSP form → at-rest stops
     being ready; drop `_CODEX_WORKING_RE` → the working fixture becomes ready,
     pinning that regex as the thing excluding streaming.
-16. Fix the now-wrong existing assertion at :473
+18. Fix the now-wrong existing assertion at :473
     (`shadow_prompt_ready(CLAUDE_AT_REST_RAW, "codex", True) is None`) — Codex is
     supported now. Re-point the unknown-agent case at `"opencode"` and add a
     genuinely-unknown key (`"gemini"`), so "unknown agent ⇒ indeterminate" stays
@@ -235,11 +333,28 @@ t1159_2 is this separate module; following the shipped practice)
 `tests/test_minimonitor_concern_action.py` (:1454-1470) and
 `tests/test_shadow_seam.py` (:182)
 
-17. Update the four `match_shadow_pane_info` / `find_shadow_pane_info_async`
+19. Update the four `match_shadow_pane_info` / `find_shadow_pane_info_async`
     tuple assertions for the new arity, and add cases for the pid field: a
     4-field line yields the pid; 3-field and 2-field lines still resolve with
     `pid = 0`.
-18. New cases for Phase 1+2 at the app level: a shadow pane whose command is
+19b. **Phase 3b latch cases** (`tests/test_review_loop.py` + the app-level
+    module): `shadow_state` returns the right verdict for each Codex fixture;
+    `shadow_prompt_ready` derived from it is byte-for-byte behaviour-compatible
+    on every **Claude** fixture (a characterization guard on the refactor); and
+    a driven evidence-tick sequence `dialog → ready × R → ready` fires only on
+    the last tick, while `dialog → ready → working → ready × 2` clears the latch
+    early. Include the **wedge negative control**: a `dialog → ready …` sequence
+    that never produces a `working` observation must still fire after `R` ticks
+    — pinning the escape hatch, which is the branch a "clear only on WORKING"
+    implementation would silently omit.
+
+19c. **Phase 1 async-resolution cases:** with `_resolve_shadow_agent_key`
+    overridden to resolve after the caller bumps `ctrl.generation`, the mid-loop
+    invocation must mutate nothing and the arm action must not arm — pinning
+    both generation guards. Each needs its stale-result path asserted
+    explicitly, not just a "does not crash" assertion.
+
+20. New cases for Phase 1+2 at the app level: a shadow pane whose command is
     `node` with a pid whose child is `codex` resolves to `codex` and **arms**
     (the regression this task exists to fix); an `opencode` shadow still hits
     the unchanged refusal; an unresolvable shadow refuses at arm time **without**
@@ -247,12 +362,12 @@ t1159_2 is this separate module; following the shipped practice)
 
 ### Phase 5 — docs
 
-19. `aidocs/framework/shadow_agent.md` (review-loop section) — record that
+21. `aidocs/framework/shadow_agent.md` (review-loop section) — record that
     shadow **composer/working** patterns are per-agent and live in
     `review_loop.py` (not `prompt_patterns.py`, which owns followed-pane dialog
     patterns), that Codex is now supported, and that the arm gate resolves the
     shadow's agent via the two-rung ladder because Codex reports `node`.
-20. `aidocs/framework/monitor_idle_and_prompt_detection.md` — one cross-reference
+22. `aidocs/framework/monitor_idle_and_prompt_detection.md` — one cross-reference
     to the above, so the "when to edit `prompt_patterns.py`" page does not read
     as the only place per-agent pane text is matched.
     **Obey that page's own third rule:** describe dialog structure in prose;
@@ -260,7 +375,73 @@ t1159_2 is this separate module; following the shipped practice)
 
 ---
 
+### Phase 6 — hand the OpenCode half off as a real task (not a coordination note)
+
+The user-approved scope decision defers OpenCode, which is part of the task's own
+scope line ("and `opencode` if its surfaces are observable" — they **are**
+observable, and were observed). A coordination paragraph is not a handoff, so
+this is an explicit, non-skippable implementation step: **the OpenCode task is
+created before this task's Step 8 review**, so it cannot evaporate once Codex
+lands.
+
+23. Create the sibling with the measured evidence in its body:
+    ```bash
+    ./.aitask-scripts/aitask_create.sh --batch \
+      --name shadow_readiness_detector_for_opencode \
+      --type feature --priority high --effort medium \
+      --labels shadow,aitask_monitormini,opencode \
+      --anchor 1159 \
+      --desc-file <body-file> --commit
+    ```
+    (Resolve the exact flag spellings against `aitask_create.sh --help` at
+    implementation time; `--anchor 1159` keeps it in t1509's topic group.)
+
+    The body **must carry the planning measurements**, because they are the
+    expensive part and re-deriving them costs another live session:
+    - the composer is a `┃`-gutter box; its positive anchor must be the
+      `╹▀▀▀…` **bottom border** plus the composer status row
+      (`Build · <model> · <effort>`);
+    - the permission dialog **replaces** that box (so the positive half excludes
+      it, exactly as for Codex) — but the dialog is *also* a `┃`-gutter box
+      containing blank rows, so a naive "a blank `┃` row exists" rule
+      false-positives and must be ruled out by a negative control;
+    - the gray placeholder hint is **not** a durable readiness signal: it is
+      present on a fresh session and **gone after the first turn**;
+    - the working state is a blank composer plus an `⬝⬝⬝⬝ esc interrupt` footer,
+      and there is **no SGR-dim styling** anywhere in the composer, so
+      `_DIM_SPAN_RE` does not transfer;
+    - `opencode` already has two live t1467 dialog patterns
+      (`opencode_question`, `opencode_permission`) for the negative half;
+    - measured against opencode 1.18.18 on 2026-08-14.
+
+    **Acceptance criteria to state in the task:** an `opencode` entry in
+    `SHADOW_READY_DETECTORS`; raw-ANSI fixtures for at-rest-fresh,
+    at-rest-after-a-turn, typed, working and permission-dialog; an
+    **isolated-positive-half** test proving the dialog is excluded with the
+    pattern list disabled; the blank-`┃`-row negative control; the same
+    post-dialog settle measurement and latch sizing as Phase 3b; and the arm
+    refusal remaining reachable for whatever agent is still undetected.
+
+24. Record the new task's id in this plan's Coordination section and in the
+    Final Implementation Notes, so the handoff is traceable from the archive.
+
 ## Verification
+
+**Required pre-ship conditions** (none of these may be deferred to the
+manual-verification follow-up — the follow-up confirms the shipped guard in a
+real session, it does not stand in for the evidence that sizes it):
+
+1. **Post-dialog settle measured** (Pre-phase step 2): ≥ 5 repetitions each for
+   the permission dialog and the question widget, sampled at 1.5 s, with the
+   maximum run of consecutive identical tails recorded in the Final
+   Implementation Notes — and `_POST_DIALOG_SETTLE_TICKS` set from that number
+   rather than guessed.
+2. **The latch is pinned by a driven tick sequence**, including the wedge
+   negative control (step 19b) — a latch that can only be cleared by a `working`
+   observation must fail that test.
+3. **The OpenCode sibling exists** (Phase 6) with its id recorded here.
+4. **The arm refusal is still reachable** and still names the agent — proven by
+   a test, not by inspection.
 
 - `python3 tests/test_review_loop.py` — the new per-state, isolated-positive-half
   and negative-control cases.
@@ -279,15 +460,10 @@ t1159_2 is this separate module; following the shipped practice)
 
 ## Coordination
 
-- **OpenCode sibling follow-up** (to be created): the border-anchored detector.
-  Measured evidence to hand over — the composer is a `┃`-gutter box whose
-  positive anchor must be its `╹▀▀▀…` bottom border plus the composer status
-  row (`Build · <model> · <effort>`); the permission dialog **replaces** that box
-  (so the positive half excludes it, same as Codex) but the dialog is *also* a
-  `┃`-gutter box containing blank rows, so a naive "blank `┃` row" rule
-  false-positives; the gray placeholder hint is **not** a durable readiness
-  signal — it disappears after the first turn; the working state is a blank
-  composer plus an `⬝⬝⬝⬝ esc interrupt` footer.
+- **OpenCode sibling follow-up** — created by **Phase 6 step 23** (an
+  implementation step, not a promise), carrying the measured gutter /
+  bottom-border evidence and its own acceptance criteria. Its id is recorded
+  here at step 24: `t____` (filled in at implementation time).
 - **t1467** (followed-side per-agent prompt patterns) — no blocking edge, per the
   measurement above. One gap to hand over: the **Codex startup
   update-available prompt** is a real awaiting-user-input dialog that no Codex
@@ -312,26 +488,41 @@ t1159_2 is this separate module; following the shipped practice)
   refusal · severity: low · → mitigation: none (accepted; Phase 4 step 18 pins
   both the hold and the refusal branches)
 
-### Goal-achievement risk: low
+- Phase 1's `agent_key_from_pane` lookup runs `pgrep` + `ps`, each bounded at
+  2 s, on a cache miss. Left on the Textual event loop it can freeze the UI and
+  stall armed-loop evidence ticks for ~4 s; moved off it, the new suspension
+  point can let a stale result act on a superseded lifecycle ·
+  severity: medium · → mitigation: none spawned (closed in-plan by Phase 1
+  step 6 — `asyncio.to_thread` plus generation guards at both call sites, pinned
+  by test step 19c)
+
+### Goal-achievement risk: medium
 - The Codex composer/working regexes are pinned to codex-cli 0.146.0 and the
   pane itself already advertises 0.147.0; a UI change makes readiness
   permanently `False`. The failure direction is fail-safe (the loop holds and
   never injects), but it is **silent** — indistinguishable from a shadow that is
   simply busy · severity: low · → mitigation: surface_never_settled_shadow
-- For roughly one tick after a Codex dialog is answered the pane shows an empty
-  composer with no working indicator yet, so conjunct (c) is the only thing
-  standing between that window and a fire. Outside the task's stated
-  requirement (neither mid-output nor at-dialog) but worth confirming live ·
-  severity: low · → mitigation: covered by the queued manual-verification
-  follow-up (a dedicated `measure_post_dialog_gap` mitigation was proposed and
-  dropped as duplicative)
+- **[raised to high in review]** After a Codex dialog is answered the pane shows
+  an empty composer with no working indicator for a window measured at **≥ 2 s**,
+  while committed evidence ticks run every **1.5 s** and `hash_stable` needs only
+  two identical captures. The loop can therefore fire its prompt + Enter into a
+  shadow that has not resumed work — the safety failure the feature exists to
+  prevent. Not outside the requirement, as the first draft claimed ·
+  severity: high · → mitigation: inline pre-phase measure_post_dialog_settle
+  (sizes it) + Phase 3b post-dialog latch (closes it)
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_shadow_seam_consumers | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (shadow-seam tuple widening / missed unpack site) | desc: Characterize every consumer's unpack path against the unmodified helpers before widening them, so a missed call site fails a test instead of a live minimonitor tick.
+- timing: pre-phase | name: measure_post_dialog_settle | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 2 (post-dialog settle window, raised to high in review) | desc: Measure the post-dialog empty-composer window live at the 1.5s evidence-tick cadence over at least five repetitions per dialog kind, and size the Phase 3b latch from the measured maximum rather than a guess.
 - timing: after | name: surface_never_settled_shadow | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement risk 1 (silent composer-pattern drift across a Codex release) | desc: When the loop is armed and the shadow never reads ready for N consecutive ticks, surface a banner hint that its composer pattern may need re-pinning, turning a silent fail-safe hold into a legible signal.
 
-**Reassessment after inlining** (`risk-evaluation.md` Step 3 note): with
-`pin_shadow_seam_consumers` inlined as a pre-phase, code-health risk stays
-**medium** — the characterization test closes the missed-unpack path, but the
-seam's blast radius and the Phase 2 semantic change are unchanged.
-Goal-achievement risk stays **low**.
+**Reassessment after inlining and after the review round**
+(`risk-evaluation.md` Step 3 note): code-health stays **medium** — the
+characterization test closes the missed-unpack path and Phase 1 step 6 closes
+the event-loop blocking, but the seam's blast radius and the Phase 2 semantic
+change are unchanged, and Phase 3b adds new latch state to an already-subtle
+controller. Goal-achievement moves **low → medium**: the review surfaced a
+reachable injection window the first draft had dismissed, which is evidence the
+plan's own safety reasoning needed correction; it is now closed structurally
+(Phase 3b) and gated on measurement (Pre-phase step 2), but the correction
+itself is the reason the level is no longer `low`.
