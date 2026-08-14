@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, tui, task_metadata]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 created_at: 2026-08-12 19:07
-updated_at: 2026-08-12 19:07
+updated_at: 2026-08-14 10:18
 ---
 
 ## Context
