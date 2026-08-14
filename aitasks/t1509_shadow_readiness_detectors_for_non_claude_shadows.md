@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, codex, opencode]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-13 14:34
-updated_at: 2026-08-13 14:34
+updated_at: 2026-08-14 11:12
 ---
 
 Extend the auto-recheck loop's shadow-readiness detection beyond Claude so the loop can arm when the SHADOW pane runs Codex or OpenCode. Today `SHADOW_READY_DETECTORS` (`.aitask-scripts/monitor/review_loop.py:382`) is `{"claude": _claude_ready}`, and `action_toggle_review_loop` (`minimonitor_app.py`) refuses to arm when the resolved shadow agent key is not in it.
