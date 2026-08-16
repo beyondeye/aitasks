@@ -358,3 +358,71 @@ part.
 - timing: pre-phase | name: bound_claim_path_cost | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (new work on the universally-executed claim path) | desc: Pin the capture call's placement at the end of main(), measure claim latency with/without, and assert the OWNED:/RECLAIM_* stdout contract is byte-identical.
 - timing: post-phase | name: surface_attributed_set_for_confirmation | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 1 (plan scope is declared, not proven) | desc: Show the TASK:-attributed file list in the gate skill's §4 confirmation, not only the UNKNOWN: escalation.
 - timing: after | name: worktree_freshness_metadata | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement risk 3 (structural isolation unusable as a signal) | desc: Have task-workflow Step 5 record framework-created-worktree metadata at `git worktree add` time so aitask_change_surface.sh can treat a proven-fresh task worktree as an ownership signal instead of escalating its unnamed dirt. Spawned because it edits the shared task-workflow authoring template and requires goldens regeneration across every profile and agent tree.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. New `.aitask-scripts/aitask_change_surface.sh`
+  (`capture` / `list`) with the three-signal model (P1 commit tag, P2 exact-file plan
+  scope, N1 claim baseline) and the two-pass emission (tagged commits unconditionally,
+  then the dirty set classified with those de-duplicated out). `aitask_pick_own.sh`
+  captures the baseline at the end of `main()` on fresh claims only.
+  `aitask-gate-docs-updated/SKILL.md` §2 rewritten to call the helper, new §2b resolves
+  `UNKNOWN:` paths with the user, §4 shows the attributed set (post-phase mitigation),
+  §6 logs the attribution state, two MUST NOTs added. Helper whitelisted across all 5
+  touchpoints. Website page gained a "How it decides what your task changed" section.
+  `tests/test_change_surface.sh`: 50 assertions, all passing.
+
+- **Deviations from plan:** None in design. Two review findings were fixed in-session
+  rather than taken as the follow-ups their reviewer disposition suggested, because both
+  were cheap and one was actively harmful:
+  1. `new_repo` appended to `CLEANUP_DIRS` inside the command substitution of
+     `fx="$(new_repo)"`, so the append died in the subshell and every run leaked its
+     fixtures (125 stale `/tmp/test_chgsurf_*` dirs found). Replaced with a single
+     `FIXTURE_ROOT` created and trapped in the parent shell; stale dirs removed.
+  2. The `bound_claim_path_cost` stdout-contract assertion was a text grep of
+     `aitask_pick_own.sh`, which would survive a reordering or a broken missing-helper
+     path. Replaced with a runtime two-arm comparison (helper copied into the fake repo
+     vs. not) over identical state, byte-comparing stdout, with a positive control that
+     the claim really produced `OWNED:1` and file-presence assertions so the equality
+     cannot be vacuous.
+
+- **Issues encountered:** Three real defects, two found only by running the helper live
+  against this checkout rather than against fixtures:
+  1. `git show --name-only --format= -- "$sha"` read the SHA as a **pathspec**, so Pass A
+     silently returned nothing for every task. Fixed by dropping the `--`. This is
+     exactly the clean-committed-file regression the two-pass split exists to prevent,
+     and it was invisible while the file was also dirty (plan scope masked it).
+  2. The token regex `[A-Za-z0-9_][A-Za-z0-9_./-]*` forbade a **leading dot**, capturing
+     `.claude/skills/x/SKILL.md` as `claude/skills/…`, which resolves to nothing. Every
+     dot-directory path was permanently unattributable — `.aitask-scripts/`, `.claude/`,
+     `.codex/`, `.opencode/`, `.agents/`, i.e. most of this framework. Fixed by admitting
+     `.` as a leading character; regression test added.
+  3. `current_dirty_set`'s `grep -v '^$'` exits 1 on a clean tree, and under
+     `set -o pipefail` that killed `capture` silently inside the command substitution
+     (the documented `shell_conventions.md` footgun). Fixed with a trailing `|| true`.
+
+- **Key decisions:**
+  - **The baseline produces only a NEGATIVE.** A claim-time snapshot cannot attribute a
+    path that appeared after the claim (verified in a scratch repo: t1's baseline is
+    empty, so a concurrent `b.md` is indistinguishable from t1's own `a.md`). Positive
+    attribution therefore requires the commit tag or the plan, and everything else is
+    `UNKNOWN:`. Fix direction 1 was pulled into this task rather than deferred.
+  - **Plan scope is exact-file-only; directory tokens are discarded.** Running a
+    directory-token extractor over this task's own plan yields `.aitask-scripts/`,
+    `tests/`, `.claude/`, `seed/`, `aidocs/framework/` — prefix matching would have
+    attributed most of the repo. Two independent defenses (extraction discards
+    directories, matching is exact); a mutation test confirmed both must be disabled
+    together before the guard fails.
+  - **Worktree freshness rejected as a signal.** "Linked worktree on an `aitask/*`
+    branch" is an inference about how the tree was created, not a proof, and trusting it
+    would bypass the `UNKNOWN:` escalation. Deferred to `worktree_freshness_metadata`,
+    which needs metadata written at `git worktree add` time in task-workflow Step 5.
+  - **Autonomous profiles exclude `UNKNOWN:` and log it** rather than including it:
+    over-escalation is recoverable, false attribution is not.
+  - Every guard was proven able to fail by injecting the defect it targets (rejected
+    prefix design, Pass A folded into the dirty scan, dotpath regex reverted, fresh-claim
+    guard removed).
+
+- **Upstream defects identified:** None.
