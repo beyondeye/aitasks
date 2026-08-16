@@ -3,13 +3,14 @@ priority: high
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [artifacts, task_metadata]
-verifies: [1468_5]
+verifies: [t1468_5]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 followup_kind: risk_mitigation
 created_at: 2026-08-13 14:02
-updated_at: 2026-08-13 14:02
+updated_at: 2026-08-16 11:32
 ---
 
 ## Origin
