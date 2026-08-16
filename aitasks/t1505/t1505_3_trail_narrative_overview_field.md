@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 12:27
-updated_at: 2026-08-16 09:36
+updated_at: 2026-08-16 10:25
 ---
 
 ## Context
@@ -140,3 +141,8 @@ live artifacts) and must not be read as a regression from this child.
 
 `aidocs/implementation_trail_examples/*.json` need no change for this field;
 t1468_5 separately regenerates `cross_topic_multiple_trails.json` for its bump.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-16T07:25:43Z status=pass attempt=1 type=human
