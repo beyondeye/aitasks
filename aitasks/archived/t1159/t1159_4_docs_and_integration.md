@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: [t1159_2, t1159_3]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-11 15:34
-updated_at: 2026-08-16 23:27
+updated_at: 2026-08-16 23:28
+completed_at: 2026-08-16 23:28
 ---
 
 Documentation and integration sweep for the shadow review-loop automation (t1159). Parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_4_docs_and_integration.md`. Depends on t1159_2 and t1159_3 (documents what they shipped — document the LANDED source, not the plans).
@@ -69,3 +70,14 @@ t1159_1..3 ship: the round metadata header (`Round: <N> @ <ts>` inside the conce
 > **✅ gate:plan_approved** run=2026-08-16T20:03:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-16T20:26:13Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-16T20:28:05Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0b1157724f390b94
+
+> **✅ gate:risk_evaluated** run=2026-08-16T20:28:05Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1159_4/risk_evaluated_2026-08-16T20:28:05Z-risk_evaluated-a1.log`
