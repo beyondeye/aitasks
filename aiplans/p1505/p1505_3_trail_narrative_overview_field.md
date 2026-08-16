@@ -346,3 +346,117 @@ resolved the three defects listed under goal-achievement.
 
 No mitigations are proposed: every identified risk is already covered by an
 existing enforced guard or resolved within this plan.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-16 10:47)
+
+- **Requested by user:** Two review findings. (a) `aidocs/implementation_trail_design.md:204`
+  documented the constraint as `pattern: "\S"`, but the schema source must
+  escape the backslash — a maintainer copying the documented form into JSON
+  gets an invalid escape. (b) `trail_summary_text()`'s docstring still said
+  "Until t1505_3 lands, `overview` is absent from the schema", which this task
+  makes false.
+- **Verified:** Both confirmed. `json.loads('{"pattern": "\S"}')` raises
+  `JSONDecodeError: Invalid \escape` — the documented form does not merely
+  yield the wrong regex, it fails to parse. Line 204 was the doc's only inline
+  schema-regex literal, so no existing convention constrained the fix.
+- **Changes made:** (a) §6 now reads `"pattern": "\\S"` and names the decoded
+  regex `\S`, noting that a single backslash is not a legal JSON escape;
+  round-trip verified — the documented literal parses to exactly the value
+  stored in the schema and rejects whitespace-only. (b) The docstring's
+  temporal sentence was replaced with the current truth: `overview` is optional,
+  so the fallback stays live for any trail without one.
+- **Files affected:** `aidocs/implementation_trail_design.md`,
+  `.aitask-scripts/board/aitask_board.py`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned change. `narrative.overview` added
+  to both schema copies as an optional `type: string` with `minLength: 1` and
+  `pattern: "\\S"`; `schema_version` const, `$id` and `narrative.required` left
+  untouched; copies kept byte-identical by copying rather than double-editing.
+  Seven new schema cases in a `NarrativeOverviewProperty` class
+  (`tests/test_trail_schema.py`, 59 → 66 tests), one resolver case in
+  `tests/test_board_bytrail_view.py` pinning whitespace-insignificance, and the
+  §6 narrative bullet in `aidocs/implementation_trail_design.md`.
+  `.aitask-scripts/lib/trail_schema.py` needed no change — confirmed, not
+  assumed: `pattern` was already in `SUPPORTED_KEYWORDS` and the unknown-keyword
+  `RuntimeError` tripwire never fired.
+
+- **Deviations from plan:**
+  - The plan said "no board change is in scope". That referred to *behavior*;
+    a docstring in `.aitask-scripts/board/aitask_board.py:805` asserted
+    `overview` was absent from the schema and became false the moment this
+    change landed, so it was corrected in place. Zero behavior change. Two
+    equivalent stale docstrings in `tests/test_board_bytrail_view.py` were
+    corrected for the same reason. Final file count 6, not the planned 5.
+  - Nothing else deviated; the schema JSON, the test matrix and the doc bullet
+    all landed as designed.
+
+- **Issues encountered:**
+  - The verification pass found the plan's own checks unable to report the
+    truth, and fixing them was most of the pre-implementation work: `bash` on a
+    Python module always exits 2 regardless of the tests; the live-artifact
+    `drift` check is unsatisfiable while t1508 is unstarted; and a
+    `grep -c … # expect 0` absence check exits 1 on zero matches. The first
+    replacement absence-check was *itself* unsatisfiable — the plan legitimately
+    quotes the stale command in order to warn against it — so Verification
+    step 0 was rewritten to use positive markers only.
+  - A `5 passed in 13.53s` line was briefly misread as a narrowed collection.
+    It is the **serial carve-out phase** (the three live-TUI modules); the
+    combined verdict line is the only authoritative one, exactly as CLAUDE.md
+    states. Runs with and without `--test-dir tests` produced identical results,
+    so the narrowing was never a problem.
+
+- **Key decisions:**
+  - **`pattern: "\\S"` rather than bare `minLength: 1`.** The task's proposed
+    description claimed renderers display `overview` "verbatim". Neither shipped
+    renderer does, and the two disagree on the degenerate case:
+    `trail_summary_text` treats whitespace-only as absent and falls back, while
+    the detail modal's `line()` skips only exact `None/""/[]/{}"` and prints a
+    labelled line with blank content. Closing that at the schema boundary makes
+    the divergence unreachable (By-Trail fails closed on invalid documents)
+    instead of documenting two behaviours. It cost nothing: a brand-new optional
+    property invalidates no stored document, which is the only moment tightening
+    is free.
+  - **Accepted inconsistency:** this makes `overview` stricter than the 12
+    legacy prose fields carrying bare `minLength: 1`. Those cannot be tightened
+    without invalidating stored trails; a new field can be correct from the
+    start.
+  - **Contract prose qualified, not just tightened.** Trimming survives the
+    pattern (`"  padded  "` is valid and renders trimmed), so the description
+    and §6 say renderers display the field's *content* with surrounding
+    whitespace insignificant — never "verbatim" — and a test pins it.
+  - **Verification re-derived around t1508.** The real entry point is the
+    `trail_schema.py validate` CLI against a 1.1.0 corpus fixture, not a live
+    artifact. A negative control was run **before** the schema edit and
+    correctly failed with
+    `INVALID:$.narrative|additionalProperties|unknown key 'overview'`, proving
+    the checks discriminate on this change.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1505_4 (lite writer flow)** now has a schema slot to write into, but
+    `.claude/skills/aitask-trail/SKILL.md.j2:199-200` still lists only
+    `problem_statement, recommendation_summary, method_note` as the narrative
+    the writer produces. That edit, plus its rendered variants across three
+    profiles / three agents and the `tests/golden/skills/` regeneration, was
+    deliberately left to t1505_4 so this task did not take on the
+    rerender/goldens obligation. **Writers must not emit a whitespace-only
+    `overview`** — it is now a hard validation failure
+    (`INVALID:$.narrative.overview|pattern|…`), not a silently-ignored value.
+  - **t1508 (live artifact refresh)** is unaffected by this change and still
+    owns getting `art:trail-gates-framework-landing` and
+    `art:trail-shadow-review-loop` off `1.0.0`. Until it lands, `drift` on
+    either handle returns `ERROR:invalid_trail:1`; that is t1468_5's bump
+    showing through, not a regression from this child.
+  - **Fixture corpus** (`aidocs/implementation_trail_examples/*.json`) needed no
+    change and still carries no `overview`, which is what keeps
+    `test_absent_key_validates` a genuine back-compat control.
+  - `drift --trail <path>` accepts a file path as well as an `art:` handle, but
+    returns `ERROR:undriftable_input` for the corpus fixtures (their gather
+    inputs are not re-derivable). For pure validation, use
+    `python3 .aitask-scripts/lib/trail_schema.py validate <file>` — it prints
+    `VALID:<trail_id>` or `INVALID:<path>|<rule>|<message>` and exits 0/1/2.
