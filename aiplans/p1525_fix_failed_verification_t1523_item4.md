@@ -496,3 +496,152 @@ stay **medium**. The inlined measurement closes goal-achievement risk 2 before a
 code is written, but risks 1 and 4 (constant rot; no in-suite proof against a real
 Codex pane) are untouched by it, and the inline phase adds no production code, so
 code-health is unchanged.
+
+## Measurement (pre-phase `measure_post_submit_state`, 2026-08-16)
+
+**Harness:** `<scratchpad>/measure/measure_drain.py`, run on a private tmux
+socket (`AITASKS_TMUX_SOCKET`) against the real seams —
+`monitor_core.TmuxMonitor.send_keys`, `monitor_core.capture_raw_tail`,
+`review_loop.shadow_state` — with the launch step parameterised by agent and
+every row carrying the CLI version it ran against. Raw data:
+`<scratchpad>/measure/sweep.csv` (150 rows).
+
+**Agents (all three shadow agents, not just the failing one):** claude 2.1.233,
+codex-cli 0.146.0, opencode 1.18.18. Sweep `d` over {0, 0.25, 0.35, 0.5, 0.75},
+N = 10 per cell. `d = 0` is the negative control — it is what shipped before
+this task, and a harness that cannot reproduce the bug proves nothing.
+
+A cell **passes** only at 10/10 on all three columns: `submitted` (the composer
+is not still holding the text 5s after the Enter), `preBUSY` (the write is
+visible in the composer at `t_write + d` — the sole state the delivery
+authorises an Enter on), `postNonBUSY` (the composer has released the text at
+`t_enter + d`).
+
+| agent | d | n | submitted | preBUSY | postNonBUSY | verdict |
+|---|---|---|---|---|---|---|
+| claude | 0.0 | 10 | 10/10 | 0/10 | 4/10 | FAIL |
+| claude | 0.25 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| claude | 0.35 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| claude | 0.5 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| claude | 0.75 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| codex | 0.0 | 10 | 0/10 | 0/10 | 10/10 | FAIL |
+| codex | 0.25 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| codex | 0.35 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| codex | 0.5 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| codex | 0.75 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| opencode | 0.0 | 10 | 10/10 | 0/10 | 10/10 | FAIL |
+| opencode | 0.25 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| opencode | 0.35 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| opencode | 0.5 | 10 | 10/10 | 10/10 | 10/10 | **PASS** |
+| opencode | 0.75 | 10 | 10/10 | 9/10 | 10/10 | FAIL |
+
+**The bug reproduced, and it is Codex-specific.** At `d = 0` codex submitted
+**0/10** — the Enter consumed as text, both `send_keys` returning success, the
+prompt left in the composer. Claude and OpenCode submit fine at `d = 0`, which
+confirms the task's claim about the mechanism.
+
+**But the drain turned out to be load-bearing for all three agents, for a
+second reason the task had not identified.** At `d = 0` *no* agent had rendered
+the write yet (`preBUSY` 0/10 everywhere), and claude's composer still showed
+the text just after a *successful* submit in 6/10 (`postNonBUSY` 4/10) — which
+under this design fires a spurious retry Enter. This is exactly the assumption
+the mitigation existed to test, and it did not survive: the retry gate needed
+the drain as much as the submit did.
+
+**Chosen value: `COMPOSER_DRAIN_SECONDS = 0.5`.** The all-agent passing band is
+{0.25, 0.35, 0.5}. 0.75 is excluded by opencode (`preBUSY` 9/10): an accumulated
+transcript matched a dialog pattern and masked the busy composer — the
+documented masking limitation showing up in live data, not a timing effect.
+
+**Stated deviation from the pre-registered rule.** The criterion said "ship the
+smallest `d` that passes for every agent", which selects **0.25**; the shipped
+value is **0.5**, the *top* of the passing band. Recording this rather than
+quietly restating the rule: the criterion was written to stop a too-small value
+being chosen, the failure it guards against is one-sided and dramatic, 0.25 is
+the smallest value ever *tested* rather than a measured threshold (nothing was
+sampled between 0 and 0.25), and the cost of the margin is at most 1s of added
+latency, at most once per `COOLDOWN_SECONDS = 45`.
+
+**Unverified-warning rate (predicts the `DIALOG`/`UNKNOWN` warning in normal
+use):** 2 of 120 post-Enter samples in the main sweep read `dialog`, both
+OpenCode; none read `unknown`. The worry that
+`OPENCODE_WORKING_NO_FOOTER_ROOM_RAW` would make OpenCode warn on most
+deliveries **did not materialise** at 120x30 — that verdict is specific to a
+pane too short for the footer, not to OpenCode as such.
+
+**Unfocused-pane dimming hypothesis: not reproduced.** No agent dimmed its
+composer while its pane was inactive; every `preBUSY` reading above was taken
+from a non-active pane, so a dimmed-composer misread would have shown up as a
+`preBUSY` failure across the board, and did not.
+
+**Coverage note.** Claude's `d = 0 / 0.5 / 0.75` cells were skipped on the first
+run (the pane did not reach READY within 40s) and were re-run separately after
+the harness gained a launch retry; the table above is the union of both runs.
+That the retry was needed at all is a reminder that this box is not always
+fast — a second argument for the margin taken above.
+
+## Final Implementation Notes
+
+- **Actual work done:** `_fire_shadow_recheck` now hands the Enter to a new
+  `_submit_shadow_prompt`, which drains, re-reads the pane, sends the Enter only
+  on a positively `SHADOW_BUSY` composer, and then verifies the submit from a
+  fresh capture — retrying once on a swallowed Enter and auto-disarming with the
+  leftover-text message when the budget is exhausted. Two constants
+  (`COMPOSER_DRAIN_SECONDS`, `SHADOW_SUBMIT_RETRIES`) and a rebindable
+  module-level `_composer_drain` seam. 13 new tests, a Claude verdict table, a
+  cross-agent BUSY invariant, and safety-contract items 7 and 9 rewritten in
+  `shadow_agent.md`. The pre-phase sweep (150 live reps, all three agents) is
+  retained above in `## Measurement`.
+
+- **Deviations from plan:**
+  - **Shipped 0.5, not the 0.25 the pre-registered rule selects.** Stated in
+    full in `## Measurement`; surfaced at the Step-8 review as an overrulable
+    decision rather than folded in silently.
+  - **The text-identity retry guard in the approved design was dropped.** The
+    plan already recorded the reasoning (tail matching is broken by soft-wrap
+    and non-discriminating against the echo); confirmed during implementation
+    and the `foreign`-text branch was never written.
+  - **A token re-check was removed, not added.** The approved design said
+    "re-check after every await AND before every Enter". Its negative control
+    proved the loop-top check unfalsifiable — the check immediately before the
+    Enter catches the same case first — so it was deleted rather than kept as
+    unreachable belt-and-braces. The invariant ("no Enter after cancellation")
+    is unchanged and is pinned by two tests.
+  - **The live smoke was upgraded, not written off.** The plan concluded a
+    `cat` pane could not cover the verifier and told the implementer to say so
+    in a comment. It was instead given a ~20-line stub composer that holds
+    typed bytes and clears on `\r`, which makes it cover the drain, the
+    pre-Enter gate and the post-Enter verification against a real pane through
+    the real gateway — verified by mutating the gate and watching the smoke
+    fail. It still cannot cover per-CLI input coalescing; that is what the
+    sweep is for.
+  - The shared `_LoopFakeMon` gained a composer model (typed on a literal
+    write, cleared on Enter, with a `swallow_enter` switch) instead of every
+    fire test hand-scripting the readback. `_loop_app` also takes the shadow
+    agent's `typed_tail`, since a Claude tail under an OpenCode shadow reads as
+    "not a composer" and would veto every delivery.
+
+- **Issues encountered:**
+  - The first full-module run failed exactly where the plan predicted
+    (`test_a_dialog_seen_only_at_delivery_arms_the_settle_latch`): the fake's
+    capture queue never modelled the composer receiving the text, so the
+    pre-Enter gate vetoed. Fixture problem, not invariant problem — fixed in
+    the fake.
+  - Claude's `d = 0 / 0.5 / 0.75` sweep cells were skipped on the first run
+    (pane not READY within 40s). The harness gained a launch retry and the
+    cells were re-run; the union is in `## Measurement`.
+  - At a failing delay the first repetition wedges the pane (unsubmitted text
+    is precisely the bug), so Escape alone left every later repetition
+    reporting `never_ready_before_rep`. Adding a `C-u` recovery pass is what
+    made the `d = 0` negative control yield 10 real data points instead of 1.
+  - Another session was editing `review_loop.py` and two of the same test files
+    mid-task (t1520, OpenCode shadow readiness). It landed before implementation
+    started, so the work was rebuilt against the post-t1520 `_ordered_state`
+    shape; a second unrelated session was active in the tree at commit time, so
+    the commit is path-scoped to this task's six files.
+
+- **Upstream defects identified:** None. (The OpenCode `preBUSY` 9/10 at
+  d = 0.75 and the two `dialog` post-Enter samples are the *documented* masking
+  limitation of `_ordered_state`'s pattern-before-composer order showing up in
+  live data, not a separate defect — they are recorded in `## Measurement` and
+  in safety-contract item 9.)
