@@ -250,12 +250,144 @@ control is provably non-vacuous *before* the live session starts.
    synthesise a fixture to keep a test alive: a fabricated capture proves nothing
    about OpenCode.
 
-### Pre-phase RESULTS
+### Pre-phase RESULTS (measured 2026-08-16, opencode 1.18.18 / GPT-5.4, 120x30 on a private tmux socket)
 
-*(Written here during implementation, before Phase 1 ships. Must contain: the
-Pre-1 baseline verdicts; the Pre-2 per-rep table + the `SHADOW_SETTLE_SECONDS`
-verdict; the Pre-3 hash-stability answer and `max_footer_distance_from_bottom`;
-and an explicit list of any state that did not reproduce.)*
+**Pre-1 `[characterize_composer_state_before_extraction]`** — 20 tests green
+against the **unmodified** module (`ShadowPromptReadyTests`,
+`CodexShadowReadinessTests`, `CodexIsolatedPositiveHalfTests`,
+`CodexDetectorNegativeControlTests`). Per-fixture verdicts recorded as the
+comparison baseline: Claude at-rest `ready` / dialog `dialog` / streaming
+`working` / typed `busy`; Codex at-rest `ready`, typed `busy`, working
+`working`, permission / permission-with-running / question / update-prompt all
+`dialog`.
+
+**Pre-2 `[measure_opencode_settle]`** — 15 turn-level reps, 0.25 s sampling,
+18 s per rep, ~71 samples per rep (~1070 samples total). Load average 1.83 at
+start, 3.20 at end.
+
+| interaction | reps | longest injectable ready-run | notes |
+|---|---|---|---|
+| plain turn (no interaction) | 5 | **0.00 s** | `busy` (t+0 pre-submit artifact) → `working` → `ready`, byte-identical thereafter |
+| permission dialog, granted | 5 | **0.00 s** | 5/5 reached a real dialog; `working → dialog → working` **directly**, with no `ready` sample in between |
+| permission dialog, rejected | 5 | **0.00 s** | 4/5 reached a real dialog; `working → dialog → ready` **permanently** — the no-work-follows case |
+
+**Result: no injectable window reproduced across 15 turn-level repetitions.**
+Per the pre-registered sizing rule `max (0.00 s) ≤ 1.0 s`, so
+**`SHADOW_SETTLE_SECONDS = 2.0` is CONFIRMED UNCHANGED** and the
+amended-plan approval stop did **not** trigger. As in t1509, the null result
+does not cancel the latch: the `perm_reject` rows are the pathological case
+(after a rejected dialog no work ever follows), which is exactly what makes the
+latch's **monotonic-deadline release** load-bearing — a latch clearable only by
+a `WORKING` observation would wedge there permanently.
+
+**Channel reconciliation: 0 defects.** Across every sample, literal
+`esc interrupt` presence (channel B) and the prototype verdict (channel C)
+agreed in both directions — no sample was labelled `ready` while the literal
+evidence said working, and none `working` without it. The prototype was
+therefore not validating itself.
+
+**Pre-3 `[measure_opencode_working_hash_stability]`**
+
+1. **Working-state hash stability — `hash_stable` IS an independent second
+   brake.** At normal geometry the longest run of consecutive byte-identical
+   `working` captures is **1 sample (0.25 s)**: the `■■■■⬝⬝⬝⬝` footer animates,
+   so a working pane is never hash-stable. This matches Claude and Codex, so
+   the conditional after-task **`harden_opencode_working_detection` does NOT
+   fire** — with the one exception folded into the guard below.
+2. **Footer position — it never escapes the capture.** The working footer
+   renders **exactly 1 row below the box's bottom border** in **all 287**
+   captures that contain it (min = max = 1).
+3. **Idle geometry.** The empty composer box is a fixed **4 gutter rows** (3
+   content + 1 status) at widths 120 / 60 / 40 and heights 30 / 10 / 8 / 7 / 6.
+   Headroom *above* the box is never the constraint (17–22 lines at production
+   heights).
+
+#### Correction 1 — `capture_raw_tail` does not read a 15-line window
+
+`capture-pane -S -15` carries **no `-E`**, so it captures from 15 lines back to
+the **bottom of the visible pane**. OpenCode is an alternate-screen TUI
+(measured: `alternate_on=1`, `history_size=0`), so there is no scrollback at all
+and the capture is the **entire visible pane** — 30 lines at 120x30 — for any
+`-S` value (verified identical at `-S -15`, `-5`, `-0`). The "15" is a floor on
+scrollback depth, not a cap on the capture.
+
+This falsifies the premise the task's acceptance criteria inherited from t1509
+("trim each to the 15-line window `capture_raw_tail` actually reads").
+
+#### Correction 2 — fixtures are stored at full captured extent, not trimmed to 15 lines
+
+Trimming to the last 15 lines **removes the fresh-session hint row**: measured,
+`OPENCODE_AT_REST_FRESH_RAW` trimmed to 15 lines no longer contains
+`Ask anything...` at all. The verdict still reads `ready`, but for the wrong
+reason — the gray-hint subtraction path never executes — which would make
+negative control 11.11.4 (drop `_OPENCODE_HINT_SPAN_RE` ⇒ fresh flips to BUSY)
+**vacuous**. Fixtures are therefore stored at the full captured extent, which is
+what production actually reads. This honours the acceptance criterion's intent
+(a fixture must not pass on content the app would never see) while correcting
+its false premise; the AC's literal line count is not met, deliberately and on
+recorded evidence.
+
+#### Correction 3 — the real hazard, and the corrected window guard
+
+The planned guard ("the gutter run reaches the first captured line") **never
+fires**: `box_top` is ≥ 1 even at pane height 6. But the hazard it was meant to
+catch is **real and was reproduced live**:
+
+At **pane height 6** there is no room below the border, so the working footer is
+**not rendered at all**. The composer box still reads empty ⇒ verdict `READY`,
+and the capture is **byte-identical for 15+ consecutive samples** ⇒
+`hash_stable` is also true. **Both brakes fail simultaneously and the loop would
+inject into a working shadow.** Confirmed against an **independent, non-screen
+channel**: the opencode process tree's CPU time rose `00:01:05 → 00:01:07` across
+the samples, and the turn demonstrably completed (`DONE` reached).
+
+Boundary pinned in **both** directions with live turns:
+
+| pane height | lines below border | footer rendered | verdict while working |
+|---|---|---|---|
+| 8 | 2 | yes | `working` ✓ |
+| **7** | **1** | **yes** | **`working` ✓** |
+| **6** | **0** | **no** | **`READY` ✗ (hazard)** |
+
+**Corrected guard: a would-be `READY` requires ≥ 1 line below the box's bottom
+border; otherwise the footer could not have been shown, and the verdict is
+`SHADOW_UNKNOWN`.** The threshold is the measured footer offset (exactly 1),
+not a guess. This supersedes the Phase-1 step 4b trigger as written; the
+regression test (11.8) and the availability test (11.10) still apply, retargeted
+onto this condition.
+
+#### New finding — an open command palette is a false `READY` (fix approved in-task)
+
+`ctrl+p` opens OpenCode's command palette as an **overlay**: the composer box is
+still rendered intact below it, so the positive half passes and the verdict is
+`READY`, while Enter would run whatever command is selected. It matches
+**neither** existing `opencode` pattern (`opencode_question`,
+`opencode_permission`).
+
+Anchor chosen following `prompt_patterns.py`'s own convention (geometry, not a
+quotable phrase): the palette header row's label plus its right-aligned dismiss
+hint. Scanned over the **entire corpus of 1130 live captures**, it matches
+**exactly the 3 palette captures and nothing else** — zero false positives, and
+it holds while the palette is being filtered.
+
+Per the user's decision this is fixed in-task by adding an `opencode_palette`
+entry to `PROMPT_PATTERNS_BY_AGENT["opencode"]`, which the review loop already
+consumes as its negative half, and which is independently correct for
+followed-pane `awaiting_input` (a palette open genuinely IS awaiting input).
+
+#### States that did NOT reproduce — recorded as nulls, not fabricated
+
+- **The `opencode_question` widget** (`↑↓ select enter submit esc dismiss`).
+  `ctrl+p` yields the command palette instead. `OPENCODE_QUESTION_RAW` is **not**
+  captured, and negative control 11.11.6 (`dialog` outranks `working` when both
+  are visible) is **dropped** rather than given a synthesised fixture — the
+  permission dialog never co-renders with the working footer, because the dialog
+  replaces the whole composer/footer region (measured: `esc_interrupt` is false
+  in every `dialog` sample).
+- **`OPENCODE_PERMISSION_WITH_WORKING_RAW`** — does not occur, for the same
+  structural reason. Unlike Codex, OpenCode does **not** keep a working
+  indicator on screen while parked at a dialog, so the dialog-outranks-working
+  ordering is untestable for this agent and is not asserted.
 
 ---
 
