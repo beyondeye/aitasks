@@ -71,20 +71,65 @@ command prints an empty line OR fails for any reason** (no guide configured or
 present on disk, or the helper cannot run), proceed with a best-effort generic
 method and confirm every proposed doc change with the user.
 
-### 2. Gather the change surface (to inform, not to gate)
+### 2. Gather the change surface — **attributed to this task**
 
-Identify what this task changed, so you know which docs may be affected:
+Identify what **this task** changed, so you know which docs may be affected:
 
 ```bash
-# committed under this task's tag
-git log -F --grep="(t<task-id>)" --format=%H | while read -r sha; do git show --name-only --format= "$sha"; done
-# plus still-uncommitted work during implementation
-git diff --name-only HEAD
-git ls-files --others --exclude-standard
+./.aitask-scripts/aitask_change_surface.sh list <task-id>
 ```
 
+Do **not** hand-roll this with `git diff` / `git ls-files`. Those return the
+**entire dirty tree**: procedure gates run before the review/commit, so the
+uncommitted half is the primary signal, and on a shared or busy checkout it
+contains other tasks' in-progress work and other sessions' edits. The helper
+attributes it; a raw diff cannot.
+
+The output is two header lines followed by one classified line per path:
+
+| Line | Meaning | Use it? |
+|------|---------|---------|
+| `BASELINE:ok\|missing\|foreign` | was the claim-time baseline available? | header |
+| `PLANSCOPE:ok\|missing` | was the task's plan available? | header |
+| `COMMITTED:<path>` | proven this task's — in a commit tagged `(t<id>)` | **in scope** |
+| `TASK:<path>` | declared this task's — named by the task's own plan | **in scope** |
+| `OTHER:<path>` | proven other work — already dirty when this task claimed | **never in scope** |
+| `UNKNOWN:<path>` | no positive signal, or signals conflict | **ask first** (step 2b) |
+
+`UNKNOWN:` is its own state, **not** a quiet "no". It means the path appeared
+after this task claimed and its plan does not name it by exact path — a
+concurrent session's edit and a file you touched but never planned look
+identical from here, so the helper refuses to guess. A missing header signal
+(`PLANSCOPE:missing`, `BASELINE:missing`) likewise does **not** mean "nothing is
+this task's"; it means one signal was unavailable and more paths will land in
+`UNKNOWN:`.
+
 This is **only to inform** which areas changed — it is **not** a pass/fail
-heuristic. Ignore task/plan data paths (`aitasks/`, `aiplans/`, `.aitask-data/`).
+heuristic. The helper already drops task/plan data paths (`aitasks/`,
+`aiplans/`, `.aitask-data/`); do not re-filter them.
+
+### 2b. Resolve `UNKNOWN:` paths before inferring anything
+
+If there are no `UNKNOWN:` lines, skip to step 3. Otherwise resolve them
+**before** proposing any doc change — inferring first and asking later means the
+proposal itself was built from another task's work.
+
+**Interactive:** use `AskUserQuestion`:
+- List each `UNKNOWN:` path with **why** it is unknown — "changed after this
+  task was claimed and not named in its plan", or "named by the plan but
+  already dirty when the task claimed (conflicting signals)". Where a path sits
+  under a directory the plan mentions, say so — it makes the path plausible, but
+  it is not attribution and must not be presented as one.
+- Header: "Scope"
+- Options: "Include all" / "Choose a subset" (`multiSelect: true`, one option
+  per path) / "Exclude all".
+
+Only the paths the user includes join the in-scope set.
+
+**Autonomous / non-interactive profiles:** **exclude** every `UNKNOWN:` path.
+Record the exclusion in the step-6 sidecar log so a dropped doc obligation is
+auditable rather than invisible. Never include them unasked — that is the
+failure this attribution exists to prevent.
 
 ### 3. Infer + propose the doc updates
 
@@ -95,7 +140,15 @@ plan to record `skip` (step 6).
 
 ### 4. Confirm with the user
 
-Present the proposed doc changes and use `AskUserQuestion`:
+Present the proposed doc changes **and the attributed file list they were
+derived from** — the `COMMITTED:` + `TASK:` paths, plus any `UNKNOWN:` the user
+included at step 2b. Showing the attributed set is not redundant with step 2b:
+`TASK:` rests on the task's plan naming a path, which is a *declared* signal,
+not a proven one. A concurrent session's edit to a file this task's plan happens
+to name is classified `TASK:` and would otherwise never be seen. This list is
+the user's only chance to catch that before doc edits land.
+
+Then use `AskUserQuestion`:
 - **Apply** — make the proposed doc edits.
 - **Adjust** — revise per the user's guidance, then re-present.
 - **Not needed / skip** — the user judges no doc update is warranted.
@@ -119,6 +172,9 @@ block the dispatch seam opened (reuse `<run-id>`):
 logdir=".aitask-gates/<task-id>"; mkdir -p "$logdir"
 log="${logdir}/docs_updated_<run-id>.log"
 # ... write a short summary of what was updated / why skipped / why failed to "$log" ...
+# ALSO record the attribution state, so the verdict is auditable after the fact:
+#   both header values (BASELINE:… / PLANSCOPE:…), the count per class, and the
+#   full path list of every UNKNOWN: that was excluded rather than included.
 
 ./.aitask-scripts/aitask_gate.sh append --only-if-running <run-id> \
     <task-id> docs_updated <pass|skip|fail> \
@@ -134,6 +190,10 @@ log="${logdir}/docs_updated_<run-id>.log"
 
 ## MUST NOT
 - Invent the `attempt` / `run-id` (they come from `begin-procedure`).
+- **Treat an unattributed dirty path as in-scope without the user's
+  confirmation.** An `UNKNOWN:` path may belong to another task.
+- **Gather the change surface with raw `git diff` / `git ls-files`.** That
+  returns the whole dirty tree unattributed — use the helper in step 2.
 - Record `pass` when no doc-relevant surface was touched — that is `skip`.
 - Modify the task frontmatter or any other gate's `## Gate Runs` entries.
 - Reference framework-internal convention docs — read the project's configured

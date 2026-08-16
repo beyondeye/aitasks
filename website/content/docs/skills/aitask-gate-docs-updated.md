@@ -25,6 +25,20 @@ All three arguments are **required** and are allocated by the workflow, not type
 
 Instead it runs from the **attended** workflow, at review time and *before* the change summary you approve. That timing is deliberate: the doc edits become part of the diff you review, and they land in the same commit as the code they describe, rather than trailing it.
 
+## How it decides what your task changed
+
+Before it can propose anything, the skill has to know which files belong to *this* task. On a busy checkout that is not the same question as "what is currently modified" — your working tree may also hold another task's work in progress, or edits made by a session running alongside yours. Documenting someone else's change is worse than documenting nothing, so the skill does not treat the whole modified tree as yours.
+
+It attributes each file from three signals:
+
+- files already **committed under this task's tag** — proof they are yours;
+- files this task's **implementation plan names by exact path** — your declared scope;
+- files that were **already modified when you picked the task** — proof they belong to other work, and excluded.
+
+A file matching none of those — one that appeared after you picked the task and that your plan does not name — cannot be assigned either way. The skill lists those and **asks you** whether they are part of this change before it infers anything from them. Autonomous execution profiles, which have nobody to ask, leave them out and record the exclusion in the gate's log.
+
+Naming a *directory* in your plan does not claim the files inside it; only exact file paths count. That keeps a plan that mentions, say, a source or test directory in passing from silently claiming everything under it.
+
 ## How it decides what to write
 
 The skill does not carry its own idea of how your project documents things. It reads the project's configured doc-update guide, resolved through the standard configuration path (defaulting to `aitasks/metadata/doc_update_guide.md`), and follows that guide's map from *kind of change* to *area of documentation*.

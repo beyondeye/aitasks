@@ -511,6 +511,25 @@ main() {
             echo "RECLAIM_STATUS:${prev_status}|${prev_assigned}"
         fi
     fi
+
+    # Post-claim: snapshot the working tree's dirty set as this task's
+    # attribution baseline (t1263). It is the "proven negative" signal
+    # aitask_change_surface.sh uses to tell OTHER work's dirty paths from this
+    # task's -- without it, a consumer like the docs_updated gate sees the whole
+    # dirty tree with no way to know whose it is.
+    #
+    # FRESH CLAIMS ONLY. A reclaim/resume must keep the original baseline, or
+    # this session's own in-progress work would be re-baselined as "other work".
+    #
+    # Runs LAST and fully silenced: every stdout line above is part of this
+    # script's parsed output contract, so the capture must not be able to add to
+    # it. Best-effort (`|| true`) per shell_conventions.md -- a capture failure
+    # must never fail a claim; it degrades to BASELINE:missing, which makes the
+    # consumer escalate rather than misattribute. Measured at ~17ms on a large
+    # repo, against a claim that already does a fetch, a commit and a push.
+    if [[ "$prev_status" != "Implementing" ]]; then
+        "$SCRIPT_DIR/aitask_change_surface.sh" capture "$TASK_ID" >/dev/null 2>&1 || true
+    fi
 }
 
 main "$@"
