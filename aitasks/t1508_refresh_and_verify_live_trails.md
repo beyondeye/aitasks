@@ -5,12 +5,16 @@ depends: []
 issue_type: manual_verification
 status: Implementing
 labels: [artifacts, task_metadata]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t1468_5]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 followup_kind: risk_mitigation
 created_at: 2026-08-13 14:02
-updated_at: 2026-08-16 11:32
+updated_at: 2026-08-16 11:33
 ---
 
 ## Origin
