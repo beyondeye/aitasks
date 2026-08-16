@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-11 15:34
-updated_at: 2026-08-16 10:58
+updated_at: 2026-08-16 23:03
 ---
 
 Documentation and integration sweep for the shadow review-loop automation (t1159). Parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_4_docs_and_integration.md`. Depends on t1159_2 and t1159_3 (documents what they shipped — document the LANDED source, not the plans).
@@ -58,3 +59,8 @@ t1159_1..3 ship: the round metadata header (`Round: <N> @ <ts>` inside the conce
 - Docs build: `cd website && hugo build --gc --minify` succeeds (requires Hugo extended; skip with a note if the toolchain is absent).
 - `shadow_agent.md` claims cross-checked against landed source (pane-option table accuracy; keybinding names; banner texts).
 - No stale references: grep the docs for the pre-loop manual-only workflow description and update.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-16T20:03:13Z status=pass attempt=1 type=human
