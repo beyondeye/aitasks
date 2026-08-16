@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: verification_failure
+implemented_with: claudecode/opus5
 created_at: 2026-08-16 10:21
-updated_at: 2026-08-16 10:39
+updated_at: 2026-08-16 17:28
 ---
 
 ## Failed verification item from t1509
@@ -101,3 +102,8 @@ fix, the delivery should **verify** submission rather than trust the two
 
 Auto-generated from a manual-verification failure in t1523 item #4; diagnosis
 added by the auto-verification run.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-16T14:29:03Z status=pass attempt=1 type=human
