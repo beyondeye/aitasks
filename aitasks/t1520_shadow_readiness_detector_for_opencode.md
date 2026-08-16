@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, opencode]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-14 13:49
-updated_at: 2026-08-14 13:49
+updated_at: 2026-08-16 09:34
 ---
 
 Add an `opencode` entry to `SHADOW_READY_DETECTORS` / `SHADOW_STATE_DETECTORS`
