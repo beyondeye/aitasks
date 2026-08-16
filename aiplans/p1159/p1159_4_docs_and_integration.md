@@ -348,3 +348,97 @@ consulted.
 Then confirm it reads **Blocked** in `./.aitask-scripts/aitask_ls.sh -v`. If the
 dependency cannot be wired, **delete the created task** rather than leaving an
 ungated re-sweep in the queue.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four planned steps landed, across seven files.
+  `shadow_agent.md`: corrected the stale rejection-store paragraph (four
+  `ConcernPickResult` fields, both producers, producer-blind consult), corrected
+  the safety-contract preamble's claim that the module docstring carries the same
+  items (it carries a five-item digest), added `### The round header` and
+  `### Spin-off triage arm`, documented that loop state is in-process (no pane
+  option, no restart survival, one extra tmux read per tick while armed), and
+  fixed the weak round-header cross-link under "Block age vs read recency".
+  `concern-format.md`: stated what consumers do with an *uncertified* round-headed
+  block (warn + raw block view), widened "three consumer roles" to four (the loop
+  derives its round as `previous.round + 1`), and noted that spun-off concerns
+  land in the suppression store under `--producer spinoff` and must not be
+  branched on. Website: fixed the disposition count on three pages, added
+  "How to Run the Auto-Recheck Loop" and "How to Spin a Concern Off as Its Own
+  Task" to the minimonitor how-to plus `L`/`t` in its keybinding table, added the
+  spin-off paragraph and `t` key-shadowing note to the monitor how-to, extended
+  both auto-offer callouts with the `(round N)` suffix / re-offer rationale /
+  raw-block warning, and tied the round number to the re-derive-from-scratch
+  sentence on the workflow page. Post-phase mitigation: one back-link comment in
+  `monitor_shared.py._spawn_concern_tasks`.
+
+- **Deviations from plan:** Two, both approved at plan time and re-stated here.
+  (1) The task text asked for the parent plan's **8-point** safety contract
+  reproduced verbatim; the landed contract is **10 points plus a `5b` settle
+  latch** and was already correct in `shadow_agent.md`, so it was left alone —
+  reproducing the older version would have regressed a correct document.
+  (2) The task text asked for the section to sit between "Feedback freshness" and
+  "Concern rejection store"; it landed *after* the rejection store and was kept
+  there, since the loop consumes that store and reads correctly after it.
+  One further deviation found during implementation: the plan (following an
+  exploration report) listed `concern-format.md`'s `### Derived fields:
+  disposition and verdict` as describing "a three-state world" needing the
+  spin-off state added. That was a conflation — that section documents the
+  *concern's own* `blocking`/`follow-up`/`informational` trailer, which is
+  unrelated to the picker's row dispositions. It was correctly left unedited.
+
+- **Issues encountered:**
+  - **HEAD advanced twice mid-session.** t1520 ("Add OpenCode shadow readiness
+    detection") landed after planning began and invalidated an early source read.
+    The plan review caught the consequence: an earlier draft would have published
+    "`opencode` as shadow is not supported", which is false — `SHADOW_READY_DETECTORS`
+    ships `claude`, `codex` and `opencode`, and
+    `test_opencode_shadow_of_a_claude_pane_now_arms` pins the pairing. The
+    published matrix now separates the two axes: **followed** pane Claude-only
+    (`REVIEW_LOOP_AGENTS`), **shadow** pane any supported agent. The
+    "no readiness detection yet" refusal is documented as a state message, not as
+    naming any shipped agent, because no shipped agent reaches it.
+  - **A `grep`-based string round-trip produced a false negative**: the
+    Claude-only refusal is split across two adjacent Python string literals, so no
+    line-oriented match can see it. Re-verified by folding the concatenation in
+    Python — all quoted strings are verbatim.
+  - Two `Edit` calls failed on exact-match despite visually identical text
+    (invisible-character mismatch in `concern-format.md`); split into smaller
+    anchors.
+
+- **Key decisions:**
+  - **Documented stable user-facing surfaces, not controller internals.**
+    t1159_7 will refactor `review_loop.py` and t1159_6 will add an always-on
+    status line, so keys, banner strings, refusals, dispositions and the round
+    header are what this task pinned; the internals `shadow_agent.md` already
+    described were left untouched.
+  - **The `after` mitigation must be gated.** Part 3 creates "after" tasks with no
+    `depends:`, so the re-sweep would be eligible before either sibling lands. The
+    plan carries an explicit Step 8d wiring step (`--deps 1159_6,1159_7`), a
+    path-scoped commit, and a "delete it rather than leave it ungated" fallback.
+  - **Back-links reference a stable anchor only** — the aidocs file plus a heading
+    name, never a `website/` path (those move under Hugo restructuring), and the
+    named headings are grep-verified with a check that **exits non-zero** on a
+    miss, since a trailing `|| echo BROKEN` would report success.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+  - **t1159_6 (status line):** the minimonitor how-to now documents the four loop
+    banner states verbatim in a table
+    (`### How to Run the Auto-Recheck Loop`). A third always-on widget will need
+    that table revisited, and the `_index.md` loop paragraph with it.
+  - **t1159_7 (loop refactor):** `shadow_agent.md` → "Review-loop automation" is
+    the contract of record (10 points + `5b`), and its preamble now says the
+    module docstring is a five-item digest — keep that true if the docstring is
+    reshaped. `monitor_shared.py._spawn_concern_tasks` now carries a doc back-link
+    to "Spin-off triage arm"; the same heading is asserted by this task's
+    verification, so renaming it requires updating the comment.
+  - **Cross-agent porting is a confirmed no-op** and no follow-up tasks were
+    created. `.agents/skills/aitask-shadow/` and `.opencode/skills/aitask-shadow/`
+    hold one ~1.1 KB dispatch stub each and no producer files; the four producers
+    plus `concern-format.md` are authored once in the Claude tree and rendered
+    per-agent into gitignored `*-/` dirs, so the round-header wording already
+    reached both without a port. Editing `concern-format.md` needed no goldens
+    regenerated (no Jinja; Test 1i asserts invariance) — only `impl-challenge.md`
+    among the producers carries Jinja and would.
