@@ -876,6 +876,11 @@ paths, never `git commit -a`, and verify staged content before committing.
 
 - **t1509** — shipped the generic `_composer_state`, `shadow_state`, the
   wall-clock settle latch and the pid-carrying shadow seam this task builds on.
+- **t1529** — manual-verification follow-up created at Step 8c, covering the
+  live behaviour no fixture can: arming with a real OpenCode shadow, the
+  hold cases (working / permission dialog / open command palette / typed
+  text / short pane), the narrow-split availability check, and the
+  Claude+Codex regression.
 - **t1524** (`surface_never_settled_shadow`, still `status: Ready`) — the durable
   answer to silent per-agent pattern drift. This task **increases its value** (a
   third agent now depends on it). Do **not** spawn a duplicate; note the new
@@ -958,7 +963,16 @@ paths, never `git commit -a`, and verify staged content before committing.
 - timing: pre-phase | name: characterize_composer_state_before_extraction | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the `_ordered_state` extraction touches the shared claude+codex detector path | desc: Record the existing Claude/Codex detector verdicts against the UNMODIFIED `_composer_state` before extracting `_ordered_state`, so the refactor has a characterization baseline it did not author.
 - timing: pre-phase | name: measure_opencode_settle | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — `SHADOW_SETTLE_SECONDS` is one shared constant across all three agents, and the prototype must not be its own only witness | desc: Measure OpenCode's post-interaction settle window live in wall-clock seconds at 0.25s sampling, >=5 reps each across granted permission, rejected permission, question widget and a plain no-interaction turn, using t1509's longest-injectable-ready-run metric and the pre-registered sizing rule; classify through the prototype detector but record harness-derived ground truth and literal screen evidence as two independent channels, treating any disagreement as a detector defect that invalidates the measurement; STOP for an amended-plan approval rather than proceeding to Phase 1 if the measured maximum exceeds 1.0s.
 - timing: pre-phase | name: measure_opencode_working_hash_stability | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the esc-interrupt footer is OpenCode's sole at-rest/working discriminator and fails DANGEROUS | desc: From the same capture stream, determine whether OpenCode's working state is ever byte-identical across two consecutive 0.25s captures (does `hash_stable` act as an independent second brake, as it does for Claude/Codex?) and whether the footer can render beyond the bottom-anchored 15-line window; an escaping footer is a PRE-SHIP BLOCKER resolved in this task by raising the per-agent capture depth or adding an independent working signal, on top of the window-sufficiency guard that ships unconditionally. Also record ordinary idle gutter height and window headroom at production and narrow widths, so the fail-closed guard is sized to fire on the dangerous case without swallowing the normal one.
-- timing: after | name: harden_opencode_working_detection | type: enhancement | priority: high | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — the hash-stability half of the fail-dangerous working-detection risk | desc: CONDITIONAL — spawn at Step 8d only if measure_opencode_working_hash_stability shows OpenCode's working state can go byte-identical across two consecutive captures, i.e. `hash_stable` does not act as an independent second brake the way it does for Claude and Codex. Add one: a longer required hash streak for this agent, or a corroborating in-window signal. Deliberately NOT the remedy for an out-of-window footer — that case is a pre-ship blocker handled inside t1520.
+- timing: after | name: harden_opencode_working_detection | type: enhancement | priority: high | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — the hash-stability half of the fail-dangerous working-detection risk | desc: CONDITIONAL — spawn at Step 8d only if measure_opencode_working_hash_stability shows OpenCode's working state can go byte-identical across two consecutive captures, i.e. `hash_stable` does not act as an independent second brake the way it does for Claude and Codex. Add one: a longer required hash streak for this agent, or a corroborating in-window signal. Deliberately NOT the remedy for an out-of-window footer — that case is a pre-ship blocker handled inside t1520. | created: not-required(condition unmet)
+
+**Step 8d disposition — `harden_opencode_working_detection` NOT created.** Its
+spawn condition was measured **false**: across 15 turn-level reps the longest
+run of consecutive byte-identical `working` captures was **1 sample (0.25 s)**,
+so `hash_stable` does act as an independent second brake for OpenCode, exactly
+as for Claude and Codex. The residual it guarded is covered twice over —
+hash-instability at normal geometry, and `_OPENCODE_MIN_LINES_BELOW_BORDER`
+wherever the footer cannot render at all. Recorded here rather than silently
+skipped so the unmet condition, not an oversight, is what closed it.
 
 ## Final Implementation Notes
 
