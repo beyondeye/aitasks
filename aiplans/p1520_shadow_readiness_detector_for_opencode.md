@@ -959,3 +959,80 @@ paths, never `git commit -a`, and verify staged content before committing.
 - timing: pre-phase | name: measure_opencode_settle | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — `SHADOW_SETTLE_SECONDS` is one shared constant across all three agents, and the prototype must not be its own only witness | desc: Measure OpenCode's post-interaction settle window live in wall-clock seconds at 0.25s sampling, >=5 reps each across granted permission, rejected permission, question widget and a plain no-interaction turn, using t1509's longest-injectable-ready-run metric and the pre-registered sizing rule; classify through the prototype detector but record harness-derived ground truth and literal screen evidence as two independent channels, treating any disagreement as a detector defect that invalidates the measurement; STOP for an amended-plan approval rather than proceeding to Phase 1 if the measured maximum exceeds 1.0s.
 - timing: pre-phase | name: measure_opencode_working_hash_stability | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the esc-interrupt footer is OpenCode's sole at-rest/working discriminator and fails DANGEROUS | desc: From the same capture stream, determine whether OpenCode's working state is ever byte-identical across two consecutive 0.25s captures (does `hash_stable` act as an independent second brake, as it does for Claude/Codex?) and whether the footer can render beyond the bottom-anchored 15-line window; an escaping footer is a PRE-SHIP BLOCKER resolved in this task by raising the per-agent capture depth or adding an independent working signal, on top of the window-sufficiency guard that ships unconditionally. Also record ordinary idle gutter height and window headroom at production and narrow widths, so the fail-closed guard is sized to fire on the dangerous case without swallowing the normal one.
 - timing: after | name: harden_opencode_working_detection | type: enhancement | priority: high | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — the hash-stability half of the fail-dangerous working-detection risk | desc: CONDITIONAL — spawn at Step 8d only if measure_opencode_working_hash_stability shows OpenCode's working state can go byte-identical across two consecutive captures, i.e. `hash_stable` does not act as an independent second brake the way it does for Claude and Codex. Add one: a longer required hash streak for this agent, or a corroborating in-window signal. Deliberately NOT the remedy for an out-of-window footer — that case is a pre-ship blocker handled inside t1520.
+
+## Final Implementation Notes
+
+- **Actual work done:** Extracted `_ordered_state` out of `_composer_state` so
+  the measured verdict order (dialog → structural positive → `working` only
+  outranks a would-be `ready`) lives in exactly one function while the positive
+  half is pluggable. Added OpenCode's sibling positive half
+  (`_opencode_box_state`) plus `_opencode_state` / `_opencode_ready`, six
+  `_OPENCODE_*` constants, and `opencode` in both dispatch tables. Added an
+  `opencode_palette` pattern to `prompt_patterns.py`. Nine live fixtures, 30 new
+  tests across three modules, and doc corrections in `shadow_agent.md`,
+  `monitor_idle_and_prompt_detection.md` and `monitor_core.capture_raw_tail`.
+  Final: 9 files, +977/−71. `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+
+- **Deviations from plan:** Four, all measurement-driven and recorded in
+  `### Pre-phase RESULTS` above.
+  1. **Fixtures are NOT trimmed to 15 lines**, contrary to the task's stated
+     acceptance criterion. `-S -15` carries no `-E`, and these agents run on the
+     alternate screen, so production reads the whole visible pane; trimming was
+     measured to drop the fresh-session hint row and make a negative control
+     vacuous. The AC's intent (never pass on content production cannot see) is
+     honoured; its literal line count is not.
+  2. **The planned window guard never fires.** Its trigger ("the gutter run
+     reaches the first captured line") is unreachable — `box_top` is ≥1 even at
+     pane height 6. Replaced with a measured one: ≥1 line below the box border,
+     the footer's exact offset.
+  3. **`OPENCODE_QUESTION_RAW` and the dialog-outranks-working control were
+     dropped, not faked.** The question widget never reproduced, and unlike
+     Codex, OpenCode does not keep a working indicator up during a dialog, so
+     that ordering is untestable for this agent.
+  4. **An unplanned fix shipped:** the `opencode_palette` pattern, for a
+     false-READY found during measurement (user-approved scope change).
+
+- **Issues encountered:**
+  - The **command palette** reads as READY: it is an overlay that leaves the
+    composer box intact, so no structural check can see it. Fixed via a pattern,
+    which is the only half that can exclude an overlay.
+  - The **fail-dangerous hazard was real and reproduced**: at pane height 6 the
+    working footer has no room to render, so an empty box reads READY *and* the
+    capture is byte-identical — both brakes fail together. Confirmed against an
+    independent channel (the opencode process tree's CPU time). This is what the
+    window guard exists for; boundary pinned at h=7 (fires) vs h=6 (hazard).
+  - **Two negative controls could not be built as specified.** The permission
+    dialog and the compact palette are each *over-determined* — several
+    independent anchors refuse them — so no single mutation flips either to
+    ready. Both were relabelled belt-and-braces and replaced by controls that
+    do discriminate (the status-row anchor; the by-name header assertion).
+  - **A mutation harness produced two false "ok" verdicts.** Deleting a
+    `PromptPattern(...)` line made the test fail with an `ImportError` rather
+    than the assertion — failing for the wrong reason is not evidence. Mutations
+    must keep the module importable (neuter the regex, don't delete the line)
+    and be judged on the failure *message*, not the exit status. Re-run
+    correctly; all guards now verified on corrected evidence.
+
+- **Key decisions:**
+  - **Sibling positive half, shared order.** OpenCode's gutter box does not fit
+    `_composer_state`'s one-character-glyph contract, so it got its own
+    structural half rather than distorting the shared one — but the order was
+    extracted rather than duplicated, so it cannot drift between the two shapes.
+  - **`SHADOW_SETTLE_SECONDS` stays 2.0**, confirmed by measurement (0.00 s
+    injectable window across 15 reps), so the pre-registered approval stop never
+    triggered and no per-agent table was introduced.
+  - **`harden_opencode_working_detection` does not fire**: `hash_stable` is a
+    genuine independent second brake for OpenCode (max 1 identical working
+    sample), exactly as for Claude and Codex.
+  - **The arm-time refusal keeps a synthetic subject** rather than a
+    `set(AGENT_KEYS) <= set(SHADOW_READY_DETECTORS)` tripwire, which would turn
+    a legitimate intermediate state (a new agent key landing before its
+    detector) into a build break.
+  - **`REVIEW_LOOP_AGENTS` untouched** — this task is the shadow side; widening
+    the followed side remains its own task with its own evidence.
+
+- **Upstream defects identified:** None. One cross-module defect was found and
+  fixed in place rather than deferred: `monitor_core.capture_raw_tail`'s
+  docstring described itself as "deliberately tiny … the prompt area, not the
+  transcript", which is the exact false premise this task disproved and is the
+  first thing a future detector author reads.
