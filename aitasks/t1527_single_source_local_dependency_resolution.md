@@ -97,7 +97,7 @@ cross-repo half already sets; it does not invent a policy.
 
 ## Related
 
-- **t<VALIDATOR_TASK>** — write-time validation of the `depends` notation, so a
+- **t1528** — write-time validation of the `depends` notation, so a
   malformed id cannot be written in the first place. That task is the producer
   side of the same problem; this one is the consumer side. Settle the canonical
   accepted forms here, and let the validator enforce exactly those.
