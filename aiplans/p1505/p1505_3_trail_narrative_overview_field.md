@@ -435,7 +435,16 @@ existing enforced guard or resolved within this plan.
     `INVALID:$.narrative|additionalProperties|unknown key 'overview'`, proving
     the checks discriminate on this change.
 
-- **Upstream defects identified:** None.
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:4092-4094 — trail detail modal's line() treats a whitespace-only string as present, so a schema-valid whitespace-only problem_statement / recommendation_summary / method_note renders as a labelled line with blank content` — created: **t1526**.
+
+  Found by the Step 8b sanity-check re-read, not by the first pass: the defect
+  had been written up as *motivation* for this task's `pattern` decision rather
+  than in this canonical bullet, which is exactly the mis-location the
+  sanity-check exists to catch. `overview` is now immune (its `pattern: "\\S"`
+  rejects such a value), but the legacy prose fields carry only `minLength: 1`
+  and cannot be tightened without invalidating stored trails, so the renderer
+  is where it has to be fixed.
 
 - **Notes for sibling tasks:**
   - **t1505_4 (lite writer flow)** now has a schema slot to write into, but
@@ -452,6 +461,11 @@ existing enforced guard or resolved within this plan.
     `art:trail-shadow-review-loop` off `1.0.0`. Until it lands, `drift` on
     either handle returns `ERROR:invalid_trail:1`; that is t1468_5's bump
     showing through, not a regression from this child.
+  - **t1526** (spawned here, `followup_kind: upstream_defect`, anchor 1210) fixes
+    the modal-side half of the whitespace story. Until it lands, the detail modal
+    still prints a blank labelled line for a whitespace-only *legacy* narrative
+    field; the summary pane does not. Anything asserting on modal narrative
+    output should expect the current behaviour, not the fixed one.
   - **Fixture corpus** (`aidocs/implementation_trail_examples/*.json`) needed no
     change and still carries no `overview`, which is what keeps
     `test_absent_key_validates` a genuine back-compat control.
