@@ -375,6 +375,54 @@ entry to `PROMPT_PATTERNS_BY_AGENT["opencode"]`, which the review loop already
 consumes as its negative half, and which is independently correct for
 followed-pane `awaiting_input` (a palette open genuinely IS awaiting input).
 
+#### Review round 1 — the palette anchor at compact geometry (raised as blocking)
+
+The palette anchor is the header row, which at full size renders ~21 rows above
+the bottom, while the window guard permits `READY` down to pane height 7. If a
+short pane could **clip the header while leaving the composer intact**, the
+negative half would miss a live overlay and an injected Enter would run the
+selected command. Measured directly rather than argued.
+
+Captured with the palette open at every ready-eligible geometry — heights 30,
+12, 10, 9, 8, 7 at width 100, plus 40x7, 50x7, 60x8 and 40x10. **The header was
+visible in every one, and the verdict was `dialog` in every one.** The idle
+capture at the same geometries stayed `ready`, so the availability half holds
+too.
+
+The mechanism is why, and it is stronger than the concern assumed:
+
+| geometry | composer box | status row | excluded by |
+|---|---|---|---|
+| 100x30 (full) | present | intact | **the pattern only** |
+| 100x7–12 | present | truncated by the overlay | structure **and** pattern |
+| 40x7 (narrowest+shortest) | **absent** — the palette replaces it | n/a | structure **and** pattern |
+
+OpenCode draws the palette **centred over** the composer box at compact sizes
+rather than above it, so the header cannot scroll off — and overwriting the box
+also disrupts the status row and fills a content row, so the structural half
+refuses independently. In every geometry where the header *could* clip, the box
+is disrupted too.
+
+Pinned by two new fixtures at the minimum geometry —
+`OPENCODE_PALETTE_COMPACT_RAW` (100x7, exactly one line below the border, the
+tightest that still permits `READY`) and `OPENCODE_AT_REST_COMPACT_RAW` (40x7,
+the availability half) — and two tests. The header-visibility assertion is
+mutation-sensitive: removing `opencode_palette` fails it. The isolated
+"still refused with patterns off" assertion is over-determined at this geometry
+(as the permission dialog is) and is labelled belt-and-braces rather than a
+control.
+
+#### Review round 1 — `capture_raw_tail`'s docstring contradicted the finding
+
+`monitor_core.capture_raw_tail` still described itself as "deliberately tiny
+(default 15 lines) — it reads the prompt area, not the transcript", which is the
+exact false belief Correction 1 disproves and is the docstring a future detector
+author would read first. Corrected in place to state the real tmux semantics
+(`-S -<n>` with no `-E` reads to the bottom of the visible pane; alternate-screen
+TUIs have no scrollback, so it returns the whole visible pane) plus the two
+consequences that have already bitten: an on-screen marker is always in scope,
+and fixtures must not be trimmed to `lines`.
+
 #### States that did NOT reproduce — recorded as nulls, not fabricated
 
 - **The `opencode_question` widget** (`↑↓ select enter submit esc dismiss`).
