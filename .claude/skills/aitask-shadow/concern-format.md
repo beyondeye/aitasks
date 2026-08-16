@@ -67,13 +67,21 @@ the parser-safety guard in `tests/test_concern_parser.py`.
   design. Consumers certify it with the strict `is_metadata_only_block`
   (complete fence + exactly the header): a still-streaming header-only block
   or a header followed by stray dropped prose must **not** be treated as a
-  clean round.
-- **Three consumer roles:** display (the picker's context line and the toast
+  clean round. What consumers do **instead** of certifying is load-bearing:
+  both TUIs warn (`uncertified_round_block_msg`) and open the raw block view,
+  because reporting such a block as "no concerns" would hide output the shadow
+  did emit. A block whose `Round:` line fails the grammar outright
+  (`has_invalid_round_header`) takes the same path, with no round to name.
+- **Four consumer roles:** display (the picker's context line and the toast
   name the round); the auto-offer dedup lift (minimonitor keys its repeat-block
   suppression on `(round, reviewed_at, payload)`, so a repeat round re-raising
-  identical concerns re-offers instead of staying silent); and the t1448
+  identical concerns re-offers instead of staying silent); the t1448
   freshness key — which is the `(round, reviewed_at)` **pair**, never the round
-  alone (a restarted shadow counts from 1 again).
+  alone (a restarted shadow counts from 1 again); and the minimonitor
+  auto-recheck loop, which derives the round it names in its injected
+  `refetch and recheck round N` prompt as
+  `parse_block_meta(previous block).round + 1`, so the round is
+  machine-anchored rather than self-counted whenever a previous block exists.
 - The header intentionally changes `concern_block_signature` — a round bump
   re-hashes the monitor's freshness badge even when the items are unchanged.
 
@@ -262,6 +270,13 @@ again next round". Rejections are persisted per task by
 `.aitask-shadow/<task_id>/rejected.md` (bare task id mirroring `.aitask-gates/`,
 git-ignored, never committed, pruned at archival), and every producer consults
 them before emitting its block.
+
+The store also receives concerns the user **spun off** into their own draft
+tasks (the picker's `t`), recorded with `--producer spinoff` rather than
+`--producer picker`. Suppress them the same way: the concern is being tracked
+elsewhere, so re-raising it is noise. Do **not** branch on the producer — `list`
+output is deliberately producer-blind, because the entry records a judgement
+about the concern, not about which round or key raised it.
 
 **Matching is semantic, and the shadow agent performs it — not the parser.**
 Bodies are re-worded between review rounds, so no consumer-side hash can serve

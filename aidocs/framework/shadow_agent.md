@@ -378,7 +378,9 @@ So there are **three** freshness signals, and every surface must say which it us
 | **read recency** | did the shadow *look* after the agent's last change? | `monitor_core.compute_shadow_staleness` |
 | **block age** | was this block *produced* after the agent's last change? | `monitor_core.compute_block_age_staleness` |
 
-- **Source.** The block's own `Round: <N> @ <ts>` header (t1159_1).
+- **Source.** The block's own `Round: <N> @ <ts>` header (t1159_1) — see
+  "The round header" under "Review-loop automation" below for its consumer
+  roles, and `concern-format.md` for the grammar.
   `concern_parser.parse_reviewed_at_epoch` converts `<ts>` to an epoch —
   strictly, via a canonical round-trip, returning `None` for anything but the
   documented shape.
@@ -462,12 +464,17 @@ rejection is a read-modify-write, which atomic-write alone does not serialize.
 "impossible", every path validates the store path before acquiring.
 
 **TUI write path.** Both apps mix in `ShadowRejectionsMixin`. The picker's `r`
-marks a row rejected and `R` opens the rejected-store view; both are **staged**
-— the modals write nothing. The store is touched only when the *picker* is
-confirmed (`ConcernPickResult` carries `forwarded` / `rejected` / `unrejected`;
-`None` is the sole cancel signal), at which point rejections go in via
-`add … --producer picker` and un-rejections via `remove`. Cancelling the picker
-discards both staged sets. Outcomes are always visible: a success toast per
+marks a row rejected, `t` marks it to be spun off, and `R` opens the
+rejected-store view; all are **staged** — the modals write nothing. The store is
+touched only when the *picker* is confirmed (`ConcernPickResult` carries
+`forwarded` / `rejected` / `unrejected` / `spun_off`; `None` is the sole cancel
+signal), at which point rejections go in via `add … --producer picker`,
+un-rejections via `remove`, and each successfully spun-off concern via
+`add … --producer spinoff` (see "Spin-off triage arm" below). **`producer` is
+free-form, not a closed vocabulary** — it is provenance for the reader, and the
+shadow's own consult is deliberately producer-blind, so a `spinoff` entry
+suppresses the concern on the next round exactly as a `picker` one does.
+Cancelling the picker discards every staged set. Outcomes are always visible: a success toast per
 operation, a warning when the pane has no task id (`Rejections not persisted`),
 and distinct messages for exit 3 vs. exit 4 — conflating them would turn a
 permanent misconfiguration into an endless retry. `list --machine` emits
@@ -522,8 +529,10 @@ This does not touch the advisory-only guardrail: the guardrail binds the
 driving the shadow, which is the safe direction. Concern forwarding stays
 clipboard-only.
 
-**Safety contract** (test-pinned; the module docstring carries the same
-items):
+**Safety contract** (test-pinned). This section is the contract of record;
+`review_loop.py`'s module docstring carries a five-item "Contract highlights"
+digest of it (edge-driven, tri-state discipline, serialized delivery, the work
+latch, the bounded-capture residual), not the full list:
 
 1. **The followed pane is never written.** `_fire_shadow_recheck` receives no
    followed pane id — structurally incapable of addressing it; a unit test
@@ -686,6 +695,87 @@ tradeoff: reflow invalidates both evidence channels (content rewraps,
 classifier reports "unknown" across a geometry change and output arriving in
 the same capture as the resize is absorbed rather than misread; further
 output on the next stable-geometry tick classifies normally.
+
+**Loop state is in-process — deliberately not a pane option.** The controller
+and its evidence (`_review_loop`, `_loop_baseline`, `_loop_shadow_hash`,
+`_loop_shadow_settle_until`, `_loop_last_service_at`) live on the
+`MiniMonitorApp` instance. The loop therefore adds **no** member to the
+`@aitask_shadow_*` family, does not survive a minimonitor restart, and is
+invisible to any other process — which is precisely why contract item 2 makes
+visibility a *banner* obligation rather than a discoverable stamp. While armed
+the loop also costs one extra tmux read per tick (a 15-line raw
+`capture-pane -p -e` for the readiness check); disarmed, it costs nothing.
+
+### The round header
+
+Every concern block opens with `Round: <N> @ <timestamp>` as the first line
+inside the fences. `.claude/skills/aitask-shadow/concern-format.md` → "Round
+header" is the owning spec — grammar, the placement hazard, and the back-compat
+rules live there and are not repeated here. What matters at this level:
+
+- **It is what makes review rounds individually identifiable.** Each round
+  re-derives the shadow's findings from scratch; the header is the only thing
+  distinguishing "the same concern, re-raised after a genuine re-review" from
+  "the same capture, read twice".
+- **A clean round still emits a block** — the two fences with only the header
+  between them. `has_concern_block` stays False (nothing to pick), but the round
+  number advances, so numbering never silently skips a clean round.
+- **Certification is strict.** Only `is_metadata_only_block` (complete fences,
+  exactly the header) certifies a clean round. A still-streaming header-only
+  block, or a header followed by prose the item scanner dropped, is **not** one:
+  both TUIs warn and open the raw block view rather than reporting "no
+  concerns", because that all-clear would hide output the shadow did emit.
+- **Three consumer roles**, plus a fourth added by the loop: display (picker
+  context line and toast); the auto-offer dedup lift (minimonitor keys repeat
+  suppression on `(round, reviewed_at, payload)`, so a repeat round re-offers
+  instead of staying silent); the t1448 freshness key — the
+  `(round, reviewed_at)` **pair**, never the round alone, since a restarted
+  shadow counts from 1 again; and the auto-recheck loop, which derives the
+  round it names in the injected prompt as `parse_block_meta(previous
+  block).round + 1`.
+
+### Spin-off triage arm
+
+The picker's fourth disposition. `t` marks the focused concern `»` — *keep this,
+but as its own task* — mutually exclusive with forward (`☑`) and reject (`✗`).
+Unlike a rejection the row is **not** dimmed: the concern is being kept, just
+elsewhere. It is the anti-bloat answer to a plan absorbing every secondary
+concern across rounds.
+
+On picker confirmation each spun-off concern becomes a **draft** task:
+
+```
+aitask_create.sh --batch --silent --name <name> --desc-file - \
+  --priority <concern priority> --labels shadow-concern \
+  --followup-of <task_id> --followup-kind review_finding
+```
+
+- **No `--commit`** — drafts land in `aitasks/new/` and claim no id, so the arm
+  is offline-safe and reversible with `rm`. Finalize with `ait create`.
+- The body travels on **stdin** (`--desc-file -`); a concern body is free text
+  that routinely contains brackets, pipes and newlines.
+- **Names carry a per-batch nonce** — `shadow_<region>_<nonce>_<index>`, with the
+  region segment truncated to fit the length cap and the nonce/index never cut.
+  Draft filenames are only minute-stamped, so a batch index alone (or a
+  worker-start second) would let two same-region spin-offs render to the same
+  path and silently replace one another.
+- **Reporting is by path, never id** — drafts have none yet. `aitasks/new/` is a
+  shared drop directory, so the toast always names the batch selector
+  `ls aitasks/new/*<nonce>*`, which stays valid even when the path list is
+  capped.
+- **Loop hygiene:** one batched `aitask_shadow_rejected.sh add <task_id>
+  --producer spinoff` records the whole successful set, so the next round
+  suppresses concerns that are now tracked elsewhere. This reuses the rejection
+  store as designed — do not build a parallel one.
+- **Created-but-not-suppressed has its own wording** on purpose: the drafts
+  exist while the store write failed, so re-spinning them would duplicate. That
+  is the one outcome a user must not misread as either success or failure.
+
+**Accepted limitation — the duplicate guard is single-process.** The
+already-spun-off check reads the store before creating, so two monitors bound to
+the same task (a full monitor and a minimonitor, say) can both see "not yet spun
+off" and each create a draft. The cost is one extra *unfinalized* draft, owned by
+no task id and removable with `rm`.
 
 ### Where the shadow's own patterns live
 

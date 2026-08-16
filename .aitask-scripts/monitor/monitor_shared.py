@@ -854,6 +854,10 @@ class ShadowRejectionsMixin:
     async def _spawn_concern_tasks(self, concerns, task_id: str) -> None:
         """Park each spun-off concern as a DRAFT task. Worker body (t1159_3).
 
+        User-facing behaviour of this arm is documented in
+        ``aidocs/framework/shadow_agent.md`` -> "Spin-off triage arm"; keep the
+        two in step when the flags, naming or store interaction change.
+
         Drafts, never committed tasks: offline-safe inside a TUI worker,
         reversible, and cheap to discard. They carry no id until the user runs
         ``ait create``, so everything reported here is a **path**.

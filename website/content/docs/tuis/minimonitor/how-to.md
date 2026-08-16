@@ -185,7 +185,7 @@ Minimonitor reads the shadow pane, parses its concern block, and opens a checkli
 
 For an implementation review, the modal splits the list into **Needs addressing** and **Informational**. The second section holds findings the shadow reports for your judgement without asking for a change; they are dimmed so what needs attention reads first, and you tick them individually like any other row. A review with no informational findings shows no section headers at all. If some lines in the block could not be parsed, a warning above the list says how many, so a short list is never mistaken for a complete one. If *none* of them could be parsed, minimonitor says the shadow emitted a block that yielded nothing forwardable — rather than reporting no concerns at all.
 
-**Rejecting a concern.** Each row carries one of three dispositions, and they are mutually exclusive: unmarked (`☐`), marked to forward with **Space** (`☑`), or marked **rejected** with **r** (`✗`, and the row dims). Rejecting says *stop raising this for this task*, so the shadow drops it from later review rounds — see [Reject a concern so it does not come back]({{< relref "/docs/workflows/shadow-agent" >}}#reject-a-concern-so-it-does-not-come-back) for what the shadow does with it.
+**Rejecting a concern.** Each row carries one of four dispositions, and they are mutually exclusive: unmarked (`☐`), marked to forward with **Space** (`☑`), marked **rejected** with **r** (`✗`, and the row dims), or marked to **spin off** with **t** (`»` — see [How to Spin a Concern Off as Its Own Task](#how-to-spin-a-concern-off-as-its-own-task)). Rejecting says *stop raising this for this task*, so the shadow drops it from later review rounds — see [Reject a concern so it does not come back]({{< relref "/docs/workflows/shadow-agent" >}}#reject-a-concern-so-it-does-not-come-back) for what the shadow does with it.
 
 Press **R** to review what is already rejected for this task: **Space** marks an entry to bring back, **Enter** hands those marks to the picker, and **q** or **Esc** closes the view. **R** does not always open a list — if nothing is rejected for this task yet it says so, and if the pane has no task id it warns that the rejection store is unavailable, which tells you *before* you confirm that rejections made here cannot be kept.
 
@@ -197,12 +197,59 @@ The picker adapts down to narrow companion panes: at 30 columns and below it dro
 
 If no shadow is running, pressing **c** tells you to launch one with **e**; if the shadow has not raised any concerns yet, minimonitor says so and does nothing.
 
-> **Auto-offer:** when the shadow produces a fresh concern block, minimonitor proactively surfaces a `Shadow raised 2 concern(s) — press 'c' to pick` toast — once per block — so you don't have to poll the shadow pane for it. The count is of concerns needing attention; any informational ones are noted separately in the same toast.
+> **Auto-offer:** when the shadow produces a fresh concern block, minimonitor proactively surfaces a `Shadow raised 2 concern(s) — press 'c' to pick` toast — once per block — so you don't have to poll the shadow pane for it. The count is of concerns needing attention; any informational ones are noted separately in the same toast, and the review round is named as a `(round N)` suffix when the block carries one.
+>
+> **A new round re-offers concerns you have already seen, and that is the point.** Each review round re-derives the shadow's findings from scratch, so the offer is keyed on the round as well as the concerns themselves. A repeat round raising an identical list means the shadow re-reviewed and still stands by it — news, not noise — so it is offered again rather than silently suppressed.
+
+**Clean and unreadable rounds.** A review that finds nothing still records the round, and pressing **c** then reports `Clean review (round 3) — no concerns`. If the shadow emitted a block that carries a round but no readable concerns — still mid-stream, or with content minimonitor had to drop — you get a warning and the **raw block** instead. That is deliberate: reporting it as "no concerns" would hide output the shadow did produce, and the raw view is what lets you tell a rendering mishap from a real mistake in what it wrote.
 
 > **Configuration:** two settings control the shadow, both editable in [`ait settings`]({{< relref "/docs/tuis/settings" >}}):
 >
 > - **Placement** — `tmux.shadow_same_window` (Tmux tab): `true` (default) splits the shadow into the followed agent's window; `false` opens it in its own window.
 > - **Agent and model** — the `shadow` row on the Agent Defaults tab selects which coding agent and model the shadow runs as.
+
+### How to Spin a Concern Off as Its Own Task
+
+Not every concern belongs in the plan you are reviewing. Some are real but secondary, and folding all of them in is how a steerable plan turns into a sprawling one. In the concern picker, **t** marks the focused concern `»` — *keep this, but as its own task*. It is mutually exclusive with forwarding and rejecting, and unlike a rejection the row is not dimmed: the concern is being kept, just somewhere else.
+
+When you confirm the picker, each marked concern becomes a **draft task** in `aitasks/new/`, carrying the concern's own priority, a `shadow-concern` label, and a link back to the task under review. Drafts are not tasks yet — they claim no number and touch no branch, so nothing is committed and an unwanted one is removed with `rm`. Finalize the ones you want with `ait create`.
+
+Minimonitor reports the **paths** it created, because drafts have no id to report. `aitasks/new/` is a shared drop directory, so the toast also gives you a selector for exactly this batch:
+
+```
+2 concern(s) parked as drafts — finalize with 'ait create':
+  aitasks/new/shadow_error_handling_a1b2c3d4_1.md
+  aitasks/new/shadow_retry_logic_a1b2c3d4_2.md
+(this batch: ls aitasks/new/*a1b2c3d4*)
+```
+
+A spun-off concern is also recorded as handled for this task, so the shadow stops raising it in later rounds — it is being tracked elsewhere now. If the drafts are created but that record cannot be written, minimonitor says so explicitly rather than reporting success: the drafts exist, the concern will come back next round, and spinning it off again would create duplicates.
+
+### How to Run the Auto-Recheck Loop
+
+Reviewing a plan with a shadow is a loop: the shadow raises concerns, you forward some, the agent revises, and then the shadow has to re-read and review again. Press **L** to have minimonitor drive that last step for you. While the loop is armed, minimonitor watches the followed agent; once it has produced real work and settled back at a prompt, minimonitor sends a single-line recheck into the **shadow** pane, naming the round to review next.
+
+Press **L** again to disarm. A status line shows the loop's state the whole time it is armed:
+
+| Banner | Meaning |
+|--------|---------|
+| `⟳ auto-recheck ARMED` | Watching the followed agent |
+| `⟳ waiting for shadow to settle` | The agent is ready for a recheck, but the shadow is still busy — the loop holds rather than interrupting it |
+| `⟳ auto-recheck: delivering…` | Sending the recheck |
+| `⟳ recheck #2 sent — waiting for shadow` | Sent; waiting for the shadow to re-read before arming the next round |
+
+When the loop disarms itself — the agent or the shadow pane disappeared, or the shadow was swapped for one it cannot read — the banner clears and a warning names the reason. An open picker pauses the loop rather than disarming it.
+
+**Minimonitor only ever writes into the shadow pane.** The followed agent is never typed into: the loop automates asking the shadow to look again, not answering on your behalf. Forwarding concerns stays a clipboard step you confirm.
+
+**Where the loop can run.** Two independent requirements, and both are checked when you press **L**:
+
+- The **followed** agent must be Claude Code. The loop injects keystrokes rather than merely reading, so it stays deliberately narrow; arming for anything else refuses with `the recheck loop is Claude-only for now`.
+- The **shadow** can be any of the supported coding agents — Claude Code, Codex CLI, or OpenCode all work, so a Claude agent watched by a Codex or OpenCode shadow arms normally. Minimonitor needs to recognise when that shadow is idle before it will type into it.
+
+Other refusals are about state rather than support, and each says which: no followed agent pane; no shadow pane yet (launch one with **e**); or the shadow's agent could not be identified yet, which is usually a timing answer worth retrying a moment later rather than a permanent no.
+
+**The manual recheck still works, and is sometimes needed.** The loop notices the agent working by watching its pane, and a revision that leaves the visible output byte-identical and grows no scrollback is invisible to it. When that happens the loop simply does not fire — just ask the shadow to refetch and recheck yourself.
 
 ### How to Mark an Agent as Prioritized
 
@@ -300,7 +347,8 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `p` | Pick any task by typing its number, then launch it or move it to a board column |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
-| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
+| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
+| `L` | Arm or disarm the [auto-recheck loop](#how-to-run-the-auto-recheck-loop) — minimonitor asks the shadow for a fresh review round once the followed agent settles |
 | `Space` | Toggle the prioritized mark (`★`) on the **followed** agent (the one pinned at the top) — shared across all your projects |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |
