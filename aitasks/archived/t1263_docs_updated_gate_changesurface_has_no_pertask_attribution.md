@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [gates]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,6 +17,7 @@ anchor: 635
 implemented_with: claudecode/opus5
 created_at: 2026-07-27 09:15
 updated_at: 2026-08-16 18:54
+completed_at: 2026-08-16 18:54
 boardidx: 48128
 ---
 
@@ -76,3 +77,14 @@ escalates to the user).
 > **✅ gate:plan_approved** run=2026-08-16T14:48:41Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-16T15:39:19Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-16T15:54:43Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bbe36b3f49e6a90a
+
+> **✅ gate:risk_evaluated** run=2026-08-16T15:54:43Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1263/risk_evaluated_2026-08-16T15:54:43Z-risk_evaluated-a1.log`
