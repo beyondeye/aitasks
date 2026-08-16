@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1159_6, t1159_7]
 issue_type: documentation
 status: Ready
 labels: [shadow, aitask_monitormini]
@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1159
 followup_kind: risk_mitigation
 created_at: 2026-08-16 23:26
-updated_at: 2026-08-16 23:26
+updated_at: 2026-08-16 23:27
 ---
 
 ## Origin
