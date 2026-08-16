@@ -470,7 +470,7 @@ Targeted while iterating:
   or input-handling change in a later Codex makes it wrong again — the same class
   of failure this task is fixing. The verifier converts that from a silent hold
   into a visible auto-disarm, but the constant itself remains the load-bearing
-  part · severity: medium · → mitigation: bracketed_paste_delivery
+  part · severity: medium · → mitigation: t1531
 - The retry gate assumes `shadow_state` is **not** `SHADOW_BUSY` at
   t+`COMPOSER_DRAIN_SECONDS` after a *successful* submit. That is an assumption,
   not a measurement — the live data sized the submit, not the post-submit repaint.
@@ -489,7 +489,7 @@ Targeted while iterating:
 
 ### Planned mitigations
 - timing: pre-phase | name: measure_post_submit_state | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement risk 2 (post-submit repaint assumption behind the retry gate) | desc: On an isolated tmux socket, drive a real submit through the real gateway for EVERY agent in SHADOW_READY_DETECTORS (claude 2.1.233, codex-cli 0.146.0, opencode 1.18.18 are all installed; the launch step is parameterised by agent and each row asserts the CLI version it ran against) and sample review_loop.shadow_state() BOTH before the Enter (must be BUSY, the state the strict pre-Enter gate authorises on) and after it, over a 4-value x 10-repetition sweep per agent, plus a non-active-pane capture per agent for the unfocused-dimming hypothesis; ship the smallest d that passes 10/10 on all three columns for every agent, so the unconditional path is not enabled on Codex-only evidence.
-- timing: after | name: bracketed_paste_delivery | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement risk 1 (a drain constant tuned to one Codex build will rot) | desc: Deliver the recheck prompt via tmux set-buffer + paste-buffer -p so the payload arrives as a bracketed-paste event and the Enter is structurally incapable of being read as text, retiring the timed drain as the load-bearing mechanism; needs its own live measurement per shadow agent, including whether Codex collapses the paste into a chip.
+- timing: after | name: bracketed_paste_delivery | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement risk 1 (a drain constant tuned to one Codex build will rot) | desc: Deliver the recheck prompt via tmux set-buffer + paste-buffer -p so the payload arrives as a bracketed-paste event and the Enter is structurally incapable of being read as text, retiring the timed drain as the load-bearing mechanism; needs its own live measurement per shadow agent, including whether Codex collapses the paste into a chip. | created: t1531
 
 **Reassessment after inlining** (`risk-evaluation.md` Step 3 note): both levels
 stay **medium**. The inlined measurement closes goal-achievement risk 2 before any
