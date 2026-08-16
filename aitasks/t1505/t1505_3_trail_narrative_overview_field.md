@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: [t1468_5]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [artifacts, trails, skills, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-08-13 12:27
-updated_at: 2026-08-13 12:28
+updated_at: 2026-08-16 09:36
 ---
 
 ## Context
