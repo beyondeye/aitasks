@@ -187,6 +187,17 @@ def _clip(text: str, budget: int) -> str:
     return set_cell_size(text, budget - 1).rstrip() + "…"
 
 
+async def _composer_drain(seconds: float) -> None:
+    """Yield the event loop between two delivery keystrokes (t1525).
+
+    Module level so tests can rebind it (the `capture_shadow_text` seam pattern)
+    rather than paying real wall clock in the unit suite. `asyncio.sleep` keeps
+    the Textual event loop responsive while the shadow's TUI drains the pty
+    write and repaints.
+    """
+    await asyncio.sleep(seconds)
+
+
 def format_gate_phase_row(phase: str, gates: str, budget: int) -> str:
     """The gate summary and the advisory workflow phase on ONE line (t1479).
 
@@ -2793,7 +2804,7 @@ class MiniMonitorApp(
         self, shadow_pane: str, snap: PaneSnapshot | None, shadow_key: str,
         tick_raw_tail: str | None, tick_text: str | None, token,
     ) -> tuple[str, str]:
-        """Verified two-step delivery into the SHADOW pane.
+        """Verified delivery into the SHADOW pane.
 
         Returns ``('sent' | 'not_ready' | 'failed', detail)``. Receives no
         followed pane id — structurally incapable of writing the followed
@@ -2802,6 +2813,10 @@ class MiniMonitorApp(
         dialog); readiness is revalidated on a fresh capture immediately
         before sending, with the delivery token re-checked after the await
         (review hardenings 1+4).
+
+        This method owns everything up to and including the literal prompt
+        write; :meth:`_submit_shadow_prompt` owns the Enter, the drain that
+        makes it land, and the capture that verifies it went (t1525).
         """
         ctrl = self._review_loop
         fresh = await capture_raw_tail(self._monitor, shadow_pane)
@@ -2852,11 +2867,93 @@ class MiniMonitorApp(
         if not monitor.send_keys(shadow_pane, prompt, literal=True):
             return ("failed",
                     "could not write the recheck prompt to the shadow pane")
-        if not monitor.send_keys(shadow_pane, "Enter"):
-            return ("failed",
-                    "recheck text left in the shadow composer — submit or "
+        return await self._submit_shadow_prompt(
+            monitor, shadow_pane, shadow_key, prompt, token)
+
+    async def _submit_shadow_prompt(
+        self, monitor, shadow_pane: str, shadow_key: str, prompt: str, token,
+    ) -> tuple[str, str]:
+        """Submit an already-written recheck prompt, and VERIFY that it went.
+
+        Returns ``('sent' | 'failed', detail)``. Called with the prompt text
+        already in the shadow's composer.
+
+        **Why this exists (t1525).** The two `send_keys` calls used to be
+        adjacent, and codex-cli coalesces that input burst: the Enter is
+        consumed as part of the literal text, the prompt is left unsubmitted,
+        and BOTH calls still return True. The loop therefore reported "sent",
+        entered FIRED, and then held forever on a shadow that reads
+        SHADOW_BUSY -- silently, because the leftover-text message below was
+        reachable only from a non-zero send rc.
+
+        Two gates, and they deliberately answer different questions:
+
+        * **Before each Enter** -- authorises an ACTION, so it fails CLOSED.
+          ``SHADOW_BUSY`` (the composer holding the text we just wrote) is the
+          ONLY verdict that permits the keystroke. A dialog would eat the
+          Enter; an indeterminate read is no evidence at all; READY/WORKING
+          mean our text is not where we put it. The two refusals carry
+          different messages because the two situations differ -- with
+          dialog/unknown the text is presumed still sitting there, with
+          ready/working it demonstrably is not.
+        * **After each Enter** -- only decides what to CLAIM about a key
+          already sent, so it fails OPEN-BUT-LOUD. Only WORKING/READY are
+          positive evidence of a submit. ``SHADOW_DIALOG`` must NOT be read as
+          "submitted": `_ordered_state` sweeps the prompt patterns over the
+          whole tail before the composer scan, so a dialog string in the
+          shadow's own transcript masks a still-busy composer -- claiming
+          "sent" there would silently reproduce the very failure above. It and
+          UNKNOWN are reported as unverified, with a warning naming the
+          verdict.
+
+        The post-Enter capture is deliberately NOT fed to
+        `_apply_shadow_settle_latch`: the controller is in DELIVERING/FIRED
+        behind the fire cooldown, and a post-delivery dialog or working
+        observation is the EXPECTED consequence of this fire, not an
+        interaction that should hold the next one.
+
+        The delivery token is re-checked immediately before **every** Enter,
+        including the first. This method suspends four times after the prompt
+        was written and a user disarming with `L` in that window must not still
+        get a key injected — and since the Enter is the only irreversible act
+        here, one check sitting directly in front of it covers every preceding
+        await. An earlier draft also re-checked at the top of the loop; it was
+        removed once its negative control proved unfalsifiable (this check
+        catches that case first), rather than kept as unreachable belt-and-
+        braces. The write itself is deliberately NOT guarded this way:
+        abandoning after it would leave text in the composer, which is the
+        failure this method exists to remove.
+        """
+        leftover = ("recheck text left in the shadow composer — submit or "
                     "clear it there manually")
-        return "sent", prompt
+        missing = ("the recheck prompt is not in the shadow composer — "
+                   "nothing was submitted")
+        ctrl = self._review_loop
+        for _attempt in range(review_loop.SHADOW_SUBMIT_RETRIES + 1):
+            await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
+            before = review_loop.shadow_state(
+                await capture_raw_tail(monitor, shadow_pane), shadow_key)
+            if before != review_loop.SHADOW_BUSY:
+                return "failed", (
+                    leftover
+                    if before in (review_loop.SHADOW_DIALOG,
+                                  review_loop.SHADOW_UNKNOWN)
+                    else missing)
+            if not ctrl.delivery_valid(token):
+                return "failed", leftover
+            if not monitor.send_keys(shadow_pane, "Enter"):
+                return "failed", leftover
+            await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
+            state = review_loop.shadow_state(
+                await capture_raw_tail(monitor, shadow_pane), shadow_key)
+            if state == review_loop.SHADOW_BUSY:
+                continue  # the Enter was swallowed — retry while budget lasts
+            if state in (review_loop.SHADOW_DIALOG, review_loop.SHADOW_UNKNOWN):
+                self.notify(
+                    f"recheck sent, but submission could not be verified "
+                    f"(shadow reads '{state}')", severity="warning")
+            return "sent", prompt
+        return "failed", leftover
 
     async def action_pick_concerns(self) -> None:
         """Forward the shadow agent's concerns to the followed agent (via clipboard).

@@ -609,18 +609,61 @@ items):
    that swap branch has no real-agent subject and is exercised with a synthetic
    key — it is kept for the next agent wired in ahead of its detector.
 7. **Single-line literal injection only** (`send_keys -l` + `Enter` through
-   the tmux gateway; no bracketed paste).
+   the tmux gateway; no bracketed paste), with a **wall-clock drain between the
+   two keystrokes**. `review_loop.COMPOSER_DRAIN_SECONDS` separates the literal
+   write, the Enter, and the capture that verifies the submission. It is not
+   cosmetic: with the two `send_keys` calls adjacent, codex-cli coalesces the
+   input burst and consumes the Enter **as text** — the prompt is left
+   unsubmitted in the composer while both calls still return success, so the
+   loop reported "sent" and then held forever (t1523 item #4 → t1525). The
+   constant is unconditional rather than per-agent — a fire happens at most
+   once per `COOLDOWN_SECONDS`, so the delay is free — and it is sized by a
+   live sweep over **every** agent in `SHADOW_READY_DETECTORS`, not just the
+   one that failed. Do not lower it without re-running that sweep; see
+   `SHADOW_SETTLE_SECONDS` for the neighbouring-but-different constant ("the
+   shadow has been idle this long", not "wait for a TUI to repaint").
 8. **Phase never gates firing.** The advisory phase pre-selects the recheck
    *wording* (plan-challenge vs impl-challenge vs generic) and nothing else;
    a wrong or UNKNOWN phase still fires (negative-control-tested, like every
    other phase consumer).
-9. **Delivery is serialized and verified two-step.** At most one delivery is
-   ever in flight: the fire permission reserves a DELIVERING state + token
-   synchronously inside `tick()`, so overlapping refresh cycles cannot
-   double-fire; readiness is revalidated on a fresh capture immediately
-   before sending (token re-checked after the await); Enter is **never** sent
-   after a failed prompt write; either partial failure auto-disarms visibly,
-   naming any text left in the shadow composer.
+9. **Delivery is serialized, and the submission is verified from a capture —
+   not from the send return codes.** At most one delivery is ever in flight:
+   the fire permission reserves a DELIVERING state + token synchronously inside
+   `tick()`, so overlapping refresh cycles cannot double-fire; readiness is
+   revalidated on a fresh capture immediately before sending (token re-checked
+   after the await); Enter is **never** sent after a failed prompt write.
+
+   `_submit_shadow_prompt` then owns the Enter, and its two gates deliberately
+   answer different questions — which is why `SHADOW_UNKNOWN` appears on both
+   sides with opposite effect:
+
+   - **Before each Enter** it authorises an *action*, so it fails **closed**.
+     `SHADOW_BUSY` — the composer positively holding the text just written — is
+     the **only** verdict that permits the keystroke. `SHADOW_DIALOG` would
+     have the Enter answer the dialog; `SHADOW_UNKNOWN` is no evidence the pane
+     is safe; `SHADOW_READY`/`SHADOW_WORKING` mean the text is not where it was
+     put. The refusals carry two different messages, because in the first pair
+     the text is presumed still in the composer and in the second it
+     demonstrably is not.
+   - **After each Enter** it only decides what to *claim* about a key already
+     sent, so it fails **open-but-loud**. Only `WORKING`/`READY` are positive
+     evidence of a submit. A still-`BUSY` composer means the Enter was
+     swallowed and is retried up to `review_loop.SHADOW_SUBMIT_RETRIES` times;
+     exhausting that budget auto-disarms visibly, naming the leftover text —
+     which is what finally makes that message **reachable**, since it was
+     previously gated on a non-zero send rc that never occurs in this failure.
+     `DIALOG` and `UNKNOWN` are reported as **unverified** (a warning naming
+     the verdict), never as submitted: `_ordered_state` sweeps the prompt
+     patterns over the whole tail before the composer scan, so a dialog string
+     in the shadow's own transcript can mask a still-busy composer, and
+     claiming "sent" there would silently reproduce the original failure.
+
+   The delivery token is re-checked immediately before **every** Enter, so a
+   disarm during any of the four suspension points cannot still inject a key.
+   The post-Enter capture is deliberately **not** fed to the settle latch: the
+   controller is already FIRED behind the cooldown, and a post-delivery dialog
+   or working observation is the expected *consequence* of the fire, not an
+   interaction that should hold the next one.
 10. **A new episode requires positively classified agent work.**
     `classify_followed_change` distinguishes real output (scrollback growth —
     `#{history_size}` delta or content change above the current

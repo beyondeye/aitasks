@@ -643,9 +643,62 @@ class CodexDetectorNegativeControlTests(unittest.TestCase):
                 rl.shadow_prompt_ready(getattr(fx, name), "claude", True),
                 False, name)
 
+    def test_claude_state_verdicts_per_fixture(self):
+        """Claude's verdict table, mirroring the Codex and OpenCode ones.
+
+        The characterization guard above only pins "not ready", which was
+        enough while readiness was the sole consumer. The t1525 delivery reads
+        the SPECIFIC verdict — it authorises an Enter on `SHADOW_BUSY` alone
+        and treats `SHADOW_DIALOG` as unverifiable — so the consumer's guard
+        has to be pinned wherever the producer is, for every agent.
+        """
+        expected = {
+            "CLAUDE_AT_REST_RAW": rl.SHADOW_READY,
+            "CLAUDE_TYPED_RAW": rl.SHADOW_BUSY,
+            "CLAUDE_STREAMING_RAW": rl.SHADOW_WORKING,
+            "CLAUDE_DIALOG_RAW": rl.SHADOW_DIALOG,
+        }
+        for name, want in expected.items():
+            self.assertEqual(rl._claude_state(getattr(fx, name)), want, name)
+
+    def test_every_shadow_agent_reads_typed_text_as_busy(self):
+        """The delivery's authorising verdict is agent-invariant.
+
+        `_submit_shadow_prompt` sends its Enter only when the post-write
+        readback is `SHADOW_BUSY`. If any shadow agent classified its own
+        typed composer as something else, the loop would veto every delivery
+        into that agent — silently, and only in production.
+        """
+        typed = {"claude": fx.CLAUDE_TYPED_RAW,
+                 "codex": fx.CODEX_TYPED_RAW,
+                 "opencode": fx.OPENCODE_TYPED_RAW}
+        self.assertEqual(sorted(typed), sorted(rl.SHADOW_STATE_DETECTORS),
+                         "an agent gained a detector but no typed fixture here")
+        for agent, raw in typed.items():
+            self.assertEqual(rl.shadow_state(raw, agent), rl.SHADOW_BUSY, agent)
+
     def test_the_two_dispatch_tables_cannot_drift(self):
         self.assertEqual(sorted(rl.SHADOW_READY_DETECTORS),
                          sorted(rl.SHADOW_STATE_DETECTORS))
+
+
+class ComposerDrainConstantTests(unittest.TestCase):
+    """The drain is the actual t1525 repair; these keep it from rotting to 0."""
+
+    def test_drain_clears_the_measured_floor(self):
+        """Pre-phase sweep (2026-08-16): at d=0 codex-cli 0.146.0 swallowed the
+        Enter in 10/10 repetitions — the prompt was never submitted — while
+        d=0.25 submitted 10/10. The shipped value keeps margin over that floor.
+
+        This assertion is the only thing standing between the repo and a silent
+        regression to the t1525 failure: with the drain seam stubbed out in the
+        app tests, `COMPOSER_DRAIN_SECONDS = 0.0` fails nothing else.
+        """
+        self.assertGreaterEqual(rl.COMPOSER_DRAIN_SECONDS, 0.25)
+
+    def test_the_retry_budget_is_bounded_and_non_zero(self):
+        self.assertGreaterEqual(rl.SHADOW_SUBMIT_RETRIES, 1)
+        self.assertLessEqual(rl.SHADOW_SUBMIT_RETRIES, 3)
 
 
 class OpenCodeShadowReadinessTests(unittest.TestCase):

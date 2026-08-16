@@ -1400,6 +1400,21 @@ class _LoopFakeMon(_FakeMon):
         self.on_capture = None
         self.discovered: set = set()
         self.enumerated: set = set()
+        # --- composer model (t1525) ---
+        # Delivery now READS BACK the pane between its keystrokes, so the fake
+        # has to behave like a composer: a literal write puts text in it, an
+        # Enter submits and clears it. Without this the pre-Enter gate (which
+        # authorises on SHADOW_BUSY alone) would see the at-rest tail and veto
+        # every fire, and each fire test would have to hand-script the readback.
+        self.composer_text = ""
+        self.submitted = False
+        self.typed_tail = _rlfx.CLAUDE_TYPED_RAW
+        # Emulate the t1525 bug itself: the Enter is accepted by tmux (rc 0)
+        # but eaten by the TUI, so the text stays put.
+        self.swallow_enter = False
+        # Optional tail served AFTER a successful submit, for tests that need
+        # the post-Enter verifier to see a specific verdict.
+        self.post_submit_tail = None
 
     async def tmux_run_async(self, args, timeout=5.0):
         self.async_calls.append(args)
@@ -1409,14 +1424,27 @@ class _LoopFakeMon(_FakeMon):
         if args[0] == "capture-pane":
             if self.on_capture is not None:
                 self.on_capture()
-            tail = (self.raw_tails.pop(0) if len(self.raw_tails) > 1
-                    else self.raw_tails[0])
-            return (self.capture_rc, tail)
+            return (self.capture_rc, self._capture_tail())
         return (0, "")
+
+    def _capture_tail(self):
+        if self.composer_text:
+            return self.typed_tail          # composer holds unsubmitted text
+        if self.submitted and self.post_submit_tail is not None:
+            return self.post_submit_tail
+        return (self.raw_tails.pop(0) if len(self.raw_tails) > 1
+                else self.raw_tails[0])
 
     def send_keys(self, pane_id, keys, literal=False):
         self.sent.append((pane_id, keys, literal))
-        return self.send_results.pop(0) if self.send_results else True
+        ok = self.send_results.pop(0) if self.send_results else True
+        if ok:
+            if literal:
+                self.composer_text = keys
+            elif keys == "Enter" and not self.swallow_enter:
+                self.composer_text = ""
+                self.submitted = True
+        return ok
 
     def last_discovered_agents(self):
         return self.discovered
@@ -1453,19 +1481,53 @@ _SHADOW_LIST_NODE = "%5\t%1\tnode\t4245\n"
 _SHADOW_LIST_NONE = "%6\t\tzsh\n"
 
 
+def _stub_drain(test, mon=None):
+    """Bind minimonitor's inter-keystroke drain seam for one test (t1525).
+
+    Returns the list of recorded durations. Every fire pays two real
+    `COMPOSER_DRAIN_SECONDS` sleeps in production; rebinding the module-level
+    seam keeps the suite fast AND turns the delay into an asserted contract
+    instead of an invisible sleep. When ``mon`` is given, a ``DRAIN`` sentinel
+    is appended to ``mon.sent`` too, so a test can assert the drain's POSITION
+    relative to the keystrokes rather than merely its duration.
+    """
+    if not hasattr(test, "_orig_drain"):
+        test._orig_drain = mm._composer_drain
+        test.addCleanup(setattr, mm, "_composer_drain", test._orig_drain)
+    recorded: list = []
+
+    async def _fake(seconds):
+        recorded.append(seconds)
+        if mon is not None:
+            mon.sent.append(("DRAIN", seconds, None))
+
+    mm._composer_drain = _fake
+    return recorded
+
+
 def _loop_app(test, *, async_list=_SHADOW_LIST_CLAUDE,
               raw_tail=None, tick_text=_ROUND1_BLOCK, stale=True,
-              awaiting=True, capture_rc=0, list_rc=0):
+              awaiting=True, capture_rc=0, list_rc=0, record_drain=False,
+              typed_tail=None):
     """An app whose followed agent satisfies the trigger by default."""
     mon = _LoopFakeMon(
         async_list=async_list,
         raw_tail=raw_tail if raw_tail is not None else _rlfx.CLAUDE_AT_REST_RAW,
         list_rc=list_rc, capture_rc=capture_rc)
+    # The typed-composer tail the fake serves between the prompt write and the
+    # Enter must belong to the SHADOW's agent (t1525): the pre-Enter gate reads
+    # it through that agent's detector, so a Claude tail under an OpenCode
+    # shadow classifies as "not a composer" and vetoes every delivery.
+    if typed_tail is not None:
+        mon.typed_tail = typed_tail
     app = _mk_app(monitor=mon)
     snap = _snap("%1", content="agent output", awaiting_input=awaiting)
     app._find_own_agent_snapshot = lambda: snap
     app._shadow_read_recency = mm.ReadRecency(stale, 100.0)
     _stub_capture(test, _async_return(tick_text))
+    # Never let a fire test pay two real 0.5s sleeps (t1525). `record_drain`
+    # only controls the `mon.sent` sentinel; the seam is always stubbed.
+    mon.drains = _stub_drain(test, mon if record_drain else None)
     return app, mon, snap
 
 
@@ -1920,6 +1982,12 @@ class ReviewLoopFireTests(unittest.TestCase):
         self.assertNotIn("\n", prompt)
         self.assertIn("recheck #1 sent", app._loop_banner_text)
         self.assertEqual(app._review_loop.state, _rl.FIRED)
+        # The delivery's tmux READS are pinned too (t1525). Without this the
+        # test's name is a half-truth: it bounds the keystrokes but would let
+        # any number of new capture round-trips in unnoticed.
+        self.assertEqual(
+            sum(1 for a in mon.async_calls if a[0] == "capture-pane"), 6,
+            [a[0] for a in mon.async_calls])
 
     def test_round_is_omitted_when_the_block_has_no_meta(self):
         app, mon, _ = self._armed(tick_text=_CLOSED_BLOCK)
@@ -1959,6 +2027,181 @@ class ReviewLoopFireTests(unittest.TestCase):
         self.assertTrue(any("left in the shadow composer" in m
                             for m, _s in app.spy_notify), app.spy_notify)
 
+    # --- verified submission (t1525) ---------------------------------------
+    #
+    # The bug these pin: codex-cli coalesced the literal write and the Enter
+    # into one input burst and consumed the Enter as text. Both send_keys calls
+    # returned True, so the loop reported "sent" and then held forever on a
+    # shadow whose composer was still holding the prompt.
+
+    def test_enter_is_sent_after_the_composer_drain(self):
+        app, mon, _ = self._armed(record_drain=True)
+        _tick(app, 3)
+        kinds = [k for k, *_ in mon.sent]
+        self.assertEqual(kinds, ["%5", "DRAIN", "%5", "DRAIN"], mon.sent)
+        # The ORDER is the contract: a drain must separate the write from the
+        # Enter, not merely happen somewhere in the delivery.
+        self.assertLess(kinds.index("DRAIN"), 2)
+
+    def test_composer_drain_uses_the_named_constant(self):
+        app, mon, _ = self._armed()
+        _tick(app, 3)
+        self.assertEqual(
+            mon.drains,
+            [_rl.COMPOSER_DRAIN_SECONDS, _rl.COMPOSER_DRAIN_SECONDS])
+
+    def test_a_swallowed_enter_is_retried_once_and_reports_sent(self):
+        app, mon, _ = self._armed()
+        # The Enter is eaten (tmux still reports success) — exactly the t1525
+        # failure — and lands on the retry.
+        mon.swallow_enter = True
+
+        def _land_the_retry():
+            if sum(1 for _p, k, _l in mon.sent if k == "Enter") >= 1:
+                mon.swallow_enter = False
+        mon.on_capture = _land_the_retry
+
+        _tick(app, 3)
+        self.assertEqual([k for _p, k, _l in mon.sent],
+                         [mon.sent[0][1], "Enter", "Enter"], mon.sent)
+        self.assertEqual(app._review_loop.state, _rl.FIRED)
+        self.assertIn("recheck #1 sent", app._loop_banner_text)
+        self.assertTrue(app._review_loop.armed)
+
+    def test_a_persistently_swallowed_enter_disarms_with_the_leftover_message(self):
+        app, mon, _ = self._armed()
+        mon.swallow_enter = True          # never lands, however often we retry
+        _tick(app, 3)
+        # At/over the bound, pinned as LITERALS. Deriving the expected count
+        # from SHADOW_SUBMIT_RETRIES would make the assertion self-fulfilling:
+        # raising the budget would raise the expectation with it and the test
+        # could never catch an unbounded retry.
+        self.assertEqual(_rl.SHADOW_SUBMIT_RETRIES, 1)   # the pinned premise
+        self.assertEqual(len(mon.sent), 3, mon.sent)     # prompt + 2 Enters
+        self.assertEqual(
+            sum(1 for _p, k, _l in mon.sent if k == "Enter"), 2)
+        self.assertFalse(app._review_loop.armed)
+        self.assertTrue(any("left in the shadow composer" in m
+                            for m, _s in app.spy_notify), app.spy_notify)
+
+    def test_only_a_busy_composer_authorises_the_enter(self):
+        """One case per verdict, so no verdict silently loses its gate.
+
+        After the prompt write the composer holds our text — SHADOW_BUSY. Any
+        other verdict means the pane is not where we left it, and the delivery
+        must send no key: a dialog would EAT the Enter, an indeterminate read
+        is no evidence at all, and ready/working mean the text is gone.
+        """
+        cases = [
+            (_rlfx.CLAUDE_DIALOG_RAW, 0, "left in the shadow composer"),
+            (_rlfx.CLAUDE_AT_REST_RAW, 0, "not in the shadow composer"),
+            (_rlfx.CLAUDE_STREAMING_RAW, 0, "not in the shadow composer"),
+            (_rlfx.CLAUDE_TYPED_RAW, 1, None),      # the authorising verdict
+        ]
+        for tail, enters, message in cases:
+            with self.subTest(state=_rl.shadow_state(tail, "claude")):
+                app, mon, _ = self._armed()
+                mon.typed_tail = tail   # what the post-write readback sees
+                _tick(app, 3)
+                self.assertEqual(
+                    sum(1 for _p, k, _l in mon.sent if k == "Enter"), enters,
+                    mon.sent)
+                if message is not None:
+                    self.assertTrue(
+                        any(message in m for m, _s in app.spy_notify),
+                        app.spy_notify)
+
+    def test_an_unreadable_pane_before_the_enter_vetoes_the_send(self):
+        """The fail-CLOSED half, against the fail-open-but-loud half below.
+
+        A capture failure before the Enter is not evidence the pane is safe, so
+        nothing is sent — the same rule `shadow_state` states for readiness.
+        """
+        app, mon, _ = self._armed()
+        real_prompt_written = []
+
+        def _break_capture_after_write():
+            if mon.composer_text and not real_prompt_written:
+                real_prompt_written.append(True)
+                mon.capture_rc = 1
+        mon.on_capture = _break_capture_after_write
+
+        _tick(app, 3)
+        self.assertEqual(sum(1 for _p, k, _l in mon.sent if k == "Enter"), 0,
+                         mon.sent)
+        self.assertTrue(any("left in the shadow composer" in m
+                            for m, _s in app.spy_notify), app.spy_notify)
+
+    def test_a_dialog_after_the_enter_is_unverified_not_submitted(self):
+        """`SHADOW_DIALOG` must not be read as "submitted".
+
+        `_ordered_state` sweeps the prompt patterns over the whole tail before
+        the composer scan, so a dialog string in the shadow's own transcript
+        masks a still-busy composer. Claiming "sent" there would silently
+        reproduce the t1525 failure — so it is reported, loudly, as unverified.
+        """
+        app, mon, _ = self._armed()
+        mon.post_submit_tail = _rlfx.CLAUDE_DIALOG_RAW
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 2, mon.sent)   # no second Enter
+        self.assertEqual(app._review_loop.state, _rl.FIRED)
+        self.assertTrue(app._review_loop.armed)        # NOT a disarm
+        self.assertTrue(
+            any("could not be verified" in m and _rl.SHADOW_DIALOG in m
+                for m, _s in app.spy_notify), app.spy_notify)
+
+    def test_an_unverifiable_capture_after_the_enter_warns_but_reports_sent(self):
+        app, mon, _ = self._armed()
+
+        def _break_capture_after_enter():
+            if any(k == "Enter" for _p, k, _l in mon.sent):
+                mon.capture_rc = 1
+        mon.on_capture = _break_capture_after_enter
+
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 2, mon.sent)   # no retry into the dark
+        self.assertEqual(app._review_loop.state, _rl.FIRED)
+        self.assertTrue(
+            any("could not be verified" in m and _rl.SHADOW_UNKNOWN in m
+                for m, _s in app.spy_notify), app.spy_notify)
+
+    def test_disarm_before_the_first_enter_sends_nothing_more(self):
+        """Delivery suspends four times after the write; a disarm in that
+        window must not still get a key injected."""
+        app, mon, _ = self._armed()
+        ctrl = app._review_loop
+
+        def _disarm_once_written():
+            if mon.composer_text:
+                ctrl.disarm()
+        mon.on_capture = _disarm_once_written
+
+        _tick(app, 3)
+        self.assertEqual(sum(1 for _p, k, _l in mon.sent if k == "Enter"), 0,
+                         mon.sent)
+
+    def test_disarm_before_the_retry_enter_sends_no_retry(self):
+        app, mon, _ = self._armed()
+        ctrl = app._review_loop
+        mon.swallow_enter = True
+
+        def _disarm_after_first_enter():
+            if any(k == "Enter" for _p, k, _l in mon.sent):
+                ctrl.disarm()
+        mon.on_capture = _disarm_after_first_enter
+
+        _tick(app, 3)
+        self.assertEqual(sum(1 for _p, k, _l in mon.sent if k == "Enter"), 1,
+                         mon.sent)
+
+    def test_post_enter_capture_does_not_arm_the_settle_latch(self):
+        """The fire's own consequence is not an interaction to hold the NEXT
+        fire on: the controller is already FIRED behind the cooldown."""
+        app, mon, _ = self._armed()
+        mon.post_submit_tail = _rlfx.CLAUDE_DIALOG_RAW
+        _tick(app, 3)
+        self.assertIsNone(app._loop_shadow_settle_until)
+
     def test_presend_revalidation_refuses_a_changed_shadow(self):
         app, mon, _ = self._armed()
         # Service captures see the at-rest tail; the FIRE-time fresh capture
@@ -1983,7 +2226,8 @@ class ReviewLoopFireTests(unittest.TestCase):
     def _opencode_armed(self):
         app, mon, snap = _loop_app(
             self, async_list=_SHADOW_LIST_OPENCODE,
-            raw_tail=_rlfx.OPENCODE_AT_REST_AFTER_TURN_RAW)
+            raw_tail=_rlfx.OPENCODE_AT_REST_AFTER_TURN_RAW,
+            typed_tail=_rlfx.OPENCODE_TYPED_RAW)
         app._review_loop.arm(pending_work=True)
         app._loop_baseline = (snap.content, snap.awaiting_input_kind,
                               "%1", None, (100, 30))

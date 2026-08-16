@@ -62,6 +62,44 @@ SESSION = f"t1187_concern_smoke_{os.getpid()}"
 PANE_WIDTH = 55      # the narrow width from the failing scenario
 PANE_HEIGHT = 10     # pinned so the capture-window arithmetic is deterministic
 
+# A minimal Claude-shaped composer, for the injection smoke below (t1525).
+#
+# `cat` was enough while delivery was two adjacent send_keys, but the delivery
+# now READS THE PANE BACK between them: it authorises the Enter only on a
+# composer positively holding the typed text (SHADOW_BUSY) and then verifies
+# that the text left the composer. Those are exactly the two behaviours a `cat`
+# pane does not have. This stub has them and nothing else — it is a fixture for
+# the delivery protocol, not an emulation of any agent's input handling.
+#
+# ❯ = ❯, and the pad after it is NBSP (`_CLAUDE_COMPOSER_RE` keys on it).
+_COMPOSER_STUB = r'''
+import sys, tty
+
+buf = ""
+
+
+def draw():
+    sys.stdout.write("\r\x1b[K❯ " + buf)
+    sys.stdout.flush()
+
+
+draw()
+tty.setraw(sys.stdin.fileno())
+while True:
+    ch = sys.stdin.read(1)
+    if ch in ("\r", "\n"):
+        # Submit: echo into the scrollback the way a real TUI does, then clear.
+        sys.stdout.write("\r\x1b[K" + buf + "\r\n")
+        buf = ""
+    elif ch == "\x03":
+        break
+    elif ch == "\x7f":
+        buf = buf[:-1]
+    else:
+        buf += ch
+    draw()
+'''
+
 # Row budget, counted from the bottom of the pane. With PANE_HEIGHT pinned,
 # `capture-pane -S -N` yields roughly the last (N + PANE_HEIGHT) rows, so:
 #   TAIL rows        -> 1..5
@@ -270,6 +308,26 @@ class RecheckInjectionSmokeTests(unittest.TestCase):
     The pane renders a Claude-shaped empty composer line (`❯` + NBSP) and then
     runs `cat`, so the pre-send readiness revalidation genuinely passes and
     the terminal echo makes the delivered line capturable.
+
+    **This smoke does NOT cover the t1525 submit verifier, and must not be
+    stretched to try.** The pane prints `❯`+NBSP followed by a newline, so the
+    tty echo of the typed line lands *below* the composer; `_composer_state`
+    scans bottom-up for `^❯(\\u00a0.*)?$`, never matches the echoed line, and
+    reads the still-empty `❯` line — so `_claude_state` returned
+    `SHADOW_READY` at every point in the delivery, and the entire
+    verify-and-retry block could have been deleted with the test still green.
+    Dropping the `\\n` does not fix it either: the echo would then land on the
+    composer line, but `cat` never clears it, so the post-Enter capture would
+    read `SHADOW_BUSY` forever and the retry budget would exhaust. **A `cat`
+    pane cannot emulate a composer, so the pane is a ~20-line stub TUI
+    instead** (`_COMPOSER_STUB`): it holds typed bytes on the `❯` line and, on
+    `\\r`, echoes the submitted line into the scrollback and clears the
+    composer — the two behaviours the delivery reads back. That makes this the
+    one test covering the drain, the `SHADOW_BUSY` pre-Enter gate and the
+    post-Enter verification against a REAL pane through the REAL
+    `TmuxMonitor.send_keys` gateway. It is still not an agent: per-CLI input
+    coalescing (the actual t1525 bug) is measured live in the task's pre-phase
+    sweep, not here.
     """
 
     @classmethod
@@ -282,11 +340,15 @@ class RecheckInjectionSmokeTests(unittest.TestCase):
             cls.addClassCleanup(os.environ.pop, "TMUX_TMPDIR", None)
         else:
             cls.addClassCleanup(os.environ.__setitem__, "TMUX_TMPDIR", prev_tmpdir)
-        # ❯ = \342\235\257, NBSP = \302\240 (bash printf octal escapes).
+        stub = os.path.join(tmpdir, "composer_stub.py")
+        with open(stub, "w") as fh:
+            fh.write(_COMPOSER_STUB)
+        # 120 columns so the ~92-char recheck line never soft-wraps: a wrapped
+        # composer would still classify BUSY, but the `-J` verbatim assertion
+        # below is clearer without reflow in play.
         res = _tmux(
             "new-session", "-d", "-s", f"{SESSION}_inject",
-            "-x", "80", "-y", "10",
-            "bash", "-c", r"printf '\342\235\257\302\240\n'; exec cat",
+            "-x", "120", "-y", "10", sys.executable, stub,
         )
         if res.returncode != 0:
             raise unittest.SkipTest(f"could not start tmux session: {res.stderr}")
@@ -337,6 +399,13 @@ class RecheckInjectionSmokeTests(unittest.TestCase):
         # the latch starts clear, so no deadline is ever consulted.
         app._loop_shadow_settle_until = None
         app._loop_now = lambda: 1000.0
+        # The delivery can emit a "could not be verified" warning (t1525), and
+        # this app is hand-assembled via __new__ with no running Textual app
+        # behind it — without a notify spy that branch would raise inside a
+        # real-tmux run rather than surfacing the warning.
+        app.spy_notify: list = []
+        app.notify = lambda msg, **kw: app.spy_notify.append(
+            (msg, kw.get("severity", "information")))
 
         ctrl = app._review_loop
         ctrl.arm(pending_work=True)

@@ -723,6 +723,51 @@ def review_loop_agent_supported(agent: str) -> bool:
 SHADOW_SETTLE_SECONDS = 2.0
 
 
+# Wall-clock gap the delivery leaves between the literal prompt write, the Enter
+# that submits it, and the capture that verifies the submission.
+#
+# NOT the same idea as SHADOW_SETTLE_SECONDS above, despite the neighbouring
+# names: that one means "the shadow has been idle this long"; this one means
+# "wait for a TUI to drain a pty write and repaint".
+#
+# Sized by the t1525 pre-phase sweep (2026-08-16, 150 live repetitions: every
+# agent in SHADOW_READY_DETECTORS x d in {0, 0.25, 0.35, 0.5, 0.75} x 10, driven
+# through the real gateway against claude 2.1.233 / codex-cli 0.146.0 /
+# opencode 1.18.18). A value passes for an agent only at 10/10 on all three
+# columns: the write visible in the composer at t+d (SHADOW_BUSY -- the sole
+# state the delivery authorises an Enter on), the Enter actually submitting, and
+# the composer non-BUSY at t+d afterwards.
+#
+# d=0 -- what shipped before t1525 -- FAILS for all three, in two distinct ways:
+#   * codex submitted 0/10. It coalesces the input burst and consumes the Enter
+#     as text, leaving the prompt unsubmitted while both send_keys return True.
+#     This is the reported bug (t1523 item #4).
+#   * claude and opencode submit fine at d=0, so the coalescing is Codex-
+#     specific -- but neither has rendered the write yet at t+0 (preBUSY 0/10),
+#     and claude's composer still SHOWED the text just after a successful submit
+#     in 6/10 (postNonBUSY 4/10), which would have fired a spurious retry Enter.
+#     So the drain is load-bearing for the readback on every agent, not just for
+#     the Codex submit.
+#
+# The all-agent passing band is {0.25, 0.35, 0.5}; 0.75 is excluded (opencode
+# 9/10 preBUSY -- an accumulated transcript matched a dialog pattern, the
+# documented masking limitation, not a timing effect). Shipping the TOP of that
+# band: the failure is one-sided and dramatic, 0.25 is the smallest value ever
+# tested rather than a measured threshold, and the cost of margin is 1s of
+# latency at most once per COOLDOWN_SECONDS.
+#
+# Unconditional rather than per-agent: at that price the delay is free, and one
+# delivery path is simpler to reason about than two.
+COMPOSER_DRAIN_SECONDS = 0.5
+
+# Extra Enters allowed after a capture positively shows the composer STILL
+# holding text. Bounded: each attempt costs 2 x the drain above plus two
+# captures, so a wedged tmux (both captures burning the 3s capture timeout)
+# holds DELIVERING for ~14s at worst. The controller cannot double-fire while
+# there, and the banner reads "delivering…" throughout.
+SHADOW_SUBMIT_RETRIES = 1
+
+
 def shadow_state(raw_text: str | None, agent: str) -> str:
     """Classify a shadow pane's raw tail into one of the ``SHADOW_*`` verdicts.
 
