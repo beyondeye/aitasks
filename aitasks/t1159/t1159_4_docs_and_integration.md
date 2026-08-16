@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1159_2, t1159_3]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-11 15:34
-updated_at: 2026-08-11 15:34
+updated_at: 2026-08-16 10:58
 ---
 
 Documentation and integration sweep for the shadow review-loop automation (t1159). Parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_4_docs_and_integration.md`. Depends on t1159_2 and t1159_3 (documents what they shipped — document the LANDED source, not the plans).
