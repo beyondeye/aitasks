@@ -1031,8 +1031,10 @@ paths, never `git commit -a`, and verify staged content before committing.
   - **`REVIEW_LOOP_AGENTS` untouched** — this task is the shadow side; widening
     the followed side remains its own task with its own evidence.
 
-- **Upstream defects identified:** None. One cross-module defect was found and
-  fixed in place rather than deferred: `monitor_core.capture_raw_tail`'s
-  docstring described itself as "deliberately tiny … the prompt area, not the
-  transcript", which is the exact false premise this task disproved and is the
-  first thing a future detector author reads.
+- **Cross-module fix folded in (not deferred):**
+  `monitor_core.capture_raw_tail`'s docstring described itself as "deliberately
+  tiny … the prompt area, not the transcript" — the exact false premise this
+  task disproved, and the first thing a future detector author reads. Corrected
+  in place in this task, so nothing remains to spawn for it.
+
+- **Upstream defects identified:** None
