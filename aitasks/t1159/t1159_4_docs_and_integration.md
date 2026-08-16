@@ -12,11 +12,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1535]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-11 15:34
-updated_at: 2026-08-16 23:03
+updated_at: 2026-08-16 23:27
 ---
 
 Documentation and integration sweep for the shadow review-loop automation (t1159). Parent design: `aiplans/p1159_shadow_review_loop_automation.md`; child plan: `aiplans/p1159/p1159_4_docs_and_integration.md`. Depends on t1159_2 and t1159_3 (documents what they shipped — document the LANDED source, not the plans).
