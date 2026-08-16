@@ -554,6 +554,37 @@ def _check_new_agent_patterns_detected() -> None:
             f"expected {expected_kind!r}, got {snap.awaiting_input_kind!r}")
 
 
+def _check_opencode_palette_pattern_and_its_window_limit() -> None:
+    """`opencode_palette` (t1520) matches its header, and does NOT extend to
+    followed-pane detection -- which is a documented limit, not an oversight.
+
+    The palette is an OVERLAY rendered ABOVE the composer box, so in a real
+    1.18.18 capture its header sits ~21 lines from the bottom, outside the
+    6-line prompt-detection window. The consumer that needs it is the review
+    loop, whose negative half scans the whole captured tail. Both halves are
+    pinned here so nobody later "fixes" the second assertion by widening the
+    window, or assumes `ait monitor` gained palette coverage.
+    """
+    palette_header = "  31             Commands                          esc\n"
+
+    # 1. Within the window, the pattern matches -- the regex itself works.
+    snap = _characterize("opencode_palette", palette_header, "opencode")
+    assert snap.awaiting_input, "palette header inside the window must match"
+    assert snap.awaiting_input_kind == "opencode_palette", (
+        f"expected opencode_palette, got {snap.awaiting_input_kind!r}")
+
+    # 2. At its REAL distance it does not -- followed-pane detection unchanged.
+    realistic = (palette_header
+                 + "\n".join(["  ┃"] * 3
+                             + ["  ┃  Build · GPT-5.4 OpenAI · high",
+                                "  ╹" + "▀" * 40,
+                                "   /tmp/scratchrepo", "   work:master", ""]))
+    snap2 = _characterize("n/a", realistic, "opencode")
+    assert not snap2.awaiting_input, (
+        "the palette renders above the composer, so it is out of the 6-line "
+        f"window; got kind {snap2.awaiting_input_kind!r}")
+
+
 def _check_new_agent_patterns_negative_controls() -> None:
     """Prose about these widgets, and their idle panes, must not match.
 
@@ -663,6 +694,8 @@ def main() -> int:
          _check_new_agent_patterns_detected),
         ("_check_new_agent_patterns_negative_controls",
          _check_new_agent_patterns_negative_controls),
+        ("_check_opencode_palette_pattern_and_its_window_limit",
+         _check_opencode_palette_pattern_and_its_window_limit),
         ("_check_awaiting_input_detected_for_matching_prompt",
          _check_awaiting_input_detected_for_matching_prompt),
         ("_check_awaiting_input_codex_pattern",

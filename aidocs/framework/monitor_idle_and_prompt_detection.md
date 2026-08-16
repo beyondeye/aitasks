@@ -104,6 +104,19 @@ against raw capture bytes rather than stripped text will not match.
   negative half. So adding an agent's dialog pattern here strengthens the
   review loop too, but a *composer* pattern belongs there — see
   [`shadow_agent.md`](shadow_agent.md) → "Where the shadow's own patterns live".
+  Two asymmetries make "strengthens both" less than automatic, and both are
+  live today:
+  - **The two consumers read different amounts of text.** Detection here
+    matches only the last `_PROMPT_DETECTION_TAIL_LINES` (6) lines; the review
+    loop's negative half scans the **whole** captured tail. A marker that
+    renders above that 6-line window — `opencode_palette`, whose overlay sits
+    above the composer — serves the review loop and leaves `awaiting_input`
+    unchanged. State which consumer a new pattern is for, and do not assume the
+    other gained coverage.
+  - **Composer *shape* is structurally per-agent**, not just per-wording: a
+    prompt-glyph line (Claude, Codex) versus a `┃`-gutter box (OpenCode). That
+    is why the shapes live in `review_loop.py` rather than being folded into
+    this file's flat pattern list.
 - **Do not** move prompt patterns into `aitasks/metadata/project_config.yaml`
   or any other user-configurable surface. These patterns are framework
   constants, same category as `TUI_NAMES` and `DEFAULT_AGENT_PREFIXES` in

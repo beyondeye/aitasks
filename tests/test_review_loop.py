@@ -19,6 +19,7 @@ contracts, each with a control so a green run cannot be vacuous:
 
 from __future__ import annotations
 
+import functools
 import os
 import sys
 import re
@@ -472,14 +473,13 @@ class ShadowPromptReadyTests(unittest.TestCase):
             False)
 
     def test_failed_capture_and_unknown_agent_are_indeterminate(self):
-        # Retargeted in t1509: `codex` HAS a detector now, so it is no longer
-        # an example of an unsupported agent. `opencode` is the agent that
-        # still reaches the arm-time refusal, and a nonsense key covers the
-        # genuinely-unknown case, so "unknown agent => indeterminate" stays
-        # pinned rather than quietly losing its subject.
+        # Retargeted again in t1520: `opencode` HAS a detector now too, so no
+        # member of agent_keys.AGENT_KEYS is undetected any more. The
+        # unknown-agent case is therefore carried by keys that are not agents
+        # at all -- with a premise assertion, so it cannot quietly go vacuous
+        # if one of them is ever wired up.
+        self.assertNotIn("gemini", rl.SHADOW_READY_DETECTORS)
         self.assertIsNone(rl.shadow_prompt_ready(None, "claude", True))
-        self.assertIsNone(
-            rl.shadow_prompt_ready(fx.CLAUDE_AT_REST_RAW, "opencode", True))
         self.assertIsNone(
             rl.shadow_prompt_ready(fx.CLAUDE_AT_REST_RAW, "gemini", True))
         self.assertIsNone(
@@ -646,6 +646,369 @@ class CodexDetectorNegativeControlTests(unittest.TestCase):
     def test_the_two_dispatch_tables_cannot_drift(self):
         self.assertEqual(sorted(rl.SHADOW_READY_DETECTORS),
                          sorted(rl.SHADOW_STATE_DETECTORS))
+
+
+class OpenCodeShadowReadinessTests(unittest.TestCase):
+    """OpenCode shadow readiness (t1520), pinned against live 1.18.18 captures."""
+
+    def test_at_rest_after_a_turn_is_ready(self):
+        """The DURABLE at-rest case, listed first on purpose: after one turn
+        the placeholder hint is gone entirely, so this reaches READY with no
+        hint machinery involved at all."""
+        self.assertIs(
+            rl.shadow_prompt_ready(fx.OPENCODE_AT_REST_AFTER_TURN_RAW,
+                                   "opencode", True), True)
+
+    def test_at_rest_on_a_fresh_session_with_the_gray_hint_is_ready(self):
+        self.assertIs(
+            rl.shadow_prompt_ready(fx.OPENCODE_AT_REST_FRESH_RAW,
+                                   "opencode", True), True)
+
+    def test_typed_working_and_every_dialog_are_not_ready(self):
+        for name in ("OPENCODE_TYPED_RAW", "OPENCODE_WORKING_RAW",
+                     "OPENCODE_PERMISSION_RAW", "OPENCODE_PALETTE_RAW",
+                     "OPENCODE_WORKING_NO_FOOTER_ROOM_RAW"):
+            self.assertIsNot(
+                rl.shadow_prompt_ready(getattr(fx, name), "opencode", True),
+                True, name)
+
+    def test_hash_instability_blocks_a_ready_composer(self):
+        self.assertIs(
+            rl.shadow_prompt_ready(fx.OPENCODE_AT_REST_AFTER_TURN_RAW,
+                                   "opencode", False), False)
+
+    def test_failed_capture_is_indeterminate(self):
+        self.assertIsNone(rl.shadow_prompt_ready(None, "opencode", True))
+        self.assertIsNone(rl.shadow_prompt_ready("", "opencode", True))
+
+    def test_state_verdicts_per_fixture(self):
+        expected = {
+            "OPENCODE_AT_REST_FRESH_RAW": rl.SHADOW_READY,
+            "OPENCODE_AT_REST_AFTER_TURN_RAW": rl.SHADOW_READY,
+            "OPENCODE_TYPED_RAW": rl.SHADOW_BUSY,
+            "OPENCODE_WORKING_RAW": rl.SHADOW_WORKING,
+            "OPENCODE_PERMISSION_RAW": rl.SHADOW_DIALOG,
+            "OPENCODE_PALETTE_RAW": rl.SHADOW_DIALOG,
+            # No room below the border => the footer could not have been shown,
+            # so a would-be READY is unknowable rather than trusted.
+            "OPENCODE_WORKING_NO_FOOTER_ROOM_RAW": rl.SHADOW_UNKNOWN,
+        }
+        for name, want in expected.items():
+            self.assertEqual(rl._opencode_state(getattr(fx, name)), want, name)
+
+    def test_readiness_does_not_depend_on_the_placeholder_hint(self):
+        """The durability finding as an executable assertion.
+
+        The gray hint is present on a fresh session and GONE after the first
+        turn (measured live). A detector that anchored readiness on the hint
+        would therefore work exactly once per session; both fixtures must agree.
+        """
+        plain_after = rl.strip_ansi(fx.OPENCODE_AT_REST_AFTER_TURN_RAW)
+        self.assertNotIn("Ask anything", plain_after)   # premise: hint is gone
+        self.assertIn("Ask anything",
+                      rl.strip_ansi(fx.OPENCODE_AT_REST_FRESH_RAW))
+        self.assertEqual(rl._opencode_state(fx.OPENCODE_AT_REST_AFTER_TURN_RAW),
+                         rl._opencode_state(fx.OPENCODE_AT_REST_FRESH_RAW))
+
+    def test_opencode_is_in_both_dispatch_tables(self):
+        """`test_the_two_dispatch_tables_cannot_drift` pins PARITY, not
+        MEMBERSHIP -- both tables could lose `opencode` together and still be
+        equal."""
+        self.assertIn("opencode", rl.SHADOW_READY_DETECTORS)
+        self.assertIn("opencode", rl.SHADOW_STATE_DETECTORS)
+
+
+class OpenCodeIsolatedPositiveHalfTests(unittest.TestCase):
+    """Which exclusions are STRUCTURAL, and which rest on pattern coverage.
+
+    Run the detector with the opencode pattern list emptied. The permission
+    dialog must still be not-ready (it REPLACES the composer box). The palette
+    must NOT be -- it is an overlay that leaves the box intact -- and asserting
+    that honestly is what stops a reader generalising the dialog's structural
+    exclusion to every OpenCode interaction.
+    """
+
+    def setUp(self):
+        self._saved = rl.PROMPT_PATTERNS_BY_AGENT.get("opencode", [])
+        rl.PROMPT_PATTERNS_BY_AGENT["opencode"] = []
+
+    def tearDown(self):
+        rl.PROMPT_PATTERNS_BY_AGENT["opencode"] = self._saved
+
+    def test_the_permission_dialog_is_excluded_with_the_pattern_list_disabled(self):
+        self.assertIsNot(rl._opencode_ready(fx.OPENCODE_PERMISSION_RAW), True)
+
+    def test_the_palette_is_excluded_only_by_its_pattern(self):
+        """Deliberately asserts the LIMIT of the structural half.
+
+        The command palette renders as an overlay above an intact composer box,
+        so with the patterns gone it reads ready. That is why
+        `opencode_palette` exists in prompt_patterns.py, and why the structural
+        argument must not be over-claimed.
+        """
+        self.assertIs(rl._opencode_ready(fx.OPENCODE_PALETTE_RAW), True)
+        rl.PROMPT_PATTERNS_BY_AGENT["opencode"] = self._saved
+        self.assertIs(rl._opencode_ready(fx.OPENCODE_PALETTE_RAW), False)
+
+    def test_the_disabling_is_real(self):
+        """Negative control on the harness itself: with the patterns gone
+        at-rest must still be ready and working must still not be, proving
+        setUp did not simply break the detector into answering False for
+        everything."""
+        self.assertEqual(rl.PROMPT_PATTERNS_BY_AGENT["opencode"], [])
+        self.assertIs(rl._opencode_ready(fx.OPENCODE_AT_REST_AFTER_TURN_RAW),
+                      True)
+        self.assertIs(rl._opencode_ready(fx.OPENCODE_WORKING_RAW), False)
+
+    def test_the_permission_dialog_really_has_no_composer_box(self):
+        """Premise assertion, by name.
+
+        The structural exclusion rests entirely on the dialog rendering no
+        border and no status row. The day OpenCode draws the box behind the
+        dialog, this fails LOUDLY instead of the guard silently degrading into
+        pattern-only exclusion.
+        """
+        lines = rl.strip_ansi(fx.OPENCODE_PERMISSION_RAW).splitlines()
+        self.assertFalse(any(rl._OPENCODE_BOX_BOTTOM_RE.match(l.rstrip())
+                             for l in lines), "dialog grew a box border")
+        self.assertFalse(any(rl._OPENCODE_STATUS_ROW_RE.match(l.rstrip())
+                             for l in lines), "dialog grew a status row")
+        # ...and it really does contain the blank gutter rows that make the
+        # naive rule dangerous.
+        self.assertTrue(any(l.strip() == "┃" for l in lines))
+
+
+class OpenCodeDetectorNegativeControlTests(unittest.TestCase):
+    """One mutation each, so a passing suite cannot be vacuous."""
+
+    def test_a_blank_gutter_row_rule_false_positives_on_the_permission_dialog(self):
+        """The headline control. The permission dialog is ALSO a `┃`-gutter box
+        containing blank rows, so a naive "a blank gutter row exists" rule
+        cannot tell it from an idle composer. Demonstrated, not asserted."""
+        naive = re.compile("(?m)^\\s*┃\\s*$")
+        for name in ("OPENCODE_PERMISSION_RAW",
+                     "OPENCODE_AT_REST_AFTER_TURN_RAW"):
+            self.assertIsNotNone(
+                naive.search(rl.strip_ansi(getattr(fx, name))),
+                f"{name}: the naive blank-gutter rule matches this too")
+        # The shipped classifier tells them apart; the anchor is what does it.
+        self.assertEqual(rl._opencode_state(fx.OPENCODE_PERMISSION_RAW),
+                         rl.SHADOW_DIALOG)
+        self.assertEqual(rl._opencode_state(fx.OPENCODE_AT_REST_AFTER_TURN_RAW),
+                         rl.SHADOW_READY)
+
+    def test_the_status_row_anchor_is_load_bearing(self):
+        """Drop the status-row corroboration and an idle box stops being ready.
+
+        The border alone decides `is a composer box present`; the status row is
+        what stops a stray border plus any blank `┃` rows from being ACCEPTED as
+        one. Removing it must change the verdict of a genuinely idle pane.
+
+        Note the permission dialog deliberately gets no equivalent
+        single-mutation control: its exclusion is over-determined (the
+        `opencode_permission` pattern, the missing border, the missing status
+        row and the window guard each refuse it independently), so no one
+        mutation flips it to ready. That it carries NEITHER anchor is asserted
+        directly in `test_the_permission_dialog_really_has_no_composer_box`.
+        """
+        never = re.compile(r"(?!x)x")
+        self.assertEqual(
+            rl._ordered_state(fx.OPENCODE_AT_REST_AFTER_TURN_RAW,
+                              agent="opencode",
+                              positive=functools.partial(
+                                  rl._opencode_box_state, status_re=never),
+                              working_re=rl._OPENCODE_WORKING_RE),
+            rl.SHADOW_DIALOG)
+        # ... and with it, the same capture is ready.
+        self.assertEqual(rl._opencode_state(fx.OPENCODE_AT_REST_AFTER_TURN_RAW),
+                         rl.SHADOW_READY)
+
+    def test_without_the_working_footer_regex_a_working_pane_reads_as_ready(self):
+        """OpenCode renders the IDENTICAL empty composer box while working --
+        at-rest and working are indistinguishable INSIDE the box -- so the
+        footer regex is the only thing excluding the working state."""
+        never = re.compile(r"(?!x)x")
+        self.assertEqual(
+            rl._ordered_state(fx.OPENCODE_WORKING_RAW, agent="opencode",
+                              positive=rl._opencode_box_state,
+                              working_re=never),
+            rl.SHADOW_READY)
+        # ... and with it, it does not.
+        self.assertEqual(rl._opencode_state(fx.OPENCODE_WORKING_RAW),
+                         rl.SHADOW_WORKING)
+
+    def test_the_gray_hint_span_is_what_makes_a_fresh_session_ready(self):
+        """Proves the hint is SUBTRACTED, not relied on: drop the span regex
+        and the FRESH fixture flips to busy while the after-a-turn one, which
+        never reaches the subtraction, stays ready."""
+        never = re.compile(r"(?!x)x")
+        blind = functools.partial(rl._opencode_box_state, hint_span_re=never)
+        self.assertEqual(
+            rl._ordered_state(fx.OPENCODE_AT_REST_FRESH_RAW, agent="opencode",
+                              positive=blind,
+                              working_re=rl._OPENCODE_WORKING_RE),
+            rl.SHADOW_BUSY)
+        self.assertEqual(
+            rl._ordered_state(fx.OPENCODE_AT_REST_AFTER_TURN_RAW,
+                              agent="opencode", positive=blind,
+                              working_re=rl._OPENCODE_WORKING_RE),
+            rl.SHADOW_READY)
+
+    def test_dim_span_regex_does_not_transfer_to_opencode(self):
+        """Why a sibling classifier exists at all: OpenCode carries NO SGR-dim
+        in its composer, so the Claude/Codex discriminator finds nothing."""
+        self.assertIsNone(
+            rl._DIM_SPAN_RE.search(fx.OPENCODE_AT_REST_FRESH_RAW))
+        self.assertIsNotNone(
+            rl._OPENCODE_HINT_SPAN_RE.search(fx.OPENCODE_AT_REST_FRESH_RAW))
+
+    def test_a_working_pane_whose_footer_had_no_room_is_not_ready(self):
+        """The fail-dangerous case, reproduced live at pane height 6 and
+        verified against the opencode process tree's CPU time.
+
+        No room below the border => no footer => an empty box reading `ready`,
+        AND a byte-identical capture, so the hash-stability brake fails at the
+        same moment. Without the window guard this returns READY/True, which is
+        the inject-into-a-working-shadow failure.
+        """
+        raw = fx.OPENCODE_WORKING_NO_FOOTER_ROOM_RAW
+        plain = rl.strip_ansi(raw)
+        # Premise: the footer really is unobservable in this capture...
+        self.assertIsNone(rl._OPENCODE_WORKING_RE.search(plain))
+        # ...and the box IS present and empty, so the positive half would pass.
+        lines = plain.splitlines()
+        border = next(i for i in range(len(lines) - 1, -1, -1)
+                      if rl._OPENCODE_BOX_BOTTOM_RE.match(lines[i].rstrip()))
+        self.assertEqual(len(lines) - 1 - border, 0)
+        # Verdict: unknowable, never ready.
+        self.assertEqual(rl._opencode_state(raw), rl.SHADOW_UNKNOWN)
+        self.assertIsNone(rl.shadow_prompt_ready(raw, "opencode", True))
+
+    def test_ordinary_idle_geometry_is_not_swallowed_by_the_window_guard(self):
+        """The guard's OTHER direction. A fail-closed guard that fired on
+        normal geometry would make every ready pane UNKNOWN and silently stop
+        the loop ever firing for OpenCode -- no error, no banner."""
+        for name in ("OPENCODE_AT_REST_FRESH_RAW",
+                     "OPENCODE_AT_REST_AFTER_TURN_RAW"):
+            raw = getattr(fx, name)
+            lines = rl.strip_ansi(raw).splitlines()
+            border = next(i for i in range(len(lines) - 1, -1, -1)
+                          if rl._OPENCODE_BOX_BOTTOM_RE.match(lines[i].rstrip()))
+            self.assertGreaterEqual(
+                len(lines) - 1 - border,
+                rl._OPENCODE_MIN_LINES_BELOW_BORDER, name)
+            self.assertEqual(rl._opencode_state(raw), rl.SHADOW_READY, name)
+
+    def test_the_palette_is_excluded_at_the_minimum_ready_eligible_geometry(self):
+        """Review follow-up: the palette anchor is the header row, which at
+        full size renders ~21 rows above the bottom. If a pane were short
+        enough to CLIP the header while leaving the composer intact, the
+        negative half would miss an awaiting-input overlay and an injected
+        Enter would run the selected command.
+
+        Measured across every ready-eligible geometry (heights 7-30, widths
+        40-100): it cannot happen, for two independent reasons, and both are
+        asserted here on the tightest capture that still permits READY.
+
+        1. OpenCode draws the palette CENTRED OVER the composer box at compact
+           sizes rather than above it, so the header cannot scroll off -- it
+           lands inside the box region. This is the assertion that carries the
+           test: drop `opencode_palette` and it fails.
+        2. Overwriting the box also disrupts it -- the status row loses a
+           `·`-separated field and a content row gains the overlay's text -- so
+           the structural half refuses too, with the pattern list disabled.
+
+        Like the permission dialog, the compact palette is therefore
+        OVER-DETERMINED: no single mutation flips it to ready, and the isolated
+        assertion below is a belt-and-braces statement rather than a control.
+        The geometry premise and the header-visibility assertion are the parts
+        that discriminate.
+        """
+        raw = fx.OPENCODE_PALETTE_COMPACT_RAW
+        plain = rl.strip_ansi(raw)
+        lines = plain.splitlines()
+
+        # Premise: this really is at the minimum geometry the window guard
+        # still allows a READY at -- exactly one line below the border.
+        border = next(i for i in range(len(lines) - 1, -1, -1)
+                      if rl._OPENCODE_BOX_BOTTOM_RE.match(lines[i].rstrip()))
+        self.assertEqual(len(lines) - 1 - border,
+                         rl._OPENCODE_MIN_LINES_BELOW_BORDER)
+        # ...and the palette really is open, with its header still visible.
+        #
+        # Both halves are pinned WITHOUT going through "some opencode pattern
+        # matched": a future broad or overlapping pattern would satisfy that
+        # even after the header had disappeared, masking the very geometry
+        # contract this test exists to pin. So assert the header text directly,
+        # and select `opencode_palette` BY NAME.
+        self.assertIn("Commands", plain,
+                      "palette header clipped at the minimum geometry")
+        palette = next((p for p in rl.PROMPT_PATTERNS_BY_AGENT["opencode"]
+                        if p.name == "opencode_palette"), None)
+        self.assertIsNotNone(palette, "opencode_palette pattern is gone")
+        self.assertIsNotNone(
+            palette.regex.search(plain),
+            "opencode_palette no longer matches at the minimum geometry")
+
+        self.assertEqual(rl._opencode_state(raw), rl.SHADOW_DIALOG)
+        self.assertIs(rl.shadow_prompt_ready(raw, "opencode", True), False)
+
+        # Reason 2, isolated: still refused with the patterns gone.
+        saved = rl.PROMPT_PATTERNS_BY_AGENT["opencode"]
+        rl.PROMPT_PATTERNS_BY_AGENT["opencode"] = []
+        try:
+            self.assertIsNot(rl._opencode_ready(raw), True)
+        finally:
+            rl.PROMPT_PATTERNS_BY_AGENT["opencode"] = saved
+
+    def test_a_compact_idle_pane_is_still_ready(self):
+        """The availability half at the minimum geometry (40x7 -- narrowest and
+        shortest that still permits READY). Without this, the test above could
+        be satisfied by a detector that simply never says ready when the pane
+        is small, which would silently stop the loop firing for split shadows.
+        """
+        raw = fx.OPENCODE_AT_REST_COMPACT_RAW
+        self.assertEqual(rl._opencode_state(raw), rl.SHADOW_READY)
+        self.assertIs(rl.shadow_prompt_ready(raw, "opencode", True), True)
+
+    def test_a_near_miss_separator_row_does_not_satisfy_the_status_row_rule(self):
+        """The status-row grammar control, on a REAL captured row.
+
+        The transcript renders `▣  Build · GPT-5.4` -- same mode word, same
+        separator, but no gutter and one field fewer. A permissive rule would
+        accept it and let an unrelated row corroborate a stray border.
+        """
+        near = [l for l in rl.strip_ansi(fx.OPENCODE_PERMISSION_RAW).splitlines()
+                if "·" in l and "┃" not in l]
+        self.assertTrue(near, "expected a real near-miss row in the fixture")
+        for line in near:
+            self.assertIsNone(rl._OPENCODE_STATUS_ROW_RE.match(line.rstrip()),
+                              f"near miss accepted: {line!r}")
+        # The genuine status row is accepted.
+        real = [l for l in
+                rl.strip_ansi(fx.OPENCODE_AT_REST_AFTER_TURN_RAW).splitlines()
+                if rl._OPENCODE_STATUS_ROW_RE.match(l.rstrip())]
+        self.assertEqual(len(real), 1, "expected exactly one status row")
+
+    def test_claude_and_codex_are_unchanged_by_the_ordering_extraction(self):
+        """Characterization guard on the `_ordered_state` extraction: every
+        pre-existing fixture keeps the verdict recorded before the refactor."""
+        expected = {
+            ("CLAUDE_AT_REST_RAW", "claude"): rl.SHADOW_READY,
+            ("CLAUDE_TYPED_RAW", "claude"): rl.SHADOW_BUSY,
+            ("CLAUDE_STREAMING_RAW", "claude"): rl.SHADOW_WORKING,
+            ("CLAUDE_DIALOG_RAW", "claude"): rl.SHADOW_DIALOG,
+            ("CODEX_AT_REST_RAW", "codex"): rl.SHADOW_READY,
+            ("CODEX_TYPED_RAW", "codex"): rl.SHADOW_BUSY,
+            ("CODEX_WORKING_RAW", "codex"): rl.SHADOW_WORKING,
+            ("CODEX_PERMISSION_RAW", "codex"): rl.SHADOW_DIALOG,
+            ("CODEX_QUESTION_RAW", "codex"): rl.SHADOW_DIALOG,
+            ("CODEX_UPDATE_PROMPT_RAW", "codex"): rl.SHADOW_DIALOG,
+            ("CODEX_PERMISSION_WITH_RUNNING_RAW", "codex"): rl.SHADOW_DIALOG,
+        }
+        for (name, agent), want in expected.items():
+            self.assertEqual(rl.shadow_state(getattr(fx, name), agent), want,
+                             name)
 
 
 class ClassifyFollowedChangeTests(unittest.TestCase):

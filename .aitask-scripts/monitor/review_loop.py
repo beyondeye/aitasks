@@ -329,6 +329,25 @@ class ReviewLoopController:
 #     disabled over live permission / question-widget / update-prompt captures.
 #   * Codex keeps its `• Running <cmd>` line on screen WHILE parked at a
 #     permission dialog, so `dialog` must outrank `working` in `shadow_state`.
+#
+# Per-agent measurements that shaped the OpenCode sibling detector (t1520):
+#   * OpenCode's composer is a `┃`-gutter BOX, not a glyph + text line, so it
+#     does not fit the glyph+pad contract above; it gets its own positive half
+#     and shares only the ORDER, via `_ordered_state`.
+#   * Its permission dialog REPLACES the box (no border, no status row) -- but
+#     the dialog is ALSO a `┃`-gutter box CONTAINING BLANK GUTTER ROWS, so a
+#     naive "a blank gutter row exists" rule false-positives on it. The border
+#     is what excludes it, verified with the pattern list emptied.
+#   * There is NO SGR-dim anywhere in the OpenCode composer -- the placeholder
+#     hint is a truecolor gray -- so `_DIM_SPAN_RE` does not transfer. The hint
+#     is also gone after the first turn, so readiness must not depend on it.
+#   * At-rest and working are INDISTINGUISHABLE inside the box; the only
+#     discriminator is the `⬝⬝⬝⬝■■■■ esc interrupt` footer BELOW the border --
+#     hence `_OPENCODE_MIN_LINES_BELOW_BORDER`, which fails closed when the
+#     capture could not have shown it.
+#   * Unlike Codex, OpenCode does NOT keep a working indicator up while parked
+#     at a dialog (measured: the dialog replaces the footer region too), so the
+#     dialog-outranks-working ordering is untestable for this agent.
 
 # The composer line, after ANSI-strip: `❯` followed by NBSP and optional
 # text. Widget option rows render `❯ 1. ...` with a plain space — the NBSP
@@ -370,6 +389,74 @@ _CODEX_OPTION_ROW_RE = re.compile("^›\\s*\\d+\\.\\s")
 _CODEX_WORKING_RE = re.compile("(?m)^\\s*•\\s+(?:Working|Running)\\b")
 
 
+# --- OpenCode (measured live, opencode 1.18.18 / GPT-5.4, 2026-08-16, t1520) --
+#
+# OpenCode's composer is a `┃`-gutter BOX, not a glyph + text line, so it does
+# not fit `_composer_state`'s one-character-glyph contract at all -- hence the
+# sibling positive half below rather than a widened shared one.
+#
+# Every row regex carries a leading `\s*`: the gutter is INDENTED, and the
+# indent varies with layout (measured 23 columns on the splash screen, 2 after
+# the first turn). None anchors on `$` -- OpenCode wraps a right-hand status
+# column into the same physical lines, the same reason `opencode_question` in
+# prompt_patterns.py uses `\s+` runs rather than fixed double spaces.
+
+# A `┃`-gutter row; group 1 is the row's content.
+_OPENCODE_GUTTER_RE = re.compile("^\\s*┃(.*)$")
+
+# `╹▀▀▀…` -- the box's bottom border, and THE structural anchor. The permission
+# dialog is also a `┃`-gutter box *containing blank gutter rows*, but it
+# REPLACES the composer and renders no border, which is what excludes it
+# without relying on pattern coverage (verified live with the pattern list
+# emptied).
+_OPENCODE_BOX_BOTTOM_RE = re.compile("^\\s*╹▀{3,}")
+
+# The composer status row -- the LAST gutter row of the box, `<mode> · <model>
+# · <effort>`. Deliberately generic over the mode token (it is user-switchable:
+# build/plan) but NOT permissive: three `·`-separated fields INSIDE the gutter.
+# The transcript renders `▣  Build · GPT-5.4` -- same mode word, same
+# separator, no gutter and one field fewer -- so both the gutter and the second
+# `·` are load-bearing against that near miss.
+_OPENCODE_STATUS_ROW_RE = re.compile(
+    "^\\s*┃\\s+\\S+\\s+·\\s+.+\\s+·\\s+\\S+\\s*$")
+
+# The animated working footer, rendered one row BELOW the border:
+# `⬝⬝⬝⬝■■■■  esc interrupt`. The glyph run ROTATES between the two block
+# characters, so both are accepted in any order.
+#
+# Anchored on that glyph run, never on a bare `esc interrupt` alternation --
+# the t1509 lesson: an unanchored form false-positives on boot/tip text, and a
+# false `working` CLEARS the caller's settle latch.
+_OPENCODE_WORKING_RE = re.compile(
+    "(?m)^.*[⬝■]{2,}\\s+esc\\s+interrupt")
+
+# The placeholder hint's truecolor gray span, the local replacement for
+# `_DIM_SPAN_RE` -- OpenCode carries NO SGR-dim anywhere in the composer, so
+# that discriminator does not transfer. The run ends at the next SGR escape.
+#
+# A SUBTRACTOR, never the positive anchor: the hint is present on a fresh
+# session and GONE after the first turn (measured), so readiness must not
+# depend on it. The triple is theme-derived; under a non-default theme this
+# misses, the fresh-session hint reads as typed text, and the loop HOLDS until
+# the first turn completes -- fail-safe, and self-healing thereafter.
+_OPENCODE_HINT_SPAN_RE = re.compile(
+    r"\x1b\[38;2;128;128;128m.*?(?=\x1b\[|$)")
+
+# Minimum lines that must sit BELOW the box's bottom border for a would-be
+# `ready` to be trustworthy. The working footer renders exactly ONE row below
+# the border (measured: min == max == 1 across 287 live captures containing
+# it), so with zero lines below it the footer CANNOT have been rendered.
+#
+# This is not hypothetical. Reproduced live at pane height 6: no room below the
+# border, no footer, an empty box reading `ready`, and a byte-identical capture
+# for 15+ consecutive samples -- so the hash-stability brake fails at the same
+# time. An independent, non-screen channel (the opencode process tree's CPU
+# time) confirmed the agent was working throughout. Boundary pinned in both
+# directions: height 7 leaves 1 line below the border, renders the footer, and
+# classifies `working` correctly.
+_OPENCODE_MIN_LINES_BELOW_BORDER = 1
+
+
 # `shadow_state` verdicts. Richer than the bool `shadow_prompt_ready` returns,
 # because the caller's settle latch has to tell "an interaction is on screen"
 # apart from "the agent is working" -- see minimonitor_app's post-interaction
@@ -381,13 +468,13 @@ SHADOW_BUSY = "busy"
 SHADOW_UNKNOWN = "unknown"
 
 
-def _composer_state(raw_text: str, *, agent: str, composer_re,
-                    working_re, pad: str, option_row_re=None) -> str:
-    """Generic composer classification shared by every per-agent detector.
+def _ordered_state(raw_text: str, *, agent: str, positive, working_re) -> str:
+    """The verdict ORDER, shared by every per-agent detector.
 
-    Returns one of the ``SHADOW_*`` verdicts. ``pad`` is the run of characters
-    stripped after the one-character prompt glyph (NBSP+space for Claude, a
-    plain space for Codex).
+    ``positive(raw_text, plain) -> SHADOW_*`` is the per-agent **structural**
+    half; everything around it is agent-invariant. Two shapes plug in here: the
+    one-character-glyph composer line (`_composer_state`, Claude + Codex) and
+    OpenCode's multi-row gutter box (`_opencode_box_state`, t1520).
 
     **Order is load-bearing** (measured, t1509): dialog patterns are checked
     FIRST, and ``working`` can only outrank a would-be ``ready``. Codex keeps
@@ -395,6 +482,10 @@ def _composer_state(raw_text: str, *, agent: str, composer_re,
     a working-first order would report ``working`` for a pane that is still
     waiting on the user -- clearing the caller's settle latch at exactly the
     wrong moment.
+
+    Living in ONE function is the point: with two structural halves the order
+    would otherwise be duplicated, and a fix to one copy would silently not
+    reach the other.
     """
     if not raw_text or not raw_text.strip():
         return SHADOW_UNKNOWN
@@ -407,38 +498,54 @@ def _composer_state(raw_text: str, *, agent: str, composer_re,
         if pattern.regex.search(plain):
             return SHADOW_DIALOG
 
-    # (a) Positive: bottom-up, the composer line must exist and be empty.
-    # Falling off the end without finding one is NOT ready and NOT merely
-    # unknown -- something else is occupying the pane, which the caller must
-    # treat as an interaction.
-    plain_lines = plain.splitlines()
-    raw_lines = raw_text.splitlines()
-    verdict = SHADOW_DIALOG
-    for idx in range(len(plain_lines) - 1, -1, -1):
-        line = plain_lines[idx].rstrip()
-        if not composer_re.match(line):
-            continue
-        if option_row_re is not None and option_row_re.match(line):
-            verdict = SHADOW_DIALOG  # an option row, not a composer
-            break
-        after = line[1:].strip(pad)
-        if not after:
-            verdict = SHADOW_READY  # bare composer
-            break
-        # Visible text after the prompt char: typed text or the dim
-        # placeholder hint. Decide from the raw styling -- hint is entirely
-        # dim, typed text is not.
-        raw_line = raw_lines[idx] if idx < len(raw_lines) else ""
-        without_dim = strip_ansi(_DIM_SPAN_RE.sub("", raw_line)).rstrip()
-        verdict = (SHADOW_READY
-                   if composer_re.match(without_dim)
-                   and not without_dim[1:].strip(pad)
-                   else SHADOW_BUSY)
-        break
-
+    verdict = positive(raw_text, plain)
     if verdict == SHADOW_READY and working_re.search(plain):
         return SHADOW_WORKING
     return verdict
+
+
+def _composer_state(raw_text: str, *, agent: str, composer_re,
+                    working_re, pad: str, option_row_re=None) -> str:
+    """Glyph-line composer classification (Claude Code, Codex CLI).
+
+    Returns one of the ``SHADOW_*`` verdicts. ``pad`` is the run of characters
+    stripped after the one-character prompt glyph (NBSP+space for Claude, a
+    plain space for Codex). The verdict order lives in :func:`_ordered_state`;
+    this function contributes only the positive half.
+
+    Signature preserved verbatim: the negative-control tests call it directly
+    with mutated regexes.
+    """
+
+    def positive(raw_text: str, plain: str) -> str:
+        # Bottom-up, the composer line must exist and be empty. Falling off the
+        # end without finding one is NOT ready and NOT merely unknown --
+        # something else is occupying the pane, which the caller must treat as
+        # an interaction.
+        plain_lines = plain.splitlines()
+        raw_lines = raw_text.splitlines()
+        for idx in range(len(plain_lines) - 1, -1, -1):
+            line = plain_lines[idx].rstrip()
+            if not composer_re.match(line):
+                continue
+            if option_row_re is not None and option_row_re.match(line):
+                return SHADOW_DIALOG  # an option row, not a composer
+            after = line[1:].strip(pad)
+            if not after:
+                return SHADOW_READY  # bare composer
+            # Visible text after the prompt char: typed text or the dim
+            # placeholder hint. Decide from the raw styling -- hint is entirely
+            # dim, typed text is not.
+            raw_line = raw_lines[idx] if idx < len(raw_lines) else ""
+            without_dim = strip_ansi(_DIM_SPAN_RE.sub("", raw_line)).rstrip()
+            return (SHADOW_READY
+                    if composer_re.match(without_dim)
+                    and not without_dim[1:].strip(pad)
+                    else SHADOW_BUSY)
+        return SHADOW_DIALOG
+
+    return _ordered_state(raw_text, agent=agent, positive=positive,
+                          working_re=working_re)
 
 
 def _claude_state(raw_text: str) -> str:
@@ -454,6 +561,75 @@ def _codex_state(raw_text: str) -> str:
                            working_re=_CODEX_WORKING_RE,
                            pad=" ",
                            option_row_re=_CODEX_OPTION_ROW_RE)
+
+
+def _opencode_box_state(raw_text: str, plain: str, *,
+                        gutter_re=_OPENCODE_GUTTER_RE,
+                        border_re=_OPENCODE_BOX_BOTTOM_RE,
+                        status_re=_OPENCODE_STATUS_ROW_RE,
+                        hint_span_re=_OPENCODE_HINT_SPAN_RE,
+                        min_below=_OPENCODE_MIN_LINES_BELOW_BORDER) -> str:
+    """OpenCode's positive half: a `┃`-gutter box closed by a `╹▀▀▀` border.
+
+    The regexes are keyword parameters so the negative controls can substitute
+    one without duplicating the function.
+    """
+    plain_lines = plain.splitlines()
+    raw_lines = raw_text.splitlines()
+
+    # 1. Bottom-up: the box's bottom border. Absent => something else occupies
+    #    the pane (the dialog replaces the box entirely).
+    border = next((i for i in range(len(plain_lines) - 1, -1, -1)
+                   if border_re.match(plain_lines[i].rstrip())), None)
+    if border is None:
+        return SHADOW_DIALOG
+
+    # 2. Window-sufficiency guard -- fail closed rather than assume. A `ready`
+    #    is only trustworthy if the capture could have SHOWN a working footer,
+    #    and the footer renders below the border. UNKNOWN (not BUSY, not
+    #    DIALOG) is the honest verdict: unknowable, which the caller maps to
+    #    None and never injects into, and which also arms its settle latch.
+    if (len(plain_lines) - 1 - border) < min_below:
+        return SHADOW_UNKNOWN
+
+    # 3. The gutter rows are the contiguous `┃` run immediately ABOVE the
+    #    border, so the dialog's blank gutter rows are never even reached.
+    rows = []
+    i = border - 1
+    while i >= 0 and gutter_re.match(plain_lines[i]):
+        rows.append(i)
+        i -= 1
+    if not rows:
+        return SHADOW_DIALOG          # a border with no input area
+    rows.reverse()
+
+    # 4. The LAST gutter row is the status row (measured). It corroborates the
+    #    border, so a stray border alone cannot produce a false `ready`.
+    if not status_re.match(plain_lines[rows[-1]].rstrip()):
+        return SHADOW_DIALOG
+    content = rows[:-1]
+    if not content:
+        return SHADOW_DIALOG
+
+    # 5. An empty box is ready. Visible content is either the gray placeholder
+    #    hint or genuine typed text; decide from the RAW styling, since
+    #    ANSI-stripping erases the difference. After the first turn the hint is
+    #    gone entirely, so that case never reaches the subtraction at all.
+    for idx in content:
+        if not gutter_re.match(plain_lines[idx]).group(1).strip():
+            continue
+        raw_line = raw_lines[idx] if idx < len(raw_lines) else ""
+        without_hint = strip_ansi(hint_span_re.sub("", raw_line))
+        match = gutter_re.match(without_hint)
+        if match is None or match.group(1).strip():
+            return SHADOW_BUSY
+    return SHADOW_READY
+
+
+def _opencode_state(raw_text: str) -> str:
+    return _ordered_state(raw_text, agent="opencode",
+                          positive=_opencode_box_state,
+                          working_re=_OPENCODE_WORKING_RE)
 
 
 def _ready_from_state(state: str) -> bool | None:
@@ -479,12 +655,24 @@ def _codex_ready(raw_text: str) -> bool | None:
     return _ready_from_state(_codex_state(raw_text))
 
 
-# Per-agent readiness dispatch. The shadow's agent is independently
-# selectable (`E`), so a Claude followed pane can have an OpenCode shadow --
-# agents without a detector must refuse at ARM time, not hold forever.
+def _opencode_ready(raw_text: str) -> bool | None:
+    """Positive+negative readiness for an OpenCode shadow pane (t1520)."""
+    return _ready_from_state(_opencode_state(raw_text))
+
+
+# Per-agent readiness dispatch. The shadow's agent is independently selectable
+# (`E`), so a Claude followed pane can legitimately have a Codex or OpenCode
+# shadow -- every such pairing is supported since t1520.
+#
+# As of t1520 NO member of `agent_keys.AGENT_KEYS` lacks a detector, so the
+# arm-time refusal in minimonitor_app has no real-agent subject any more. It is
+# kept, and exercised in tests with a synthetic key, because it is exactly what
+# a FUTURE agent wired into AGENT_KEYS ahead of its detector will hit: agents
+# without a detector must refuse at ARM time, not hold forever.
 SHADOW_READY_DETECTORS = {
     "claude": _claude_ready,
     "codex": _codex_ready,
+    "opencode": _opencode_ready,
 }
 
 # The same dispatch one layer down: the richer verdict the caller's settle
@@ -493,6 +681,7 @@ SHADOW_READY_DETECTORS = {
 SHADOW_STATE_DETECTORS = {
     "claude": _claude_state,
     "codex": _codex_state,
+    "opencode": _opencode_state,
 }
 
 

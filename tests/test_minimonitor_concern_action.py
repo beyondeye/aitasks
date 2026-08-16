@@ -1427,9 +1427,26 @@ class _LoopFakeMon(_FakeMon):
 
 _SHADOW_LIST_CLAUDE = "%5\t%1\tclaude\t4242\n%6\t\tzsh\t7\n"
 _SHADOW_LIST_CODEX = "%5\t%1\tcodex\t4243\n"
-# The agent that still has NO readiness detector after t1509 — it is what
-# keeps the arm-time refusal reachable now that Codex is supported.
 _SHADOW_LIST_OPENCODE = "%5\t%1\topencode\t4244\n"
+# After t1520 NO member of agent_keys.AGENT_KEYS lacks a readiness detector, so
+# the "resolved agent, no detector" branch has no real-agent subject left. It is
+# exercised with a SYNTHETIC key instead — which is not a contrivance: it is
+# exactly the state a FUTURE agent wired into AGENT_KEYS ahead of its detector
+# will be in, and the branch exists for it. Losing the subject would delete the
+# guard rather than the need for it.
+#
+# The resolver MUST be overridden in these tests (see `_resolve_undetected`):
+# the real two-rung lookup would answer "" for an unknown command, landing on
+# the neighbouring "could not resolve" branch and silently proving the wrong
+# thing — and would shell out to pgrep/ps against a live pid to do it.
+_UNDETECTED_KEY = "futureagent"
+_SHADOW_LIST_UNDETECTED = "%5\t%1\tfutureagent\t4246\n"
+
+
+def _resolve_undetected(_command, _pid, _pane_id):
+    async def _run():
+        return _UNDETECTED_KEY
+    return _run()
 # The measured wrapper shape: Codex reports `node`, so only the pid-driven
 # second rung can resolve it (t1509).
 _SHADOW_LIST_NODE = "%5\t%1\tnode\t4245\n"
@@ -1585,19 +1602,48 @@ class ReviewLoopArmTests(unittest.TestCase):
         self.assertFalse(app._review_loop.armed)
 
     def test_refuses_shadow_agent_without_detector_naming_it(self):
-        # Retargeted in t1509 to `opencode`: Codex now HAS a detector, so it no
-        # longer reaches this branch. The refusal must stay REACHABLE and must
-        # still name the agent — losing its only subject would silently delete
-        # the guard rather than the need for it.
-        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_OPENCODE)
+        # Retargeted in t1520 to a SYNTHETIC key: `opencode` has a detector now,
+        # so no real agent reaches this branch any more (see
+        # `_SHADOW_LIST_UNDETECTED` for why that is future-proofing rather than
+        # dead code). The refusal must stay REACHABLE and must still name the
+        # agent.
+        self.assertNotIn(_UNDETECTED_KEY, _rl.SHADOW_READY_DETECTORS)  # premise
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_UNDETECTED)
+        app._resolve_shadow_agent_key = _resolve_undetected
         asyncio.run(app.action_toggle_review_loop())
-        self.assertIn("opencode", app.spy_notify[-1][0])
+        self.assertIn(_UNDETECTED_KEY, app.spy_notify[-1][0])
+        self.assertIn("no readiness detection", app.spy_notify[-1][0])
+        # ...and NOT the neighbouring "" branch, which is a different message
+        # on purpose and would prove nothing about detector coverage.
+        self.assertNotIn("could not resolve", app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_the_refusal_names_the_pane_command_not_the_resolved_key(self):
+        """The message interpolates `shadow_command`, not the resolved key.
+
+        In the test above the two are equal, so "names it" cannot tell which is
+        being named. Drive a case where they DIFFER so the wording contract is
+        pinned rather than accidentally true.
+        """
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_NODE)  # cmd `node`
+        app._resolve_shadow_agent_key = _resolve_undetected
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn("node", app.spy_notify[-1][0])
         self.assertIn("no readiness detection", app.spy_notify[-1][0])
         self.assertFalse(app._review_loop.armed)
 
     def test_codex_shadow_of_a_claude_pane_now_arms(self):
         """The pairing t1509 exists to unblock (t1493/t1498 live evidence)."""
         app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_CODEX)
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertTrue(app._review_loop.armed)
+
+    def test_opencode_shadow_of_a_claude_pane_now_arms(self):
+        """The pairing t1520 exists to unblock. No resolver override needed:
+        OpenCode ships a native binary, so rung 1 resolves it from the pane
+        command alone (unlike Codex's node wrapper)."""
+        app, mon, _ = _loop_app(self, async_list=_SHADOW_LIST_OPENCODE,
+                                raw_tail=_rlfx.OPENCODE_AT_REST_AFTER_TURN_RAW)
         asyncio.run(app.action_toggle_review_loop())
         self.assertTrue(app._review_loop.armed)
 
@@ -1680,12 +1726,16 @@ class ShadowAgentResolutionGenerationTests(unittest.TestCase):
         app._review_loop.arm(pending_work=True)
         app._loop_baseline = (snap.content, snap.awaiting_input_kind,
                               "%1", None, (100, 30))
-        mon._async_list = _SHADOW_LIST_OPENCODE   # unsupported => would disarm
+        # Retargeted in t1520: `opencode` is supported now, so it would no
+        # longer disarm and this test would pass vacuously. The synthetic
+        # undetected key restores the "would disarm" precondition the guard is
+        # being tested against.
+        mon._async_list = _SHADOW_LIST_UNDETECTED  # unsupported => would disarm
 
         async def _resolve(command, pid, pane_id):
             # A re-arm lands while we are off-loop: NEW lifecycle.
             app._review_loop.arm(pending_work=False)
-            return "opencode"
+            return _UNDETECTED_KEY
 
         app._resolve_shadow_agent_key = _resolve
         _tick(app, 1)
@@ -1930,6 +1980,59 @@ class ReviewLoopFireTests(unittest.TestCase):
         _tick(app, 1)
         self.assertEqual(len(mon.sent), 2)
 
+    def _opencode_armed(self):
+        app, mon, snap = _loop_app(
+            self, async_list=_SHADOW_LIST_OPENCODE,
+            raw_tail=_rlfx.OPENCODE_AT_REST_AFTER_TURN_RAW)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def test_a_working_opencode_shadow_with_no_footer_room_is_never_injected_into(self):
+        """The fail-dangerous case, driven through the REAL delivery path.
+
+        A correct classifier verdict is not by itself proof that nothing was
+        sent: `_fire_shadow_recheck` takes its OWN fresh capture and
+        re-validates, so a dispatch, stale-capture or delivery-path regression
+        could still inject while every detector unit test stays green. This
+        drives the armed controller end to end and asserts on `send_keys`.
+
+        The tail is a real live capture (pane height 6) of a genuinely working
+        OpenCode agent whose working footer had no room to render — verified at
+        measurement time against the process tree's CPU time. Both the footer
+        and the hash-stability brake fail on it, so only the window guard
+        stands between it and an injected Enter.
+        """
+        rest = _rlfx.OPENCODE_AT_REST_AFTER_TURN_RAW
+        hazard = _rlfx.OPENCODE_WORKING_NO_FOOTER_ROOM_RAW
+
+        # (a) hazard at the PRE-SEND capture: the tick grants a fire, the fresh
+        #     capture must retract it.
+        app, mon, _ = self._opencode_armed()
+        mon.raw_tails = [rest, rest, rest, hazard, rest]
+        _tick(app, 3)
+        self.assertEqual(mon.sent, [], "injected into a working shadow")
+        self.assertNotEqual(app._review_loop.state, _rl.FIRED)
+        self.assertTrue(app._review_loop.armed)   # refused, not disarmed
+
+        # (b) hazard at TICK time: the debounce must never accrue at all.
+        app2, mon2, _ = self._opencode_armed()
+        mon2.raw_tails = [hazard]
+        _tick(app2, 5)
+        self.assertEqual(mon2.sent, [], "injected into a working shadow")
+        self.assertNotEqual(app2._review_loop.state, _rl.FIRED)
+
+    def test_an_idle_opencode_shadow_does_deliver(self):
+        """Positive control for the two assertions above: with an ordinary
+        idle OpenCode tail the same path DOES fire, so `send_keys == []` there
+        is evidence about the hazard rather than about OpenCode never
+        delivering."""
+        app, mon, _ = self._opencode_armed()
+        _tick(app, 3)
+        self.assertEqual(len(mon.sent), 2, mon.sent)
+        self.assertEqual([p for p, _k, _l in mon.sent], ["%5", "%5"])
+
     def test_a_dialog_seen_only_at_delivery_arms_the_settle_latch(self):
         """The between-tick interaction race (t1509 review).
 
@@ -2035,18 +2138,26 @@ class ReviewLoopPresenceTests(unittest.TestCase):
         self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
 
     def test_mid_loop_swap_to_undetectable_shadow_disarms_naming_it(self):
-        # Retargeted to `opencode` in t1509 (see the arm-side test): a RESOLVED
-        # agent with no detector is a definitive capability gap and still
-        # auto-disarms.
+        # Retargeted to a SYNTHETIC key in t1520 (see the arm-side test): a
+        # RESOLVED agent with no detector is a definitive capability gap and
+        # still auto-disarms.
         app, mon, _ = self._armed()
-        mon._async_list = _SHADOW_LIST_OPENCODE
+        mon._async_list = _SHADOW_LIST_UNDETECTED
+        app._resolve_shadow_agent_key = _resolve_undetected
         _tick(app, 1)
         self.assertFalse(app._review_loop.armed)
-        self.assertTrue(any("opencode" in m for m, _s in app.spy_notify))
+        self.assertTrue(any(_UNDETECTED_KEY in m for m, _s in app.spy_notify))
 
     def test_mid_loop_swap_to_a_codex_shadow_keeps_the_loop_armed(self):
         app, mon, _ = self._armed()
         mon._async_list = _SHADOW_LIST_CODEX
+        _tick(app, 1)
+        self.assertTrue(app._review_loop.armed)
+
+    def test_mid_loop_swap_to_an_opencode_shadow_keeps_the_loop_armed(self):
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_OPENCODE
+        mon.raw_tail = _rlfx.OPENCODE_AT_REST_AFTER_TURN_RAW
         _tick(app, 1)
         self.assertTrue(app._review_loop.armed)
 

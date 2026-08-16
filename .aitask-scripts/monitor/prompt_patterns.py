@@ -179,6 +179,28 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         # match, and the fixed order is what the widget renders.
         PromptPattern("opencode_permission",
                       re.compile(r"Allow once\s+Allow always\s+Reject")),
+        # The `ctrl+p` command palette. Measured live against 1.18.18 (t1520):
+        # unlike the two dialogs above, the palette is an OVERLAY -- it leaves
+        # the composer box rendered intact below it. So it is invisible to any
+        # structural "is the composer empty" check, and a shadow pane with it
+        # open read as READY until this pattern existed, where an injected
+        # Enter would have run whichever command was selected.
+        #
+        # **Do not read more coverage into this than exists.** The palette
+        # renders ABOVE the composer, so in a real capture its header sits ~21
+        # lines from the bottom -- outside `_PROMPT_DETECTION_TAIL_LINES` (6).
+        # It therefore does NOT change followed-pane `awaiting_input`: `ait
+        # monitor` still reads a palette-open agent as idle. What consumes it is
+        # the review loop, whose negative half scans the WHOLE captured tail
+        # (see review_loop._ordered_state). The palette has no marker at all
+        # inside the bottom 6 lines, so no pattern could serve both.
+        #
+        # Anchored on the header row's label plus its right-aligned dismiss
+        # hint, which is geometry rather than a quotable phrase, and which
+        # survives filtering (the header stays while you type in Search).
+        # Scanned over 1130 live captures from the t1520 measurement session it
+        # matched the three palette captures and nothing else.
+        PromptPattern("opencode_palette", re.compile(r"Commands\s+esc\b")),
     ],
     "all": [],   # generic prompts that match across agents — add as needed
 }

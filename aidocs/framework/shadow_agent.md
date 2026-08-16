@@ -547,6 +547,41 @@ items):
    pane unstable). Hash stability alone is never sufficient. A satisfied
    trigger with a busy shadow **holds** (streak kept) and fires on the first
    ready tick.
+
+   **"Empty composer" is per-agent, and the parenthetical above is Claude's and
+   Codex's story only.** OpenCode's composer is a `┃`-gutter **box**, so its
+   positive anchor is the box's bottom border plus the composer status row
+   rather than a prompt-glyph line; it carries **no SGR-dim at all** (its
+   placeholder hint is a truecolor gray, and is absent entirely after the first
+   turn), so the dim-strip discriminator does not transfer. The structural
+   halves therefore differ per agent while the verdict *order* is shared —
+   `review_loop._ordered_state`.
+
+   **Two per-agent limits worth knowing before trusting a positive readiness**
+   (both measured on OpenCode 1.18.18, t1520):
+   - At-rest and working can be **indistinguishable inside the composer**, with
+     the working indicator rendered *outside* it. When the pane is too short to
+     render that indicator, an empty box plus a byte-identical capture defeats
+     the composer check and the hash-stability check at the same time. OpenCode
+     guards this with `_OPENCODE_MIN_LINES_BELOW_BORDER`: a would-be `ready`
+     whose capture could not have *shown* the indicator degrades to
+     `SHADOW_UNKNOWN`. A new agent whose working indicator sits outside its
+     composer needs the same question asked.
+   - A modal rendered as an **overlay** (OpenCode's `ctrl+p` command palette)
+     leaves the composer intact, so **no** structural check can see it. Only
+     the negative half excludes it. Do not generalise "the dialog replaces the
+     composer, so the positive half excludes it structurally" from one dialog
+     to a whole agent.
+
+     An overlay pattern raises a second question worth asking of any agent:
+     **is its anchor still on screen at the smallest geometry that can still
+     read `ready`?** An anchor that renders far above the composer at full size
+     could be clipped on a short split, and the negative half would then miss a
+     live modal. Measured for OpenCode across heights 7–30 and widths 40–100
+     (t1520): it cannot be, because the palette is drawn *centred over* the
+     composer box at compact sizes rather than above it — and overwriting the
+     box disrupts the status row too, so the structural half refuses as well.
+     Pinned by a fixture captured at the minimum ready-eligible geometry.
 5b. **Post-interaction settle latch.** An empty composer is also what the pane
    shows in the gap between an interaction leaving the screen and work
    resuming, so readiness is additionally held for
@@ -570,7 +605,9 @@ items):
    it never destroys the user's armed state. Auto-disarm (visible) fires on
    verified disappearance or a mid-loop shadow swap to an agent without a
    readiness detector; an open minimonitor modal pauses (streak reset, no
-   disarm).
+   disarm). Since t1520 **no shipped `AGENT_KEYS` member lacks a detector**, so
+   that swap branch has no real-agent subject and is exercised with a synthetic
+   key — it is kept for the next agent wired in ahead of its detector.
 7. **Single-line literal injection only** (`send_keys -l` + `Enter` through
    the tmux gateway; no bracketed paste).
 8. **Phase never gates firing.** The advisory phase pre-selects the recheck
@@ -620,14 +657,72 @@ UI text, pinned against live captures and maintained in-place when an agent's
 UI changes — the `prompt_patterns.py` practice (t1474). The raw fixtures are
 `tests/review_loop_fixtures.py`.
 
-`SHADOW_READY_DETECTORS` ships `claude` and `codex`. Arming refuses visibly
-for a shadow agent that resolves but has no detector (currently `opencode`),
-and separately for a shadow whose agent could **not be resolved** — those two
-are different messages on purpose, because an unresolved key is frequently a
-timing answer rather than a permanent one, and mid-loop it *holds* rather than
-auto-disarming. The shadow's agent is independently selectable via `E`, so a
-Claude followed pane can legitimately have a Codex shadow — a real
-configuration, observed live, and the one the loop was extended to support.
+`SHADOW_READY_DETECTORS` ships `claude`, `codex` and `opencode` — every member
+of `agent_keys.AGENT_KEYS`. Arming still refuses visibly for a shadow agent that
+resolves but has no detector, and separately for a shadow whose agent could
+**not be resolved** — those two are different messages on purpose, because an
+unresolved key is frequently a timing answer rather than a permanent one, and
+mid-loop it *holds* rather than auto-disarming.
+
+The first of those refusals now has **no real-agent subject**. It is kept, and
+exercised in tests with a synthetic key, because it is exactly what a future
+agent wired into `AGENT_KEYS` ahead of its detector will hit. Deliberately
+**not** replaced by a `set(AGENT_KEYS) <= set(SHADOW_READY_DETECTORS)` tripwire:
+that would turn a legitimate intermediate state — a new agent key landing before
+its detector is written — into a build break, converting a graceful degradation
+into a failure.
+
+The shadow's agent is independently selectable via `E`, so a Claude followed
+pane can legitimately have a Codex or an OpenCode shadow — real configurations,
+observed live, and the ones the loop was extended to support.
+
+**Two structural shapes, one shared order.** `review_loop._ordered_state` owns
+the measured verdict order (dialog patterns → structural positive → `working`
+only outranks a would-be `ready`) and takes the positive half as a parameter, so
+adding an agent never duplicates that order. `_composer_state` is the glyph-line
+shape (a one-character prompt glyph plus a pad — Claude, Codex);
+`_opencode_box_state` is the gutter-box shape. A new agent picks one or adds a
+third; it must not widen either to fit.
+
+### Recipe: measuring a new agent's readiness surfaces
+
+Both t1509 and t1520 built this harness from scratch in a session scratchpad and
+threw it away. It is recorded here as a recipe rather than shipped as a script,
+so the third agent's task is a re-run instead of a rewrite.
+
+1. **Drive a live pane on a private socket** — `AITASKS_TMUX_SOCKET=<name>`,
+   never the `-L ait` gateway, in a throwaway repo. 120x30.
+2. **Sample with the production argv verbatim**: `capture-pane -p -e -t <pane>
+   -S -15`, every **0.25 s**, stamping `time.monotonic()`. Note what that argv
+   actually returns (below) rather than assuming a window size.
+3. **≥ 5 repetitions per interaction kind**, and include the pathological one:
+   an interaction answered so that **no work follows**. That is what proves the
+   settle latch's deadline release is load-bearing; without it a latch clearable
+   only by a `WORKING` observation looks fine and wedges in production.
+4. **Classify through the real detector, but never let it be the only witness.**
+   Record two independent channels beside its verdict: **harness ground truth**
+   (when the driver pressed Enter / answered) and **literal screen evidence**
+   (plain substring searches, not the shipped regexes). A sample where a channel
+   says *working* while the detector says `ready` is a **detector defect** and
+   invalidates the run — a narrow working regex otherwise makes the measurement
+   report "no injectable window" precisely because the detector is broken.
+5. **The metric** (t1509's refinement — do not re-derive it): the *longest run
+   of consecutive byte-identical `ready` captures that is followed later in the
+   same repetition by a `working` capture*, discounting the t+0 pre-submit
+   sample. The naive "gap until the working indicator appears" measures zero.
+6. **Also answer, per agent:** is the working state ever byte-identical across
+   two consecutive samples (i.e. does hash-stability act as an independent
+   second brake, as it does for all three shipped agents)? And where does the
+   working indicator render relative to the composer — inside it, or outside
+   where a short pane can drop it?
+
+**`-S -15` is not a 15-line window.** It carries no `-E`, so it reads from 15
+lines back to the **bottom of the visible pane**. Every one of these agents runs
+on the alternate screen (`alternate_on=1`, `history_size=0`), so there is no
+scrollback and the capture is the **whole visible pane** for any `-S` value. The
+15 is a scrollback floor. Fixtures should be stored at the extent production
+actually reads; the `CODEX_*` set's trim-to-15 convention is a fixture habit, and
+copying it onto OpenCode was measured to drop a load-bearing row.
 
 **Resolving the shadow's agent needs its pid, not just its command.** Codex
 installs as a node wrapper, so `pane_current_command` reports `node`;

@@ -552,8 +552,22 @@ async def capture_raw_tail(
     styling: Claude Code renders its composer *placeholder hint* as dim text
     that ANSI-stripping makes indistinguishable from typed text, so the
     cleaned :func:`capture_shadow_text` path cannot answer "is the composer
-    empty". Deliberately tiny (default 15 lines) — it reads the prompt area,
-    not the transcript — and paid only while a loop is armed.
+    empty". Paid only while a loop is armed.
+
+    **``lines`` is a scrollback floor, NOT a window size** (measured, t1520 —
+    an earlier version of this docstring called it "deliberately tiny … the
+    prompt area, not the transcript", and detectors were written against that
+    belief). ``capture-pane -S -<n>`` carries no ``-E``, so it reads from *n*
+    lines back to the **bottom of the visible pane**. Every supported agent CLI
+    runs on the alternate screen (``alternate_on=1``, ``history_size=0``), so
+    there is no scrollback at all and this returns the **whole visible pane**
+    for any ``lines`` value — 30 rows at a 120x30 geometry, not 15.
+
+    Two consequences worth stating, because both have already bitten:
+    a marker is in scope whenever it is *on screen*, so "it renders too far up
+    to be captured" is not a valid assumption; and fixtures must be stored at
+    the extent production actually reads — trimming them to ``lines`` can drop
+    a load-bearing row that production would have seen.
     """
     if monitor is None:
         return None
