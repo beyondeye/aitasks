@@ -1,7 +1,7 @@
 ---
 priority: low
 effort: medium
-depends: [t386_6, t386_10, 1, 2, 3, 4, 5, 6]
+depends: [t386_1, t386_2, t386_3, t386_4, t386_5, t386_6, t386_10]
 issue_type: documentation
 status: Ready
 labels: [agentcrew]

@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: [2, 3]
+depends: [t1159_2, t1159_3]
 issue_type: documentation
 status: Ready
 labels: [shadow, aitask_monitormini]
