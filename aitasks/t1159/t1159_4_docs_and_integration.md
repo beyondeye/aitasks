@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: [t1159_2, t1159_3]
 issue_type: documentation
