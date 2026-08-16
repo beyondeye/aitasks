@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [1509]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [verification, bug]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -18,6 +18,7 @@ followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-08-16 10:21
 updated_at: 2026-08-16 18:28
+completed_at: 2026-08-16 18:28
 ---
 
 ## Failed verification item from t1509
@@ -112,3 +113,14 @@ added by the auto-verification run.
 > **✅ gate:plan_approved** run=2026-08-16T14:29:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-16T15:19:36Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-16T15:28:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:f9a97dfea2dfcbc5
+
+> **✅ gate:risk_evaluated** run=2026-08-16T15:28:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1525/risk_evaluated_2026-08-16T15:28:39Z-risk_evaluated-a1.log`
