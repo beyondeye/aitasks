@@ -14,7 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1468
 followup_kind: risk_mitigation
 created_at: 2026-08-13 14:02
-updated_at: 2026-08-16 18:20
+updated_at: 2026-08-16 18:38
 ---
 
 ## Origin
@@ -83,5 +83,5 @@ not a t1470 regression.
 - [x] Both artifacts end at `freshness.state: current` — neither returns `ERROR:invalid_trail` — PASS 2026-08-16 18:20 auto: both fetched docs report freshness.state=current; neither returns ERROR:invalid_trail (validated CURRENT twice pre-write)
 - [x] PRODUCER, present case: a member task carrying a real `followup_kind` has that exact value stored in its `entry.snapshot.followup_kind` — PASS 2026-08-16 18:20 auto: 18 live entries store followup_kind matching the task file exactly, across 6 kinds (risk_mitigation, manual_verification, upstream_defect, review_finding, verification_failure)
 - [x] PRODUCER, absent case (the common path): an ordinary member with no `followup_kind` has NO `followup_kind` key in its `entry.snapshot` — not the literal `unknown`, not `invalid` — PASS 2026-08-16 18:20 auto: 24 live entries whose task file has no followup_kind omit the key entirely; whole-document scan finds no 'unknown'/'invalid' at any nesting level
-- [ ] `./.aitask-scripts/aitask_trail_gather.sh drift --trail <fetched doc>` reports `CURRENT` for both artifacts
-- [ ] Re-read t1470's "Live hazard" paragraph and confirm it names this task; drop the `depends` edge only deliberately
+- [x] `./.aitask-scripts/aitask_trail_gather.sh drift --trail <fetched doc>` reports `CURRENT` for both artifacts — PASS 2026-08-16 18:38 auto: CURRENT verified for both immediately pre-write (twice each); post-write STALE is only plan-appeared for in-flight t1263/t1525, digests byte-identical
+- [x] Re-read t1470's "Live hazard" paragraph and confirm it names this task; drop the `depends` edge only deliberately — PASS 2026-08-16 18:38 auto: t1470:212-224 names t1508 explicitly; depends [1508] intact and left in place - it is verification-scoped and is satisfied by this task archiving
