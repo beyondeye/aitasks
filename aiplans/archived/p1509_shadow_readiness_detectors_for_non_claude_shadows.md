@@ -807,3 +807,4 @@ itself is the reason the level is no longer `low`.
 
 - **Notes for sibling tasks:** see t1520, which carries the full OpenCode
   measurement so it need not be re-derived in another live session.
+- **Manual-verification failure:** item "Let the followed Claude agent produce output and settle at a prompt. Observe ONE automatic recheck fire: the Codex shadow receives a single-line "refetch and recheck round N" prompt plus Enter." failed; follow-up task t1525.
