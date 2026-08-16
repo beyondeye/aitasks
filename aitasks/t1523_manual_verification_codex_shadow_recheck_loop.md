@@ -14,7 +14,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: manual_verification
 created_at: 2026-08-14 16:21
-updated_at: 2026-08-16 10:21
+updated_at: 2026-08-16 10:24
 ---
 
 ## Manual Verification Task
@@ -29,7 +29,7 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] Launch a Claude Code agent under `ait`, press `e` in minimonitor to spawn a shadow, and confirm the shadow pane runs Codex (not Claude) — this is the pairing t1509 exists to unblock.
+- [x] Launch a Claude Code agent under `ait`, press `e` in minimonitor to spawn a shadow, and confirm the shadow pane runs Codex (not Claude) — this is the pairing t1509 exists to unblock. — PASS 2026-08-16 10:24
 - [x] Press `L` to arm the auto-recheck loop with that Codex shadow. It must ARM (banner shows "auto-recheck ARMED"). Before t1509 this refused with "shadow agent 'node' has no readiness detection yet". — PASS 2026-08-16 10:21 auto: real action_toggle_review_loop against a LIVE codex pane (pane_current_command='node', pid 222316) -- ARMED, banner '⟳ auto-recheck ARMED', no refusal
 - [x] Confirm the arm was NOT refused with "could not resolve the shadow's agent yet". If it is, press `L` again after a few seconds — resolution is retried on a backoff — and note how many attempts were needed. — PASS 2026-08-16 10:21 auto: fresh-launch measurement -- codex child visible to pgrep at +0.13s; real agent_key_from_pane resolved 'codex' on attempt #1; no 'could not resolve' refusal
 - [fail] Let the followed Claude agent produce output and settle at a prompt. Observe ONE automatic recheck fire: the Codex shadow receives a single-line "refetch and recheck round N" prompt plus Enter. — FAIL 2026-08-16 10:21 follow-up t1525
