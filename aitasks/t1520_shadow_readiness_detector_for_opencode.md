@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-14 13:49
-updated_at: 2026-08-16 09:34
+updated_at: 2026-08-16 10:48
 ---
 
 Add an `opencode` entry to `SHADOW_READY_DETECTORS` / `SHADOW_STATE_DETECTORS`
@@ -84,3 +85,8 @@ distorting the shared one, and keep `SHADOW_READY_DETECTORS` /
 - **t1509** — shipped the generic `_composer_state`, `shadow_state`, the
   wall-clock settle latch, and the pid-carrying shadow seam this task builds on.
   Read `aiplans/archived/p1509_*.md` (its Pre-phase RESULTS section) first.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-16T07:48:33Z status=pass attempt=1 type=human
