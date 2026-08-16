@@ -89,5 +89,15 @@ per-agent delivery strategy alongside `SHADOW_READY_DETECTORS`. Whatever the
 fix, the delivery should **verify** submission rather than trust the two
 `send_keys` return codes, since those are already `True` in the failing case.
 
+### Cross-references
+
+- The delivery method is named `_fire_shadow_recheck` on `main`
+  (`.aitask-scripts/monitor/minimonitor_app.py:2792`); `_deliver_recheck` above
+  refers to the same site.
+- **t1159_6** (minimonitor concern status line) displays the loop state this
+  bug corrupts: while the prompt sits unsubmitted the controller reads `FIRED`,
+  so any status surface will honestly report a loop that is armed and going
+  nowhere. That task reports state only — the delivery fix stays here.
+
 Auto-generated from a manual-verification failure in t1523 item #4; diagnosis
 added by the auto-verification run.
