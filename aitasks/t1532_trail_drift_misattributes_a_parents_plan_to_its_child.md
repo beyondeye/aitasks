@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-16 18:41
-updated_at: 2026-08-16 18:44
+updated_at: 2026-08-16 23:35
 ---
 
 ## Origin
@@ -124,3 +125,8 @@ before the child's, and records the reason as observation
 `obs-plan-attribution-order` so a later refresh does not "tidy" the order back
 and re-break the document. Any other trail hitting this shape will need the same
 workaround until this lands.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-16T20:35:58Z status=pass attempt=1 type=human
