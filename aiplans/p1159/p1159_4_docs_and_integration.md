@@ -311,11 +311,11 @@ wrote, minimizing what those siblings must rewrite.
   explicit, reviewable decision in "Verification findings" rather than silently
   deviating)
 - Documenting surfaces that t1159_6's status line and t1159_7's refactor will
-  move · severity: low · → mitigation: resweep_shadow_docs_after_status_line_and_refactor
+  move · severity: low · → mitigation: t1535
 
 ### Planned mitigations
 - timing: post-phase | name: docs_backreference_from_source | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (quoted strings drift from their emitters as t1159_6/_7 land) | desc: Add one comment line beside the spin-off block in monitor_shared.py pointing at the stable aidocs/framework/shadow_agent.md heading that documents it (no website paths; review_loop.py already has its pointer), with the named headings grep-verified so a rename fails the check
-- timing: after | name: resweep_shadow_docs_after_status_line_and_refactor | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: goal-achievement (banner, keybinding and controller prose goes stale when t1159_6 adds the status line and t1159_7 refactors the loop) | desc: Re-sweep the shadow review-loop documentation once t1159_6 and t1159_7 land, refreshing banner strings, keybindings and controller prose against the then-current source. MUST NOT become eligible before both siblings land — see the Step 8d dependency wiring below
+- timing: after | name: resweep_shadow_docs_after_status_line_and_refactor | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: goal-achievement (banner, keybinding and controller prose goes stale when t1159_6 adds the status line and t1159_7 refactors the loop) | desc: Re-sweep the shadow review-loop documentation once t1159_6 and t1159_7 land, refreshing banner strings, keybindings and controller prose against the then-current source. MUST NOT become eligible before both siblings land — see the Step 8d dependency wiring below | created: t1535
 
 **Step 8d dependency wiring (required for the `after` mitigation).** Part 3 of
 the Risk-Mitigation Follow-up Procedure creates "after" tasks with no `depends:`
