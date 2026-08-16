@@ -66,3 +66,5 @@ t1159_1..3 ship: the round metadata header (`Round: <N> @ <ts>` inside the conce
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-16T20:03:13Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-16T20:26:13Z status=pass attempt=1 type=human
