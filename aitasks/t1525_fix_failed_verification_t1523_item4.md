@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [1509]
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 1159
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-08-16 10:21
-updated_at: 2026-08-16 17:28
+updated_at: 2026-08-16 17:29
 ---
 
 ## Failed verification item from t1509
