@@ -178,6 +178,12 @@
           "type": "string",
           "minLength": 1
         },
+        "overview": {
+          "description": "Free-form prose summary of the findings and the motivation for the proposed wave/task order. Advisory and NON-BINDING: no consumer derives membership, ordering or classification from it. Renderers display its content; surrounding whitespace is not significant, and a value carrying no non-whitespace character is rejected rather than rendered blank.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
         "method_note": {
           "description": "How the analysis was performed and its limits (what was read, what was NOT verified).",
           "type": "string"

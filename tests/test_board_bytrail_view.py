@@ -3421,15 +3421,29 @@ class TrailSummaryResolverTests(ByTrailTestBase):
             "the overview")
 
     def test_falls_back_to_recommendation_summary(self):
-        """The only live path until t1505_3 adds `narrative.overview`."""
+        """`overview` is optional (t1505_3 added it without making it
+        required), so a trail that omits it must still show something."""
         self.assertEqual(
             self.ab.trail_summary_text(
                 {"narrative": {"recommendation_summary": "the fallback"}}),
             "the fallback")
 
+    def test_surrounding_whitespace_is_not_significant(self):
+        """The schema calls `overview` advisory prose whose *content* is
+        displayed, not a verbatim byte string (t1505_3). The resolver strips,
+        so pin that rather than leaving the contract as prose."""
+        self.assertEqual(
+            self.ab.trail_summary_text(
+                {"narrative": {"overview": "  padded  "}}),
+            "padded")
+
     def test_blank_overview_falls_through_rather_than_winning(self):
         """Whitespace-only is empty at EVERY level — a doc carrying a blank
-        `overview` must still show its recommendation_summary, not nothing."""
+        `overview` must still show its recommendation_summary, not nothing.
+
+        t1505_3's `pattern: "\\S"` now rejects such a document at the schema
+        boundary, so this is defence-in-depth: the resolver is also fed
+        unvalidated dicts in tests and by any future caller."""
         self.assertEqual(
             self.ab.trail_summary_text(
                 {"narrative": {"overview": "   \n  ",

@@ -146,6 +146,70 @@ class FollowupKindSnapshotProperty(unittest.TestCase):
         self.assertNotIn("followup_kind", snapshot.get("required", []))
 
 
+class NarrativeOverviewProperty(unittest.TestCase):
+    """`narrative.overview` — the advisory prose summary (t1505_3).
+
+    Additive and optional: the By-Trail summary pane prefers it over the
+    required `recommendation_summary`, and the lite trail flow writes it.
+
+    The `pattern` guard is the load-bearing part. The two shipped renderers
+    disagree about a whitespace-only value -- `trail_summary_text` treats it as
+    absent and falls back, while the detail modal prints a labelled line with
+    blank content -- so rather than document two behaviours, such a document is
+    rejected at the schema boundary and never reaches either renderer.
+    """
+
+    FIELD_PATH = "$.narrative.overview"
+
+    def _doc(self, overview):
+        doc = fixture("gate_framework.json")
+        doc["narrative"]["overview"] = overview
+        return doc
+
+    def assert_rule(self, doc, rule):
+        issues = issues_for(doc)
+        self.assertTrue(
+            any(i.rule == rule and i.path == self.FIELD_PATH for i in issues),
+            "expected a %r issue at %s: %s" % (rule, self.FIELD_PATH, issues))
+
+    def test_absent_key_validates(self):
+        """The load-bearing back-compat case: nothing existing carries it."""
+        doc = fixture("gate_framework.json")
+        self.assertNotIn("overview", doc["narrative"])
+        self.assertEqual(issues_for(doc), [])
+
+    def test_present_value_validates(self):
+        doc = self._doc("Land the gate framework, then the board surfaces.")
+        self.assertEqual(issues_for(doc), [])
+
+    def test_surrounding_whitespace_is_legal(self):
+        """Trimming is a render concern, not a validity one — the pane strips
+        what it displays, so padding must not invalidate a document."""
+        self.assertEqual(issues_for(self._doc("  padded  ")), [])
+
+    def test_empty_string_is_rejected(self):
+        # "" trips BOTH minLength and pattern -- assert membership, never an
+        # exact rule set.
+        self.assert_rule(self._doc(""), "minLength")
+
+    def test_whitespace_only_is_rejected(self):
+        """The degenerate case the two renderers disagree about. `minLength`
+        passes here (5 characters), so `pattern` is the only thing standing
+        between a blank-rendering document and validity."""
+        self.assert_rule(self._doc("   \n  "), "pattern")
+
+    def test_non_string_is_rejected(self):
+        # minLength/pattern are only checked inside `isinstance(value, str)`,
+        # so `type` is the sole issue for a non-string.
+        self.assert_rule(self._doc(123), "type")
+
+    def test_property_is_optional(self):
+        """Not in `required`: every pre-existing document must stay valid."""
+        schema = json.loads(AIDOCS_SCHEMA.read_text(encoding="utf-8"))
+        narrative = schema["properties"]["narrative"]
+        self.assertNotIn("overview", narrative.get("required", []))
+
+
 class ValidFixtures(unittest.TestCase):
     def test_fixtures_load_from_path_and_bytes(self):
         for name in FIXTURE_NAMES:

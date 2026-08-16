@@ -802,9 +802,9 @@ def trail_summary_text(doc) -> str:
 
     Prefers ``narrative.overview`` — t1505_3's advisory prose field — and falls
     back to the always-required ``narrative.recommendation_summary``, so a trail
-    written before that field existed still shows something useful. Until
-    t1505_3 lands, `overview` is absent from the schema and the fallback is the
-    only live path.
+    written before that field existed still shows something useful. `overview`
+    is optional in the schema, so the fallback stays a live path for every trail
+    that does not carry one.
 
     Returns "" when neither carries text; the caller hides the pane rather than
     showing an empty frame. Whitespace-only counts as empty at every level, so a

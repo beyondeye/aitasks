@@ -192,7 +192,20 @@ rather than read — never a false `STALE`. Field groups, tied to the fixtures:
   fixture demonstrates the stale state with `task_completed` and
   `new_related_task` reasons.
 - **Narrative** — required `problem_statement` and `recommendation_summary`,
-  plus `method_note` (what was and was not verified) and global `caveats`.
+  plus `method_note` (what was and was not verified), global `caveats`, and the
+  optional `overview`. `overview` is a free-form prose summary of the findings
+  and the motivation for the proposed wave/task order, and it is **advisory and
+  non-binding**: renderers display it, but no consumer may derive membership,
+  ordering or classification from it — waves and entries remain the binding
+  structure. It is what the By-Trail summary pane prefers over
+  `recommendation_summary` (§9). What is displayed is its *content*, not a
+  verbatim byte string: surrounding whitespace is not significant (the pane
+  strips it), and a value carrying no non-whitespace character is rejected by
+  the schema — which declares `"pattern": "\\S"`, the JSON-escaped spelling of
+  the regex `\S` (a single backslash there is not a legal JSON escape) — rather
+  than rendered blank; otherwise the pane would silently fall back while the
+  detail modal printed an empty labelled line. Being optional, it needs no
+  `schema_version` bump and every pre-existing document stays valid.
 - **Waves and entries** — strictly increasing `ordinal`/`position`;
   per-entry `classification` (`hard_prerequisite`, `preferred_predecessor`,
   `core`, `coordination_only`, `optional`), point-in-time `snapshot`
