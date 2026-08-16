@@ -423,6 +423,37 @@ TUIs have no scrollback, so it returns the whole visible pane) plus the two
 consequences that have already bitten: an on-screen marker is always in scope,
 and fixtures must not be trimmed to `lines`.
 
+#### Review round 2 — the compact-palette premise selected any pattern
+
+The header-visibility assertion added in round 1 accepted a match from **any**
+pattern in `PROMPT_PATTERNS_BY_AGENT["opencode"]`. Only `opencode_palette`
+matches that capture today, so the test was not weak in practice — but a future
+broad or overlapping OpenCode pattern would satisfy the premise after the header
+had disappeared, masking the exact geometry contract the test exists to pin.
+Confirmed and fixed rather than deferred: the assertion now checks the header
+text directly **and** selects `opencode_palette` **by name**, with a guard so a
+rename fails with a clear message instead of an attribute error.
+
+The counterfactual is executable, and was run: with a broad `┃` pattern present
+and the palette regex neutered, the old `any(...)` premise evaluates **True**
+(masked) while the by-name form evaluates **False** (correctly fails).
+
+Three mutations now fail with the *intended* assertion message —
+palette regex neutered (`opencode_palette no longer matches at the minimum
+geometry`), palette renamed (`opencode_palette pattern is gone`), and the
+masking case (broad pattern added **and** palette neutered).
+
+**Mutation-harness lesson, recorded because it produced a false "ok" twice.**
+The first attempt mutated by *deleting* the `PromptPattern(...)` line. That made
+the test fail — but with an `ImportError`, not the assertion, so it was failing
+for the wrong reason and was not evidence. Mutations must keep the module
+importable: neuter the regex (or rename the pattern) rather than removing the
+line, and assert on the *failure message*, not merely on a non-zero exit.
+
+The pre-existing Codex `test_dialog_outranks_working_when_both_are_visible`
+uses the same `any(...)` shape and is deliberately left alone: its premise is
+"some dialog pattern matched", which is what that ordering test actually means.
+
 #### States that did NOT reproduce — recorded as nulls, not fabricated
 
 - **The `opencode_question` widget** (`↑↓ select enter submit esc dismiss`).
