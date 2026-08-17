@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 12:45
-updated_at: 2026-08-17 16:30
+updated_at: 2026-08-17 17:35
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ during selection. Then add rows to `NATIVE_DIALOG_BOUNDARIES` and remove the
 corresponding `DELIBERATELY_UNANCHORED_KINDS` entries — the completeness guard
 keeps the two in step. See t1518's archived plan for the measurement table format
 and the harness gotchas (ground-truth channel, chunked send-keys, fixture hygiene).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T14:35:46Z status=pass attempt=1 type=human
