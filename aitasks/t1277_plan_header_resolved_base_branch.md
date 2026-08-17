@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1233
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:10
-updated_at: 2026-08-17 09:35
+updated_at: 2026-08-17 11:26
 boardidx: 53248
 ---
 
@@ -114,3 +115,8 @@ planning-time outcome.
 of t1536: after the move, the drift check runs while the fork is still
 hypothetical, which changes what a base-branch drift warning means and what the
 user can usefully do about it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T08:26:35Z status=pass attempt=1 type=human
