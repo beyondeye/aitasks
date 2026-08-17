@@ -514,7 +514,7 @@ scoped away.
   production*: a boundary that stops anchoring returns `UNKNOWN`, so the loop
   simply never fires, while the tests keep passing against the old stored fixture.
   Widening from one agent to three triples that surface · severity: medium ·
-  → mitigation: boundary_anchor_failure_is_observable
+  → mitigation: t1542
 - Everything else is contained: the change is additive and table-driven in an
   established idiom, the conservative `UNKNOWN` fallthrough is untouched (and
   becomes explicitly asserted rather than merely present), and the refusal string
@@ -550,7 +550,7 @@ scoped away.
 
 ### Planned mitigations
 - timing: pre-phase | name: gate_code_on_measured_boundaries | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — shipping an unmeasured, version-sensitive boundary literal | desc: no line of review_loop.py is edited until Step 1's B1/B2/B3 table is recorded in the plan, and every shipped row maps 1:1 onto a passing verdict
-- timing: after | name: boundary_anchor_failure_is_observable | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health — silent rot of a native-dialog boundary literal, whose surface triples when the agent set widens | desc: surface a native-dialog boundary that has stopped anchoring, so literal rot is an observable signal instead of a loop that silently never fires
+- timing: after | name: boundary_anchor_failure_is_observable | type: enhancement | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health — silent rot of a native-dialog boundary literal, whose surface triples when the agent set widens | desc: surface a native-dialog boundary that has stopped anchoring, so literal rot is an observable signal instead of a loop that silently never fires | created: t1542
 
 **Reassessment after inlining** (`risk-evaluation.md` Steps 1–2, re-run against the
 augmented plan): the pre-phase gate is a bounded, independently-verifiable
