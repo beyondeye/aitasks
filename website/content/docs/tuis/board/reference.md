@@ -36,6 +36,7 @@ depth: [advanced]
 | `d` | Re-check the trail's freshness against live task state | By-Trail view (trail selected) |
 | `R` | Launch an agent to re-author the trail | By-Trail view (trail selected) |
 | `S` | Sync task data with remote, then redraw the trail | By-Trail view |
+| `v` | Open the trail's summary in a scrollable dialog | By-Trail view (trail has a summary) |
 | `g` | Toggle Git add-on (intersect with git-linked tasks) | Board |
 | `t` | Toggle Type add-on (intersect with selected issue types — opens picker dialog) | Board |
 
@@ -211,7 +212,7 @@ It splits filtering into a **base radio** (mutually exclusive — exactly one is
 | Free | `f` | `f Free` | Tasks that are ready to pick: neither `Implementing` nor locked. Parents are hidden when any of their children is busy. |
 | In-Flight | `i` | `i In-Flight` | Active `Implementing` tasks grouped by next required action: Needs your action, Agent can continue, and Blocked. |
 | By-Topic | `y` | `y By-Topic` | Tasks clustered into per-anchor swimlanes by their [topic key]({{< relref "/docs/concepts/topic-anchoring" >}}) (`anchor`, else a child's parent topic, else own id). A topic with two or more tasks gets its own lane (labelled by the root task); lone tasks collapse into one **Ungrouped** lane. |
-| By-Trail | `z` | `z By-Trail` | The members of one **implementation trail**, laid out as wave columns (`W1 · …`). Each card carries its classification, confidence, and any drift marker; `Enter` opens the full narrative. Press `s` to choose which trail is shown. |
+| By-Trail | `z` | `z By-Trail` | The members of one **implementation trail**, laid out as wave columns (`W1 · …`). Each card carries its classification, confidence, and any drift marker; `Enter` opens the full narrative. A short pane below the columns shows the trail's summary. Press `s` to choose which trail is shown. |
 
 Pressing the key for the currently active base is a no-op. Locked and Free are leaf-level inverses (`Locked ∪ Free = All`, `Locked ∩ Free = ∅`) — the Locked view additionally includes parent/sibling cards as context.
 
@@ -251,6 +252,25 @@ classification glyph, its confidence, its task status, and any drift marker.
 tasks in this repository — cross-repo members, archived tasks, and tasks that
 have gone missing — appear as read-only ghost cards.
 
+**The summary pane.** A short pane below the wave columns carries the trail's
+free-form summary — the prose answer to "what should land next, and why". It
+appears only in By-Trail, and only when the trail has a summary to show; the
+columns take the full height otherwise. Press `v` to open the same text in a
+scrollable dialog when it is longer than the pane, and `Escape` to close.
+
+**The depth label.** The view's subtitle states the trail's authoring depth when
+the artifact records one — `· lite` or `· deep`. A trail written before depth was
+recorded shows no label at all rather than being presented as either, so an
+unlabelled trail means "depth not recorded", never "deep".
+
+**Reading one card's context.** In the detail screen the focused member's own
+material comes first: its entry, its wave, its drift reasons, and the
+observations and evidence that concern it. The trail-wide sections that are not
+about this card are withheld and summarized as a count; press `a` to reveal the
+whole document, and `a` again to return. A card in a trail with no observations
+or exclusions reads as complete rather than empty — there is nothing withheld
+to reveal.
+
 **Keeping the view current.** Five keys refresh different things, at very
 different costs:
 
@@ -260,7 +280,7 @@ different costs:
 | `s` | Re-scans task files for trails, including any created since the board started | A second or two — one artifact read per trail |
 | `d` | Re-checks the stored trail against live task state (freshness) | About half a second |
 | `S` | Runs `ait sync`, then redraws | A full remote sync |
-| `R` | Launches an agent to re-author the trail itself | Minutes |
+| `R` | Launches an agent to re-author the trail itself | The slowest by far — an agent run |
 
 Reach for `r` when a task's status changed on this machine — it is free. Reach
 for `s` when a **new trail** was created since the board started: the scan reads
@@ -273,6 +293,17 @@ it never modifies the stored trail. `R` is the heavyweight option — it hands t
 trail to an agent, which rewrites it. After a refresh is launched, the view
 watches for the new version and reloads on its own when it lands, giving up after
 about half an hour.
+
+`R` re-authors at the **lite** depth, which is the default for the trail skill.
+A lite trail keeps the waves, entries, per-member rationale and the summary, and
+omits the trail-wide observations, relations and exclusions along with the
+per-member evidence citations — so it is much cheaper to produce and still
+renders here with full lanes, badges, landed marks and drift markers. Because
+the depths differ in what they store, pressing `R` on a trail authored at `deep`
+replaces it with a lite version; the agent lists exactly what that discards and
+asks before writing, and the previous version stays retrievable from the
+artifact's history. To re-author at full depth, run the trail skill directly
+with its `--deep` flag rather than using `R`.
 
 If the scan cannot read one of your task files — a task being rewritten at that
 exact moment, or a malformed one — the view says so and leaves the trail list
@@ -296,8 +327,11 @@ that the trail's sequencing advice may be out of date — `R` re-authors it.
 always shows what the keys actually do. In By-Trail it reads:
 
 ```
-r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync
+r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync   v Summary
 ```
+
+`v Summary` is listed only while the shown trail actually has a summary — the
+footer advertises the key when there is something behind it, not before.
 
 `C` (commit all modified tasks) is **hidden** in this view. A trail is a reading
 projection rather than a set of tasks you own, while "commit all" acts on every

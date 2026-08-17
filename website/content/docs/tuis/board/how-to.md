@@ -212,16 +212,25 @@ With an In-Flight row focused, **p** launches the normal pick/resume flow, **g**
 Shows the members of a single [implementation trail](reference/#by-trail) — a
 stored, wave-structured plan for the order a group of tasks should be done in.
 Each wave is a column; each card carries its classification, confidence, and
-status.
+status, and a short pane underneath carries the trail's summary.
 
 1. Press **z** to enter the view, then **s** to pick which trail to show. If you
    have no trails yet, create one first: from any other view, focus a task and
    press **T**.
-2. Press **Enter** on a card to read the full reasoning for that member.
-3. Keep it current with the refresh keys, cheapest first: **r** redraws from the
+2. Read the summary pane under the columns — it is the trail's prose answer to
+   "what should land next, and why". Press **v** to open it in a scrollable
+   dialog if it is longer than the pane. The subtitle states the trail's
+   authoring depth (`· lite` or `· deep`) when the trail records one.
+3. Press **Enter** on a card to read the reasoning for that member. The detail
+   screen leads with that card's own material and withholds the trail-wide
+   sections that are not about it; press **a** to reveal the whole document.
+4. Keep it current with the refresh keys, cheapest first: **r** redraws from the
    task files on disk (instant), **d** re-checks the trail against live task
    state, **S** runs a remote sync first, and **R** hands the trail to an agent
-   to be re-authored.
+   to be re-authored. **R** re-authors at the cheaper `lite` depth; on a trail
+   authored at `deep` it says what that discards and asks first, and the previous
+   version stays retrievable. Run the trail skill with `--deep` yourself when you
+   want the full analysis back.
 
 An amber `⚠` line on a card means that member has **drifted** — its live state no
 longer matches what the trail recorded (its status changed, it was archived, its
