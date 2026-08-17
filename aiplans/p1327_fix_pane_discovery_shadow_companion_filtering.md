@@ -281,3 +281,68 @@ to a file this task already owns.
 3. Delete the injected line and re-run to confirm `Tier 1 OK`. Confirm the file
    is back to its intended state with `git diff --stat -- tests/test_multi_agent_window_substrate.sh`
    (only the t1327 changes remain). Nothing from this phase is committed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in
+  `tests/test_multi_agent_window_substrate.sh` only (+83/−15). **No production
+  code was changed** — the diagnosis confirmed the production filtering is
+  correct and the test fixture was the stale party. All four planned edits
+  landed: the `check_eq` comparison helper, the hermetic
+  `TmuxMonitor(session=…, exclude_pane="")` construction, the 5-row fixture in
+  the current 10-field `_LIST_PANES_FORMAT` (plus one legacy 9-field row and
+  one non-agent-window companion row), the `shape_of`/`attr` guarded assertion
+  block, and the refreshed header comment with its explicit coverage hand-off
+  to `tests/test_monitor_companion_filter.py`.
+
+- **Deviations from plan:** None to the code. One addition to the verification
+  work: alongside the planned `negctrl_discovery_filter`, a **second** negative
+  control was run against the return-shape guard itself (injecting
+  `monitor._parse_list_panes = lambda *a, **k: []`), because the plan asserts
+  the guard converts the pre-t1133 regression class into a comparison and that
+  claim was otherwise untested. It produced
+  `FAIL: _parse_list_panes returns (agents, shadows) — got 'list[0]', expected 'tuple[list, list]'`
+  followed by `BLOCKED: discovery assertions (return shape changed)`, exit 1,
+  no traceback. Both injections were reverted and `grep NEGCTRL` confirms no
+  residue.
+
+- **Issues encountered:** None blocking. The plan went through two rounds of
+  review concerns before approval, all of which were verified valid and fixed
+  in the plan rather than deferred: the pre-unpack traceback hole, the
+  incomplete negative-control evidence table (it is four failures, not two —
+  disabling the shadow predicate also routes `%2` into `_pane_cache`), a
+  `git checkout` restore step that would have been destructive in this shared
+  tree, missing non-agent-window companion coverage, a non-executable
+  `run_all_python_tests.sh` invocation, and a `|| echo "FAILED: $m"` sweep loop
+  that would have exited 0 on failure.
+
+- **Key decisions:**
+  - **Fault injection through the test's own monkeypatch seam, never a
+    production edit.** `_parse_list_panes` resolves `is_shadow_target` from
+    module globals at call time (`monitor_core.py:1919`), so rebinding
+    `mc.is_shadow_target` in the heredoc disables the exact predicate under
+    test. This matters concretely here: the working tree carried another
+    session's uncommitted work throughout, so a `git checkout --` restore of a
+    production file could have discarded it.
+  - **Guard the return shape, do not just unpack.** `shape_of` describes the
+    result without indexing into it, and the blocked branch appends its own
+    named failure so a shape change can never leave the rest silently vacuous.
+  - **Bound the claim honestly.** `tuple[list, list]` says nothing about
+    element fields, so every projection goes through `attr()` (missing field →
+    `'<attr missing>'` in the comparison) and both ordering assertions use
+    `sorted(map(str, …))`. The claim recorded in the plan is precisely "no
+    `AttributeError` and no ordering `TypeError` on a shape or field drift",
+    not "malformed contents are impossible to trip over".
+  - **Row `%5` (companion in a non-agent window) is the discriminating row.**
+    Every `agent-pick-100` row is filtered under both the current and the
+    pre-t1382 `category == AGENT and …` form, so without `%5` this block could
+    not catch a regression of that fix at all.
+
+- **Upstream defects identified:** None.
+
+  (For completeness, two observations that are *not* upstream defects: the
+  `ait git` push emitted `Warning: 4 commit(s) not pushed to origin/aitask-data
+  — data worktree has unstaged changes blocking rebase; reconcile with 'ait
+  syncer'`, which is a pre-existing local sync state, not a code defect; and
+  Tier 1 had been silently dead since t1133 — that *is* this task's subject,
+  not a separate defect.)
