@@ -1,0 +1,204 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-mobile-shadow-driving",
+  "title": "Mobile shadow-agent driving over applink — landing order",
+  "owner": "aitasks#1118",
+  "scope": {
+    "kind": "task",
+    "topics": ["aitasks#1118"],
+    "selection_note": "Task scope: t1118 and its five active children, as gathered by aitask_trail_gather.sh --scope task 1118."
+  },
+  "generation": {
+    "generated_at": "2026-08-17T13:43:46Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {"aitasks": "88d2124ba"},
+    "input_digest": "1c44cb4efd49b5b6",
+    "inputs": [
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_1_shadow_driving_protocol_design_doc.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_2_shadow_aware_roster_content_gating_capability_flags.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_3_spawn_shadow_verb_shared_spawn_helper.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_4_shadow_concerns_rpc_status_fields_paste_mode.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_5_manual_verification_mobile_shadow_agent_driving_over_applink.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118_mobile_shadow_agent_driving_over_applink.md"},
+      {"kind": "task_file", "ref": "aitasks#1118"},
+      {"kind": "task_file", "ref": "aitasks#1118_1"},
+      {"kind": "task_file", "ref": "aitasks#1118_2"},
+      {"kind": "task_file", "ref": "aitasks#1118_3"},
+      {"kind": "task_file", "ref": "aitasks#1118_4"},
+      {"kind": "task_file", "ref": "aitasks#1118_5"}
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-08-17T13:43:46Z"
+  },
+  "narrative": {
+    "problem_statement": "t1118 has five active children and no landed work, and its children are paired one-to-one with a sibling mobile repo's own task. The question this trail answers is which of the five to start now so that the wire contract both repos build against is fixed before either side writes code against a guess.",
+    "recommendation_summary": "Land t1118_1 first and alone: it authors aidocs/applink/shadow_driving.md, the single wire contract, and every other child cites that document as its content source. Then t1118_2, which is the only child touching monitor_core's pane model and is a hard dependency of both remaining feature children. t1118_3 and t1118_4 then run in parallel — they share nothing but their dependency on t1118_2 — and t1118_5 closes the topic with a live paired-device verification once both have landed.",
+    "overview": "Start with t1118_1. Nothing else in this topic can be started safely first: it is the only child with no depends edge, and the other four all name the parent plan's D-sections as their content source, which t1118_1 is what turns into a written contract. Because the whole topic is paired with a mobile-side task in another repository, a guessed payload shape here costs rework on both sides, not one.\n\nAfter that the trail is dependency-forced rather than a matter of preference: t1118_2 is the sole prerequisite of both t1118_3 and t1118_4, so it is the real bottleneck of the topic. It is also the riskiest of the three implementation children in terms of blast radius — it changes TmuxPaneInfo, adds PaneCategory.SHADOW, and alters _parse_list_panes, which the desktop monitor also reads. Its contract that the desktop default stays unchanged (include_shadow_panes defaults False) is what keeps the rest of this trail from becoming a monitor regression hunt.\n\nt1118_3 and t1118_4 are genuinely parallel — they depend only on t1118_2 and edit disjoint files (minimonitor_app.py plus a shared spawn helper, versus router.py plus the concern-read path). If two agents are available, this is the one wave in the topic where a second one pays. If only one is, take t1118_3 first: it is an extraction of an existing desktop flow and therefore the more constrained of the two.\n\nt1118_5 is a manual-verification follow-up and must be last: four of its six checks require a paired real device and a live shadow, and its own frontmatter records a cross-repo dependency on aitasks_mobile#32_2, which is outside this trail's scope and is not tracked here. Do not treat t1118_5's readiness as an aitasks-only question — it also waits on the mobile side, and that is the one ordering constraint in this topic that this repository cannot observe. The parent t1118 itself is coordination only: it archives when its children do and is never picked directly.",
+    "method_note": "Lite-depth analysis. Read: the gatherer snapshot (members, depends edges, plan-file inputs, digest) and the frontmatter plus Context/Key-files sections of all six member task files. NOT verified: the state of the paired aitasks_mobile tasks, whether the named source files still carry the line numbers the child tasks cite, and whether any of the five plan files are still accurate. No observations, relations or exclusions were produced at this depth."
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Fix the wire contract",
+      "purpose": "Produce the one document both repositories build against, so that no payload shape, capability band or verb name is decided twice.",
+      "why_now": "Every later child names the parent plan's D-sections as its content source; until those are written down as a contract, each child would re-derive them independently and the two repos could diverge without either noticing.",
+      "consequence_of_delay": "Implementation children start against an unwritten contract, and any correction lands as rework on both sides of a cross-repo pairing.",
+      "entries": [
+        {
+          "entry_id": "e1",
+          "task": "aitasks#1118_1",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only member with no depends edge, and the only one whose output is consumed by all the others. It converts the parent plan's D1-D5 sections into aidocs/applink/shadow_driving.md, which the three feature children cite rather than restate.",
+          "expected_outcome": "A written roster-exposure decision, visibility model and verb payload schema that the mobile task can be reviewed against before either side writes code.",
+          "why_order_matters": "Writing it after the code makes it a transcript of whatever got built, which is exactly what a cross-repo contract must not be.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Shadow-aware roster foundation",
+      "purpose": "Make shadow panes visible to applink and gate their content per profile, without changing what the desktop monitor sees.",
+      "why_now": "It is the sole prerequisite of both remaining feature children, so it is the bottleneck: nothing in wave 3 can start until it lands.",
+      "consequence_of_delay": "Both wave-3 children stay blocked, and the topic makes no progress regardless of how many agents are available.",
+      "entries": [
+        {
+          "entry_id": "e2",
+          "task": "aitasks#1118_2",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": ["aitasks#1118_1"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Both t1118_3 and t1118_4 record it as their only dependency, so it is the widest-fanout task in the topic. It is also the one that edits shared desktop code (TmuxPaneInfo, PaneCategory, _parse_list_panes), so landing it alone keeps a monitor regression attributable to a single change.",
+          "expected_outcome": "Shadow panes enter the applink roster behind an opt-in flag, with content streaming gated at monitor_control and capability flags the mobile UI can gate off.",
+          "why_order_matters": "Taken after wave 3 there is nothing for the spawn verb or the concerns RPC to address a shadow pane by, since the roster would not carry them.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Driving verbs, in parallel",
+      "purpose": "Add the two independent capabilities that make a shadow drivable from the app — spawning one, and reading its concerns — as a single wave because neither constrains the other.",
+      "why_now": "Their shared prerequisite has landed and they touch disjoint files, so this is the only point in the topic where a second agent adds throughput rather than merge conflicts.",
+      "consequence_of_delay": "t1118_5 cannot begin; it verifies both of these children and one of them alone leaves half its checklist unrunnable.",
+      "entries": [
+        {
+          "entry_id": "e3",
+          "task": "aitasks#1118_3",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": ["aitasks#1118_2"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Placed first within the wave because it is an extraction of an already-working desktop flow (minimonitor's action_launch_shadow) into a shared helper, so its target behaviour is observable today rather than designed from the document. If only one agent is working the topic, this is the lower-variance of the two.",
+          "expected_outcome": "One shared spawn_shadow_for_pane helper serving both the desktop action and the new applink verb, with the one-shadow-per-agent guard and pane binding preserved.",
+          "why_order_matters": "Order within the wave is a mild preference — the two entries have no edge between them.",
+          "confidence": "medium",
+          "caveats": ["Carries the tmux_destructive label; the extraction moves live pane-spawning code."]
+        },
+        {
+          "entry_id": "e4",
+          "task": "aitasks#1118_4",
+          "topic": "aitasks#1118",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": ["aitasks#1118_2"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The read half of driving: the shadow_concerns RPC plus the staleness and binding fields on pane_status. It is the highest-effort child and carries the topic's one subtle invariant — that passive status polling must not clear the stale flag — so it benefits from being taken when nothing else is in flight against router.py.",
+          "expected_outcome": "The app can read a live shadow's parsed concerns and tell a stale read from a current one.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 4,
+      "title": "Live verification and close-out",
+      "purpose": "Confirm on real hardware that the three landed children behave as the contract says, then let the parent archive.",
+      "why_now": "Its checklist spans t1118_2, t1118_3 and t1118_4 together; run earlier it can only produce partial verdicts.",
+      "consequence_of_delay": "The topic stays open and the paired mobile work has no aitasks-side confirmation to build on.",
+      "entries": [
+        {
+          "entry_id": "e5",
+          "task": "aitasks#1118_5",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": ["aitasks#1118_3", "aitasks#1118_4"],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "The only member that can distinguish 'the RPC returns a shape' from 'a real device shows a real shadow's concerns'. Four of its six checks need a paired device and a live shadow, so it is not automatable and not compressible into the implementation waves.",
+          "expected_outcome": "A recorded pass/fail verdict per behaviour, and a follow-up bug task for anything that fails.",
+          "why_order_matters": "Run before wave 3 completes, its checks for the spawn verb and the concerns RPC have nothing to exercise.",
+          "confidence": "high",
+          "caveats": ["Its frontmatter records a cross-repo dependency on aitasks_mobile#32_2, which this trail's scope does not observe."]
+        },
+        {
+          "entry_id": "e6",
+          "task": "aitasks#1118",
+          "topic": "aitasks#1118",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Present for completeness: it is a parent-of-children carrying the cross-repo pairing and the shared plan, not a unit of work. It archives once its five children do and should never be picked directly.",
+          "confidence": "high"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev1",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task 1118",
+      "observed_at": "2026-08-17T13:43:46Z",
+      "summary": "Gatherer snapshot: 6 members (aitasks#1118 plus five children), 12 inputs (6 plan files, 6 task files), depends edges 1118_1 -> 1118_2 -> {1118_3, 1118_4} -> 1118_5, digest 1c44cb4efd49b5b6."
+    }
+  ],
+  "rendering_hints": {"depth": "lite"}
+}

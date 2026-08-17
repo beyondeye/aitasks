@@ -10,8 +10,12 @@ gates: [risk_evaluated]
 children_to_implement: [t1118_1, t1118_2, t1118_3, t1118_4, t1118_5]
 implemented_with: claudecode/fable5
 created_at: 2026-07-03 07:54
-updated_at: 2026-07-03 11:38
+updated_at: 2026-08-17 16:54
 boardidx: 150528
+artifacts:
+  - handle: art:trail-mobile-shadow-driving
+    kind: implementation_trail
+    name: Mobile shadow-agent driving over applink — landing order
 ---
 
 ## Goal
