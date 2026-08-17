@@ -745,3 +745,184 @@ handles `STALE`.
   `.claude/skills/aitask-trail/SKILL.md.j2`,
   `tests/golden/skills/aitask-trail/SKILL-{default,fast,remote}-claude.md`,
   `tests/test_trail_skill_contract.sh`.
+
+### Change Request 4 (2026-08-17 10:12) — ambiguous handle must re-resolve after the choice
+
+CONFIRMED by reproduction: `trail-x --deep` resolved to
+`MODE:ambiguous_handle | DEPTH:deep | HANDLE:art:trail-x`. Step 0 said to use
+that output "for the rest of the run", so a user who then chose **show** kept a
+usable `DEPTH:deep` and never reached the show branch's `DEPTH:n/a` /
+`NOTE:depth_ignored_for_show`. The leak CR3-B closed for an explicit
+`--show <handle> --deep` reopened through the ambiguous path — the same defect
+by a different route, which is exactly why it was worth chasing.
+
+**Structural half (so it cannot be skipped by accident).** The resolver now
+emits **`DEPTH:unresolved`** for `MODE:ambiguous_handle`, with or without a
+depth flag. The mode is not decided yet, so there is no authoring depth to
+report — and withholding a usable value makes the re-resolve *necessary* rather
+than merely instructed. A prose "remember to re-run it" would have left the
+stale `deep` sitting there for anyone who forgot.
+
+**Instruction half.** Step 0 states that `ambiguous_handle` is not a runnable
+mode: after the show-or-refresh question, re-run the resolver with the chosen
+selector inserted before the handle, keeping every original argument, and use
+the **second** run's values. Three contract pins guard it.
+
+**Both branches pinned** (they must differ — refresh honours the flag, show
+discards it and says so):
+
+| re-resolved as | MODE | DEPTH | NOTE |
+|---|---|---|---|
+| `--refresh trail-x --deep` | refresh | deep | — |
+| `--show trail-x --deep` | show | n/a | depth_ignored_for_show |
+| `--refresh trail-x` | refresh | lite | — |
+| `--show trail-x` | show | n/a | — |
+
+**Verification.** Resolver suite 33 → **39 cases**; contract 153 → **162**.
+Negative control: deleting the `ambiguous_handle` arm fails the 3 named
+withholding cases, green on restore. shellcheck clean. Full sweep green:
+`PYTHON SUITE: PASSED (runner=pytest, exit=0)`, render 52/52, codeagent 27/27,
+`skill_verify` clean.
+
+- **Files affected:** `.aitask-scripts/aitask_trail_depth.sh`,
+  `tests/test_trail_depth_resolve.sh`,
+  `.claude/skills/aitask-trail/SKILL.md.j2`,
+  `tests/golden/skills/aitask-trail/SKILL-{default,fast,remote}-claude.md`,
+  `tests/test_trail_skill_contract.sh`.
+
+### Change Request 5 (2026-08-17 10:32) — the re-resolve is a REPLACEMENT, not an append
+
+CONFIRMED. CR4's wording said to re-run "with the chosen selector inserted
+before the handle, **keeping every original argument**". Read literally that
+retains the bare token, so `trail-x --deep` becomes
+`--show trail-x trail-x --deep`, which the resolver rejects:
+
+    ERROR:conflicting_modes:--show,trail-x        (exit 1)
+    ERROR:conflicting_modes:--refresh,trail-x     (exit 1)
+
+The code examples showed only the depth flags carrying over, so the prose and
+the examples contradicted each other — and the prose is what a model follows.
+
+**Changes made.** Step 0 now says to **replace** the bare handle token with
+`--show <handle>` / `--refresh <handle>` while preserving the original depth
+flags, states that the bare token is *consumed* by the rewrite, and shows the
+wrong form by name with the exact error it produces. Two pins guard the wording
+and two resolver cases pin both wrong transformations as hard errors — so the
+next person to reword this cannot quietly reintroduce the append reading.
+
+**A pin caught the reword itself.** `**re-run the resolver** with the chosen
+selector` stopped matching when the sentence changed — the guard working as
+intended.
+
+**Wrap-spanning pin audit (root cause, fixed for the whole set).** Three times
+in this task a contract pin silently spanned a line wrap in the rendered
+golden: a multi-line literal only matches by luck of where the renderer breaks.
+All **32** t1505_4 pins are now verified to match within a single rendered
+line, checked by extracting each literal from the test source and asserting it
+appears in some one line of the golden. (The one deliberate multi-line pin is
+t1468_5's, which is intentionally newline- and indentation-sensitive.)
+
+**Verification.** Resolver 39 → **41 cases**; contract 162 → **168**. Full
+sweep green: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, render 52/52,
+codeagent 27/27, `skill_verify` clean, schema copies byte-identical.
+shellcheck: clean on the resolver; the test file reports only the pre-existing
+`SC1091` info for sourcing `tests/lib/asserts.sh`, as every test file does.
+
+- **Files affected:** `.claude/skills/aitask-trail/SKILL.md.j2`,
+  `tests/test_trail_depth_resolve.sh`,
+  `tests/golden/skills/aitask-trail/SKILL-{default,fast,remote}-claude.md`,
+  `tests/test_trail_skill_contract.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done.** Lite is now the default depth for create and refresh
+  (`--deep` opts out, `--lite` states the default), the depth is recorded as
+  `rendering_hints.depth`, `narrative.overview` is authored at both depths, and
+  every flow ends with a run summary print. Three enforcement layers landed
+  rather than the planned one:
+  1. `trail_schema.py` phase-2 `lite_shape` rule — a `depth: lite` document must
+     omit `observations`/`relations`/`exclusions`/per-entry `evidence_refs`
+     (key presence, not emptiness) and carry exactly one `evidence` record.
+  2. `depth_marker` rule + `validate_trail(..., expect_depth=)` — the run
+     asserts its own depth from parsed arguments, so omitting or misspelling the
+     marker is not an escape from the lite contract.
+  3. `.aitask-scripts/aitask_trail_depth.sh` — a deterministic Step 0 resolver,
+     so the grammar is decided by a script rather than applied by the model.
+  Plus the deep→lite refresh downgrade preflight (all five discarded dimensions
+  with counts + the version-recovery route), the sweep gated to `--deep`, and
+  §3/§6/§8 of the design doc.
+
+- **Deviations from plan.** Layers 2 and 3 and the whole resolver were **not**
+  in the approved plan; they came from review (CR1–CR5), each closing a
+  confirmed hole in the layer before it. Two plan items were also corrected on
+  evidence rather than followed: the post-phase `producer_test_both_depths` was
+  **not built** (see below), and the end-of-run print does **not** print the
+  summary "verbatim" as the task text asked — it uses `trail_summary_text()`'s
+  normalization so the CLI and the By-Trail pane cannot disagree about the same
+  field. Both deviations are argued in place rather than silently taken.
+
+- **Issues encountered.**
+  - The plan's `producer_test_both_depths` mitigation was **unbuildable as
+    specified**: it said to extend a t1468_5 test that does not exist —
+    t1468_5 explicitly dropped it because an agent-authored producer cannot be
+    driven by a unit test. Replaced with the enforcement layers above plus the
+    already-queued t1505_5 checklist item, and the reasoning recorded under
+    "What this plan deliberately does NOT build" instead of quietly skipping it.
+  - **My own resolver had the exact bug the conventions warn about**: operands
+    captured via `handle="$(take_operand …)"` swallowed the `ERROR:` line into
+    the variable and `set -e` killed the script — exit 1, empty stdout. Fixed to
+    set a global; `assert_error` now pins stdout *and* status so a status-only
+    assertion cannot pass on it again.
+  - **Contract pins spanning line wraps, three times.** A multi-line literal
+    matches only by luck of where the renderer breaks. Root-caused rather than
+    patched case-by-case: all 32 new pins are now verified to match within a
+    single rendered line.
+  - **Two false negative controls of my own.** One `sed` errored out (unescaped
+    `|` delimiter) and one Python mutation aborted on an assertion before
+    writing; both reported "0 failures" while having mutated nothing. Redone
+    from script files with the mutation confirmed applied. Every guard in this
+    task has now been observed failing for a named reason.
+  - `is_depth_flag()` became dead code once dash-leading operands were rejected
+    wholesale; shellcheck (SC2329) caught it and it was deleted — a dead guard
+    is worse than none because it reads as coverage.
+
+- **Key decisions.**
+  - **Refresh defaults to lite** (user's call), which makes the flag-free path
+    the destructive one — hence the preflight enumerating all five dimensions
+    *with counts*. Measured on the live trail: 26 observations, 32 relations,
+    14 exclusions, **69 evidence records → 1**, **71 citations across 31
+    entries**. The evidence dimensions dominate and were exactly what the first
+    draft's wording would have hidden.
+  - **Key presence, not emptiness**, for the lite shape — matching t1505_2's
+    canonical `_lite_doc()` fixture, so producer predicate and consumer guard
+    are the same predicate.
+  - **`DEPTH:n/a` for show and `DEPTH:unresolved` for an ambiguous handle** —
+    withholding a usable depth is what makes the show path and the re-resolve
+    structurally correct instead of relying on the model remembering.
+  - **No schema `const` bump and no required-field change**, so all stored
+    trails stay valid; `expect_depth=None` preserves the old behaviour for every
+    caller that has no mode to assert.
+  - `depth` stays inside `rendering_hints` (t1505_1's landed consumer reads it
+    there); the description in both copies now carves it out as reserved
+    semantic metadata rather than leaving it described as ignorable.
+
+- **Upstream defects identified:**
+  - `website/content/docs/tuis/board/reference.md:299 — the literal By-Trail footer transcript is factually wrong since t1505_1: it omits the `v Summary` key. The same file's By-Trail section and how-to.md never mention the summary pane, the `v` key, the `a` reveal key or the depth banner label, all landed by t1505_1/t1505_2.`
+
+- **Notes for sibling tasks:**
+  - **t1505_5 (manual verification)** — its checklist is still accurate but the
+    surface grew. Additional things worth exercising: `--deep` vs no flag;
+    `--show` stating the **stored** depth (`unrecorded` for the two live trails,
+    which carry no marker); a deep→lite refresh showing all five discarded
+    counts *before* the confirmation; and the ambiguous-handle path
+    (`/aitask-trail trail-<slug> --deep` → choose show → the `--deep` must be
+    announced as dropped, not applied). The board banner shows `· lite` / `· deep`
+    only for trails written after this change.
+  - **The depth protocol has four values**, not two: `lite`, `deep`, `n/a`
+    (show), `unresolved` (ambiguous handle). Anything consuming
+    `aitask_trail_depth.sh` must handle all four.
+  - **`rendering_hints.depth` is now load-bearing.** Do not strip or rewrite it
+    in any consumer, and never default an absent value to `"deep"`.
+  - **Codex CLI / OpenCode ports** of this skill remain a separate task per
+    CLAUDE.md; the `.j2` grew substantially here, so the port is larger than a
+    typical one.
