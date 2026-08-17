@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [verification, task-workflow, gates]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-17 11:58
-updated_at: 2026-08-17 17:42
+updated_at: 2026-08-17 18:53
+completed_at: 2026-08-17 18:53
 ---
 
 Brainstorm and design a staleness gate for `issue_type: manual_verification` tasks, to run as a pre-check before the Pass/Fail/Skip/Defer loop in `.claude/skills/task-workflow/manual-verification.md` (before or alongside the existing "pre-loop check — ensure the task has a checklist" step).
@@ -62,3 +63,14 @@ No implementation yet — this is the design/brainstorm pass. A follow-up implem
 > **✅ gate:plan_approved** run=2026-08-17T14:43:04Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-17T15:45:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-17T15:53:11Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8e01eac2d733a79e
+
+> **✅ gate:risk_evaluated** run=2026-08-17T15:53:11Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1538/risk_evaluated_2026-08-17T15:53:11Z-risk_evaluated-a1.log`
