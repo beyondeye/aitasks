@@ -79,3 +79,25 @@ copy is exactly the drift shape t1380 was fixing.
   existing "Environment setup (Step 5) with reuse" bullet
 - `.claude/skills/task-workflow/plan-approved-stop.md` — the stop sequence that
   intentionally leaves the worktree in place
+
+## Superseding context — read before planning this task (t1536)
+
+**t1536_defer_worktree_fork_until_after_plan_approval** moves the
+`git worktree add` out of Step 5 entirely: Step 5 keeps only the branch
+*resolution*, and the fork runs at the top of **Step 7**, after plan approval and
+after the Remote Drift Check clears.
+
+That change dissolves two of the three reaching paths listed above:
+
+- "Approve and stop here" — no worktree was ever created, nothing to collide with
+- "Stop and re-verify plan" — same
+
+Only **Step 7's risk-mitigation "before" stop** still leaves a real worktree
+behind (the fork happens at the top of Step 7, the mitigation stop later within
+it), so a reuse check is still needed — and t1536 carries it as its acceptance
+criterion 4, applied at the new Step 7 fork site rather than at Step 5.
+
+**Do not plan this task against Step 5 without first checking t1536's status.**
+If t1536 has landed, this task's acceptance criteria are already satisfied and it
+should be closed; if t1536 is still pending, the two must be sequenced (this one
+would be re-written by t1536's move) rather than implemented in parallel.
