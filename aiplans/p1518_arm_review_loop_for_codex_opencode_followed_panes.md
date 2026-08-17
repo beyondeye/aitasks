@@ -691,3 +691,103 @@ Neither is `WORK`, so neither can fire the loop. Confirmed live for both agents.
 
 Every entry shipped in Step 2 maps 1:1 onto a **passing** verdict row above.
 No candidate failed, so no agent is excluded on boundary grounds.
+
+### Safety-bar observation 1 — arm and fire, live per agent
+
+Real Codex / OpenCode process as the **followed** pane, a real Claude shadow
+bound via `@aitask_shadow_target`, arming through the real
+`MiniMonitorApp.action_toggle_review_loop` and firing through the real
+`ReviewLoopController.tick`, with every tick's work signal classified from a
+live `capture-pane` of the followed pane.
+
+| agent | `pane_current_command` | resolved `agent_key` | armed | work ticks | parked at prompt | fires |
+|---|---|---|---|---|---|---|
+| codex | `node` | `codex` | **yes** | t001–t007 | t007 | **1** (t009) |
+| opencode | `opencode` | `opencode` | **yes** | t001–t008 | t008 | **1** (t010) |
+
+Both then held FIRED for the remainder of a 90-second window — one automatic
+round, not a repeat. Arming emitted `Auto-recheck loop armed — press 'L' again
+to disarm` in both cases.
+
+The Codex row also exercises **rung 2** of `agent_keys.agent_key_from_pane`
+live: its pane really does report `node` (the npm wrapper shape), so
+command-only resolution would have answered `""` and the arm would have been
+refused as unresolvable rather than granted.
+
+Two harness findings worth recording, since both would have produced a
+*silently wrong* result rather than an error:
+
+- **A single long literal `send-keys` is coalesced by Codex.** A 78-character
+  prompt reached the composer as `518arm.txt`, so the agent did unrelated work
+  and never reached a dialog — indistinguishable, from the loop's side, from
+  "the boundary does not work". Sending in 30-character chunks fixes it. This is
+  the same coalescing t1525 measured for the shadow-side delivery; it applies to
+  any driver typing into a Codex pane.
+- **The composer must be verified non-empty before Enter.** A first OpenCode
+  attempt submitted nothing at all and reported `fires=0`, which reads exactly
+  like a failed observation. The driver now asserts `shadow_state == busy`
+  pre-Enter, so a vanished send fails loudly instead of scoring as evidence.
+
+### Verdict
+
+Both agents satisfy all three safety-bar observations, so both are added to
+`REVIEW_LOOP_AGENTS`. No agent was excluded.
+
+---
+
+## Post-review changes
+
+### Change Request 1 (2026-08-17) — both concerns confirmed and fixed
+
+**1. Misplaced test entry point (blocking).** `tests/test_minimonitor_concern_action.py`
+carried `if __name__ == "__main__": unittest.main()` at **line 1095** of a
+3100-line file. `unittest.main()` calls `sys.exit()`, so running the file
+directly stopped the interpreter there and every class below was never defined —
+`Ran 55 tests ... OK`, silently skipping 122 others including the entire
+`ReviewLoopArmTests` class this task modified. Discovery-based runs
+(`python3 -m unittest`, the suite runner) import the module rather than executing
+it as `__main__`, which is why it had gone unnoticed.
+
+I had found this and recorded it as an out-of-scope upstream defect. That was the
+wrong call: it makes the plan's own verification command report green on a subset,
+so it is this task's problem. The entry point is now at the true end of the file,
+with a comment saying why it must stay there. `python3 tests/test_minimonitor_concern_action.py`
+now reports **177 tests** and collects all four new arming tests.
+
+**2. Step 5a did not exercise the application path (blocking).**
+`FollowedPaneClassificationSmokeTests` drove real panes through the real capture,
+but then called `classify_followed_change` and `ReviewLoopController.tick`
+**directly** — so a defect in `action_toggle_review_loop`'s shadow lookup, in the
+baseline `_service_review_loop` seeds and maintains, or in the fire/delivery
+wiring would have left every new smoke test green. That is not what Step 5a
+promised.
+
+The class now also creates a **real shadow pane** per agent (the Claude-shaped
+composer stub under a binary named `claude`, bound via `@aitask_shadow_target`)
+and adds:
+
+- `test_app_arms_and_fires_one_round_through_the_real_path` — for **both**
+  Codex and OpenCode: arms via the real `action_toggle_review_loop` (real
+  server-wide shadow lookup, real two-rung agent resolution, real readiness
+  detection), services real snapshots through the real `_service_review_loop`,
+  and asserts the recheck line lands in the shadow pane **exactly once**;
+- `test_app_does_not_fire_on_a_selection_redraw` — the negative control, same
+  path, asserting nothing is injected.
+
+Three implementation notes, each a defect found while building it:
+
+- The shadow must be its **own window**, not a split of the followed pane: a
+  split halves the followed pane's height and the bottom-aligned fixtures came
+  back truncated (130 rows → 65).
+- The app must be armed with `stale=False`. `action_toggle_review_loop` passes
+  `pending_work=(self._shadow_feedback_stale is True)`, so arming while already
+  stale opens the work latch immediately — correct in production, but it made
+  the negative control fire and would have let the positive test pass for a
+  reason unrelated to the boundary. Staleness is switched on after arming, and
+  the test asserts `work_seen` is False at arm time.
+- Negative controls re-run against the new tests: an injected residual
+  `claude-only` guard fails the arming assertion for both agents, and neutering
+  both boundary regexes fails the fire assertion (`'waiting' != 'fired'`) for
+  both agents.
+
+`bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
