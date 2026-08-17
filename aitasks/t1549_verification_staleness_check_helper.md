@@ -28,7 +28,7 @@ deterministic seam plus the new frontmatter field.
    FILES:<n>
    CHANGED:<path>|<n_commits>|<task_ids>        0+ lines
    DELETED:<path>|<culprit_task>|<subject>      0+ lines
-   UNKNOWN:<path>|<reason>                      0+ lines, advisory only
+   UNKNOWN:<path>|<reason>                      0+ lines, raises ASK_STALE
    DISPLAY:<one-line human summary>
    DECISION:<FRESH|ASK_STALE|SKIP>
    ```
@@ -41,9 +41,16 @@ deterministic seam plus the new frontmatter field.
    3. verification_baseline: absent               -> SKIP   (precondition)
    4. baseline not an ancestor of HEAD            -> SKIP   (history rewritten)
    5. classify each curated path
-   6. any CHANGED / DELETED                       -> ASK_STALE
+   6. any CHANGED / DELETED / UNKNOWN             -> ASK_STALE
    7. otherwise                                   -> FRESH
    ```
+
+   **`UNKNOWN` drives the verdict — it is NOT advisory.** A curated path that
+   cannot be checked means the check covers less scope than it claims, so
+   reporting `FRESH` would be a false all-clear. An `UNKNOWN:` line raises
+   `ASK_STALE` exactly like a change does. The `DISPLAY:` line must distinguish
+   the causes, because the remedies differ: a changed file suggests amending the
+   checklist, an uncheckable path suggests fixing `file_references:`.
 
    `SKIP` is fail-open and silent — "cannot tell" must never render as "stale"
    (mirror `code_digest` in `lib/gate_ledger.py`, where unverifiable is its own
@@ -64,7 +71,7 @@ deterministic seam plus the new frontmatter field.
    |---|---|---|
    | yes | yes | history query -> `CHANGED:` or nothing |
    | yes | no  | `DELETED:` — culprit via `git log --diff-filter=D -M --name-status <baseline>..HEAD -- <path>` |
-   | no  | —   | `UNKNOWN:<path>` — reported, does NOT drive the verdict |
+   | no  | —   | `UNKNOWN:<path>|absent_at_baseline` — raises `ASK_STALE` |
 
    History query: `git log --format='%h|%ad|%s' <baseline>..HEAD -- <path>`.
    `CHANGED:` task ids come from commit subjects via the existing parenthesised
@@ -76,6 +83,20 @@ deterministic seam plus the new frontmatter field.
 2. **`verification_baseline:` frontmatter field** — `<sha> @ <YYYY-MM-DD HH:MM>`.
    Add **additive** write support to `aitask_update.sh` per
    `aidocs/framework/aitasks_extension_points.md`.
+
+   **Setter interface — this is a cross-task contract, not an implementation
+   detail.** t1550 (seeding) and t1551 (advance-on-review) both call it, so ship
+   exactly this and do not leave the shape to whichever slice lands first:
+
+   ```bash
+   ./.aitask-scripts/aitask_update.sh --batch <task_id> \
+       --verification-baseline "<sha> @ <YYYY-MM-DD HH:MM>"
+   ```
+
+   A single scalar in exactly the stored form; an empty string clears the field.
+   Reads go through `read_yaml_field` like any other scalar — there is no
+   presence-vs-emptiness distinction to preserve, which is what keeps the change
+   additive.
 
    **Do NOT touch how any existing shared field is emitted.** Specifically: do not
    add presence tracking to `file_references`, do not add `--file-refs-none` /
@@ -104,9 +125,23 @@ Bash with `tests/lib/asserts.sh`, fixed deterministic timestamps in the style of
 - **mixed**: one changed, one deleted, one untouched => exactly two evidence
   lines, `FILES:3`, `ASK_STALE`
 
-**Negative control:** curated files untouched => `FRESH`. Name the failing id if
-it reports otherwise — a detector that cannot say FRESH is the failure mode the
-whole design exists to avoid.
+**Invalid scope must not read as fresh — the anti-false-assurance case:**
+- a **hand-edited** `file_references:` entry naming a path that does not exist at
+  the baseline (a typo, or a path added after the baseline) => `UNKNOWN:` line
+  **and `DECISION:ASK_STALE`**. Assert explicitly that the verdict is **not**
+  `FRESH` and not `SKIP`: a bad scope entry must never let the task reach the
+  normal verification loop without a prompt, because a `FRESH` verdict over a
+  partly-uncheckable list is indistinguishable to the user from a real all-clear.
+- **mixed valid + invalid**: two curated paths, one genuinely untouched and one
+  bogus => `ASK_STALE` with exactly one `UNKNOWN:` line, and the `DISPLAY:` text
+  names the uncheckable path distinctly from a changed one (the remedies differ:
+  fix `file_references:` vs amend the checklist).
+
+**Negative control:** curated files untouched **and all valid** => `FRESH`. Name
+the failing id if it reports otherwise — a detector that cannot say FRESH is the
+failure mode the whole design exists to avoid. Note this control only holds when
+every path is checkable, which is what makes the two invalid-scope cases above its
+necessary complement.
 
 **Precondition skips** (one each, asserting no `CHANGED:` / `DELETED:` line):
 populated list but no baseline; baseline but no list; neither; baseline not an
@@ -115,8 +150,13 @@ ancestor of HEAD.
 **Baseline advance:** after a simulated "Proceed unchanged" the baseline is at
 HEAD and a re-run reports `FRESH` — the prompt does not re-fire.
 
-**Round-trip:** `verification_baseline:` survives an unrelated
-`aitask_update.sh --batch <id> --status Done`.
+**Setter round-trip (parse / set / preserve):**
+- `--verification-baseline "<sha> @ <ts>"` writes the field, and reading it back
+  yields the byte-identical value
+- the field **survives** an unrelated `aitask_update.sh --batch <id> --status Done`
+- `--verification-baseline ""` clears it
+- a task that never had the field does not gain an empty one from an unrelated
+  update
 
 **Guard against scope creep:** assert that a task with **no** `file_references:`
 still has none after an unrelated update (no accidental empty-list

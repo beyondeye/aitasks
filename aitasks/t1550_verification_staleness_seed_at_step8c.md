@@ -44,7 +44,15 @@ seeding step:
 3. **User confirms** the shortlist.
 4. **Write both fields**: the paths as repeatable `--file-ref` arguments (**bare
    paths — no range suffixes**, v1 ignores them) and `verification_baseline:` =
-   HEAD.
+   HEAD, via the setter t1549 ships:
+
+   ```bash
+   ./.aitask-scripts/aitask_update.sh --batch <new_id> \
+       --verification-baseline "$(git rev-parse HEAD) @ $(date '+%Y-%m-%d %H:%M')"
+   ```
+
+   Do **not** hand-mutate the frontmatter and do not invent a second setter — the
+   interface is specified in t1549 precisely so this task does not have to.
 
 ## Narrowing is mandatory, not a nicety
 

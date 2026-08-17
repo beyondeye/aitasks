@@ -32,3 +32,4 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1551] Pick the seeded manual-verification task in a real terminal after modifying one curated file, and confirm the pre-check prompt appears BEFORE the autonomous-verification offer (step 1.5), not after
 - [ ] [t1551] Answer "Proceed unchanged", then re-pick the same task and confirm the prompt does NOT re-fire (the baseline advanced)
 - [ ] [t1551] Answer "Amend the checklist", abandon the edit midway, and confirm the task file is unchanged — neither the items nor the baseline advanced
+- [ ] [t1549] Hand-edit a curated `file_references:` entry to a bogus path, then pick the task and confirm the pre-check RAISES a prompt naming that path (never a silent FRESH) — a bad scope entry must not reach the verification loop unnoticed

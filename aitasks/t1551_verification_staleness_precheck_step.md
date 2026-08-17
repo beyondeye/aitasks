@@ -38,11 +38,19 @@ dispatch on `DECISION`:
   existing tasks — do not warn.)
 - `ASK_STALE` → print the `DISPLAY:` line **verbatim**, then `AskUserQuestion`,
   mirroring the `ASK_STALE` prompt shape in `planning.md`:
-  - "Amend the checklist" — show the changed files' diffs against the baseline
-    beside the current checklist, propose item edits, user accepts / edits /
-    rejects per item.
+  - "Amend the checklist" — show the evidence beside the current checklist and
+    propose edits; user accepts / edits / rejects per item.
   - "Proceed unchanged" — staleness noted, judged immaterial.
   - "Abort" — Task Abort Procedure; baseline untouched.
+
+  **`ASK_STALE` has two distinct causes and the prompt must not blur them.**
+  `CHANGED:` / `DELETED:` lines mean the code moved under the checklist — the
+  remedy is amending items. `UNKNOWN:` lines mean a curated path could not be
+  checked at all (typically a hand-edited or stale `file_references:` entry) — the
+  remedy is fixing the scope list, and on that path "Amend the checklist" should
+  offer to correct `file_references:` rather than only the item text. Surface the
+  `UNKNOWN:` paths explicitly; never let an uncheckable scope entry pass as a
+  clean run.
 
 Advisory only: it must **never** block archival, and nothing is rewritten without
 the user accepting it.
