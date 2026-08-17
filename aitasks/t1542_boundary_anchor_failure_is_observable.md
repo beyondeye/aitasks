@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1159_7]
 issue_type: enhancement
 status: Ready
 labels: [shadow, aitask_monitormini]
@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1159
 followup_kind: risk_mitigation
 created_at: 2026-08-17 12:50
-updated_at: 2026-08-17 12:50
+updated_at: 2026-08-17 16:21
 ---
 
 ## Origin
@@ -57,3 +57,24 @@ anchor. Do not weaken the `UNKNOWN` default itself; the point is to make its
 Reference: t1518's archived plan records the measurement recipe and the shipped
 tables (`NATIVE_DIALOG_BOUNDARIES`, `NATIVE_DIALOG_STRATEGIES`,
 `DELIBERATELY_UNANCHORED_KINDS`).
+
+## Coordination
+
+`depends: [t1159_7]`, added after creation. Step 8d spawns "after" mitigations
+with no dependency by default, and that was wrong here.
+
+- **t1159_7** (refactor review-loop post-review accretion) restructures
+  `review_loop.py` and splits `_service_review_loop` into named stages. This
+  task adds observability *into* that function, i.e. exactly the accretion
+  t1159_7 exists to clean up. Its own task file already applies this reasoning
+  to the neighbouring work: "**t1503** … is sequenced after this task so it does
+  not add fresh accretion to `_service_review_loop`." The same applies here.
+- **t1503** (surface review-loop non-convergence) targets the **same user
+  surface** — "say so where the user already looks — the minimonitor loop
+  banner". Read t1503 before designing this one: if it lands first, this signal
+  should attach to whatever seam it establishes rather than adding a second,
+  competing banner qualifier. t1503 is itself blocked on t1159_6 + t1159_7.
+
+Neither is a scope change — the goal above stands. The sequencing exists so this
+signal is designed against the post-refactor seam instead of being rewritten by
+it.

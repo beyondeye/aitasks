@@ -27,7 +27,32 @@ Review the code quality of the t1159_2 auto-recheck loop implementation and refa
 
 ## Hard constraints
 
-- **Behavior is the spec and it is test-pinned**: 53 pure tests (`tests/test_review_loop.py`), ~35 loop tests in `tests/test_minimonitor_concern_action.py`, the live injection smoke, and the hints/bindings parity audit. Every reproduction from the review rounds is among them. The refactor must keep all of them green *unmodified* (fixture-shape edits only where an internal seam moves — never weaken an assertion; each guard exists because its violation was reproduced).
+- **Behavior is the spec and it is test-pinned**: **118 pure tests** (`tests/test_review_loop.py`), **177 tests** in `tests/test_minimonitor_concern_action.py` (of which ~40 are loop tests), **11 tests** in `tests/test_minimonitor_concern_smoke.py` (the live injection smoke plus a live followed-pane classification class), and the hints/bindings parity audit. Every reproduction from the review rounds is among them. The refactor must keep all of them green *unmodified* (fixture-shape edits only where an internal seam moves — never weaken an assertion; each guard exists because its violation was reproduced).
+
+  **Counts re-derived 2026-08-17 (t1518), and they moved a lot** — the original
+  figures were `53` pure and `~35` loop tests. Re-count before relying on them
+  again rather than trusting this line; the point of the numbers is to notice a
+  test that *disappeared* during the refactor, which a stale figure cannot do.
+  What t1518 added, all of it new surface this refactor must preserve:
+  - `NativeDialogBoundaryTests` and `ConservativeDefaultSurvivesTests` over real
+    captured frames — both directions per agent per native dialog;
+  - `ArmedAgentKindCoverageTests`, a **total** invariant over every prompt kind
+    an armed agent can report, with three built-in negative controls. Its kind
+    set is derived from the production seam (`scope_patterns(all_patterns(),
+    agent)`), so it follows the scoping rule rather than restating it;
+  - `FollowedPaneClassificationSmokeTests` in the smoke module — real tmux panes
+    driven through `action_toggle_review_loop` and `_service_review_loop`. **This
+    one pins the entry signature of `_service_review_loop` from a live test**, so
+    a stage split that changes its parameters must update it.
+  - Three tables the refactor should keep together and keep documented:
+    `NATIVE_DIALOG_BOUNDARIES`, `NATIVE_DIALOG_STRATEGIES` (defined even when
+    empty — the lookup in `_native_block_start` is unconditional) and
+    `DELIBERATELY_UNANCHORED_KINDS`.
+
+  Note also that `tests/test_minimonitor_concern_action.py` had `unittest.main()`
+  stranded mid-file until t1518 moved it to the end; running that file directly
+  used to report a green `Ran 55 tests` while skipping every loop test. If a
+  count here ever looks implausibly low, check the entry point first.
 - The safety contract in `aidocs/framework/shadow_agent.md` → "Review-loop automation" (10 items + two documented residuals) is the external spec; update it only if the refactor genuinely relocates a mechanism.
 - Advisory-only contract: phase must never gate firing (the negative control must keep passing).
 
