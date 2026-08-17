@@ -6,7 +6,13 @@
 #   - task_id_from_window_name  (pane->task mapping)
 #   - is_shadow_target          (shadow marker predicate)
 #   - count_other_real_agents   (per-window real-agent counting)
-#   - TmuxMonitor._parse_list_panes filters shadow helper panes
+#   - TmuxMonitor._parse_list_panes returns (agents, shadows): the shadow
+#     marker diverts a pane into the second list, the companion predicate is
+#     consulted regardless of window classification, neither helper enters
+#     _pane_cache, and both the 10-field and legacy 9-field row shapes parse.
+#     The exhaustive companion-filter contract (memoization, TTL, per-session
+#     eviction, call counting) is owned by tests/test_monitor_companion_filter.py
+#     and is deliberately NOT duplicated here.
 #   - TaskInfoCache.get_task_id_for_pane resolves per pane (cached)
 #
 # Tier 2 (skips without tmux): real-tmux integration —
@@ -52,6 +58,15 @@ def check(label, cond):
         failures.append(label)
 
 
+def check_eq(label, actual, expected):
+    """Like `check`, but reports the mismatch so a breakage names the drift."""
+    if actual == expected:
+        print(f"  ok: {label}")
+    else:
+        print(f"  FAIL: {label} — got {actual!r}, expected {expected!r}")
+        failures.append(label)
+
+
 # -- task_id_from_window_name -------------------------------------------------
 check("pick window -> id", task_id_from_window_name("agent-pick-100") == "100")
 check("qa child window -> id", task_id_from_window_name("agent-qa-100_1") == "100_1")
@@ -75,24 +90,77 @@ check("empty -> zero", count_other_real_agents([], "%1") == 0)
 
 # -- _parse_list_panes filters shadow + companion panes -----------------------
 mc._is_companion_process = lambda pid: pid == 9999  # patch: pid 9999 == companion
-monitor = TmuxMonitor(session="testsess")
-FMT_LINE = "\t".join  # 9 tab-separated fields per the discovery format
+# exclude_pane="" pins the fixture: the default reads $TMUX_PANE, so running the
+# suite from inside a tmux pane would leak an ambient pane id into discovery.
+monitor = TmuxMonitor(session="testsess", exclude_pane="")
+FMT_LINE = "\t".join  # _LIST_PANES_FORMAT: 10 tab-separated fields (9 = legacy)
+
+MISSING = "<attr missing>"
+
+
+def shape_of(obj):
+    """Describe the return shape without indexing into it."""
+    if (isinstance(obj, tuple) and len(obj) == 2
+            and all(isinstance(x, list) for x in obj)):
+        return "tuple[list, list]"
+    if isinstance(obj, (tuple, list)):
+        return f"{type(obj).__name__}[{len(obj)}]"
+    return type(obj).__name__
+
+
+def attr(obj, name):
+    """Project a field without raising when the element shape drifts."""
+    return getattr(obj, name, MISSING)
+
 
 stdout = "\n".join([
     # agent pane (target empty, pid not companion) -> kept
-    FMT_LINE(["0", "agent-pick-100", "0", "%1", "1234", "node", "80", "24", ""]),
-    # shadow helper pane (target set) -> filtered even though pid not companion
-    FMT_LINE(["0", "agent-pick-100", "1", "%2", "1235", "node", "80", "24", "%1"]),
-    # companion pane (pid 9999) -> filtered
-    FMT_LINE(["0", "agent-pick-100", "2", "%3", "9999", "python", "80", "24", ""]),
+    FMT_LINE(["0", "agent-pick-100", "0", "%1", "1234", "node", "80", "24", "", "500"]),
+    # shadow helper pane (target set) -> shadow list, even though pid not companion
+    FMT_LINE(["0", "agent-pick-100", "1", "%2", "1235", "node", "80", "24", "%1", "12"]),
+    # companion pane (pid 9999) in an agent-named window -> filtered
+    FMT_LINE(["0", "agent-pick-100", "2", "%3", "9999", "python", "80", "24", "", "40"]),
+    # legacy 9-field row (no #{history_size}) -> parsed, history_size None
+    FMT_LINE(["0", "agent-pick-100", "3", "%4", "1236", "node", "80", "24", ""]),
+    # companion in a NON-agent window: classify_pane -> OTHER. This is the row
+    # that discriminates the t1382 fix — under the old `category == AGENT and …`
+    # conjunct the predicate was never consulted and this pane leaked through.
+    # Every agent-pick-100 row above is filtered under either form.
+    FMT_LINE(["0", "noam_bugs", "0", "%5", "9999", "python", "80", "24", "", "7"]),
 ])
-panes = monitor._parse_list_panes(stdout, "testsess")
-check("discovery keeps exactly one real agent", len(panes) == 1)
-check("discovery kept the agent pane (%1)",
-      len(panes) == 1 and panes[0].pane_id == "%1")
-kept_ids = {p.pane_id for p in panes}
-check("shadow pane %2 excluded", "%2" not in kept_ids)
-check("companion pane %3 excluded", "%3" not in kept_ids)
+
+# Guard the return shape BEFORE unpacking: a regression to the pre-t1133 single
+# list (or any other shape) would otherwise raise here, recreating the very
+# traceback this block exists to replace with a comparison.
+result = monitor._parse_list_panes(stdout, "testsess")
+check_eq("_parse_list_panes returns (agents, shadows)",
+         shape_of(result), "tuple[list, list]")
+
+if shape_of(result) != "tuple[list, list]":
+    # Do NOT unpack or touch attributes. The check above already reported the
+    # drift; name the skipped assertions so they cannot pass vacuously.
+    print("  BLOCKED: discovery assertions (return shape changed)")
+    failures.append("discovery assertions blocked by return-shape change")
+else:
+    panes, shadows = result
+    check_eq("discovery keeps the real agent panes only",
+             [attr(p, "pane_id") for p in panes], ["%1", "%4"])
+    check_eq("shadow pane returned in the shadow list",
+             [attr(p, "pane_id") for p in shadows], ["%2"])
+    check_eq("shadow carries its followed-agent target",
+             [attr(s, "shadow_target") for s in shadows], ["%1"])
+    check_eq("companion panes excluded from both lists",
+             sorted(map(str, {"%3", "%5"} & {attr(p, "pane_id")
+                                             for p in panes + shadows})), [])
+    check_eq("10-field row parses history_size",
+             [attr(p, "history_size") for p in panes
+              if attr(p, "pane_id") == "%1"], [500])
+    check_eq("legacy 9-field row parses with history_size None",
+             [attr(p, "history_size") for p in panes
+              if attr(p, "pane_id") == "%4"], [None])
+    # Cache-boundary invariant: only agent-facing panes enter _pane_cache.
+    check_eq("shadow + companions stay out of _pane_cache",
+             sorted(map(str, monitor._pane_cache)), ["%1", "%4"])
 
 # -- TaskInfoCache.get_task_id_for_pane (pane-keyed, cached) ------------------
 cache = TaskInfoCache(Path("/tmp"))
