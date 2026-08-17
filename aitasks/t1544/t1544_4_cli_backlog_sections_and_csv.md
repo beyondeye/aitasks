@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [t1544_3]
 issue_type: feature
 status: Ready
 labels: [reporting, metrics, backlog]
 gates: [risk_evaluated]
 anchor: 1544
 created_at: 2026-08-17 22:06
-updated_at: 2026-08-17 22:06
+updated_at: 2026-08-17 22:09
 ---
 
 ## Context

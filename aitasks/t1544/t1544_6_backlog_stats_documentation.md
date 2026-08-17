@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1544_4, t1544_5]
 issue_type: documentation
 status: Ready
 labels: [documentation, web_site, reporting]
 gates: [risk_evaluated]
 anchor: 1544
 created_at: 2026-08-17 22:07
-updated_at: 2026-08-17 22:07
+updated_at: 2026-08-17 22:09
 ---
 
 ## Context

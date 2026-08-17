@@ -5,11 +5,11 @@ depends: [t1544_6]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1544_1, 1544_4, 1544_5, 1544_6]
+verifies: [t1544_1, t1544_4, t1544_5, t1544_6]
 anchor: 1544
 followup_kind: manual_verification
 created_at: 2026-08-17 22:08
-updated_at: 2026-08-17 22:08
+updated_at: 2026-08-17 22:09
 ---
 
 ## Manual Verification Task
