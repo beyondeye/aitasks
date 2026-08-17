@@ -5,6 +5,10 @@ depends: [t1505_4]
 issue_type: manual_verification
 status: Implementing
 labels: [verification, manual]
+active_gates: []
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.08c6f06389cd
 verifies: [t1505_1, t1505_2, t1505_3, t1505_4]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
