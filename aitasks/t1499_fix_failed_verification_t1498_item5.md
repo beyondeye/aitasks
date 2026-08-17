@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: [1498]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, aitask_monitormini, shadow]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: verification_failure
 created_at: 2026-08-12 17:21
-updated_at: 2026-08-12 17:21
+updated_at: 2026-08-17 17:59
 ---
 
 ## Failed verification item from t1498
