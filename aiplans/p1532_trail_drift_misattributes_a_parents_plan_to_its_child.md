@@ -404,3 +404,84 @@ mitigations)` steps above and no tasks are created for them (Step 7 / Step 8d
 read `before` / `after` lines only). Levels were reassessed against the augmented
 plan and are unchanged (`low` / `low`): the phases add only test assertions and a
 read-only re-run.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the two planned changes, no more.
+  `plan_glob_regex()` in `.aitask-scripts/lib/trail_gather.py` had its
+  `(?:.*/)?` prefix replaced by `(?:^|.*/)` on **both** branches, plus a
+  `(?<!p<ID>/)` negative lookbehind on the parent branch. `tests/test_trail_gather.py`
+  gained a `PlanGlobRegexTests` class (5 unit tests, section E) and
+  `PlanIdentityTests.test_parent_and_child_plans_current_in_both_input_orders`
+  with its `_swap_plan_inputs` helper. Both inline post-phase risk mitigations
+  (`pin_regex_boundary_edges`, `verify_live_trail_reason_parity`) were executed.
+
+- **Deviations from plan:** None after approval. During planning the reviewer
+  correctly rejected the first form of the fix: `(?:.*/)?` + lookbehind alone
+  still let `re.search` start mid-segment, so `aiplans/notp1159_root.md`
+  remained attributable to member `1159`. The approved plan therefore covers a
+  second defect (B) beyond the one t1532 reported, affecting the child branch
+  too (`aiplans/notp1159/p1159_4_x.md` was attributed to `1159_4`). Both guards
+  are load-bearing: `(?:^|.*/)` alone still lets `.*/` swallow `aiplans/p1159/`,
+  and the lookbehind alone still permits the mid-segment match.
+
+- **Issues encountered:** The live baseline captured at planning time moved
+  under the task: `t1159_4` archived mid-session, taking
+  `aiplans/p1159/p1159_4_docs_and_integration.md` with it, so
+  `art:trail-shadow-review-loop` picked up `input_missing`, `task_completed` and
+  new `new_related_task` reasons unrelated to this change. A plain
+  before/after comparison would have been unreadable. Resolved by re-running
+  both live artifacts under old and new code at **identical repo state** (stash
+  / pop around the drift runs) — output was byte-identical, which isolates the
+  churn from the fix. `art:trail-gates-framework-landing` matched its planning
+  baseline exactly, including digest.
+
+- **Key decisions:**
+  1. Fix (1) from the task (anchor the regex) only; fix (2) (order-independent
+     `next()` selection) deliberately not done — anchoring makes the bad match
+     impossible, so tolerating it downstream is unnecessary.
+  2. The lookbehind omits the leading `/` (`(?<!p<ID>/)`, not `(?<!/p<ID>/)`).
+     A leading slash makes the lookbehind too wide for a directory-less relpath
+     (`p1159/p1159_4_x.md`), where it silently fails open.
+  3. Defect B fixed here rather than deferred to a follow-up: it is the same
+     one-token prefix change, in the same function, found while writing the
+     anchor. Anchoring the pattern while knowingly leaving the other hole in the
+     anchor would be a half-fix.
+  4. `art:trail-shadow-review-loop` left untouched (confirmed with the user).
+     Its v5 parent-first ordering workaround stays valid and inert after the
+     fix; observation `obs-plan-attribution-order` is now a historical authoring
+     note that the trail's next `/aitask-trail refresh` should drop. Re-authoring
+     a live trail belongs to that flow, which owns the mandatory pre-write drift
+     and schema validation.
+
+- **Verification evidence:**
+  - Negative control (tests applied, fix reverted): 3 of the 6 new tests fail —
+    `test_parent_pattern_rejects_child_plan_path`,
+    `test_pattern_requires_a_path_segment_boundary`, and the e2e
+    `test_parent_and_child_plans_current_in_both_input_orders`, the last
+    reporting `DRIFT:plan_changed|mainproj#100|plan moved:
+    mainproj:aiplans/p100/p100_1_child.md -> mainproj:aiplans/p100_root.md` —
+    the exact shape t1532 describes. The other 3 pass under old code, as
+    expected (they pin behaviour the old pattern already had right).
+  - `python3 -m unittest tests.test_trail_gather`: 83 tests, OK.
+  - `bash tests/run_all_python_tests.sh`: `PYTHON SUITE: PASSED (runner=pytest,
+    exit=0)`.
+  - Live acceptance on the real defect: the stored `art:trail-shadow-review-loop`
+    with its two plan records swapped into the gatherer's own emission order
+    (child first) emits `DRIFT:plan_changed|aitasks#1159|plan moved:
+    aitasks:aiplans/p1159/p1159_4_docs_and_integration.md ->
+    aitasks:aiplans/p1159_shadow_review_loop_automation.md` under the old code
+    and **nothing** under the new one, with `DIGEST:d499d2b909e7f3f4` in all
+    four runs — confirming the digest is order-independent and the fault was
+    purely the attribution pass, as the task's evidence table claimed.
+
+- **Upstream defects identified:** None.
+
+  (Defect B is not an upstream defect — it is a second flaw in the *same*
+  expression this task fixes, found while fixing it, and it is fixed here.)
+
+- **Unrelated repository observations (not defects in any code):** three large
+  untracked files sit in the repo root — `copy` (8.2 MB), `json` (49 MB) and
+  `os` (49 MB), timestamped during this session but not created by it; and a
+  pre-existing `git stash` entry based on commit `1e9ef6129` is still on the
+  stack. Both predate this task's changes and were left alone.
