@@ -963,3 +963,37 @@ artifacts leaked into the tree.
 
 - **Files affected:** `website/content/docs/tuis/board/reference.md`,
   `website/content/docs/tuis/board/how-to.md`.
+
+### Post-archival fix (2026-08-17) — depth validation goes through a wrapper
+
+Found while checking whether the Codex CLI / OpenCode wrappers needed adapting
+to this task's new arguments. **They did not** — the stubs only strip
+`--profile` and forward the rest unchanged, the body is rendered from the same
+`.md.j2` for all three agents, and the only agent-specific path in it is the
+pre-existing `model-self-detection.md` reference that `walk-write` rewrites. But
+the check surfaced a defect this task introduced.
+
+The pre-write depth assertion called
+`python3 .aitask-scripts/lib/trail_schema.py validate … --expect-depth …`
+directly — the **only** direct lib-python invocation in any skill. It bypassed
+`python_resolve.sh` (bare `python3` is not the framework's interpreter), broke
+the wrapper convention `aitask_trail_gather.sh` exists to uphold, and was on no
+agent's permission allowlist: the sole `python3` entry anywhere covers one
+unrelated script, and `.codex/rules/default.rules` / `seed/opencode_config.seed.json`
+carry **no python entries at all**. Every trail write would have prompted, worst
+for Codex and OpenCode users.
+
+Fixed by adding a `validate` verb to `aitask_trail_depth.sh` — already
+allowlisted at all five touchpoints, already owns the depth concern — which
+resolves the interpreter via `require_ait_python` and passes the validator's
+`VALID:` / `INVALID:` protocol and 0/1/2 exit codes straight through. The
+template now calls the wrapper. Guarded by two contract pins, one an **absence**
+check on `python3 .aitask-scripts/lib/` so the regression cannot return.
+
+Resolver suite 41 → **47 cases**; contract 168 → **174**. Negative controls:
+dropping `--expect-depth` forwarding fails 3 named cases; reverting the golden to
+the bare `python3` call trips both new pins.
+
+**Note for t1505_5:** the manual-verification checklist should exercise
+`./.aitask-scripts/aitask_trail_depth.sh validate <file> --expect-depth lite|deep`,
+not the `python3 …` form quoted in this plan's earlier Verification section.
