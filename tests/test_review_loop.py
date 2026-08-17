@@ -19,6 +19,7 @@ contracts, each with a control so a green run cannot be vacuous:
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import os
 import sys
@@ -33,6 +34,29 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import review_loop as rl  # noqa: E402
 import review_loop_fixtures as fx  # noqa: E402
+import prompt_patterns as pp  # noqa: E402
+import workflow_phase as wp  # noqa: E402
+from ansi_utils import strip_ansi as strip  # noqa: E402
+
+
+@contextlib.contextmanager
+def patched_strategy(key, fn):
+    """Temporarily register a NATIVE_DIALOG_STRATEGIES entry.
+
+    Mutates the shipped dict rather than rebinding the name: production reads
+    the module global, so a rebind would leave the real lookup untouched and
+    the test would pass without exercising anything.
+    """
+    had = key in rl.NATIVE_DIALOG_STRATEGIES
+    prev = rl.NATIVE_DIALOG_STRATEGIES.get(key)
+    rl.NATIVE_DIALOG_STRATEGIES[key] = fn
+    try:
+        yield
+    finally:
+        if had:
+            rl.NATIVE_DIALOG_STRATEGIES[key] = prev
+        else:
+            rl.NATIVE_DIALOG_STRATEGIES.pop(key, None)
 
 
 def make_ready_kwargs(**overrides):
@@ -1184,25 +1208,16 @@ class ReviewLoopAgentSupportTests(unittest.TestCase):
     """The arming predicate is SEPARATE from `live_tiers_available` (t1467).
 
     That separation is invisible to inspection once both look like per-agent
-    predicates, so it is asserted directly: t1467 wired Codex/OpenCode prompt
-    markers, which makes the advisory phase available for them — but this loop
-    INJECTS keys into the shadow pane, so it must stay Claude-only until each
-    agent's boundary strategy has its own live evidence.
+    predicates, so it is asserted directly. It is still real after t1518, even
+    though all three shipped agents now satisfy both: an agent wired into
+    AGENT_KEYS ahead of its own live boundary evidence satisfies the first and
+    must not satisfy the second.
     """
 
-    def test_claude_is_supported(self):
-        self.assertTrue(rl.review_loop_agent_supported("claude"))
-
-    def test_wired_agents_are_still_not_loop_supported(self):
-        import workflow_phase as wp
-        for agent in ("codex", "opencode"):
-            self.assertTrue(
-                wp.live_tiers_available(agent),
-                f"{agent} should have live tiers since t1467")
-            self.assertFalse(
-                rl.review_loop_agent_supported(agent),
-                f"{agent} must NOT be armable — the loop injects, so widening "
-                f"it is its own task")
+    def test_truth_table(self):
+        """Every agent armable today earned it with its own live evidence."""
+        for agent in ("claude", "codex", "opencode"):
+            self.assertTrue(rl.review_loop_agent_supported(agent), agent)
 
     def test_unknown_and_empty_are_not_supported(self):
         for agent in ("", "node", "python", "some_future_agent"):
@@ -1212,6 +1227,148 @@ class ReviewLoopAgentSupportTests(unittest.TestCase):
         """Guards against the predicate and the constant drifting apart."""
         for agent in rl.REVIEW_LOOP_AGENTS:
             self.assertTrue(rl.review_loop_agent_supported(agent))
+
+    def test_arming_predicate_is_not_live_tiers_available(self):
+        """The two predicates agree on today's agents — assert they are not the
+        SAME predicate, or the distinction quietly becomes an alias.
+
+        A synthetic agent with a question-widget kind (hence live tiers) but no
+        entry in the armable tuple must split them.
+        """
+        agent = "synthetic_wired_agent"
+        prev = wp.QUESTION_WIDGET_KINDS.get(agent)
+        wp.QUESTION_WIDGET_KINDS[agent] = ("synthetic_question",)
+        try:
+            self.assertTrue(wp.live_tiers_available(agent))
+            self.assertFalse(
+                rl.review_loop_agent_supported(agent),
+                "live tiers must not confer arming — the loop injects keys")
+        finally:
+            if prev is None:
+                wp.QUESTION_WIDGET_KINDS.pop(agent, None)
+            else:
+                wp.QUESTION_WIDGET_KINDS[agent] = prev
+
+
+class ArmedAgentKindCoverageTests(unittest.TestCase):
+    """Every awaiting-input kind an ARMED agent can report must resolve.
+
+    A weaker "the agent has *some* strategy" guard is worthless here: Codex and
+    OpenCode have satisfied the question-widget half since t1467, so such a
+    guard stays green while a permission-dialog row is omitted or later
+    deleted — and the loop would arm while classifying that dialog UNKNOWN,
+    which is exactly the gap t1518 closed.
+    """
+
+    @staticmethod
+    def _reportable_kinds(agent: str) -> set[str]:
+        """The kinds production can actually report for `agent`.
+
+        Derived from the PRODUCTION seam, never reassembled by hand.
+        `TmuxMonitor` defaults its pattern list to `all_patterns()` and
+        `classify_content` narrows it with `scope_patterns`, which is
+        SUBTRACTIVE and deliberately retains the cross-agent `"all"` group for
+        every resolved agent. A union built from `PROMPT_PATTERNS_BY_AGENT`
+        alone would silently exclude that group.
+        """
+        return {p.name for p in pp.scope_patterns(pp.all_patterns(), agent)}
+
+    @staticmethod
+    def _resolves(agent: str, kind: str) -> bool:
+        return (kind in wp.QUESTION_WIDGET_KINDS.get(agent, ())
+                or rl.native_dialog_anchored(agent, kind)
+                or (agent, kind) in rl.DELIBERATELY_UNANCHORED_KINDS)
+
+    def _unresolved(self, agents=None) -> list[tuple[str, str]]:
+        out = []
+        for agent in (agents if agents is not None else rl.REVIEW_LOOP_AGENTS):
+            kinds = self._reportable_kinds(agent)
+            self.assertTrue(kinds, f"{agent} has no reportable prompt kinds")
+            out += [(agent, k) for k in sorted(kinds)
+                    if not self._resolves(agent, k)]
+        return out
+
+    def test_every_armed_agent_kind_resolves(self):
+        self.assertEqual(
+            self._unresolved(), [],
+            "an armed agent's dialog would classify UNKNOWN — give it a "
+            "boundary, or record it in DELIBERATELY_UNANCHORED_KINDS with a "
+            "reason")
+
+    # --- negative controls: each mutation must make the guard fail ----------
+
+    def test_control_dropping_a_permission_row_fails_the_guard(self):
+        """Mutate the shipped dict, never delete the source line: a deleted
+        line fails with KeyError/NameError, which proves nothing about the
+        guard."""
+        key = ("codex", "codex_permission")
+        removed = rl.NATIVE_DIALOG_BOUNDARIES.pop(key)
+        try:
+            self.assertIn(key, self._unresolved())
+        finally:
+            rl.NATIVE_DIALOG_BOUNDARIES[key] = removed
+        self.assertEqual(self._unresolved(), [])  # restored
+
+    def test_control_agent_without_strategies_fails_the_guard(self):
+        """A newly-wired agent with patterns but no boundaries must fail.
+
+        Asserted in BOTH scoping regimes, because they differ and only one is
+        the realistic shape:
+
+        * registered in `AGENT_KEYS` — scoping narrows to the agent's own
+          group, so its single kind is the only unresolved one;
+        * NOT registered — `scope_patterns` fails open to the whole flat list
+          (its documented pre-t1467 behaviour), so the guard flags every kind
+          the agent could report. Still a failure, and a louder one.
+        """
+        agent = "synthetic_unanchored_agent"
+        kind = "synthetic_agent_prompt"
+        pp.PROMPT_PATTERNS_BY_AGENT[agent] = [
+            pp.PromptPattern(kind, re.compile("zzz"))]
+        try:
+            # Unregistered: fail-open flat list, so the agent's own kind is
+            # present among many.
+            self.assertIn((agent, kind), self._unresolved([agent]))
+
+            # Registered: scoping narrows, and its kind is the ONLY one left.
+            prev_keys = pp.AGENT_KEYS
+            pp.AGENT_KEYS = prev_keys + (agent,)
+            try:
+                self.assertEqual(self._unresolved([agent]), [(agent, kind)])
+            finally:
+                pp.AGENT_KEYS = prev_keys
+        finally:
+            pp.PROMPT_PATTERNS_BY_AGENT.pop(agent, None)
+
+    def test_control_generic_all_group_pattern_fails_the_guard(self):
+        """Pins the `"all"`-group derivation.
+
+        `scope_patterns` retains the `"all"` group for EVERY resolved agent, so
+        a generic prompt added there becomes reportable for all of them. If the
+        guard's kind set is ever narrowed back to `PROMPT_PATTERNS_BY_AGENT[
+        agent]`, this control goes green — and a green negative control is the
+        defect, not the pass.
+        """
+        kind = "synthetic_generic_prompt"
+        pattern = pp.PromptPattern(kind, re.compile("zzz-generic"))
+        pp.PROMPT_PATTERNS_BY_AGENT["all"].append(pattern)
+        try:
+            unresolved = self._unresolved()
+            for agent in rl.REVIEW_LOOP_AGENTS:
+                self.assertIn(
+                    (agent, kind), unresolved,
+                    f"a generic '{'all'}'-group kind must be caught for {agent}")
+            # ...and the documented escape really is the exemption table.
+            for agent in rl.REVIEW_LOOP_AGENTS:
+                rl.DELIBERATELY_UNANCHORED_KINDS[(agent, kind)] = "test"
+            try:
+                self.assertEqual(self._unresolved(), [])
+            finally:
+                for agent in rl.REVIEW_LOOP_AGENTS:
+                    rl.DELIBERATELY_UNANCHORED_KINDS.pop((agent, kind), None)
+        finally:
+            pp.PROMPT_PATTERNS_BY_AGENT["all"].remove(pattern)
+        self.assertEqual(self._unresolved(), [])  # restored
 
 
 class PerAgentBlockBoundaryTests(unittest.TestCase):
@@ -1245,6 +1402,226 @@ class PerAgentBlockBoundaryTests(unittest.TestCase):
             rl.classify_followed_change(prev, "codex_question", curr,
                                         "codex_question", True, "codex"),
             rl.WORK)
+
+
+class NativeDialogBoundaryTests(unittest.TestCase):
+    """Native (chip-less) permission dialogs, on REAL captures (t1518).
+
+    Before t1518 `NATIVE_DIALOG_BOUNDARIES` held one row, so every content
+    change under a Codex or OpenCode dialog kind fell through to UNKNOWN —
+    safe, but the work latch could neither open nor reset while such a dialog
+    was up. Both directions are asserted per agent per dialog: a row that only
+    proves the no-fire direction proves nothing, because UNKNOWN would pass it.
+    """
+
+    CODEX_KIND = "codex_permission"
+    OC_KIND = "opencode_permission"
+
+    # --- codex: cursor is a `›` glyph, so the STRIPPED text changes ---------
+
+    def test_codex_exec_approval_selection_is_selection_only(self):
+        self.assertEqual(
+            rl.classify_followed_change(
+                fx.CODEX_EXEC_APPROVAL_SEL1_RAW, self.CODEX_KIND,
+                fx.CODEX_EXEC_APPROVAL_SEL2_RAW, self.CODEX_KIND,
+                True, "codex"),
+            rl.SELECTION_ONLY)
+
+    def test_codex_exec_approval_output_above_boundary_is_work(self):
+        self.assertEqual(
+            rl.classify_followed_change(
+                fx.CODEX_EXEC_APPROVAL_SEL1_RAW, self.CODEX_KIND,
+                fx.CODEX_EXEC_APPROVAL_LATER_RAW, self.CODEX_KIND,
+                True, "codex"),
+            rl.WORK)
+
+    def test_codex_selection_pair_really_differs_when_stripped(self):
+        """Premise control for the two tests above.
+
+        If the pair were stripped-identical the SELECTION_ONLY assertion would
+        pass as NO_CHANGE... except it would not, and that asymmetry is the
+        point: this pins WHY codex asserts SELECTION_ONLY where opencode
+        asserts NO_CHANGE, so a future fixture refresh cannot silently swap the
+        mechanism under either test.
+        """
+        self.assertNotEqual(strip(fx.CODEX_EXEC_APPROVAL_SEL1_RAW),
+                            strip(fx.CODEX_EXEC_APPROVAL_SEL2_RAW))
+
+    def test_codex_yes_proceed_shares_the_exec_approval_boundary(self):
+        """Both kinds are the same dialog anchored at two distances.
+
+        `codex_yes_proceed` was never observed as the reported kind on 0.146.0
+        (its footer always wins, first-match), so this is the only place the
+        row is exercised at all — which is exactly why it is asserted rather
+        than trusted.
+        """
+        self.assertIs(
+            rl.NATIVE_DIALOG_BOUNDARIES[("codex", "codex_yes_proceed")],
+            rl.NATIVE_DIALOG_BOUNDARIES[("codex", "codex_permission")])
+        self.assertEqual(
+            rl.classify_followed_change(
+                fx.CODEX_EXEC_APPROVAL_SEL1_RAW, "codex_yes_proceed",
+                fx.CODEX_EXEC_APPROVAL_SEL2_RAW, "codex_yes_proceed",
+                True, "codex"),
+            rl.SELECTION_ONLY)
+
+    # --- opencode: selection is pure ANSI styling ---------------------------
+
+    def test_opencode_permission_selection_is_no_change(self):
+        """NOT SELECTION_ONLY, and the difference is measured, not incidental.
+
+        OpenCode draws its selection purely as styling, so the ANSI strip
+        erases it and `classify_followed_change` returns NO_CHANGE *before*
+        reaching any boundary. Both verdicts are equally non-firing, so the
+        loop is safe either way — but asserting the wrong one here would hide a
+        real regression: if a future OpenCode drew a glyph cursor instead, this
+        test would start failing and the boundary would need re-measuring.
+        """
+        self.assertEqual(
+            rl.classify_followed_change(
+                fx.OPENCODE_PERMISSION_SEL1_RAW, self.OC_KIND,
+                fx.OPENCODE_PERMISSION_SEL2_RAW, self.OC_KIND,
+                True, "opencode"),
+            rl.NO_CHANGE)
+
+    def test_opencode_selection_pair_moved_but_strips_identical(self):
+        """Ground-truth control for the test above.
+
+        The RAW frames must differ (the selection genuinely moved) while the
+        stripped frames must not. Without the raw half, a fixture pair captured
+        from a keypress that never registered would satisfy the NO_CHANGE
+        assertion vacuously — which is precisely what happened during the
+        t1518 measurement when `Tab` was sent instead of `Right`.
+        """
+        self.assertNotEqual(fx.OPENCODE_PERMISSION_SEL1_RAW,
+                            fx.OPENCODE_PERMISSION_SEL2_RAW)
+        self.assertEqual(strip(fx.OPENCODE_PERMISSION_SEL1_RAW),
+                         strip(fx.OPENCODE_PERMISSION_SEL2_RAW))
+
+    def test_opencode_permission_output_above_boundary_is_work(self):
+        """The direction the boundary row actually exists for."""
+        self.assertEqual(
+            rl.classify_followed_change(
+                fx.OPENCODE_PERMISSION_SEL1_RAW, self.OC_KIND,
+                fx.OPENCODE_PERMISSION_LATER_RAW, self.OC_KIND,
+                True, "opencode"),
+            rl.WORK)
+
+    # --- the phrase/structural branch, pinned to what shipped ---------------
+
+    def test_exactly_one_mechanism_carries_opencode_permission(self):
+        """Both tables are always defined; only the ENTRY is branch-dependent.
+
+        Asserting on symbol existence would assert the wrong thing — the
+        strategy table ships empty precisely so the precedence lookup in
+        `classify_followed_change` is unconditional.
+        """
+        key = ("opencode", "opencode_permission")
+        in_regex = key in rl.NATIVE_DIALOG_BOUNDARIES
+        in_strategy = key in rl.NATIVE_DIALOG_STRATEGIES
+        self.assertNotEqual(in_regex, in_strategy,
+                            "exactly one mechanism must carry the key")
+        # t1518 measured the two equivalent and selected the phrase branch.
+        self.assertTrue(in_regex)
+        self.assertFalse(in_strategy)
+
+    def test_strategy_mechanism_resolves_a_block_start(self):
+        """The callable arm of the precedence lookup, proven by execution.
+
+        The shipped strategy table is empty, so nothing in production takes
+        this arm today — it would be an unexercised path, and an unexercised
+        lookup is how a nominal table gets shipped. Register a synthetic entry
+        and drive both directions through it.
+        """
+        kind = "synthetic_native_kind"
+        key = ("opencode", kind)
+        marker = "=== SYNTHETIC BLOCK START ==="
+
+        def start(lines):
+            for idx in range(len(lines) - 1, -1, -1):
+                if marker in lines[idx]:
+                    return idx
+            return None
+
+        block = f"{marker}\n  option a\n  option b"
+        prev = "shared scrollback\n" + block + "\n> a"
+        curr = "shared scrollback\n" + block + "\n> b"
+        grew = "shared scrollback\nNEW OUTPUT\n" + block + "\n> a"
+        with patched_strategy(key, start):
+            self.assertEqual(
+                rl.classify_followed_change(prev, kind, curr, kind,
+                                            True, "opencode"),
+                rl.SELECTION_ONLY)
+            self.assertEqual(
+                rl.classify_followed_change(prev, kind, grew, kind,
+                                            True, "opencode"),
+                rl.WORK)
+        # ...and it is really gone again, so the table stays empty as shipped.
+        self.assertNotIn(key, rl.NATIVE_DIALOG_STRATEGIES)
+
+    def test_strategy_returning_none_is_unknown_not_a_fallback(self):
+        """Negative control for the test above.
+
+        A strategy that cannot locate its block must yield UNKNOWN. If the
+        regex table were consulted anyway (precedence bug), a kind with both
+        entries would silently classify through the wrong mechanism.
+        """
+        kind = "synthetic_native_kind"
+        key = ("opencode", kind)
+        with patched_strategy(key, lambda lines: None):
+            self.assertEqual(
+                rl.classify_followed_change("a", kind, "b", kind,
+                                            True, "opencode"),
+                rl.UNKNOWN)
+
+    def test_strategy_table_wins_over_the_regex_table(self):
+        """Precedence, asserted directly rather than inferred from ordering.
+
+        Register a strategy for a kind the REGEX table already anchors; the
+        strategy's index must be the one used. Pinned because the two tables
+        agreeing by accident would hide a reversed lookup.
+        """
+        key = ("codex", "codex_permission")
+        self.assertIn(key, rl.NATIVE_DIALOG_BOUNDARIES)  # premise
+        with patched_strategy(key, lambda lines: None):
+            self.assertEqual(
+                rl.classify_followed_change(
+                    fx.CODEX_EXEC_APPROVAL_SEL1_RAW, "codex_permission",
+                    fx.CODEX_EXEC_APPROVAL_SEL2_RAW, "codex_permission",
+                    True, "codex"),
+                rl.UNKNOWN,
+                "the strategy table must be consulted before the regex table")
+
+
+class ConservativeDefaultSurvivesTests(unittest.TestCase):
+    """The `return UNKNOWN` fallthrough is why an unmapped dialog cannot
+    misfire, and t1518 widened the set of agents that reach it. Asserted
+    explicitly so a later "just add a catch-all" cannot pass quietly."""
+
+    def test_palette_is_unmapped_by_design_and_classifies_unknown(self):
+        key = ("opencode", "opencode_palette")
+        self.assertNotIn(key, rl.NATIVE_DIALOG_BOUNDARIES)
+        self.assertNotIn(key, rl.NATIVE_DIALOG_STRATEGIES)
+        self.assertIn(key, rl.DELIBERATELY_UNANCHORED_KINDS)
+        self.assertEqual(
+            rl.classify_followed_change("a", "opencode_palette",
+                                        "b", "opencode_palette",
+                                        True, "opencode"),
+            rl.UNKNOWN)
+
+    def test_claude_unanchored_kinds_still_classify_unknown(self):
+        for kind in ("claude_trust_folder", "claude_proceed",
+                     "claude_help_bar"):
+            self.assertEqual(
+                rl.classify_followed_change("a", kind, "b", kind,
+                                            True, "claude"),
+                rl.UNKNOWN, kind)
+
+    def test_every_exemption_carries_a_reason(self):
+        for key, reason in rl.DELIBERATELY_UNANCHORED_KINDS.items():
+            self.assertIsInstance(reason, str, key)
+            self.assertTrue(reason.strip(),
+                            f"{key} is exempted with no reason")
 
 
 class ComposeRecheckPromptTests(unittest.TestCase):

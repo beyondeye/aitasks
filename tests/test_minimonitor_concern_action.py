@@ -1092,10 +1092,6 @@ class ShadowFreshnessTests(unittest.TestCase):
         self.assertEqual(len(app._lcw_calls), 2)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 # Epoch of `_ROUND1_BLOCK`'s header (2026-08-11T14:03:27Z) and of
 # `_ROUND2_BLOCK`'s (14:09:41Z). Pinned so a timeline can be built around them.
 _R1_EPOCH = 1786457007.0
@@ -1638,20 +1634,62 @@ class ReviewLoopArmTests(unittest.TestCase):
         self.assertFalse(app._review_loop.armed)
 
     def test_refuses_followed_agent_the_loop_does_not_support(self):
-        """Retargeted in t1467. OpenCode now HAS prompt detection, so the
-        refusal reason changed: the recheck loop INJECTS into the shadow pane,
-        so it stays Claude-only until each agent's boundary strategy has its own
-        live evidence. The invariant — a non-Claude followed pane cannot arm the
-        loop, and the message names it — is unchanged.
+        """Retargeted twice — t1467, then t1518 — onto a SYNTHETIC key.
+
+        t1518 measured Codex and OpenCode boundaries live and added both to
+        `REVIEW_LOOP_AGENTS`, so no real agent reaches this branch any more.
+        Retargeted rather than deleted, for the same reason as the shadow-side
+        refusal below: it is exactly what an agent wired into `AGENT_KEYS`
+        AHEAD of its own live boundary evidence will hit, and such an agent
+        must be refused at ARM time rather than arming into an unclassifiable
+        dialog.
+
+        The invariant is unchanged — an unsupported followed pane cannot arm,
+        and the message names it.
         """
-        for command in ("opencode", "codex"):
+        self.assertNotIn(_UNDETECTED_KEY, _rl.REVIEW_LOOP_AGENTS)  # premise
+        app, mon, _ = _loop_app(self)
+        snap = _snap("%1", current_command=_UNDETECTED_KEY,
+                     agent_key=_UNDETECTED_KEY)
+        app._find_own_agent_snapshot = lambda: snap
+        asyncio.run(app.action_toggle_review_loop())
+        self.assertIn(_UNDETECTED_KEY, app.spy_notify[-1][0])
+        self.assertFalse(app._review_loop.armed)
+
+    def test_refusal_names_the_supported_set_from_the_constant(self):
+        """The message is INTERPOLATED from `REVIEW_LOOP_AGENTS`, not spelled.
+
+        It used to read "the recheck loop is Claude-only for now", which became
+        false the instant the tuple widened — a hardcoded capability claim in a
+        user-facing string with nothing tying it to the capability. Asserting
+        every member appears is what keeps the two in step.
+        """
+        app, mon, _ = _loop_app(self)
+        snap = _snap("%1", current_command=_UNDETECTED_KEY,
+                     agent_key=_UNDETECTED_KEY)
+        app._find_own_agent_snapshot = lambda: snap
+        asyncio.run(app.action_toggle_review_loop())
+        message = app.spy_notify[-1][0]
+        for agent in _rl.REVIEW_LOOP_AGENTS:
+            self.assertIn(agent, message, agent)
+        self.assertNotIn("Claude-only", message)
+
+    def test_arms_for_every_supported_followed_agent(self):
+        """Positive control for the refusal above (t1518).
+
+        A refusal test alone cannot show that a supported agent gets through —
+        an arming path broken for Codex would leave it green. Every member of
+        `REVIEW_LOOP_AGENTS` is driven, so widening the tuple without wiring
+        the agent up fails here.
+        """
+        for agent in _rl.REVIEW_LOOP_AGENTS:
             app, mon, _ = _loop_app(self)
-            snap = _snap("%1", current_command=command)
-            app._find_own_agent_snapshot = lambda: snap
+            snap = _snap("%1", content="agent output", awaiting_input=True,
+                         current_command=agent, agent_key=agent)
+            app._find_own_agent_snapshot = lambda snap=snap: snap
             asyncio.run(app.action_toggle_review_loop())
-            self.assertIn("Claude-only", app.spy_notify[-1][0], command)
-            self.assertIn(command, app.spy_notify[-1][0], command)
-            self.assertFalse(app._review_loop.armed, command)
+            self.assertTrue(app._review_loop.armed,
+                            f"{agent} should arm: {app.spy_notify[-1][0]}")
 
     def test_refuses_unresolvable_followed_pane(self):
         """The measured `node` case: a Codex pane whose command resolves to no
@@ -3051,3 +3089,15 @@ class SpinoffFailureReasonTests(unittest.TestCase):
     def test_an_empty_capture_still_names_the_exit_status(self):
         message = self._reason_shown("", rc=7)
         self.assertIn("exit 7", message)
+
+
+# MUST stay at the very END of the file (t1518). `unittest.main()` calls
+# sys.exit(), so an entry point placed mid-file stops the interpreter there and
+# every class defined below it is never even defined, let alone run — `python3
+# tests/test_minimonitor_concern_action.py` reported a green "Ran 55 tests"
+# while silently skipping 122 others, including every review-loop arming test.
+# Discovery-based runs (`python3 -m unittest`, the suite runner) import the
+# module rather than executing it as __main__ and were unaffected, which is why
+# it went unnoticed.
+if __name__ == "__main__":
+    unittest.main()

@@ -968,6 +968,11 @@ Tier A's *anchors* are agent-neutral, but establishing that a prompt is
 | Codex CLI | yes | yes (`codex_question` + the `Question N/M` header) | **no — measured** |
 | OpenCode | yes | yes (`opencode_question` + the `┃`-gutter block) | **no — measured** |
 
+Tier B being empty is about the *phase*, not about classification: Codex and
+OpenCode both have measured **native-dialog boundaries** (t1518) that let the
+review loop tell work from a selection redraw while such a dialog is up. A
+dialog can be classifiable without carrying a workflow phase, and these two are.
+
 An agent without markers degrades to the ledger-derived phase, or `UNKNOWN` —
 never to a guess. Ask `workflow_phase.live_tiers_available(agent)` rather than
 assuming.
@@ -994,9 +999,40 @@ when the phase is already unknown.
 **Phase available ≠ recheck loop armable.** The auto-recheck loop asks
 `review_loop.review_loop_agent_supported`, not `live_tiers_available`. The first
 answers "can an advisory hint be derived"; the second answers "may a loop that
-*injects keystrokes* into the shadow pane be armed". Codex and OpenCode satisfy
-the first since t1467 and deliberately not the second — widening it is its own
-task, with its own live evidence.
+*injects keystrokes* into the shadow pane be armed".
+
+All three shipped agents satisfy both today — Claude from the start, and Codex
+and OpenCode since t1518 measured each one's native-dialog boundary live and
+observed it arm and fire exactly one round. **The distinction is still real, and
+still enforced:** an agent wired into `AGENT_KEYS` ahead of its own boundary
+evidence satisfies the first and must not satisfy the second, so widening
+`REVIEW_LOOP_AGENTS` stays a per-agent decision backed by its own live session
+rather than something inherited from having prompt markers.
+
+**An armed agent's every prompt kind must resolve.** Arming is not enough on its
+own: a pane parked at a dialog `classify_followed_change` cannot anchor returns
+`UNKNOWN`, which never satisfies the work latch and never resets it, so the loop
+arms and then silently never fires. Three tables carry that contract in
+`monitor/review_loop.py`:
+
+| table | for |
+|---|---|
+| `NATIVE_DIALOG_BOUNDARIES` | dialogs anchored by a header line (regex) |
+| `NATIVE_DIALOG_STRATEGIES` | dialogs delimited by shape (callable); consulted **first**, empty today but always defined so the lookup is unconditional |
+| `DELIBERATELY_UNANCHORED_KINDS` | `(agent, kind)` pairs with no boundary **on purpose**, each with a written reason |
+
+`ArmedAgentKindCoverageTests.test_every_armed_agent_kind_resolves` in
+`tests/test_review_loop.py` makes this total: for every agent in
+`REVIEW_LOOP_AGENTS`, every kind `prompt_patterns.scope_patterns` can report —
+including the cross-agent `"all"` group — must appear in a question-widget
+table, a dialog table, or the exemption table. A kind in none of them is an
+omission and fails. When adding an agent, expect to add rows to all three.
+
+**Known gap, recorded rather than closed:** Claude's `claude_help_bar`,
+`claude_proceed` and `claude_trust_folder` sit in `DELIBERATELY_UNANCHORED_KINDS`
+with the reason "no measured boundary". A Claude pane parked at a tool-permission
+dialog therefore classifies `UNKNOWN` — the same under-detection t1518 closed for
+Codex, still open for Claude. Closing it needs its own live measurement.
 
 ### Transport and consumption
 

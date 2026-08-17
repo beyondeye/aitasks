@@ -47,6 +47,7 @@ practice (t1474).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 try:
     from .ansi_utils import strip_ansi
@@ -690,11 +691,26 @@ SHADOW_STATE_DETECTORS = {
 #
 # Deliberately NOT `workflow_phase.live_tiers_available`: that answers "can an
 # advisory phase hint be derived?", this answers "may an INJECTING loop be
-# armed?". t1467 wired Codex and OpenCode markers, which makes the first true
-# for them — but a newly-measured marker must earn the second separately, since
-# this loop sends keys into a pane rather than changing a default. Widening it
-# is its own task, with its own live evidence.
-REVIEW_LOOP_AGENTS: tuple[str, ...] = ("claude",)
+# armed?". The separation is still real — an agent wired into AGENT_KEYS ahead
+# of its own live evidence satisfies the first and must not satisfy the second.
+#
+# What earned each entry (each is a LIVE observation, not an inference):
+#   claude   — t1159_2, the original loop.
+#   codex    — t1518. Exec-approval boundary measured over 5 reps
+#              (codex-cli 0.146.0): selection movement classifies
+#              SELECTION_ONLY, work above the boundary classifies WORK.
+#   opencode — t1518. Permission-dialog boundary measured over 5 reps
+#              (1.18.18): selection movement leaves the STRIPPED capture
+#              byte-identical (NO_CHANGE, never WORK), work above the boundary
+#              classifies WORK.
+# Both also confirmed live on their question widgets, and both arm-and-fire
+# exactly one round with a real shadow. The measurement tables are in
+# aiplans/archived/p1518_*.md.
+#
+# Adding a fourth agent is the same bar: measure, then widen. The completeness
+# guard in tests/test_review_loop.py enforces that every kind an armed agent can
+# report resolves to a boundary or is explicitly exempted.
+REVIEW_LOOP_AGENTS: tuple[str, ...] = ("claude", "codex", "opencode")
 
 
 def review_loop_agent_supported(agent: str) -> bool:
@@ -813,6 +829,32 @@ def shadow_prompt_ready(raw_text: str | None, agent: str,
 # work having happened. 'unknown' never satisfies the latch and never resets
 # anything — tri-state discipline.
 
+# Codex's exec-approval dialog header. `codex_permission` (footer, distance 1)
+# and `codex_yes_proceed` (option row, distance 5) are the SAME dialog anchored
+# at two distances, so both map to this one boundary.
+#
+# Measured live 2026-08-17 against codex-cli 0.146.0 at 120x30 (t1518): the line
+# renders at index -13, exactly once per live frame, and is absent from at-rest
+# and working frames — including at a repetition whose transcript already held
+# five RESOLVED approval dialogs, so the header does not persist once the dialog
+# closes. The only lines that change while the cursor moves are the option rows
+# at -5/-4, strictly below it.
+_CODEX_EXEC_APPROVAL_RE = re.compile(
+    r"Would you like to run the following command\?"
+)
+
+# OpenCode's permission dialog header, measured live 2026-08-17 against 1.18.18
+# at 120x30 (t1518): index -11, exactly once per live frame, absent from at-rest
+# and working frames.
+#
+# Note what this row is FOR. OpenCode renders its option selection purely as
+# ANSI styling, so a cursor move leaves the STRIPPED capture byte-identical and
+# `classify_followed_change` returns NO_CHANGE before any boundary is consulted
+# (verified against the raw capture, which does change). The selection direction
+# was never the gap; this boundary exists for the other one — work performed
+# ABOVE a live permission dialog, which classified UNKNOWN without it.
+_OPENCODE_PERMISSION_RE = re.compile(r"Permission required")
+
 # Top boundary line of native (chip-less) dialogs, per (agent, kind).
 # The plan-approval dialog has no AskUserQuestion header chip, so
 # workflow_phase.current_question_block cannot anchor it; this line —
@@ -822,6 +864,58 @@ NATIVE_DIALOG_BOUNDARIES: dict[tuple[str, str], re.Pattern] = {
     ("claude", "claude_plan_approval"): re.compile(
         r"written up a plan and is ready to execute|Would you like to proceed\?"
     ),
+    ("codex", "codex_permission"): _CODEX_EXEC_APPROVAL_RE,
+    # Shipped despite never being observed as the reported kind on 0.146.0
+    # (0/23 live captures): the footer that `codex_permission` matches sits at
+    # distance 1 and matching is first-wins, and nothing renders below it. The
+    # boundary's B1/B2/B3 evidence is the same dialog frame, so the row is
+    # correct if a future version ever surfaces this kind, and omitting it would
+    # mean silently degrading to UNKNOWN in exactly that case (t1518).
+    ("codex", "codex_yes_proceed"): _CODEX_EXEC_APPROVAL_RE,
+    ("opencode", "opencode_permission"): _OPENCODE_PERMISSION_RE,
+}
+
+# Native dialogs delimited by SHAPE rather than by a header line, keyed like
+# NATIVE_DIALOG_BOUNDARIES. Same split, and for the same reason, as
+# workflow_phase.QUESTION_BLOCK_BOUNDARIES / QUESTION_BLOCK_STRATEGIES: a regex
+# matching a gutter glyph alone would match EVERY line of the block, including
+# an earlier already-answered one higher in the tail.
+#
+# Empty today and defined anyway. `classify_followed_change` consults it before
+# the regex table on every native-dialog kind, so a conditionally-defined symbol
+# would be a NameError whenever no agent needed it, and would push callers into
+# `globals().get` crutches. An empty dict is a live miss followed by a regex
+# hit, not a dead branch.
+#
+# OpenCode was the candidate (its permission dialog sits inside a `┃`-gutter run
+# that workflow_phase._opencode_block_start already locates) and was measured
+# EQUIVALENT to the phrase in t1518: the single line between the gutter top
+# (-12) and the header (-11) never changes during selection. The tie went to the
+# simpler mechanism. Reuse `_opencode_block_start` — do not fork the scan.
+NATIVE_DIALOG_STRATEGIES: dict[
+    tuple[str, str], Callable[[list[str]], int | None]] = {}
+
+# (agent, kind) pairs that deliberately have NO boundary, with the reason.
+# Consumed by the completeness guard in tests/test_review_loop.py: a kind that
+# resolves through neither strategy table and is not listed here is an
+# OMISSION and fails the guard.
+#
+# Keyed per AGENT, including for kinds contributed by the cross-agent
+# PROMPT_PATTERNS_BY_AGENT["all"] group — a generic prompt can legitimately need
+# a different boundary per agent, so it is resolved or exempted once per agent
+# rather than globally.
+DELIBERATELY_UNANCHORED_KINDS: dict[tuple[str, str], str] = {
+    ("opencode", "opencode_palette"):
+        "overlay, not a dialog: it renders ~21 lines up, outside "
+        "_PROMPT_DETECTION_TAIL_LINES, so it is never a followed-pane "
+        "awaiting_input_kind (t1520)",
+    # Pre-existing, and NOT closed by t1518 — a Claude pane parked at one of
+    # these classifies UNKNOWN today, the same under-detection this task closed
+    # for Codex. Recorded rather than fixed: closing it needs its own live
+    # measurement of Claude's dialogs.
+    ("claude", "claude_trust_folder"): "no measured boundary (pre-t1518)",
+    ("claude", "claude_proceed"): "no measured boundary (pre-t1518)",
+    ("claude", "claude_help_bar"): "no measured boundary (pre-t1518)",
 }
 
 
@@ -830,6 +924,30 @@ def _boundary_index(lines: list[str], pattern: re.Pattern) -> int | None:
         if pattern.search(lines[idx]):
             return idx
     return None
+
+
+def _native_block_start(lines: list[str], agent_key: str,
+                        kind: str) -> int | None:
+    """Index starting the live native dialog block, or ``None``.
+
+    Strategy table first, regex table second — the same precedence
+    ``workflow_phase.current_question_block`` uses, so the two block-boundary
+    mechanisms cannot disagree about which wins. ``None`` means "could not
+    locate", never a default index.
+    """
+    strategy = NATIVE_DIALOG_STRATEGIES.get((agent_key, kind))
+    if strategy is not None:
+        return strategy(lines)
+    boundary = NATIVE_DIALOG_BOUNDARIES.get((agent_key, kind))
+    if boundary is None:
+        return None
+    return _boundary_index(lines, boundary)
+
+
+def native_dialog_anchored(agent_key: str, kind: str) -> bool:
+    """Does ``(agent_key, kind)`` resolve through either native-dialog table?"""
+    key = (agent_key, kind)
+    return key in NATIVE_DIALOG_STRATEGIES or key in NATIVE_DIALOG_BOUNDARIES
 
 
 def classify_followed_change(prev_content: str | None, prev_kind: str,
@@ -900,10 +1018,11 @@ def classify_followed_change(prev_content: str | None, prev_kind: str,
             return WORK  # scrollback above the live widget grew/changed
         return SELECTION_ONLY
 
-    boundary = NATIVE_DIALOG_BOUNDARIES.get((agent_key, curr_kind or ""))
-    if boundary is not None:
-        start_prev = _boundary_index(prev_lines, boundary)
-        start_curr = _boundary_index(curr_lines, boundary)
+    if native_dialog_anchored(agent_key, curr_kind or ""):
+        # Both mechanisms return an index into the same line list, so the
+        # comparison below is shared verbatim between them.
+        start_prev = _native_block_start(prev_lines, agent_key, curr_kind or "")
+        start_curr = _native_block_start(curr_lines, agent_key, curr_kind or "")
         if start_prev is None or start_curr is None:
             return UNKNOWN
         if prev_lines[:start_prev] != curr_lines[:start_curr]:

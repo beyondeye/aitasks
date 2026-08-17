@@ -244,8 +244,8 @@ When the loop disarms itself — the agent or the shadow pane disappeared, or th
 
 **Where the loop can run.** Two independent requirements, and both are checked when you press **L**:
 
-- The **followed** agent must be Claude Code. The loop injects keystrokes rather than merely reading, so it stays deliberately narrow; arming for anything else refuses with `the recheck loop is Claude-only for now`.
-- The **shadow** can be any of the supported coding agents — Claude Code, Codex CLI, or OpenCode all work, so a Claude agent watched by a Codex or OpenCode shadow arms normally. Minimonitor needs to recognise when that shadow is idle before it will type into it.
+- The **followed** agent can be any of the supported coding agents — Claude Code, Codex CLI, or OpenCode. Each one had to be qualified separately, because the loop injects keystrokes rather than merely reading: minimonitor has to be able to tell real work from a redraw caused by moving the selection in whatever dialog that agent is showing. Arming for an agent that has not been qualified refuses, and the message names the ones that have.
+- The **shadow** can likewise be any of the supported coding agents, so any pairing works — a Codex agent watched by a Claude shadow, or the reverse. Minimonitor needs to recognise when that shadow is idle before it will type into it.
 
 Other refusals are about state rather than support, and each says which: no followed agent pane; no shadow pane yet (launch one with **e**); or the shadow's agent could not be identified yet, which is usually a timing answer worth retrying a moment later rather than a permanent no.
 

@@ -2522,14 +2522,20 @@ class MiniMonitorApp(
         # matching (t1467) — re-deriving it here could disagree with it.
         followed_key = snap.agent_key
         if not review_loop.review_loop_agent_supported(followed_key):
-            # Deliberately NOT `live_tiers_available`: since t1467 that is true
-            # for Codex/OpenCode too, but this loop INJECTS into the shadow pane,
-            # so it stays Claude-only until each agent's boundary strategy has
-            # its own live evidence.
+            # Deliberately NOT `live_tiers_available`: that answers "can an
+            # advisory phase hint be derived", while this loop INJECTS into the
+            # shadow pane, so each agent earns arming with its own live evidence
+            # (t1518 added codex and opencode on measured boundaries). An agent
+            # wired into AGENT_KEYS ahead of that evidence lands here.
+            #
+            # The supported set is INTERPOLATED, never spelled out: the previous
+            # wording hardcoded "Claude-only", which silently became false the
+            # moment the tuple widened.
+            supported = ", ".join(review_loop.REVIEW_LOOP_AGENTS)
             self.notify(
                 f"Auto-recheck unavailable for "
                 f"'{snap.pane.current_command or 'unknown'}' — the recheck loop "
-                "is Claude-only for now",
+                f"supports {supported}",
                 severity="warning")
             return
         ok, shadow_pane, shadow_command, shadow_pid = (
