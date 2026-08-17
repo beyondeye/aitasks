@@ -58,18 +58,37 @@ the user accepting it.
 ## The review transaction — ordering is load-bearing
 
 On the amend path the baseline advance happens **only after** the user's final
-accept/edit decision, and the checklist edit and the baseline update are written
-**together**.
+accept/edit decision, and it is written **together with every other mutation the
+amend produced**.
 
 Advancing first and then failing — or the user abandoning the edit — would
 permanently dismiss the very change the user was brought in to review, and with
 the baseline already at HEAD **no later pick would ever raise it again**. That is
 a silent, unrecoverable loss of the signal the feature exists to produce.
 
-Both writes target the same file (baseline in frontmatter, items in body), so
-compose them into a single `ait_atomic_render` call from `lib/atomic_write.sh`.
+The amend path can produce **three** mutations, all targeting the same file:
 
-**Rule: decide → write both → commit.** Never advance → edit.
+| Mutation | Location | When |
+|---|---|---|
+| checklist item text | body | items are stale |
+| `file_references:` | frontmatter | an `UNKNOWN:` path needs the scope list repaired |
+| `verification_baseline:` | frontmatter | always, on accept |
+
+Because it is one file, compose them into a **single** `ait_atomic_render` pass
+from `lib/atomic_write.sh`. If two frontmatter fields are written through
+`aitask_update.sh` instead, pass **both flags in one invocation** (`--file-ref …
+--verification-baseline …`) so it is one atomic re-emit, not two.
+
+**Invariant, however the writes are decomposed: the baseline may advance only
+after every other mutation has durably succeeded.** If separate writes are used,
+the baseline advance is strictly last and is skipped when any earlier write
+failed. That confines every failure to "scope and/or items updated, baseline not
+advanced" — which re-prompts next pick and is idempotent. The forbidden state is
+the mirror: a baseline at HEAD over an invalid scope list or half-applied items,
+silently unreviewable forever.
+
+**Rule: decide → write everything → advance the baseline last → commit.** Never
+advance → edit.
 
 "Proceed unchanged" advances the baseline immediately (there is no edit to pair it
 with). Advancing on dismissal is what stops the prompt re-firing on every later
@@ -82,9 +101,19 @@ task file's git history plus the advanced baseline.
 
 ## Tests
 
-- **Transaction:** a failure injected between the decision and the write leaves
-  the task file **byte-identical** — neither the items nor the baseline advanced
-  (follow the `tests/test_atomic_task_file_writes.sh` shape).
+- **Transaction (item amend):** a failure injected between the decision and the
+  write leaves the task file **byte-identical** — neither the items nor the
+  baseline advanced (follow the `tests/test_atomic_task_file_writes.sh` shape).
+- **Transaction (scope repair):** on the `UNKNOWN:` path, inject a failure
+  **between the `file_references:` repair and the baseline advance**. Assert the
+  baseline is **not** advanced, and that a re-run still returns `ASK_STALE` — i.e.
+  the task remains re-promptable. Then assert the forbidden state never occurs:
+  there must be no outcome where the baseline sits at HEAD over a
+  `file_references:` list that still contains the uncheckable path. This is the
+  case that a single atomic write makes impossible and that a naive
+  write-scope-then-advance sequence silently produces.
+- **Ordering guard:** with the baseline advance stubbed to fail, the scope and item
+  edits still land (proving the advance is genuinely last, not interleaved).
 - **No re-fire:** after "Proceed unchanged", a re-run of the check returns
   `FRESH`.
 - **Ordering:** the check runs before the 1.5 autonomous offer (a stale checklist
