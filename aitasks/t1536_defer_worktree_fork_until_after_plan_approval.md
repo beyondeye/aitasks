@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task_workflow, git, worktree, claudeskills, execution_profiles]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-17 08:31
-updated_at: 2026-08-17 08:31
+updated_at: 2026-08-17 12:07
 ---
 
 ## Problem
