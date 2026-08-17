@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 11:58
-updated_at: 2026-08-17 12:08
+updated_at: 2026-08-17 17:42
 ---
 
 Brainstorm and design a staleness gate for `issue_type: manual_verification` tasks, to run as a pre-check before the Pass/Fail/Skip/Defer loop in `.claude/skills/task-workflow/manual-verification.md` (before or alongside the existing "pre-loop check — ensure the task has a checklist" step).

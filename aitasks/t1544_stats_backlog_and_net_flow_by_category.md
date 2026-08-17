@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [reporting, tui, backlog, metrics]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-17 17:36
-updated_at: 2026-08-17 17:36
+updated_at: 2026-08-17 17:42
 ---
 
 ## Goal
