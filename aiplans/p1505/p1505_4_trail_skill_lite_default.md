@@ -634,3 +634,114 @@ task workflow.
   `.claude/skills/aitask-trail/SKILL.md.j2`,
   `tests/golden/skills/aitask-trail/SKILL-{default,fast,remote}-claude.md`,
   `tests/test_trail_schema.py`, `tests/test_trail_skill_contract.sh`.
+
+### Change Request 2 (2026-08-17 09:37) — deterministic depth resolution; depth is reserved metadata
+
+**Concern A (blocking, PLAUSIBLE → CONFIRMED):** `--expect-depth` was still
+typed by the same model that authors the document. A flag-free (lite)
+invocation could assert `--expect-depth deep`, write `rendering_hints.depth`
+`"deep"`, and validate clean — CR1 closed *omission and mismatch*, not a
+*wrong-but-self-consistent* assertion. Reproduced: full deep fixture + marker
+`"deep"` + `--expect-depth deep` → **0 issues**.
+
+**Changes made.**
+
+- **New `.aitask-scripts/aitask_trail_depth.sh`** — a deterministic resolver
+  that parses the invocation and *decides*, emitting
+  `MODE:` / `DEPTH:` / `HANDLE:` / `TOPICS:` / `TARGET:` / `NOTE:`, or a single
+  `ERROR:<kind>` line (exit 0 resolved, 1 grammar violation, 2 usage). The
+  skill forwards its arguments verbatim and copies `DEPTH:` into **both**
+  `rendering_hints.depth` and `--expect-depth`, so those two no longer have a
+  single shared source in the model's head.
+- **`tests/test_trail_depth_resolve.sh`** (new, 26 cases) makes the Step 0
+  grammar executable for the first time — it previously existed only as prose
+  and substring pins, which can prove a sentence is present but never what
+  `--refresh X --deep` resolves to.
+- Template Step 0 now leads with "Do not apply the grammar below by hand";
+  three further contract pins (w) guard the resolver call and the both-sinks
+  rule.
+- 5 whitelist touchpoints added for the new skill-invoked helper (runtime +
+  seed, per `aidocs/framework/aitasks_extension_points.md`); no `ait`
+  dispatcher entry, since it is a helper rather than a user-facing command.
+
+**A bug this caught in itself.** The first resolver captured operands via
+`handle="$(take_operand …)"`; `fail()`'s `ERROR:` line was swallowed into the
+variable and `set -e` killed the script — exit 1 with **empty stdout**, the
+silent-abort shape `shell_conventions.md` documents. Fixed to set a global.
+`assert_error` pins stdout *and* status precisely so a status-only assertion
+cannot pass on it again.
+
+**Residual limit — stated, not papered over.** A run that *declines to call the
+resolver* and asserts an inconsistent depth is still not caught: every side of
+that claim comes from one model, and the skill is prose a model executes. The
+resolver removes the *interpretation* step (where a wrong-but-consistent depth
+actually originates) and makes the grammar testable, but it does not eliminate
+model mediation. Closing it fully needs the invocation depth bound outside the
+prompt (e.g. the codeagent launch layer), which is larger than the depth
+feature itself and is deliberately not attempted here. The three-tier guarantee
+is documented in `aidocs/implementation_trail_design.md` §3.
+
+**Concern B (CONFIRMED, disposition follow-up — done now instead):** both
+schema copies described `rendering_hints` as advisory and ignorable while
+`depth` had become load-bearing, so a consumer following the declared
+extension-point semantics could legitimately strip it. Fixed in place rather
+than deferred, because leaving a documented falsehood in the file this change
+just made load-bearing is worse than a description edit: both copies now carve
+`depth` out as **reserved semantic metadata** (producers must write it,
+consumers must not strip or rewrite it, absent/unrecognised never defaults to
+`"deep"`), and §6 of the design doc says the same plus a placement note on why
+it lives in `rendering_hints` and what promoting it to top-level would cost.
+Description-only edit: annotation keywords, no validation or digest impact, and
+the two copies remain byte-identical.
+
+- **Files affected:** `.aitask-scripts/aitask_trail_depth.sh` (new),
+  `tests/test_trail_depth_resolve.sh` (new),
+  `.aitask-scripts/lib/implementation_trail.schema.json`,
+  `aidocs/implementation_trail.schema.json`,
+  `aidocs/implementation_trail_design.md`,
+  `.claude/skills/aitask-trail/SKILL.md.j2`,
+  `tests/golden/skills/aitask-trail/SKILL-{default,fast,remote}-claude.md`,
+  `tests/test_trail_skill_contract.sh`, and the 5 whitelist files.
+
+### Change Request 3 (2026-08-17 09:58) — resolver operand hygiene and show-depth protocol
+
+Both CONFIRMED by reproduction against the resolver added in CR2.
+
+**A — dash-leading operands were accepted (`aitask_trail_depth.sh`).**
+`take_operand` refused only depth flags, so `--refresh --`, `--refresh --bogus`,
+`--show --` and `--topics --` resolved **successfully** to values like
+`HANDLE:art:--bogus` / `TOPICS:--`. The resolver is the grammar authority and
+promises that a violation arrives as an `ERROR:` line, so normalizing an
+option-looking token into a handle sent a malformed request downstream instead
+of stopping. Now **any** dash-leading token in operand position (including a
+bare `--`) fails with `ERROR:missing_operand:<flag>`; a handle or task id never
+begins with `-`. Six new cases pin it.
+
+Removing the now-redundant `is_depth_flag()` was prompted by shellcheck
+(SC2329, never invoked) — the dash-leading test subsumes it, and a dead guard
+is worse than no guard because it reads as coverage.
+
+**B — `--show` reported the caller's depth flag.** `--show <handle> --deep`
+emitted `DEPTH:deep` alongside `NOTE:depth_ignored_for_show`, while Step 0
+calls `DEPTH:` the depth for the run. A model following the protocol could
+print "deep" for a lite or entirely unmarked artifact — directly contradicting
+the show flow's contract to state the **stored** depth. Show now always emits
+`DEPTH:n/a` (the NOTE still fires when a flag was supplied and dropped), and
+Step 0 says to read the stored `rendering_hints.depth`, reporting
+`unrecorded` when absent. Three cases pin it.
+
+**Verification.** Resolver suite 26 → **33 cases**; contract 147 → **153**
+(one pin was rewritten: `pass the same value to \`--expect-depth\`` spanned a
+line wrap in the rendered golden and was silently unmatched — replaced with two
+single-line pins plus a new show-depth pin). Per-fix negative controls, run
+separately: mutating the operand check away fails **9** named cases, mutating
+the show branch away fails **3**; both green on restore. shellcheck clean.
+Full sweep green: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, render 52/52,
+codeagent 27/27, `skill_verify` clean, schema copies byte-identical, both live
+handles `STALE`.
+
+- **Files affected:** `.aitask-scripts/aitask_trail_depth.sh`,
+  `tests/test_trail_depth_resolve.sh`,
+  `.claude/skills/aitask-trail/SKILL.md.j2`,
+  `tests/golden/skills/aitask-trail/SKILL-{default,fast,remote}-claude.md`,
+  `tests/test_trail_skill_contract.sh`.
