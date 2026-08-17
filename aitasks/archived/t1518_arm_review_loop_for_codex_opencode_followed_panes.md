@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [1509]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini, codex, opencode]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-14 00:04
-updated_at: 2026-08-17 12:50
+updated_at: 2026-08-17 12:51
+completed_at: 2026-08-17 12:51
 ---
 
 Let a Codex- or OpenCode-**followed** pane arm the auto-recheck loop, closing the followed half of cross-agent loop support after t1509 closes the shadow half. Two changes: widen `REVIEW_LOOP_AGENTS` per agent behind live evidence, and add `NATIVE_DIALOG_BOUNDARIES` rows so work classification does not degrade to `UNKNOWN` whenever one of those agents sits at a native dialog.
@@ -95,3 +96,14 @@ Widen the tuple one agent at a time. An agent whose evidence is not in hand stay
 > **✅ gate:plan_approved** run=2026-08-17T07:59:52Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-17T09:41:46Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-17T09:51:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4c35b833782c6dd5
+
+> **✅ gate:risk_evaluated** run=2026-08-17T09:51:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1518/risk_evaluated_2026-08-17T09:51:08Z-risk_evaluated-a1.log`
