@@ -333,7 +333,7 @@ Step 9 (Post-Implementation) then handles gates, cleanup and archival as usual.
   (`--base-branch[-file]` vs the retained base-neutral
   `--output-branch-default[-file]`); a future edit that forgets the distinction
   reintroduces exactly this bug from the other side · severity: medium
-  · → mitigation: retire_output_branch_default_flags
+  · → mitigation: t1537
 - `aitask_plan_externalize.sh` is on the path of every Claude Code plan
   externalization, so a regression is felt by every task, not only worktree
   profiles · severity: low
@@ -347,7 +347,7 @@ Step 9 (Post-Implementation) then handles gates, cleanup and archival as usual.
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_output_branch_precedence | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: merge-target regression from deleting the `_p_base → OUTPUT_BRANCH_DEFAULT` precedence block | desc: table-driven characterization of the current `Output branch:` resolution across the full flag matrix, pinned green before the refactor and kept green through it
-- timing: after | name: retire_output_branch_default_flags | type: refactor | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: two nearly-identical branch-flag pairs left behind by the backward-compatible surface | desc: once t1536 has landed and both externalize call-sites are settled, decide whether `--output-branch-default[-file]` can be deleted and its test cases migrated onto `--base-branch[-file]`
+- timing: after | name: retire_output_branch_default_flags | type: refactor | priority: low | effort: medium | inline_risk: high | added_complexity: high | addresses: two nearly-identical branch-flag pairs left behind by the backward-compatible surface | desc: once t1536 has landed and both externalize call-sites are settled, decide whether `--output-branch-default[-file]` can be deleted and its test cases migrated onto `--base-branch[-file]` | created: t1537
 
 **Post-inline reassessment:** with the characterization pre-phase in the plan, the
 merge-target regression risk is materially reduced, but the duplicated flag surface
