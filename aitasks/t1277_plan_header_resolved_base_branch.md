@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [workflow, git, profiles]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1233
 followup_kind: risk_mitigation
 created_at: 2026-07-28 01:10
-updated_at: 2026-08-13 23:06
+updated_at: 2026-08-17 09:35
 boardidx: 53248
 ---
 
