@@ -10,12 +10,15 @@ Read this before touching the staleness pre-check in
 `verification_baseline:` field, or `file_references:` on a manual-verification
 task.
 
-**Implementation status.** This document is the design; the work is queued as
-t1549 (check helper + `verification_baseline:` field) → t1550 (Step-8c seeding) →
-t1551 (the procedure pre-check step), with t1552 as the manual-verification
-sibling covering all three. The chain is strictly sequential — each depends on its
-predecessor. Everything under "Deferred" below is deliberately **not** in that
-chain.
+**Implementation status.** This document is the design; the work is queued under
+parent **t1555**, whose children are strictly sequential: t1555_1 (check helper +
+`verification_baseline:` field) → t1555_2 (Step-8c seeding) → t1555_3 (the
+procedure pre-check step) → t1555_4 (the manual-verification sibling covering all
+three). Everything under "Deferred" below is deliberately **not** in that chain.
+
+Also related: t1553, an upstream defect in `aitask_revert_analyze.sh` surfaced
+while designing this — its `--task-files` output leaks task-metadata paths, which
+matters because t1555_2 consumes that helper to propose candidate files.
 
 ## The problem
 
