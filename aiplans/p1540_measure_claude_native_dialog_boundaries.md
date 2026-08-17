@@ -836,3 +836,44 @@ here. Recorded, excluded from the violation totals above, and pinned by a test.
 
 Every entry shipped in Step 2 maps 1:1 onto a **B1–B4-passing** verdict above.
 `claude_trust_folder` failed at the detection stage and ships no row.
+
+### Step 4b — live acceptance: **PASS**
+
+Real Claude process as the **followed** pane, a real Claude **shadow** in its own
+window bound via `@aitask_shadow_target`, arming through the real
+`MiniMonitorApp.action_toggle_review_loop` and firing through the real
+`ReviewLoopController.tick` / `_service_review_loop`, with every tick's work
+signal classified from a live `capture-pane` of the followed pane. Private socket
+`t1540live`, 120x30, Claude Code 2.1.233 / Haiku 4.5.
+
+| # | observation | result |
+|---|---|---|
+| 1 | loop arms with Claude as the followed pane and fires **exactly one** automatic round | **pass** — `agent_key='claude'`, armed, `rounds_injected=1`, state `fired` |
+| 2 | pure option-cursor movement fires **nothing** | **pass** — `work_seen=False` after 7 ticks of `Down`, nothing injected |
+| 3 | the same for the native permission dialog, with the boundary row in place | **pass** — the kind at arm time was `claude_help_bar`, i.e. the dialog is what armed and what was classified |
+
+Observation 2 is the decisive one for this task. The debounce streak reached **7**
+(well past `DEBOUNCE_TICKS`) purely from cursor movement, so the *only* thing
+holding the fire was the work latch staying closed. Before t1540 stabilised
+`claude_help_bar`, a move onto option 2 flipped `awaiting_input` True→False and
+`classify_followed_change` returned `WORK`, which would have opened that latch and
+fired a spurious round on a keypress.
+
+Two harness faults were confirmed absent before any verdict was accepted, since
+either would be indistinguishable from a real failure: `send-keys` was **chunked**
+(25 chars) and the composer was asserted **non-empty before every Enter**.
+
+**Sequencing note for anyone re-running this.** The loop debounces on
+`awaiting_input AND stale`, so the pane must end *parked at a prompt*; work that
+merely scrolls past and returns to an idle composer never satisfies the streak. A
+**second** permission dialog is the clean stimulus — the transcript above the
+boundary has changed (WORK) and the pane is awaiting input again. Staleness is
+switched on only **after** arming: arming while the shadow's feedback is already
+stale opens the latch immediately (the keypress *is* the user asking for a round),
+which would make the fire unattributable to the boundary. A first attempt that
+armed with `stale=False` and answered the dialog into an idle composer recorded
+`work_seen=True, state=waiting, rounds=0` — a correct loop, an invalid probe.
+
+Per the `live_acceptance_is_a_gate` mitigation this is a **PASS**, so archival
+proceeds normally; neither the FAIL (block archival) nor the BLOCKED (mandatory
+manual-verification follow-up) branch applies.
