@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: feature
@@ -53,3 +55,8 @@ No implementation yet — this is the design/brainstorm pass. A follow-up implem
 - `.aitask-scripts/aitask_plan_verified.sh` — the analogous decision helper for plans; a new sibling script (e.g. `aitask_verification_stale.sh`) is a plausible shape for the checklist case.
 - `.aitask-scripts/aitask_verification_parse.sh` — current checklist parse/seed/set primitives; likely needs a new "amend" verb.
 - `.claude/skills/task-workflow/profiles.md` — where any new profile key(s) get documented.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T14:43:04Z status=pass attempt=1 type=human
