@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 17:36
-updated_at: 2026-08-17 17:42
+updated_at: 2026-08-17 22:02
 ---
 
 ## Goal
@@ -202,3 +203,8 @@ Vocabulary sources: `lib/followup_kinds.py` (kinds, glyphs, colours, and the
   open across a week boundary, a task completed mid-series, a follow-up whose
   kind is only derivable by the classifier, and a task with a missing date.
 - Existing stats output for the current categories is unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T19:02:14Z status=pass attempt=1 type=human
