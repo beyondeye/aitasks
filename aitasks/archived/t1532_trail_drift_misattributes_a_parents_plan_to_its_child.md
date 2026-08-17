@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [artifacts, task_metadata]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1159
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-16 18:41
-updated_at: 2026-08-16 23:35
+updated_at: 2026-08-17 08:16
+completed_at: 2026-08-17 08:16
 ---
 
 ## Origin
@@ -134,3 +135,14 @@ workaround until this lands.
 > **✅ gate:plan_approved** run=2026-08-16T20:35:58Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-17T05:12:30Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-17T05:16:35Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:340bf6a1135a43dd
+
+> **✅ gate:risk_evaluated** run=2026-08-17T05:16:35Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1532/risk_evaluated_2026-08-17T05:16:35Z-risk_evaluated-a1.log`
