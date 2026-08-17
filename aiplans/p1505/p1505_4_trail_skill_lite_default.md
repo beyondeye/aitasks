@@ -907,7 +907,7 @@ shellcheck: clean on the resolver; the test file reports only the pre-existing
     semantic metadata rather than leaving it described as ignorable.
 
 - **Upstream defects identified:**
-  - `website/content/docs/tuis/board/reference.md:299 — the literal By-Trail footer transcript is factually wrong since t1505_1: it omits the `v Summary` key. The same file's By-Trail section and how-to.md never mention the summary pane, the `v` key, the `a` reveal key or the depth banner label, all landed by t1505_1/t1505_2.`
+  - `website/content/docs/tuis/board/reference.md:299 — the literal By-Trail footer transcript is factually wrong since t1505_1: it omits the `v Summary` key. The same file's By-Trail section and how-to.md never mention the summary pane, the `v` key, the `a` reveal key or the depth banner label, all landed by t1505_1/t1505_2.` — **fixed in this task at the user's direction (CR6)** rather than spawned as a follow-up; the bullet is kept as provenance for why the docs were touched.
 
 - **Notes for sibling tasks:**
   - **t1505_5 (manual verification)** — its checklist is still accurate but the
@@ -926,3 +926,40 @@ shellcheck: clean on the resolver; the test file reports only the pre-existing
   - **Codex CLI / OpenCode ports** of this skill remain a separate task per
     CLAUDE.md; the `.j2` grew substantially here, so the port is larger than a
     typical one.
+
+### Change Request 6 (2026-08-17 11:10) — fix the stale By-Trail website docs here
+
+At Step 8b the user chose **"fix now"** over spawning the upstream-defect
+follow-up, so the stale By-Trail website documentation was corrected in this
+task instead.
+
+**What was stale** (all pre-existing, from t1505_1 / t1505_2): the summary pane,
+the `v` key, the detail screen's `a` reveal key and the depth banner label were
+undocumented, and the literal footer transcript at
+`website/content/docs/tuis/board/reference.md:299` omitted `v Summary`.
+
+**Footer transcript measured, not inferred.** The doc contains a literal
+rendering of the footer, which is a claim about output — so it was captured from
+a real `run_test` board in By-Trail with a summary-bearing trail rather than
+derived from binding order:
+
+    r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync   v Summary
+
+The doc also now states that `v Summary` is listed only while the trail actually
+has a summary, matching the `check_action` gate.
+
+**Also documented (new in this task, not just the backlog):** `R` re-authors at
+the lite depth; on a `deep` trail it says what that discards and asks first, with
+the previous version retrievable; `--deep` is how to get the full analysis back.
+The `R` cost cell no longer claims "Minutes" — a figure this change invalidates
+and which was never measured — and reads "the slowest by far — an agent run".
+
+Written current-state-only per `aidocs/framework/documentation_conventions.md`:
+no "previously this page said", and no enumeration of supported agents ("the
+trail skill", not a per-agent list).
+
+**Verification.** `hugo build --gc --minify` clean: 236 pages, exit 0, no build
+artifacts leaked into the tree.
+
+- **Files affected:** `website/content/docs/tuis/board/reference.md`,
+  `website/content/docs/tuis/board/how-to.md`.
