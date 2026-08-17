@@ -86,7 +86,7 @@ deterministic seam plus the new frontmatter field.
    `aidocs/framework/aitasks_extension_points.md`.
 
    **Setter interface — this is a cross-task contract, not an implementation
-   detail.** t1550 (seeding) and t1551 (advance-on-review) both call it, so ship
+   detail.** t1555_2 (seeding) and t1555_3 (advance-on-review) both call it, so ship
    exactly this and do not leave the shape to whichever slice lands first:
 
    ```bash

@@ -14,7 +14,7 @@ updated_at: 2026-08-17 19:00
 
 Wire the staleness pre-check into the manual-verification procedure, per
 `aidocs/framework/manual_verification_staleness.md` (read it first — it is the
-source of truth). Slice 3 of 3. Depends on t1549 (helper + field) and t1550
+source of truth). Slice 3 of 3. Depends on t1555_1 (helper + field) and t1555_2
 (seeding).
 
 ## Placement — both bounds are load-bearing

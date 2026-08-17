@@ -14,7 +14,7 @@ updated_at: 2026-08-17 19:00
 
 Seed the two staleness fields at Step 8c, per
 `aidocs/framework/manual_verification_staleness.md` (read it first — it is the
-source of truth). Slice 2 of 3. Depends on t1549 (the check helper + the
+source of truth). Slice 2 of 3. Depends on t1555_1 (the check helper + the
 `verification_baseline:` field).
 
 ## Why Step 8c specifically
@@ -45,7 +45,7 @@ seeding step:
 3. **User confirms** the shortlist.
 4. **Write both fields**: the paths as repeatable `--file-ref` arguments (**bare
    paths — no range suffixes**, v1 ignores them) and `verification_baseline:` =
-   HEAD, via the setter t1549 ships:
+   HEAD, via the setter t1555_1 ships:
 
    ```bash
    ./.aitask-scripts/aitask_update.sh --batch <new_id> \
@@ -53,7 +53,7 @@ seeding step:
    ```
 
    Do **not** hand-mutate the frontmatter and do not invent a second setter — the
-   interface is specified in t1549 precisely so this task does not have to.
+   interface is specified in t1555_1 precisely so this task does not have to.
 
 ## Narrowing is mandatory, not a nicety
 
