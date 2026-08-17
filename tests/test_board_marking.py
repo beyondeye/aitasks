@@ -324,6 +324,12 @@ class MarkGatingTests(_BoardMarkTestBase, unittest.TestCase):
             app = self.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await pilot.pause()
+                # Entering By-Trail with no active trail auto-opens the selector,
+                # whose @work discovery worker would still be running at run_test
+                # teardown and fail this test from there (t1487). This test is
+                # about footer gating; the real selector was never part of it.
+                app._open_trail_select = lambda rescan=False: None
+                started = bf.block_app_worker_starts(app)
                 for view in ("inflight", "bytopic", "bytrail"):
                     with self.subTest(view=view):
                         app._set_base_filter(view)
@@ -334,6 +340,7 @@ class MarkGatingTests(_BoardMarkTestBase, unittest.TestCase):
                     app._set_base_filter("all")
                     await pilot.pause()
                     await pilot.pause()
+                self.assertNoLiveWorkers(app, started)
         self._run(go())
 
     def test_action_refuses_in_a_derived_view_even_when_called_directly(self):

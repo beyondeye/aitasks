@@ -102,6 +102,21 @@ keys are a subset of `BOARD_KEYS` is dropped by `TaskManager._is_phantom_stub`
 (aitask_board.py:921), which would load zero tasks and pass every assertion
 vacuously.
 
+No `@work` worker may still be running when a test's `async with app.run_test(…)`
+block exits. `run_test` re-raises the app's stored exception on the way out and
+`@work` defaults to `exit_on_error=True`, so an errored worker fails the
+*enclosing* test with `WorkerFailed` — a traceback nowhere near the assertions,
+which all passed. This is the inverse of the traps above: there the assertions go
+green for the wrong reason; here they go green and the test fails anyway. Stub the
+worker-STARTING method (`_reload_active_trail`, `_open_trail_select`,
+`_start_trail_drift`, …) and assert the work was *requested*; `t1487` fixed four
+tests that did not. To prove it rather than assume it, use
+`block_app_worker_starts` + `FixtureBoardTestBase.assertNoLiveWorkers` below.
+A test that deliberately drives a real worker must drain it before block exit —
+see `ThreadWorkerTests` / `BannerRenderTests` in test_board_bytrail_view.py.
+See aidocs/framework/testing_conventions.md, "A Textual `@work` worker left in
+flight fails the *enclosing* `run_test`".
+
 Run: bash tests/run_all_python_tests.sh
   or: python3 -m unittest tests.test_board_fixture_harness -v
 """
@@ -528,6 +543,38 @@ def enter_fixture_tree(add_cleanup, *, tasks_spec=DEFAULT_TOPOLOGY, tag: str = "
     return tree, module
 
 
+def block_app_worker_starts(app) -> list:
+    """Stand in for `app.run_worker` so no real `@work` worker can start (t1487).
+
+    Returns the list that receives one **readable worker name** per attempted
+    start. `@work`'s wrapper calls `self.run_worker(partial(method, ...),
+    name=name or method.__name__, ...)` (textual/_work_decorator.py), so the
+    recorded string is the worker method's own name — deterministic, which is what
+    lets a positive control assert on `_trail_reload_worker` specifically rather
+    than on "it failed somewhere".
+
+    Scope is the **app node**: this covers workers declared on `KanbanApp` only.
+    `TaskDetailScreen._do_lock` / `_do_unlock` dispatch through the *screen's*
+    `run_worker` and are unaffected.
+
+    Install it AFTER the fixture's entry helper so boot-time workers are
+    untouched. No `Worker` is created and `None` is returned, so do not install it
+    around code that uses the returned handle — the board's `_reload_active_trail`
+    and `_open_trail_select` both discard it.
+
+    See the module docstring's "Fixture contract" and
+    aidocs/framework/testing_conventions.md, "A Textual `@work` worker left in
+    flight fails the enclosing `run_test`".
+    """
+    started: list[str] = []
+
+    def _record(work, *args, name="", **kwargs):
+        started.append(name or getattr(work, "func", work).__name__)
+
+    app.run_worker = _record
+    return started
+
+
 class FixtureBoardTestBase:
     """Mixin: class-level fixture tree + board module, entered once per class.
 
@@ -535,6 +582,24 @@ class FixtureBoardTestBase:
     `cls.ab` is the board module (named to match the migrated modules' idiom) and
     `cls.tree` is the tree root, which is also the process cwd for the class.
     """
+
+    def assertNoLiveWorkers(self, app, started=None):
+        """Assert the block started no real worker and leaves none live (t1487).
+
+        Both halves are needed and neither is redundant.
+        `WorkerManager._remove_worker` is the worker's own done-callback, so
+        `len(app.workers) == 0` is ALSO what a worker that started *and finished*
+        leaves behind — it cannot, alone, prove none ran. `started` (from
+        `block_app_worker_starts`) proves that; `len(app.workers)` catches
+        anything started before the stand-in went in.
+        """
+        if started is not None:
+            self.assertEqual(
+                started, [],
+                f"real worker(s) started inside run_test: {started}")
+        live = [w.name for w in app.workers]
+        self.assertEqual(len(app.workers), 0,
+                         f"live worker(s) at run_test block exit: {live}")
 
     FIXTURE_TASKS = DEFAULT_TOPOLOGY
     FIXTURE_SETTINGS = None

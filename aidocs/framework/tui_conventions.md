@@ -156,6 +156,12 @@ branch has. The codebrowser's non-git branch has so few that `run_test` picks
 the `Input` too, and its headless pin does fail pre-fix. Determine it per app;
 do not assume either way.
 
+A second way `run_test` misleads: a `@work` worker still in flight when the block
+exits fails the *enclosing* test with `WorkerFailed`, so a green assertion block
+is not evidence a test is isolated either. See
+`aidocs/framework/testing_conventions.md`, "A Textual `@work` worker left in
+flight fails the *enclosing* `run_test`".
+
 To diagnose, trace rather than read the screen: wrap
 `textual.screen.Screen._update_auto_focus` to log the resolved selector and the
 widget it left focused, inject it via a `sitecustomize.py` on `PYTHONPATH` (which

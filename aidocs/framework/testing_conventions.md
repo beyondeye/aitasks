@@ -37,6 +37,45 @@ fast IPC), DROP the case rather than weakening it with sleeps / retries —
 note the dropped case in Final Implementation Notes and rely on adjacent
 cases that exercise the same semantics deterministically.
 
+## A Textual `@work` worker left in flight fails the *enclosing* `run_test`
+
+`App.run_test` ends its `finally` with `if self._exception: raise
+self._exception` (textual/app.py:2218, Textual 8.2.7), and `@work` defaults to
+`exit_on_error=True`, so an errored worker routes through
+`app._handle_exception(WorkerFailed(...))` (textual/worker.py:382-384). A worker
+still running when the `async with app.run_test(...)` block exits therefore fails
+the test that started it, with a traceback nowhere near its assertions — so **a
+green assertion block is not evidence a test is isolated.** The test looks
+untouched, the failure looks like a timing flake, and it is load-dependent.
+
+The exposure window is total, not occasional. Measured on t1487: a probe delaying
+the worker's subprocess by 8s showed app shutdown still waits for the worker, so
+it always completes inside the `run_test` block.
+
+How to apply:
+
+- Stub the worker-*starting* method (`patch.object` / an instance lambda) and
+  assert the work was **requested** — do not let the real worker run. Stubbing the
+  entry point rather than the worker keeps the behaviour under test intact.
+- `await app.workers.wait_for_complete()` is the **wrong** tool for this: it waits
+  on the very worker that raises. It is right only for tests that deliberately
+  drive a real worker and then drain it.
+- To *prove* isolation rather than assume it, record worker starts by standing in
+  for the node's `run_worker` — the single choke point `@work` dispatches through
+  (`textual/_work_decorator.py`) — and assert both that nothing started and that
+  `app.workers` is empty at block exit. The two are not redundant:
+  `WorkerManager._remove_worker` is the worker's own done-callback, so an empty
+  `app.workers` is also what a worker that started *and finished* leaves behind.
+  `tests/lib/board_fixture.py` ships `block_app_worker_starts` /
+  `assertNoLiveWorkers` for the board suite.
+- A probe like that needs its own positive control: mutate the stub away and
+  confirm the probe fails **naming the expected worker**, not merely that the test
+  goes red somewhere earlier.
+
+Reference callers: `LaunchFallbackTests` in `tests/test_board_bytrail_view.py`
+(the stubbed shape); `ThreadWorkerTests` in the same file is the deliberate
+opposite — it exists to drive the real thread hop and drains before block exit.
+
 ## Golden-file regression tests for template-engine output
 
 Any code path that produces output through an external template engine

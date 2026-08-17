@@ -2150,6 +2150,7 @@ class LaunchFallbackTests(ByTrailTestBase):
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
                 pending = []
                 launches = []
+                reloads = []
                 # Hold the baseline in flight: capture `then`, never call it.
                 app._trail_baseline_worker = (
                     lambda handle, then: pending.append(then))
@@ -2158,6 +2159,13 @@ class LaunchFallbackTests(ByTrailTestBase):
                         (launches.append(list(args)),
                          app._with_trail_baseline(
                              watch_handle, lambda b: None))[0])
+                # The post-launch pickup is REQUESTED, not performed: the real
+                # _reload_active_trail starts a @work(thread=True) reload worker
+                # that outlives these assertions and fails this test from
+                # run_test's teardown instead (t1487). Same idiom as the sibling
+                # test_direct_launch_fallback_installs_watch_and_reloads above.
+                app._reload_active_trail = lambda: reloads.append("reload")
+                started = bf.block_app_worker_starts(app)
 
                 app.action_trail_refresh_agent()
                 await pilot.pause()
@@ -2178,11 +2186,22 @@ class LaunchFallbackTests(ByTrailTestBase):
 
                 # Once the baseline lands the guard clears and `R` works again.
                 app._finish_trail_launch(["v1"], "", lambda: True)
+                self.assertEqual(reloads, ["reload"],
+                                 "the post-launch pickup was not requested")
                 self.assertFalse(app._trail_launch_pending)
                 self.assertIsNot(
                     app.check_action("trail_refresh_agent", None), False)
                 app.action_trail_refresh_agent()
                 self.assertEqual(len(launches), 2)
+
+                # Drain the residue this test deliberately created: the last `R`
+                # re-armed the guard and captured a baseline callback that is
+                # never invoked, so nothing may be left in flight at block exit.
+                self.assertEqual(len(pending), 2,
+                                 "both baselines captured, neither invoked")
+                app._trail_launch_pending = False
+                pending.clear()
+                self.assertNoLiveWorkers(app, started)
 
         self._run(go())
 
@@ -2214,11 +2233,15 @@ class LaunchFallbackTests(ByTrailTestBase):
                 self.assertEqual(before.get("R"), "Agent Refresh", before)
 
                 pending = []
+                reloads = []
                 app._trail_baseline_worker = (
                     lambda handle, then: pending.append(then))
                 app._launch_trail = (
                     lambda args, suffix, watch_handle="", **_kw:
                         app._with_trail_baseline(watch_handle, lambda b: None))
+                # Requested, not performed — see t1487 on the sibling test.
+                app._reload_active_trail = lambda: reloads.append("reload")
+                started = bf.block_app_worker_starts(app)
                 app.action_trail_refresh_agent()
                 await pilot.pause()
                 await pilot.pause()
@@ -2240,6 +2263,10 @@ class LaunchFallbackTests(ByTrailTestBase):
                 await pilot.pause()
                 after = footer_keys(app)
                 self.assertEqual(after.get("R"), "Agent Refresh", after)
+                self.assertEqual(reloads, ["reload"])
+                self.assertEqual(len(pending), 1)
+                pending.clear()
+                self.assertNoLiveWorkers(app, started)
 
         self._run(go())
 
@@ -2556,11 +2583,14 @@ class RefreshDoubleTapTests(ByTrailTestBase):
     """
 
     def _env(self, app, clock, *, tmux: bool):
-        """Patch the launch surface, the dialog's tmux shape, and the clock."""
+        """Patch the launch surface, the dialog's tmux shape, and the clock.
+
+        Returns `(launches, reloads, patches)`."""
         ab = self.ab
         launches = []
+        reloads = []
 
-        return launches, [
+        return launches, reloads, [
             patch.object(acs, "_monotonic", clock),
             patch.object(acs, "is_tmux_available", lambda: tmux),
             patch.object(acs, "get_tmux_sessions", lambda: ["work"]),
@@ -2584,6 +2614,12 @@ class RefreshDoubleTapTests(ByTrailTestBase):
             patch.object(ab, "launch_in_tmux",
                          lambda cmd, cfg: (launches.append(("tmux", cmd)),
                                            (123, None))[1]),
+            # A confirmed launch reaches _after_trail_launch() -> the real
+            # _reload_active_trail, whose @work reload worker would still be
+            # running at run_test teardown and fail this test from there
+            # (t1487). Record the request instead of performing it.
+            patch.object(app, "_reload_active_trail",
+                         lambda: reloads.append("reload")),
         ]
 
     def _double_tap(self, tmux: bool):
@@ -2594,9 +2630,10 @@ class RefreshDoubleTapTests(ByTrailTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
-                launches, patches = self._env(app, clock, tmux=tmux)
+                launches, reloads, patches = self._env(app, clock, tmux=tmux)
                 for ctx in patches:
                     ctx.start()
+                started = bf.block_app_worker_starts(app)
                 try:
                     # _press_keys interleaves wait_for_idle between keys, so
                     # this is a genuine double-tap, not two isolated presses.
@@ -2607,6 +2644,8 @@ class RefreshDoubleTapTests(ByTrailTestBase):
                                           "second R")
                     self.assertEqual(launches, [],
                                      "an agent was launched without review")
+                    self.assertEqual(reloads, [],
+                                     "a refused double-tap requested a reload")
 
                     # ...and the dialog is not left crippled: past the window
                     # the same key runs normally.
@@ -2616,9 +2655,15 @@ class RefreshDoubleTapTests(ByTrailTestBase):
                     self.assertEqual(len(launches), 1, launches)
                     self.assertEqual(launches[0][0],
                                      "tmux" if tmux else "terminal")
+                    self.assertEqual(reloads, ["reload"],
+                                     "the confirmed launch requested no pickup")
                 finally:
+                    # The confirmed launch installed a version watch; leaving its
+                    # timer armed is residue this block must not outlive (t1487).
+                    app._stop_trail_watch()
                     for ctx in reversed(patches):
                         ctx.stop()
+                self.assertNoLiveWorkers(app, started)
 
         self._run(go())
 
@@ -2643,7 +2688,7 @@ class RefreshDoubleTapTests(ByTrailTestBase):
             app = ab.KanbanApp()
             async with app.run_test(size=(160, 48)) as pilot:
                 await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
-                _launches, patches = self._env(app, clock, tmux=False)
+                _launches, _reloads, patches = self._env(app, clock, tmux=False)
                 patches.append(patch.object(
                     ab, "resolve_key", lambda scope, action, default=None: "#"))
                 for ctx in patches:

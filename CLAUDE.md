@@ -312,7 +312,9 @@ skill files.
 > into the task-workflow planning procedure.)
 >
 > **Read `aidocs/framework/testing_conventions.md`** when designing tests for a
-> threading / asyncio migration or any other concurrency primitive.
+> threading / asyncio migration or any other concurrency primitive — including
+> any test that boots a Textual TUI under `App.run_test` and can reach a `@work`
+> worker, which fails the *enclosing* test if it is still in flight at block exit.
 >
 > **Read `aidocs/framework/code_conventions.md`** when adding a constant or dict that
 > holds user-facing help text condensed from another canonical file
