@@ -575,3 +575,40 @@ change the pinned string.
   implementation.
 - **Files affected:** `aidocs/framework/manual_verification_staleness.md`,
   `aitasks/t1551_*.md`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Landed the design as
+  `aidocs/framework/manual_verification_staleness.md` (531 lines) plus a one-line
+  `CLAUDE.md` pointer, committed as `documentation: … (t1538)`. Spawned the queued
+  work as t1549 → t1550 → t1551 (strictly sequential) with t1552 as the
+  manual-verification sibling (`verifies: [1549, 1550, 1551]`, 9 items), all
+  anchored to 1538. No code changes, per the task's non-goal.
+- **Deviations from plan:** Four review rounds changed the design's contracts after
+  approval; each is logged above in Post-Review Changes, and one superseded a
+  pinned acceptance-criterion string (also recorded above). The substantive
+  deviations are: `UNKNOWN` now drives the verdict instead of being advisory; the
+  amend transaction covers three mutations rather than two, under a
+  "baseline advances last" invariant; and scope repair requires
+  `--remove-file-ref` rather than `--file-ref` alone.
+- **Issues encountered:** The design initially grew well past its justification —
+  persistent baselines via topological git ancestry, first-pick curation, a `[]`
+  sentinel, presence tracking in the shared `aitask_update.sh` writer, and fold
+  semantics — before being cut back to a single precondition (both fields present
+  or silently skip). That cut removed the shared-writer and fold changes entirely
+  and halved the plan. The deferred analysis is preserved in the doc with its
+  measurements so the deferral stays revisitable.
+- **Key decisions:** Reuse `file_references:` rather than add a parallel field;
+  procedure pre-check rather than a declared gate (the
+  `MANUAL_VERIFICATION_REACHABLE_GATES` allowlist would silently strip one);
+  existence probed with `git cat-file -e` rather than inferred from `git log`;
+  seeding restricted to Step 8c so HEAD is the origin's landing point and no
+  ancestry computation is needed.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_revert_analyze.sh:132,207 — commit lookup greps `git log --all`, which spans the `aitask-data` branch, so `--task-commits` / `--task-files` report task-metadata edits as part of a task's code change surface (verified: `--task-files 1223_4` returns `aitasks/t1223/t1223_5_*.md` and `t1223_6_*.md`); the sibling helper `aitask_change_surface.sh` deliberately excludes `aitasks/**` / `aiplans/**` via its `EXCLUDES`, so the two disagree about the same question`
+- **Notes for related tasks:** `seed/profiles/fast.yaml` lacks the
+  `plan_verification_required` / `plan_verification_stale_after_hours` keys that
+  live `fast.yaml` sets. This is **not** a defect today — the consuming Jinja uses
+  `| default(1)` / `| default(24)`, which match the live values exactly — but the
+  drift means a future change to the live values would not reach a fresh install.
+  Noted rather than filed.
