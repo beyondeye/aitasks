@@ -6,7 +6,7 @@ issue_type: feature
 status: Ready
 labels: [verification, task-workflow]
 gates: [risk_evaluated]
-children_to_implement: [t1555_1, t1555_2, t1555_3]
+children_to_implement: [t1555_1, t1555_2, t1555_3, t1555_4]
 anchor: 1538
 created_at: 2026-08-17 19:00
 updated_at: 2026-08-17 19:00
