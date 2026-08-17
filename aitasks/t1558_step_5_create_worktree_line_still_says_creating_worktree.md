@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [workflow, skills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1536
 created_at: 2026-08-17 23:06
-updated_at: 2026-08-17 23:06
+updated_at: 2026-08-17 23:12
 ---
 
 ## Problem
