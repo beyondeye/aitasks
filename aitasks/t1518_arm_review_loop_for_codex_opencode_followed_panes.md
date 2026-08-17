@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [1509]
 issue_type: feature
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-14 00:04
-updated_at: 2026-08-17 10:59
+updated_at: 2026-08-17 11:00
 ---
 
 Let a Codex- or OpenCode-**followed** pane arm the auto-recheck loop, closing the followed half of cross-agent loop support after t1509 closes the shadow half. Two changes: widen `REVIEW_LOOP_AGENTS` per agent behind live evidence, and add `NATIVE_DIALOG_BOUNDARIES` rows so work classification does not degrade to `UNKNOWN` whenever one of those agents sits at a native dialog.
