@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-14 00:04
-updated_at: 2026-08-17 00:28
+updated_at: 2026-08-17 10:59
 ---
 
 Let a Codex- or OpenCode-**followed** pane arm the auto-recheck loop, closing the followed half of cross-agent loop support after t1509 closes the shadow half. Two changes: widen `REVIEW_LOOP_AGENTS` per agent behind live evidence, and add `NATIVE_DIALOG_BOUNDARIES` rows so work classification does not degrade to `UNKNOWN` whenever one of those agents sits at a native dialog.
@@ -84,3 +85,8 @@ Widen the tuple one agent at a time. An agent whose evidence is not in hand stay
 - **t1509** (shadow-readiness detectors for non-Claude shadows) — `depends:` on it deliberately. A loop needs BOTH ends: arming checks the followed agent *and* that the shadow agent has a readiness detector. Landing this half first would produce a pane that can arm but whose shadow is never ready — an armable loop that never fires, which is a worse failure than the current honest refusal. t1509 also owns switching the shadow-side identity resolution to the two-rung `agent_key_from_pane`, without which a Codex shadow (reporting `node`) never resolves at all.
 - **t1467** (archived) — supplied the question-block boundaries, prompt patterns and identity resolver listed above. Its archived plan records the live captures and the measured geometry.
 - **t1159_5** (aggregate manual verification of the loop) — its checklist assumes an armable loop; once both halves land, verify the cross-agent pairings there rather than duplicating the live runs.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T07:59:52Z status=pass attempt=1 type=human
