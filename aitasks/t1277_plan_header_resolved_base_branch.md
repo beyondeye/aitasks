@@ -35,7 +35,9 @@ Two consequences:
 
 1. `remote-drift-check.md` sources `base_branch` from that header line, so the
    drift check watches the repository primary instead of the branch the worktree
-   was actually cut from.
+   is cut from. (Phrased as "will be cut from" once t1536 lands — see the
+   cross-reference section below; at drift-check time the fork no longer exists
+   yet.)
 2. Within one header, `Base branch:` and `Output branch:` are derived
    differently — t1233 made the output field authoritative (profile
    `output_branch`, else the resolved base branch via
@@ -69,3 +71,41 @@ has, so both fields in a header come from one source.
   updated and passing.
 - The drift check watches the resolved base branch.
 - With no base branch resolved, behaviour is unchanged (detected primary).
+
+## Escalated by t1536 — implement this task FIRST
+
+**t1536_defer_worktree_fork_until_after_plan_approval** moves the
+`git worktree add` out of Step 5: Step 5 keeps only the branch *resolution*, and
+the fork runs at the top of Step 7, after plan approval and after the Remote
+Drift Check clears.
+
+That change turns this task from a **reporting** bug into a **fork-correctness**
+bug:
+
+- Today the fork happens at Step 5, so the on-disk `aitask/<task_name>` branch is
+  the ground truth for what was cut and this header field only misdirects the
+  drift check.
+- After t1536, the plan header is the *carrier* of branch context across the gap
+  between resolution (Step 5) and fork (Step 7). Re-entry Routing is explicit
+  that "a resumed session carries none of the Step 5 branch variables … resolve
+  both branches **from the plan header only** — never from `profile.base_branch`"
+  (`.claude/skills/task-workflow/SKILL.md:256`).
+- t1536 creates a resumable state that does not exist today — plan approved, no
+  worktree yet (stopped at the checkpoint, or crashed between approval and the
+  fork). Resuming there means re-entry must *create* the worktree from the header
+  value. With this task unfixed, a profile setting `base_branch: develop` would
+  cut the worktree from `main`: the wrong branch, not merely a wrong label.
+
+**Sequencing:** implement this task before t1536. Both add a validated flag to
+`aitask_plan_externalize.sh` threaded through the same `<branch-flags>` contract
+at the same two call-sites (`plan-externalization.md:22-41`) — this one adds
+`--base-branch`, t1536 adds `--worktree`. Doing this one first makes t1536's flag
+a small addition to an already-threaded channel; the reverse order threads the
+channel twice. t1536's description records `depends: [1277]` as the expected
+planning-time outcome.
+
+**Also revisit the open question in "Suggested direction"** ("Decide whether
+`remote-drift-check.md` should then compare base vs output differently") in light
+of t1536: after the move, the drift check runs while the fork is still
+hypothetical, which changes what a base-branch drift warning means and what the
+user can usefully do about it.
