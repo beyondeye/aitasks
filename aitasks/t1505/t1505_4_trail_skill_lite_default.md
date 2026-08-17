@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/opus5
 created_at: 2026-08-13 12:28
-updated_at: 2026-08-16 23:31
+updated_at: 2026-08-17 08:22
 ---
 
 ## Context
@@ -173,3 +174,8 @@ placeholder.
   correctly in the board's By-Trail view, including t1505_1's pane.
 - Per CLAUDE.md, Codex CLI / OpenCode ports of this skill are a **separate
   follow-up task**, not part of this one — suggest it at completion.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T05:22:26Z status=pass attempt=1 type=human
