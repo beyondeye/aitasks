@@ -564,3 +564,130 @@ Post-implementation (merge into `main`, gate run, archival) follows the shared
 task-workflow Step 9. The task's active gate set is `risk_evaluated`, materialized
 at claim time; the Step-9 orchestrator records it, so planning does **not**
 self-record it.
+
+---
+
+## Measurement
+
+Executed **2026-08-17**, per the recipe in `aidocs/framework/shadow_agent.md`
+§"Recipe: measuring a new agent's readiness surfaces". Private tmux socket
+`t1518meas_1668172` (never the `-L ait` gateway), `TMUX`/`TMUX_PANE` scrubbed,
+120x30 panes, throwaway repo under the session scratchpad. Captures taken with
+the production argv verbatim (`capture-pane -p -e -t <pane> -S -200`) and
+classified through the production seams (`monitor_core.classify_content` for the
+kind, `review_loop.classify_followed_change` for the verdict).
+Versions: **codex-cli 0.146.0** (gpt-5.6-terra high), **OpenCode 1.18.18**
+(GPT-5.4). Harness is scratchpad-only and not committed (t1520 standing
+decision).
+
+**Three channels per frame** (recipe step 4). (A) harness ground truth — the
+driver knows which frame is at-rest / working / dialog-sel1 / dialog-sel2, and
+for every selection step asserts the **raw** capture changed before accepting the
+frame; (B) literal screen evidence — plain substring searches, not the shipped
+regexes; (C) the detector's own verdict. **No channel disagreement was observed
+in any accepted rep.**
+
+### Verdicts — one row per (agent, kind)
+
+| agent | kind | candidate boundary line | index | B1 exactly-once | B2 only-while-live | B3 above-the-change | reps |
+|---|---|---|---|---|---|---|---|
+| codex | `codex_permission` | `Would you like to run the following command?` | −13 | **pass** | **pass** | **pass** | 5/5 |
+| codex | `codex_yes_proceed` | *(same line, same dialog)* | −13 | **pass** | **pass** | **pass** | see note |
+| opencode | `opencode_permission` | `△ Permission required` | −11 | **pass** | **pass** | **vacuous** | 5/5 |
+
+Totals across **every** capture taken, not only the analysed reps:
+codex 10 dialog frames / 15 non-dialog frames, **0 violations**;
+opencode 12 dialog frames / 14 non-dialog frames, **0 violations**. "Violation"
+= a dialog frame not containing the candidate exactly once (B1), or a
+non-dialog frame containing it at all (B2).
+
+### Codex — `codex_permission`
+
+Provoked with a command **outside** the workspace sandbox
+(`touch /home/ddt/t1518probe_<n>.txt`); an in-workspace write is auto-approved
+and renders no dialog. Selection moved with `Down`.
+
+- B1: exactly one match per live frame — **including at rep 6, whose transcript
+  already held five resolved approval dialogs**. The header does not persist
+  once the dialog closes, which is the strongest available form of B2.
+- B3: the only lines differing between selection states are the option rows at
+  −5 and −4 (the `›` cursor); the boundary sits at −13, strictly above both.
+- Current behaviour **without** the row (positive control that the gap is real):
+  the selection pair and the work pair both classify `unknown`.
+
+### Codex — `codex_yes_proceed`: shipped, but not reachable on 0.146.0
+
+`codex_yes_proceed` was **never** the reported kind across all 23 codex captures
+— every dialog frame reported `codex_permission`. This is structural rather than
+incidental: the dialog's footer (`Press enter to confirm or esc to cancel`,
+distance 1) and its option row (`Yes, proceed (y)`, distance 5) are both inside
+`_PROMPT_DETECTION_TAIL_LINES` (6), and matching is first-wins with
+`codex_permission` listed first, so the footer always wins. t1467's expectation
+that it "remains a real backstop when the footer scrolls" was a hypothesis about
+a state, not an observation of one; nothing renders below that footer.
+
+Disposition: **ship the row anyway**, mapped to the same boundary. B1/B2/B3 are
+satisfied — they are properties of the dialog frame, which is identical — and
+what is unconfirmed is only the kind's *reachability*. Shipping costs nothing and
+classifies correctly if a future version does surface it; omitting it would mean
+silently degrading to `UNKNOWN` in exactly that case. Recorded here so the entry
+is not later mistaken for a measured-live kind.
+
+### OpenCode — `opencode_permission`, and why B3 is vacuous
+
+Provoked with `touch /home/ddt/t1518oc_<n>.txt` (outside the project directory).
+
+**First attempt was invalid and was discarded.** `Tab` was sent to move the
+selection on the strength of the widget's `⇆ select` hint; the raw capture came
+back **byte-identical**, i.e. the key never registered (`tab` is globally bound
+to "agents"). Had the ground-truth channel not been checked, the resulting
+"stripped text unchanged" reading would have been recorded as a property of the
+widget rather than as a dead keypress. `Right` is the key that moves it, and
+every accepted rep asserts the raw frame changed first.
+
+With a *valid* selection change:
+
+- the **raw** capture changes (ground truth: selection moved);
+- the **ANSI-stripped** capture is byte-identical — OpenCode renders the
+  selection purely as styling.
+
+`classify_followed_change` compares stripped content, so it returns `NO_CHANGE`
+**before** any boundary is consulted. B3 is therefore *vacuously* satisfied —
+there are no differing lines for the boundary to sit above — and is recorded as
+`vacuous`, not as a pass. Measured verdict today, with no boundary row:
+`none` (`NO_CHANGE`), which already never satisfies nor resets the work latch.
+
+**The row is still needed, for the other direction.** Work performed *above* a
+live permission dialog currently classifies `unknown` (measured on a pair of
+dialog frames whose content above the boundary differs). That is the actual gap
+for OpenCode; the selection direction was never the problem.
+
+### OpenCode branch decision: **phrase**
+
+The plan's decision rule was to prefer the structural gutter-run top if any line
+between it and the phrase changes during selection. Measured: the gutter top is
+at −12, the phrase at −11, so exactly one line (−12) lies between them, and it
+does **not** change during selection (nothing does). The two mechanisms are
+therefore *equivalent on the evidence*, and the rule selects the **phrase
+branch** — the simpler mechanism, and no new entry in the strategy table.
+
+Per the approved plan, `NATIVE_DIALOG_STRATEGIES` is still **defined** (empty of
+OpenCode) so the precedence lookup in `classify_followed_change` is
+unconditional.
+
+### Safety-bar observation 2 — question widgets (live, per agent)
+
+Pure option-cursor movement inside each agent's question widget, through the
+path t1467 shipped and this task does not modify:
+
+| agent | kind | key that moved it | raw changed | verdict |
+|---|---|---|---|---|
+| codex | `codex_question` | `Down` | yes | `selection_only` |
+| opencode | `opencode_question` | `Down` | yes | `none` (`NO_CHANGE`) |
+
+Neither is `WORK`, so neither can fire the loop. Confirmed live for both agents.
+
+### Gate discharge
+
+Every entry shipped in Step 2 maps 1:1 onto a **passing** verdict row above.
+No candidate failed, so no agent is excluded on boundary grounds.
