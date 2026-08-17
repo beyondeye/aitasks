@@ -130,5 +130,6 @@ verification
 verifiedstats
 web_site
 whitelists
+workflow
 workflows
 worktree
