@@ -815,3 +815,66 @@ not fire`) alongside `test_opencode_dialog_selection_does_not_signal_work`
 passing vacuously.
 
 `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Measured both agents' native-dialog boundaries live (5
+  reps each, three evidence channels), then shipped them: `NATIVE_DIALOG_BOUNDARIES`
+  rows for `codex_permission`, `codex_yes_proceed` and `opencode_permission`; a
+  new `NATIVE_DIALOG_STRATEGIES` table (defined, empty) consulted **before** the
+  regex table via `_native_block_start`; `DELIBERATELY_UNANCHORED_KINDS` making
+  deliberate non-coverage a property of the table; `native_dialog_anchored` as
+  the shared predicate. `REVIEW_LOOP_AGENTS` widened to
+  `("claude", "codex", "opencode")`, and minimonitor's arm refusal now
+  interpolates that tuple instead of claiming "Claude-only for now". Tests: real
+  captured fixtures, both directions per agent per dialog, a total completeness
+  guard with three built-in negative controls, and a live-tmux class driving the
+  real application path end to end. Docs updated in `shadow_agent.md` and the
+  minimonitor how-to.
+
+- **Deviations from plan:** The plan's OpenCode branch rule chose between a
+  phrase boundary and the structural gutter scan on whether lines between them
+  change during selection. Measurement selected the **phrase branch**, but for a
+  reason the rule did not anticipate: OpenCode renders selection purely as ANSI
+  styling, so *no* stripped line changes at all and B3 is **vacuous** rather than
+  passing. Recorded as `vacuous` instead of scored as a pass, and the row's real
+  purpose (the WORK direction) documented at the definition. `NATIVE_DIALOG_STRATEGIES`
+  ships empty, as the approved plan required.
+
+- **Issues encountered:**
+  - Codex auto-approves in-workspace writes; a command **outside** the sandbox is
+    needed to provoke the exec-approval dialog at all.
+  - `codex_yes_proceed` was never the reported kind across 23 live captures — its
+    footer always wins first-match and nothing renders below it. The row ships
+    anyway (same dialog, same evidence) and the non-reachability is recorded so
+    it is not later mistaken for measured-live.
+  - The first OpenCode selection measurement was **invalid**: `Tab` was sent on
+    the strength of the widget's `⇆ select` hint and never registered (raw
+    byte-identical). Only the ground-truth channel caught it; the resulting
+    "stripped text unchanged" reading would otherwise have been recorded as a
+    property of the widget. `Right` is the key; `tab` is bound to "agents".
+  - Live driving of Codex needs **chunked** `send-keys`: one long literal burst
+    is coalesced and arrives truncated (a 78-char prompt became `518arm.txt`).
+  - Building the live smoke surfaced three fixture-hygiene traps, each producing
+    a false `WORK`: tmux history persisting across paints, `\x1b[2J` scrolling
+    the old screen into the freshly-cleared history, and a shadow *split* halving
+    the followed pane's height. Resolved by bottom-aligning frames inside a pane
+    tall enough to hold them, overwriting in place with absolute cursor
+    addressing and no newlines, and giving the shadow its own window.
+
+- **Key decisions:**
+  - Ship the boundary row for a kind that is currently unreachable rather than
+    exempt it — the evidence is the same dialog frame, and omission would mean
+    silent `UNKNOWN` if a future version surfaces it.
+  - Derive the completeness guard's kind set from `scope_patterns(all_patterns(),
+    agent)` — the production seam — rather than from `PROMPT_PATTERNS_BY_AGENT[agent]`,
+    so the cross-agent `"all"` group is covered and the guard follows any change
+    to the scoping rule.
+  - Keep `NATIVE_DIALOG_STRATEGIES` defined even when empty, so the precedence
+    lookup is unconditional and callers never need `globals().get`.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/review_loop.py:DELIBERATELY_UNANCHORED_KINDS — Claude's `claude_help_bar`, `claude_proceed` and `claude_trust_folder` have no measured boundary, so a Claude pane parked at a tool-permission dialog classifies UNKNOWN and the loop silently never fires — the same under-detection this task closed for Codex and OpenCode. Pre-existing; closing it needs its own live measurement of Claude's dialogs.`
+  - `tests/test_minimonitor_concern_action.py:1095 — `unittest.main()` sat mid-file in a 3100-line module, so direct invocation exited after 55 of 177 tests and silently skipped every class below, including all review-loop arming tests. FIXED in this task (moved to the end with a comment); listed because the same shape may exist in other long test modules and is invisible under discovery-based runs.`
