@@ -70,7 +70,7 @@ After a task is selected and confirmed, perform these checks before proceeding t
 - If `issue_type` is `manual_verification`:
   - Execute the **Manual Verification Procedure** (see `manual-verification.md`)
   - Skip Steps 6-8; proceed to Step 9 after the procedure returns
-  - Steps 4 (ownership) and 5 (worktree) still run before dispatch — manual verification is work that should be owned and locked
+  - Step 4 (ownership) still runs before dispatch — manual verification is work that should be owned and locked. Step 5 also runs, but it only **resolves** the branch context; the fork itself lives at the top of Step 7, which this path skips. So a manual-verification task always runs on the current branch, even under a `create_worktree: true` profile. That is correct, not a gap: the checklist writes no code, and Step 9 has no task branch to merge
 
 **Check 4 - In-flight gated task, all gates now pass:**
 - Run `./.aitask-scripts/aitask_gate.sh archive-ready <taskid>` and parse:
@@ -273,7 +273,38 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 
   Never fall back to `Base branch:` for the output branch: a plan written before that field existed merged to `main`, and reading its base would retroactively change where in-flight work lands. Carry both provenance strings and name them in any prompt, exactly as Step 9 does.
 
-- **Environment setup (Step 5) with reuse:** If a worktree for `<task_name>` already exists — `git worktree list --porcelain` shows a `branch refs/heads/aitask/<task_name>` line — reuse it (work in that directory); do **NOT** recreate the branch/worktree. Otherwise run Step 5 as normal. For current-branch profiles (no worktree), Step 5 is a no-op and you work on the current branch.
+- **Resolve the worktree intent — from the plan header, exactly like the branches.** A resumed session may run under a **different profile** than the one that planned the task, so `profile.create_worktree` must not decide this: under `fast` a task planned with `create_worktree: true` would skip its fork entirely, and under a worktree profile a current-branch task would suddenly get one. The durable record is the header's `Worktree:` field, written from Step 5's intent at externalization time:
+
+  A plan file is editable text, so the **read** side must re-apply every check the **write** side applied — the charset alone is not enough: `../../outside` and `aiwork/../../outside` both satisfy it, and the value is about to reach `mkdir -p` and `git worktree add`. These are the same three checks `validate_worktree_path()` in `aitask_plan_externalize.sh` runs when the field is written:
+
+  ```bash
+  worktree_path=$(sed -n 's/^Worktree: //p' "<plan_file>" | head -n1)
+  if [ -n "$worktree_path" ]; then
+    wt_ok=1
+    printf '%s' "$worktree_path" | grep -qE '^[A-Za-z0-9._/-]+$' || wt_ok=0  # charset
+    case "$worktree_path"   in /*)      wt_ok=0 ;; esac                      # absolute
+    case "/$worktree_path/" in */../*)  wt_ok=0 ;; esac                      # .. segment
+    [ "$wt_ok" = 1 ] || echo "UNSAFE_WORKTREE:$worktree_path"
+  fi
+  ```
+
+  `UNSAFE_WORKTREE:<p>` → **stop**, exactly as for `UNSAFE_BRANCH` — a header value that is not repo-relative and shell-safe means the plan is untrustworthy about where the work lives, and treating it as usable would place a worktree outside the repository.
+
+  Then bind the mode and the path together — every branch below sets **both**, because Step 7's fork block reads `worktree_path` and cannot run without it:
+
+  - **Non-empty and safe** → worktree mode; `worktree_path` is the header's value.
+  - **Empty** → the header makes no claim: either the task is current-branch, or it predates this field. Resolve it **without guessing**, in this order:
+    1. If `git worktree list --porcelain` already shows a `branch refs/heads/aitask/<task_name>` record, that is evidence, not inference → worktree mode, and `worktree_path` is **that record's** `worktree <path>` (extract it record-aware, as Step 7 does).
+    2. Otherwise **ask the user** (`AskUserQuestion`) whether this task should get its own worktree, saying that the plan header records none and that the current profile is not authoritative for a resumed task. Do **not** read `profile.create_worktree` to answer it for them. Both answers have a defined handoff:
+       - **"Create the worktree now"** → worktree mode, and `worktree_path=aiwork/<task_name>` — the conventional location, which is the only defensible value when the header names none.
+       - **"Work on the current branch"** → current-branch mode: leave `worktree_path` unset and treat Step 7's fork block as a no-op. Do not carry a path forward from any earlier context.
+
+- **Environment setup — resolve here, fork later.** This step is **read-only**; do not run Step 7's fork block from it. The same split the whole task is about applies to the resume path: the drift check for this route runs *below*, so cutting here would pin the fork to the pre-drift HEAD and re-create exactly the stale-worktree timing the deferral removes. Do **not** send this to Step 5 either — Step 5 creates nothing any more.
+  - If the reuse extraction already found a worktree record, you are working in that directory from now on; nothing needs to be created and there is no ordering question.
+  - Otherwise, in worktree mode, the fork is **owed but not yet performed**. Where it happens depends on the route below:
+    - **`IMPLEMENT`** → Step 7's **"Deferred worktree fork"** block runs **only after** the Remote Drift Check has returned "Continue anyway", immediately before implementation — see the route text.
+    - **`POSTIMPL`** → the fork block does **not** run at all. The code is already committed and `review_approved` recorded, so there is nothing left to implement in a worktree; cutting a fresh branch from the base at this point would either fail outright (`aitask/<task_name>` already exists) or produce an empty worktree that Step 9 would then merge. Proceed to Step 9 from the repo root.
+  - In current-branch mode every path here is a no-op and you work on the current branch.
 
 - **Route by `resume_point`:**
   - **`IMPLEMENT`** → **first run the remote drift check, then** resume at Step 7's **"Follow the approved plan"** implementation body.
@@ -282,7 +313,9 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 
     **The loop terminates.** "Stop and re-verify plan" reverts the task to `Ready`; the re-pick therefore fails Step 3 Check 5's `Implementing` status gate, never reaches Re-entry Routing, and runs the normal planning path — whose Checkpoint runs the check once more, now against the pulled branches. The check that sent the user away is not the one they land back on.
 
-    Then re-run **only** the **Pre-implementation ownership guard** and the **Agent Attribution Procedure** (both idempotent; attribution re-records the *resuming* agent), and go straight to implementation. **Skip** Step 7's post-approval one-time gates:
+    Then re-run **only** the **Pre-implementation ownership guard**, the **Deferred worktree fork** block, and the **Agent Attribution Procedure** (all idempotent — the fork block's reuse check short-circuits when a worktree already exists, and attribution re-records the *resuming* agent), in that order, and go straight to implementation.
+
+    **The fork belongs here, not in the environment-setup step above** — after "Continue anyway", so the branch is cut from the base as it stands post-pull. Pass it the `worktree_path` and `base_branch` resolved above; on this route `base_branch` came from the plan header, so the block's agreement check is trivially satisfied and its legacy-fallback confirmation is the one that can fire. **Skip** Step 7's post-approval one-time gates:
     - Cross-Repo Child Assignment and the risk-mitigation pre-task creation (the post-approval "before" follow-ups) — these are **non-idempotent task creators** that *end the workflow* when they fire, so a task that is still a normal `Implementing` single task is necessarily past them; re-running would double-create.
     - The `plan_approved` / `risk_evaluated` gate re-recordings and the risk-level field write — already done in the original session; re-running only adds redundant commits.
   - **`POSTIMPL`** → **first run the merge-target sync pre-flight, then** resume at **Step 9** (Post-Implementation), skipping Steps 6–8 (the code is already committed and `review_approved` was recorded after the Step 8 commit). Step 9 is safe to re-enter: its merge approval is NON-SKIPPABLE (re-asked), a re-merge of an already-merged branch is a git no-op, and archival just moves and commits the task file. For child tasks, the "verify plan completeness before archival" sub-step backstops the Final Implementation Notes.
@@ -317,16 +350,18 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
   - For child: `t16_2_add_login` from `t16_2_add_login.md`
 
 {# ---------- base_branch ---------- #}{% if profile.base_branch is defined %}
-- Use base branch `{{ profile.base_branch }}` for this task. Display: "Profile '{{ profile.name }}': using base branch {{ profile.base_branch }}".
+- Use base branch `{{ profile.base_branch }}` for this task. Display: "Profile '{{ profile.name }}': using base branch {{ profile.base_branch }} — the branch and worktree are created after plan approval and the remote drift check, not now."
 {% else %}{# base_branch: key absent from profile #}
 - **Profile check:** If the active profile has `base_branch` set:
-  - Use the specified branch name. Display: "Profile '\<name\>': using base branch \<branch\>"
+  - Use the specified branch name. Display: "Profile '\<name\>': using base branch \<branch\> — the branch and worktree are created after plan approval and the remote drift check, not now."
   - Skip the AskUserQuestion below
 
   Otherwise, ask which branch to base the new branch on using `AskUserQuestion`:
-  - "Which branch should the new task branch be based on?"
+  - "Which branch should the new task branch be based on? The branch and worktree are not created now — they are cut at the start of implementation, after you approve the plan and the remote drift check passes."
   - Options: "main (Recommended)" / "Other branch"
   - If "Other branch", ask user to specify the branch name
+
+  The deferral belongs **inside the question text**, not in same-turn prose around it: the widget is the only surface the user is guaranteed to read when answering, and a user who believes the fork already happened will misjudge every later stop path.
 {% endif %}{# ---------- end base_branch ---------- #}
 
 {# ---------- output_branch ---------- #}{% if profile.output_branch is defined %}
@@ -337,18 +372,13 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 
 - **Never handle the branch name yourself.** It is user-authored config, and git accepts refs containing shell metacharacters (`dev$(id)`, ``dev`id` ``, `dev'x` are all valid refs). Quoting does not help — `"dev$(id)"` still executes inside double quotes — and re-reading the YAML with `sed` would mis-parse the equally valid `output_branch: "dev"` / `'dev'` / `dev # comment` forms. So the value is **displayed only**. Step 6 passes the profile *path* to the externalize helper, which resolves `output_branch` with a real YAML parser, validates it against a shell-safe subset, and fails closed. If it reports an unsafe branch name, stop and tell the user; do not continue to Step 9.
 
-- Create worktree directory:
-  ```bash
-  mkdir -p aiwork
-  ```
+- **Nothing is created here — this step resolves, it does not fork.** Record `<task_name>`, the resolved `<base_branch>` and `<output_branch>` as workflow context. The branch and worktree are cut at the top of **Step 7**, after `planning.md`'s Checkpoint approved the plan and the **Remote Drift Check Procedure** returned "Continue anyway".
 
-- Create both the branch and worktree in a single command:
-  ```bash
-  git worktree add -b aitask/<task_name> aiwork/<task_name> <base-branch>
-  ```
-  Where `<base-branch>` is the base branch resolved above.
+  Deferring the fork is what makes the fork point reflect the base *after* any pull the drift check prompted, and what stops every "stop, don't abort" exit (approve-and-stop, drift stop, a parent that decomposes into children) from stranding a worktree for work that never started.
 
-- Work in the `aiwork/<task_name>/` directory for implementation
+- Two consequences worth stating here, because they are easy to get wrong later:
+  - Step 6 externalizes the plan **before** the worktree exists. The plan header's `Worktree:` field therefore records the intent resolved above — pass `--worktree aiwork/<task_name>` in `<branch-flags>` (see `plan-externalization.md`). The helper does **not** probe the filesystem for it, so omitting the flag drops the field.
+  - You are still in the repo root for Steps 6 and 7's pre-fork work. `aiwork/<task_name>/` becomes the working directory only from the Step 7 fork onward.
 
 **If No:**
 - Work directly on the current branch in the current directory
@@ -390,6 +420,76 @@ Before starting implementation, verify that ownership/lock was acquired (Step 4 
     - `LOCK_ERROR:<message>` — Display error. Use `AskUserQuestion`: "Retry" / "Continue without lock" / "Abort". Handle as in Step 4.
     - `LOCK_INFRA_MISSING` — Inform user to run `ait setup` and abort.
     - Script fails entirely — display error and abort.
+
+**Deferred worktree fork (Step-5 intent, cut now):**
+
+This is the fork **Step 5** resolved but did not perform. Reaching here means the plan was approved *and* the Remote Drift Check returned "Continue anyway", so the fork point is the base branch as it stands after any pull that check prompted. It runs **after** the ownership guard above — ownership must be confirmed before anything is created — and **before** everything below it, so the risk-mitigation "before" stop later in this step still finds a real worktree.
+
+**Which mode applies** depends on how you got here, and in both cases it is a recorded fact rather than a re-read of the current profile:
+
+- **fresh** — the mode Step 5 resolved (its **If Yes** / **If No** branch), with `<worktree_path>` = `aiwork/<task_name>`.
+- **re-entry** — the mode **Re-entry Routing** resolved from the plan header's `Worktree:` field, with `<worktree_path>` = that value.
+
+**In current-branch mode** this whole block is a no-op — continue below.
+
+**In worktree mode:**
+
+- **Confirm the fork base before cutting.** `<base_branch>` reaches this block by exactly one of two routes, and **both always bind it**:
+  - **fresh** — Step 5 resolved it (profile `base_branch`, else the user's answer). Provenance: `Step 5`.
+  - **re-entry** — Step 5 was skipped and **Re-entry Routing** resolved it from the plan header, falling back to `main` with `provenance_base="legacy plan, no Base branch field"` for a plan written before that field existed.
+
+  Three checks, in order. Each fails closed; none guesses:
+
+  1. **Bound.** If `base_branch` is empty, neither route ran — a defect state, not a legacy one. **Stop and ask the user** for the base. Never run `git worktree add` with an empty final argument: git would silently cut from the current HEAD, which is exactly the wrong-base failure the deferral exists to prevent.
+  2. **A legacy fallback is confirmed, never assumed.** If the provenance is the `legacy plan, no Base branch field` fallback, the value is a *guess* (`main`) that is about to become a real branch rather than just a comparison. Confirm it with `AskUserQuestion` before cutting — question text naming the plan file, the guessed base, and the reason ("this plan predates the `Base branch:` header, so the base was defaulted") — options "Use `main`" / "Pick a different base branch". This is the same name-the-provenance rule Step 9 and Re-entry Routing state, raised from *display* to *confirm* because this call site writes.
+
+     **Then actually adopt the answer** — a confirmation that does not reach the variable the cut uses is worse than none, because the widget claims one base while `git worktree add` uses another. Whichever option was chosen:
+
+     ```bash
+     # Write the confirmed name with the Write tool (NOT a shell echo): a
+     # user-supplied ref like `release$(id -u)` would expand before any check.
+     confirmed_base=$(head -n1 <scratch-file>)
+     printf '%s' "$confirmed_base" | grep -qE '^[A-Za-z0-9._/-]+$' &&
+       git check-ref-format --branch "$confirmed_base" >/dev/null 2>&1 &&
+       git rev-parse --verify --quiet "refs/heads/$confirmed_base" >/dev/null ||
+       echo "UNUSABLE_BASE:$confirmed_base"
+     base_branch="$confirmed_base"
+     provenance_base="user-confirmed (legacy plan)"
+     ```
+
+     `UNUSABLE_BASE` → re-ask; do not cut. Note the third check: the base must exist as a **local branch**, since `git worktree add` would otherwise DWIM or fail mid-command. From here on `"$base_branch"` is the confirmed value, and it is what the cut below uses — verify that with a value **other than** `main`, since a handoff bug is invisible when the answer equals the guess.
+
+     **The confirmation is per-session, and that is deliberate.** Do not expect it to be written back into the plan header: Step 8's externalize fallback is a no-op (`PLAN_EXISTS`) once the plan exists, which it always does by the time you are here, so nothing on the resume path rewrites `Base branch:`. A later resume of the same legacy plan therefore asks again. Re-confirming beats persisting a guess — but do **not** tell the user their answer is being remembered.
+  3. **Agreement.** When both a Step-5 value and a non-empty header value exist they must match — the header is what a future resume reads, so a disagreement means the branch is cut from one base and resumed against another:
+
+     ```bash
+     header_base=$(sed -n 's/^Base branch: //p' "<plan_file>" | head -n1)
+     [ -z "$header_base" ] || [ "$header_base" = "$base_branch" ] \
+       || echo "BASE_MISMATCH:$header_base vs $base_branch"
+     ```
+
+     `BASE_MISMATCH` → **stop and ask** which base is correct; do not guess and do not cut.
+
+- **Reuse check next** (the same rule Re-entry Routing states). A worktree can already exist here — the risk-mitigation "before" stop below leaves one in place, and `git worktree add -b` fails on an existing branch. Reuse means working in **that record's** directory, which is the `worktree <path>` line of the *same* porcelain record, not a guessed `aiwork/<task_name>`:
+
+  ```bash
+  reuse_dir=$(git worktree list --porcelain | awk -v b="branch refs/heads/aitask/<task_name>" '
+    /^worktree /  { p = substr($0, 10) }
+    $0 == b       { print p; exit }')
+  ```
+
+  If `reuse_dir` is non-empty: work in `"$reuse_dir"` and **skip the cut below**. Do not assume it equals `<worktree_path>` — a worktree that was moved makes that guess wrong, and the failure mode is silent (implementing in the wrong tree).
+
+- **Otherwise cut it now**, at `<worktree_path>` and from the confirmed base:
+
+  ```bash
+  mkdir -p "$(dirname "$worktree_path")"
+  git worktree add -b aitask/<task_name> "$worktree_path" "$base_branch"
+  ```
+
+  Bind the base to a shell variable rather than substituting the literal — the same injection rule Step 5 and Step 9 state for user-authored branch names.
+
+- Work in the reused or newly cut directory for the implementation below.
 
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `agent-attribution.md`) to record which code agent and model is implementing this task.
 

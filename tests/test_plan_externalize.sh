@@ -1011,6 +1011,285 @@ base file wins over base flag|--base-branch alpha --base-branch-file @BETA@|beta
 CASES
 rm -rf "$TMPDIR14E"
 
+# --- Test 15: `Worktree:` comes from --worktree INTENT, never a disk probe (t1536) ---
+# Before t1536 build_header() emitted the field from `[[ -d "aiwork/<task_name>" ]]`.
+# The fork is now deferred to Step 7 while externalization still runs in Step 6, so
+# that probe would drop `Worktree:` from every worktree-mode plan. The field is now
+# emitted iff --worktree is passed; case "probe removed" below is the control that
+# distinguishes intent-driven from probe-driven and FAILS on the pre-t1536 helper.
+echo "--- Test 15: --worktree intent replaces the aiwork/ directory probe ---"
+
+# 15.1 the flag records the field
+TMPDIR15=$(new_sandbox)
+make_fresh_internal "$TMPDIR15/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR15" "$TMPDIR15/fakehome/.claude/plans" 999 \
+    --worktree aiwork/t999_sandbox_task >/dev/null
+wt_field=$(grep '^Worktree:' "$TMPDIR15/aiplans/p999_sandbox_task.md" || true)
+assert_eq "--worktree records the field" "Worktree: aiwork/t999_sandbox_task" "$wt_field"
+rm -rf "$TMPDIR15"
+
+# 15.2 NEGATIVE CONTROL: directory present on disk, flag absent -> NO field.
+# This is the load-bearing assertion of the whole change.
+TMPDIR15B=$(new_sandbox)
+mkdir -p "$TMPDIR15B/aiwork/t999_sandbox_task"
+make_fresh_internal "$TMPDIR15B/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR15B" "$TMPDIR15B/fakehome/.claude/plans" 999 >/dev/null 2>&1
+n=$(grep -c '^Worktree:' "$TMPDIR15B/aiplans/p999_sandbox_task.md" || true)
+assert_eq "probe removed: aiwork/ on disk does not emit Worktree" "0" "$n"
+rm -rf "$TMPDIR15B"
+
+# 15.3 no flag, no directory -> no field (unchanged legacy behaviour)
+TMPDIR15C=$(new_sandbox)
+make_fresh_internal "$TMPDIR15C/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR15C" "$TMPDIR15C/fakehome/.claude/plans" 999 >/dev/null 2>&1
+n=$(grep -c '^Worktree:' "$TMPDIR15C/aiplans/p999_sandbox_task.md" || true)
+assert_eq "no claim, no directory: no Worktree field" "0" "$n"
+rm -rf "$TMPDIR15C"
+
+# 15.4 --worktree and --no-worktree are mutually exclusive, in BOTH orders
+for order in "--no-worktree --worktree aiwork/x" "--worktree aiwork/x --no-worktree"; do
+    TMPDIR15D=$(new_sandbox)
+    make_fresh_internal "$TMPDIR15D/fakehome/.claude/plans/one-recent.md"
+    # shellcheck disable=SC2086  # deliberate word-splitting of the flag list
+    if run_externalize "$TMPDIR15D" "$TMPDIR15D/fakehome/.claude/plans" 999 $order \
+            >/dev/null 2>&1; then
+        assert_eq "conflicting worktree intent rejected [$order]" "died" "succeeded"
+    else
+        assert_eq "conflicting worktree intent rejected [$order]" "died" "died"
+    fi
+    rm -rf "$TMPDIR15D"
+done
+
+# 15.5 unsafe paths are rejected with the same fail-closed shape as branch names
+for payload in 'aiwork/$(id -u)' 'aiwork/`id`' "aiwork/x'y" 'aiwork/x;id' '../escape' \
+               'aiwork/../../etc' '/abs/path' 'aiwork/a b'; do
+    TMPDIR15E=$(new_sandbox)
+    make_fresh_internal "$TMPDIR15E/fakehome/.claude/plans/one-recent.md"
+    if run_externalize "$TMPDIR15E" "$TMPDIR15E/fakehome/.claude/plans" 999 \
+            --worktree "$payload" >/dev/null 2>&1; then
+        assert_eq "unsafe --worktree rejected: $payload" "rejected" "accepted"
+    else
+        assert_eq "unsafe --worktree rejected: $payload" "rejected" "rejected"
+    fi
+    # A rejected run never writes the plan, so grep has no file and prints
+    # nothing -- normalize the empty capture to 0 rather than comparing "" to "0".
+    leaked=$(grep -c "$(id -u)" "$TMPDIR15E/aiplans/p999_sandbox_task.md" 2>/dev/null || true)
+    assert_eq "unsafe --worktree payload did not execute: $payload" "0" "${leaked:-0}"
+    rm -rf "$TMPDIR15E"
+done
+
+# 15.5b boundary: `..` is rejected as a SEGMENT, not as a substring. A name that
+# merely contains dots must still be accepted, or the guard would reject valid
+# paths -- and Re-entry Routing's documented header check uses the same rule, so
+# the two sides have to agree on where the boundary sits.
+TMPDIR15E2=$(new_sandbox)
+make_fresh_internal "$TMPDIR15E2/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR15E2" "$TMPDIR15E2/fakehome/.claude/plans" 999 \
+    --worktree aiwork/t1..2_sandbox >/dev/null 2>&1
+assert_eq "dots in a name are not a '..' segment" "Worktree: aiwork/t1..2_sandbox" \
+    "$(grep '^Worktree:' "$TMPDIR15E2/aiplans/p999_sandbox_task.md" || true)"
+rm -rf "$TMPDIR15E2"
+
+# 15.6 missing argument is a usage error
+TMPDIR15F=$(new_sandbox)
+make_fresh_internal "$TMPDIR15F/fakehome/.claude/plans/one-recent.md"
+if run_externalize "$TMPDIR15F" "$TMPDIR15F/fakehome/.claude/plans" 999 --worktree \
+        >/dev/null 2>&1; then
+    assert_eq "--worktree without an argument is an error" "died" "succeeded"
+else
+    assert_eq "--worktree without an argument is an error" "died" "died"
+fi
+rm -rf "$TMPDIR15F"
+
+# 15.7 --worktree contradicting a profile's create_worktree: false fails closed
+TMPDIR15G=$(new_sandbox)
+mkdir -p "$TMPDIR15G/prof"
+printf 'name: p\ncreate_worktree: false\n' > "$TMPDIR15G/prof/cur.yaml"
+make_fresh_internal "$TMPDIR15G/fakehome/.claude/plans/one-recent.md"
+if run_externalize "$TMPDIR15G" "$TMPDIR15G/fakehome/.claude/plans" 999 \
+        --profile "$TMPDIR15G/prof/cur.yaml" --worktree aiwork/t999_sandbox_task \
+        >/dev/null 2>&1; then
+    assert_eq "--worktree vs create_worktree:false rejected" "died" "succeeded"
+else
+    assert_eq "--worktree vs create_worktree:false rejected" "died" "died"
+fi
+rm -rf "$TMPDIR15G"
+
+# 15.8 the worktree flag and the branch flags are independent
+TMPDIR15H=$(new_sandbox)
+make_fresh_internal "$TMPDIR15H/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR15H" "$TMPDIR15H/fakehome/.claude/plans" 999 \
+    --worktree aiwork/t999_sandbox_task --base-branch develop >/dev/null
+wt_field=$(grep '^Worktree:' "$TMPDIR15H/aiplans/p999_sandbox_task.md" || true)
+base_field=$(grep '^Base branch:' "$TMPDIR15H/aiplans/p999_sandbox_task.md" || true)
+assert_eq "worktree + base: Worktree recorded" "Worktree: aiwork/t999_sandbox_task" "$wt_field"
+assert_eq "worktree + base: Base branch recorded" "Base branch: develop" "$base_field"
+rm -rf "$TMPDIR15H"
+
+# 15.9 an omitted worktree claim warns on STDERR only -- stdout stays the
+# single-line status channel every caller parses.
+TMPDIR15I=$(new_sandbox)
+make_fresh_internal "$TMPDIR15I/fakehome/.claude/plans/one-recent.md"
+err15=$(run_externalize "$TMPDIR15I" "$TMPDIR15I/fakehome/.claude/plans" 999 2>&1 >/dev/null)
+out15=$(run_externalize "$TMPDIR15I" "$TMPDIR15I/fakehome/.claude/plans" 999 --force 2>/dev/null)
+assert_contains "omitted worktree claim warns on stderr" "no worktree claim" "$err15"
+assert_contains "omitted claim: stdout still the status line" "OVERWRITTEN:aiplans/p999_sandbox_task.md:" "$out15"
+n=$(printf '%s\n' "$out15" | grep -c 'no worktree claim' || true)
+assert_eq "omitted claim: warning never reaches stdout" "0" "$n"
+rm -rf "$TMPDIR15I"
+
+# 15.10 an explicit claim -- either flag -- emits no warning
+for claim in "--worktree aiwork/t999_sandbox_task" "--no-worktree"; do
+    TMPDIR15J=$(new_sandbox)
+    make_fresh_internal "$TMPDIR15J/fakehome/.claude/plans/one-recent.md"
+    # shellcheck disable=SC2086  # deliberate word-splitting of the flag list
+    err15=$(run_externalize "$TMPDIR15J" "$TMPDIR15J/fakehome/.claude/plans" 999 $claim 2>&1 >/dev/null)
+    n=$(printf '%s\n' "$err15" | grep -c 'no worktree claim' || true)
+    assert_eq "explicit claim emits no warning [$claim]" "0" "$n"
+    rm -rf "$TMPDIR15J"
+done
+
+# --- Test 15b: --worktree reaches a source that ALREADY has frontmatter (t1536).
+# build_header() is skipped for such sources, so without a splice the flag would
+# be accepted and the field silently dropped -- the exact failure the
+# intent-driven contract exists to prevent, and the one build_header alone cannot
+# cover. --no-worktree is the tri-state's other arm: it must DELETE a stale line.
+echo "--- Test 15b: --worktree spliced into existing frontmatter ---"
+write_front_plan_15b() {   # $1=dir  $2..=extra frontmatter lines
+    local d="$1"; shift
+    { echo "---"; echo "Task: t999_sandbox_task.md"; for l in "$@"; do echo "$l"; done; echo "---";
+      echo; echo "# Already has frontmatter"; } > "$d/fakehome/.claude/plans/with_front.md"
+}
+
+# insert: no Worktree line present
+TMPDIR15K=$(new_sandbox)
+write_front_plan_15b "$TMPDIR15K"
+run_externalize "$TMPDIR15K" "$TMPDIR15K/fakehome/.claude/plans" 999 \
+    --worktree aiwork/t999_sandbox_task >/dev/null 2>&1
+plan15k="$TMPDIR15K/aiplans/p999_sandbox_task.md"
+assert_eq "worktree splice insert: recorded" "Worktree: aiwork/t999_sandbox_task" \
+    "$(grep '^Worktree:' "$plan15k" || true)"
+assert_eq "worktree splice insert: exactly once" "1" "$(grep -c '^Worktree:' "$plan15k" || true)"
+assert_eq "worktree splice insert: --- count still 2" "2" "$(grep -c '^---$' "$plan15k" || true)"
+rm -rf "$TMPDIR15K"
+
+# replace: a stale Worktree line is overwritten, not duplicated
+TMPDIR15L=$(new_sandbox)
+write_front_plan_15b "$TMPDIR15L" "Worktree: aiwork/stale"
+run_externalize "$TMPDIR15L" "$TMPDIR15L/fakehome/.claude/plans" 999 \
+    --worktree aiwork/t999_sandbox_task >/dev/null 2>&1
+plan15l="$TMPDIR15L/aiplans/p999_sandbox_task.md"
+assert_eq "worktree splice replace: value replaced" "Worktree: aiwork/t999_sandbox_task" \
+    "$(grep '^Worktree:' "$plan15l" || true)"
+assert_eq "worktree splice replace: exactly one line" "1" "$(grep -c '^Worktree:' "$plan15l" || true)"
+rm -rf "$TMPDIR15L"
+
+# --no-worktree CLEARS a stale line, so a later session cannot consume it
+TMPDIR15M=$(new_sandbox)
+write_front_plan_15b "$TMPDIR15M" "Worktree: aiwork/stale"
+run_externalize "$TMPDIR15M" "$TMPDIR15M/fakehome/.claude/plans" 999 --no-worktree >/dev/null 2>&1
+assert_eq "no-worktree splice: stale Worktree removed" "0" \
+    "$(grep -c '^Worktree:' "$TMPDIR15M/aiplans/p999_sandbox_task.md" || true)"
+rm -rf "$TMPDIR15M"
+
+# no claim at all leaves an existing line untouched (per-field opt-in)
+TMPDIR15N=$(new_sandbox)
+write_front_plan_15b "$TMPDIR15N" "Worktree: aiwork/keepme"
+run_externalize "$TMPDIR15N" "$TMPDIR15N/fakehome/.claude/plans" 999 --output-branch dev >/dev/null 2>&1
+assert_eq "no worktree claim: existing line untouched" "Worktree: aiwork/keepme" \
+    "$(grep '^Worktree:' "$TMPDIR15N/aiplans/p999_sandbox_task.md" || true)"
+rm -rf "$TMPDIR15N"
+
+# all three fields in one splice keep build_header order and one frontmatter block
+TMPDIR15O=$(new_sandbox)
+write_front_plan_15b "$TMPDIR15O"
+run_externalize "$TMPDIR15O" "$TMPDIR15O/fakehome/.claude/plans" 999 \
+    --worktree aiwork/t999_sandbox_task --base-branch develop --output-branch dev >/dev/null 2>&1
+plan15o="$TMPDIR15O/aiplans/p999_sandbox_task.md"
+order=$(grep -nE '^(Worktree|Base branch|Output branch):' "$plan15o" | cut -d: -f2 | tr '\n' ',')
+assert_eq "three-field splice: build_header order" "Worktree,Base branch,Output branch," "$order"
+assert_eq "three-field splice: --- count still 2" "2" "$(grep -c '^---$' "$plan15o" || true)"
+rm -rf "$TMPDIR15O"
+
+# --- Test 16: `Base branch:` INSERTED into existing frontmatter (t1536).
+# Test 7b covers this splice for --output-branch; the base insert path had no
+# coverage. It is what upgrades a legacy plan (frontmatter, but no `Base branch:`
+# field) the first time a base is actually claimed -- i.e. on a Step 6 call that
+# really externalizes. It does NOT fire on the Step 8 fallback, which
+# short-circuits with PLAN_EXISTS (Test 14d); that is why the Step-7 fork block's
+# legacy-base confirmation is documented as per-session rather than persisted.
+echo "--- Test 16: --base-branch-file splices Base branch into existing frontmatter ---"
+TMPDIR16=$(new_sandbox)
+cat > "$TMPDIR16/fakehome/.claude/plans/legacy.md" <<'EOF'
+---
+Task: t999_sandbox_task.md
+Output branch: main
+---
+
+# A legacy plan: no Base branch field
+EOF
+printf 'develop\n' > "$TMPDIR16/base.txt"
+run_externalize "$TMPDIR16" "$TMPDIR16/fakehome/.claude/plans" 999 \
+    --base-branch-file "$TMPDIR16/base.txt" >/dev/null 2>&1
+plan16="$TMPDIR16/aiplans/p999_sandbox_task.md"
+n=$(grep -c '^Base branch: develop$' "$plan16" || true)
+assert_eq "legacy splice: Base branch inserted exactly once" "1" "$n"
+count=$(grep -c '^---$' "$plan16" || true)
+assert_eq "legacy splice: --- count still 2" "2" "$count"
+task_line=$(grep '^Task:' "$plan16" || true)
+assert_eq "legacy splice: pre-existing fields untouched" "Task: t999_sandbox_task.md" "$task_line"
+# --base-branch[-file] deliberately claims the merge target too (rung 4 of the
+# output chain: "output defaults to the resolved base"), so the confirmed base
+# becomes both fields. That is the documented t1277 contract, not a side effect
+# -- pin it so a future change cannot silently decouple them.
+out_line=$(grep '^Output branch:' "$plan16" || true)
+assert_eq "legacy splice: base also becomes the merge target" "Output branch: develop" "$out_line"
+
+# ...and the merge target can still be pinned independently when the caller says
+# so, which is what keeps the base confirmation from relocating a legacy plan's
+# merge target against the user's intent.
+TMPDIR16B=$(new_sandbox)
+cat > "$TMPDIR16B/fakehome/.claude/plans/legacy.md" <<'EOF'
+---
+Task: t999_sandbox_task.md
+Output branch: main
+---
+
+# A legacy plan: no Base branch field
+EOF
+printf 'develop\n' > "$TMPDIR16B/base.txt"
+run_externalize "$TMPDIR16B" "$TMPDIR16B/fakehome/.claude/plans" 999 \
+    --base-branch-file "$TMPDIR16B/base.txt" --output-branch main >/dev/null 2>&1
+plan16b="$TMPDIR16B/aiplans/p999_sandbox_task.md"
+assert_eq "explicit output pins the merge target" "Output branch: main" \
+    "$(grep '^Output branch:' "$plan16b" || true)"
+assert_eq "explicit output leaves the spliced base alone" "Base branch: develop" \
+    "$(grep '^Base branch:' "$plan16b" || true)"
+rm -rf "$TMPDIR16B"
+
+# Round-trip: Re-entry Routing's documented resolution snippet must now bind the
+# spliced value WITH `plan header` provenance -- asserting the value alone cannot
+# tell a real header read apart from the legacy `main` fallback.
+base_branch=$(sed -n 's/^Base branch: //p' "$plan16" | head -n1)
+provenance_base="plan header"
+[ -n "$base_branch" ] || { base_branch=main; provenance_base="legacy plan, no Base branch field"; }
+assert_eq "round-trip: resolved base is the spliced value" "develop" "$base_branch"
+assert_eq "round-trip: provenance is the header, not the fallback" "plan header" "$provenance_base"
+
+# Control: the SAME snippet against a plan with no `Base branch:` line must take
+# the fallback -- otherwise the assertion above proves nothing about provenance.
+cat > "$TMPDIR16/legacy_plain.md" <<'EOF'
+---
+Task: t999_sandbox_task.md
+---
+EOF
+base_branch=$(sed -n 's/^Base branch: //p' "$TMPDIR16/legacy_plain.md" | head -n1)
+provenance_base="plan header"
+[ -n "$base_branch" ] || { base_branch=main; provenance_base="legacy plan, no Base branch field"; }
+assert_eq "control: fallback binds main" "main" "$base_branch"
+assert_eq "control: fallback provenance is recorded" "legacy plan, no Base branch field" "$provenance_base"
+rm -rf "$TMPDIR16"
+
 # --- Results ---
 
 echo ""

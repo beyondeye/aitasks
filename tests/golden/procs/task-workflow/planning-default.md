@@ -364,7 +364,14 @@ they must come from that one resolution rather than from two different sources:
   to the wrong branch.
 
 In **current-branch mode** neither branch is resolved (nothing is cut, nothing is
-merged): record the detected primary branch in both fields.
+merged): record the detected primary branch in both fields, and omit `Worktree:`.
+
+`Worktree:` records the **intent** Step 5 resolved, not a directory that exists.
+Externalization runs here in Step 6 while the fork is deferred to Step 7, so the
+directory is not on disk yet — the field comes from `<branch-flags>`'
+`--worktree aiwork/<task_name>` and from nothing else. A worktree-mode plan whose
+header lacks the field means that flag was dropped, not that the task has no
+worktree.
 
 ## Checkpoint (after plan is saved)
 

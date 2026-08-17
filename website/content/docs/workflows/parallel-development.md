@@ -17,7 +17,7 @@ The aitasks framework supports multiple developers (or multiple AI agent instanc
 
 ## Git Worktrees for Isolation
 
-When working on multiple tasks in parallel, use the git worktree option in [`/aitask-pick`](../../skills/aitask-pick/). This creates an isolated working directory at `aiwork/<task_name>/` on a separate branch, so each task's changes don't interfere with each other. After implementation, the branch is merged back into the profile's `output_branch`, which defaults to the base branch the worktree was cut from, and the worktree is cleaned up.
+When working on multiple tasks in parallel, use the git worktree option in [`/aitask-pick`](../../skills/aitask-pick/). The worktree is an isolated working directory at `aiwork/<task_name>/` on a separate branch, so each task's changes don't interfere with each other. It is created once the plan is approved and the remote drift check has passed — not when the branch is chosen — so the branch is cut from an up-to-date base. After implementation, the branch is merged back into the profile's `output_branch`, which defaults to the base branch the worktree was cut from, and the worktree is cleaned up.
 
 ## Best Practices
 

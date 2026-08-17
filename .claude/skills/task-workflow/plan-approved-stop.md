@@ -16,9 +16,9 @@ reference cannot drop a step the way a copy can. For the same reason the steps
 below are **bullets, not a numbered list**: nothing here can read as "optional
 preamble" to a numbered sequence.
 
-This is a **stop, not an abort**: the plan is kept, the task returns to `Ready`,
-and the worktree/branch are left in place. For a rejected plan see
-`task-abort.md`.
+This is a **stop, not an abort**: the plan is kept and the task returns to
+`Ready`. Whether a worktree/branch is left behind depends on which call site got
+here — see the Notes. For a rejected plan see `task-abort.md`.
 
 ## Input context
 
@@ -87,9 +87,15 @@ and the worktree/branch are left in place. For a rejected plan see
 
 ## Notes
 
-- **The worktree and `aitask/<task_name>` branch are intentionally left in
-  place.** This is a stop, not an abort: the next pick reuses them. Only the
-  **Task Abort Procedure** removes them.
+- **Whether a worktree exists at all here depends on the call site.** Reached
+  from `planning.md`'s "Approve and stop here" or `remote-drift-check.md`'s
+  "Stop and re-verify plan", **no worktree exists yet** — both stops happen
+  before `SKILL.md` Step 7's deferred fork. That is the improvement: the drift
+  stop no longer strands a branch cut from the pre-drift HEAD, and the re-pick
+  cuts a fresh one from the pulled base. Reached from Step 7's risk-mitigation
+  "before" stop, the worktree **does** exist and is intentionally left in place —
+  the next pick reuses it via the reuse check at the fork site. Only the **Task
+  Abort Procedure** removes a worktree.
 - The revert to `Ready` is what makes the re-pick land in the planning path
   rather than Re-entry Routing — which is what stops a "stop → pull → re-pick"
   loop from re-triggering the very check that sent the user away.

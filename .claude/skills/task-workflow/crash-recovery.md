@@ -41,6 +41,13 @@ about before deciding. Run these read-only checks:
    the `worktree <path>` two lines above as `survey_dir`. Otherwise set
    `survey_dir` to the current directory (`.`).
 
+   Finding no worktree does **not** imply the task was picked in
+   current-branch mode. The fork happens at the top of `SKILL.md` Step 7, so
+   a task interrupted anywhere between plan approval and that point
+   legitimately has none even under a `create_worktree: true` profile — its
+   work, if any, is on the current branch. Report the absence; do not
+   infer the profile from it.
+
 2. Status + diff (run from `survey_dir`):
    ```bash
    git -C "<survey_dir>" status --porcelain | head -20
@@ -72,7 +79,7 @@ Build a short summary block (3-7 lines):
 
 ```
 Prior in-progress work:
-- Worktree: <path or "(current branch)">
+- Worktree: <path, or "(none — current branch, or fork not reached)">
 - N modified, M staged, K untracked
 - Recorded checkpoints: <derived gate state, or "none recorded">
 - Resume target: <implementation (Step 7) | post-implementation (Step 9) | planning>

@@ -412,7 +412,14 @@ they must come from that one resolution rather than from two different sources:
   to the wrong branch.
 
 In **current-branch mode** neither branch is resolved (nothing is cut, nothing is
-merged): record the detected primary branch in both fields.
+merged): record the detected primary branch in both fields, and omit `Worktree:`.
+
+`Worktree:` records the **intent** Step 5 resolved, not a directory that exists.
+Externalization runs here in Step 6 while the fork is deferred to Step 7, so the
+directory is not on disk yet — the field comes from `<branch-flags>`'
+`--worktree aiwork/<task_name>` and from nothing else. A worktree-mode plan whose
+header lacks the field means that flag was dropped, not that the task has no
+worktree.
 
 {%- if 'risk_evaluated' in rendered_set %}
 **Risk-section guard (NON-SKIPPABLE when risk-gated — verifies the §6.1 terminal step ran):** This guard applies only when this task is **gated for risk evaluation** (the §6.1 check `./.aitask-scripts/aitask_gate.sh active <task_id> risk_evaluated` exited 0). If it is *not* risk-gated, skip the guard. Also skip if `cross_repo_planned` is true (a cross-repo parent has no single-task `## Risk` section). Otherwise, before proceeding to the Checkpoint, confirm the externalized plan file contains a `## Risk` section:

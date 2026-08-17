@@ -55,12 +55,33 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
   ```
 
 - **Cleanup worktree/branch if created:**
-  If a worktree was created in Step 5:
+  If a worktree was created — which happens at the top of **Step 7**, not in
+  Step 5 (Step 5 only resolves the branch context):
   ```bash
   git worktree remove aiwork/<task_name> --force 2>/dev/null || true
   rm -rf aiwork/<task_name> 2>/dev/null || true
   git branch -d aitask/<task_name> 2>/dev/null || true
   ```
+  Run these unconditionally — every command is `2>/dev/null || true` guarded, so
+  an abort reached **before** the fork (a Step 6 "Abort task", or the Step 7
+  ownership-guard abort that precedes the fork) is a clean no-op: nothing is
+  removed and nothing is claimed to have been.
+
+  **Known limitation — a worktree that does not live at `aiwork/<task_name>`
+  survives this cleanup.** Step 7's fork block reuses a worktree by resolving the
+  `worktree <path>` of its `git worktree list --porcelain` record, so a moved
+  worktree is worked in correctly; these commands still target the conventional
+  path, and the same `|| true` guards that make a pre-fork abort quiet also make
+  that miss quiet. Before telling the user the task is aborted, check:
+
+  ```bash
+  git worktree list --porcelain | awk -v b="branch refs/heads/aitask/<task_name>" '
+    /^worktree /  { p = substr($0, 10) }
+    $0 == b       { print p; exit }'
+  ```
+
+  If it still prints a path, say so explicitly and name that path — do **not**
+  report a clean abort. Resolving it automatically is tracked separately.
 
 - **Inform user:**
   "Task t<N> has been reverted to '<status>' and is available for others."

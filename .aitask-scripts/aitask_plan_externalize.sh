@@ -14,7 +14,8 @@
 #                             [--base-branch-file <path>]
 #                             [--output-branch <branch>]
 #                             [--output-branch-default <branch>]
-#                             [--output-branch-default-file <path>] [--no-worktree]
+#                             [--output-branch-default-file <path>]
+#                             [--worktree <path> | --no-worktree]
 #
 # Arguments:
 #   <task_id>            Task number (e.g. 16, t16) or child id (e.g. 16_2)
@@ -46,9 +47,24 @@
 #                        --base-branch[-file], which the workflow passes instead;
 #                        kept for callers that want a merge-target default without
 #                        making any claim about the base branch.
+#   --worktree <path>    Step 5 resolved WORKTREE mode, and <path> is where the
+#                        worktree will live (e.g. aiwork/t16_add_auth). Recorded
+#                        as `Worktree:`. The directory need NOT exist: the fork is
+#                        deferred to task-workflow Step 7 while externalization
+#                        runs in Step 6, so this flag carries Step-5 *intent*, not
+#                        a disk fact (t1536). Mutually exclusive with
+#                        --no-worktree, and with a profile whose create_worktree
+#                        is false.
 #   --no-worktree        Step 5 created no worktree, so neither `base_branch` nor
 #                        `output_branch` applies; both fall back to the detected
 #                        primary branch.
+#
+# `Worktree:` is emitted IFF --worktree is passed. There is deliberately no
+# fallback: this field used to come from a `[[ -d aiwork/<task_name> ]]` probe,
+# which reported the state of the disk at Step 6 -- before the deferred fork has
+# cut anything -- and would therefore drop the field from every worktree-mode
+# plan. A caller that makes NO worktree claim at all (neither flag) gets a
+# one-line stderr warning, so the omission is loud rather than silent.
 #
 # Resolution precedence (t1233 for output, t1277 for base):
 #
@@ -120,7 +136,8 @@ Usage: aitask_plan_externalize.sh <task_id> [--internal <path>] [--force]
                                   [--base-branch-file <path>]
                                   [--output-branch <branch>]
                                   [--output-branch-default <branch>]
-                                  [--output-branch-default-file <path>] [--no-worktree]
+                                  [--output-branch-default-file <path>]
+                                  [--worktree <path> | --no-worktree]
 
 Externalize a Claude Code internal plan file to aiplans/.
 
@@ -145,8 +162,15 @@ Arguments:
                        profile sets no output_branch. Does not change the
                        recorded `Base branch:` field; superseded by
                        --base-branch[-file].
+  --worktree <path>    Step 5 resolved worktree mode; <path> is recorded as
+                       `Worktree:`. The directory need not exist yet -- the fork
+                       is deferred to Step 7 (t1536), so this is Step-5 intent,
+                       not a disk probe. Mutually exclusive with --no-worktree.
   --no-worktree        No worktree was created, so base_branch and output_branch
                        are both ignored.
+
+`Worktree:` is emitted only when --worktree is given; supplying neither flag
+warns on stderr and omits the field.
 
 Precedence:
   Base branch:   --base-branch[-file] > profile base_branch > detected primary
@@ -175,6 +199,12 @@ OUTPUT_BRANCH_DEFAULT=""
 OUTPUT_BRANCH_DEFAULT_FILE=""
 PROFILE_FILE=""
 WORKTREE_MODE=true
+# The `Worktree:` header value, and which of the two mutually exclusive worktree
+# flags (if either) the caller supplied. The path is INTENT from Step 5, not a
+# disk probe -- see the --worktree notes in the header comment.
+WORKTREE_PATH=""
+WORKTREE_FLAG_SEEN=false
+NO_WORKTREE_FLAG_SEEN=false
 OUTPUT_INTENT=false
 # Derived after the profile is parsed -- see the BASE_INTENT block below.
 BASE_INTENT=false
@@ -190,6 +220,20 @@ validate_branch_name() {
         || die "$src: unsafe branch name '$b' (allowed: A-Z a-z 0-9 . _ / -)"
     git check-ref-format --branch "$b" >/dev/null 2>&1 \
         || die "$src: not a valid git branch name: '$b'"
+}
+
+# Validate a worktree PATH against the same shell-safe subset as a branch name.
+# The value is persisted into the plan header and later consumed by an agent as a
+# working directory, so the injection argument for branch names applies verbatim.
+# Additionally rejected: absolute paths and any `..` segment -- the field names a
+# directory inside the repo, and neither form can be one.
+validate_worktree_path() {
+    local p="$1" src="$2"
+    [[ "$p" =~ ^[A-Za-z0-9._/-]+$ ]] \
+        || die "$src: unsafe worktree path '$p' (allowed: A-Z a-z 0-9 . _ / -)"
+    [[ "$p" != /* ]] || die "$src: worktree path must be repo-relative: '$p'"
+    # Match a whole segment, so a legitimate name like `aiwork/t1..2_x` is kept.
+    [[ "/$p/" != */../* ]] || die "$src: worktree path must not contain '..': '$p'"
 }
 
 # Read a single branch name out of a value FILE. Shared by --base-branch-file and
@@ -325,11 +369,27 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_INTENT=true
             shift 2
             ;;
+        --worktree)
+            # Step 5 resolved worktree mode. The path is INTENT: the fork is
+            # deferred to Step 7 while this runs in Step 6, so the directory does
+            # not exist yet and must not be probed for (t1536). Makes no claim
+            # about either branch, so OUTPUT_INTENT/BASE_INTENT stay untouched.
+            [[ $# -ge 2 ]] || die "--worktree requires a path argument"
+            [[ "$NO_WORKTREE_FLAG_SEEN" == false ]] \
+                || die "conflicting worktree intent: --worktree with --no-worktree"
+            validate_worktree_path "$2" "--worktree"
+            WORKTREE_PATH="$2"
+            WORKTREE_FLAG_SEEN=true
+            shift 2
+            ;;
         --no-worktree)
             # Step 5 did not create a worktree, so there is no merge at Step 9 and
             # the profile's output_branch does not apply (it is documented as
             # ignored outside worktree mode).
+            [[ "$WORKTREE_FLAG_SEEN" == false ]] \
+                || die "conflicting worktree intent: --no-worktree with --worktree"
             WORKTREE_MODE=false
+            NO_WORKTREE_FLAG_SEEN=true
             OUTPUT_INTENT=true
             shift
             ;;
@@ -470,6 +530,23 @@ if [[ -n "$PROFILE_FILE" ]]; then
         BASE_BRANCH_OVERRIDE="$_p_base"
     fi
 fi
+# An explicit --worktree against a profile that says create_worktree: false is a
+# contradiction between a runtime fact and configured intent. Fail closed rather
+# than silently picking one -- either the caller is in the wrong mode or the
+# profile is, and guessing would record a `Worktree:` for a task that has none
+# (or drop one for a task that has).
+if [[ "$WORKTREE_FLAG_SEEN" == true && "$WORKTREE_MODE" != true ]]; then
+    die "--worktree: profile '$PROFILE_FILE' sets create_worktree: false (conflicting worktree intent)"
+fi
+
+# Neither flag = no claim about the worktree at all. `Worktree:` is then omitted,
+# which is correct for legacy callers but is also exactly what a caller that
+# FORGOT the flag looks like -- and the directory probe that used to paper over
+# that is gone. Warn on stderr; stdout stays the single-line status channel.
+if [[ "$WORKTREE_FLAG_SEEN" == false && "$NO_WORKTREE_FLAG_SEEN" == false ]]; then
+    warn "no worktree claim (--worktree/--no-worktree) -- 'Worktree:' omitted from the plan header"
+fi
+
 # Outside worktree mode nothing is cut and nothing is merged, so no derived value
 # on either chain applies.
 [[ "$WORKTREE_MODE" == true ]] \
@@ -629,8 +706,12 @@ build_header() {
         fi
     fi
 
-    local task_name="${TASK_BASENAME%.md}"
-    [[ -d "aiwork/${task_name}" ]] && echo "Worktree: aiwork/${task_name}"
+    # Step-5 INTENT, never a disk probe. The old `[[ -d aiwork/<task_name> ]]`
+    # test asked the filesystem a question it cannot answer here: this runs in
+    # Step 6, and the fork it was probing for is not cut until Step 7 (t1536),
+    # so it dropped the field from every worktree-mode plan. No fallback --
+    # a missing claim is warned about at parse time instead.
+    [[ -n "$WORKTREE_PATH" ]] && echo "Worktree: $WORKTREE_PATH"
 
     if [[ -n "$current_branch" && "$current_branch" != "$PRIMARY_BRANCH" ]]; then
         echo "Branch: $current_branch"
@@ -643,34 +724,47 @@ build_header() {
     echo ""
 }
 
-# Record `Base branch:` / `Output branch:` inside a plan file that ALREADY carries
-# frontmatter. build_header() is skipped for such sources, so without this the
-# flags would be accepted and silently dropped -- Step 9 would merge somewhere
-# else, and Re-entry Routing would resolve the wrong fork point.
+# Record `Worktree:` / `Base branch:` / `Output branch:` inside a plan file that
+# ALREADY carries frontmatter. build_header() is skipped for such sources, so
+# without this the flags would be accepted and silently dropped -- Step 9 would
+# merge somewhere else, Re-entry Routing would resolve the wrong fork point, and
+# (t1536) a worktree-mode plan would lose the very field that tells a resumed
+# session it HAS a worktree.
 #
 # Each field is independently opt-in: an EMPTY argument means "the caller made no
 # claim about this field", and the existing line (if any) is left untouched. That
 # is what keeps --output-branch / --output-branch-default[-file] base-neutral.
 #
+# `wt_claim` is the worktree tri-state, because "no worktree" is a real claim that
+# must be able to DELETE a stale line rather than leave it:
+#   ""             -> no claim (neither flag given); leave any existing line alone
+#   "set"  + <wt>  -> --worktree; record that path
+#   "none"         -> --no-worktree; remove any existing `Worktree:` line
+#
 # Replaces an existing field, else inserts before the closing `---` in
-# build_header order (Base, then Output), keeping the `---` count at 2. No-op when
-# the file does not open with `---` or when neither field was claimed.
+# build_header order (Worktree, Base, Output), keeping the `---` count at 2. No-op
+# when the file does not open with `---` or when no field was claimed.
 splice_header_branches() {
-    local file="$1" base="$2" out="$3"
-    [[ -n "$base" || -n "$out" ]] || return 0
+    local file="$1" base="$2" out="$3" wt_claim="${4:-}" wt="${5:-}"
+    [[ -n "$base" || -n "$out" || -n "$wt_claim" ]] || return 0
     [[ "$(head -n 1 "$file" 2>/dev/null || true)" == "---" ]] || return 0
     # Renderer contract (lib/atomic_write.sh): a single `awk`, so the renderer's
-    # exit status IS awk's — no extra guard needed. Both fields go through ONE
+    # exit status IS awk's — no extra guard needed. All fields go through ONE
     # render, so the file is never left half-updated. Routing it through
     # ait_atomic_render also fixes the old `awk … > "$tmp" && mv …` form, which
     # left the temp behind whenever awk failed.
     _ait_splice_header_branches_body() {
-        awk -v base="$base" -v out="$out" '
+        awk -v base="$base" -v out="$out" -v wtc="$wt_claim" -v wt="$wt" '
             NR == 1                 { print; next }
             done_fm                 { print; next }
+            /^Worktree:/            { if (wtc != "") {
+                                          if (wtc == "set") { print "Worktree: " wt; seen_wt = 1 }
+                                          next   # wtc == "none" -> drop the line
+                                      } }
             /^Base branch:/         { if (base != "") { print "Base branch: " base; seen_base = 1; next } }
             /^Output branch:/       { if (out  != "") { print "Output branch: " out; seen_out  = 1; next } }
             $0 == "---" {
+                if (wtc == "set" && !seen_wt) print "Worktree: " wt
                 if (base != "" && !seen_base) print "Base branch: " base
                 if (out  != "" && !seen_out)  print "Output branch: " out
                 done_fm = 1; print; next
@@ -714,7 +808,23 @@ if [[ "$has_frontmatter" == true ]]; then
     if [[ "$OUTPUT_INTENT" == true ]]; then
         _splice_out="${OUTPUT_BRANCH_OVERRIDE:-$PRIMARY_BRANCH}"
     fi
-    splice_header_branches "$EXTERNAL_PLAN" "$_splice_base" "$_splice_out"
+    # Worktree intent travels the same way. Without this a caller that passed
+    # --worktree would get the flag accepted and the field silently dropped on
+    # exactly the sources build_header() skips -- the same class of bug the base
+    # and output splices exist to prevent, and a direct contradiction of the
+    # intent-driven contract --worktree establishes.
+    _splice_wt_claim=""
+    _splice_wt=""
+    if [[ "$WORKTREE_FLAG_SEEN" == true ]]; then
+        _splice_wt_claim="set"
+        _splice_wt="$WORKTREE_PATH"
+    elif [[ "$NO_WORKTREE_FLAG_SEEN" == true ]]; then
+        # Positively "there is no worktree" -- clear any stale line, so a later
+        # session cannot consume it. Mirrors --no-worktree clearing the branches.
+        _splice_wt_claim="none"
+    fi
+    splice_header_branches "$EXTERNAL_PLAN" "$_splice_base" "$_splice_out" \
+        "$_splice_wt_claim" "$_splice_wt"
 fi
 
 if [[ "$EXISTED_BEFORE" == true ]]; then
