@@ -300,3 +300,104 @@ required step rather than an optional verification check.
 ### Planned mitigations
 - timing: pre-phase | name: enumerate_env_callers | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: `_env` return-signature change breaks its second caller | desc: enumerate every `_env` caller and pick the return shape before editing, updating all callers in one edit
 - timing: post-phase | name: probe_positive_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: verification is structural, not observational — an unproven probe would leave the fix unverified | desc: mutate away the reload stub and confirm assertNoLiveWorkers fails naming _trail_reload_worker, then revert and re-run green, recording both outputs
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, all four audited sites plus
+  the shared probe and the four doc surfaces.
+  - `tests/lib/board_fixture.py`: new module-level `block_app_worker_starts(app)`
+    (records a readable worker name per attempted start via a stand-in on the app
+    node's `run_worker`, and starts nothing) and
+    `FixtureBoardTestBase.assertNoLiveWorkers(app, started=None)` (asserts
+    `started == []` naming the recorded workers, plus `len(app.workers) == 0`).
+    Added the `Fixture contract` docstring paragraph and the reverse
+    `See aidocs/framework/testing_conventions.md, "<heading>"` reference.
+  - `tests/test_board_bytrail_view.py`: fixes #1
+    `test_repeated_R_during_an_in_flight_baseline_launches_once`, #2
+    `test_pending_guard_updates_the_rendered_footer`, #3 `RefreshDoubleTapTests`.
+  - `tests/test_board_marking.py`: fix #4
+    `test_binding_is_hidden_in_the_derived_views`.
+  - `aidocs/framework/testing_conventions.md` (new section),
+    `aidocs/framework/tui_conventions.md` (pointer), `CLAUDE.md` (widened trigger).
+- **Deviations from plan:** None structural. Two details worth recording:
+  - The pre-phase `enumerate_env_callers` found exactly the two predicted `_env`
+    callers (`_double_tap` at :2597 and
+    `test_board_threads_the_resolved_key_through_normalisation` at :2646). Chose
+    the widened 3-tuple `(launches, reloads, patches)` over a record, matching the
+    sibling `_launch_env`'s existing 3-tuple shape at :1429. Both callers updated
+    in the same edit.
+  - The plan predicted the negative control would report `2 != 1`. It reports
+    `3 != 1` — the test presses `R` twice more inside the pending window and,
+    without the guard, BOTH launch. The failing assertion, its location and its
+    message are exactly as specified; only my predicted count was wrong.
+- **Issues encountered:** None. Both controls behaved as designed on the first
+  attempt.
+- **Key decisions:**
+  - Stubbed the worker-*starting* method rather than the worker itself, so the
+    launch-once guard each test exists to prove stays intact and the reload is
+    asserted as *requested* (`reloads == ["reload"]`). This is the idiom the
+    sibling `test_direct_launch_fallback_installs_watch_and_reloads` already used.
+  - The probe is deliberately two-part. `len(app.workers) == 0` alone cannot
+    discriminate: `WorkerManager._remove_worker` is the worker's own done-callback,
+    so a worker that started *and finished* also leaves the set empty. The
+    `started` recorder is what actually proves nothing ran; `len(app.workers)`
+    is the AC-named probe and catches anything started before the stand-in.
+  - Chose the app node's `run_worker` as the choke point: `@work` dispatches
+    through `self.run_worker(partial(method, …), name=name or method.__name__)`
+    (`textual/_work_decorator.py`), and inside Textual only that decorator and
+    `Input`'s suggester call it — so the stand-in is precise and public-API.
+    Scope is honest: it covers `KanbanApp`-declared workers only;
+    `TaskDetailScreen._do_lock` / `_do_unlock` dispatch through the *screen's*
+    `run_worker` and are untouched (no live-app test reaches them).
+  - Doc home: `testing_conventions.md` for the rule (its scope line is "rules for
+    designing tests" and its threading checklist item 6 already carries the
+    "assert the worker is gone, don't assume" axis), with pointers from
+    `tui_conventions.md` and `board_fixture.py`, and a widened `CLAUDE.md` trigger
+    — without that widening the doc is never opened by someone writing a TUI test.
+
+### Control results (both required, both observed)
+
+- **Negative control (AC2).** Deleted `or self._trail_launch_pending` from
+  `action_trail_refresh_agent` (`aitask_board.py`). Target test failed at the
+  intended assertion:
+  `AssertionError: 3 != 1 : a second agent was launched while the first baseline
+  was still in flight` (test_board_bytrail_view.py:2183). Reverted via
+  `git checkout --`; `git status --porcelain` on the file confirmed clean.
+- **Positive control (AC1), the `probe_positive_control` post-phase.** Deleted
+  lines (A) `reloads = []`, (B) the `app._reload_active_trail = …` stub and (C)
+  the `assertEqual(reloads, ["reload"])` assertion — and nothing else.
+  `assertNoLiveWorkers` was the **first and only** failure:
+  `AssertionError: Lists differ: ['_trail_reload_worker'] != [] … real worker(s)
+  started inside run_test: ['_trail_reload_worker']`. Reverted from a scratch
+  backup; `LaunchFallbackTests` re-ran 6/6 green.
+  Deleting (B) alone would NOT have been a valid mutation — the test would fail at
+  (C) with `[] != ['reload']` before the probe is reached.
+
+### Audit dispositions (AC3 — which-tests, not a boolean)
+
+Swept all 45 `tests/test_board_*.py` plus every module importing `board_fixture` /
+`aitask_board` (57 modules), against the full 17-entry `@work` inventory in
+`aitask_board.py`. None of those 17 decorators sets `exit_on_error`, so all run
+under Textual's `exit_on_error=True` default.
+
+| test | worker | disposition |
+|---|---|---|
+| `test_board_bytrail_view.LaunchFallbackTests.test_repeated_R_during_an_in_flight_baseline_launches_once` | `_trail_reload_worker` | **fixed** — reload stubbed + probe; pending state and 2 uninvoked callbacks drained |
+| `test_board_bytrail_view.LaunchFallbackTests.test_pending_guard_updates_the_rendered_footer` | `_trail_reload_worker` | **fixed** — same, + 1 uninvoked callback drained |
+| `test_board_bytrail_view.RefreshDoubleTapTests.test_double_tap_does_not_launch_in_terminal_mode` | `_trail_reload_worker` | **fixed** — `_reload_active_trail` added to `_env`; `_stop_trail_watch()` in `finally` clears the leaked watch timer |
+| `test_board_bytrail_view.RefreshDoubleTapTests.test_double_tap_does_not_launch_in_tmux_mode` | `_trail_reload_worker` | **fixed** — same helper |
+| `test_board_marking.MarkGatingTests.test_binding_is_hidden_in_the_derived_views` | `_trail_discovery_worker` | **fixed** — `_open_trail_select` stubbed + probe |
+| `test_board_bytrail_view.ThreadWorkerTests` (5 tests) | watch / reload / baseline | **deliberate** — exists to drive the real thread hop; each waits on its own `_wait()` poller and calls `_stop_trail_watch()` |
+| `test_board_bytrail_view.BannerRenderTests` (`:2357`, `:2415`, `:2452`) | `_trail_drift_worker` | **deliberate** — `_enter_live_bytrail` leaves drift real on purpose; each drains with `await app.workers.wait_for_complete()` |
+| `test_board_bytrail_view.test_baseline_read_is_off_the_ui_thread` | `_trail_baseline_worker` | **deliberate** — the point of the test; awaited via `_wait` |
+| `test_board_bytrail_view` `:553`, `:3135`, `:3184`, `:3231`, `:3282` | `_trail_discovery_worker` | **deliberate** — subprocess seam patched, each with an explicit poll loop |
+
+Structurally out of scope, recorded so it is not re-checked per test:
+`ByTrailTestBase._enter_synthetic_bytrail` bakes `app._start_trail_drift = lambda:
+None` into the shared entry helper, so the drift worker cannot leak from any test
+entering By-Trail through it. `test_board_dialog_run_dispatch.py` /
+`test_board_work_report.py` call unbound actions against a `MagicMock`;
+`test_board_dialog_subprocess_degrade.py` runs worker bodies through `__wrapped__`
+— no Textual scheduling at all.
+
+- **Upstream defects identified:** None.
