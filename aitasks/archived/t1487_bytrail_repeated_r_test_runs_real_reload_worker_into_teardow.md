@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testing, aitask_board, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 implemented_with: claudecode/opus5
 created_at: 2026-08-11 22:21
-updated_at: 2026-08-17 16:01
+updated_at: 2026-08-17 16:19
+completed_at: 2026-08-17 16:19
 ---
 
 ## Symptom
@@ -131,3 +132,14 @@ all 18 `test_board_*` modules in one process (1018 passed), 2 full suites at
 > **✅ gate:plan_approved** run=2026-08-17T13:01:41Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-17T13:15:40Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-17T13:19:24Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6f1311888c0431b0
+
+> **✅ gate:risk_evaluated** run=2026-08-17T13:19:24Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1487/risk_evaluated_2026-08-17T13:19:24Z-risk_evaluated-a1.log`
