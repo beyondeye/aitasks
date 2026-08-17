@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1322
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-07-29 13:11
-updated_at: 2026-08-16 23:17
+updated_at: 2026-08-17 09:27
 boardidx: 86016
 ---
 
@@ -73,3 +74,8 @@ pid heuristics) or in the test fixture drifting from the current
 would mis-align. Fix whichever is genuinely stale, and make the assertion fail
 cleanly (assert length before indexing) so the next breakage reports a
 comparison rather than an `AttributeError`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T06:27:40Z status=pass attempt=1 type=human
