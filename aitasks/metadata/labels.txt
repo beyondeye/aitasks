@@ -32,6 +32,7 @@ archiveformat
 artifacts
 auto-update
 backend
+backlog
 bash_scripts
 board
 board_columns
@@ -73,6 +74,7 @@ macos
 manual
 manual_verification
 memories
+metrics
 minimonitor
 model_selection
 modelvrapper
