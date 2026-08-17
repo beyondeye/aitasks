@@ -791,3 +791,27 @@ Three implementation notes, each a defect found while building it:
   both agents.
 
 `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+
+### Change Request 2 (2026-08-17) — negative app-path test parametrized
+
+**Confirmed.** `test_app_does_not_fire_on_a_selection_redraw` hardcoded
+`agent = "codex"` while the positive app-path test iterated both. That left
+OpenCode's selection path unexercised *through the application*, and it is not
+the same path as Codex's: Codex draws a `›` cursor, so its pair differs once
+stripped and classifies `SELECTION_ONLY` via the boundary, whereas OpenCode
+draws selection purely as ANSI styling, so its pair is byte-identical stripped
+and returns `NO_CHANGE` **before** any boundary is consulted. Covering one said
+nothing about the other.
+
+Now parametrized over both agents with each one's measured selection fixtures,
+asserting per agent that the controller does not reach `FIRED` **and** that the
+shadow pane's recheck count is unchanged.
+
+**Discriminating negative control:** mutating only the branch OpenCode depends on
+(`prev_plain == curr_plain` → return `WORK` instead of `NO_CHANGE`) fails the
+new OpenCode subtest (`'fired' == 'fired' : opencode: a selection redraw must
+not fire`) alongside `test_opencode_dialog_selection_does_not_signal_work`
+(`'work' != 'none'`) — so the subtest is genuinely load-bearing rather than
+passing vacuously.
+
+`bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
