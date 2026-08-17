@@ -302,6 +302,13 @@ skill files.
 > classifies or cleans up shadow panes. The shadow is an advisory-only companion
 > agent (capture → context-fetch → skill) spawned beside a followed agent and
 > bound to it via the `@aitask_shadow_target` pane option.
+>
+> **Read `aidocs/framework/manual_verification_staleness.md`** when editing the
+> staleness pre-check in `manual-verification.md`, the `verification_baseline:`
+> field, or `file_references:` on a `manual_verification` task. The check is
+> advisory and runs only when a task carries both a curated `file_references:`
+> list and a persisted baseline; the doc records why that precondition is
+> deliberately narrow and what is deferred behind it.
 
 ## Planning / Testing / Code Conventions
 
