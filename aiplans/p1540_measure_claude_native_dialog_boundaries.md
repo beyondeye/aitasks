@@ -47,8 +47,10 @@ reason for anything that does not.
   (Step 4a) *and* the one-off live arm-and-fire observation with a real Claude
   followed pane and a real shadow (Step 4b) — the latter as a **gate** with
   PASS/FAIL/BLOCKED consequences, not a recorded shortfall.
-- The measurement runs at **two geometries**: 120x30 and the post-split height a
-  same-window shadow leaves, which is the geometry the loop actually runs in.
+- The measurement runs across a **supported geometry set** — 120x30, the
+  post-split height a same-window shadow leaves (the geometry the loop actually
+  runs in), and the measured floor — and a row ships only if it holds at all of
+  them (**B1–B4**, §1c).
 
 ## What already exists — do NOT rebuild
 
