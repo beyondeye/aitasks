@@ -353,3 +353,112 @@ Step 9 (Post-Implementation) then handles gates, cleanup and archival as usual.
 merge-target regression risk is materially reduced, but the duplicated flag surface
 remains in-plan (its mitigation is a spawned follow-up, not part of this change).
 Levels are unchanged: code-health **medium**, goal-achievement **low**.
+
+## Final Implementation Notes
+
+- **Actual work done:** As planned, with no design deviations.
+  - `.aitask-scripts/aitask_plan_externalize.sh`: added `--base-branch <b>` and
+    `--base-branch-file <path>` (file wins over flag, whatever the argument
+    order); extracted the value-file reader into `read_branch_value_file` sharing
+    a result global with an immediate per-call-site copy; moved the profile's
+    `base_branch` onto the BASE chain and deleted the old
+    `_p_base → OUTPUT_BRANCH_DEFAULT` block, replacing it with a final output rung
+    that reads the resolved base; hoisted `detect_primary_branch()` into
+    `PRIMARY_BRANCH` and added `BASE_BRANCH_RESOLVED`; `build_header()` now emits
+    the resolved base; generalized `splice_output_branch` →
+    `splice_header_branches` (both fields in one `ait_atomic_render`, each field
+    independently opt-in); rewrote the usage/comment block with both precedence
+    chains.
+  - `BASE_INTENT` is derived (`a base was supplied` OR `worktree mode is off`)
+    rather than enumerated per flag — see "Key decisions".
+  - Docs: `plan-externalization.md` (caller contract now passes
+    `--base-branch-file` for an interactive base, plus the per-field splice rule
+    and two new worked examples), `planning.md` (header-placeholder note now
+    covers both branch fields), `remote-drift-check.md` (input table),
+    `profiles.md` (`base_branch` schema row).
+  - Tests: `test_plan_externalize.sh` 93 → 205 assertions (Tests 7s, 14, 14b,
+    14c, 14d, 14e; Tests 7h/7n updated); `test_skill_render_task_workflow.sh`
+    guards widened; comment fixes in `test_atomic_task_file_writes.sh`.
+  - Regenerated 4 procedure goldens under `tests/golden/procs/task-workflow/` and
+    the 12 committed `remote`-profile prerenders (`aitask_skill_rerender.sh
+    remote`), across the `.claude/`, `.agents/` and `.opencode/` trees.
+
+- **Deviations from plan:** One factual correction to the plan's own text. The
+  plan asserted that "the rendered variants … are gitignored and re-render on
+  demand — nothing to commit there". That holds for `default` and `fast`, but the
+  `remote` profile is `headless: true`, so its prerenders are **committed** and
+  `aitask_skill_verify.sh` failed with 6 `PRERENDER_FAIL`s until
+  `aitask_skill_rerender.sh remote` was run and its 12 files staged. No design
+  change; the plan simply under-counted the files to commit.
+
+- **Issues encountered:**
+  - The Test 14c case table initially used `-` as the "no extra flags" filler in
+    the *flags* column (copied from the profile column's convention), so a bare
+    `-` reached the helper and it correctly died with `Unknown flag: -`. Fixed by
+    using an empty field.
+  - `git status` showed concurrent modifications from another session
+    (`monitor/minimonitor_app.py`, `review_loop.py`, their tests, and the
+    in-flight `aitask-trail` work). Nothing was staged by directory: the commit
+    enumerates this task's paths explicitly.
+
+- **Key decisions:**
+  - **Kept `--output-branch-default[-file]`** rather than migrating its ~5 test
+    cases onto the new pair (user-confirmed). It retains its documented
+    base-neutral meaning, which makes it a live negative control for the new
+    behaviour; the debt is recorded as the `after` mitigation
+    `retire_output_branch_default_flags`.
+  - **`--no-worktree` suppresses base resolution** exactly as it already
+    suppresses the output branch (user-confirmed), so the shipped `fast` profile's
+    headers are byte-identical to before.
+  - **`BASE_INTENT` is derived, not flag-enumerated.** A profile with no
+    `base_branch` determines nothing about the base — Step 5 asked the user, and
+    the answer arrives separately via `--base-branch-file` — so `--profile` alone,
+    `--output-branch`, and `--output-branch-default[-file]` all leave an existing
+    `Base branch:` line untouched instead of overwriting it with the repository
+    primary. The asymmetry with `OUTPUT_INTENT` (where a profile without
+    `output_branch` *does* determine the target, via the fallback chain) is
+    deliberate and documented at the definition site, in the caller contract, and
+    pinned by Test 14c.
+  - **The open question the task posed is answered "no code change".** Asking
+    whether `remote-drift-check.md` should compare base vs output differently
+    presumed the two would now diverge more often; they *converge*. Previously a
+    `base_branch: develop` profile produced base=`main` (wrong) and
+    output=`develop` — two passes, one watching the wrong branch. It now produces
+    base=output=`develop` and a single pass, so the existing "run the output pass
+    only when it differs from base" rule became strictly more accurate. The
+    t1536-flavoured half of the question (what a base-branch drift warning
+    *means* once the fork is hypothetical) is not actionable until t1536 lands and
+    stays with that task.
+  - **Acceptance-criterion correction, stated not silently applied.** The task's
+    Acceptance says "Test 1 and Test 13 updated and passing". They were
+    deliberately left byte-identical: with no base resolved they exercise the
+    *same* Acceptance's "behaviour unchanged (detected primary)" clause and are
+    its negative controls — changing them would delete that coverage. The test
+    that genuinely flips is **7h** (`--profile` with `base_branch: dev`:
+    `Base branch: main` → `dev`), plus a new base assertion in **7n**. Tests 1 and
+    13 both still pass unchanged, which is itself the evidence for that clause.
+
+- **Verification:** `test_plan_externalize.sh` 205/205 ·
+  `test_skill_render_task_workflow.sh` 185/185 ·
+  `test_atomic_task_file_writes.sh` 62/62 · `test_task_workflow_reentry_drift.sh`
+  57/57 · `test_parallel_cross_repo_planning_procedure.sh` 36/36 ·
+  `test_followup_kind_seams.sh` 55/55 · `test_prune_retired_skills.sh` 62/62 ·
+  `test_release_tarball.sh` 20/20 · `test_skill_parity_runtime_vs_rendered.sh` and
+  `test_skill_template.sh` pass · `shellcheck` clean (only the pre-existing
+  SC1091 source-follow info lines) · `aitask_skill_verify.sh` OK.
+
+  Live acceptance through the real helper in a scratch git repo: `base_branch:
+  develop` → `Base branch: develop` / `Output branch: develop`; the same profile
+  with `create_worktree: false` → both fields the detected primary; no base
+  supplied → unchanged. Re-entry Routing's verbatim `sed` binding against such a
+  header yields `base_branch=develop (plan header)`, i.e. the drift check now
+  watches `develop..origin/develop`.
+
+  Negative controls, one mutation each: reverting `build_header`'s line to
+  `$PRIMARY_BRANCH` (the original bug) → 17 named failures; forcing
+  `BASE_INTENT=true` unconditionally → 5 failures, including the pre-existing
+  Test 6 "no --output-branch leaves file unchanged" guard. The pre-phase
+  characterization matrix was also independently proven able to fail by flipping
+  one expected row.
+
+- **Upstream defects identified:** None.
