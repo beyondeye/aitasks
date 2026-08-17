@@ -555,3 +555,23 @@ everything → advance the baseline last → commit"**, and states the invariant
 the baseline may advance only after every other mutation has durably succeeded.
 Recorded here rather than applied silently, since it relaxes nothing but does
 change the pinned string.
+
+### Change Request 4 (2026-08-17 15:38) — scope repair must remove, not append
+- **Requested by user:** blocking — t1551's only concrete combined-update example
+  was `--file-ref … --verification-baseline …`, but `--file-ref` appends: the bogus
+  reference would survive, so the next check still yields `UNKNOWN:`/`ASK_STALE`
+  while the baseline had advanced. Following the documented example therefore
+  produced the exact forbidden state Change Request 3 established.
+- **Changes made:** verified in `aitask_update.sh` that `--file-ref` is
+  append-with-exact-string-dedup and `--remove-file-ref` is exact-string removal,
+  and that `process_file_references_operations` handles both sets in **one** pass
+  (append first, then removal), so a combined invocation is a single atomic
+  re-emit. The repair shape is now specified in both the doc and t1551 as
+  `--remove-file-ref <bad> [--file-ref <replacement>] --verification-baseline …`,
+  with the append-is-not-a-repair trap called out explicitly. Added a
+  successful-repair test asserting the bogus entry is **gone** (not merely joined by
+  a replacement), the valid entry survives, and a clean re-run returns `FRESH` with
+  no `UNKNOWN:` line — without which the suite would pass an append-only
+  implementation.
+- **Files affected:** `aidocs/framework/manual_verification_staleness.md`,
+  `aitasks/t1551_*.md`.

@@ -75,9 +75,29 @@ The amend path can produce **three** mutations, all targeting the same file:
 | `verification_baseline:` | frontmatter | always, on accept |
 
 Because it is one file, compose them into a **single** `ait_atomic_render` pass
-from `lib/atomic_write.sh`. If two frontmatter fields are written through
-`aitask_update.sh` instead, pass **both flags in one invocation** (`--file-ref …
---verification-baseline …`) so it is one atomic re-emit, not two.
+from `lib/atomic_write.sh`. If the frontmatter fields are written through
+`aitask_update.sh` instead, pass **all the flags in one invocation** so it is one
+atomic re-emit, not several.
+
+**Scope repair must REMOVE the bad entry — appending is not a repair.**
+`--file-ref` appends (with exact-string dedup); it never displaces an existing
+entry. So `--file-ref <replacement> --verification-baseline …` alone leaves the
+bogus reference in place: the next check still emits `UNKNOWN:` and `ASK_STALE`
+while the baseline has already advanced — precisely the forbidden state above,
+reached by following an incomplete example. Use the updater's exact-match removal:
+
+```bash
+./.aitask-scripts/aitask_update.sh --batch <task_id> \
+    --remove-file-ref "<bad_path>" \
+    [--file-ref "<replacement_path>"] \
+    --verification-baseline "<sha> @ <YYYY-MM-DD HH:MM>"
+```
+
+`process_file_references_operations` in `aitask_update.sh` handles both arrays in
+one pass (append first, then exact-string removal — so removal wins if the same
+string is both added and removed), and the whole invocation is a single atomic
+re-emit of the frontmatter. Dropping the reference entirely (no replacement) is a
+legitimate repair; so is replacing it with the path the file moved to.
 
 **Invariant, however the writes are decomposed: the baseline may advance only
 after every other mutation has durably succeeded.** If separate writes are used,
@@ -114,6 +134,18 @@ task file's git history plus the advanced baseline.
   write-scope-then-advance sequence silently produces.
 - **Ordering guard:** with the baseline advance stubbed to fail, the scope and item
   edits still land (proving the advance is genuinely last, not interleaved).
+- **Successful repair (the positive case the others do not cover):** start from a
+  task whose `file_references:` contains one valid path and one bogus path, so the
+  check returns `ASK_STALE` with an `UNKNOWN:` line. Repair it via
+  `--remove-file-ref <bad>` (optionally with a `--file-ref <replacement>`) plus the
+  baseline advance in one invocation, then assert:
+  1. the bogus entry is **gone** from `file_references:` — not merely joined by a
+     replacement;
+  2. the valid entry (and any replacement) survives;
+  3. a clean re-run returns **`FRESH`** with **no** `UNKNOWN:` line.
+
+  Without (1) and (3) the suite would pass an implementation that only appends,
+  which advances the baseline over a still-broken scope list.
 - **No re-fire:** after "Proceed unchanged", a re-run of the check returns
   `FRESH`.
 - **Ordering:** the check runs before the 1.5 autonomous offer (a stale checklist
