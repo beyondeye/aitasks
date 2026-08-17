@@ -84,13 +84,13 @@ header records `Base branch: develop` **and** `Output branch: develop`:
 ```
 
 Concrete example — a worktree profile with **no** `base_branch`, so Step 5 asked
-the user and the answer travels through the file channel (write `release` into the
-scratch file with the Write tool first):
+the user and the answer travels through the file channel. Write the chosen name
+into `<scratch-file>` with the Write tool first, and keep it until Step 8 has run:
 
 ```bash
 ./.aitask-scripts/aitask_plan_externalize.sh 42 --force \
   --profile "aitasks/metadata/profiles/integration.yaml" \
-  --base-branch-file ".aitask-scratch/t42_base_branch"
+  --base-branch-file <scratch-file>
 ```
 
 Concrete example — no active profile, current branch (minimal `<branch-flags>` is `--no-worktree`):
