@@ -491,3 +491,67 @@ archive t1538.
 - timing: post-phase | name: commit_scope_check | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — foreign uncommitted edits on main | desc: Stage doc/plan/CLAUDE.md by explicit path and confirm no code paths entered the commit
 - timing: post-phase | name: accepted_costs_stated | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health file_references overload + goal-achievement coverage and change-vs-behavior gaps | desc: Write the accepted costs down explicitly — issue_type-scoped semantics and ignored ranges, the 8c-only coverage limit skipping all 77 existing and 26 aggregate tasks, silent-skip by design, and change-is-not-behavior
 - timing: post-phase | name: stage2_evidence_recorded | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — deferred work re-derived from scratch | desc: Record every deferred item with its measurement plus the promotion trigger, and why the over-built draft was cut
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-17 15:02) — follow-up tasks were missing
+- **Requested by user:** blocking — the change set contained only the doc and the
+  `CLAUDE.md` pointer; the plan's four follow-up tasks with dependency edges had
+  not been created, so committing would archive a design with none of the queued
+  work that makes it actionable.
+- **Changes made:** created t1549 (check helper + `verification_baseline:` field),
+  t1550 (Step-8c seeding, `depends: [1549]`), t1551 (procedure pre-check step,
+  `depends: [1549, 1550]`) and t1552 (manual-verification sibling,
+  `depends: [1551]`, `verifies: [1549, 1550, 1551]`, 8 seeded items). All anchored
+  to 1538. Each carries the design's negative guards inline so a fresh context
+  cannot re-derive the deferred scope. Added an "Implementation status" paragraph
+  to the design doc naming the chain, so the design is traceable to its queued
+  work.
+- **Files affected:** `aitasks/t1549_*.md`, `aitasks/t1550_*.md`,
+  `aitasks/t1551_*.md`, `aitasks/t1552_*.md`,
+  `aidocs/framework/manual_verification_staleness.md`.
+
+### Change Request 2 (2026-08-17 15:14) — UNKNOWN was self-contradictory
+- **Requested by user:** blocking — the design said an unresolvable curated path
+  emits `UNKNOWN` but does not drive the verdict, while claiming that row prevents
+  silent under-coverage. A hand-edited `file_references:` entry would therefore
+  report `FRESH` over a partly-uncheckable scope list. Also (non-blocking): t1549
+  said only "add write support" for `verification_baseline:` without defining a
+  setter, so t1550 would have had to invent one.
+- **Changes made:** `UNKNOWN` now raises `ASK_STALE`, with `DISPLAY:`
+  distinguishing the two causes (changed code → amend items; uncheckable path →
+  repair `file_references:`). Added tests pinning that a bogus hand-edited path
+  yields `ASK_STALE` and explicitly not `FRESH`/`SKIP`, plus a mixed valid+invalid
+  case; tightened the negative control to "untouched **and all valid**". Pinned the
+  setter as a cross-task contract —
+  `aitask_update.sh --batch <id> --verification-baseline "<sha> @ <ts>"` — in the
+  doc and t1549, with a parse/set/preserve round-trip test, and pointed t1550 at it.
+  Added a live invalid-scope item to t1552.
+- **Files affected:** `aidocs/framework/manual_verification_staleness.md`,
+  `aitasks/t1549_*.md`, `aitasks/t1550_*.md`, `aitasks/t1551_*.md`,
+  `aitasks/t1552_*.md`.
+
+### Change Request 3 (2026-08-17 15:26) — scope repair fell outside the transaction
+- **Requested by user:** blocking — routing `UNKNOWN` through "Amend" introduced a
+  third mutation (`file_references:`) that the transaction contract did not cover,
+  so a failure between the scope repair and the baseline advance could leave an
+  invalid scope under an advanced baseline — permanently unreviewable.
+- **Changes made:** the transaction contract now enumerates all three mutations
+  (item text in the body, `file_references:` and `verification_baseline:` in
+  frontmatter) and states the invariant that survives any decomposition: **the
+  baseline may advance only after every other mutation has durably succeeded**, so
+  every failure state is re-promptable and the mirror state is impossible. Added an
+  injected-failure test between scope repair and baseline advance, an assertion that
+  the forbidden state never occurs, and an ordering guard proving the advance is
+  genuinely last.
+- **Files affected:** `aidocs/framework/manual_verification_staleness.md`,
+  `aitasks/t1551_*.md`.
+
+### Acceptance-criterion update (from Change Request 3)
+Verification item 5 above reads: *the doc states the transaction rule as "decide →
+write both → commit"*. That wording described a two-mutation transaction and is
+**superseded**. The criterion is now: the doc states the rule as **"decide → write
+everything → advance the baseline last → commit"**, and states the invariant that
+the baseline may advance only after every other mutation has durably succeeded.
+Recorded here rather than applied silently, since it relaxes nothing but does
+change the pinned string.
