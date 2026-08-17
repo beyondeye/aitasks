@@ -117,7 +117,49 @@ not:
   carry no `narrative.overview`. They therefore exercise two fallback paths live
   in one go: no-depth-label, and the pane's `recommendation_summary` fallback.
 
-## Upstream defects identified
+## Final Implementation Notes
+
+- **Actual work done:** Ran the full 20-item checklist autonomously. Created two
+  trail artifacts over one scope (lite + deep) as the shared fixture, verified
+  items 1–8 against the stored documents via the CLI, and items 9–20 by driving
+  `ait board` in a real tmux terminal at 120x40 and 80x24. All 20 items reached
+  `pass`; none deferred, so no carry-over task is created.
+- **Deviations from plan:** Two, both confirmed with the user at the time.
+  (1) The deep run was written to a **separate handle** rather than
+  `--refresh <lite handle> --deep`, because refreshing in place would have
+  destroyed the stored lite shape that items 6 and 14 verify. (2) The first
+  timing figure for item 2 (685s) was wall-clock including idle at the
+  non-skippable create gate; the user flagged it and the figure was re-derived
+  as agent-active-only (~120s lite vs 244s deep) with gate idle excluded from
+  both runs.
+- **Issues encountered:** The deep document failed pre-write validation with
+  `relation_endpoint | endpoint 'aitasks_mobile#32_2' not referenced anywhere
+  else in the document`; resolved by recording that task as an exclusion. The
+  checklist's own item-1 caveat turned out to be obsolete — t1468_7 had already
+  refreshed both pre-existing trails to schema 1.1.0, so the *expected*
+  `ERROR:invalid_trail` never occurred and item 20 became actionable instead of
+  blocked.
+- **Key decisions:** Scope `t1118` was chosen because its members include a task
+  carrying a real `followup_kind` (item 7) and its dependency chain yields four
+  waves with one two-entry parallel wave (items 15–16). Items 15–16 were run
+  against the observation-rich `art:trail-shadow-review-loop` rather than the
+  lite trail, because "globals not repeated wholesale" is only falsifiable on a
+  trail that has substantial globals.
+- **Upstream defects identified:**
+  `.aitask-scripts/board/aitask_board.py:4106-4109 — more() pluralizes a
+  multi-word noun phrase by appending "s" to its end, so two of three call sites
+  render ungrammatically ("entriess", "entrys")`. Detail below.
+- **Notes for sibling tasks:** None pending — t1505_5 is the last child of
+  t1505, so archiving it archives the parent. For future By-Trail verification:
+  the two pre-existing artifacts are the standing regression fixtures for the
+  *absent* cases (no `rendering_hints.depth` → no label; no `narrative.overview`
+  → `recommendation_summary` fallback), and they exercise both paths live in one
+  selection. Driving the board over tmux needs `unset TMUX` before
+  `new-session`, and the trail selector's per-entry overlap notes make each row
+  several lines tall, so stepping it with `Down`/`Up` is more reliable than
+  `Home`/`End`.
+
+### Upstream defect detail
 
 - `.aitask-scripts/board/aitask_board.py:4106-4109` — the `more(count, noun)`
   helper in `TrailDetailScreen._sections` pluralizes by appending `"s"` to the
