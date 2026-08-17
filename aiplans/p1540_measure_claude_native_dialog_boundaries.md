@@ -57,7 +57,9 @@ reason for anything that does not.
   **scratchpad-only by standing decision** (t1520/t1518) — do not commit a driver.
 - **The B1/B2/B3 criteria and the `## Measurement` table format** —
   `aiplans/archived/p1518_arm_review_loop_for_codex_opencode_followed_panes.md`
-  (Step 1, lines 94–169; the executed table, lines 568–693). Reuse verbatim.
+  (Step 1, lines 94–169; the executed table, lines 568–693). Reuse verbatim —
+  but note they are **not the whole bar here**: t1540 adds **B4** (§1c), and
+  shipping is gated on B1–B4, not on t1518's B1–B3.
 - **The three tables and their contract** — `NATIVE_DIALOG_BOUNDARIES`,
   `NATIVE_DIALOG_STRATEGIES` (defined-but-empty on purpose, consulted first),
   `DELIBERATELY_UNANCHORED_KINDS`, plus `_native_block_start` /
@@ -82,8 +84,10 @@ reason for anything that does not.
 1. `[gate_code_on_measured_boundaries]` **The durable artifact is the checked-in
    plan `aiplans/p1540_measure_claude_native_dialog_boundaries.md`** — not the
    agent-private plan file. Step 1's measurement table goes into that file's
-   `## Measurement` section with an explicit **B1 / B2 / B3 verdict per (kind,
-   candidate)**, and is **committed before the first code edit**:
+   `## Measurement` section with an explicit **B1 / B2 / B3 / B4 verdict per
+   (kind, candidate)** — B1–B3 recorded **per geometry**, B4 once per candidate
+   across the whole supported set — and is **committed before the first code
+   edit**:
 
    ```bash
    ./ait git add aiplans/p1540_measure_claude_native_dialog_boundaries.md
@@ -92,8 +96,12 @@ reason for anything that does not.
 
    The ordering is then provable from git history rather than from a transient
    working-tree observation. Apply the gate against that committed table: a
-   candidate with any verdict other than pass ships **no** row, and its kind keeps
-   its `DELIBERATELY_UNANCHORED_KINDS` entry — rewritten to the *measured* reason.
+   candidate with any verdict other than pass — **on any of B1, B2, B3 or B4, at
+   any supported geometry** — ships **no** row, and its kind keeps its
+   `DELIBERATELY_UNANCHORED_KINDS` entry, rewritten to the *measured* reason.
+   There is exactly one authorization rule in this plan and it is B1–B4; any
+   instruction that appears to authorize a row on B1–B3 alone is a defect in this
+   document, not a laxer path.
    Verify: `git log --oneline -- aiplans/p1540_*.md
    .aitask-scripts/monitor/review_loop.py` shows the measurement commit strictly
    before any `review_loop.py` commit, and every shipped entry maps 1:1 onto a
@@ -272,7 +280,10 @@ reason for keeping the exemption, which is the real deliverable either way.
 > code comments and the docs must describe those two labels **inline in prose,
 > never as a copied adjacent two-line block**. Fixtures are data and are exempt.
 
-### 1c — The three questions per candidate
+### 1c — The four questions per candidate
+
+All four gate shipping. B1–B3 are answered **per geometry**; B4 is answered once
+per candidate over the whole supported set.
 
 - **B1 — exactly once.** The line matches exactly once in the live capture.
   (`_boundary_index` takes the *last* match, so a stale echo higher in the tail is
@@ -304,14 +315,26 @@ selection pair and the work pair must both classify `unknown`. Without this the
 
 Write the results into a `## Measurement` section of
 `aiplans/p1540_measure_claude_native_dialog_boundaries.md` in t1518's format —
-one row per (kind, candidate) with line, index, B1/B2/B3 verdicts, reps, CLI
-version — plus the per-capture violation totals across **every** frame taken, not
-only the analysed reps. Commit it before any code edit (pre-phase gate above).
+one row per (kind, candidate) **per geometry** with line, index, B1/B2/B3
+verdicts, reps and CLI version, plus a **B4 verdict per candidate** (one pass/fail
+across the whole supported set, naming the geometry that decided it) — plus the
+per-capture violation totals across **every** frame taken, not only the analysed
+reps. The table schema is therefore:
+
+| kind | geometry | candidate line | index | B1 | B2 | B3 | reps | B4 (per candidate) |
+|---|---|---|---|---|---|---|---|---|
+
+A candidate with no B4 cell is **unshippable**, exactly as one with a missing B1.
+Commit the table before any code edit (pre-phase gate above).
 
 ## Step 2 — Boundary rows (`.aitask-scripts/monitor/review_loop.py`)
 
-Add rows **only** for (kind, candidate) pairs with a passing B1–B3 verdict in the
-committed table, each with a provenance comment naming the CLI version, geometry,
+Add rows **only** for (kind, candidate) pairs with a passing **B1–B4** verdict in
+the committed table — B1–B3 passing at **every** supported geometry and B4 passing
+for the candidate. B1–B3 alone is **not** sufficient authorization: they are
+per-frame properties, and B4 is the one that catches a boundary located below a
+moving line, which classifies a selection redraw as `WORK` and fires the loop
+spuriously. Each row carries a provenance comment naming the CLI version, geometry,
 capture date, task id and measured index — matching the `_CODEX_EXEC_APPROVAL_RE`
 / `_OPENCODE_PERMISSION_RE` house style. Shape:
 
@@ -563,7 +586,9 @@ end-to-end path behind a follow-up nobody is obliged to run.
   its named failing test id recorded.
 - Ordering gate discharged: `git log` shows the `## Measurement` plan commit
   strictly before any `review_loop.py` commit, and every shipped entry maps onto a
-  passing verdict in that committed table.
+  **B1–B4-passing** verdict in that committed table — B1–B3 at every supported
+  geometry plus a B4 cell. An entry backed only by B1–B3 is a gate failure, not a
+  partially-discharged gate.
 - **Geometry gate:** the `## Measurement` table carries a verdict row per (kind,
   candidate) **per geometry** in the supported set, plus the measured floor. Every
   shipped row passed B1–B4 at **every** geometry in that set and has a fixture trio
@@ -608,7 +633,7 @@ end-to-end path behind a follow-up nobody is obliged to run.
 
 ### Goal-achievement risk: medium
 
-- The measurement may find **no single line** satisfying B1–B3 across every
+- The measurement may find **no single line** satisfying B1–B4 across every
   permission-dialog variant at 2.1.233, or may find the reported kind is never
   `claude_help_bar` in practice. Bounded and recoverable — the plan ships what
   passes and records what does not — but the headline outcome could end up
@@ -641,7 +666,7 @@ end-to-end path behind a follow-up nobody is obliged to run.
 > this task — and the user chose the 4b mechanism directly. Flagged here so the
 > call is visible at approval rather than silently folded in.
 
-- timing: pre-phase | name: gate_code_on_measured_boundaries | type: chore | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — shipping an unmeasured boundary literal; goal-achievement — no line covers every dialog variant | desc: commit the `## Measurement` table to the checked-in plan before the first code edit, and ship a row only for a candidate with a passing B1–B3 verdict in that committed table
+- timing: pre-phase | name: gate_code_on_measured_boundaries | type: chore | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — shipping an unmeasured boundary literal; goal-achievement — no line covers every dialog variant | desc: commit the `## Measurement` table (B1–B3 per geometry, B4 per candidate) to the checked-in plan before the first code edit, and ship a row only for a candidate with a passing B1–B4 verdict in that committed table
 - timing: post-phase | name: pin_unanchorable_help_bar_surface | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a generic kind's partial coverage going unnoticed | desc: assert that a non-permission `claude_help_bar` frame still classifies UNKNOWN after the row lands, and state the same scoping in the row's comment
 - timing: post-phase | name: flag_scoped_boundary_for_rot_detector | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — t1542's rot signal misreading an expected scoped-anchor miss as rot | desc: leave a forward-pointing comment at the new row distinguishing "scoped boundary, dialog never measured" from "rotted literal"; do not edit t1542's task file
 - timing: pre-phase | name: measure_at_production_geometry | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a boundary valid only at 120x30 misbehaving at the split geometry the loop actually runs in, where the table cannot scope it and the failure is a confident wrong WORK rather than UNKNOWN | desc: run the full rep protocol at every supported geometry (120x30, post-split compact, measured floor), record kind + index + B1–B4 per geometry, and ship a row only if B1–B4 hold at all of them; add the B4 invariant test asserting no stored selection pair ever classifies WORK
