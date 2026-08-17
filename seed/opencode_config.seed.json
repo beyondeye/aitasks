@@ -92,6 +92,7 @@
       "./.aitask-scripts/aitask_stats.sh *": "allow",
       "./.aitask-scripts/aitask_sync.sh *": "allow",
       "./.aitask-scripts/aitask_syncer.sh *": "allow",
+      "./.aitask-scripts/aitask_trail_depth.sh *": "allow",
       "./.aitask-scripts/aitask_trail_gather.sh *": "allow",
       "./.aitask-scripts/aitask_update.sh *": "allow",
       "./.aitask-scripts/aitask_web_merge.sh *": "allow",

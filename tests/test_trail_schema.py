@@ -210,6 +210,225 @@ class NarrativeOverviewProperty(unittest.TestCase):
         self.assertNotIn("overview", narrative.get("required", []))
 
 
+class LiteShapeRule(unittest.TestCase):
+    """`rendering_hints.depth: "lite"` constrains the document shape (t1505_4).
+
+    A lite trail is a first-class trail that OMITS the heavy optional sections
+    rather than emptying them. Without this rule "lite" would be an aspiration
+    expressed in prose to a model, with nothing that fails when it is not
+    honoured -- and because the board reads every one of these defensively
+    (`doc.get("observations") or []`), an unhonoured lite contract renders
+    identically to an honoured one. Nothing visible would ever catch it.
+
+    Key presence, not emptiness, is the test. The consumer's canonical lite
+    fixture (`_lite_doc()` in tests/test_board_bytrail_view.py) omits the keys
+    entirely, so permitting `"observations": []` would let the producer emit a
+    shape the consumer's own definition of lite does not model.
+    """
+
+    def _lite(self, **overrides):
+        """A minimal, genuinely-valid lite document derived from a real trail.
+
+        Built by subtraction from the deep fixture so the two stay in step:
+        anything a future schema change adds to `gate_framework.json` shows up
+        here too, instead of drifting behind a hand-written literal.
+        """
+        doc = fixture("gate_framework.json")
+        for key in ("observations", "relations", "exclusions"):
+            doc.pop(key, None)
+        for wave in doc["waves"]:
+            for entry in wave["entries"]:
+                entry.pop("evidence_refs", None)
+        doc["evidence"] = doc["evidence"][:1]
+        doc["rendering_hints"] = {"depth": "lite"}
+        doc.update(overrides)
+        return doc
+
+    def assert_lite_shape_issue(self, doc, path):
+        issues = issues_for(doc)
+        self.assertTrue(
+            any(i.rule == "lite_shape" and i.path == path for i in issues),
+            "expected a 'lite_shape' issue at %s: %s" % (path, issues))
+
+    # --- positive controls ---------------------------------------------
+
+    def test_clean_lite_document_validates(self):
+        """The positive control. If this ever fails, every rejection below is
+        meaningless -- they would be firing on an already-invalid document."""
+        self.assertEqual(issues_for(self._lite()), [])
+
+    def test_deep_document_is_unconstrained(self):
+        """The rule must not fire on the full analysis it exists to contrast
+        with: the untouched fixture carries 4 observations, 4 relations, 3
+        exclusions, 7 evidence records and per-entry evidence_refs."""
+        doc = fixture("gate_framework.json")
+        doc["rendering_hints"] = {"depth": "deep"}
+        self.assertEqual(issues_for(doc), [])
+
+    def test_absent_rendering_hints_is_unconstrained(self):
+        """Back-compat control: every trail authored before t1505_4 carries no
+        depth hint at all, and none of them may become invalid."""
+        doc = fixture("gate_framework.json")
+        self.assertNotIn("rendering_hints", doc)
+        self.assertEqual(issues_for(doc), [])
+
+    def test_unrecognised_depth_is_unconstrained(self):
+        """Only "lite" constrains. An unrecognised value is ignored here for
+        the same reason the board's `_trail_depth_note` ignores it -- neither
+        may invent a meaning for a string it does not know."""
+        doc = fixture("gate_framework.json")
+        doc["rendering_hints"] = {"depth": "medium"}
+        self.assertEqual(issues_for(doc), [])
+
+    def test_depth_normalization_matches_the_board(self):
+        """Producer and consumer normalize identically: stripped, lowercased.
+        A writer emitting "  LITE " is still making a lite claim and must be
+        held to the lite shape, exactly as the banner would label it lite."""
+        doc = self._lite(rendering_hints={"depth": "  LITE "})
+        doc["exclusions"] = fixture("gate_framework.json")["exclusions"]
+        self.assert_lite_shape_issue(doc, "$.exclusions")
+
+    # --- rejections: populated sections --------------------------------
+
+    def test_populated_observations_are_rejected(self):
+        deep = fixture("gate_framework.json")
+        doc = self._lite(observations=deep["observations"])
+        self.assert_lite_shape_issue(doc, "$.observations")
+
+    def test_populated_relations_are_rejected(self):
+        deep = fixture("gate_framework.json")
+        doc = self._lite(relations=deep["relations"])
+        self.assert_lite_shape_issue(doc, "$.relations")
+
+    def test_populated_exclusions_are_rejected(self):
+        deep = fixture("gate_framework.json")
+        doc = self._lite(exclusions=deep["exclusions"])
+        self.assert_lite_shape_issue(doc, "$.exclusions")
+
+    def test_populated_entry_evidence_refs_are_rejected(self):
+        doc = self._lite()
+        entry = doc["waves"][0]["entries"][0]
+        entry["evidence_refs"] = [doc["evidence"][0]["evidence_id"]]
+        self.assert_lite_shape_issue(
+            doc, "$.waves[*].entries[%s]" % entry["entry_id"])
+
+    # --- rejections: empty containers are NOT omission -----------------
+    #
+    # These four are the pair-tests that pin presence-not-emptiness as the
+    # intended contract rather than an accident of implementation. Drop them
+    # and a later reader cannot tell whether empty containers were considered.
+
+    def test_empty_observations_are_rejected(self):
+        self.assert_lite_shape_issue(self._lite(observations=[]),
+                                     "$.observations")
+
+    def test_empty_relations_are_rejected(self):
+        self.assert_lite_shape_issue(self._lite(relations=[]), "$.relations")
+
+    def test_empty_exclusions_are_rejected(self):
+        self.assert_lite_shape_issue(self._lite(exclusions=[]), "$.exclusions")
+
+    def test_empty_entry_evidence_refs_are_rejected(self):
+        doc = self._lite()
+        entry = doc["waves"][0]["entries"][0]
+        entry["evidence_refs"] = []
+        self.assert_lite_shape_issue(
+            doc, "$.waves[*].entries[%s]" % entry["entry_id"])
+
+    # --- rejections: the evidence count --------------------------------
+
+    def test_more_than_one_evidence_record_is_rejected(self):
+        """The gatherer snapshot, and nothing else. Two records means the
+        evidence-per-rationale sweep ran, which is the deep contract."""
+        deep = fixture("gate_framework.json")
+        doc = self._lite(evidence=deep["evidence"][:2])
+        self.assert_lite_shape_issue(doc, "$.evidence")
+
+    def test_zero_evidence_records_is_rejected(self):
+        """Bounded on the other side too. `minItems: 1` already rejects this,
+        so assert the lite rule fires as well -- a lite document with no
+        gatherer record has no provenance at all."""
+        self.assert_lite_shape_issue(self._lite(evidence=[]), "$.evidence")
+
+
+class CallerAssertedDepth(unittest.TestCase):
+    """`expect_depth` — the caller's mode, not the document's claim (t1505_4).
+
+    `rendering_hints.depth` is authored by the same agent whose lite output the
+    lite_shape rule constrains, so a rule keyed only on that marker is opt-in
+    by the thing it guards: omit the key, keep every heavy section, validate
+    clean. These pin the closure -- the run asserts its own depth from parsed
+    arguments, which is the one side of this the document cannot restate.
+
+    `test_deep_document_passes_when_nothing_is_asserted` is the control that
+    makes the rest meaningful: it is the exact bypass, and it must keep
+    passing, because `expect_depth=None` is what leaves every stored
+    pre-t1505_4 trail valid.
+    """
+
+    def _deep(self, hint=None):
+        doc = fixture("gate_framework.json")
+        if hint is not None:
+            doc["rendering_hints"] = hint
+        return doc
+
+    def rules_for(self, doc, expect_depth):
+        return {i.rule for i in validate_trail(doc, expect_depth=expect_depth)}
+
+    # --- the bypass, and its closure -----------------------------------
+
+    def test_deep_document_passes_when_nothing_is_asserted(self):
+        """The self-declared path, unchanged. Also the back-compat control."""
+        self.assertEqual(validate_trail(self._deep(), expect_depth=None), [])
+
+    def test_missing_marker_cannot_dodge_the_lite_contract(self):
+        """THE reported hole: a lite run that omits the marker keeps
+        observations/relations/exclusions/citations and used to validate."""
+        rules = self.rules_for(self._deep(), "lite")
+        self.assertIn("lite_shape", rules)
+        self.assertIn("depth_marker", rules)
+
+    def test_unrecognised_marker_cannot_dodge_the_lite_contract(self):
+        """The other half of the same dodge: a value neither the board nor the
+        lite rule recognises must not read as 'not lite'."""
+        rules = self.rules_for(self._deep({"depth": "medium"}), "lite")
+        self.assertIn("lite_shape", rules)
+        self.assertIn("depth_marker", rules)
+
+    def test_marker_contradicting_the_run_is_rejected(self):
+        rules = self.rules_for(self._deep({"depth": "deep"}), "lite")
+        self.assertIn("depth_marker", rules)
+
+    # --- deep runs must record their depth too -------------------------
+
+    def test_deep_run_must_record_the_marker(self):
+        """Not only lite: an unmarked deep trail leaves the board unable to
+        label it, so the assertion binds both directions."""
+        self.assertIn("depth_marker", self.rules_for(self._deep(), "deep"))
+
+    def test_deep_run_with_matching_marker_is_unconstrained(self):
+        self.assertEqual(self.rules_for(self._deep({"depth": "deep"}), "deep"),
+                         set())
+
+    # --- honest lite runs still pass -----------------------------------
+
+    def test_conforming_lite_run_validates(self):
+        doc = LiteShapeRule()._lite()
+        self.assertEqual(validate_trail(doc, expect_depth="lite"), [])
+
+    def test_marker_normalization_applies_to_the_assertion(self):
+        doc = LiteShapeRule()._lite(rendering_hints={"depth": "  LITE "})
+        self.assertEqual(validate_trail(doc, expect_depth="lite"), [])
+
+    # --- API guard ------------------------------------------------------
+
+    def test_unknown_expect_depth_is_a_programming_error(self):
+        """Fail loudly rather than silently asserting nothing -- a typo'd
+        caller must not degrade into the unenforced path."""
+        with self.assertRaises(ValueError):
+            validate_trail(self._deep(), expect_depth="medium")
+
+
 class ValidFixtures(unittest.TestCase):
     def test_fixtures_load_from_path_and_bytes(self):
         for name in FIXTURE_NAMES:

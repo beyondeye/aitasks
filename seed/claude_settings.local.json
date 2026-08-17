@@ -103,6 +103,7 @@
       "Bash(./.aitask-scripts/aitask_stats.sh:*)",
       "Bash(./.aitask-scripts/aitask_sync.sh:*)",
       "Bash(./.aitask-scripts/aitask_syncer.sh:*)",
+      "Bash(./.aitask-scripts/aitask_trail_depth.sh:*)",
       "Bash(./.aitask-scripts/aitask_trail_gather.sh:*)",
       "Bash(./.aitask-scripts/aitask_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_web_merge.sh:*)",

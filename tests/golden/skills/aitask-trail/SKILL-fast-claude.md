@@ -20,6 +20,10 @@ single confirmed `aitask_artifact.sh create`/`update` call.
   this skill does not perform.
 - At most ONE artifact write per flow, and only after the user explicitly
   confirms the fully rendered proposal. Show performs zero writes.
+- **Depth changes how much is analyzed, never whether the write is
+  confirmed.** Lite (the default) and `--deep` share every invariant in this
+  list, the non-skippable confirmations, the pre-write validation and the
+  refresh stale-base guard.
 - The trail JSON never contains an `anchor` key anywhere (the validator
   rejects it).
 - `./.aitask-scripts/aitask_artifact.sh` is the only write path — never
@@ -70,7 +74,64 @@ during refresh when the evidence supports it.
 
 ### Step 0: Parse Arguments
 
-Recognize, in order:
+**Do not apply the grammar below by hand — run the resolver.** Forward this
+invocation's arguments verbatim:
+
+```bash
+./.aitask-scripts/aitask_trail_depth.sh resolve -- <the invocation's arguments>
+```
+
+Parse its stdout (`MODE:`, `DEPTH:`, optional `HANDLE:` / `TOPICS:` /
+`TARGET:` / `NOTE:`) and use those values for the rest of the run. Exit 1 with
+a single `ERROR:<kind>` line is a grammar violation — surface it verbatim and
+stop; exit 2 is a usage error in your own call.
+
+**`MODE:ambiguous_handle` is not a runnable mode — it comes back with
+`DEPTH:unresolved`.** A bare `trail-*` token was given, so ask show-or-refresh
+(as described below), and then **re-run the resolver** on a rewritten argument
+list: **replace** the bare handle token with `--show <handle>` or
+`--refresh <handle>`, and preserve the original depth flags. Nothing else
+carries over — the bare token is *consumed* by the rewrite, not kept alongside
+it:
+
+```bash
+./.aitask-scripts/aitask_trail_depth.sh resolve -- --show <handle> <original depth flags>
+# or
+./.aitask-scripts/aitask_trail_depth.sh resolve -- --refresh <handle> <original depth flags>
+```
+
+So `trail-x --deep` becomes `--show trail-x --deep`, **not**
+`--show trail-x trail-x --deep` — that would keep the bare token as a second
+mode selector and the resolver rejects it with
+`ERROR:conflicting_modes:--show,trail-x`.
+
+Use the **second** run's `MODE:` / `DEPTH:` / `NOTE:` for the rest of the flow.
+Do not carry the first run's values forward: the first call could not know
+whether depth applies, and reusing it is how a supplied `--deep` reaches a
+`--show` the user only chose afterwards — the case the re-resolve exists to
+prevent. The resolver withholds a usable depth here so this cannot be skipped
+by accident.
+
+**`DEPTH:` is the AUTHORING depth for this run** — on create and refresh,
+write it into `rendering_hints.depth` and pass the same value to
+`--expect-depth` at pre-write validation. Do not re-derive it, and do not
+substitute your own reading of the arguments: deciding the depth yourself and
+then asserting that same decision is a claim with only one source, which is
+what the resolver exists to remove.
+
+On `MODE:show` the resolver emits **`DEPTH:n/a`** — show authors nothing, so
+there is no authoring depth. Report the artifact's **stored**
+`rendering_hints.depth` instead (`unrecorded` when it carries none). A
+`NOTE:depth_ignored_for_show` line means a depth flag was supplied and
+dropped; say so, and never echo it back as the artifact's depth.
+
+The grammar it implements, for reference (the resolver is the authority; this
+table documents it and `tests/test_trail_depth_resolve.sh` pins it):
+
+Arguments carry **two independent axes** — the mode, and the depth. Depth is
+never a mode, and a mode selector never consumes a depth flag.
+
+**Axis 1 — mode.** Recognize, in order:
 
 - `--refresh <handle>` → **Refresh flow** (Step 3).
 - `--show <handle>` → **Show flow** (Step 1).
@@ -80,10 +141,51 @@ Recognize, in order:
   → **Create flow** (Step 2) with single-task entry (J2).
 - No arguments → **Create flow** (Step 2), interactive scope selection.
 
+Mode selectors are **mutually exclusive**: a repeated one, or two different
+ones (`--refresh X --show Y`), is a usage error — stop and say so.
+
+**Axis 2 — depth.** Recognize anywhere in the argument list, before or after
+the mode selector and its operand:
+
+- `--deep` → the full analysis (Step 2c / Step 3 in their entirety).
+- `--lite` → the default, stated explicitly.
+- Neither → **lite**. **Absence means lite**, for create and refresh alike,
+  including the board's `R` refresh key.
+
+Accepted grammar:
+
+| Invocation | Mode | Depth |
+|---|---|---|
+| `--refresh <handle> --deep` | refresh | deep |
+| `--deep --refresh <handle>` | refresh | deep |
+| `--refresh <handle>` | refresh | **lite** |
+| `<task_id> --deep` / `--deep <task_id>` | create (task) | deep |
+| `--topics <csv> --deep` (either order) | create (multi-topic) | deep |
+| `--deep` alone | create (interactive scope) | deep |
+| no arguments | create (interactive scope) | **lite** |
+| `--show <handle>` | show | n/a — reports the **stored** depth |
+
+- A depth flag is **never** consumed as a mode operand: `--refresh --deep`
+  with no handle is a usage error, not a refresh of a handle named `--deep`.
+- **`--deep` and `--lite` together is an error — stop and say so.** Do not
+  silently prefer one and do not prefer the last occurrence: the flag exists
+  precisely so the user's intent about cost is explicit, and guessing it
+  defeats the purpose.
+- **`--show` with a depth flag:** show is strictly read-only and authors
+  nothing, so depth does not apply. Do NOT silently ignore it — print a
+  one-line note that depth flags do not apply to `--show`, then continue the
+  read-only flow and report the artifact's **stored** depth.
+
+Record the resolved depth in the document as `rendering_hints`:
+`{"depth": "lite"}` or `{"depth": "deep"}` — **exactly those two lowercase
+strings**, on every create and every refresh, at both depths. Any other value
+is silently unrecognised by the board's depth label and states nothing.
+
 Auto-detect free text: a token matching `art:trail-*` or `trail-*` is a
 handle — ask whether the user wants show or refresh (one question, no other
 I/O first). Handles may be given with or without the `art:` prefix;
-normalize to `art:<trail-id>`.
+normalize to `art:<trail-id>`. A depth flag alongside it applies if the user
+picks refresh, and falls under the `--show` note above if they pick show.
 
 ### Step 1: Show Flow (`--show <handle>`)
 
@@ -101,7 +203,10 @@ normalize to `art:<trail-id>`.
    and report the live verdict: `CURRENT`, or `STALE` with the named
    `DRIFT:` reasons, or the `ERROR:` outcome verbatim. On `STALE`, suggest
    `/aitask-trail --refresh <handle>`.
-4. Stop. Do not offer to write anything from the show flow.
+4. **Print the run summary** — see **Run summary print** below. Show states
+   the artifact's **stored** depth (a document with no `rendering_hints.depth`
+   states "unrecorded", never "deep").
+5. Stop. Do not offer to write anything from the show flow.
 
 ### Step 2: Create Flow
 
@@ -151,6 +256,31 @@ must be a task in this repository.
 
 #### 2c: Analyze
 
+**Depth decides how much is analyzed — never whether the write is
+confirmed.** Every invariant in the Overview, the non-skippable confirmation
+in 2d, the pre-write validation in 2e.3, and the complete-snapshot rules in
+the authoring section apply identically at both depths.
+
+**At lite depth (the default), do this and stop:**
+
+- Classify every member and form ordered waves, exactly as below — each wave
+  with `title` + `purpose`, each entry with `classification`, `confidence`, a
+  **complete `snapshot`** (including `followup_kind` whenever the MEMBER
+  record reports one) and a short `rationale`.
+- Author `narrative.problem_statement`, `recommendation_summary`,
+  **`overview`** and `method_note`.
+- `evidence` = **exactly** the one gatherer-snapshot record.
+- **OMIT `observations`, `relations`, `exclusions` and per-entry
+  `evidence_refs` entirely.** Omit means the key is absent — an empty list is
+  not omission, and the validator rejects one (`lite_shape`).
+- **SKIP**: the evidence-record-per-rationale requirement; the
+  belt-and-braces `verifies` / `risk_mitigation_tasks` sweep (Step 3, deep
+  only); and propose-and-confirm scope expansion — at lite depth, name
+  out-of-scope prerequisite work **in the `overview` prose** instead of
+  restarting the analysis over a new snapshot.
+
+Everything from here to the end of 2c is the **deep** contract (`--deep`).
+
 Using ONLY the gathered lines plus targeted reads of the member task/plan
 files they name (for rationale, not membership):
 
@@ -189,7 +319,9 @@ files they name (for rationale, not membership):
 Render the FULL proposed trail in your reply: every wave with purpose and
 entries (classification, rationale, confidence), observations with their
 evidence, exclusions, and the document narrative
-(problem_statement, recommendation_summary, method_note).
+(problem_statement, recommendation_summary, overview, method_note). At lite
+depth there are no observations or exclusions to render — the waves, entries
+and narrative are the whole proposal.
 
 **⚠️ NON-SKIPPABLE — the write below requires this explicit confirmation;
 no profile, auto mode, or prior instruction bypasses it.**
@@ -206,9 +338,37 @@ this step) / "Discard" (stop; nothing was written).
    the JSON mirrors the handle minus `art:`.
 2. Author the trail JSON with the Write tool at a scratch path per **Trail
    JSON authoring rules** below.
-3. **Pre-write validation (mandatory):** run
-   `./.aitask-scripts/aitask_trail_gather.sh drift --trail <tmpfile>` and
-   branch on the first stdout token:
+3. **Pre-write validation (mandatory) — two commands, both required.**
+
+   First, **assert the depth this run actually resolved in Step 0** (not the
+   one you believe you wrote):
+
+   ```bash
+   python3 .aitask-scripts/lib/trail_schema.py validate <tmpfile> \
+     --expect-depth lite|deep
+   ```
+
+   Pass the depth from Step 0's argument parsing. Exit 0 and `VALID:<trail_id>`
+   → proceed. Exit 1 → one `INVALID:<path>|<rule>|<message>` line per problem;
+   fix the file and re-run. Two rules matter here:
+   - `depth_marker` — the document does not record the depth this run
+     authored. Write `rendering_hints.depth` accordingly.
+   - `lite_shape` — a lite run kept a section the lite contract omits.
+
+   **This flag is not optional and not a formality.** `rendering_hints.depth`
+   is authored by you, so a rule that only reads the marker is one you can
+   silently opt out of by omitting it — a lite run that forgets the marker
+   would keep every heavy section and still validate. `--expect-depth` is the
+   run asserting its own mode from the parsed arguments, which is the only
+   side of this the document cannot restate.
+
+   Then run the drift/digest check:
+
+   ```bash
+   ./.aitask-scripts/aitask_trail_gather.sh drift --trail <tmpfile>
+   ```
+
+   and branch on the first stdout token:
    - `CURRENT` → the JSON is schema-valid and its digest matches live
      state; proceed.
    - `ERROR:invalid_trail:<n>` → you authored invalid JSON; read the
@@ -230,6 +390,9 @@ this step) / "Discard" (stop; nothing was written).
    "handle … already exists", the slug is taken: re-prompt for a new slug
    (step 1 above) and retry — never overwrite an existing trail from the
    create flow. Any other failure → surface and stop.
+
+5. **Print the run summary** after the `HANDLE:` line — see **Run summary
+   print** below. This is what removes the board round-trip from the loop.
 
 ### Step 3: Refresh Flow (`--refresh <handle>`)
 
@@ -277,7 +440,9 @@ this step) / "Discard" (stop; nothing was written).
    - New related tasks (from `new_related_task` reasons) are evaluated for
      membership — adding one that widens the scope is propose-and-confirm,
      as in Step 2c.
-   - **Belt-and-braces follow-up sweep.** For every member that completed or
+   - **Belt-and-braces follow-up sweep — `--deep` only.** Skip this entire
+     sweep at lite depth (the default); it is one of the two costs the lite
+     contract exists to remove. For every member that completed or
      was archived since the loaded version, run BOTH halves — the two
      post-landing relations point in opposite directions, so one re-read
      cannot find both:
@@ -345,6 +510,31 @@ this step) / "Discard" (stop; nothing was written).
    entries added, retired, re-ordered, reclassified; drift reasons
    consumed; narrative updates.
 
+   **Downgrade preflight — when this run is lite and the loaded trail is
+   not.** Refresh defaults to lite, so the flag-free path is the one that
+   discards content. Before the confirmation below, enumerate **every**
+   dimension being discarded, each with its count from the loaded document:
+
+   - `observations` — N records dropped
+   - `relations` — N records dropped
+   - `exclusions` — N records dropped
+   - `evidence` — N records reduced to 1 (state the number being discarded,
+     not just the survivor)
+   - per-entry `evidence_refs` — N citations across M entries, all removed
+
+   Then state that the prior version stays recoverable:
+   `./.aitask-scripts/aitask_artifact.sh versions <handle>` lists it and
+   `get --version sha256:<hash>` retrieves it. The counts and the recovery
+   route are what make the confirmation informed consent rather than a
+   surprise — a bare "some sections will be dropped" hides the two largest
+   losses, which are the evidence records and their citations.
+
+   A loaded trail with **no** `rendering_hints.depth` is treated as deep for
+   this preflight: an absent marker means the document predates the hint, not
+   that it is already lite.
+
+   Re-run with `--deep` is the way to keep everything; say so.
+
    **⚠️ NON-SKIPPABLE — the write below requires this explicit
    confirmation; no profile, auto mode, or prior instruction bypasses it.**
 
@@ -354,9 +544,12 @@ this step) / "Discard" (stop; nothing was written).
 5. **Author + validate the new version:** same authoring rules as create
    (`trail_id` and handle unchanged; fresh `generation` block from the new
    snapshot; `freshness.state: "current"` with the consumed reasons
-   removed). Validate via
-   `./.aitask-scripts/aitask_trail_gather.sh drift --trail <tmpfile>`
-   exactly as in Step 2e.3.
+   removed). Validate with **both** commands of Step 2e.3 — the
+   `--expect-depth <this run's depth>` assertion first, then
+   `./.aitask-scripts/aitask_trail_gather.sh drift --trail <tmpfile>`.
+   Refresh is the path where the depth assertion matters most: it is the flow
+   whose default silently downgrades an existing deep trail, so the run must
+   prove it wrote the depth it claims.
 
 6. **Stale-base re-read guard, then the single write:** the artifact CLI
    has no compare-and-swap, so immediately before writing, re-run
@@ -374,6 +567,30 @@ this step) / "Discard" (stop; nothing was written).
    bytes). Refresh never creates a new handle and never mutates in place —
    every write is an appended immutable version; prior versions stay
    comparable via `versions` / `get --version sha256:<hash>`.
+
+7. **Print the run summary** after the write — see **Run summary print**
+   below. Refresh prints it exactly as create does.
+
+## Run summary print
+
+Printed at the end of **every** flow — create (2e.5), refresh (3.7) and show
+(1.4) — so the user can decide what to pick next without opening the board.
+Two lines, in this order:
+
+1. **The depth**, stated plainly (`lite` / `deep`; `unrecorded` when the
+   document carries no `rendering_hints.depth`), so a lite artifact is never
+   mistaken for a deep one.
+2. **The summary**: `narrative.overview`, falling back to
+   `narrative.recommendation_summary` when `overview` is absent or holds only
+   whitespace, printed with **surrounding whitespace stripped** and interior
+   formatting preserved. Print nothing for this line if neither field carries
+   text.
+
+That resolution order and that stripping are not a local choice — they are
+exactly what the board's `trail_summary_text()` does for the By-Trail summary
+pane. The two surfaces read the same field on the same artifact, so they must
+render it identically; do not print the raw value, and do not reorder the
+fallback.
 
 ## Trail JSON authoring rules
 
@@ -411,6 +628,22 @@ copy):
   summary), plus one entry per task/plan file a rationale or observation
   leans on (`ref` is a locator, never copied content).
 - `freshness`: `{"state": "current", "checked_at": <now>}` at write time.
+- `rendering_hints`: `{"depth": "lite"}` or `{"depth": "deep"}` per Step 0 —
+  written on every create and refresh, at both depths.
+- `narrative.overview` is authored at **both** depths. It is the prose answer
+  the user actually reads: which tasks to pick next and why, what blocks
+  what, what is in flight, what changed since last time — **not** a
+  restatement of the wave table. The anti-fabrication rules still apply: no
+  time estimates, no progress claims, no commitments. A **whitespace-only
+  `overview` is a hard validation failure** (`pattern: "\\S"`), not a
+  silently-ignored value — omit the key rather than write a blank one.
+- **At `depth: "lite"` the shape is enforced, not merely requested.** The
+  validator rejects `observations`, `relations`, `exclusions` or a per-entry
+  `evidence_refs` key (present at all, even empty), and any `evidence` length
+  other than 1, with rule `lite_shape`. Omit the keys. Under
+  `--expect-depth lite` that rejection applies **whether or not you wrote the
+  depth marker**, so omitting the marker is not an escape from the lite
+  contract — it is its own `depth_marker` failure.
 
 ## Notes
 

@@ -92,14 +92,59 @@ Journey shapes:
 - **Create** (J1–J4): resolve scope → read-only analysis → present the proposed
   trail (waves, rationale, observations, exclusions) → user confirms → **one
   write**: `ait artifact create <owner> <trail.json> --kind implementation_trail
-  --handle art:<trail-id>` (emits `HANDLE:`).
+  --handle art:<trail-id>` (emits `HANDLE:`) → print the run summary.
 - **Refresh** (J5–J6): recompute drift (§8) → targeted re-analysis driven by
   the named drift reasons → present a diff-style summary (what changed, which
   waves/entries were added/retired) → user confirms → **one write**:
   `ait artifact update <handle> <trail.json>` (new immutable version; manifest
   `current` repoints; previous versions remain comparable via
-  `ait artifact versions` / `get --version`).
-- **Inspect** (J7): pure reads (`ait artifact get`), no confirmation needed.
+  `ait artifact versions` / `get --version`) → print the run summary.
+- **Inspect** (J7): pure reads (`ait artifact get`), no confirmation needed;
+  prints the run summary from the stored document.
+
+**Depth axis (orthogonal to the journey).** Create and refresh accept `--deep`
+for the full analysis and `--lite` for the default; **absence means lite**,
+including the board's `R` refresh key. Lite omits `observations`, `relations`,
+`exclusions` and per-entry `evidence_refs` entirely, carries exactly the one
+gatherer evidence record, and skips both the evidence-record-per-rationale
+requirement and the refresh follow-up sweep (§8). A lite trail is a first-class
+trail — every section it drops is optional in the schema and none of them feed
+lane construction. Depth is recorded as `rendering_hints.depth`
+(`"lite"` / `"deep"`) and is enforced: a document declaring lite that carries
+any of those keys is rejected by the validator's `lite_shape` rule. Depth
+changes how much is analyzed, never whether the write is confirmed.
+
+**How depth is resolved, and how far it is trusted.** The Step 0 grammar (two
+orthogonal axes, position-independent depth flags, mutually exclusive mode
+selectors, `--deep --lite` failing closed) is implemented by
+`.aitask-scripts/aitask_trail_depth.sh`, not applied by the model: the skill
+forwards its arguments and copies the resolved `DEPTH:` line into both
+`rendering_hints.depth` and `trail_schema.py --expect-depth`. The grammar is
+pinned executably by `tests/test_trail_depth_resolve.sh`.
+
+That gives three progressively weaker guarantees, and the difference matters:
+
+1. A lite document that keeps a heavy section is rejected outright
+   (`lite_shape`) — enforced by the validator against the document alone.
+2. A run that omits or misspells the depth marker cannot thereby escape the
+   lite shape (`depth_marker` + the caller-asserted depth) — enforced because
+   the asserted depth comes from parsed arguments rather than the document.
+3. A run that **declines to call the resolver** and asserts a depth
+   inconsistent with its actual invocation is **not** caught. Every side of
+   that claim would come from the same model, and the skill is prose a model
+   executes, so no artifact-side check can distinguish it. The resolver
+   narrows this by removing the interpretation step — the place a
+   wrong-but-self-consistent depth actually comes from — but it does not
+   eliminate model mediation. Closing (3) entirely would require binding the
+   invocation's depth outside the prompt (e.g. the codeagent launch layer
+   passing it through a channel the skill body cannot restate), which is a
+   larger change than the depth feature itself and is deliberately not
+   attempted here.
+
+**Run summary print.** Every flow ends by printing the resolved depth and the
+document's `narrative.overview` (falling back to `recommendation_summary`,
+whitespace-stripped — the same resolution the By-Trail summary pane uses), so
+deciding what to pick next needs no board round-trip.
 
 Mid-analysis discoveries outside the initiating scope (J2/J3) do not silently
 expand scope: the skill proposes the expansion ("the red suite blocks this
@@ -197,7 +242,8 @@ rather than read — never a false `STALE`. Field groups, tied to the fixtures:
   and the motivation for the proposed wave/task order, and it is **advisory and
   non-binding**: renderers display it, but no consumer may derive membership,
   ordering or classification from it — waves and entries remain the binding
-  structure. It is what the By-Trail summary pane prefers over
+  structure. The skill authors it at **both** depths (§3), and the end-of-run
+  summary print reads it. It is what the By-Trail summary pane prefers over
   `recommendation_summary` (§9). What is displayed is its *content*, not a
   verbatim byte string: surrounding whitespace is not significant (the pane
   strips it), and a value carrying no non-whitespace character is rejected by
@@ -222,7 +268,30 @@ rather than read — never a false `STALE`. Field groups, tied to the fixtures:
   re-litigating candidates on every refresh.
 - **Evidence** — locator + observed-at + concise summary. Identifiers and
   digests only; task/plan bodies are never copied into the artifact.
-- **rendering_hints** — advisory presentation preferences; ignorable.
+- **rendering_hints** — presentation preferences, ignorable **except for one
+  reserved key**. `depth` records the authoring depth as `"lite"` or `"deep"`
+  (§3) and is **reserved semantic metadata, not an advisory hint**: the
+  validator's `lite_shape` rule reads it to enforce the lite shape, and the
+  `depth_marker` rule requires it to match the depth a run asserts. Producers
+  must write it on every create and refresh; consumers must not strip or
+  rewrite it. The board's banner labels a trail from it and renders nothing
+  when it is absent or unrecognised, so a trail predating the marker is never
+  labelled and an absent value is never defaulted to `"deep"`. The rest of
+  `rendering_hints` remains freely ignorable.
+
+  *Placement note:* `depth` sits inside `rendering_hints` because that is the
+  one open extension slot in the pinned schema
+  (`additionalProperties: {string|number|boolean}`), so the marker needed no
+  schema change and no `schema_version` bump — and because the board's depth
+  label (t1505_1) already reads it there. The cost is that a key with
+  validation semantics lives under a container documented as advisory, which
+  the description above now carves out explicitly. Promoting `depth` to a
+  top-level property would be cleaner and remains open as a future additive
+  change; it would touch the schema, `_trail_depth_note()` and its tests.
+
+  `observations`, `relations`, `exclusions` and per-entry `evidence_refs` are
+  all optional precisely so a lite trail can omit them and still be a
+  first-class trail.
 
 ## 7. Analysis / gathering algorithm
 
@@ -302,15 +371,31 @@ reasons, and re-analyzes **only what changed**: completed entries are moved to
 an honored/landed presentation (their wave records the completion via the
 refreshed snapshot), newly created follow-up tasks are evaluated for
 membership, invalidated premises re-open the affected wave's reasoning.
-Follow-up membership is not left to the scan alone: for every member that
-landed since the loaded version the skill also sweeps both post-landing
-relations by hand — the member's own `risk_mitigation_tasks` (outgoing) and any
-active task whose `verifies` names it (incoming, so unreachable by re-reading
-the member). That backstop covers what §8.2's scan deliberately skips: a
-follow-up that is itself already archived, or one in an unscoped project.
+Follow-up membership is not left to the scan alone **at `--deep`**: for every
+member that landed since the loaded version the skill also sweeps both
+post-landing relations by hand — the member's own `risk_mitigation_tasks`
+(outgoing) and any active task whose `verifies` names it (incoming, so
+unreachable by re-reading the member). That backstop covers what §8.2's scan
+deliberately skips: a follow-up that is itself already archived, or one in an
+unscoped project. **A lite refresh skips the hand sweep** (the gatherer's own
+reporting of both edges still applies) — it is one of the two costs the lite
+contract removes.
 The result is a new artifact version after user confirmation — never an
 in-place mutation — so `ait artifact versions` is the trail's history and
 "compare versions" (J7) is a projection diff of two immutable blobs.
+
+**Refresh depth, and the downgrade it can perform.** Refresh follows the same
+default as create: absence of a flag means lite. Refreshing a deep trail
+without `--deep` therefore writes a lite version, discarding its
+`observations`, `relations`, `exclusions`, per-entry `evidence_refs` and all
+but one `evidence` record. Because that is the *flag-free* path, the skill's
+confirmation enumerates every discarded dimension with its count and names the
+recovery route (`ait artifact versions` / `get --version sha256:<hash>`) before
+the write — the prior version is immutable and stays retrievable, so the
+downgrade is recoverable, but it must be consented to rather than discovered.
+A loaded trail carrying no `rendering_hints.depth` is treated as deep for that
+warning: an absent marker means the document predates the marker, not that it
+is already lite.
 
 **Concurrency.** The artifact CLI has **no public compare-and-swap**: updates
 are serialized by the global attach lock, but a stale-base refresh (two

@@ -35,8 +35,21 @@ dependent: when `to` is a wave entry whose snapshot records `depends`, `from`
 must be a member; when `to` is not an entry or has no recorded depends the
 claim is unverifiable and the check is SKIPPED -- known limitation); no
 "anchor" key anywhere (covers rendering_hints, where the schema alone would
-allow one). Phase-2 traversal is type-guarded: nodes phase 1 already flagged
-as mis-typed are skipped, not re-reported and never a crash.
+allow one); and the depth rules (t1505_4) -- a document declaring
+rendering_hints.depth "lite" must OMIT observations/relations/exclusions and
+per-entry evidence_refs (key presence, not emptiness, is the test) and carry
+exactly one evidence record. Phase-2 traversal is type-guarded: nodes phase 1
+already flagged as mis-typed are skipped, not re-reported and never a crash.
+
+DEPTH IS ASSERTED BY THE CALLER, NOT TRUSTED FROM THE DOCUMENT: because the
+skill authors rendering_hints.depth itself, a lite-shape rule keyed only on
+that marker is opt-in by the writer it constrains -- omit the key (or misspell
+the value) and a full-shaped document validates. validate_trail(...,
+expect_depth="lite"|"deep") takes the authoring depth from the RUN's argument
+parsing instead: it requires a matching marker (rule depth_marker) and applies
+the lite shape regardless of what the document claims. expect_depth=None (the
+default) keeps the self-declared behaviour, which is what leaves every stored
+pre-t1505_4 trail valid. CLI: validate <file> [--expect-depth lite|deep].
 
 validate_trail() returns every issue from both phases as
 TrailIssue(path, rule, message); load_trail() raises TrailValidationError
@@ -71,9 +84,9 @@ sorted by (kind, ref), wrapped with normalization_version, json.dumps with
 sort_keys, compact separators, ensure_ascii, UTF-8. Digests are comparable
 only within a NORMALIZATION_VERSION.
 
-CLI: python3 trail_schema.py validate <file>
+CLI: python3 trail_schema.py validate <file> [--expect-depth lite|deep]
   -> "VALID:<trail_id>" exit 0, or one "INVALID:<path>|<rule>|<message>" line
-     per issue, exit 1.
+     per issue, exit 1; 2 on usage error (including an unknown depth value).
 """
 
 import hashlib
@@ -86,6 +99,13 @@ from collections import namedtuple
 
 NORMALIZATION_VERSION = "1.0.0"  # versioned alongside schema_version (RFC par.8.1)
 DIGEST_HEX_LEN = 16              # sha256 truncation; matches ^[a-f0-9]{12,64}$
+
+#: Authoring depths (t1505_4). These exact lowercase strings are what the skill
+#: writes into rendering_hints.depth and what the board's depth label reads --
+#: any other value is unrecognised by both and states nothing.
+DEPTH_LITE = "lite"
+DEPTH_DEEP = "deep"
+DEPTHS = (DEPTH_LITE, DEPTH_DEEP)
 
 SCHEMA_BASENAME = "implementation_trail.schema.json"
 DEFAULT_SCHEMA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -305,7 +325,100 @@ def _check_no_anchor(node, path, issues):
             _check_no_anchor(value, "%s[%d]" % (path, idx), issues)
 
 
-def _semantic_checks(doc, issues):
+def _lite_depth(doc):
+    """True when the document declares itself lite via rendering_hints.depth.
+
+    Normalization mirrors the board's _trail_depth_note() (aitask_board.py):
+    a string, stripped and lowercased, compared against "lite". Producer and
+    consumer must agree on what counts as lite, so the two normalizations are
+    deliberately identical -- an unrecognised value (or a non-string, or an
+    absent hint) is not lite and leaves the shape unconstrained."""
+    if not isinstance(doc, dict):
+        return False
+    hints = doc.get("rendering_hints")
+    if not isinstance(hints, dict):
+        return False
+    depth = hints.get("depth")
+    return isinstance(depth, str) and depth.strip().lower() == DEPTH_LITE
+
+
+def _check_depth_contract(doc, expect_depth, issues):
+    """The CALLER's depth, asserted against the document's own marker.
+
+    rendering_hints.depth is authored by the same agent whose output the
+    lite-shape rule constrains, so a rule gated on that marker alone is opt-in
+    by the thing it guards: a lite run that omits the key -- or writes an
+    unrecognised value -- keeps every heavy section and still validates. The
+    marker cannot police itself.
+
+    expect_depth closes that: it comes from the run's own argument parsing, not
+    from the authored JSON, so a lite run cannot dodge its shape contract by
+    saying nothing. Callers that have no mode to assert (ad-hoc validation, the
+    board, load_trail) pass None and get the self-declared behaviour unchanged,
+    which is what keeps every stored document valid."""
+    if expect_depth is None:
+        return
+    hints = doc.get("rendering_hints")
+    declared = None
+    if isinstance(hints, dict) and isinstance(hints.get("depth"), str):
+        declared = hints["depth"].strip().lower()
+    if declared != expect_depth:
+        issues.append(TrailIssue(
+            "$.rendering_hints.depth", "depth_marker",
+            "this run authored a %r trail, so the document must record "
+            "rendering_hints.depth %r (found %s) -- the marker is what lets "
+            "the board label the artifact and what the lite-shape rule reads"
+            % (expect_depth, expect_depth,
+               "no depth marker" if declared is None else repr(declared))))
+
+
+def _check_lite_shape(doc, issues, force=False):
+    """A lite trail (t1505_4) OMITS the heavy optional sections entirely.
+
+    Key presence -- not emptiness -- is the test. "Omits" in the authoring
+    contract means the key is absent, which is exactly the shape the board's
+    canonical lite fixture models (tests/test_board_bytrail_view.py
+    _lite_doc()). Permitting "observations": [] would let a writer emit a
+    document the consumer's own definition of lite does not describe, and the
+    board renders both identically (doc.get(...) or []) -- so nothing visible
+    would ever catch the divergence. The producer predicate and the consumer
+    guard have to be the same predicate.
+
+    Fires when the document declares depth lite, OR when the caller asserted a
+    lite run via force (see _check_depth_contract) -- the latter is what makes
+    the rule binding on a writer that omits the marker. Without force and
+    without the marker it constrains nothing, so every trail authored before
+    t1505_4 and every --deep document stays valid."""
+    if not (force or _lite_depth(doc)):
+        return
+
+    for key in ("observations", "relations", "exclusions"):
+        if key in doc:
+            issues.append(TrailIssue(
+                "$.%s" % key, "lite_shape",
+                "a lite trail must omit %r entirely (an empty list is not "
+                "omission) -- drop the key, or re-run with --deep" % key))
+
+    evidence = doc.get("evidence")
+    if isinstance(evidence, list) and len(evidence) != 1:
+        issues.append(TrailIssue(
+            "$.evidence", "lite_shape",
+            "a lite trail carries exactly one evidence record (the gatherer "
+            "snapshot), found %d -- drop the extras, or re-run with --deep"
+            % len(evidence)))
+
+    for wave in _dicts(doc.get("waves")):
+        for entry in _dicts(wave.get("entries")):
+            if "evidence_refs" in entry:
+                issues.append(TrailIssue(
+                    "$.waves[*].entries[%s]" % entry.get("entry_id", "?"),
+                    "lite_shape",
+                    "a lite trail must omit per-entry 'evidence_refs' "
+                    "entirely (an empty list is not omission) -- drop the "
+                    "key, or re-run with --deep"))
+
+
+def _semantic_checks(doc, issues, expect_depth=None):
     waves = _dicts(doc.get("waves"))
     entries = []  # (wave, entry)
     for wave in waves:
@@ -408,20 +521,32 @@ def _semantic_checks(doc, issues):
                     "snapshot.depends" % (src, dst, src, dst)))
 
     _check_no_anchor(doc, "$", issues)
+    _check_depth_contract(doc, expect_depth, issues)
+    _check_lite_shape(doc, issues, force=(expect_depth == DEPTH_LITE))
 
 
 # --- Public validation API -------------------------------------------------
 
-def validate_trail(doc, schema=None):
+def validate_trail(doc, schema=None, expect_depth=None):
     """Both validation phases over an in-memory document. Returns every issue
     as a list of TrailIssue (empty = valid); raises only RuntimeError, and
-    only for a defective schema/interpreter (never for a bad document)."""
+    only for a defective schema/interpreter (never for a bad document).
+
+    expect_depth (None | "lite" | "deep") is the AUTHORING depth the caller
+    ran at, supplied from its own argument parsing rather than read out of the
+    document. Passing it makes the check mode-aware: the document must record
+    a matching rendering_hints.depth, and a lite run is held to the lite shape
+    whether or not it remembered to write the marker. None (the default) keeps
+    the self-declared behaviour every other caller relies on."""
+    if expect_depth is not None and expect_depth not in DEPTHS:
+        raise ValueError("expect_depth must be one of %s or None, got %r"
+                         % (sorted(DEPTHS), expect_depth))
     if schema is None:
         schema = load_schema()
     issues = []
     root_ok = _check_node(doc, schema, "$", schema.get("$defs", {}), issues)
     if root_ok and isinstance(doc, dict):
-        _semantic_checks(doc, issues)
+        _semantic_checks(doc, issues, expect_depth=expect_depth)
     return issues
 
 
@@ -430,10 +555,12 @@ def _reject_json_constant(literal):
         "non-finite JSON constant %r is not valid JSON" % (literal,))
 
 
-def load_trail(source, schema_path=None):
+def load_trail(source, schema_path=None, expect_depth=None):
     """Load + validate a trail document, fail-closed.
 
     source: str/os.PathLike = path to a JSON file; bytes = raw JSON payload.
+    expect_depth: forwarded to validate_trail -- the authoring depth the
+    CALLER ran at, or None (default) for the self-declared behaviour.
     Returns the parsed document; raises TrailValidationError (with .issues)
     on parse failure or any validation issue.
     """
@@ -458,7 +585,8 @@ def load_trail(source, schema_path=None):
     except ValueError as exc:
         raise TrailValidationError(
             [TrailIssue("$", "json", "invalid JSON (%s): %s" % (origin, exc))])
-    issues = validate_trail(doc, load_schema(schema_path))
+    issues = validate_trail(doc, load_schema(schema_path),
+                            expect_depth=expect_depth)
     if issues:
         raise TrailValidationError(issues)
     return doc
@@ -615,12 +743,25 @@ def input_digest(inputs, schema=None):
 
 # --- CLI -------------------------------------------------------------------
 
+USAGE = ("usage: trail_schema.py validate <file> "
+         "[--expect-depth lite|deep]\n")
+
+
 def main(argv):
-    if len(argv) != 2 or argv[0] != "validate":
-        sys.stderr.write("usage: trail_schema.py validate <file>\n")
+    expect_depth = None
+    args = list(argv)
+    if "--expect-depth" in args:
+        at = args.index("--expect-depth")
+        if at + 1 >= len(args) or args[at + 1] not in DEPTHS:
+            sys.stderr.write(USAGE)
+            return 2
+        expect_depth = args[at + 1]
+        del args[at:at + 2]
+    if len(args) != 2 or args[0] != "validate":
+        sys.stderr.write(USAGE)
         return 2
     try:
-        doc = load_trail(argv[1])
+        doc = load_trail(args[1], expect_depth=expect_depth)
     except TrailValidationError as exc:
         for issue in exc.issues:
             print("INVALID:%s|%s|%s" % (issue.path, issue.rule, issue.message))

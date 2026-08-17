@@ -131,6 +131,129 @@ for profile in "${PROFILES[@]}"; do
     # (m) The writer emits the bumped schema version.
     assert_contains "$profile: writer emits the current schema_version" \
         '`schema_version`: `"1.1.0"`' "$skill"
+
+    # (n) Depth axis (t1505_4): lite is the DEFAULT and --deep is the opt-out.
+    assert_contains "$profile: absence of a depth flag means lite" \
+        "**Absence means lite**" "$skill"
+    assert_contains "$profile: --deep restores the full analysis" \
+        '`--deep` → the full analysis' "$skill"
+
+    # The deep-REFRESH form specifically. `--deep` on create can keep working
+    # while a template edit silently breaks the refresh path, and refresh is
+    # the escape hatch from the new lite default — so pin the accepted form,
+    # not just the flag.
+    assert_contains "$profile: deep refresh form is spelled out" \
+        '`--refresh <handle> --deep`' "$skill"
+    assert_contains "$profile: depth flags are position-independent" \
+        "Recognize anywhere in the argument list, before or after" "$skill"
+
+    # Conflicting depth flags fail closed rather than picking one.
+    assert_contains "$profile: --deep with --lite is an error" \
+        "together is an error" "$skill"
+
+    # (o) Depth never weakens the write gate. The >=2 NON-SKIPPABLE count in
+    # (a) proves both banners exist; this pins that depth does not bypass them.
+    assert_contains "$profile: depth does not bypass confirmation" \
+        "Depth changes how much is analyzed, never whether the write is" "$skill"
+
+    # (p) The lite contract keeps the COMPLETE snapshot. This is the pin that
+    # fails if the followup_kind instruction is ever moved into a deep-only
+    # block: (l) would still pass from the shared authoring section.
+    assert_contains "$profile: lite entries carry a complete snapshot" \
+        '**complete `snapshot`** (including `followup_kind` whenever the MEMBER' "$skill"
+
+    # (q) "Omits" means the key is ABSENT — an empty container is not omission.
+    # Producer prose must match the validator's lite_shape rule and the board's
+    # canonical lite fixture, all three of which test key presence.
+    assert_contains "$profile: omission is key-absence, not an empty list" \
+        "Omit means the key is absent" "$skill"
+
+    # (r) Recorded depth values are exactly the two the board's label reads.
+    assert_contains "$profile: depth marker values are pinned" \
+        'exactly those two lowercase' "$skill"
+
+    # (s) End-of-run print: it exists, states the depth, and resolves the
+    # summary the same way the By-Trail pane does (same field order, same
+    # whitespace handling) so the two surfaces cannot disagree.
+    assert_contains "$profile: run summary print is defined" \
+        "## Run summary print" "$skill"
+    assert_contains "$profile: summary falls back like the board pane" \
+        'falling back to' "$skill"
+    assert_contains "$profile: summary is stripped, not raw" \
+        "surrounding whitespace stripped" "$skill"
+
+    # (t) The deep->lite refresh downgrade names EVERY discarded dimension.
+    # A bare "sections will be dropped" hides the two largest losses (the
+    # evidence records and their citations), so each is pinned by name.
+    assert_contains "$profile: downgrade preflight exists" \
+        "Downgrade preflight" "$skill"
+    assert_contains "$profile: downgrade names the evidence reduction" \
+        "records reduced to 1" "$skill"
+    assert_contains "$profile: downgrade names the removed citations" \
+        "citations across" "$skill"
+    assert_contains "$profile: downgrade names the recovery route" \
+        "get --version sha256:<hash>\` retrieves it" "$skill"
+
+    # (u) The belt-and-braces sweep is deep-only — one of the two costs the
+    # lite contract removes.
+    assert_contains "$profile: sweep is gated to --deep" \
+        'Belt-and-braces follow-up sweep — `--deep` only' "$skill"
+
+    # (v) The run must ASSERT its own depth at pre-write validation. This is
+    # the pin that matters most of the depth set: `rendering_hints.depth` is
+    # authored by the same agent the lite_shape rule constrains, so a check
+    # keyed only on the marker is one the writer can opt out of by omitting
+    # it. `--expect-depth` comes from parsed arguments instead. Drop this
+    # instruction and the lite contract silently becomes advisory again.
+    assert_contains "$profile: pre-write validation asserts the depth" \
+        "--expect-depth lite|deep" "$skill"
+    assert_contains "$profile: the depth flag is named non-optional" \
+        "not optional and not a formality" "$skill"
+    assert_contains "$profile: the marker cannot police itself" \
+        "silently opt out of by omitting it" "$skill"
+    assert_contains "$profile: depth_marker rule is named" \
+        "depth_marker" "$skill"
+
+    # Refresh must run the assertion too — it is the flow whose default
+    # downgrades an existing trail, so its depth claim is the one to prove.
+    assert_contains "$profile: refresh validates with both commands" \
+        "Validate with **both** commands of Step 2e.3" "$skill"
+
+    # (w) The grammar is RESOLVED by a deterministic helper, not applied by
+    # the model. Without this the model both decides the depth and asserts it,
+    # so a wrong-but-self-consistent depth validates cleanly — the resolver is
+    # what removes the interpretation step that produces one.
+    assert_contains "$profile: depth is resolved by the helper" \
+        "aitask_trail_depth.sh resolve --" "$skill"
+    assert_contains "$profile: the model must not apply the grammar by hand" \
+        "Do not apply the grammar below by hand" "$skill"
+    assert_contains "$profile: resolved depth feeds BOTH sinks" \
+        "write it into \`rendering_hints.depth\` and pass the same value to" "$skill"
+    assert_contains "$profile: the resolved depth is not re-derived" \
+        "Do not re-derive it" "$skill"
+
+    # Show has no authoring depth: the resolver says n/a and the flow reports
+    # the artifact's STORED depth. Echoing a caller-supplied flag back here
+    # would label a lite or unmarked artifact "deep".
+    assert_contains "$profile: show reports stored depth, not the flag" \
+        "the resolver emits **\`DEPTH:n/a\`**" "$skill"
+
+    # An ambiguous bare handle is not a runnable mode: the skill must RE-RESOLVE
+    # after the show-or-refresh choice. Reusing the first call's values is how a
+    # supplied --deep reaches a --show chosen afterwards.
+    assert_contains "$profile: ambiguous handle is not runnable" \
+        "is not a runnable mode" "$skill"
+    assert_contains "$profile: ambiguous handle forces a re-resolve" \
+        "**re-run the resolver** on a rewritten argument" "$skill"
+    assert_contains "$profile: the second run's values are the ones used" \
+        "Do not carry the first run's values forward" "$skill"
+    # The rewrite REPLACES the bare token. "Keep every original argument" would
+    # produce `--show trail-x trail-x --deep`, a mode conflict — so the template
+    # must say replace, and show the wrong form explicitly.
+    assert_contains "$profile: the bare token is replaced, not kept" \
+        "the bare token is *consumed* by the rewrite" "$skill"
+    assert_contains "$profile: the wrong rewrite is shown by name" \
+        "ERROR:conflicting_modes:--show,trail-x" "$skill"
 done
 
 # --- Summary ----------------------------------------------------------------

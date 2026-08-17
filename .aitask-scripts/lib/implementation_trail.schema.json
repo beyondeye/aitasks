@@ -300,7 +300,7 @@
       }
     },
     "rendering_hints": {
-      "description": "Advisory presentation preferences (e.g. preferred badge glyphs, collapse defaults). Renderers may ignore them; hints never duplicate canonical content.",
+      "description": "Presentation preferences (e.g. preferred badge glyphs, collapse defaults); renderers may ignore these, and they never duplicate canonical content. ONE RESERVED KEY IS NOT ADVISORY: 'depth' records the authoring depth as 'lite' or 'deep' and carries validation semantics -- a document recording 'lite' must omit observations/relations/exclusions and per-entry evidence_refs and carry exactly one evidence record (rule lite_shape), and validators may additionally be given the authoring depth to assert against it (rule depth_marker). Producers must write it; consumers must not strip or rewrite it. An absent or unrecognised value means 'depth unrecorded' and must never be defaulted to 'deep'.",
       "type": "object",
       "additionalProperties": { "type": ["string", "number", "boolean"] }
     }
