@@ -990,3 +990,82 @@ actually deliver for the short-pane regime.
 - **Disposition:** this is now a closed scope gate rather than an approved
   exception — no exception policy is needed, and the generic help-bar / proceed
   rows ship with the hostile state covered in both directions.
+
+## Final Implementation Notes
+
+- **Actual work done:** Measured Claude's tool-permission dialog live against
+  2.1.233 across seven pane geometries (120x30 → 120x6), 5 reps at the two main
+  ones, three evidence channels, 47 dialog / 32 non-dialog frames with 0 B1/B2
+  violations. Shipped one shared boundary — a **whole-line** anchor on
+  `Do you want to proceed?` — for **both** `("claude", "claude_help_bar")` and
+  `("claude", "claude_proceed")`, and removed both from
+  `DELIBERATELY_UNANCHORED_KINDS`. `claude_trust_folder` keeps its exemption, now
+  with a measured reason instead of the `pre-t1518` placeholder. Tests: 13 real
+  captured fixtures, a 4-part unit per geometry, a table-driven B4 invariant, an
+  8-surface scope table, 3 new live-tmux cases plus `claude` added to the
+  app-path arm-and-fire loops, and 8 negative controls. Docs updated in
+  `shadow_agent.md` and `monitor_idle_and_prompt_detection.md`.
+
+- **Deviations from plan:** two, both scope-widening and both confirmed with the
+  user mid-task.
+  1. The plan assumed the task was pure data ("no new mechanism is needed").
+     Measurement found that no boundary row could work at all until an **upstream
+     detection defect** was fixed, so `monitor/prompt_patterns.py` is in the diff.
+  2. The plan's `claude_trust_folder` sub-step expected to ship a row or record a
+     "structurally unanchorable" reason. The measured answer was neither: the
+     kind is **not reported at all** on 2.1.233, so the exemption is right for a
+     reason the plan did not anticipate.
+
+- **Issues encountered:**
+  - `claude_help_bar` was anchored on `Esc to cancel · Tab to amend`, but 2.1.233
+    drops the amend affordance on the dialog's "always allow" option. That frame
+    reported **no kind**, so a pure cursor move onto it flipped `awaiting_input`
+    and `classify_followed_change` returned `WORK` — the spurious-*fire*
+    direction — short-circuiting ahead of any boundary lookup. Fixed by accepting
+    either affordance; strictly backward compatible.
+  - Which kind is reported is **geometry-dependent**: ≥11 rows → `claude_help_bar`
+    (question outside the 6-line tail); ≤9 rows → Claude truncates the option list,
+    lifting the question into the tail, and `claude_proceed` wins first-match. So
+    `claude_proceed` is genuinely reachable, unlike t1518's `codex_yes_proceed`.
+  - Review found the 120x6 geometry shipped with `LATER = None`, so the
+    `claude_proceed` row had **no work-direction assertion** at the only geometry
+    where that kind is reported. Closed with a same-session trio (CR1).
+  - Review found the typed-phrase case had been **documented rather than closed**:
+    the dialog's option 1 is editable, so a user typing the phrase put a copy
+    below the header and the last-match rule moved the boundary onto a line that
+    moves during selection. Closed with a whole-line anchor (CR2).
+  - The first negative control for the scope table **passed**, i.e. proved
+    nothing: matching is first-wins and `claude_help_bar` is listed last, so
+    surfaces with their own earlier pattern are protected structurally and only
+    pattern-less frames can be over-matched. The control had to be retargeted.
+  - Adding `claude` to the live-tmux smoke introduced an `ETXTBSY` race (the
+    earlier shadows already execute that binary). It passed once and failed
+    later — genuinely flaky. Fixed by not re-copying an existing file.
+  - The first live 4b attempt recorded `work_seen=True, state=waiting, rounds=0`.
+    A correct loop, an invalid probe: the debounce needs `awaiting_input AND
+    stale`, so the pane must end **parked at a prompt**, and staleness must be
+    switched on only after arming. Re-run with a second dialog as the stimulus.
+
+- **Key decisions:**
+  - Fix the upstream pattern rather than ship a row that cannot deliver. A
+    boundary row is unreachable behind the `awaiting_input` / kind-change
+    short-circuits, so shipping one alone would have been nominal.
+  - **Whole-line** anchor, not a substring. The dialog's option rows are editable,
+    so a substring anchor lets user input relocate the boundary onto a moving
+    line. Verified identical on all 58 dialog frames, so it costs nothing.
+  - Ship `claude_proceed` on measured reachability, not on the t1518
+    `codex_yes_proceed` "ship it anyway" precedent — here it was observed live.
+  - Keep the row **scoped** to the permission dialog and assert that scope over
+    eight real surfaces, rather than widening to cover every help-bar screen.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/prompt_patterns.py:118-120 — claude_trust_folder no longer matches Claude Code 2.1.233's workspace-trust dialog, so an agent blocked on the trust gate reads as IDLE in ait monitor / minimonitor. Two independent causes, either fatal alone: the confirm/cancel options now render as a numbered list, which the adjacency pattern cannot match, and the pre-TUI trust screen draws top-aligned (options at -17/-16, footer at -14, 13 trailing blank rows) so the whole dialog falls outside _PROMPT_DETECTION_TAIL_LINES. The existing unit tests still pass because they exercise synthetic snippets in the old geometry. Out of scope for t1540, which is about native-dialog boundaries; recorded live and indexed here.`
+
+- **Coordination note for t1542 (boundary-rot observability):** `claude_help_bar`
+  is a *generic* kind whose boundary is deliberately scoped to one dialog, so
+  "anchored kind, boundary did not locate" is a **normal, expected** state for it
+  rather than evidence of rot. A rot detector that does not distinguish "scoped
+  boundary, dialog never measured" from "shipped literal stopped matching its own
+  dialog" will fire continuously on this row. The forward pointer lives in the
+  comment on `_CLAUDE_PERMISSION_RE`, at the code t1542's implementer will edit;
+  t1542's task file was deliberately not modified.
