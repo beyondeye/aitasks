@@ -207,6 +207,20 @@ for profile in "${PROFILES[@]}"; do
     # instruction and the lite contract silently becomes advisory again.
     assert_contains "$profile: pre-write validation asserts the depth" \
         "--expect-depth lite|deep" "$skill"
+    # Through the WRAPPER, never lib/trail_schema.py directly: skills invoke
+    # `.sh` wrappers, bare `python3` is not the framework's interpreter, and
+    # only wrapper paths are on the agents' permission allowlists (Codex and
+    # OpenCode carry no python allowance at all, so a direct lib call prompts
+    # on every single trail write).
+    assert_contains "$profile: validation goes through the wrapper" \
+        "aitask_trail_depth.sh validate <tmpfile>" "$skill"
+    TOTAL=$((TOTAL + 1))
+    if grep -q 'python3 .aitask-scripts/lib/' "$golden"; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $profile: skill invokes a lib .py directly instead of a .sh wrapper"
+    else
+        PASS=$((PASS + 1))
+    fi
     assert_contains "$profile: the depth flag is named non-optional" \
         "not optional and not a formality" "$skill"
     assert_contains "$profile: the marker cannot police itself" \

@@ -352,7 +352,7 @@ this step) / "Discard" (stop; nothing was written).
    one you believe you wrote):
 
    ```bash
-   python3 .aitask-scripts/lib/trail_schema.py validate <tmpfile> \
+   ./.aitask-scripts/aitask_trail_depth.sh validate <tmpfile> \
      --expect-depth lite|deep
    ```
 

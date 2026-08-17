@@ -263,6 +263,78 @@ assert_resolves "--deep twice agrees with itself" \
 "MODE:create
 DEPTH:deep" -- --deep --deep
 
+echo "=== Test 6b: the validate verb (wrapper over lib/trail_schema.py) ==="
+
+# The skill must never call lib/trail_schema.py directly: skills invoke .sh
+# wrappers, a bare `python3` is not the framework's interpreter, and only
+# wrapper paths are on the agents' permission allowlists (Codex/OpenCode carry
+# no python allowance at all). These pin that the wrapper exists, resolves an
+# interpreter, and passes the validator's protocol AND exit codes through.
+VFIX_DIR="$(mktemp -d)"
+trap 'rm -rf "$VFIX_DIR"' EXIT
+
+
+python3 - "$VFIX_DIR" <<'PYFIX'
+import json, sys, pathlib
+d = pathlib.Path(sys.argv[1])
+deep = json.load(open("aidocs/implementation_trail_examples/gate_framework.json"))
+deep["rendering_hints"] = {"depth": "deep"}
+json.dump(deep, open(d / "deep.json", "w"))
+lite = json.loads(json.dumps(deep))
+for k in ("observations", "relations", "exclusions"):
+    lite.pop(k, None)
+for w in lite["waves"]:
+    for e in w["entries"]:
+        e.pop("evidence_refs", None)
+lite["evidence"] = lite["evidence"][:1]
+lite["rendering_hints"] = {"depth": "lite"}
+json.dump(lite, open(d / "lite.json", "w"))
+PYFIX
+
+# assert_validate <label> <expected-exit> <expected-first-token> <args...>
+assert_validate() {
+    local label="$1" want_exit="$2" want_tok="$3"; shift 3
+    local out status
+    set +e
+    out="$("$RESOLVER" validate "$@" 2>/dev/null)"
+    status=$?
+    set -e
+    local tok="${out%%:*}"
+    TOTAL=$((TOTAL + 1))
+    if [[ "$status" -eq "$want_exit" && "$tok" == "$want_tok" ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $label"
+        echo "  expected: $want_tok (exit $want_exit)"
+        echo "  actual:   $tok (exit $status)"
+    fi
+}
+
+assert_validate "a conforming lite doc under --expect-depth lite" \
+    0 "VALID" "$VFIX_DIR/lite.json" --expect-depth lite
+assert_validate "a deep doc under --expect-depth lite is rejected" \
+    1 "INVALID" "$VFIX_DIR/deep.json" --expect-depth lite
+assert_validate "a deep doc under --expect-depth deep validates" \
+    0 "VALID" "$VFIX_DIR/deep.json" --expect-depth deep
+assert_validate "no assertion keeps the self-declared behaviour" \
+    0 "VALID" "$VFIX_DIR/lite.json"
+assert_validate "an unknown depth is a usage error, not a silent pass" \
+    2 "" "$VFIX_DIR/lite.json" --expect-depth bogus
+
+# `validate` with no file: a usage error (exit 2), not a pass and not a crash.
+TOTAL=$((TOTAL + 1))
+set +e
+"$RESOLVER" validate >/dev/null 2>&1
+vstatus=$?
+set -e
+if [[ "$vstatus" -eq 2 ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: bare validate should exit 2, got $vstatus"
+fi
+
 echo "=== Test 7: usage errors exit 2 ==="
 
 TOTAL=$((TOTAL + 1))

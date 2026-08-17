@@ -21,7 +21,16 @@
 # phrase pins. The residual limit is documented in the plan and in
 # aidocs/implementation_trail_design.md §3.
 #
-# Usage:  aitask_trail_depth.sh resolve -- [args...]
+# Verbs — this script owns the DEPTH concern end to end:
+#   resolve -- [args...]                     decide the run's mode + depth
+#   validate <file> --expect-depth lite|deep validate a document AGAINST a depth
+#
+# The `validate` verb exists so the skill never calls `lib/trail_schema.py`
+# directly: skills invoke `.sh` wrappers (the same reason
+# aitask_trail_gather.sh wraps lib/trail_gather.py), a bare `python3` is not
+# the framework's interpreter (python_resolve.sh is), and only wrapper paths
+# are on the agents' permission allowlists — a direct lib call prompts on every
+# invocation, and Codex/OpenCode carry no python allowance at all.
 #
 # stdout (line protocol, split on the FIRST colon):
 #   MODE:create|refresh|show|ambiguous_handle
@@ -36,14 +45,35 @@
 #   NOTE:depth_ignored_for_show     (a depth flag was given with --show)
 #   ERROR:<kind>[:<detail>]         (grammar violation; emitted alone)
 #
-# Exit: 0 resolved, 1 grammar violation (one ERROR: line), 2 usage.
+# `validate` passes through lib/trail_schema.py's own protocol:
+#   VALID:<trail_id>                          (exit 0)
+#   INVALID:<path>|<rule>|<message>  per issue (exit 1)
+#
+# Exit: 0 resolved/valid, 1 grammar violation or invalid document, 2 usage.
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 usage() {
     printf 'usage: %s resolve -- [args...]\n' "${0##*/}" >&2
+    printf '       %s validate <file> --expect-depth lite|deep\n' "${0##*/}" >&2
     exit 2
 }
+
+# --- validate verb ---------------------------------------------------------
+#
+# Thin pass-through to the validator, with the framework's interpreter. The
+# depth vocabulary is validated by trail_schema.py itself (exit 2 on an unknown
+# value), so this does not duplicate the check.
+if [[ "${1:-}" == "validate" ]]; then
+    shift
+    [[ $# -ge 1 ]] || usage
+    # shellcheck source=lib/python_resolve.sh disable=SC1091
+    source "$SCRIPT_DIR/lib/python_resolve.sh"
+    PYTHON="$(require_ait_python)"
+    exec "$PYTHON" "$SCRIPT_DIR/lib/trail_schema.py" validate "$@"
+fi
 
 [[ "${1:-}" == "resolve" ]] || usage
 shift
