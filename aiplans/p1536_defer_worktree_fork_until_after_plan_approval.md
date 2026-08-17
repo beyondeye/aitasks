@@ -145,6 +145,48 @@ Runs before any edit below. Both steps are read-only or test-only.
    no-op** (it already tolerates the absence). A consumer that fits none of the
    three is an unhandled path — extend the edits below before proceeding.
 
+#### Pre-phase results (recorded during implementation)
+
+**1. `pin_worktree_header_matrix` — DONE.** Tests 15 (`.1`–`.10`) and 16 were
+added to `tests/test_plan_externalize.sh` **before** the helper was touched, then
+run against the unmodified helper. Observed:
+
+- The file aborts at 15.1 with `Error: Unknown flag: --worktree` (the file runs
+  under `set -e`), which also blocks 15.2 from executing in-file.
+- The control was therefore executed standalone against the unmodified helper:
+  with `aiwork/t999_sandbox_task/` present on disk and **no** `--worktree` flag,
+  the header emitted `Worktree: aiwork/t999_sandbox_task` — i.e. the assertion
+  expecting `0` occurrences **failed (actual 1)**. The control probes the probe;
+  it is not vacuous.
+- Failing ids pre-fix: 15.1, 15.2 (control), 15.4, 15.5, 15.6, 15.7, 15.8 — all
+  flag-dependent. 15.3, 15.9(stdout half), 15.10 and 16 pass pre-fix, which is
+  correct: they assert behaviour the change must **preserve**.
+
+**2. `audit_deferred_fork_consumers` — DONE.** Every consumer of the Step-5 fork
+and of the plan header's `Worktree:` field, with its post-change disposition:
+
+| # | Consumer | Cite | Disposition |
+|---|---|---|---|
+| 1 | Step 3 Check 3 — manual verification "Steps 4 and 5 still run" | `SKILL.md:73` | **updated** (edit 1a) — the path skips Step 7, so it now truthfully says no worktree is created |
+| 2 | Task Abort worktree cleanup | `task-abort.md:56-63` | **updated** (edit 5, step ref) + behaviourally **unchanged no-op**: all three commands carry `2>/dev/null \|\| true`, so a pre-fork abort removes nothing and claims nothing |
+| 3 | Crash-recovery worktree survey | `crash-recovery.md:34-41` | **unchanged no-op** — derives `survey_dir` from `git worktree list --porcelain`, falling back to `.`; already correct when no fork happened |
+| 4 | Crash-recovery summary line | `crash-recovery.md:75` | **updated** (edit 6) — `(current branch)` alone would misdescribe a worktree-profile task whose fork was not reached |
+| 5 | Re-entry Routing environment setup | `SKILL.md:276` | **updated** (edit 1d) — "run Step 5 as normal" would now create nothing; re-pointed at the Step 7 fork block |
+| 6 | Step 9 merge-target pre-flight | `SKILL.md:645` | **unchanged no-op** — runs from the repo root and inspects the *output* branch; never assumes the task worktree |
+| 7 | Step 9 branch/worktree cleanup | `SKILL.md:736-741` | **unchanged no-op** — sits under `If a separate branch was created:` (`:624`) and is reached only post-implementation, where the fork has definitively happened |
+| 8 | Approved-Plan Stop "worktree left in place" | `plan-approved-stop.md:20,90` | **improved → updated** (edit 4) — both its stop branches now precede the fork, so nothing is stranded; the claim becomes call-site conditional |
+| 9 | Remote-drift-check worktree note | `remote-drift-check.md:88` | **updated** (edit 4b, below) — still true that the worktree is irrelevant, but it names an `aitask/<task_name>` branch that does not exist yet at check time |
+| 10 | Merge-target sync "run from repo root" | `merge-target-sync.md:114` | **unchanged no-op** — `POSTIMPL` route only; the worktree exists by then |
+| 11 | Step 6 decomposed-parent exit | `planning.md:242-250` | **improved** — a parent that spawns children used to strand a Step-5 worktree for work it never does; now none is cut |
+| 12 | Cross-Repo Child Assignment (ends the workflow) | `cross-repo-child-assignment.md` (no worktree refs) | **unchanged** — it stranded a worktree before (Step 5 cut one even earlier) and still does under the chosen fork site; neither better nor worse, and out of this task's scope |
+| 13 | `Worktree:` header producer | `aitask_plan_externalize.sh:633` | **updated** (edit 2) — probe replaced by `--worktree` intent |
+| 14 | `Worktree:` header format docs | `planning.md:379,393` | **updated** (edit 3b) — a note that the field records Step-5 intent |
+| 15 | `Worktree:` header consumers (code) | none | **unchanged no-op** — no script reads the field back; `.aitask-scripts/diffviewer/test_plans/*.md` are static display fixtures |
+| 16 | `aitask_crew_init.sh:118` own `git worktree add` | agent-crew flow | **unchanged no-op** — explicit non-goal of this task |
+
+No consumer fell outside the three dispositions, so no additional edits were
+needed beyond those already planned plus edit 4b (row 9).
+
 ### 1. `.claude/skills/task-workflow/SKILL.md` (authoring template — Jinja)
 
 Four edits. Note the template is the source of truth; the three rendered
@@ -585,6 +627,164 @@ the top of Step 7") is not yet finalized. Spawned follow-ups ship with no
    Record the transcript summary in the Final Implementation Notes. A step that
    cannot be run must be reported as not-run, never as passed.
 
+#### Post-phase results (recorded during implementation)
+
+Run in a scratch git repo (`main` and `develop` deliberately at different
+commits so the base assertions can discriminate). All steps executed; none
+skipped.
+
+| Step | Result |
+|---|---|
+| (b) externalize with `--worktree`, **no** `aiwork/` on disk | `Worktree: aiwork/t777_scratch_wt` recorded alongside `Base branch: main` / `Output branch: main` — the Step-6-before-fork ordering the task exists to fix |
+| (c) base-agreement guard | agreeing → empty; header rewritten to `develop` → `BASE_MISMATCH:develop vs main`; empty `base_branch` → check 1 fires, `git worktree add` not run. Fires in **both** directions |
+| (d) fork cut from the rendered block verbatim | `aiwork/t777_scratch_wt` created, porcelain reports `branch refs/heads/aitask/t777_scratch_wt`, and `rev-parse aitask/… == rev-parse main` |
+| (e) reuse extraction | non-empty `reuse_dir` equal to the real worktree path; a second `git worktree add -b` on that branch fails (rc 255), so the reuse check is load-bearing, not decorative |
+| (e2) `git worktree move` control | after moving the worktree off `aiwork/<task_name>`, extraction follows the record to the new path while `aiwork/<task_name>` no longer exists — a hardcoded guess would now point at nothing |
+| (f1)(f2) legacy plan | frontmatter with no `Base branch:` → Re-entry Routing's snippet binds `main` with `provenance_base="legacy plan, no Base branch field"` |
+| (f4) confirmed answer honoured | confirming `develop` (not the guessed `main`) cuts `aitask/t777_legacy` at `develop`'s HEAD, not `main`'s |
+| (f5) **FOUND A DEFECT IN THE PLAN** | the Step-8 externalize fallback returned `PLAN_EXISTS` and left the header untouched, so the "write the answer to the scratch file and Step 8 splices it" instruction could never work — Step 8 is a no-op once the plan exists (its documented contract, pinned by Test 14d) |
+| (f5b)(f6) | the base splice **does** fire on a real Step-6 externalize of a frontmatter plan (`Base branch: develop` inserted, `---` count 2), and the round trip then reads `develop` with `plan header` provenance |
+
+**Correction applied as a result of (f5):** the fork block's legacy branch no
+longer claims persistence. It now states that the confirmation is **per-session**
+and is re-asked on every resume of a legacy plan, and says why (Step 8's fallback
+is deliberately a no-op once the plan exists, so nothing on the resume path
+rewrites `Base branch:`). Re-confirming beats persisting a guess; what was wrong
+was telling the user their answer would be remembered. Test 16's header comment
+was corrected the same way so it does not overclaim what the splice backs.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-17 14:20)
+
+- **Requested by user:** four confirmed review findings — three blocking, one
+  follow-up.
+- **Changes made:**
+
+  1. **`--worktree` was dropped on the existing-frontmatter path (blocking).**
+     `_ait_externalize_body` bypasses `build_header()` when the source already
+     carries frontmatter, and `splice_header_branches()` only took Base/Output —
+     so a caller could pass `--worktree` and silently get no `Worktree:` field,
+     the exact failure the intent-driven contract exists to prevent. The plan had
+     scoped this out as a "deliberate asymmetry"; that was wrong, because the
+     asymmetry became load-bearing the moment the probe was removed. Extended the
+     single atomic `awk` splice to a third field with a **tri-state** claim
+     (`""` = no claim, leave alone · `set` = record the path · `none` =
+     `--no-worktree`, delete a stale line), preserving build_header order
+     (Worktree, Base, Output) and the `---` count. Added Test 15b: insert,
+     replace, `--no-worktree` clears, no-claim leaves untouched, and a
+     three-field ordering case.
+  2. **Re-entry Routing decided worktree mode from the current profile
+     (blocking).** The same procedure already warns that a resumed profile may
+     differ from the original, so a `create_worktree: true` task resumed under
+     `fast` would skip its fork, and a current-branch task resumed under a
+     worktree profile would grow one. Worktree intent is now resolved from the
+     plan header's `Worktree:` field — the same rule as `Base branch:` /
+     `Output branch:` — validated against the shell-safe subset with an
+     `UNSAFE_WORKTREE` stop. Empty header: first accept an existing worktree
+     record as *evidence*, else **ask the user**; explicitly do not consult
+     `profile.create_worktree`. Step 7 now takes its mode from that resolution
+     (re-entry) or from Step 5 (fresh), and cuts at `<worktree_path>` rather than
+     a hardcoded `aiwork/<task_name>`.
+  3. **The legacy-base confirmation never reached the cut (blocking).**
+     "Pick a different base branch" had no defined handoff, so `git worktree add`
+     could still use the `main` fallback while the widget implied otherwise.
+     Added the explicit file-backed handoff: Write-tool scratch file → `head -n1`
+     → charset + `git check-ref-format` + **`rev-parse --verify refs/heads/`**
+     (the base must exist locally, or `worktree add` DWIMs) → assign
+     `base_branch` and set `provenance_base="user-confirmed (legacy plan)"`, with
+     `UNUSABLE_BASE` → re-ask. Verified with `develop` ≠ `main`, since a handoff
+     bug is invisible when the answer equals the guess.
+  4. **Task Abort misses a moved worktree (follow-up).** The fork block
+     deliberately supports a worktree that no longer lives at
+     `aiwork/<task_name>`, but abort removes only that hardcoded path and its
+     `|| true` guards swallow the miss, so the task is reported aborted while the
+     worktree survives. Per the stated disposition the resolution is a follow-up;
+     what landed here is **honesty**: abort must run the same record-aware
+     extraction afterwards and, if a path is still reported, name it instead of
+     claiming a clean abort. The automatic cleanup is tracked as a spawned
+     follow-up task.
+
+- **Files affected:** `.aitask-scripts/aitask_plan_externalize.sh`,
+  `.claude/skills/task-workflow/SKILL.md`,
+  `.claude/skills/task-workflow/task-abort.md`,
+  `tests/test_plan_externalize.sh`, regenerated goldens
+  (`SKILL-{default,fast,remote}.md`) and the three tracked `-remote-` closures.
+- **Re-verified:** `test_plan_externalize.sh` 254/254 (was 245),
+  `test_atomic_task_file_writes.sh` 62/62, `test_skill_render_task_workflow.sh`
+  185/185, all 15 skill-render tests, `aitask_skill_verify.sh` OK,
+  `test_no_raw_tmux.sh` 5/5, shellcheck clean. Each of the four findings was
+  reproduced in a scratch repo and re-run after the fix.
+
+### Change Request 2 (2026-08-17 14:40)
+
+- **Requested by user:** two confirmed blocking findings, both in the Re-entry
+  Routing worktree resolution added by Change Request 1.
+- **Changes made:**
+
+  1. **The header check trusted the writer (blocking).** Re-entry validated
+     `Worktree:` with the charset class alone, which accepts `../../outside` and
+     `aiwork/../../outside`; the value then reached `mkdir -p` and
+     `git worktree add`, so a hand-edited or malformed plan header could place a
+     worktree outside the repository. A plan file is editable text, so the read
+     side must re-apply every check the write side applied. The snippet now runs
+     the **same three checks** as `validate_worktree_path()` in
+     `aitask_plan_externalize.sh` — charset, no leading `/`, no `..` **segment** —
+     before the value is usable. Verified: all four escapes rejected, shell
+     metacharacters still rejected, and legitimate paths (including
+     `aiwork/t1..2_x`, dots that are not a `..` segment) still accepted.
+  2. **The ask-branch had no handoff (blocking).** For a legacy plan with no
+     `Worktree:` and no existing branch record, the prompt was defined but its
+     answers were not: "Create the worktree now" never set `worktree_path` and
+     "Work on the current branch" never set the mode Step 7 consumes, leaving a
+     reachable resume route that could cut nowhere or reuse stale context. Every
+     branch of the resolution now binds **both** mode and path explicitly —
+     header value; else the existing record's own path; else
+     `aiwork/<task_name>` on "Create the worktree now"; else current-branch mode
+     with `worktree_path` left unset and the fork block a no-op.
+
+- **Files affected:** `.claude/skills/task-workflow/SKILL.md`,
+  `tests/test_plan_externalize.sh` (new boundary case 15.5b pinning that `..` is
+  rejected as a segment and not as a substring, so the producer and the
+  documented consumer guard agree on where the boundary sits), regenerated
+  `SKILL-{default,fast,remote}.md` goldens and the three tracked `-remote-`
+  closures.
+- **Re-verified:** `test_plan_externalize.sh` 255/255,
+  `test_atomic_task_file_writes.sh` 62/62,
+  `test_skill_render_task_workflow.sh` 185/185, all 15 skill-render tests,
+  `aitask_skill_verify.sh` OK.
+
+### Change Request 3 (2026-08-17 14:55)
+
+- **Requested by user:** one confirmed blocking finding — the re-entry path
+  forked before its own drift check.
+- **Changes made:** Re-entry Routing's "Environment setup" step told worktree-mode
+  sessions to run Step 7's fork block, but that step sits *above* the
+  `resume_point` routing, whose `IMPLEMENT` branch runs the Remote Drift Check.
+  A literal execution therefore cut the branch from the **pre-drift** HEAD — the
+  precise timing this task exists to remove, re-created on the one path whose
+  plan is by construction the oldest relative to the remotes. The same
+  resolve-vs-execute split now applies to the resume path:
+
+  - "Environment setup" is explicitly **read-only**: it resolves mode and path
+    (and adopts an existing worktree record, which creates nothing), and states
+    where the owed fork happens instead of performing it.
+  - **`IMPLEMENT`** → the fork block runs **after** the drift check returns
+    "Continue anyway", in the ownership-guard → fork → attribution → implement
+    order, mirroring the fresh path's placement.
+  - **`POSTIMPL`** → the fork block does **not** run at all. The code is already
+    committed and `review_approved` recorded, so cutting a fresh branch from the
+    base would either fail outright (`aitask/<task_name>` exists) or hand Step 9
+    an empty worktree to merge. Step 9 proceeds from the repo root.
+
+- **Files affected:** `.claude/skills/task-workflow/SKILL.md`, regenerated
+  `SKILL-{default,fast,remote}.md` goldens and the three tracked `-remote-`
+  closures.
+- **Re-verified:** ordering asserted on the **rendered** `fast` variant (env
+  setup is read-only at :292 and forward-points; drift check :302 precedes the
+  fork at :306), plus `test_skill_render_task_workflow.sh` 185/185,
+  `test_plan_externalize.sh` 255/255, `aitask_skill_verify.sh` OK.
+
 ## Verification
 
 Run from the repo root, in this order:
@@ -669,3 +869,70 @@ pre-insertion plan.
 
 No **new** risks are introduced by the augmented plan: both phases are
 read-only or test-only additions that touch no production path.
+
+## Final Implementation Notes
+
+- **Actual work done:** Split branch *resolution* (Step 5) from the *fork*
+  (top of Step 7, after the ownership guard). Step 5 now records
+  `<task_name>` / `<base_branch>` / `<output_branch>` and creates nothing; its
+  base-branch question and both profile display lines state, inside the widget,
+  that the worktree is cut after plan approval and the drift check. A new
+  **Deferred worktree fork** block in Step 7 performs a three-check base
+  confirmation (bound → legacy fallback confirmed with a validated file-backed
+  handoff → header agreement), a record-aware reuse extraction, then the cut.
+  `aitask_plan_externalize.sh` gained `--worktree <path>`; the
+  `[[ -d aiwork/… ]]` probe was deleted, the field is now emitted from caller
+  intent on **both** header paths (built and spliced), and a call that makes no
+  worktree claim warns on stderr. Re-entry Routing, Step 3 Check 3, task-abort,
+  crash-recovery, plan-approved-stop, remote-drift-check and three website pages
+  were reconciled; goldens and the three tracked `-remote-` closures regenerated.
+
+- **Deviations from plan:**
+  - The plan's "Scope note" deferred splicing `Worktree:` into existing
+    frontmatter. That was **reversed** during review: the asymmetry was harmless
+    only while the probe existed, and became a silent contract violation the
+    moment it was removed. The splice now carries a worktree tri-state.
+  - The plan asserted the fork-point race was *dissolved*; it is not (the
+    ownership guard sits between check and fork, and plan-vs-fork divergence
+    survives with its sign flipped). Restored as spun-off follow-up work.
+  - AC11's "port to Codex / OpenCode as separate tasks" was **not** needed:
+    `aitask_skill_render.sh` resolves every agent's `task-workflow` from the
+    single `.claude/skills/task-workflow/` source, so the rerender is the port.
+    Verified by `diff -q` across the three trees.
+  - AC6's premise (crash-recovery reads `Worktree:` from the plan header) is
+    false — it derives from `git worktree list --porcelain`. Delivered as the
+    wording fix that premise implied.
+
+- **Issues encountered:**
+  - The post-phase acceptance run disproved part of the approved plan: the
+    Step-8 externalize fallback returns `PLAN_EXISTS` and never splices, so the
+    "confirm a legacy base, then persist it" instruction could not work. The
+    fork block now states the confirmation is per-session and says why.
+  - Five findings were confirmed across three review rounds — the frontmatter
+    splice drop, profile-derived worktree intent on resume, the unbound
+    confirmed base, a charset-only header check that admitted `../` escapes, an
+    ask-branch with no handoff — plus one ordering defect where the re-entry
+    path forked *before* its own drift check, re-creating this task's bug on the
+    path that needs the check most. All were reproduced before being fixed.
+
+- **Key decisions:**
+  - Fork site is **after** the ownership guard, not literally first in Step 7,
+    so a guard abort or a crash-recovery `decline` cannot strand a fresh
+    worktree. The trade-off (the guard now sits between drift check and fork) is
+    recorded and is one reason the divergence follow-up stays open.
+  - `Worktree:` is emitted **iff** `--worktree` is passed — no probe, no
+    fallback — with a stderr warning making an omitted claim loud.
+  - Worktree intent for a resumed task comes from the plan header, never from
+    the current profile, with an evidence-then-ask fallback for legacy headers.
+  - The read side re-applies the writer's full validation (charset, no absolute
+    path, no `..` segment), since a plan header is editable text.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_plan_externalize.sh:716-718 — the `Branch:` header
+    field is derived from the repo root's `git symbolic-ref --short HEAD` and is
+    suppressed when it equals the primary branch. In worktree mode the helper
+    always runs from the repo root, so this field can never record the task's
+    own `aitask/<task_name>` branch — it is either absent or reports an
+    unrelated branch. Pre-existing and independent of this task's change (the
+    deferral does not alter what `current_branch` sees); not consumed by any
+    code path found in the audit.
