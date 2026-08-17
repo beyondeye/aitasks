@@ -877,3 +877,67 @@ armed with `stale=False` and answered the dialog into an idle composer recorded
 Per the `live_acceptance_is_a_gate` mitigation this is a **PASS**, so archival
 proceeds normally; neither the FAIL (block archival) nor the BLOCKED (mandatory
 manual-verification follow-up) branch applies.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-17) — both review concerns confirmed and fixed
+
+- **Requested by user:** (1) the 120x6 geometry carried `LATER = None`, so
+  `test_output_above_the_boundary_is_work` skipped it and the shipped
+  `claude_proceed` row had **no work-direction assertion at that geometry** — it
+  could suppress cursor movement correctly and still fail to notice real output
+  in the short-pane regime. (2) `ScopedBoundaryDoesNotOverreachTests` covered only
+  a single at-rest frame, so it could not show that the *generic*
+  `claude_help_bar` row stays unanchored on the real amend / numbered-selection /
+  plan-related surfaces, and it omitted the plan-mandated typed-phrase case. Both
+  blocking; both CONFIRMED on inspection.
+
+- **Changes made:**
+  - **Concern 1.** Captured a coherent **same-session** 120x6 trio (one pane:
+    dialog → `Down` → dialog #2), replacing the two floor-probe frames.
+    `CLAUDE_PERMISSION_SHORT_LATER_RAW` is new. Measured at that geometry:
+    selection → `selection_only`, work above the boundary → **`work`**. The
+    `if later is None: continue` skip is gone, and a new
+    `test_every_geometry_carries_a_full_trio` asserts structurally that no
+    geometry may opt out of a direction, so the gap cannot reopen by setting a
+    fixture back to `None` (negative control 6).
+  - **Concern 2.** The scope table now enumerates **eight real captured
+    surfaces** — two at-rest, typed, streaming, two numbered-selection widgets
+    (`ASKUSER_SEL1`, `CLAUDE_DIALOG_RAW`) and two plan-related
+    (`PLAN_SEL1`, `PLAN_REVISED`) — each asserting the reported kind is **not**
+    `claude_help_bar`, that `_native_block_start` locates nothing, and that a
+    changed frame under a forced `claude_help_bar` kind still classifies
+    `UNKNOWN`. The typed-phrase case was added as
+    `CLAUDE_AMEND_TYPED_PHRASE_RAW` with its own test pinning the measured
+    irreducible behaviour.
+  - Two further negative controls (6, 7), bringing the total to **seven**.
+
+- **Files affected:** `tests/review_loop_fixtures.py`,
+  `tests/test_review_loop.py`, `tests/test_minimonitor_concern_smoke.py`.
+
+- **A real defect the re-run surfaced.** Retargeting negative control 7 exposed
+  that the first version of it **passed** — i.e. proved nothing. Matching is
+  first-wins and `claude_help_bar` is listed last, so a surface that already has
+  its own earlier pattern (`claude_askuserquestion`, `claude_plan_approval`) is
+  protected *structurally*: widening the help-bar regex cannot steal it. Only
+  pattern-less frames (at rest, typed, streaming) are actually at risk. The
+  control had to be retargeted at one of those to bite, and that asymmetry is now
+  documented in the test itself so a future control is not written against a
+  shielded surface.
+
+- **A second, unrelated defect fixed.** Adding `claude` to the live-tmux smoke's
+  agent loop introduced an `ETXTBSY` race: by that iteration the earlier agents'
+  shadow panes are already executing the same `claude` binary, so copying over it
+  fails — *racily*, which is why the first run passed and a later one did not.
+  The copy is now skipped when the file already exists. Confirmed by two
+  consecutive clean runs.
+
+### Measurement addendum — 120x6 work direction
+
+| geometry | selection | work above boundary |
+|---|---|---|
+| 120x6 (same-session trio) | `selection_only` | **`work`** |
+
+Both directions are now proven at **every** geometry in the supported set, which
+is what the Step 1a ship rule requires and what the earlier fixture set did not
+actually deliver for the short-pane regime.
