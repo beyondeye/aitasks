@@ -183,6 +183,11 @@ given the deferral sentence (items 3 and 4); this line was missed.
 No checklist item's literal criterion is falsified (nothing *is* created, so
 item 2 still holds), which is why it is recorded here rather than as a `fail`.
 
+Spawned as **t1558** (`bug`, anchored to the t1536 topic root) — it also covers
+the interactive counterpart, "Do you want to create a separate branch and
+worktree for this task?", which has the same tense problem and no deferral
+sentence.
+
 ## Cleanup
 
 - `<scratchpad>/av5_repo` — scratch repo for the externalize run (removed).
