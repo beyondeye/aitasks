@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, git, worktree, bash_scripts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-17 23:29
-updated_at: 2026-08-17 23:29
+updated_at: 2026-08-17 23:34
 ---
 
 ## Problem
