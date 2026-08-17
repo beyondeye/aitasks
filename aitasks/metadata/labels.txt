@@ -96,6 +96,7 @@ risk_evaluation
 robustness
 sanboxing
 script-performance
+scroll
 shadow
 shadow-concern
 shell
