@@ -540,13 +540,24 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         composer_stub = os.path.join(cls.tmpdir, "composer_stub.py")
         with open(composer_stub, "w") as fh:
             fh.write(_COMPOSER_STUB)
-        for agent in ("codex", "opencode"):
+        # `claude` joins the set in t1540, once its tool-permission dialog got a
+        # measured boundary. Its followed-pane binary is the same file the
+        # shadow already uses (both are named `claude`), which is harmless:
+        # the two panes are bound by `@aitask_shadow_target`, not by argv.
+        for agent in ("codex", "opencode", "claude"):
             # `pane_current_command` must really be the agent name — rung 1 of
             # `agent_key_from_pane` reads it, and a `python3` pane would
             # resolve to "" and silently classify unscoped.
             fake = os.path.join(cls.tmpdir, agent)
-            shutil.copy2(sys.executable, fake)
-            os.chmod(fake, 0o755)
+            # `claude` already exists: it is `claude_bin` above, and by this
+            # iteration the earlier agents' shadow panes are already executing
+            # it, so copying over it raises ETXTBSY (racily — it depends on
+            # whether those panes have exec'd yet). Reuse the file instead;
+            # one binary serving both roles is fine because the followed and
+            # shadow panes are bound by `@aitask_shadow_target`, not by argv.
+            if not os.path.exists(fake):
+                shutil.copy2(sys.executable, fake)
+                os.chmod(fake, 0o755)
             frame = os.path.join(cls.tmpdir, f"{agent}.frame")
             with open(frame, "w", encoding="utf-8") as fh:
                 fh.write("")
@@ -731,6 +742,41 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
                    self.rlfx.OPENCODE_PERMISSION_LATER_RAW,
                    rl_mod().WORK)
 
+    def test_claude_dialog_selection_does_not_signal_work(self):
+        """Claude's tool-permission dialog through the real capture path (t1540).
+
+        The unit tests feed the same frames straight into
+        `classify_followed_change`; what only a live pane can prove is that
+        `agent_key_from_pane` resolves `claude` and that `classify_content`
+        reports `claude_help_bar` for the OPTION-2 frame. That second half is
+        the whole point: before t1540 widened the pattern, option 2 reported no
+        kind at all and this pair classified WORK.
+        """
+        self._case("claude", "claude_help_bar",
+                   self.rlfx.CLAUDE_PERMISSION_SEL1_RAW,
+                   self.rlfx.CLAUDE_PERMISSION_SEL2_RAW,
+                   rl_mod().SELECTION_ONLY)
+
+    def test_claude_output_above_the_dialog_signals_work(self):
+        self._case("claude", "claude_help_bar",
+                   self.rlfx.CLAUDE_PERMISSION_SEL1_RAW,
+                   self.rlfx.CLAUDE_PERMISSION_LATER_RAW,
+                   rl_mod().WORK)
+
+    def test_claude_short_pane_reports_proceed_and_does_not_signal_work(self):
+        """The second rendering regime, live (t1540).
+
+        At a short pane height Claude truncates the option list, which lifts
+        `Do you want to proceed?` into the 6-line detection window and makes
+        `claude_proceed` the reported kind. Driving it here is what proves the
+        second boundary row is reachable through the production classifier
+        rather than only through a hand-passed kind argument.
+        """
+        self._case("claude", "claude_proceed",
+                   self.rlfx.CLAUDE_PERMISSION_SHORT_SEL1_RAW,
+                   self.rlfx.CLAUDE_PERMISSION_SHORT_SEL2_RAW,
+                   rl_mod().SELECTION_ONLY)
+
     def test_work_opens_the_latch_exactly_once(self):
         """The verdict is not the point — the loop's response to it is.
 
@@ -808,7 +854,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         """
         from monitor import review_loop as rl
 
-        for agent in ("codex", "opencode"):
+        for agent in ("codex", "opencode", "claude"):
             with self.subTest(agent=agent):
                 self._arm_and_fire_once(agent)
 
@@ -822,6 +868,8 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
                       self.rlfx.CODEX_EXEC_APPROVAL_LATER_RAW),
             "opencode": (self.rlfx.OPENCODE_PERMISSION_SEL1_RAW,
                          self.rlfx.OPENCODE_PERMISSION_LATER_RAW),
+            "claude": (self.rlfx.CLAUDE_PERMISSION_SEL1_RAW,
+                       self.rlfx.CLAUDE_PERMISSION_LATER_RAW),
         }[agent]
 
         # Arm-time frame: the dialog, parked and awaiting input.
@@ -893,7 +941,7 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         NO_CHANGE *before* any boundary is consulted. Covering only Codex would
         leave OpenCode's path unexercised through the application.
         """
-        for agent in ("codex", "opencode"):
+        for agent in ("codex", "opencode", "claude"):
             with self.subTest(agent=agent):
                 self._no_fire_on_selection(agent)
 
@@ -907,6 +955,8 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
                       self.rlfx.CODEX_EXEC_APPROVAL_SEL2_RAW),
             "opencode": (self.rlfx.OPENCODE_PERMISSION_SEL1_RAW,
                          self.rlfx.OPENCODE_PERMISSION_SEL2_RAW),
+            "claude": (self.rlfx.CLAUDE_PERMISSION_SEL1_RAW,
+                       self.rlfx.CLAUDE_PERMISSION_SEL2_RAW),
         }[agent]
 
         snap = self._paint(agent, first)

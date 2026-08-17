@@ -41,6 +41,18 @@ under the matching code-agent group (`claude`, `codex`, `opencode`,
 `claude_askuserquestion`, `claude_plan_approval`, `claude_trust_folder`,
 `claude_proceed` and `claude_help_bar`; codex ships `codex_yes_proceed`.
 
+> **Measured drift, 2.1.233 (t1540).** `claude_trust_folder` **no longer fires on
+> the live dialog**, for two independent reasons: its confirm/cancel options now
+> render as a *numbered* list, which the adjacency pattern does not match, and the
+> pre-TUI trust screen draws **top-aligned**, putting the whole dialog outside the
+> 6-line window regardless of wording. An agent blocked on the trust gate
+> therefore reads as idle. The unit tests still pass because they exercise
+> synthetic snippets in the old geometry — the pattern is correct about a screen
+> the CLI no longer draws. Fixing it needs a fresh live capture (the dialog
+> renders only once per untrusted path, so use a path that has never been opened).
+> This is a live example of rule 3 below biting in reverse: a pattern can be
+> perfectly specific and still be dead.
+
 Then add a unit test in
 [`tests/test_prompt_detection.py`](../../tests/test_prompt_detection.py)
 asserting that a representative captured pane snippet sets

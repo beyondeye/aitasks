@@ -131,8 +131,31 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         PromptPattern("claude_proceed", re.compile(r"Do you want to proceed\?")),
         # Bottom-of-pane help bar shown whenever Claude Code blocks on input
         # (numbered selection, free-text amend prompt, etc.).
+        #
+        # The `Tab to amend` affordance is NOT stable across the permission
+        # dialog's own states. Measured live 5/5 reps at every geometry from 30
+        # down to 11 rows against 2.1.233 (t1540): with option 1 or 3 selected
+        # the bar reads `Esc to cancel · Tab to amend · ctrl+e to explain`, but
+        # on option 2 ("Yes, and always allow access to …") amend does not apply
+        # and the affordance is absent. Anchoring on `Tab to amend` alone
+        # therefore matched two of the three selection states and reported NO
+        # kind on the third — so a pure cursor move onto option 2 flipped
+        # `awaiting_input` True->False and `classify_followed_change` returned
+        # WORK for it (kind change / not-awaiting both short-circuit ahead of any
+        # boundary lookup). That is the spurious-FIRE direction of the review
+        # loop, and no NATIVE_DIALOG_BOUNDARIES row can reach it.
+        #
+        # The alternation accepts either affordance, which covers every state of
+        # that dialog. It is a strict widening — every line the previous regex
+        # matched still matches — and it is bounded rather than open-ended:
+        # `ctrl+e to explain` is the command-explanation affordance, which only
+        # the tool-permission dialog offers. Do not relax it to `Esc to cancel`
+        # alone: that footer is shared with unrelated confirm dialogs, which is
+        # exactly why t1474 rejected it.
         PromptPattern("claude_help_bar",
-                      re.compile(r"Esc to cancel\s+·\s+Tab to amend")),
+                      re.compile(
+                          r"Esc to cancel\s+·\s+"
+                          r"(?:Tab to amend|ctrl\+e to explain)")),
     ],
     "codex": [
         # Codex's request-user-input widget — the direct analogue of Claude's

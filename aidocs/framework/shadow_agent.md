@@ -1028,11 +1028,43 @@ including the cross-agent `"all"` group — must appear in a question-widget
 table, a dialog table, or the exemption table. A kind in none of them is an
 omission and fails. When adding an agent, expect to add rows to all three.
 
-**Known gap, recorded rather than closed:** Claude's `claude_help_bar`,
-`claude_proceed` and `claude_trust_folder` sit in `DELIBERATELY_UNANCHORED_KINDS`
-with the reason "no measured boundary". A Claude pane parked at a tool-permission
-dialog therefore classifies `UNKNOWN` — the same under-detection t1518 closed for
-Codex, still open for Claude. Closing it needs its own live measurement.
+**Claude's permission dialog is anchored since t1540**, which measured it live
+against 2.1.233 across seven pane geometries (120x30 down to 120x6). Both
+`claude_help_bar` and `claude_proceed` now carry one shared boundary — the
+dialog's `Do you want to proceed?` question — and left the exemption table.
+
+Two things about that row are worth knowing before touching it:
+
+- **Which kind is reported depends on pane height**, and both are reachable. At
+  ≥11 rows the full option list fits, the question renders outside the 6-line
+  `_PROMPT_DETECTION_TAIL_LINES` window, and the bottom-anchored
+  `claude_help_bar` matches. At ≤9 rows Claude truncates the option list to the
+  selected row, which lifts the question *into* that window, and `claude_proceed`
+  wins on first-match. This is why `claude_proceed` has a row at all — unlike
+  `codex_yes_proceed` it was observed live, not shipped on inference.
+- **The row is scoped to that one dialog, deliberately.** `claude_help_bar` is
+  Claude's generic blocked-on-input footer; only the permission dialog was
+  measured, so on any other help-bar surface the boundary simply fails to locate
+  and the kind falls back to `UNKNOWN` — the conservative default, unchanged.
+  A boundary-rot detector must therefore distinguish "scoped boundary, dialog
+  never measured" from "shipped literal stopped matching its own dialog", or it
+  will fire continuously on this row.
+
+t1540 also had to fix an **upstream detection defect** to make the row
+load-bearing: `claude_help_bar` was anchored on `Esc to cancel · Tab to amend`,
+but 2.1.233 drops the amend affordance on the dialog's "always allow" option, so
+that frame reported no kind at all. A pure cursor move onto it flipped
+`awaiting_input` and `classify_followed_change` returned `WORK` — the
+spurious-*fire* direction — short-circuiting ahead of any boundary lookup. No
+boundary row can reach that path; the pattern in `monitor/prompt_patterns.py` had
+to accept either affordance first.
+
+**Still unanchored, now for a measured reason:** `claude_trust_folder`. Its kind
+is not reported at all on 2.1.233 — the confirm/cancel options render as a
+numbered list the pattern no longer matches, *and* the pre-TUI trust screen draws
+top-aligned so the whole dialog falls outside the detection window. A boundary
+cannot be consulted for a kind that is never detected, so the fix belongs in
+`prompt_patterns.py`, not here.
 
 ### Transport and consumption
 

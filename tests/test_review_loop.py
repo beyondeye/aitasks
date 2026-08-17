@@ -35,6 +35,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import review_loop as rl  # noqa: E402
 import review_loop_fixtures as fx  # noqa: E402
 import prompt_patterns as pp  # noqa: E402
+# t1540: the Claude permission-dialog tests assert which KIND production
+# reports, not just how a given kind classifies — the two boundary rows are
+# selected by pane geometry, and a defect in detection short-circuits the
+# classifier ahead of any boundary lookup.
+import monitor_core as mc  # noqa: E402
 import workflow_phase as wp  # noqa: E402
 from ansi_utils import strip_ansi as strip  # noqa: E402
 
@@ -1593,6 +1598,321 @@ class NativeDialogBoundaryTests(unittest.TestCase):
                 "the strategy table must be consulted before the regex table")
 
 
+class ClaudePermissionBoundaryTests(unittest.TestCase):
+    """Claude's tool-permission dialog boundary (t1540), on real captures.
+
+    Three geometries because pane height decides which KIND is reported, and
+    both kinds carry the same row. A test at 120x30 alone would leave the
+    geometry the review loop actually runs in — a shadow-split pane — unproven.
+    """
+
+    # (label, sel1, sel2, later, expected kind)
+    GEOMETRIES = (
+        ("120x30", "CLAUDE_PERMISSION_SEL1_RAW", "CLAUDE_PERMISSION_SEL2_RAW",
+         "CLAUDE_PERMISSION_LATER_RAW", "claude_help_bar"),
+        ("120x14", "CLAUDE_PERMISSION_COMPACT_SEL1_RAW",
+         "CLAUDE_PERMISSION_COMPACT_SEL2_RAW",
+         "CLAUDE_PERMISSION_COMPACT_LATER_RAW", "claude_help_bar"),
+        ("120x6", "CLAUDE_PERMISSION_SHORT_SEL1_RAW",
+         "CLAUDE_PERMISSION_SHORT_SEL2_RAW",
+         "CLAUDE_PERMISSION_SHORT_LATER_RAW", "claude_proceed"),
+    )
+
+    def test_every_geometry_carries_a_full_trio(self):
+        """Premise control: no geometry may opt out of a direction.
+
+        An earlier revision left 120x6 without a LATER frame, so the shipped
+        `claude_proceed` row had its no-fire direction proven and its WORK
+        direction not proven at all — a row could suppress cursor movement
+        correctly and still fail to notice real output in the short-pane
+        regime. Asserted structurally so the gap cannot reopen by someone
+        setting a fixture back to None.
+        """
+        for label, s1, s2, later, _kind in self.GEOMETRIES:
+            with self.subTest(geometry=label):
+                for slot, name in (("sel1", s1), ("sel2", s2), ("later", later)):
+                    self.assertIsNotNone(name, f"{label} has no {slot} fixture")
+                    self.assertTrue(hasattr(fx, name), name)
+
+    def test_selection_is_selection_only_at_every_geometry(self):
+        for label, s1, s2, _later, kind in self.GEOMETRIES:
+            with self.subTest(geometry=label):
+                self.assertEqual(
+                    rl.classify_followed_change(
+                        getattr(fx, s1), kind, getattr(fx, s2), kind,
+                        True, "claude"),
+                    rl.SELECTION_ONLY)
+
+    def test_output_above_the_boundary_is_work(self):
+        """The direction the boundary row actually exists for."""
+        for label, s1, _s2, later, kind in self.GEOMETRIES:
+            with self.subTest(geometry=label):
+                self.assertEqual(
+                    rl.classify_followed_change(
+                        getattr(fx, s1), kind, getattr(fx, later), kind,
+                        True, "claude"),
+                    rl.WORK)
+
+    def test_selection_pair_really_differs_when_stripped(self):
+        """Premise control: Claude draws a `❯` glyph, so the no-fire result
+        must come from the boundary comparison and not from the two frames
+        being stripped-identical (which would return NO_CHANGE first and make
+        the assertion above vacuous)."""
+        for label, s1, s2, _later, _kind in self.GEOMETRIES:
+            with self.subTest(geometry=label):
+                self.assertNotEqual(strip(getattr(fx, s1)),
+                                    strip(getattr(fx, s2)))
+
+    def test_both_kinds_share_one_boundary_object(self):
+        """Same dialog, two kinds selected by pane height — so they must not
+        drift into two literals that can be edited apart."""
+        self.assertIs(rl.NATIVE_DIALOG_BOUNDARIES[("claude", "claude_help_bar")],
+                      rl.NATIVE_DIALOG_BOUNDARIES[("claude", "claude_proceed")])
+
+    def test_exactly_one_mechanism_carries_each_claude_permission_kind(self):
+        for kind in ("claude_help_bar", "claude_proceed"):
+            key = ("claude", kind)
+            with self.subTest(kind=kind):
+                self.assertNotEqual(key in rl.NATIVE_DIALOG_BOUNDARIES,
+                                    key in rl.NATIVE_DIALOG_STRATEGIES,
+                                    "exactly one mechanism must carry the key")
+
+    def test_reported_kind_is_geometry_dependent_as_measured(self):
+        """Pins the two rendering regimes through the PRODUCTION classifier.
+
+        This is what justifies shipping a row for `claude_proceed` at all: it
+        is reachable, unlike t1518's `codex_yes_proceed`. If a future Claude
+        version stops truncating the option list, this fails and the row's
+        justification must be re-measured rather than quietly inherited.
+        """
+        for label, s1, _s2, _later, expected in self.GEOMETRIES:
+            with self.subTest(geometry=label):
+                res = mc.classify_content(
+                    getattr(fx, s1), mc.DEFAULT_COMPARE_MODE,
+                    pp.all_patterns(), mc.PaneCategory.AGENT, "claude")
+                self.assertTrue(res.awaiting_input)
+                self.assertEqual(res.awaiting_input_kind, expected)
+
+    def test_option_two_frame_is_detected(self):
+        """The specific defect t1540 fixed, pinned at its cause.
+
+        On 2.1.233 the option-2 help bar drops `Tab to amend`. Before the
+        pattern was widened this frame reported NO kind, `awaiting_input` went
+        True->False, and `classify_followed_change` short-circuited to WORK on
+        a pure cursor move — before any boundary lookup. Assert the frame is
+        detected, not merely that the pair classifies SELECTION_ONLY: the pair
+        would also pass if both frames were undetected.
+        """
+        for label, _s1, s2, _later, expected in self.GEOMETRIES:
+            with self.subTest(geometry=label):
+                res = mc.classify_content(
+                    getattr(fx, s2), mc.DEFAULT_COMPARE_MODE,
+                    pp.all_patterns(), mc.PaneCategory.AGENT, "claude")
+                self.assertTrue(
+                    res.awaiting_input,
+                    "option-2 frame must report a kind; a cursor move that "
+                    "loses detection classifies WORK and fires the loop")
+                self.assertEqual(res.awaiting_input_kind, expected)
+
+
+class ScopedBoundaryDoesNotOverreachTests(unittest.TestCase):
+    """`claude_help_bar` is Claude's GENERIC blocked-on-input footer, but the
+    boundary was measured against the tool-permission dialog only. Nothing but
+    the regex enforces that scope, so a frame that is not that dialog must
+    still fail to anchor — the pre-t1540 behaviour, preserved deliberately."""
+
+    #: Every non-permission Claude surface captured in the fixture set, as
+    #: REAL frames rather than one representative. A single sample could pass
+    #: because that one screen happens not to contain the phrase; the point is
+    #: that no live Claude surface outside the permission dialog does.
+    #: fixture -> the kind production actually reports for it.
+    NON_DIALOG = {
+        "CLAUDE_NO_DIALOG_AT_REST_RAW": "",            # at rest, t1540 capture
+        "CLAUDE_AT_REST_RAW": "",                      # at rest, t1159_2
+        "CLAUDE_TYPED_RAW": "",                        # composer holds text
+        "CLAUDE_STREAMING_RAW": "",                    # agent producing output
+        "ASKUSER_SEL1": "claude_askuserquestion",      # numbered-selection widget
+        "CLAUDE_DIALOG_RAW": "claude_askuserquestion",  # numbered-selection widget
+        "PLAN_SEL1": "claude_plan_approval",           # plan-related surface
+        "PLAN_REVISED": "claude_plan_approval",        # plan-related surface
+    }
+
+    def test_no_other_claude_surface_reports_the_help_bar_kind(self):
+        """The widening is bounded — asserted, not assumed.
+
+        t1540 relaxed `claude_help_bar` to accept either affordance of the
+        permission dialog's footer. If that reached another surface, the
+        boundary below would start anchoring a dialog nobody measured.
+
+        The table deliberately spans BOTH protection classes, because they are
+        not equally safe. Matching is first-wins and `claude_help_bar` is
+        listed last, so a surface that already has its own earlier pattern
+        (`claude_askuserquestion`, `claude_plan_approval`) is protected
+        structurally — widening the help-bar regex cannot steal it. The frames
+        that report NO kind (at rest, typed, streaming) have no such shield,
+        and they are the ones an over-broad widening actually captures. A
+        negative control that mutates the regex to reach a *shielded* surface
+        passes and proves nothing; it has to target a pattern-less one.
+        """
+        for name, expected in self.NON_DIALOG.items():
+            with self.subTest(fixture=name):
+                res = mc.classify_content(
+                    getattr(fx, name), mc.DEFAULT_COMPARE_MODE,
+                    pp.all_patterns(), mc.PaneCategory.AGENT, "claude")
+                self.assertEqual(res.awaiting_input_kind, expected)
+                self.assertNotEqual(res.awaiting_input_kind, "claude_help_bar")
+
+    def test_non_dialog_frames_do_not_anchor(self):
+        for name in self.NON_DIALOG:
+            raw = strip(getattr(fx, name))
+            with self.subTest(fixture=name):
+                self.assertIsNone(
+                    rl._native_block_start(raw.splitlines(), "claude",
+                                           "claude_help_bar"),
+                    "the boundary must not locate a block on a frame that is "
+                    "not the permission dialog")
+
+    def test_non_dialog_change_under_the_kind_is_unknown(self):
+        """Both halves are required. Asserting only UNKNOWN would pass
+        vacuously if the two frames happened to be stripped-identical, since
+        NO_CHANGE returns before any boundary lookup.
+
+        The kind is FORCED to `claude_help_bar` here even though production
+        reports something else for these frames: that is the hostile case —
+        the row must stay inert on a surface it never measured even if the
+        kind arrives from somewhere else.
+        """
+        for name in self.NON_DIALOG:
+            raw = getattr(fx, name)
+            with self.subTest(fixture=name):
+                self.assertEqual(
+                    rl.classify_followed_change(
+                        raw, "claude_help_bar",
+                        raw + "\nnew output line", "claude_help_bar",
+                        True, "claude"),
+                    rl.UNKNOWN)
+
+    def test_typed_phrase_cannot_relocate_the_boundary_onto_an_option_row(self):
+        """User-typed text must not become the boundary.
+
+        The dialog's option rows are EDITABLE (Tab amends option 1), so typing
+        the boundary phrase into one puts a second copy BELOW the real header.
+        `_boundary_index` takes the LAST match, so a substring anchor would
+        resolve the boundary to that option row — a line that MOVES during
+        selection, which is exactly what B4 exists to forbid, and reachable
+        from user input rather than from CLI churn.
+
+        The shipped anchor requires the line to hold nothing but the question,
+        so the copy (` ❯ 1. Yes, <typed text>`) is rejected and the real header
+        still wins. Asserted as an index identity against the whole-line
+        occurrence, not a literal, so the fixture and the assertion cannot
+        drift apart.
+        """
+        for name in ("CLAUDE_AMEND_TYPED_PHRASE_RAW",
+                     "CLAUDE_AMEND_TYPED_SEL1_RAW",
+                     "CLAUDE_AMEND_TYPED_SEL2_RAW"):
+            lines = strip(getattr(fx, name)).splitlines()
+            hits = [i for i, line in enumerate(lines)
+                    if "Do you want to proceed?" in line]
+            with self.subTest(fixture=name):
+                self.assertEqual(len(hits), 2,
+                                 "premise: the fixture must hold the real "
+                                 "question AND a typed copy")
+                whole = [i for i in hits
+                         if lines[i].strip() == "Do you want to proceed?"]
+                self.assertEqual(len(whole), 1, "exactly one whole-line header")
+                start = rl._native_block_start(lines, "claude", "claude_proceed")
+                self.assertEqual(start, whole[0],
+                                 "the boundary must resolve to the real header")
+                self.assertLess(start, max(hits),
+                                "the typed copy sits BELOW the header — if the "
+                                "boundary had resolved to it, an editable, "
+                                "moving line would be anchoring the block")
+
+    def test_typed_state_selection_pair_is_still_no_fire(self):
+        """The B4 assertion for the typed state, which was missing.
+
+        Documenting the reproduction case is not enough: the state needs the
+        same both-directions treatment as every other, or a cursor move made
+        while the phrase is typed has no assertion at all.
+        """
+        self.assertEqual(
+            rl.classify_followed_change(
+                fx.CLAUDE_AMEND_TYPED_SEL1_RAW, "claude_proceed",
+                fx.CLAUDE_AMEND_TYPED_SEL2_RAW, "claude_proceed",
+                True, "claude"),
+            rl.SELECTION_ONLY)
+
+
+class SelectionNeverClassifiesWorkTests(unittest.TestCase):
+    """B4, the cross-geometry invariant (t1540).
+
+    A pure option-cursor move must never classify WORK for ANY agent, kind or
+    geometry: that is the false-positive direction, and it is the exact symptom
+    of a boundary located at or below a line that moves during selection.
+
+    Deliberately table-driven and total rather than one assertion per pair. The
+    per-row tests pin each pair individually; this pins the PROPERTY, so a pair
+    added later for a geometry nobody re-measured is covered on arrival.
+    """
+
+    # name -> (prev, curr, kind, agent)
+    PAIRS = {
+        "claude/permission 120x30": ("CLAUDE_PERMISSION_SEL1_RAW",
+                                     "CLAUDE_PERMISSION_SEL2_RAW",
+                                     "claude_help_bar", "claude"),
+        "claude/permission 120x14": ("CLAUDE_PERMISSION_COMPACT_SEL1_RAW",
+                                     "CLAUDE_PERMISSION_COMPACT_SEL2_RAW",
+                                     "claude_help_bar", "claude"),
+        "claude/permission 120x6": ("CLAUDE_PERMISSION_SHORT_SEL1_RAW",
+                                    "CLAUDE_PERMISSION_SHORT_SEL2_RAW",
+                                    "claude_proceed", "claude"),
+        "claude/plan_approval": ("PLAN_SEL1", "PLAN_SEL2",
+                                 "claude_plan_approval", "claude"),
+        # The hostile state: the boundary phrase typed into an editable option
+        # row, so a substring anchor would put the boundary on a moving line.
+        "claude/permission typed-phrase": ("CLAUDE_AMEND_TYPED_SEL1_RAW",
+                                           "CLAUDE_AMEND_TYPED_SEL2_RAW",
+                                           "claude_proceed", "claude"),
+        "codex/exec_approval": ("CODEX_EXEC_APPROVAL_SEL1_RAW",
+                                "CODEX_EXEC_APPROVAL_SEL2_RAW",
+                                "codex_permission", "codex"),
+        "opencode/permission": ("OPENCODE_PERMISSION_SEL1_RAW",
+                                "OPENCODE_PERMISSION_SEL2_RAW",
+                                "opencode_permission", "opencode"),
+    }
+
+    def test_no_selection_pair_classifies_work(self):
+        self.assertTrue(self.PAIRS, "premise: the table must not be empty")
+        for name, (a, b, kind, agent) in self.PAIRS.items():
+            with self.subTest(pair=name):
+                self.assertIn(
+                    rl.classify_followed_change(
+                        getattr(fx, a), kind, getattr(fx, b), kind,
+                        True, agent),
+                    (rl.SELECTION_ONLY, rl.NO_CHANGE, rl.UNKNOWN),
+                    "a pure cursor move classified WORK — the boundary sits "
+                    "at or below a line that moves during selection")
+
+    def test_table_covers_every_measured_claude_geometry(self):
+        """Premise control: the invariant is only as total as its table.
+
+        Keyed on the geometry prefix rather than on a total count, so adding a
+        non-geometry entry (the typed-phrase state) does not have to be
+        accounted for here — while dropping a measured geometry still fails.
+        """
+        geometries = {n for n in self.PAIRS
+                      if n.startswith("claude/permission 120x")}
+        self.assertEqual(
+            geometries,
+            {"claude/permission 120x30", "claude/permission 120x14",
+             "claude/permission 120x6"},
+            "every geometry in the t1540 measurement set must appear, or the "
+            "invariant silently narrows")
+        self.assertIn("claude/permission typed-phrase", self.PAIRS,
+                      "the hostile typed-phrase state must stay covered")
+
+
 class ConservativeDefaultSurvivesTests(unittest.TestCase):
     """The `return UNKNOWN` fallthrough is why an unmapped dialog cannot
     misfire, and t1518 widened the set of agents that reach it. Asserted
@@ -1609,13 +1929,48 @@ class ConservativeDefaultSurvivesTests(unittest.TestCase):
                                         True, "opencode"),
             rl.UNKNOWN)
 
-    def test_claude_unanchored_kinds_still_classify_unknown(self):
-        for kind in ("claude_trust_folder", "claude_proceed",
-                     "claude_help_bar"):
-            self.assertEqual(
-                rl.classify_followed_change("a", kind, "b", kind,
-                                            True, "claude"),
-                rl.UNKNOWN, kind)
+    def test_claude_trust_folder_is_still_unanchored_and_unknown(self):
+        """The one Claude kind t1540 did NOT anchor, and why.
+
+        This is the surviving half of the pre-t1540 characterization. The
+        other two kinds flipped (see `test_claude_permission_kinds_are_now
+        _anchored`), so asserting the old three-way UNKNOWN would now be
+        asserting the defect. `claude_trust_folder` stays because the kind is
+        not reported at all on 2.1.233 — measured, not assumed — so no boundary
+        for it could ever be consulted.
+        """
+        key = ("claude", "claude_trust_folder")
+        self.assertNotIn(key, rl.NATIVE_DIALOG_BOUNDARIES)
+        self.assertNotIn(key, rl.NATIVE_DIALOG_STRATEGIES)
+        self.assertIn(key, rl.DELIBERATELY_UNANCHORED_KINDS)
+        self.assertEqual(
+            rl.classify_followed_change("a", "claude_trust_folder",
+                                        "b", "claude_trust_folder",
+                                        True, "claude"),
+            rl.UNKNOWN)
+
+    def test_claude_permission_kinds_are_now_anchored(self):
+        """The flip side: both permission kinds left the exemption table.
+
+        Pinned in BOTH directions rather than by deleting the old assertion —
+        a kind must be in exactly one of the two regimes, and a future edit
+        that re-exempts one while leaving its boundary row (or vice versa)
+        fails here rather than silently reverting to UNKNOWN.
+        """
+        for kind in ("claude_help_bar", "claude_proceed"):
+            key = ("claude", kind)
+            self.assertIn(key, rl.NATIVE_DIALOG_BOUNDARIES, kind)
+            self.assertNotIn(key, rl.DELIBERATELY_UNANCHORED_KINDS, kind)
+            self.assertTrue(rl.native_dialog_anchored("claude", kind), kind)
+
+    def test_the_exemption_reason_is_measured_not_a_placeholder(self):
+        """t1518 left all three Claude kinds reading "no measured boundary
+        (pre-t1518)" — a placeholder that could not be told apart from a
+        forgotten row. The one remaining exemption must carry real evidence."""
+        reason = rl.DELIBERATELY_UNANCHORED_KINDS[
+            ("claude", "claude_trust_folder")]
+        self.assertNotIn("pre-t1518", reason)
+        self.assertIn("t1540", reason)
 
     def test_every_exemption_carries_a_reason(self):
         for key, reason in rl.DELIBERATELY_UNANCHORED_KINDS.items():

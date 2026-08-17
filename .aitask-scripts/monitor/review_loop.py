@@ -855,6 +855,51 @@ _CODEX_EXEC_APPROVAL_RE = re.compile(
 # ABOVE a live permission dialog, which classified UNKNOWN without it.
 _OPENCODE_PERMISSION_RE = re.compile(r"Permission required")
 
+# Claude's tool-permission dialog header — the dialog's default question text,
+# rendered directly above the option list. Measured live 2026-08-17 against
+# Claude Code 2.1.233 (t1540) over 7 pane geometries from 120x30 down to 120x6,
+# 5 reps at 120x30 and 120x14: exactly once per live frame (47 dialog frames, 0
+# violations), absent from every at-rest and working frame (32 frames, 0
+# violations), and strictly above every line that changes during selection.
+#
+# ONE line, TWO kinds, because which kind is reported is decided by pane height:
+#   * >=11 rows — the full three-option list fits, the question sits at -7,
+#     outside _PROMPT_DETECTION_TAIL_LINES (6), and the bottom-anchored
+#     `claude_help_bar` matches (t1474's structural prediction, confirmed live).
+#   * <=9 rows — Claude truncates the option list to the selected row, which
+#     lifts the question to -5, inside the tail window. `claude_proceed` is
+#     listed first in PROMPT_PATTERNS_BY_AGENT and matching is first-wins, so it
+#     becomes the reported kind.
+# So `claude_proceed` is genuinely REACHABLE here — unlike codex_yes_proceed,
+# which t1518 shipped unreached. Both rows are measured, neither is inferred.
+#
+# SCOPED BY MEASUREMENT, not by omission. `claude_help_bar` is Claude's generic
+# blocked-on-input footer; only the tool-permission dialog was measured, so this
+# boundary anchors only that dialog. On any other help-bar surface
+# `_boundary_index` finds nothing, `_native_block_start` returns None, and
+# `classify_followed_change` returns UNKNOWN — exactly as it did before this row
+# existed. That is the conservative default preserved, NOT a rotted literal:
+# a boundary-rot detector (t1542) must distinguish "scoped boundary, dialog
+# never measured" from "shipped literal stopped matching its own dialog", or it
+# will fire continuously on this row.
+#
+# This row is only load-bearing because t1540 also stabilised `claude_help_bar`
+# in monitor/prompt_patterns.py; without that fix the kind flips mid-dialog and
+# the classifier short-circuits to WORK before ever reaching this table.
+#
+# WHOLE-LINE anchor, and that is load-bearing rather than tidiness. The dialog's
+# option rows are EDITABLE (Tab amends option 1), so a user who types this exact
+# phrase into one puts a second copy of it BELOW the real header — and
+# `_boundary_index` takes the LAST match, which would relocate the boundary onto
+# an option row, i.e. onto a line that moves during selection. That is precisely
+# the failure the B4 criterion exists to catch, reachable from user input rather
+# than from CLI churn. Requiring the line to hold NOTHING but the question
+# rejects the copy (it renders as ` ❯ 1. Yes, <typed text>`) while still matching
+# the real header, verified identical on all 58 captured dialog frames. Same
+# technique, and same reason, as `claude_trust_folder`'s "each option line holds
+# nothing but its label" in monitor/prompt_patterns.py.
+_CLAUDE_PERMISSION_RE = re.compile(r"^\s*Do you want to proceed\?\s*$")
+
 # Top boundary line of native (chip-less) dialogs, per (agent, kind).
 # The plan-approval dialog has no AskUserQuestion header chip, so
 # workflow_phase.current_question_block cannot anchor it; this line —
@@ -864,6 +909,9 @@ NATIVE_DIALOG_BOUNDARIES: dict[tuple[str, str], re.Pattern] = {
     ("claude", "claude_plan_approval"): re.compile(
         r"written up a plan and is ready to execute|Would you like to proceed\?"
     ),
+    # Same dialog, two kinds selected by pane height — see _CLAUDE_PERMISSION_RE.
+    ("claude", "claude_help_bar"): _CLAUDE_PERMISSION_RE,
+    ("claude", "claude_proceed"): _CLAUDE_PERMISSION_RE,
     ("codex", "codex_permission"): _CODEX_EXEC_APPROVAL_RE,
     # Shipped despite never being observed as the reported kind on 0.146.0
     # (0/23 live captures): the footer that `codex_permission` matches sits at
@@ -909,13 +957,28 @@ DELIBERATELY_UNANCHORED_KINDS: dict[tuple[str, str], str] = {
         "overlay, not a dialog: it renders ~21 lines up, outside "
         "_PROMPT_DETECTION_TAIL_LINES, so it is never a followed-pane "
         "awaiting_input_kind (t1520)",
-    # Pre-existing, and NOT closed by t1518 — a Claude pane parked at one of
-    # these classifies UNKNOWN today, the same under-detection this task closed
-    # for Codex. Recorded rather than fixed: closing it needs its own live
-    # measurement of Claude's dialogs.
-    ("claude", "claude_trust_folder"): "no measured boundary (pre-t1518)",
-    ("claude", "claude_proceed"): "no measured boundary (pre-t1518)",
-    ("claude", "claude_help_bar"): "no measured boundary (pre-t1518)",
+    # `claude_help_bar` and `claude_proceed` were exempted here as "no measured
+    # boundary (pre-t1518)" and are now anchored — t1540 measured both live.
+    #
+    # `claude_trust_folder` stays, and the reason is now MEASURED rather than a
+    # placeholder: the kind is not reported at all on 2.1.233, so no boundary
+    # for it could ever be consulted. Two independent causes, either fatal on
+    # its own (t1540, live capture on a fresh untrusted directory):
+    #   1. wording — the confirm/cancel options render as a NUMBERED list, while
+    #      the pattern requires each label to follow the pointer directly and to
+    #      be the whole line;
+    #   2. geometry — the trust screen is the pre-TUI boot screen and renders
+    #      TOP-aligned; at 120x30 its options sit at -17/-16 and its footer at
+    #      -14, so the whole dialog is outside _PROMPT_DETECTION_TAIL_LINES (6)
+    #      and every one of the last six lines is empty.
+    # That is a prompt-pattern defect, not a boundary gap: fixing it belongs in
+    # monitor/prompt_patterns.py, and until it is fixed this exemption is
+    # correct rather than merely conservative.
+    ("claude", "claude_trust_folder"):
+        "kind never reported on 2.1.233 — numbered option labels no longer "
+        "match the pattern AND the pre-TUI trust screen renders top-aligned, "
+        "outside _PROMPT_DETECTION_TAIL_LINES; no boundary can be consulted "
+        "for a kind that is never detected (t1540)",
 }
 
 
