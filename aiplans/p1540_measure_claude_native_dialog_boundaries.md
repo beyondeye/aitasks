@@ -698,3 +698,141 @@ Post-implementation: merge to `main` (current-branch mode — nothing is cut, so
 merge step is a no-op), run the declared `risk_evaluated` gate via
 `./ait gates run 1540`, then archive with
 `./.aitask-scripts/aitask_archive.sh 1540`.
+
+## Measurement
+
+Executed **2026-08-17**, per the recipe in `aidocs/framework/shadow_agent.md`
+§"Recipe: measuring a new agent's readiness surfaces". Private tmux socket
+`t1540meas_main` (never the `-L ait` gateway), `TMUX`/`TMUX_PANE` scrubbed,
+throwaway repo under the session scratchpad. Captures taken with the production
+argv verbatim (`capture-pane -p -e -t <pane> -S -200`) and classified through the
+production seams (`monitor_core.classify_content` for the kind,
+`review_loop.classify_followed_change` for the verdict). Version: **Claude Code
+2.1.233**, model Haiku 4.5 (the dialog is CLI-rendered; the model is recorded only
+for reproducibility). Harness is scratchpad-only and not committed (t1520 standing
+decision).
+
+**Three channels per frame** (recipe step 4). (A) harness ground truth — the
+driver knows which frame is at-rest / working / dialog-sel1/2/3, asserts the
+composer is non-empty **before** Enter, and asserts the **raw** capture changed at
+every selection step before accepting the frame; (B) literal screen evidence —
+plain substring searches, not the shipped regexes; (C) the detector's own verdict.
+**No channel disagreement was observed in any accepted rep.**
+
+Totals across **every** frame taken, not only the analysed reps: **47 dialog
+frames / 32 non-dialog frames, 0 B1 violations, 0 B2 violations.** ("Violation" =
+a dialog frame not containing the candidate exactly once, or a non-dialog frame
+containing it at all. The one deliberate self-reproduction frame — see
+"Irreducible limit" below — is excluded and reported separately.)
+
+### Verdicts — one row per (kind, geometry), B4 per candidate
+
+Candidate boundary line for both kinds: **`Do you want to proceed?`**
+
+| geometry | reps | reported kind | cand. index | B1 | B2 | B3 |
+|---|---|---|---|---|---|---|
+| 120x30 (t1518 baseline) | 5 | `claude_help_bar` | −7 | pass | pass | pass |
+| 120x14 (post-split) | 5 | `claude_help_bar` | −7 | pass | pass | pass |
+| 120x13 | 1 | `claude_help_bar` | −7 | pass | pass | pass |
+| 120x11 | 1 | `claude_help_bar` | −7 | pass | pass | pass |
+| 120x9 | 1 | `claude_proceed` | −5 | pass | pass | pass |
+| 120x7 | 1 | `claude_proceed` | −5 | pass | pass | pass |
+| 120x6 (floor probed) | 1 | `claude_proceed` | −5 | pass | pass | pass |
+
+**B4 (per candidate, across the whole supported set):**
+
+| candidate | B4 before | B4 after the `claude_help_bar` fix | deciding geometry |
+|---|---|---|---|
+| `Do you want to proceed?` | **FAIL** | **pass** | 120x30 / 14 / 13 / 11 |
+
+### Two rendering regimes, both measured
+
+The dialog is bottom-aligned and survives from **30 rows down to 6**. Two regimes,
+split by whether the option list fits:
+
+- **≥11 rows** — full three-option list; the question renders at −7, *outside*
+  `_PROMPT_DETECTION_TAIL_LINES` (6), so the bottom-anchored `claude_help_bar` is
+  the reported kind. This confirms t1474's structural explanation live.
+- **≤9 rows** — Claude truncates the option list to the selected row only, which
+  lifts the question to −5, *inside* the tail window. `claude_proceed` is listed
+  before `claude_help_bar` and matching is first-wins, so it becomes the reported
+  kind — and it is **stable across selection**, because the question text does not
+  change.
+
+`claude_proceed` is therefore **reachable in production**, unlike t1518's
+`codex_yes_proceed`. Both kinds need the row, and both are measured, not inferred.
+
+### Why B4 failed before: `claude_help_bar` is unstable across the dialog's own states
+
+Measured 5/5 reps at every geometry ≥11 rows: the help bar itself changes with the
+selection. With option 1 or 3 highlighted it reads `Esc to cancel · Tab to amend ·
+ctrl+e to explain`; with option 2 ("Yes, and always allow …") the amend affordance
+is **absent** and it reads `Esc to cancel · ctrl+e to explain`. The shipped regex
+`Esc to cancel\s+·\s+Tab to amend` therefore matches options 1 and 3 but **not**
+option 2, so that frame reports **no kind at all** (`awaiting_input=False`).
+
+Consequence, measured with no boundary row involved at all:
+
+| transition | kinds | verdict |
+|---|---|---|
+| option 1 → 2 | `claude_help_bar` → `''` | **`work`** |
+| option 2 → 3 | `''` → `claude_help_bar` | **`work`** |
+| option 1 ↔ 3 | `claude_help_bar` → `claude_help_bar` | `unknown` |
+
+A pure cursor move already classifies as `WORK` — the spurious-fire direction.
+**No boundary row can fix this**: `classify_followed_change` early-returns on
+`awaiting_input is not True` and on `prev_kind != curr_kind`, both *before*
+`_native_block_start` is consulted. This is a pre-existing prompt-pattern defect,
+upstream of the boundary tables, and it is why this task also edits
+`prompt_patterns.py` (scope confirmed with the user mid-measurement).
+
+**The fix, measured:** widen the pattern to
+`Esc to cancel\s+·\s+(?:Tab to amend|ctrl\+e to explain)`. Verified against live
+frames — option 1 `True`→`True`, option 2 `False`→**`True`**, option 3
+`True`→`True`, at-rest `False`→`False`. It is **backward compatible** (every line
+the old regex matched still matches) and its widening is bounded to the permission
+dialog's own states: `ctrl+e to explain` is the command-explanation affordance,
+which only that dialog offers.
+
+### Before / after, both directions, all seven geometries
+
+| | selection pairs | work above the boundary |
+|---|---|---|
+| **before** (shipped patterns, no rows) | `unknown` on 1↔3, **`work`** on any pair crossing option 2 | `unknown` — the gap this task closes |
+| **after** (pattern fix + both rows) | **`selection_only`** at every geometry, every pair | **`work`** |
+
+### `claude_trust_folder`: no row — measured, not assumed
+
+The workspace-trust dialog was captured live on a fresh untrusted directory (zero
+model turns). It is matched by **nothing** at 2.1.233 — `awaiting_input=False` —
+for two independent reasons, either of which alone is fatal:
+
+1. **Wording.** The confirm and cancel options are now rendered as a *numbered*
+   list (`❯ 1. …` / `2. …`), while `_TRUST_YES` / `_TRUST_NO` require the label to
+   follow the pointer with nothing between and to be the whole line. (Described
+   inline per the t1474 rule — never paste the option block.)
+2. **Geometry.** The trust screen is the pre-TUI boot screen and renders
+   *top*-aligned: measured at 120x30 the option rows sit at −17/−16 and the footer
+   at −14, with 13 trailing blank rows, so the entire dialog is outside the 6-line
+   detection window. Every one of the last six lines is empty.
+
+Since the kind is never reported, no boundary for it can ever be consulted. It
+keeps its `DELIBERATELY_UNANCHORED_KINDS` entry, with the placeholder reason
+replaced by this measurement. The pattern rot itself is an **upstream defect**,
+recorded for the Step 8b follow-up — it is a detection bug in its own right (an
+agent blocked on the trust gate reads as idle), not a boundary matter.
+
+### Irreducible limit, reproduced deliberately
+
+Typing the literal text `Do you want to proceed?` into the dialog's amend box
+makes the candidate appear **twice** (−7 and −6). `_boundary_index` takes the last
+match, so the typed copy wins, and the reported kind flips to `claude_proceed`
+because the typed line is inside the tail window. This is the documented
+irreducible reproduction case (`monitor_idle_and_prompt_detection.md`: "a verbatim
+reproduction is indistinguishable, so do not write one"), not a defect introduced
+here. Recorded, excluded from the violation totals above, and pinned by a test.
+
+### Gate discharge
+
+Every entry shipped in Step 2 maps 1:1 onto a **B1–B4-passing** verdict above.
+`claude_trust_folder` failed at the detection stage and ships no row.
