@@ -562,3 +562,75 @@ cannot fail on the thing it names.
 
 Post-implementation cleanup, archival and merge follow **Step 9** of the shared
 task workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-17 09:22) — mode-aware pre-write validation
+
+- **Requested by user (blocking, CONFIRMED):** `_check_lite_shape` ran only
+  when `rendering_hints.depth` said `lite`, but that hint is authored by the
+  same model whose lite output the guard is meant to validate. A default-lite
+  writer could omit the hint (or write an unrecognised value) and retain
+  observations, relations, exclusions, citations and many evidence records —
+  `validate_trail` then accepted the full document. Make pre-write validation
+  mode-aware so a lite run cannot bypass its own shape contract.
+
+- **Reproduced before fixing** (the guard was genuinely opt-in):
+
+  | document | issues (before) |
+  |---|---|
+  | deep fixture, no hint | **0** |
+  | deep fixture, hint `"medium"` | **0** |
+  | deep fixture, hint `"lite"` | 10 |
+
+- **Changes made.** The fix had to come from the *caller*: the validator is a
+  pure function of the document and cannot know what mode the run was in, and
+  the marker cannot police itself.
+
+  - `.aitask-scripts/lib/trail_schema.py`
+    - `validate_trail(doc, schema=None, expect_depth=None)` — `expect_depth`
+      is the authoring depth taken from the RUN's argument parsing, not read
+      out of the document. `None` (default) preserves the previous
+      self-declared behaviour exactly, which is what keeps every stored
+      pre-t1505_4 trail valid.
+    - New phase-2 rule `depth_marker`: under an asserted depth the document
+      must record a matching `rendering_hints.depth`. This binds **both**
+      directions — an unmarked *deep* trail is also rejected, so the marker
+      the board's label depends on cannot go missing.
+    - `_check_lite_shape(doc, issues, force=False)` — the lite shape now
+      applies when the caller asserted lite, whether or not the marker was
+      written.
+    - `DEPTH_LITE` / `DEPTH_DEEP` / `DEPTHS` constants; an out-of-vocabulary
+      `expect_depth` raises `ValueError` rather than silently degrading to the
+      unenforced path.
+    - `load_trail(..., expect_depth=None)` and CLI
+      `validate <file> [--expect-depth lite|deep]` (exit 2 on a bad value).
+  - `.claude/skills/aitask-trail/SKILL.md.j2` — Step 2e.3 is now **two
+    required commands**, the `--expect-depth` assertion first, then the drift
+    check; Step 3.5 requires both explicitly. The template states why the flag
+    is not a formality.
+  - `tests/test_trail_schema.py` — new `CallerAssertedDepth` class (9 cases),
+    including the exact reported bypass and a control that
+    `expect_depth=None` still validates a deep document.
+  - `tests/test_trail_skill_contract.sh` — five new pins (v) so the
+    instruction cannot be dropped from the template.
+
+- **Verification.** Bypass closed:
+
+  | assertion | issues (after) |
+  |---|---|
+  | no hint, `expect lite` | 11 (`depth_marker` + `lite_shape`) |
+  | hint `"medium"`, `expect lite` | 11 (`depth_marker` + `lite_shape`) |
+  | no hint, `expect deep` | 1 (`depth_marker`) |
+  | hint `"deep"`, `expect deep` | 0 |
+  | no hint, `expect None` | 0 (back-compat control) |
+
+  CLI exit codes verified unpiped: 1 on mismatch, 0 on match, 2 on a bad depth
+  value. Negative control re-run for the new rule: disabling
+  `_check_depth_contract` + `force` fails exactly the 4 assertion tests and
+  leaves the 5 validity tests passing.
+
+- **Files affected:** `.aitask-scripts/lib/trail_schema.py`,
+  `.claude/skills/aitask-trail/SKILL.md.j2`,
+  `tests/golden/skills/aitask-trail/SKILL-{default,fast,remote}-claude.md`,
+  `tests/test_trail_schema.py`, `tests/test_trail_skill_contract.sh`.
