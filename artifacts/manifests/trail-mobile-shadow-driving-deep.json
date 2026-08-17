@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1786975303,
+  "current": "sha256:1d3088f7050b2d1154aca0e25a0e1c793a4a0c0188807fb54d345aab83dab888",
+  "handle": "art:trail-mobile-shadow-driving-deep",
+  "updated_at": 1786975303,
+  "versions": [
+    "sha256:1d3088f7050b2d1154aca0e25a0e1c793a4a0c0188807fb54d345aab83dab888"
+  ]
+}

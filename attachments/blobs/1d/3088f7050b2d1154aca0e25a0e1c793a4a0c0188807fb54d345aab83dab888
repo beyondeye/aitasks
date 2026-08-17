@@ -1,0 +1,374 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-mobile-shadow-driving-deep",
+  "title": "Mobile shadow-agent driving over applink — landing order (deep)",
+  "owner": "aitasks#1118",
+  "scope": {
+    "kind": "task",
+    "topics": ["aitasks#1118"],
+    "selection_note": "Task scope: t1118 and its five active children, as gathered by aitask_trail_gather.sh --scope task 1118. Same scope as art:trail-mobile-shadow-driving; this version is the --deep authoring of it."
+  },
+  "generation": {
+    "generated_at": "2026-08-17T13:57:25Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail"
+    },
+    "project_revision": {"aitasks": "88d2124ba"},
+    "input_digest": "1c44cb4efd49b5b6",
+    "inputs": [
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_1_shadow_driving_protocol_design_doc.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_2_shadow_aware_roster_content_gating_capability_flags.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_3_spawn_shadow_verb_shared_spawn_helper.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_4_shadow_concerns_rpc_status_fields_paste_mode.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118/p1118_5_manual_verification_mobile_shadow_agent_driving_over_applink.md"},
+      {"kind": "plan_file", "ref": "aitasks:aiplans/p1118_mobile_shadow_agent_driving_over_applink.md"},
+      {"kind": "task_file", "ref": "aitasks#1118"},
+      {"kind": "task_file", "ref": "aitasks#1118_1"},
+      {"kind": "task_file", "ref": "aitasks#1118_2"},
+      {"kind": "task_file", "ref": "aitasks#1118_3"},
+      {"kind": "task_file", "ref": "aitasks#1118_4"},
+      {"kind": "task_file", "ref": "aitasks#1118_5"}
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-08-17T13:57:25Z"
+  },
+  "narrative": {
+    "problem_statement": "t1118 has five active children, no landed work, and a parent plan written on 2026-07-03 that has not been re-read against the source since. The question this trail answers is which child to start now — and, separately, whether the plan each child would be implemented from still describes the code that exists.",
+    "recommendation_summary": "Land t1118_1 first, but re-verify its inputs before writing it: the parent plan's design decisions are recorded as unconfirmed defaults, and its code anchors have all drifted. Then t1118_2, the sole prerequisite of both remaining feature children. t1118_3 and t1118_4 then run in parallel, and t1118_5 closes the topic. The ordering is dependency-forced and uncontroversial; the risk in this topic is not the order, it is that three of the four implementation children cite source locations and at least one helper name that no longer exist.",
+    "overview": "The ordering question has an easy answer and a hard one under it.\n\nThe easy answer: start with t1118_1. It is the only child with no depends edge, and it authors the wire contract the other four cite instead of restating. t1118_2 follows as the sole prerequisite of both remaining feature children — the topic's real bottleneck. t1118_3 and t1118_4 are then genuinely parallel (disjoint files, no edge between them), and t1118_5 verifies all three on real hardware. That much is forced by the recorded depends edges and needs no judgement.\n\nThe hard part is that this decomposition is six weeks old and its premises have decayed measurably. Every code anchor in the parent plan and the child tasks has drifted by a factor of two to three — TmuxPaneInfo is at monitor_core.py:864, not 234; _parse_list_panes is at 1876, not the cited ~1017/1032; action_launch_shadow is at minimonitor_app.py:2081, not 1046-1147. Worse, t1118_3 and the parent plan both instruct the implementer to reuse attach_shadow_cleanup_hook, and that function does not exist anywhere in the repository — it was renamed to attach_companion_cleanup_hook (agent_launch_utils.py:1453). An agent following t1118_3 literally will search for a helper that is not there. Budget a premise re-verification pass before t1118_2 and t1118_3, and treat their 'key files to modify' lists as descriptions, not coordinates.\n\nThere is also an unresolved decision, not just stale text. The parent plan states in its own header that the visibility model and permission-band choices are best-judgment defaults taken after an AskUserQuestion timed out twice, and that they 'need explicit confirmation at approval'. Those defaults are precisely what t1118_1 is supposed to write down as binding. Confirm them with the user before t1118_1 is written, not after, or the contract both repos build against inherits an unconfirmed guess.\n\nOn scheduling, the cross-repo edges are worth more than they look. aitasks_mobile#32_1 depends on t1118_1 alone, and aitasks_mobile#32_2 on t1118_3 and t1118_4. So t1118_1 is not merely the first local task — it is the single change that unblocks an entire child in the other repository, and the mobile side can then run concurrently with local waves 2 and 3 rather than behind them. Conversely t1118_5 waits on aitasks_mobile#32_2, which this trail's scope cannot observe; its readiness is never an aitasks-only question.\n\nFinally, one adjacent task is worth coordinating with rather than folding in: t1447 proposes routing a second, unsafe pane-died hook writer through the same cleanup-hook seam that t1118_3 extracts. Two tasks converging on one helper from opposite directions is cheaper to settle once, before either starts.",
+    "method_note": "Deep-depth analysis. Read: the gatherer snapshot; the full parent plan (349 lines) and the frontmatter plus Context/Key-files sections of all six member task files; the live definitions of TmuxPaneInfo, PaneCategory, _parse_list_panes, is_shadow_target, match_shadow_pane, action_launch_shadow, resolve_dry_run_command and the cleanup-hook family in monitor_core.py / minimonitor_app.py / agent_launch_utils.py; a repo-wide grep for attach_shadow_cleanup_hook; the frontmatter of the aitasks_mobile#32 family via the project registry; and candidate colliding tasks t719, t1388, t1447, t1448, t996. NOT verified: whether the five child plan files are still accurate (only the parent plan was read in full), the runtime behaviour of any of the cited code, and the state of the mobile repository beyond task frontmatter.",
+    "caveats": [
+      "Line-number drift was measured by locating the named symbols today; it does not prove the surrounding logic changed, only that the cited coordinates are wrong.",
+      "The wave ordering is derived from recorded depends edges (fact). The recommendation to re-verify premises before t1118_2/t1118_3, and the t1447 coordination, are agent judgment."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Confirm the decisions, then fix the wire contract",
+      "purpose": "Turn the parent plan's provisional design decisions into a confirmed, written contract both repositories build against, so no payload shape, capability band or verb name is decided twice or inherited as a guess.",
+      "why_now": "Every later child names the parent plan's D-sections as its content source, and aitasks_mobile#32_1 depends on this task alone. Until it lands, work on both sides of the pairing is either blocked or speculative.",
+      "consequence_of_delay": "The mobile repository's first child stays blocked on a document that does not exist, and any correction to the band/visibility model lands as rework on two codebases instead of one.",
+      "entries": [
+        {
+          "entry_id": "e1",
+          "task": "aitasks#1118_1",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The only member with no depends edge, the only one whose output every other child consumes, and the only local task a cross-repo child depends on directly. It converts the parent plan's D1-D5 into aidocs/applink/shadow_driving.md — but those sections carry design decisions the plan itself flags as unconfirmed, so this task's real first step is a confirmation, not a write.",
+          "expected_outcome": "A confirmed roster-exposure decision, visibility model, permission bands and verb payload schema, written once and cross-referenced from monitor_port_design.md, permissions.md and protocol.md — and aitasks_mobile#32_1 unblocked.",
+          "why_order_matters": "Written after the code, it becomes a transcript of whatever got built, which is exactly what a cross-repo contract must not be. Written before the decisions are confirmed, it makes a timed-out default binding on two repositories.",
+          "confidence": "high",
+          "caveats": ["Blocked on nothing in code, but gated on a user decision the parent plan explicitly defers to approval time."],
+          "evidence_refs": ["ev2", "ev6"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Shadow-aware roster foundation",
+      "purpose": "Make shadow panes visible to applink and gate their content per profile, without changing what the desktop monitor sees — the single change that unblocks the rest of the local topic.",
+      "why_now": "It is the sole prerequisite of both remaining feature children, so nothing in wave 3 can start until it lands; and it is the one member touching the shared discovery path, so it wants to land alone.",
+      "consequence_of_delay": "Both wave-3 children stay blocked and the topic makes no progress regardless of how many agents are available.",
+      "entries": [
+        {
+          "entry_id": "e2",
+          "task": "aitasks#1118_2",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": ["aitasks#1118_1"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Widest fanout in the topic: both t1118_3 and t1118_4 record it as their only dependency. It is also the one member editing _parse_list_panes, the single pane-discovery path every TUI reads, so landing it alone keeps any desktop regression attributable to one change. Its negative control — flag off, shadow pane still dropped — is the whole safety argument for the opt-in design and should not be deferred.",
+          "expected_outcome": "Shadow panes enter the applink roster behind include_shadow_panes, content streaming gated at monitor_control, and capability flags (allowed_verbs, caps.shadow_content) the mobile UI gates off instead of comparing profile names.",
+          "why_order_matters": "Taken after wave 3, there is nothing for the spawn verb or the concerns RPC to address a shadow pane by — the roster would not carry them.",
+          "confidence": "high",
+          "caveats": ["Its cited code anchors have drifted; see observation o1."],
+          "evidence_refs": ["ev3", "ev5", "ev2"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Driving verbs, in parallel",
+      "purpose": "Add the two independent halves of driving — spawning a shadow, and reading its concerns — as one wave, because neither constrains the other and together they unblock the mobile UI child.",
+      "why_now": "Their shared prerequisite has landed and they edit disjoint files, so this is the only point in the topic where a second agent adds throughput rather than merge conflicts. Both are needed before aitasks_mobile#32_2 can start.",
+      "consequence_of_delay": "t1118_5 cannot begin — it verifies both children, and one alone leaves half its checklist unrunnable — and the mobile UI child stays blocked.",
+      "entries": [
+        {
+          "entry_id": "e3",
+          "task": "aitasks#1118_3",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "medium",
+            "depends": ["aitasks#1118_2"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Placed first within the wave because it is an extraction of an already-working desktop flow rather than a design from the document, so its target behaviour is observable today. It carries the topic's one broken reuse reference, however: the helper it names as the thing to reuse no longer exists under that name, so its 'key files' list must be re-derived before implementation rather than followed.",
+          "expected_outcome": "One shared spawn helper serving both the desktop minimonitor action and the new applink verb, with the one-shadow-per-agent guard, placement policy and cleanup-hook arming preserved.",
+          "why_order_matters": "Order within the wave is a mild preference — there is no recorded edge between the two entries.",
+          "confidence": "medium",
+          "caveats": [
+            "Carries the tmux_destructive label; the extraction moves live pane-spawning code.",
+            "Converges with t1447 on the same cleanup-hook seam; see observation o4."
+          ],
+          "evidence_refs": ["ev4", "ev5", "ev7"]
+        },
+        {
+          "entry_id": "e4",
+          "task": "aitasks#1118_4",
+          "topic": "aitasks#1118",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": ["aitasks#1118_2"],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "The read half of driving: the shadow_concerns RPC plus staleness and binding fields on pane_status. It is the highest-effort child and owns the topic's one non-negotiable invariant — passive server inspection must never stamp @aitask_shadow_analyzed_at — whose violation would silently suppress exactly the stale warnings the feature exists to produce. That makes its negative control load-bearing rather than routine.",
+          "expected_outcome": "The app can read a live shadow's parsed concerns and distinguish a stale read from a current one, with a change-gated, depth-capped, per-pane-shared detection cost.",
+          "confidence": "medium",
+          "caveats": ["Its D3-cost contract prescribes a shared per-pane cache; a per-connection cache would satisfy the tests' shape but not the contract."],
+          "evidence_refs": ["ev2", "ev5"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 4,
+      "title": "Live verification and close-out",
+      "purpose": "Confirm on real hardware that the three landed children behave as the contract says — including the two invariants no unit test can reach — then let the parent archive.",
+      "why_now": "Its checklist spans t1118_2, t1118_3 and t1118_4 together; run earlier it can only produce partial verdicts.",
+      "consequence_of_delay": "The topic stays open, and the non-stamping invariant — the one failure mode that is invisible to every server-side test — goes unverified against a real shadow.",
+      "entries": [
+        {
+          "entry_id": "e5",
+          "task": "aitasks#1118_5",
+          "topic": "aitasks#1118",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": ["aitasks#1118_3", "aitasks#1118_4"],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "The only member that can distinguish 'the RPC returns a shape' from 'a real device shows a real shadow's concerns'. Four of its six checks need a paired device and a live shadow, and one of them — that passive status polling does not clear the stale banner — is the live half of the invariant t1118_4 can only assert against a stub.",
+          "expected_outcome": "A recorded pass/fail verdict per behaviour, and a follow-up bug task for anything that fails.",
+          "why_order_matters": "Run before wave 3 completes, its checks for the spawn verb and the concerns RPC have nothing to exercise.",
+          "confidence": "high",
+          "caveats": ["Its readiness is not an aitasks-only question: it also waits on aitasks_mobile#32_2, outside this trail's scope. See observation o3."],
+          "evidence_refs": ["ev5", "ev8"]
+        },
+        {
+          "entry_id": "e6",
+          "task": "aitasks#1118",
+          "topic": "aitasks#1118",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": ["risk_evaluated"]
+          },
+          "rationale": "Present for completeness: a parent-of-children carrying the cross-repo pairing and the shared plan, not a unit of work. It archives once its five children do and should never be picked directly.",
+          "confidence": "high",
+          "evidence_refs": ["ev5"]
+        }
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "o1",
+      "kind": "stale_premise",
+      "statement": "Every code anchor in the parent plan and the child tasks has drifted by roughly a factor of two to three since the decomposition was written on 2026-07-03. TmuxPaneInfo is cited at monitor_core.py:234 but is at 864; _parse_list_panes is cited at ~1017/1032 but is at 1876 with the shadow drop at 1919; action_launch_shadow is cited at minimonitor_app.py:1046-1147 but is at 2081; resolve_dry_run_command is cited at agent_launch_utils.py:188 but is at 220. The named symbols all still exist, so the design is intact — but the coordinates are not usable and an implementer following them will edit the wrong regions or conclude the code was removed.",
+      "affects": ["aitasks#1118_2", "aitasks#1118_3"],
+      "evidence_refs": ["ev3", "ev5", "ev2"]
+    },
+    {
+      "observation_id": "o2",
+      "kind": "stale_premise",
+      "statement": "t1118_3 and the parent plan's D2.1 both instruct the implementer to reuse attach_shadow_cleanup_hook (cited at agent_launch_utils.py:1303). A repo-wide grep finds no occurrence of that identifier in any .py or .sh file. The helper exists under a different name — attach_companion_cleanup_hook, agent_launch_utils.py:1453 — with the index-scanning, never-overwrite behaviour the plan describes. This is not a coordinate drift like o1: the name itself is wrong, so a literal search returns nothing and the extraction step reads as referencing deleted code.",
+      "affects": ["aitasks#1118_3"],
+      "evidence_refs": ["ev4", "ev7"]
+    },
+    {
+      "observation_id": "o3",
+      "kind": "external_dependency",
+      "statement": "The cross-repo edges are asymmetric in a way that changes scheduling. aitasks_mobile#32_1 (shadow wire + mediator) records xdeps [1118_1] — it depends on the design doc alone, so landing t1118_1 unblocks a whole child in the other repository immediately, and the mobile side can then run concurrently with local waves 2 and 3 rather than behind them. aitasks_mobile#32_2 records xdeps [1118_3, 1118_4], and t1118_5 in turn records xdeps [t32_2] — so the local verification child waits on the mobile UI child, a constraint this repository's ait ls cannot show.",
+      "affects": ["aitasks#1118_1", "aitasks#1118_5"],
+      "evidence_refs": ["ev8", "ev5"]
+    },
+    {
+      "observation_id": "o4",
+      "kind": "in_flight_conflict",
+      "statement": "t1447 (Ready, anchor 1446) proposes routing tui_switcher.py's bare 'set-hook -p pane-died' write through the same cleanup-hook helper that t1118_3 extracts into a shared seam, and its own text cites the helper under the same stale name as t1118_3 does. Two Ready tasks are therefore converging on one helper from opposite directions — one generalizing it for a second consumer, one extracting it for a third — and neither records the other. Settling the seam's ownership once, before either starts, is cheaper than reconciling two extractions.",
+      "affects": ["aitasks#1118_3"],
+      "evidence_refs": ["ev7", "ev9"]
+    },
+    {
+      "observation_id": "o5",
+      "kind": "shared_surface_collision",
+      "statement": "_parse_list_panes is the single pane-discovery path shared by every TUI in the framework, and t1118_2's opt-in flag lands inside it. t1388 (Ready) separately changes shadow filtering in minimonitor's sibling fallback by reading @aitask_shadow_target and applying is_shadow_target — the same predicate _parse_list_panes uses for its drop. The two do not edit the same function, but they encode the same rule in two places, so whichever lands second should verify the other's assumption rather than assume it.",
+      "affects": ["aitasks#1118_2"],
+      "evidence_refs": ["ev3", "ev10"]
+    },
+    {
+      "observation_id": "o6",
+      "kind": "baseline_risk",
+      "statement": "The parent plan records, in its own header, that the visibility model and permission-band choices are best-judgment defaults adopted after an AskUserQuestion timed out twice, and that they 'need explicit confirmation at approval'. It makes the same note about the mitigation decision at the end of the Risk section. Those exact defaults — metadata for all profiles, content gated at monitor_control, spawn_shadow at full — are what t1118_1 is tasked with writing down as the binding contract for two repositories. The confirmation is therefore a prerequisite of t1118_1's content, not a review of its output.",
+      "affects": ["aitasks#1118_1", "aitasks#1118_2"],
+      "evidence_refs": ["ev2"]
+    }
+  ],
+  "relations": [
+    {"from": "aitasks#1118_1", "to": "aitasks#1118_2", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends edge on t1118_2."},
+    {"from": "aitasks#1118_2", "to": "aitasks#1118_3", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends edge on t1118_3."},
+    {"from": "aitasks#1118_2", "to": "aitasks#1118_4", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends edge on t1118_4."},
+    {"from": "aitasks#1118_3", "to": "aitasks#1118_5", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends edge on t1118_5."},
+    {"from": "aitasks#1118_4", "to": "aitasks#1118_5", "type": "hard_depends", "provenance": "fact", "note": "Recorded depends edge on t1118_5."},
+    {"from": "aitasks#1118_5", "to": "aitasks#1118_2", "type": "verifies", "provenance": "fact", "note": "Recorded in t1118_5's verifies: [t1118_2, t1118_3, t1118_4]."},
+    {"from": "aitasks#1118_5", "to": "aitasks#1118_3", "type": "verifies", "provenance": "fact", "note": "Recorded in t1118_5's verifies list."},
+    {"from": "aitasks#1118_5", "to": "aitasks#1118_4", "type": "verifies", "provenance": "fact", "note": "Recorded in t1118_5's verifies list."},
+    {"from": "aitasks#1118_3", "to": "aitasks#1118_4", "type": "advisory_precedes", "provenance": "advisory", "note": "No recorded edge. Preferred only because t1118_3 extracts observable existing behaviour while t1118_4 builds from the document; either order is correct."},
+    {"from": "aitasks#1118_1", "to": "aitasks_mobile#32_1", "type": "coordinates_with", "provenance": "fact", "note": "aitasks_mobile#32_1 records xdeps [1118_1], xdeprepo aitasks."},
+    {"from": "aitasks#1118_3", "to": "aitasks_mobile#32_2", "type": "coordinates_with", "provenance": "fact", "note": "aitasks_mobile#32_2 records xdeps [1118_3, 1118_4]."},
+    {"from": "aitasks#1118_4", "to": "aitasks_mobile#32_2", "type": "coordinates_with", "provenance": "fact", "note": "aitasks_mobile#32_2 records xdeps [1118_3, 1118_4]."},
+    {"from": "aitasks#1447", "to": "aitasks#1118_3", "type": "informs", "provenance": "advisory", "note": "Both target the pane-died cleanup-hook seam; neither records the other. See observation o4."}
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#1447",
+      "reason_code": "non_blocking",
+      "reason": "Converges with t1118_3 on the cleanup-hook seam and is worth coordinating with, but blocks nothing here: t1118_3 can extract the helper without t1447's second consumer existing. Kept as observation o4 rather than pulled into scope."
+    },
+    {
+      "task": "aitasks#1388",
+      "reason_code": "non_blocking",
+      "reason": "Touches the same is_shadow_target predicate from minimonitor's sibling fallback, but not _parse_list_panes itself, and neither task depends on the other. Recorded as observation o5 so whichever lands second re-checks the other's assumption."
+    },
+    {
+      "task": "aitasks#719",
+      "reason_code": "non_blocking",
+      "reason": "A backlog-column parent proposing a tmux control-mode / adaptive-polling refactor of the monitor substrate t1118_2 and t1118_4 build on. If it ever lands it would rewrite their foundation, but it is not scheduled and gating this topic on it would stall shipped-adjacent work indefinitely."
+    },
+    {
+      "task": "aitasks#1448",
+      "reason_code": "unrelated",
+      "reason": "Shadow concern-badge currency on the desktop surface. Adjacent in subject matter to t1118_4's staleness fields but shares no file or edge with this topic."
+    },
+    {
+      "task": "aitasks_mobile#32_1",
+      "reason_code": "unrelated",
+      "reason": "Cross-repo counterpart, not a member: the gatherer's task scope covers this repository only, and cross-repo topic roots are unsupported. Its edge to t1118_1 is recorded as a relation and in observation o3 instead."
+    },
+    {
+      "task": "aitasks_mobile#32_2",
+      "reason_code": "unrelated",
+      "reason": "Cross-repo counterpart, not a member, for the same reason as aitasks_mobile#32_1. It is the one exclusion that constrains this trail rather than merely neighbouring it: t1118_5 records xdeps [t32_2], so the last local wave waits on it. Recorded as a relation and in observation o3."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev1",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task 1118",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "Gatherer snapshot: 6 members (aitasks#1118 plus five children), 12 inputs (6 plan files, 6 task files), depends edges 1118_1 -> 1118_2 -> {1118_3, 1118_4} -> 1118_5, digest 1c44cb4efd49b5b6."
+    },
+    {
+      "evidence_id": "ev2",
+      "source_type": "plan_file",
+      "ref": "aiplans/p1118_mobile_shadow_agent_driving_over_applink.md",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "Parent paired cross-repo plan, 349 lines. Header records visibility/band decisions as best-judgment defaults after two AskUserQuestion timeouts, needing confirmation at approval. Sections D1-D5 define roster exposure, verbs, content gating, pane_status fields, paste mode and the docs set; cites monitor_core.py:234 and ~line 1032, minimonitor_app.py:1046-1147, agent_launch_utils.py cleanup hook."
+    },
+    {
+      "evidence_id": "ev3",
+      "source_type": "command_output",
+      "ref": "grep -n 'class TmuxPaneInfo|class PaneCategory|def _parse_list_panes|is_shadow_target' .aitask-scripts/monitor/monitor_core.py",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "Live locations: PaneCategory:151, is_shadow_target:352, match_shadow_pane_info:377, TmuxPaneInfo:864, _parse_list_panes:1876, shadow drop at 1919, match_shadow_pane:421 — versus the plan's cited 234 / ~1017 / ~1032."
+    },
+    {
+      "evidence_id": "ev4",
+      "source_type": "command_output",
+      "ref": "grep -rn 'attach_shadow_cleanup_hook' --include='*.py' --include='*.sh' .",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "No matches anywhere in the repository's Python or shell sources. The cleanup-hook family in agent_launch_utils.py is _PANE_DIED_RE:1387, _pane_died_hook_indices:1434, attach_companion_cleanup_hook:1453, called at 1695."
+    },
+    {
+      "evidence_id": "ev5",
+      "source_type": "task_file",
+      "ref": "aitasks/t1118/ (t1118_1 .. t1118_5) and aitasks/t1118_mobile_shadow_agent_driving_over_applink.md",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "Member frontmatter and Context/Key-files sections: depends chain, xdeprepo aitasks_mobile on the parent and on t1118_5 (xdeps [t32_2]), t1118_5 verifies [t1118_2, t1118_3, t1118_4] with followup_kind manual_verification, tmux_destructive label on t1118_3 and t1118_5."
+    },
+    {
+      "evidence_id": "ev6",
+      "source_type": "task_file",
+      "ref": "aitasks/t1118/t1118_1_shadow_driving_protocol_design_doc.md",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "Names aidocs/applink/shadow_driving.md as its deliverable and the parent plan's D1-D5 as its content source; no depends edge; issue_type documentation."
+    },
+    {
+      "evidence_id": "ev7",
+      "source_type": "task_file",
+      "ref": "aitasks/t1447_audit_companion_hook_arming_and_dead_monitor_guards.md",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "Ready, anchor 1446. Finding 2 proposes routing tui_switcher.py:1386-1390's bare pane-died set-hook through attach_shadow_cleanup_hook (cited at agent_launch_utils.py:1390-1445) rather than duplicating the raw call — the same seam t1118_3 extracts, named with the same non-existent identifier."
+    },
+    {
+      "evidence_id": "ev8",
+      "source_type": "task_file",
+      "ref": "aitasks_mobile:aitasks/t32/ (t32_1, t32_2) via ait projects exec aitasks_mobile",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "t32_1 shadow wire + mediator: depends [], xdeps [1118_1], xdeprepo aitasks. t32_2 shadow UI: depends [t32_1], xdeps [1118_3, 1118_4]. Parent t32 Ready with children_to_implement [t32_1, t32_2]."
+    },
+    {
+      "evidence_id": "ev9",
+      "source_type": "command_output",
+      "ref": "grep -n 'def action_launch_shadow' .aitask-scripts/monitor/minimonitor_app.py",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "action_launch_shadow at line 2081 and action_launch_shadow_pick at 2123, versus the plan's and t1118_3's cited 1046-1147."
+    },
+    {
+      "evidence_id": "ev10",
+      "source_type": "task_file",
+      "ref": "aitasks/t1388_minimonitor_sibling_fallback_shadow_filter.md",
+      "observed_at": "2026-08-17T13:57:25Z",
+      "summary": "Ready, medium. Proposes reading @aitask_shadow_target in minimonitor's rung-2 sibling fallback and applying is_shadow_target() from monitor_core — the same predicate _parse_list_panes uses for the drop t1118_2 makes optional."
+    }
+  ],
+  "rendering_hints": {"depth": "deep"}
+}
