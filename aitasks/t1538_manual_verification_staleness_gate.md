@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [verification, task-workflow, gates]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-17 11:58
-updated_at: 2026-08-17 11:58
+updated_at: 2026-08-17 12:08
 ---
 
 Brainstorm and design a staleness gate for `issue_type: manual_verification` tasks, to run as a pre-check before the Pass/Fail/Skip/Defer loop in `.claude/skills/task-workflow/manual-verification.md` (before or alongside the existing "pre-loop check — ensure the task has a checklist" step).
