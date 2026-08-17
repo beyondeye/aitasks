@@ -3,12 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [task_workflow, claudeskills]
 gates: [risk_evaluated]
 anchor: 635
 created_at: 2026-08-03 16:52
-updated_at: 2026-08-03 16:52
+updated_at: 2026-08-17 17:40
 boardidx: 26624
 ---
 
@@ -101,3 +101,29 @@ criterion 4, applied at the new Step 7 fork site rather than at Step 5.
 If t1536 has landed, this task's acceptance criteria are already satisfied and it
 should be closed; if t1536 is still pending, the two must be sequenced (this one
 would be re-written by t1536's move) rather than implemented in parallel.
+
+## Resolution (closed by t1536)
+
+Landed in `bbafbd4f5` — *enhancement: Defer the worktree fork until after plan
+approval (t1536)*.
+
+**The failing site no longer exists.** t1536 removed `git worktree add -b` from
+Step 5 entirely: Step 5 now only *resolves* the branch context, and the fork
+moved to the top of Step 7. The reuse check this task asked for was carried to
+that new fork site as t1536's acceptance criterion 4, and it is record-aware —
+it resolves the reusable directory from the `worktree <path>` line of the
+matching porcelain record rather than assuming `aiwork/<task_name>`.
+
+Two of the three reaching paths named above are **dissolved** rather than fixed:
+
+- `planning.md` Checkpoint → "Approve and stop here"
+- `remote-drift-check.md` → "Stop and re-verify plan"
+
+Both stops now happen *before* the fork, so neither leaves a worktree to collide
+with on re-pick. (`plan-approved-stop.md` was updated to say so.)
+
+The third — Step 7's risk-mitigation "before" stop — still reaches a real
+worktree, which is exactly why the reuse check was still required and was
+implemented.
+
+Nothing further to do here.
