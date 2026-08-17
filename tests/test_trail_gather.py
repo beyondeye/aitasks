@@ -846,6 +846,53 @@ class DriftableInputTests(TrailGatherCase):
 # --- E. Plan identity --------------------------------------------------------
 
 
+class PlanGlobRegexTests(unittest.TestCase):
+    """The identity-by-member rule itself (t1532). A parent's pattern must not
+    absorb its children's plan paths, and neither pattern may match `p<ID>`
+    mid-segment -- the old `(?:.*/)?` prefix did both."""
+
+    def test_parent_pattern_rejects_child_plan_path(self):
+        belongs = trail_gather.plan_glob_regex("1159")
+        self.assertIsNone(
+            belongs.search("aiplans/p1159/p1159_4_docs_and_integration.md"))
+        # Directory-less: a `(?<!/p<ID>/)` form would have too few preceding
+        # characters here and fail open.
+        self.assertIsNone(belongs.search("p1159/p1159_4_docs.md"))
+        self.assertIsNone(belongs.search("aiplans/archived/p1159/p1159_4_x.md"))
+
+    def test_parent_pattern_matches_its_own_plan(self):
+        belongs = trail_gather.plan_glob_regex("1159")
+        for path in ("aiplans/p1159_shadow_review_loop_automation.md",
+                     "p1159_root.md", "sub/aiplans/p1159_root.md",
+                     "aiplans/archived/p1159_root.md"):
+            self.assertIsNotNone(belongs.search(path), path)
+
+    def test_parent_pattern_is_id_exact(self):
+        self.assertIsNone(
+            trail_gather.plan_glob_regex("115").search("aiplans/p1159_root.md"))
+        self.assertIsNone(
+            trail_gather.plan_glob_regex("1159").search("aiplans/p11591_x.md"))
+
+    def test_pattern_requires_a_path_segment_boundary(self):
+        """`re.search` must not start mid-segment: a ref like
+        `aiplans/notp1159_root.md` would otherwise be attributed to member 1159
+        and shadow its real plan record."""
+        self.assertIsNone(
+            trail_gather.plan_glob_regex("1159").search(
+                "aiplans/notp1159_root.md"))
+        self.assertIsNone(
+            trail_gather.plan_glob_regex("1159_4").search(
+                "aiplans/notp1159/p1159_4_x.md"))
+
+    def test_child_pattern_matches_only_its_own_plan(self):
+        belongs = trail_gather.plan_glob_regex("1159_4")
+        for path in ("aiplans/p1159/p1159_4_docs_and_integration.md",
+                     "p1159/p1159_4_x.md"):
+            self.assertIsNotNone(belongs.search(path), path)
+        self.assertIsNone(
+            belongs.search("aiplans/p1159_shadow_review_loop_automation.md"))
+
+
 class PlanIdentityTests(TrailGatherCase):
     def setUp(self):
         super().setUp()
@@ -910,6 +957,53 @@ class PlanIdentityTests(TrailGatherCase):
         other = [d for c, _, d in result["reasons"] if c == "other"]
         self.assertEqual(len(other), 1)
         self.assertIn(self.repo.plan_ref(plan_b), other[0])
+
+    def _swap_plan_inputs(self, trail: Path, trail_id: str) -> Path:
+        """The same document with its plan_file records in the opposite order
+        (task_file records keep their positions). Attribution must not depend
+        on it (t1532)."""
+        doc = json.loads(trail.read_text())
+        inputs = doc["generation"]["inputs"]
+        reversed_plans = iter(
+            reversed([r for r in inputs if r["kind"] == "plan_file"]))
+        doc["generation"]["inputs"] = [
+            next(reversed_plans) if r["kind"] == "plan_file" else r
+            for r in inputs]
+        path = self.repo.root / f"{trail_id}.json"
+        path.write_text(json.dumps(doc, indent=1), encoding="utf-8")
+        return path
+
+    def test_parent_and_child_plans_current_in_both_input_orders(self):
+        """A trail carrying plan records for BOTH a parent and one of its
+        children must validate CURRENT whatever order they are stored in. The
+        parent's pattern used to match the child's path too, and attribution
+        takes the first match, so the gatherer's own order produced an
+        un-clearable `plan_changed` (t1532)."""
+        self.repo.write_plan("100", "root")
+        self.repo.write_plan("100_1", "child")
+        snap = self.snapshot("--scope", "task", "100")
+        # The gatherer emits the child plan FIRST ('/' sorts before '_'), and
+        # the skill instructs the author to copy that order verbatim. Pinned so
+        # this test cannot silently stop exercising the regression.
+        plan_refs = [f[-1] for f in snap["inputs"] if f[0] == "plan_file"]
+        self.assertTrue(plan_refs[0].endswith("p100/p100_1_child.md"),
+                        plan_refs)
+        gathered = self.make_trail(snap, entries=[
+            ("mainproj#100", self.entry_snapshot(snap, "mainproj#100")),
+            ("mainproj#100_1", self.entry_snapshot(snap, "mainproj#100_1")),
+        ])
+        swapped = self._swap_plan_inputs(gathered, "trail-plan-order-swapped")
+        results = {}
+        for label, trail in (("gathered order", gathered),
+                             ("swapped order", swapped)):
+            with self.subTest(order=label):
+                results[label] = self.drift(trail)
+                self.assertEqual(results[label]["verdict"], "CURRENT",
+                                 results[label]["raw"])
+                self.assertEqual(results[label]["reasons"], [],
+                                 results[label]["raw"])
+        self.assertEqual(results["gathered order"]["digest"],
+                         results["swapped order"]["digest"])
 
     def test_traversal_ref_contained(self):
         snap = self.snapshot("--scope", "task", "100")

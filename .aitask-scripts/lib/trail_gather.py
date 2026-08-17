@@ -375,11 +375,24 @@ def plan_path_for(row: TaskRow, tree: ProjectTree) -> Path | None:
 def plan_glob_regex(own_id: str) -> re.Pattern:
     """Regex over a plan ref's *relpath* deciding whether it belongs to the
     member `own_id` (the identity-by-member rule for plan_changed)."""
+    # `(?:^|.*/)`: `p<ID>` must START a path segment. The former `(?:.*/)?` made
+    # the directory prefix optional, and `re.search` then matched mid-segment --
+    # `aiplans/notp1159_root.md` was attributed to member 1159, shadowing its
+    # real plan record (t1532).
+    anchored = r"(?:^|.*/)"
     if "_" in own_id:
         parent, child = own_id.split("_", 1)
-        pat = rf"(?:.*/)?p{parent}/p{parent}_{child}_[^/]*\.md"
+        pat = anchored + rf"p{parent}/p{parent}_{child}_[^/]*\.md"
     else:
-        pat = rf"(?:.*/)?p{own_id}_[^/]*\.md"
+        # `(?<!p<ID>/)`: a parent's plan lives DIRECTLY in the plan dir; the
+        # `p<ID>/` subdir holds its children's plans. Without this guard the
+        # prefix consumes `aiplans/p<ID>/` and the parent's pattern also matches
+        # every child plan -- and because attribution takes the first match in
+        # stored-input order, and the gatherer emits the child's ref first
+        # ('/' < '_'), a faithfully-copied trail was reported STALE with an
+        # un-clearable `plan_changed` (t1532). The lookbehind omits the leading
+        # '/' so it also rejects a directory-less `p<ID>/p<ID>_<C>_*.md`.
+        pat = anchored + rf"(?<!p{own_id}/)p{own_id}_[^/]*\.md"
     return re.compile(pat + r"$")
 
 
