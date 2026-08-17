@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 08:31
-updated_at: 2026-08-17 12:07
+updated_at: 2026-08-17 16:37
 ---
 
 ## Problem
@@ -182,3 +183,8 @@ at Step 5 is followed by an immediate fork or a deferred one. It is immediate;
 the user's direction is that "the fork point should be after plan approval and
 after plan drift check", and that if the decision is split from the fork, the
 Step 5 prompt must say so.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-17T13:37:39Z status=pass attempt=1 type=human
