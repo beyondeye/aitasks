@@ -941,3 +941,52 @@ manual-verification follow-up) branch applies.
 Both directions are now proven at **every** geometry in the supported set, which
 is what the Step 1a ship rule requires and what the earlier fixture set did not
 actually deliver for the short-pane regime.
+
+### Change Request 2 (2026-08-17) — typed-phrase case was a scope FAILURE, not an edge case
+
+- **Requested by user:** the typed "Do you want to proceed?" fixture was an
+  explicit counterexample to the plan's own scope gate. The test asserted that
+  `_native_block_start` selects the **user-typed, lower** occurrence rather than
+  the real permission header, and there was no selection-pair / B4 assertion for
+  that state at all. Blocking; CONFIRMED.
+
+- **Verification of the premise.** The captured layout settles it: the typed text
+  lands **inside an option row** — the row reads `❯ 1. Yes, <typed text>` — and
+  `_boundary_index` takes the LAST match, so a substring anchor resolves the
+  boundary onto a line that **moves during selection**. That is precisely the
+  failure B4 exists to forbid, and it is reachable from **user input** rather than
+  from CLI churn, because the dialog's option 1 is editable via `Tab`. The earlier
+  test documented that hole instead of closing it.
+
+  It is worth being explicit that the previously-shipped behaviour was not merely
+  theoretical-but-safe: the typed selection pair happened to classify
+  `selection_only` only because the comparison slice `lines[:start]` **excludes
+  the boundary line itself**, so the moving line was skipped by accident of
+  layout. Nothing about that is a property; a copy whose index shifts between two
+  frames yields different `start_prev` / `start_curr`, unequal slices, and a
+  spurious `WORK`.
+
+- **Changes made — structural fix, not a documented exception.**
+  - `_CLAUDE_PERMISSION_RE` is now a **whole-line** anchor
+    (`^\s*Do you want to proceed\?\s*$`). The typed copy is rejected because its
+    line carries the option label; the real header still matches. Validated
+    against **all 58 captured dialog frames: 0 divergences** from the previous
+    substring anchor, so every B1/B2/B3/B4 verdict already recorded still holds.
+    This is the same technique, for the same reason, as `claude_trust_folder`'s
+    "each option line holds nothing but its label".
+  - Captured a **real selection pair in the typed state**
+    (`CLAUDE_AMEND_TYPED_SEL1/SEL2_RAW`) — the missing B4 evidence — and added it
+    to the `SelectionNeverClassifiesWorkTests` table as a named hostile state.
+  - The typed-phrase test now asserts the **safe** outcome: the boundary resolves
+    to the whole-line header, and strictly ABOVE the typed copy. Asserted as an
+    index identity against the whole-line occurrence rather than a literal, so
+    fixture and assertion cannot drift.
+  - Negative control **8**: revert the anchor to the substring form → the test
+    fails with `25 != 24`, i.e. the boundary lands on the option row.
+
+- **Files affected:** `.aitask-scripts/monitor/review_loop.py`,
+  `tests/review_loop_fixtures.py`, `tests/test_review_loop.py`.
+
+- **Disposition:** this is now a closed scope gate rather than an approved
+  exception — no exception policy is needed, and the generic help-bar / proceed
+  rows ship with the hostile state covered in both directions.
