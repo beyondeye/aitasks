@@ -307,13 +307,23 @@ assert_contains "plan-externalization: passes --profile with the profile path" \
 # misses a value carried on the continuation, which is exactly where an
 # interactively supplied branch would be substituted.
 PE_JOINED=$(printf '%s\n' "$PE_OUT" | sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}')
+# The trailing space is what distinguishes a value-carrying flag from its -file
+# form: `--base-branch-file <path>` is a PATH and must not be flagged here.
 literal_flag=$(printf '%s\n' "$PE_JOINED" \
     | grep -E '^\./\.aitask-scripts/aitask_plan_externalize\.sh' \
-    | grep -cE -- '--output-branch(-default)? ' || true)
+    | grep -cE -- '--(base-branch|output-branch(-default)?) ' || true)
 assert_eq "plan-externalization: no call-site substitutes a branch value" "0" "$literal_flag"
-# The interactive value must travel through the file channel instead.
+# The interactive value must travel through the file channel instead. Since t1277
+# the base branch is its own flag: the interactive answer is the RECORDED
+# `Base branch:` as well as the merge-target fallback, so routing it through the
+# legacy --output-branch-default-file would leave the header field on the primary.
 assert_contains "plan-externalization: interactive base uses the file channel" \
-    '--output-branch-default-file' "$PE_OUT"
+    '--base-branch-file' "$PE_OUT"
+# The per-field splice-intent rule is the caller-visible half of BASE_INTENT: a
+# call that supplies no base must not rewrite one. Prose here is load-bearing —
+# it is what stops a future caller from "simplifying" onto the legacy flag.
+assert_contains "plan-externalization: documents per-field splice opt-in" \
+    'an invocation that supplies no base never rewrites one' "$PE_OUT"
 # --profile must be conditional: active_profile_filename is null on manual/resume
 # invocations, and a constructed path would make the fail-closed helper abort.
 # Prose alone is not enough: an agent follows the command BLOCK. There must be a

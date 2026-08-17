@@ -397,12 +397,22 @@ Output branch: main
 ---
 ```
 
-**The header values are placeholders — substitute the real ones.** In particular
-`Output branch:` MUST carry the merge target resolved in Step 5, not the literal
-`main` shown above: `SKILL.md` Step 9 reads this field to decide where to merge,
-so copying the example verbatim under a profile setting `output_branch: dev`
-would silently land the work on `main`. When no output branch was resolved
-(current-branch mode), record the same value as `Base branch:`.
+**The header values are placeholders — substitute the real ones.** Both branch
+fields MUST carry what Step 5 resolved, not the literal `main` shown above, and
+they must come from that one resolution rather than from two different sources:
+
+- `Output branch:` is the merge target. `SKILL.md` Step 9 reads this field to
+  decide where to merge, so copying the example verbatim under a profile setting
+  `output_branch: dev` would silently land the work on `main`.
+- `Base branch:` is the branch the task branch is cut from — the Step-5 resolved
+  base (profile `base_branch`, else the branch the user chose). `SKILL.md`'s
+  **Re-entry Routing** resolves the branch context **from this header alone**, so
+  under a profile setting `base_branch: develop` a header reading `main` sends a
+  resumed session's drift check — and, once the fork is deferred, its worktree —
+  to the wrong branch.
+
+In **current-branch mode** neither branch is resolved (nothing is cut, nothing is
+merged): record the detected primary branch in both fields.
 
 {%- if 'risk_evaluated' in rendered_set %}
 **Risk-section guard (NON-SKIPPABLE when risk-gated — verifies the §6.1 terminal step ran):** This guard applies only when this task is **gated for risk evaluation** (the §6.1 check `./.aitask-scripts/aitask_gate.sh active <task_id> risk_evaluated` exited 0). If it is *not* risk-gated, skip the guard. Also skip if `cross_repo_planned` is true (a cross-repo parent has no single-task `## Risk` section). Otherwise, before proceeding to the Checkpoint, confirm the externalized plan file contains a `## Risk` section:

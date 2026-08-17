@@ -26,7 +26,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `skip_task_confirmation` | bool | no | `true` = auto-confirm task; omit or `false` = ask | Step 0b |
 | `default_email` | string | no | `"userconfig"` = from userconfig.yaml (falls back to first from emails.txt); `"first"` = first from emails.txt; or a literal email address; omit = ask. Note: `assigned_to` from task metadata always takes priority regardless of this setting (see Step 4 email resolution). | Step 4 |
 | `create_worktree` | bool | no | `true` = create worktree; `false` = current branch | Step 5 |
-| `base_branch` | string | no | Branch the task branch is cut from (e.g., `"main"`) | Step 5 |
+| `base_branch` | string | no | Branch the task branch is cut from (e.g., `"main"`). Recorded in the plan header as `Base branch:`, which is what Re-entry Routing and the resumed remote-drift check read; ignored (like `output_branch`) outside worktree mode | Step 5 (resolve), Step 6 (recorded in the plan header) |
 | `output_branch` | string | no | Branch the finished work is merged into (e.g., `"dev"`); omit to merge into the resolved `base_branch` | Step 5 (resolve), Step 9 (merge) |
 | `plan_preference` | string | no | `"use_current"`, `"verify"`, or `"create_new"` | Step 6.0 |
 | `plan_preference_child` | string | no | Same values as `plan_preference`; overrides `plan_preference` for child tasks. Defaults to `plan_preference` if omitted | Step 6.0 |

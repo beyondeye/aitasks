@@ -6,7 +6,7 @@ Detects whether `origin/<branch>` has commits the local `<branch>` is missing, w
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `base_branch` | string | Base branch from the plan metadata header (e.g., `main`) |
+| `base_branch` | string | The Step-5 resolved base branch (e.g., `main`) — equivalently the plan header's `Base branch:` field, which records that resolution. `planning.md`'s Checkpoint passes it from Step 5 context; **Re-entry Routing** binds it from the header. The two agree by construction (t1277) |
 | `output_branch` | string | Merge target, resolved from the plan header by the **same** two-rung rule `SKILL.md` Step 9 uses: the `Output branch:` field when present, otherwise `main`. Never `base_branch` — resolving it differently here would check a branch the workflow is not going to merge into |
 | `plan_file` | string | Path to the externalized plan file (e.g., `aiplans/p708_*.md`) |
 | `active_profile` | object/null | Loaded execution profile (or null) |

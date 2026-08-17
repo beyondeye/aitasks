@@ -315,16 +315,24 @@ run_externalize "$TMPDIR7H" "$TMPDIR7H/fakehome/.claude/plans" 999 --force \
     --profile "$TMPDIR7H/prof/p.yaml" >/dev/null
 out_field=$(grep '^Output branch:' "$TMPDIR7H/aiplans/p999_sandbox_task.md" || true)
 assert_eq "profile base_branch becomes the merge target" "Output branch: dev" "$out_field"
+# t1277: the profile's base_branch is now ALSO the recorded base. Both fields in
+# one header derive from one resolution -- previously this read `main` while the
+# merge target read `dev`, and Re-entry Routing consumed the wrong one.
 base_field=$(grep '^Base branch:' "$TMPDIR7H/aiplans/p999_sandbox_task.md" || true)
-assert_eq "Base branch field is untouched by the fallback" "Base branch: main" "$base_field"
+assert_eq "profile base_branch is also the recorded base" "Base branch: dev" "$base_field"
 
-# Interactively chosen base branch (not in the profile) reaches the same place.
+# The LEGACY flag still reaches the merge target -- and, unlike --base-branch,
+# still leaves `Base branch:` alone. That base-neutrality is the whole reason the
+# flag is retained (t1277); an interactively chosen base goes through
+# --base-branch-file instead (Test 14).
 printf 'name: p\n' > "$TMPDIR7H/prof/bare.yaml"
 make_fresh_internal "$TMPDIR7H/fakehome/.claude/plans/one-recent.md"
 run_externalize "$TMPDIR7H" "$TMPDIR7H/fakehome/.claude/plans" 999 --force \
     --profile "$TMPDIR7H/prof/bare.yaml" --output-branch-default release >/dev/null
 out_field=$(grep '^Output branch:' "$TMPDIR7H/aiplans/p999_sandbox_task.md" || true)
-assert_eq "interactive base branch becomes the merge target" "Output branch: release" "$out_field"
+assert_eq "legacy default becomes the merge target" "Output branch: release" "$out_field"
+base_field=$(grep '^Base branch:' "$TMPDIR7H/aiplans/p999_sandbox_task.md" || true)
+assert_eq "legacy default stays base-neutral" "Base branch: main" "$base_field"
 
 # An explicit output_branch still wins over the base-branch fallback.
 printf 'name: p\nbase_branch: dev\noutput_branch: staging\n' > "$TMPDIR7H/prof/both.yaml"
@@ -477,6 +485,10 @@ run_externalize "$TMPDIR7N" "$TMPDIR7N/fakehome/.claude/plans" 999 --force \
     --profile "$TMPDIR7N/prof/nw.yaml" >/dev/null
 out_field=$(grep '^Output branch:' "$TMPDIR7N/aiplans/p999_sandbox_task.md" || true)
 assert_eq "no-worktree suppresses the base_branch fallback too" "Output branch: main" "$out_field"
+# ...and the recorded base is suppressed with it: nothing is cut in current-branch
+# mode, so `base_branch: dev` must not be presented as the fork point (t1277).
+base_field=$(grep '^Base branch:' "$TMPDIR7N/aiplans/p999_sandbox_task.md" || true)
+assert_eq "no-worktree suppresses the recorded base too" "Base branch: main" "$base_field"
 
 # A stale value already in the source frontmatter must be overwritten, not kept.
 cat > "$TMPDIR7N/fakehome/.claude/plans/with_front.md" <<'EOF'
@@ -593,6 +605,54 @@ out_field=$(grep '^Output branch:' "$TMPDIR7R/aiplans/p999_sandbox_task.md" || t
 assert_eq "no-profile --no-worktree clears the stale target" "Output branch: main" "$out_field"
 rm -rf "$TMPDIR7R"
 
+# --- Test 7s: characterization of the whole Output branch resolution matrix ---
+# The individual rungs are asserted piecemeal above (7d/7g/7h/7j/7n), which is
+# enough to catch a rung that stops working but NOT enough to catch a rung that
+# starts outranking another. This table pins every combination in one place so
+# any reshuffle of the precedence chain is a named failure rather than a merge
+# to the wrong branch discovered at Step 9. Written BEFORE t1277 touched the
+# chain, and required to stay green through it.
+echo "--- Test 7s: Output branch resolution matrix ---"
+TMPDIR7S=$(new_sandbox)
+mkdir -p "$TMPDIR7S/prof"
+printf 'release\n' > "$TMPDIR7S/release.txt"
+
+# label | profile body ('-' = pass no --profile) | extra flags | expected Output branch
+while IFS='|' read -r s_label s_prof s_extra s_expect; do
+    [ -n "$s_label" ] || continue
+    s_prof_flag=""
+    if [ "$s_prof" != "-" ]; then
+        { printf 'name: p\n'; printf '%b' "$s_prof"; } > "$TMPDIR7S/prof/case.yaml"
+        s_prof_flag="--profile $TMPDIR7S/prof/case.yaml"
+    fi
+    s_extra=${s_extra//@BRANCHFILE@/$TMPDIR7S/release.txt}
+    make_fresh_internal "$TMPDIR7S/fakehome/.claude/plans/one-recent.md"
+    # shellcheck disable=SC2086  # deliberate word-splitting of the flag lists
+    run_externalize "$TMPDIR7S" "$TMPDIR7S/fakehome/.claude/plans" 999 --force \
+        $s_prof_flag $s_extra >/dev/null </dev/null
+    out_field=$(grep '^Output branch:' "$TMPDIR7S/aiplans/p999_sandbox_task.md" || true)
+    assert_eq "output matrix [$s_label]" "Output branch: $s_expect" "$out_field"
+done <<'CASES'
+no flags at all|-||main
+--output-branch|-|--output-branch dev|dev
+profile output_branch|output_branch: dev\n||dev
+profile output_branch + --output-branch|output_branch: dev\n|--output-branch staging|staging
+--output-branch-default|-|--output-branch-default release|release
+--output-branch-default-file|-|--output-branch-default-file @BRANCHFILE@|release
+profile base_branch|base_branch: dev\n||dev
+profile base_branch + --output-branch-default|base_branch: dev\n|--output-branch-default release|release
+profile base_branch + profile output_branch|base_branch: dev\noutput_branch: staging\n||staging
+profile base_branch + --output-branch|base_branch: dev\n|--output-branch staging|staging
+--no-worktree|-|--no-worktree|main
+--output-branch + --no-worktree|-|--output-branch dev --no-worktree|main
+profile output_branch + --no-worktree|output_branch: dev\n|--no-worktree|main
+profile base_branch + --no-worktree|base_branch: dev\n|--no-worktree|main
+--output-branch-default + --no-worktree|-|--output-branch-default release --no-worktree|main
+create_worktree false + output_branch|create_worktree: false\noutput_branch: dev\n||main
+create_worktree false + base_branch|create_worktree: false\nbase_branch: dev\n||main
+CASES
+rm -rf "$TMPDIR7S"
+
 # --- Test 8: AIT_PLAN_EXTERNALIZE_MAX_AGE_SECS widens window ---
 echo "--- Test 8: age-window env var ---"
 TMPDIR8=$(new_sandbox)
@@ -690,6 +750,266 @@ assert_eq "master-default: Output branch defaults to master" "Output branch: mas
 branch_field=$(grep -c '^Branch:' "$TMPDIR13/aiplans/p999_sandbox_task.md" || true)
 assert_eq "master-default: no Branch line when on primary" "0" "$branch_field"
 rm -rf "$TMPDIR13"
+
+# --- Test 14: `Base branch:` records the RESOLVED base branch (t1277) ---
+# Before t1277 this field came from detect_primary_branch() regardless of what
+# Step 5 resolved, so a `base_branch: develop` profile produced a header reading
+# `Base branch: main` while `Output branch:` in the SAME header read `develop`.
+# Re-entry Routing resolves both branches from this header alone, so the field is
+# what a resumed session cuts its worktree from -- not merely a label.
+echo "--- Test 14: Base branch records the resolved base ---"
+TMPDIR14=$(new_sandbox)
+mkdir -p "$TMPDIR14/prof"
+
+# Reads both header fields of the sandbox plan into base_field / out_field.
+read_header_fields_14() {
+    base_field=$(grep '^Base branch:' "$TMPDIR14/aiplans/p999_sandbox_task.md" || true)
+    out_field=$(grep '^Output branch:' "$TMPDIR14/aiplans/p999_sandbox_task.md" || true)
+}
+
+# The headline acceptance: a profile base_branch reaches the header field.
+printf 'name: p\nbase_branch: develop\n' > "$TMPDIR14/prof/dev.yaml"
+make_fresh_internal "$TMPDIR14/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --force \
+    --profile "$TMPDIR14/prof/dev.yaml" >/dev/null
+read_header_fields_14
+assert_eq "profile base_branch: recorded base" "Base branch: develop" "$base_field"
+assert_eq "profile base_branch: merge target defaults to it" "Output branch: develop" "$out_field"
+
+# --base-branch with no profile at all (manual / resume invocations).
+make_fresh_internal "$TMPDIR14/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --force \
+    --base-branch develop >/dev/null
+read_header_fields_14
+assert_eq "--base-branch: recorded base" "Base branch: develop" "$base_field"
+assert_eq "--base-branch: merge target defaults to it" "Output branch: develop" "$out_field"
+
+# The file channel, for a base branch the user chose interactively. Passing such a
+# value on a command line would let "develop$(id -u)" expand before the helper
+# could validate it; a file is never shell-evaluated.
+printf 'develop\n' > "$TMPDIR14/base.txt"
+make_fresh_internal "$TMPDIR14/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --force \
+    --base-branch-file "$TMPDIR14/base.txt" >/dev/null
+read_header_fields_14
+assert_eq "--base-branch-file: recorded base" "Base branch: develop" "$base_field"
+assert_eq "--base-branch-file: merge target defaults to it" "Output branch: develop" "$out_field"
+
+printf 'develop$(id -u)\n' > "$TMPDIR14/base.txt"
+make_fresh_internal "$TMPDIR14/fakehome/.claude/plans/one-recent.md"
+if run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --force \
+        --base-branch-file "$TMPDIR14/base.txt" >/dev/null 2>&1; then
+    assert_eq "--base-branch-file rejects an unsafe value" "rejected" "accepted"
+else
+    assert_eq "--base-branch-file rejects an unsafe value" "rejected" "rejected"
+fi
+leaked=$(grep -c "$(id -u)" "$TMPDIR14/aiplans/p999_sandbox_task.md" || true)
+assert_eq "--base-branch-file payload did not execute" "0" "$leaked"
+
+# Same fail-closed shape as the output value file: one line, non-empty, present.
+printf 'develop\nstaging\n' > "$TMPDIR14/two.txt"
+: > "$TMPDIR14/empty.txt"
+for bad in two empty missing; do
+    make_fresh_internal "$TMPDIR14/fakehome/.claude/plans/one-recent.md"
+    if run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --force \
+            --base-branch-file "$TMPDIR14/$bad.txt" >/dev/null 2>&1; then
+        assert_eq "--base-branch-file fails closed: $bad" "died" "succeeded"
+    else
+        assert_eq "--base-branch-file fails closed: $bad" "died" "died"
+    fi
+done
+
+# Unsafe direct values are rejected too, and a missing argument is a usage error.
+for payload in 'dev$(id -u)' 'dev`id`' "dev'x" 'dev;id' 'dev branch'; do
+    make_fresh_internal "$TMPDIR14/fakehome/.claude/plans/one-recent.md"
+    if run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --force \
+            --base-branch "$payload" >/dev/null 2>&1; then
+        assert_eq "unsafe --base-branch rejected: $payload" "rejected" "accepted"
+    else
+        assert_eq "unsafe --base-branch rejected: $payload" "rejected" "rejected"
+    fi
+done
+if run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --base-branch >/dev/null 2>&1; then
+    assert_eq "missing --base-branch arg exits non-zero" "nonzero" "zero"
+else
+    assert_eq "missing --base-branch arg exits non-zero" "nonzero" "nonzero"
+fi
+
+# No base resolved at all -> the detected primary, i.e. behaviour unchanged. This
+# is the clause Tests 1 and 13 also cover, restated beside the new behaviour.
+make_fresh_internal "$TMPDIR14/fakehome/.claude/plans/one-recent.md"
+run_externalize "$TMPDIR14" "$TMPDIR14/fakehome/.claude/plans" 999 --force \
+    --output-branch-default release >/dev/null
+read_header_fields_14
+assert_eq "legacy default alone: base stays the primary" "Base branch: main" "$base_field"
+assert_eq "legacy default alone: it still sets the merge target" "Output branch: release" "$out_field"
+rm -rf "$TMPDIR14"
+
+# --- Test 14b: precedence boundaries, one collision per row ---
+# Each rung is exercised in isolation above, which cannot catch a rung that starts
+# outranking another. An assignment landing in the wrong order would pick the
+# wrong fork point or the wrong merge target while every isolated case still
+# passed, so every boundary gets a named row asserting BOTH fields.
+echo "--- Test 14b: base/output precedence boundaries ---"
+TMPDIR14B=$(new_sandbox)
+mkdir -p "$TMPDIR14B/prof"
+printf 'beta\n'  > "$TMPDIR14B/beta.txt"
+printf 'alpha\n' > "$TMPDIR14B/alpha.txt"
+
+# label | profile body ('-' = no --profile) | extra flags | expected base | expected output
+while IFS='|' read -r b_label b_prof b_extra b_base b_out; do
+    [ -n "$b_label" ] || continue
+    b_prof_flag=""
+    if [ "$b_prof" != "-" ]; then
+        { printf 'name: p\n'; printf '%b' "$b_prof"; } > "$TMPDIR14B/prof/case.yaml"
+        b_prof_flag="--profile $TMPDIR14B/prof/case.yaml"
+    fi
+    b_extra=${b_extra//@BETA@/$TMPDIR14B/beta.txt}
+    b_extra=${b_extra//@ALPHA@/$TMPDIR14B/alpha.txt}
+    make_fresh_internal "$TMPDIR14B/fakehome/.claude/plans/one-recent.md"
+    # shellcheck disable=SC2086  # deliberate word-splitting of the flag lists
+    run_externalize "$TMPDIR14B" "$TMPDIR14B/fakehome/.claude/plans" 999 --force \
+        $b_prof_flag $b_extra >/dev/null </dev/null
+    base_field=$(grep '^Base branch:' "$TMPDIR14B/aiplans/p999_sandbox_task.md" || true)
+    out_field=$(grep '^Output branch:' "$TMPDIR14B/aiplans/p999_sandbox_task.md" || true)
+    assert_eq "precedence [$b_label] base" "Base branch: $b_base" "$base_field"
+    assert_eq "precedence [$b_label] output" "Output branch: $b_out" "$out_field"
+done <<'CASES'
+base-file beats base-flag|-|--base-branch alpha --base-branch-file @BETA@|beta|beta
+base-file beats base-flag (reversed)|-|--base-branch-file @BETA@ --base-branch alpha|beta|beta
+base-flag beats profile base_branch|base_branch: dev\n|--base-branch alpha|alpha|alpha
+base-file beats profile base_branch|base_branch: dev\n|--base-branch-file @ALPHA@|alpha|alpha
+output-flag does not disturb base-flag|-|--output-branch staging --base-branch alpha|alpha|staging
+output-flag does not disturb profile base|base_branch: dev\n|--output-branch staging|dev|staging
+legacy default outranks the base rung|-|--base-branch alpha --output-branch-default release|alpha|release
+profile output_branch outranks the base rung|base_branch: dev\noutput_branch: staging\n||dev|staging
+CASES
+rm -rf "$TMPDIR14B"
+
+# --- Test 14c: the splice never moves a field its caller said nothing about ---
+# Every row starts from a source whose frontmatter ALREADY carries both fields, so
+# a spurious rewrite is visible. Tests 7b/7c cannot see this: their sources have no
+# `Base branch:` line at all, so an unwanted rewrite there looks like an insert.
+echo "--- Test 14c: per-field splice intent on existing frontmatter ---"
+TMPDIR14C=$(new_sandbox)
+mkdir -p "$TMPDIR14C/prof"
+rm -f "$TMPDIR14C/fakehome/.claude/plans/one-recent.md"
+printf 'develop\n' > "$TMPDIR14C/base.txt"
+
+make_stale_front_14c() {
+    cat > "$TMPDIR14C/fakehome/.claude/plans/with_front.md" <<'EOF'
+---
+Task: t999_sandbox_task.md
+Base branch: stale
+Output branch: stale
+---
+
+# body
+EOF
+}
+
+# label | profile body ('-' = no --profile) | extra flags | expected base | expected output
+while IFS='|' read -r c_label c_prof c_extra c_base c_out; do
+    [ -n "$c_label" ] || continue
+    c_prof_flag=""
+    if [ "$c_prof" != "-" ]; then
+        { printf 'name: p\n'; printf '%b' "$c_prof"; } > "$TMPDIR14C/prof/case.yaml"
+        c_prof_flag="--profile $TMPDIR14C/prof/case.yaml"
+    fi
+    c_extra=${c_extra//@BASEFILE@/$TMPDIR14C/base.txt}
+    make_stale_front_14c
+    # shellcheck disable=SC2086  # deliberate word-splitting of the flag lists
+    run_externalize "$TMPDIR14C" "$TMPDIR14C/fakehome/.claude/plans" 999 --force \
+        $c_prof_flag $c_extra >/dev/null </dev/null
+    plan="$TMPDIR14C/aiplans/p999_sandbox_task.md"
+    base_field=$(grep '^Base branch:' "$plan" || true)
+    out_field=$(grep '^Output branch:' "$plan" || true)
+    assert_eq "splice intent [$c_label] base" "Base branch: $c_base" "$base_field"
+    assert_eq "splice intent [$c_label] output" "Output branch: $c_out" "$out_field"
+    # An insert-instead-of-replace bug would duplicate a field or break the block.
+    assert_eq "splice intent [$c_label] frontmatter intact" "2" "$(grep -c '^---$' "$plan" || true)"
+    assert_eq "splice intent [$c_label] one base line" "1" "$(grep -c '^Base branch:' "$plan" || true)"
+    assert_eq "splice intent [$c_label] one output line" "1" "$(grep -c '^Output branch:' "$plan" || true)"
+done <<'CASES'
+--output-branch claims output only|-|--output-branch dev|stale|dev
+legacy default claims output only|-|--output-branch-default release|stale|release
+profile with only output_branch|output_branch: dev\n||stale|dev
+profile with neither key|description: bare\n||stale|main
+--base-branch claims both|-|--base-branch develop|develop|develop
+--base-branch-file claims both|-|--base-branch-file @BASEFILE@|develop|develop
+profile base_branch claims both|base_branch: dev\n||dev|dev
+--no-worktree asserts there is no fork|-|--no-worktree|main|main
+create_worktree false asserts the same|create_worktree: false\nbase_branch: dev\n||main|main
+CASES
+rm -rf "$TMPDIR14C"
+
+# --- Test 14d: --base-branch-file is read AFTER the short-circuit ---
+# The base counterpart of Test 7q. Step 8 reuses the same branch flags and the
+# scratch file may already be gone, so a no-op call must still short-circuit; a
+# call that would actually write the header must still fail closed. The pair is
+# what stops a future refactor from hoisting the read (breaking the no-op) or from
+# making the writing call silently fall back to the primary.
+echo "--- Test 14d: --base-branch-file across the PLAN_EXISTS short-circuit ---"
+TMPDIR14D=$(new_sandbox)
+printf 'develop\n' > "$TMPDIR14D/base.txt"
+make_fresh_internal "$TMPDIR14D/fakehome/.claude/plans/one-recent.md"
+result=$(run_externalize "$TMPDIR14D" "$TMPDIR14D/fakehome/.claude/plans" 999 --force \
+    --base-branch-file "$TMPDIR14D/base.txt" 2>&1)
+assert_contains "step 6 externalizes with a base file" "EXTERNALIZED:" "$result"
+base_field=$(grep '^Base branch:' "$TMPDIR14D/aiplans/p999_sandbox_task.md" || true)
+assert_eq "step 6 records the interactive base" "Base branch: develop" "$base_field"
+
+rm -f "$TMPDIR14D/base.txt"          # the documented cleanup
+# `|| true` so a regression reports FAIL instead of aborting the suite under
+# `set -e` -- an aborted run shows zero failures and silently proves nothing.
+result=$(run_externalize "$TMPDIR14D" "$TMPDIR14D/fakehome/.claude/plans" 999 \
+    --base-branch-file "$TMPDIR14D/base.txt" 2>&1 || true)
+assert_contains "step 8 short-circuits despite the removed base file" "PLAN_EXISTS:" "$result"
+base_field=$(grep '^Base branch:' "$TMPDIR14D/aiplans/p999_sandbox_task.md" || true)
+assert_eq "step 8 leaves the recorded base intact" "Base branch: develop" "$base_field"
+
+if run_externalize "$TMPDIR14D" "$TMPDIR14D/fakehome/.claude/plans" 999 --force \
+        --base-branch-file "$TMPDIR14D/base.txt" >/dev/null 2>&1; then
+    assert_eq "a writing call still fails closed on a missing base file" "died" "succeeded"
+else
+    assert_eq "a writing call still fails closed on a missing base file" "died" "died"
+fi
+rm -rf "$TMPDIR14D"
+
+# --- Test 14e: the shared value-file reader keeps its two consumers apart ---
+# read_branch_value_file() returns through a shared global and now has two call
+# sites, so both file flags in one invocation is a new path: correctness rests on
+# each call copying the result before the next overwrites it. A
+# copy-after-both-reads mistake would make one file supply both branches.
+echo "--- Test 14e: both value-file flags in one invocation ---"
+TMPDIR14E=$(new_sandbox)
+printf 'develop\n' > "$TMPDIR14E/base.txt"
+printf 'release\n' > "$TMPDIR14E/out.txt"
+printf 'staging\n' > "$TMPDIR14E/staging.txt"
+printf 'beta\n'    > "$TMPDIR14E/beta.txt"
+
+# label | extra flags | expected base | expected output
+while IFS='|' read -r e_label e_extra e_base e_out; do
+    [ -n "$e_label" ] || continue
+    e_extra=${e_extra//@BASE@/$TMPDIR14E/base.txt}
+    e_extra=${e_extra//@OUT@/$TMPDIR14E/out.txt}
+    e_extra=${e_extra//@STAGING@/$TMPDIR14E/staging.txt}
+    e_extra=${e_extra//@BETA@/$TMPDIR14E/beta.txt}
+    make_fresh_internal "$TMPDIR14E/fakehome/.claude/plans/one-recent.md"
+    # shellcheck disable=SC2086  # deliberate word-splitting of the flag list
+    run_externalize "$TMPDIR14E" "$TMPDIR14E/fakehome/.claude/plans" 999 --force \
+        $e_extra >/dev/null </dev/null
+    base_field=$(grep '^Base branch:' "$TMPDIR14E/aiplans/p999_sandbox_task.md" || true)
+    out_field=$(grep '^Output branch:' "$TMPDIR14E/aiplans/p999_sandbox_task.md" || true)
+    assert_eq "value files [$e_label] base" "Base branch: $e_base" "$base_field"
+    assert_eq "value files [$e_label] output" "Output branch: $e_out" "$out_field"
+done <<'CASES'
+both file flags|--base-branch-file @BASE@ --output-branch-default-file @OUT@|develop|release
+both file flags reversed|--output-branch-default-file @OUT@ --base-branch-file @BASE@|develop|release
+legacy file wins over legacy flag|--output-branch-default release --output-branch-default-file @STAGING@|main|staging
+base file wins over base flag|--base-branch alpha --base-branch-file @BETA@|beta|beta
+CASES
+rm -rf "$TMPDIR14E"
 
 # --- Results ---
 

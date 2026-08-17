@@ -8,7 +8,7 @@
 #   - aitask_issue_import.sh inject_merge_frontmatter
 #   - aitask_plan_verified.sh cmd_append          (rewrites a plan)
 #   - aitask_gate_pass.sh  witness write          (re-signs a witness)
-#   - aitask_plan_externalize.sh  copy path + splice_output_branch
+#   - aitask_plan_externalize.sh  copy path + splice_header_branches
 #   - aitask_projects.sh   registry rewrite        (re-pointed onto the helper)
 #
 # WHAT EACH ASSERTION PROVES — they are not interchangeable:
@@ -496,9 +496,9 @@ IFS='|' read -r x_nrc x_nbody < "$REPO/.result"
 assert_eq "externalize: succeeds with an unusable TMPDIR" "0" "$x_nrc"
 assert_eq "externalize: and still writes the plan" "1" "$x_nbody"
 
-# The splice path (splice_output_branch) is a SEPARATE renderer: it fires only
+# The splice path (splice_header_branches) is a SEPARATE renderer: it fires only
 # when the source already carries frontmatter, so build_header is skipped and
-# `Output branch:` has to be spliced into the existing block.
+# the branch fields have to be spliced into the existing block.
 REPO="$(make_repo)"
 (
     cd "$REPO"
@@ -533,7 +533,7 @@ assert_eq "externalize/splice: no staging residue" "0" "$s_res"
 assert_eq "externalize/splice: no temp left behind in TMPDIR" "0" "$s_tmpn"
 assert_eq "externalize/splice: Output branch was spliced" "1" "$s_field"
 
-# splice_output_branch is a SECOND renderer with its own former $TMPDIR temp, so
+# splice_header_branches is a SECOND renderer with its own former $TMPDIR temp, so
 # it needs its own discriminator: the copy path's probe above runs a source
 # WITHOUT frontmatter, where build_header fires and the splice never does.
 (

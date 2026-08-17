@@ -10,7 +10,9 @@
 #
 # Usage:
 #   aitask_plan_externalize.sh <task_id> [--internal <path>] [--force]
-#                             [--profile <path>] [--output-branch <branch>]
+#                             [--profile <path>] [--base-branch <branch>]
+#                             [--base-branch-file <path>]
+#                             [--output-branch <branch>]
 #                             [--output-branch-default <branch>]
 #                             [--output-branch-default-file <path>] [--no-worktree]
 #
@@ -24,24 +26,51 @@
 #                        YAML parser. Passing a PATH (not a branch value) keeps a
 #                        user-authored branch name out of the caller's command
 #                        line. Fails closed if missing/malformed/non-mapping.
+#   --base-branch <b>    The Step-5 RESOLVED base branch. Recorded as
+#                        `Base branch:` and used as the last-resort merge target
+#                        ("output defaults to base"). Wins over the profile.
+#   --base-branch-file <path>
+#                        Same as --base-branch, but reads the value from a FILE so
+#                        an interactively chosen branch name never has to be
+#                        substituted into a command line ("release$(id -u)" would
+#                        expand there). Preferred for any value that did not come
+#                        from a profile. If both forms are given the FILE wins,
+#                        whatever the argument order.
 #   --output-branch <b>  Explicit merge target; wins over the profile.
 #   --output-branch-default-file <path>
-#                        Same as --output-branch-default, but reads the value
-#                        from a FILE so an interactively supplied branch name
-#                        never has to be substituted into a command line
-#                        ("release$(id -u)" would expand there). Preferred for
-#                        any value that did not come from a profile.
+#                        Same as --output-branch-default, but via the file channel.
 #   --output-branch-default <b>
-#                        Merge target used when the profile sets no
-#                        `output_branch` -- i.e. the Step-5 resolved base branch,
-#                        which is the documented "defaults to base_branch"
-#                        behaviour. Does NOT change the recorded `Base branch:`.
-#   --no-worktree        Step 5 created no worktree, so `output_branch` does not
-#                        apply and is ignored.
+#                        LEGACY, base-neutral merge-target default: used when the
+#                        profile sets no `output_branch`, and deliberately does
+#                        NOT change the recorded `Base branch:`. Superseded by
+#                        --base-branch[-file], which the workflow passes instead;
+#                        kept for callers that want a merge-target default without
+#                        making any claim about the base branch.
+#   --no-worktree        Step 5 created no worktree, so neither `base_branch` nor
+#                        `output_branch` applies; both fall back to the detected
+#                        primary branch.
 #
-# The `Output branch:` header field is consumed by task-workflow Step 9 and is
-# applied on both header paths: built into a fresh header, and spliced into a
-# source plan that already carries frontmatter.
+# Resolution precedence (t1233 for output, t1277 for base):
+#
+#   Base branch:    --base-branch[-file] > profile base_branch > detected primary
+#   Output branch:  --output-branch > profile output_branch
+#                 > --output-branch-default[-file]
+#                 > the resolved base (--base-branch[-file] / profile base_branch)
+#                 > detected primary
+#
+# Outside worktree mode (--no-worktree / `create_worktree: false`) every derived
+# value on BOTH chains is discarded and the detected primary is recorded.
+#
+# Both header fields are consumed by task-workflow -- `Output branch:` by Step 9's
+# merge, `Base branch:` by Re-entry Routing (which resolves the branch context
+# from the plan header alone) -- and both are applied on both header paths: built
+# into a fresh header, and spliced into a source plan that already carries
+# frontmatter.
+#
+# The splice is intent-gated per field: an invocation that supplies no base
+# (--output-branch, --output-branch-default[-file], or a --profile whose YAML has
+# no `base_branch`) leaves an existing `Base branch:` line alone rather than
+# inventing the primary branch for it. See BASE_INTENT below.
 #
 # Environment:
 #   AIT_PLAN_EXTERNALIZE_INTERNAL_DIR   Override internal plans dir
@@ -87,7 +116,9 @@ MAX_AGE_SECS="${AIT_PLAN_EXTERNALIZE_MAX_AGE_SECS:-3600}"
 usage() {
     cat <<'EOF'
 Usage: aitask_plan_externalize.sh <task_id> [--internal <path>] [--force]
-                                  [--profile <path>] [--output-branch <branch>]
+                                  [--profile <path>] [--base-branch <branch>]
+                                  [--base-branch-file <path>]
+                                  [--output-branch <branch>]
                                   [--output-branch-default <branch>]
                                   [--output-branch-default-file <path>] [--no-worktree]
 
@@ -101,15 +132,27 @@ Arguments:
   --profile <path>     Execution-profile YAML; output_branch / base_branch /
                        create_worktree are read from it with a real YAML parser.
                        Fails closed if missing, malformed or not a mapping.
+  --base-branch <b>    The Step-5 resolved base branch: recorded as
+                       `Base branch:` and used as the last-resort merge target.
+  --base-branch-file <path>
+                       Read the base branch from a file (safe channel for
+                       interactively chosen values). Wins over --base-branch.
   --output-branch <b>  Explicit merge target; wins over the profile.
   --output-branch-default-file <path>
-                       Read the fallback branch from a file (safe channel for
-                       interactively supplied values).
+                       Read the legacy fallback branch from a file.
   --output-branch-default <b>
-                       Merge target when the profile sets no output_branch
-                       (the Step-5 resolved base branch). Does not change the
-                       recorded `Base branch:` field.
-  --no-worktree        No worktree was created, so output_branch is ignored.
+                       LEGACY base-neutral merge-target default, used when the
+                       profile sets no output_branch. Does not change the
+                       recorded `Base branch:` field; superseded by
+                       --base-branch[-file].
+  --no-worktree        No worktree was created, so base_branch and output_branch
+                       are both ignored.
+
+Precedence:
+  Base branch:   --base-branch[-file] > profile base_branch > detected primary
+  Output branch: --output-branch > profile output_branch
+               > --output-branch-default[-file]
+               > resolved base > detected primary
 
 Output (exit 0):
   PLAN_EXISTS:<path>                  Already externalized (no-op)
@@ -125,12 +168,16 @@ EOF
 TASK_ID=""
 INTERNAL_OVERRIDE=""
 FORCE=false
+BASE_BRANCH_OVERRIDE=""
+BASE_BRANCH_FILE=""
 OUTPUT_BRANCH_OVERRIDE=""
 OUTPUT_BRANCH_DEFAULT=""
 OUTPUT_BRANCH_DEFAULT_FILE=""
 PROFILE_FILE=""
 WORKTREE_MODE=true
 OUTPUT_INTENT=false
+# Derived after the profile is parsed -- see the BASE_INTENT block below.
+BASE_INTENT=false
 
 # Validate a branch name against a shell-safe subset. Git itself accepts refs
 # like 'dev$(id)', 'dev`id`' and "dev'x"; this value is persisted into the plan
@@ -143,6 +190,30 @@ validate_branch_name() {
         || die "$src: unsafe branch name '$b' (allowed: A-Z a-z 0-9 . _ / -)"
     git check-ref-format --branch "$b" >/dev/null 2>&1 \
         || die "$src: not a valid git branch name: '$b'"
+}
+
+# Read a single branch name out of a value FILE. Shared by --base-branch-file and
+# --output-branch-default-file so the one-line / empty / unsafe rejections live in
+# one place.
+#
+# Returns the value in the global BRANCH_VALUE_FILE_RESULT rather than on stdout:
+# `die` inside a $( ) would only kill the command-substitution subshell, so a
+# printing helper would report its error and then let the caller carry on with an
+# empty value. Each call site MUST copy the result into its own variable before
+# the next call runs -- both flags may be supplied in one invocation.
+BRANCH_VALUE_FILE_RESULT=""
+read_branch_value_file() {
+    local path="$1" flag="$2"
+    local _lines=()
+    [[ -f "$path" ]] || die "$flag: no such file: '$path'"
+    # Read the COMPLETE logical value: head -n1 would silently turn an invalid
+    # multi-line file into a different branch name instead of rejecting it.
+    mapfile -t _lines < "$path"
+    [[ ${#_lines[@]} -eq 1 ]] \
+        || die "$flag: '$path' must contain exactly one branch name (found ${#_lines[@]} line(s))"
+    [[ -n "${_lines[0]}" ]] || die "$flag: '$path' is empty"
+    validate_branch_name "${_lines[0]}" "$flag"
+    BRANCH_VALUE_FILE_RESULT="${_lines[0]}"
 }
 
 # Read the branch-relevant fields out of a profile YAML with a real parser, as
@@ -208,6 +279,25 @@ while [[ $# -gt 0 ]]; do
         --profile)
             [[ $# -ge 2 ]] || die "--profile requires a path argument"
             PROFILE_FILE="$2"
+            OUTPUT_INTENT=true
+            shift 2
+            ;;
+        --base-branch)
+            # The Step-5 RESOLVED base branch. Unlike --output-branch-default this
+            # DOES change the recorded `Base branch:` -- it is the same value, and
+            # recording the detected primary instead is the t1277 bug.
+            [[ $# -ge 2 ]] || die "--base-branch requires a branch argument"
+            validate_branch_name "$2" "--base-branch"
+            BASE_BRANCH_OVERRIDE="$2"
+            OUTPUT_INTENT=true
+            shift 2
+            ;;
+        --base-branch-file)
+            # Path only; the read is deferred past the already-externalized
+            # short-circuit, exactly as for --output-branch-default-file, so a
+            # no-op Step 8 call whose scratch file is gone still emits PLAN_EXISTS.
+            [[ $# -ge 2 ]] || die "--base-branch-file requires a path argument"
+            BASE_BRANCH_FILE="$2"
             OUTPUT_INTENT=true
             shift 2
             ;;
@@ -329,27 +419,31 @@ fi
 # Resolution inputs are read here -- AFTER the short-circuit above -- so a
 # no-op call whose scratch value file has already been cleaned up still returns
 # PLAN_EXISTS instead of failing on an input it would never have used.
+# Each read copies the shared result IMMEDIATELY -- batching the reads and
+# deferring the copies would let one file supply both branches.
+if [[ -n "$BASE_BRANCH_FILE" ]]; then
+    read_branch_value_file "$BASE_BRANCH_FILE" "--base-branch-file"
+    BASE_BRANCH_OVERRIDE="$BRANCH_VALUE_FILE_RESULT"
+fi
 if [[ -n "$OUTPUT_BRANCH_DEFAULT_FILE" ]]; then
-    [[ -f "$OUTPUT_BRANCH_DEFAULT_FILE" ]] \
-        || die "--output-branch-default-file: no such file: '$OUTPUT_BRANCH_DEFAULT_FILE'"
-    # Read the COMPLETE logical value: head -n1 would silently turn an invalid
-    # multi-line file into a different branch name instead of rejecting it.
-    _obd_lines=()
-    mapfile -t _obd_lines < "$OUTPUT_BRANCH_DEFAULT_FILE"
-    [[ ${#_obd_lines[@]} -eq 1 ]] \
-        || die "--output-branch-default-file: '$OUTPUT_BRANCH_DEFAULT_FILE' must contain exactly one branch name (found ${#_obd_lines[@]} line(s))"
-    OUTPUT_BRANCH_DEFAULT="${_obd_lines[0]}"
-    [[ -n "$OUTPUT_BRANCH_DEFAULT" ]] \
-        || die "--output-branch-default-file: '$OUTPUT_BRANCH_DEFAULT_FILE' is empty"
-    validate_branch_name "$OUTPUT_BRANCH_DEFAULT" "--output-branch-default-file"
+    read_branch_value_file "$OUTPUT_BRANCH_DEFAULT_FILE" "--output-branch-default-file"
+    OUTPUT_BRANCH_DEFAULT="$BRANCH_VALUE_FILE_RESULT"
 fi
 
-# Resolve the merge target. Precedence:
-#   1. --output-branch            explicit override
-#   2. profile output_branch      only in worktree mode (ignored otherwise)
-#   3. --output-branch-default    the Step-5 resolved base branch
-#   4. profile base_branch        when Step 5 took it straight from the profile
-#   5. detected primary branch    (the pre-existing default)
+# Resolve the base branch and the merge target. Precedence:
+#
+#   Base branch:
+#     1. --base-branch[-file]     the Step-5 resolved base (file wins over flag)
+#     2. profile base_branch      only in worktree mode
+#     3. detected primary branch
+#
+#   Output branch:
+#     1. --output-branch          explicit override
+#     2. profile output_branch    only in worktree mode (ignored otherwise)
+#     3. --output-branch-default[-file]   legacy, base-neutral default
+#     4. the resolved base        the documented "output defaults to base"
+#     5. detected primary branch  (the pre-existing default)
+#
 # The caller passes a profile PATH rather than a branch value, so a
 # user-authored name never reaches its command line.
 if [[ -n "$PROFILE_FILE" ]]; then
@@ -368,15 +462,41 @@ if [[ -n "$PROFILE_FILE" ]]; then
         validate_branch_name "$_p_output" "profile output_branch"
         OUTPUT_BRANCH_OVERRIDE="$_p_output"
     fi
-    if [[ -z "$OUTPUT_BRANCH_OVERRIDE" && -z "$OUTPUT_BRANCH_DEFAULT" \
-          && "$WORKTREE_MODE" == true && -n "$_p_base" ]]; then
+    # The profile's base_branch feeds the BASE chain; the output chain then picks
+    # it up at its own rung 4 below, which is why there is no separate
+    # `_p_base -> OUTPUT_BRANCH_DEFAULT` assignment here any more (t1277).
+    if [[ -z "$BASE_BRANCH_OVERRIDE" && "$WORKTREE_MODE" == true && -n "$_p_base" ]]; then
         validate_branch_name "$_p_base" "profile base_branch"
-        OUTPUT_BRANCH_DEFAULT="$_p_base"
+        BASE_BRANCH_OVERRIDE="$_p_base"
     fi
 fi
-# Outside worktree mode there is no merge at Step 9, so no derived target applies.
-[[ "$WORKTREE_MODE" == true ]] || { OUTPUT_BRANCH_OVERRIDE=""; OUTPUT_BRANCH_DEFAULT=""; }
+# Outside worktree mode nothing is cut and nothing is merged, so no derived value
+# on either chain applies.
+[[ "$WORKTREE_MODE" == true ]] \
+    || { OUTPUT_BRANCH_OVERRIDE=""; OUTPUT_BRANCH_DEFAULT=""; BASE_BRANCH_OVERRIDE=""; }
 [[ -n "$OUTPUT_BRANCH_OVERRIDE" ]] || OUTPUT_BRANCH_OVERRIDE="$OUTPUT_BRANCH_DEFAULT"
+[[ -n "$OUTPUT_BRANCH_OVERRIDE" ]] || OUTPUT_BRANCH_OVERRIDE="$BASE_BRANCH_OVERRIDE"
+
+PRIMARY_BRANCH="$(detect_primary_branch)"
+BASE_BRANCH_RESOLVED="${BASE_BRANCH_OVERRIDE:-$PRIMARY_BRANCH}"
+
+# BASE_INTENT gates the `Base branch:` splice into a plan that ALREADY carries
+# frontmatter. It is DERIVED, not flag-enumerated: true iff a base was actually
+# supplied (--base-branch[-file] or a profile that really sets base_branch), or the
+# caller positively asserted there is no fork (--no-worktree / create_worktree:
+# false, where the primary is the right answer and a stale value must go).
+#
+# The asymmetry with OUTPUT_INTENT is deliberate. A profile with no output_branch
+# still DETERMINES the merge target (it falls back to base/primary), so --profile
+# alone is a complete claim about that field. A profile with no base_branch
+# determines nothing -- Step 5 asked the user, and the answer arrives separately
+# via --base-branch-file. So --profile alone, --output-branch and
+# --output-branch-default[-file] must leave an existing `Base branch:` line alone:
+# overwriting it with the primary would invent a value for the very field
+# Re-entry Routing reads to decide where the work is cut from.
+if [[ -n "$BASE_BRANCH_OVERRIDE" || "$WORKTREE_MODE" != true ]]; then
+    BASE_INTENT=true
+fi
 
 # --- Locate source internal plan ---
 
@@ -460,8 +580,6 @@ fi
 build_header() {
     local current_branch=""
     current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
-    local primary
-    primary=$(detect_primary_branch)
 
     echo "---"
     echo "Task: $TASK_BASENAME"
@@ -514,43 +632,54 @@ build_header() {
     local task_name="${TASK_BASENAME%.md}"
     [[ -d "aiwork/${task_name}" ]] && echo "Worktree: aiwork/${task_name}"
 
-    if [[ -n "$current_branch" && "$current_branch" != "$primary" ]]; then
+    if [[ -n "$current_branch" && "$current_branch" != "$PRIMARY_BRANCH" ]]; then
         echo "Branch: $current_branch"
     fi
 
-    echo "Base branch: $primary"
-    echo "Output branch: ${OUTPUT_BRANCH_OVERRIDE:-$primary}"
+    echo "Base branch: $BASE_BRANCH_RESOLVED"
+    echo "Output branch: ${OUTPUT_BRANCH_OVERRIDE:-$PRIMARY_BRANCH}"
     echo "plan_verified: []"
     echo "---"
     echo ""
 }
 
-# Record `Output branch:` inside a plan file that ALREADY carries frontmatter.
-# build_header() is skipped for such sources, so without this the flag would be
-# accepted and silently dropped and Step 9 would merge somewhere else.
-# Replaces an existing field, else inserts before the closing `---`, keeping the
-# `---` count at 2. No-op when the file does not open with `---`.
-splice_output_branch() {
-    local file="$1" branch="$2"
+# Record `Base branch:` / `Output branch:` inside a plan file that ALREADY carries
+# frontmatter. build_header() is skipped for such sources, so without this the
+# flags would be accepted and silently dropped -- Step 9 would merge somewhere
+# else, and Re-entry Routing would resolve the wrong fork point.
+#
+# Each field is independently opt-in: an EMPTY argument means "the caller made no
+# claim about this field", and the existing line (if any) is left untouched. That
+# is what keeps --output-branch / --output-branch-default[-file] base-neutral.
+#
+# Replaces an existing field, else inserts before the closing `---` in
+# build_header order (Base, then Output), keeping the `---` count at 2. No-op when
+# the file does not open with `---` or when neither field was claimed.
+splice_header_branches() {
+    local file="$1" base="$2" out="$3"
+    [[ -n "$base" || -n "$out" ]] || return 0
     [[ "$(head -n 1 "$file" 2>/dev/null || true)" == "---" ]] || return 0
     # Renderer contract (lib/atomic_write.sh): a single `awk`, so the renderer's
-    # exit status IS awk's — no extra guard needed. Routing it through
+    # exit status IS awk's — no extra guard needed. Both fields go through ONE
+    # render, so the file is never left half-updated. Routing it through
     # ait_atomic_render also fixes the old `awk … > "$tmp" && mv …` form, which
     # left the temp behind whenever awk failed.
-    _ait_splice_output_branch_body() {
-        awk -v br="$branch" '
-            NR == 1                             { print; next }
-            done_fm                             { print; next }
-            /^Output branch:/                   { print "Output branch: " br; seen = 1; next }
+    _ait_splice_header_branches_body() {
+        awk -v base="$base" -v out="$out" '
+            NR == 1                 { print; next }
+            done_fm                 { print; next }
+            /^Base branch:/         { if (base != "") { print "Base branch: " base; seen_base = 1; next } }
+            /^Output branch:/       { if (out  != "") { print "Output branch: " out; seen_out  = 1; next } }
             $0 == "---" {
-                if (!seen) print "Output branch: " br
+                if (base != "" && !seen_base) print "Base branch: " base
+                if (out  != "" && !seen_out)  print "Output branch: " out
                 done_fm = 1; print; next
             }
-                                                { print }
+                                    { print }
         ' "$file"
     }
-    ait_atomic_render "$file" _ait_splice_output_branch_body \
-        || die "could not splice Output branch into: $file"
+    ait_atomic_render "$file" _ait_splice_header_branches_body \
+        || die "could not splice branch fields into: $file"
 }
 
 # Renderer contract (lib/atomic_write.sh): `cat` and `build_header` can both
@@ -570,14 +699,22 @@ _ait_externalize_body() {
 ait_atomic_render "$EXTERNAL_PLAN" _ait_externalize_body \
     || die "could not write external plan: $EXTERNAL_PLAN"
 
-# Sources that already had frontmatter bypassed build_header(), so the
-# `Output branch:` field has to be spliced into their existing block. Only when
-# the caller asked for one — never silently rewrite an existing plan.
-# Splice whenever the caller expressed ANY intent about the output branch --
-# not only when a value was resolved. Otherwise a plan whose frontmatter already
-# carries a stale `Output branch:` keeps it, and Step 9 merges to the old target.
-if [[ "$has_frontmatter" == true && "$OUTPUT_INTENT" == true ]]; then
-    splice_output_branch "$EXTERNAL_PLAN" "${OUTPUT_BRANCH_OVERRIDE:-$(detect_primary_branch)}"
+# Sources that already had frontmatter bypassed build_header(), so the branch
+# fields have to be spliced into their existing block. Only for the fields the
+# caller actually claimed — never silently rewrite the other one.
+# Splice whenever the caller expressed intent about a field, not only when a value
+# was resolved: otherwise a plan whose frontmatter already carries a stale
+# `Output branch:` keeps it, and Step 9 merges to the old target.
+if [[ "$has_frontmatter" == true ]]; then
+    _splice_base=""
+    _splice_out=""
+    if [[ "$BASE_INTENT" == true ]]; then
+        _splice_base="$BASE_BRANCH_RESOLVED"
+    fi
+    if [[ "$OUTPUT_INTENT" == true ]]; then
+        _splice_out="${OUTPUT_BRANCH_OVERRIDE:-$PRIMARY_BRANCH}"
+    fi
+    splice_header_branches "$EXTERNAL_PLAN" "$_splice_base" "$_splice_out"
 fi
 
 if [[ "$EXISTED_BEFORE" == true ]]; then
