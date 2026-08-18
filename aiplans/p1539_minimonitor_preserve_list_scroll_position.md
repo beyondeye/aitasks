@@ -408,3 +408,62 @@ No documentation change is required: the fix is internal to one TUI and
 `aidocs/framework/tui_conventions.md` gains nothing new — the refusal-seam
 technique it uses is already documented in `aiplans/p1257_*.md`. Revisit at
 Step 8 if the `docs_updated` spec disagrees.
+
+---
+
+## Implementation notes
+
+### Pre-phase outcome — `reproduce_scroll_reset_live` (DONE, gate satisfied)
+
+Reproduced in a real pty before any code changed: an isolated tmux server
+(`tests/lib/tmux_isolation.sh` → `require_isolated_tmux`), a 120×24 session with
+18 `agent-*` windows and a real 40-column companion pane running
+`ait minimonitor`, with the trace injected through a `PYTHONPATH`
+`sitecustomize.py` (so the production entry point was preserved). A genuine SGR
+wheel-down sequence was written into the pane.
+
+The trace names the mechanism exactly:
+
+```
+REFRESH-IN     scroll_y=8.0  max_scroll_y=8    ← the wheel gesture landed
+  REBUILD-IN   scroll_y=8.0  max_scroll_y=8
+  REBUILD-OUT  scroll_y=0    max_scroll_y=0    ← clamped inside the rebuild
+```
+
+`scroll_y` collapses 8.0 → 0 **inside `_rebuild_pane_list`**, at the instant
+`max_scroll_y` becomes 0 while the container is childless — `validate_scroll_y`'s
+clamp. This is hypothesised mechanism (b); no third mechanism appeared, so the
+outcome gate passed and the plan proceeded unchanged. Two details it settled:
+
+* the capture site is right — `REFRESH-IN` still reads `8.0`, so capturing in
+  `_refresh_data` before the rebuild sees the live value;
+* the readiness retry is genuinely required — at `REBUILD-OUT` the range is 0,
+  so a restore issued there would be clamped to 0 exactly like the bug.
+
+Artifacts: `t1539_trace_PREFIX_positive_control.log` (pre-fix) and
+`t1539_trace_POSTFIX.log` (post-fix) in the session scratchpad.
+
+### Deviation from the plan
+
+The post-phase mitigation `assert_lock_never_sticks` specified patching
+`_restore_list_scroll` to **raise**. It asserts a restore that **never runs**
+instead. Raising is both less faithful and untestable here:
+`Screen._invoke_and_clear_callbacks` has no per-callback `try`, so the real
+consequence of an exception in that batch is that the restore is never invoked
+at all — and a raise inside the batch is stored on the app and re-raised by
+`run_test` on exit, failing the test regardless of the behaviour under
+examination. Recorded in the test's own docstring too.
+
+### Post-fix live re-verification
+
+Same fixture, same wheel gesture, all three of the task's "Suggested
+verification" cases:
+
+| case | result |
+|---|---|
+| position holds across ticks | `scroll_y=6.0` steady across 6+ consecutive ticks |
+| agent killed above the fold | `scroll_y` 6→5 as `max_scroll_y` 8→7 — the view followed the content and kept the same agents on screen |
+| bottom-pinned list | `scroll_y=7==max_scroll_y`; killed a window above the fold; re-pinned to `scroll_y=6==max_scroll_y` |
+
+The isolated tmux server was torn down afterwards; the user's `-L ait` server was
+never reachable from the probe and is intact.
