@@ -216,3 +216,64 @@ Both dimensions are `low` and every listed concern is already discharged by a
 step in this plan's Verification section, so **no additional spawned or inline
 mitigation is proposed** (`risk_mitigations_planned = false`). Listing them
 here rather than writing "None identified." keeps the reasoning visible.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the three planned edits, no deviations in shape.
+  `aitask_stats.py:382` now calls `get_type_display_name(issue_type)` instead of
+  `issue_type.capitalize()`, with the `Type` column widened `:<7` → `:<19` and
+  the header/separator rows widened to match. `stats/panes/labels.py:42` now
+  labels its bar chart with `type_display_name(t)` (new
+  `from task_category import type_display_name`). Two tests added to
+  `tests/test_aitask_stats_py.py::TestCollection`, one per surface.
+- **Deviations from plan:** One test-authoring correction. The plan's negative
+  assertions were `assertNotIn("| Bug ", section)` — substring-unsafe, since
+  `"| Bug "` is a substring of `"| Bug Fixes"`, so it failed against the *fixed*
+  code. Replaced with a per-row parse of the Type cell plus `assertEqual`, which
+  is both strictly discriminating and independent of the column width (a future
+  width change will not break it). A separate `assertIn` on the header row pins
+  the width instead. The pane test's `assertNotIn("Bug", captured["labels"])` was
+  already safe — `captured["labels"]` is a list, so `in` is element membership.
+- **Issues encountered:** Driving the live `ait stats-tui` to the "Issue types"
+  pane by keystroke proved unreliable (`]` cycles *projects*, not panes; Tab
+  focus did not reach the `#sidebar` ListView). Verified instead by (a) booting
+  the real TUI in a tmux pane to prove the import chain, and (b) rendering
+  `PANE_DEFS["labels.issue_types"]` inside a real Textual app under `run_test`
+  and reading `widget.render().plain` — which printed the axis labels
+  `Bug Fixes / Chores / Enhancement / Manual_verification / Tests`. Note
+  `Static.renderable` was `None` there; `render()` is the working probe.
+- **Key decisions:**
+  - *One display convention everywhere*, confirmed with the user. The competing
+    "the label table is deliberately abbreviated" reading is falsified by the
+    live output: the `:<7` column already printed `Documentation` (13) and
+    `Manual_verification` (19) unpadded, so it was never a short form.
+  - *Width 19*, sized to the longest display name (`Manual_verification`). Note
+    Python's `:<N` pads but never truncates, so the pre-fix output was ragged,
+    not cut off — the task's "truncates" wording was imprecise.
+  - *Scope widened to the stats-TUI pane* (a third site the task did not name),
+    because `task_category.py:145-147` already documents "the stats TUI panes
+    need only `type_display_name`" — that consumer was anticipated by t1544_2
+    and simply never wired up. Leaving it would have made "one convention
+    everywhere" false on a live surface.
+  - `### By Task Type`'s own `:<14` overflow on `Manual_verification` was left
+    alone: pre-existing, unaffected by this change, and outside the task.
+- **Verification evidence:** before/after `ait stats` diff confined to the target
+  section (only other delta: the `Generated:` timestamp); cross-surface parity
+  went from 5 label-table names with no counterpart in the type table to 0; full
+  Python suite `PASSED (runner=pytest, exit=0)`; two isolated negative controls
+  each failed their own named test at the probed assertion while the other test
+  stayed green.
+- **Concurrency note:** a second session was active in this repo during
+  implementation — it landed `t1560_1` mid-task and held uncommitted work in
+  `lib/stats_data.py`, `lib/task_category.py`, `lib/work_report_gather.py`,
+  `tests/test_stats_multistage.py`, `tests/test_task_category.py` (t1544_3
+  shaped). It touches neither `TYPE_DISPLAY_NAMES` nor `type_display_name`, so
+  there was no conflict; the code commit was path-scoped (`git commit -o --`) to
+  the three files above so none of that work was swept in. The full-suite run
+  did include those in-flight edits.
+- **Forward pointer:** t1544_4 renders the new unified category axis over this
+  same vocabulary and should take the `type:` half from
+  `task_category.type_display_name` / `category_display_name` explicitly rather
+  than inheriting a second convention. Recorded here rather than by editing
+  t1544_4's task file.
+- **Upstream defects identified:** `.aitask-scripts/aitask_stats_legacy.sh:688 — the label x type table renders types with a bare ${issue_type^} while the same script's own get_type_display_name is used at :651, the identical two-convention defect fixed here; the script is unreachable from the CLI (ait stats execs aitask_stats.sh -> aitask_stats.py) but still receives maintenance touches`
