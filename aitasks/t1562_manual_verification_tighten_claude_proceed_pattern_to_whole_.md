@@ -21,3 +21,11 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1557
+
+## Verification Checklist
+
+- [ ] In a real tmux pane at a SHORT height (<=9 rows), trigger Claude's tool-permission dialog and confirm `ait monitor` still flags the pane as awaiting input with kind `claude_proceed` (the regime where the truncated option list lifts the real header into the 6-line detection window)
+- [ ] At a normal height (>=11 rows), press Tab to amend option 1, type `Do you want to proceed?` into it, and confirm the followed-pane review loop does NOT fire an auto-recheck round while typing
+- [ ] With that text still typed into option 1, move the option cursor between rows and confirm the reported kind / dialog badge stays put instead of flipping
+- [ ] TODO: verify .aitask-scripts/monitor/prompt_patterns.py end-to-end in tmux
+- [ ] TODO: verify .aitask-scripts/monitor/review_loop.py end-to-end in tmux
