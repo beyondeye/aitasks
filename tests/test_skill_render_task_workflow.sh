@@ -164,6 +164,14 @@ echo "=== Test 3: default profile keeps existing interactive prose ==="
 DEFAULT_SKILL="$($RENDER "$WORKFLOW_DIR/SKILL.md" "$PROFILES_DIR/default.yaml" claude 2>&1)"
 assert_contains "SKILL.md default: create_worktree AskUserQuestion present" \
     'Do you want to create a separate branch and worktree for this task?' "$DEFAULT_SKILL"
+# t1558: the deferral must live INSIDE the question text. Step 5 only resolves
+# the fork; Step 7 cuts it. A user who believes the worktree already exists
+# misreads every later stop path (drift stop, approve-and-stop, decomposed
+# parent) -- which is the misreading t1536's wording change exists to prevent.
+assert_contains "SKILL.md default: create_worktree question states the deferral" \
+    'Nothing is created now — the branch and worktree are cut at the start of implementation' "$DEFAULT_SKILL"
+assert_not_contains "SKILL.md default: no creating-now claim" \
+    "': creating worktree" "$DEFAULT_SKILL"
 assert_contains "SKILL.md default: base_branch AskUserQuestion present" \
     'Which branch should the new task branch be based on?' "$DEFAULT_SKILL"
 assert_contains "SKILL.md default: default_email AskUserQuestion present" \
@@ -238,6 +246,14 @@ assert_contains "output_branch profile bakes the resolved value" \
     "Profile 'test_output_branch': using output branch dev" "$OB_OUT"
 assert_not_contains "output_branch profile suppresses the fallback prose" \
     'the merge target is the base branch resolved above' "$OB_OUT"
+# t1558: this synthetic profile also sets create_worktree: true, which is the
+# ONLY way to render the baked worktree-mode branch -- no committed profile
+# defines create_worktree: true, so that branch has no golden and this is its
+# sole executable coverage.
+assert_contains "create_worktree: true bakes the deferral into the display line" \
+    "Profile 'test_output_branch': worktree mode — the branch and worktree are created after plan approval and the remote drift check, not now." "$OB_OUT"
+assert_not_contains "create_worktree: true makes no creating-now claim" \
+    "': creating worktree" "$OB_OUT"
 # Step 9 consumes the plan header at runtime, so it must stay profile-invariant:
 # no profile ever bakes a literal merge target into the checkout.
 # Line-anchored: the pre-flight PROSE legitimately mentions `git checkout dev`

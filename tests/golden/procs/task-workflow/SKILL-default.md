@@ -320,13 +320,13 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 
 
 - **Profile check:** If the active profile has `create_worktree` set:
-  - If `true`: Create worktree. Display: "Profile '\<name\>': creating worktree"
+  - If `true`: Use a separate branch and worktree. Display: "Profile '\<name\>': worktree mode — the branch and worktree are created after plan approval and the remote drift check, not now."
   - If `false`: Work on current branch. Display: "Profile '\<name\>': working on current branch"
   - Skip the AskUserQuestion below
 
   Otherwise, use `AskUserQuestion` to ask:
-  - "Do you want to create a separate branch and worktree for this task?"
-  - Options: "No, work on current branch" (default, first option) / "Yes, create worktree (recommended for complex features or when working in parallel on multiple features)"
+  - "Do you want to create a separate branch and worktree for this task? Nothing is created now — the branch and worktree are cut at the start of implementation, after you approve the plan and the remote drift check passes."
+  - Options: "No, work on current branch" (default, first option) / "Yes, use a separate worktree (recommended for complex features or when working in parallel on multiple features)"
 
 
 **If Yes:**
