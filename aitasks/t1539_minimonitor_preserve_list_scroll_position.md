@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 12:42
-updated_at: 2026-08-18 08:53
+updated_at: 2026-08-18 12:35
 ---
 
 ## Symptom
@@ -107,3 +108,8 @@ Mirror the pattern the **full monitor** already uses for its preview column
   view stays pinned to the bottom (no jump to top).
 - Scroll to a mid-list agent, kill that exact agent, and confirm the view stays
   near its neighbours rather than snapping to the top.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T09:35:27Z status=pass attempt=1 type=human
