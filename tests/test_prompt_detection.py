@@ -21,6 +21,13 @@ Exercises _finalize_capture directly — no tmux required. Covers:
  11. An OSC 8 hyperlink *inside* a prompt footer does not defeat matching, and a
      hyperlink target churning between ticks does not defeat idle detection —
      the two behavioural links to the strip_ansi OSC fix.
+ 12. `claude_proceed` requires the question to hold its WHOLE line (t1557), so
+     text typed into the permission dialog's editable option row reports no kind
+     — as does prose that puts anything else on the line (inline, bulleted,
+     blockquoted, quote-marked). A line holding ONLY the question still matches
+     wherever it comes from, including inside a fenced code block; that is rule
+     3 of `monitor_idle_and_prompt_detection.md` (a verbatim reproduction is
+     indistinguishable) and it is pinned here, not merely believed.
 
 Run:
   python3 tests/test_prompt_detection.py
@@ -81,6 +88,82 @@ def _check_awaiting_input_detected_for_matching_prompt() -> None:
     assert snap.awaiting_input_kind == "claude_proceed", (
         f"expected claude_proceed kind, got {snap.awaiting_input_kind!r}"
     )
+
+
+def _check_claude_proceed_requires_a_whole_line() -> None:
+    """The phrase must hold its whole line to report `claude_proceed` (t1557).
+
+    Claude's tool-permission dialog renders option 1 as EDITABLE (`Tab` amends
+    it), so a substring anchor let user-typed text put a second copy of the
+    question inside the 6-line detection window while the real header stayed
+    outside it — flipping the reported kind mid-dialog and firing the review
+    loop's auto-recheck. The whole-line form rejects the copy (it renders as
+    `❯ 1. Yes, <typed text>`) and keeps the real header, which renders alone on
+    its line whenever it is in the window at all.
+
+    The quoting negative control is **narrower than `claude_trust_folder`'s**,
+    and deliberately so. Whole-line anchoring rejects only prose that puts
+    something else on the line — inline mentions, bullets, blockquotes, quote
+    marks. It does NOT distinguish a line holding *only* the question from the
+    real header, so a doc or fixture reproducing it on its own line (a fenced
+    code block included) still matches. That is rule 3 in
+    `aidocs/framework/monitor_idle_and_prompt_detection.md` — a verbatim
+    reproduction is indistinguishable, which is why the rule is "do not write
+    one" rather than "match around it". Asserted below so the limit stays a
+    pinned decision rather than a belief, exactly as
+    `_check_trust_pattern_known_false_positive` does for the trust dialog.
+    """
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    pane = make_pane()
+
+    # The real header — alone on its line — still reports the kind.
+    snap = mon._finalize_capture(pane, "  Do you want to proceed?  \n")
+    assert snap.awaiting_input_kind == "claude_proceed", (
+        f"a whole-line header must still match, got {snap.awaiting_input_kind!r}"
+    )
+
+    # Nothing else in the claude group matches a bare option row or prose, so
+    # the expected kind is the empty string, not merely "something else".
+    rejected = {
+        "typed into the editable option row":
+            "❯ 1. Yes, Do you want to proceed?\n",
+        "typed into the unselected option row":
+            "  1. Yes, Do you want to proceed?\n",
+        "prose quoting the question inline":
+            "the dialog asks Do you want to proceed? before it runs\n",
+        "bulleted prose":
+            "- Do you want to proceed? is the default question wording\n",
+        "blockquoted prose":
+            "> Do you want to proceed?\n",
+        "quote-marked on its own line":
+            '"Do you want to proceed?"\n',
+    }
+    for label, body in rejected.items():
+        mon2 = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+        snap2 = mon2._finalize_capture(make_pane(pane_id="%wl"), body)
+        assert snap2.awaiting_input_kind == "", (
+            f"{label}: must report no kind, got {snap2.awaiting_input_kind!r}"
+        )
+        assert not snap2.awaiting_input, f"{label}: must not be awaiting_input"
+
+    # The accepted structural limit, pinned rather than assumed. A line holding
+    # nothing but the question IS the header as far as captured text goes, so
+    # these match — and must, or the real short-pane dialog would stop being
+    # detected. The practical rule that follows is rule 3's: describe the
+    # question inline in prose, never on a line of its own.
+    known_limits = {
+        "standalone quoted line": "Do you want to proceed?\n",
+        "fenced code block": "```\nDo you want to proceed?\n```\n",
+    }
+    for label, body in known_limits.items():
+        mon3 = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+        snap3 = mon3._finalize_capture(make_pane(pane_id="%kl"), body)
+        assert snap3.awaiting_input_kind == "claude_proceed", (
+            f"{label}: the known limit is accepted and must stay pinned — "
+            f"got {snap3.awaiting_input_kind!r}. If this now reports no kind, "
+            "check that the real short-pane dialog is still detected before "
+            "treating it as an improvement."
+        )
 
 
 def _check_awaiting_input_codex_pattern() -> None:
@@ -698,6 +781,8 @@ def main() -> int:
          _check_opencode_palette_pattern_and_its_window_limit),
         ("_check_awaiting_input_detected_for_matching_prompt",
          _check_awaiting_input_detected_for_matching_prompt),
+        ("_check_claude_proceed_requires_a_whole_line",
+         _check_claude_proceed_requires_a_whole_line),
         ("_check_awaiting_input_codex_pattern",
          _check_awaiting_input_codex_pattern),
         ("_check_awaiting_input_only_for_agent_panes",

@@ -1042,6 +1042,19 @@ Two things about that row are worth knowing before touching it:
   selected row, which lifts the question *into* that window, and `claude_proceed`
   wins on first-match. This is why `claude_proceed` has a row at all — unlike
   `codex_yes_proceed` it was observed live, not shipped on inference.
+- **The boundary's literal is shared with the kind selector** (t1557). t1540 made
+  this boundary a whole-line anchor so user-typed text could not relocate it, but
+  left `prompt_patterns.claude_proceed` — the pattern that *selects* the kind —
+  a substring. The dialog's option 1 is editable (`Tab` amends it), so typing the
+  phrase into it put a second copy inside the 6-line detection window while the
+  real header stayed outside it: the reported kind flipped `claude_help_bar` ->
+  `claude_proceed` and `classify_followed_change` returned `WORK` on its
+  `prev_kind != curr_kind` short-circuit, **ahead of any boundary lookup** — the
+  spurious-fire direction again, and again unreachable from this table. Both
+  layers now read one compiled object, `prompt_patterns.CLAUDE_PROCEED_LINE_RE`.
+  They remain different roles — block location vs. kind selection — so
+  `test_boundary_and_prompt_pattern_share_one_object` guards the sharing rather
+  than assuming it; unpick it there first if they ever have to diverge.
 - **The row is scoped to that one dialog, deliberately.** `claude_help_bar` is
   Claude's generic blocked-on-input footer; only the permission dialog was
   measured, so on any other help-bar surface the boundary simply fails to locate

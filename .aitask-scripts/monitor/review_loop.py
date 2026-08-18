@@ -51,10 +51,13 @@ from collections.abc import Callable
 
 try:
     from .ansi_utils import strip_ansi
-    from .prompt_patterns import PROMPT_PATTERNS_BY_AGENT
+    from .prompt_patterns import CLAUDE_PROCEED_LINE_RE, PROMPT_PATTERNS_BY_AGENT
 except ImportError:  # imported flat (tests put MONITOR_DIR on sys.path)
     from ansi_utils import strip_ansi  # noqa: E402
-    from prompt_patterns import PROMPT_PATTERNS_BY_AGENT  # noqa: E402
+    from prompt_patterns import (  # noqa: E402
+        CLAUDE_PROCEED_LINE_RE,
+        PROMPT_PATTERNS_BY_AGENT,
+    )
 
 import workflow_phase  # noqa: E402  (advisory phase seam — wording only, never a gate)
 
@@ -898,7 +901,15 @@ _OPENCODE_PERMISSION_RE = re.compile(r"Permission required")
 # the real header, verified identical on all 58 captured dialog frames. Same
 # technique, and same reason, as `claude_trust_folder`'s "each option line holds
 # nothing but its label" in monitor/prompt_patterns.py.
-_CLAUDE_PERMISSION_RE = re.compile(r"^\s*Do you want to proceed\?\s*$")
+#
+# The literal itself now lives in monitor/prompt_patterns.py and is SHARED with
+# the `claude_proceed` prompt pattern (t1557): one line of one dialog, and the
+# two layers must not be editable apart — they already drifted once, when t1540
+# tightened this boundary and left the kind selector a substring. The boundary
+# (block location) and the pattern (kind selection) remain different roles;
+# `ClaudePermissionBoundaryTests.test_boundary_and_prompt_pattern_share_one_object`
+# guards the sharing, so unpick it there first if they ever have to diverge.
+_CLAUDE_PERMISSION_RE = CLAUDE_PROCEED_LINE_RE
 
 # Top boundary line of native (chip-less) dialogs, per (agent, kind).
 # The plan-approval dialog has no AskUserQuestion header chip, so

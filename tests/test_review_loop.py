@@ -45,6 +45,22 @@ from ansi_utils import strip_ansi as strip  # noqa: E402
 
 
 @contextlib.contextmanager
+def patched_claude_patterns(patterns):
+    """Temporarily replace the claude prompt-pattern group.
+
+    Mutates the shipped dict in place rather than rebinding a name, for the same
+    reason `patched_strategy` does: `review_loop` imported the dict object
+    itself, so production reads through this very mapping.
+    """
+    prev = pp.PROMPT_PATTERNS_BY_AGENT["claude"]
+    pp.PROMPT_PATTERNS_BY_AGENT["claude"] = patterns
+    try:
+        yield
+    finally:
+        pp.PROMPT_PATTERNS_BY_AGENT["claude"] = prev
+
+
+@contextlib.contextmanager
 def patched_strategy(key, fn):
     """Temporarily register a NATIVE_DIALOG_STRATEGIES entry.
 
@@ -1669,6 +1685,23 @@ class ClaudePermissionBoundaryTests(unittest.TestCase):
         self.assertIs(rl.NATIVE_DIALOG_BOUNDARIES[("claude", "claude_help_bar")],
                       rl.NATIVE_DIALOG_BOUNDARIES[("claude", "claude_proceed")])
 
+    def test_boundary_and_prompt_pattern_share_one_object(self):
+        """Same line of the same dialog, two layers — t1557.
+
+        The boundary locates the dialog block; the prompt pattern selects the
+        reported kind. Different roles, one literal, and they must not drift:
+        they already did once, when t1540 tightened the boundary to a whole-line
+        anchor and left the kind selector a substring — so a user typing the
+        phrase into the editable option row flipped the kind and fired the loop,
+        short-circuiting ahead of this boundary entirely.
+        """
+        proceed = [p for p in pp.PROMPT_PATTERNS_BY_AGENT["claude"]
+                   if p.name == "claude_proceed"]
+        self.assertEqual(len(proceed), 1, "premise: exactly one claude_proceed")
+        self.assertIs(proceed[0].regex, rl._CLAUDE_PERMISSION_RE)
+        self.assertIs(proceed[0].regex,
+                      rl.NATIVE_DIALOG_BOUNDARIES[("claude", "claude_proceed")])
+
     def test_exactly_one_mechanism_carries_each_claude_permission_kind(self):
         for kind in ("claude_help_bar", "claude_proceed"):
             key = ("claude", kind)
@@ -1842,6 +1875,255 @@ class ScopedBoundaryDoesNotOverreachTests(unittest.TestCase):
                 fx.CLAUDE_AMEND_TYPED_SEL2_RAW, "claude_proceed",
                 True, "claude"),
             rl.SELECTION_ONLY)
+
+
+class OrderedStateNegativeHalfTests(unittest.TestCase):
+    """The OTHER consumer of `PROMPT_PATTERNS_BY_AGENT` (t1557).
+
+    `_ordered_state`'s negative half scans the WHOLE captured tail — deliberately
+    wider than `classify_content`'s bottom-6-line window — and returns
+    `SHADOW_DIALOG` on any pattern hit. Narrowing `claude_proceed` to a
+    whole-line anchor therefore reaches this consumer too, so the reach is
+    characterized here rather than assumed.
+
+    **Not pinned through `shadow_prompt_ready` / `_claude_state`, deliberately.**
+    Such a pin is vacuous: `_composer_state`'s positive half returns
+    `SHADOW_DIALOG` the moment it sees an option row, before the pattern loop can
+    matter, so a `_claude_state` assertion holds for any pattern whatsoever —
+    including none at all. `test_claude_state_verdict_is_carried_by_structure`
+    below proves that, so nobody rebuilds the vacuous pin.
+
+    The probe forces the positive half to `SHADOW_READY` and hands it a
+    never-matching `working_re`, leaving the pattern loop as the only thing that
+    can answer `SHADOW_DIALOG`. `_ordered_state`'s signature is preserved verbatim
+    for exactly this use (see its docstring).
+
+    Written green against the UNMODIFIED module first: every row below held
+    before the tightening, and the change moves exactly one cell
+    (`test_typed_copy_alone_no_longer_claims_a_dialog`, `dialog` -> `ready`).
+    """
+
+    _NEVER = re.compile(r"(?!x)x")
+    _HEADER = "Do you want to proceed?"
+
+    #: Real captures the pattern loop must keep answering for.
+    REAL = ("CLAUDE_PERMISSION_COMPACT_SEL1_RAW",
+            "CLAUDE_PERMISSION_SHORT_SEL1_RAW",
+            "CLAUDE_AMEND_TYPED_SEL1_RAW")
+
+    @staticmethod
+    def _ready(raw_text, plain):
+        return rl.SHADOW_READY
+
+    def _pattern_verdict(self, raw):
+        return rl._ordered_state(raw, agent="claude", positive=self._ready,
+                                 working_re=self._NEVER)
+
+    def _drop(self, raw, *, header=False, help_bar=False):
+        """The RAW capture with whole lines removed, selected on stripped text."""
+        kept = []
+        for line in raw.split("\n"):
+            plain = strip(line)
+            if header and plain.strip() == self._HEADER:
+                continue
+            if help_bar and "Esc" in plain and "cancel" in plain:
+                continue
+            kept.append(line)
+        return "\n".join(kept)
+
+    def _assert_only_the_typed_copy_survives(self, raw):
+        lines = strip(raw).splitlines()
+        self.assertTrue(any(self._HEADER in line for line in lines),
+                        "premise: the user-typed copy must survive the drop")
+        self.assertFalse(any(line.strip() == self._HEADER for line in lines),
+                         "premise: no whole-line occurrence may survive")
+
+    def test_probe_scaffolding_is_inert(self):
+        """Premise control for the probe itself.
+
+        If `_ready` did not force READY, or `_NEVER` matched something, every
+        verdict below would come from the scaffolding instead of the patterns.
+        """
+        self.assertIsNone(self._NEVER.search(self._HEADER))
+        self.assertEqual(self._ready("x", "x"), rl.SHADOW_READY)
+
+    def test_real_permission_frames_still_hit_the_pattern_loop(self):
+        for name in self.REAL:
+            with self.subTest(fixture=name):
+                self.assertEqual(self._pattern_verdict(getattr(fx, name)),
+                                 rl.SHADOW_DIALOG)
+
+    def test_help_bar_carries_the_frame_once_the_header_is_gone(self):
+        """Header dropped, help bar kept: `claude_help_bar` still answers.
+
+        The middle row of the flip table, and the reason the row below is a
+        bounded change rather than a loss of coverage.
+        """
+        raw = self._drop(fx.CLAUDE_AMEND_TYPED_SEL1_RAW, header=True)
+        self._assert_only_the_typed_copy_survives(raw)
+        self.assertEqual(self._pattern_verdict(raw), rl.SHADOW_DIALOG)
+
+    def test_typed_copy_alone_no_longer_claims_a_dialog(self):
+        """The one cell the tightening moves.
+
+        Header AND help bar dropped, so the user-typed copy in the editable
+        option row is the only remaining occurrence of the phrase and the only
+        thing any pattern could match. Under the substring anchor
+        `claude_proceed` answered `SHADOW_DIALOG` here — user-typed prose
+        claiming a dialog in a consumer that scans the whole tail. It now
+        answers `SHADOW_READY`: the intended, bounded effect of t1557.
+        """
+        raw = self._drop(fx.CLAUDE_AMEND_TYPED_SEL1_RAW,
+                         header=True, help_bar=True)
+        self._assert_only_the_typed_copy_survives(raw)
+        self.assertEqual(
+            [p.name for p in pp.PROMPT_PATTERNS_BY_AGENT["claude"]
+             if p.regex.search(strip(raw))],
+            [],
+            "premise: no claude pattern may match this frame any more")
+        self.assertEqual(self._pattern_verdict(raw), rl.SHADOW_READY)
+
+    def test_claude_state_verdict_is_carried_by_structure(self):
+        """Production is unmoved — and the reason is structural, not the pattern.
+
+        `_claude_state` answers `SHADOW_DIALOG` for every frame above, derived
+        ones included, and keeps doing so with the claude pattern group emptied
+        entirely. That second half is why the assertions above probe
+        `_ordered_state` directly: a `_claude_state` pin cannot fail on a pattern
+        change, so it is not a control for one.
+        """
+        typed = fx.CLAUDE_AMEND_TYPED_SEL1_RAW
+        frames = [(n, getattr(fx, n)) for n in self.REAL] + [
+            ("header dropped", self._drop(typed, header=True)),
+            ("header+help bar dropped",
+             self._drop(typed, header=True, help_bar=True))]
+        for label, raw in frames:
+            with self.subTest(frame=label):
+                self.assertEqual(rl._claude_state(raw), rl.SHADOW_DIALOG)
+        with patched_claude_patterns([]):
+            for label, raw in frames:
+                with self.subTest(frame=label, patterns="none"):
+                    self.assertEqual(
+                        rl._claude_state(raw), rl.SHADOW_DIALOG,
+                        "a _claude_state assertion cannot fail on a pattern "
+                        "change — do not build one and call it coverage")
+
+
+class TypedAmendCannotFlipTheReportedKindTests(unittest.TestCase):
+    """The permission dialog's option 1 is EDITABLE (`Tab` amends it) — t1557.
+
+    With a substring `claude_proceed`, typing the boundary phrase into that row
+    put a second copy of it INSIDE `_prompt_detection_text`'s bottom-6-line
+    window while the real header stayed outside it. The reported kind flipped
+    `claude_help_bar` -> `claude_proceed` mid-dialog, and
+    `classify_followed_change` short-circuits to WORK on `prev_kind !=
+    curr_kind` — so a spurious auto-recheck round fired while the user was still
+    typing. t1540 closed the same hole in the BOUNDARY; this pins the KIND
+    selector, which is the layer that short-circuits ahead of it.
+
+    The typed frames are real captures. The "before typing" frame is derived from
+    each by removing the amend text from its option-1 row, so everything above
+    the boundary is byte-identical — the derived-frame idiom this file already
+    uses in `test_non_dialog_change_under_the_kind_is_unknown`. No pair of real
+    captures can serve: the shipped dialog frames were captured from different
+    commands, so their text ABOVE the boundary differs and they classify WORK for
+    a legitimate reason.
+    """
+
+    #: Option-1 row as captured -> the same row without the amend text. Two
+    #: variants because the selected row carries `❯` and its own styling while
+    #: the unselected one does not; substituted on the RAW frame so the ANSI
+    #: styling survives into `_claude_state`-style consumers.
+    _AMEND_ROWS = {
+        "\x1b[38;5;153mYes, \x1b[39mDo you want to proceed?":
+            "\x1b[38;5;153mYes\x1b[39m",
+        "Yes, Do you want to proceed?": "Yes",
+    }
+
+    TYPED = ("CLAUDE_AMEND_TYPED_PHRASE_RAW",
+             "CLAUDE_AMEND_TYPED_SEL1_RAW",
+             "CLAUDE_AMEND_TYPED_SEL2_RAW")
+
+    #: A real UNtyped capture of the same dialog at the same geometry (120x14).
+    UNTYPED_CAPTURE = "CLAUDE_PERMISSION_COMPACT_SEL1_RAW"
+
+    def _untyped(self, raw):
+        hits = [row for row in self._AMEND_ROWS if row in raw]
+        self.assertEqual(len(hits), 1,
+                         "premise: the fixture must carry exactly one typed "
+                         "option row")
+        return raw.replace(hits[0], self._AMEND_ROWS[hits[0]])
+
+    @staticmethod
+    def _kind(raw):
+        res = mc.classify_content(raw, mc.DEFAULT_COMPARE_MODE,
+                                  pp.all_patterns(), mc.PaneCategory.AGENT,
+                                  "claude")
+        return res.awaiting_input, res.awaiting_input_kind
+
+    def test_typed_copy_is_inside_the_window_and_the_header_is_not(self):
+        """Premise control: without this geometry the defect cannot occur.
+
+        The whole bug is that the two occurrences fall on opposite sides of
+        `_prompt_detection_text`'s boundary. If a future capture moved either
+        one, the tests below would keep passing while testing nothing.
+        """
+        for name in self.TYPED:
+            window = mc._prompt_detection_text(strip(getattr(fx, name)))
+            lines = window.splitlines()
+            with self.subTest(fixture=name):
+                self.assertTrue(
+                    any("Do you want to proceed?" in line for line in lines),
+                    "the typed copy must be inside the detection window")
+                self.assertFalse(
+                    any(line.strip() == "Do you want to proceed?"
+                        for line in lines),
+                    "the real header must be OUTSIDE the detection window")
+
+    def test_untyped_and_typed_frames_really_differ_when_stripped(self):
+        """Premise control, so SELECTION_ONLY cannot be a vacuous NO_CHANGE."""
+        for name in self.TYPED:
+            typed = getattr(fx, name)
+            with self.subTest(fixture=name):
+                self.assertNotEqual(strip(self._untyped(typed)), strip(typed))
+
+    def test_typing_the_phrase_does_not_change_the_reported_kind(self):
+        """Cross-surface parity, asserted surface-vs-surface.
+
+        The typed frame must report what its own untyped derivation reports AND
+        what a real untyped capture of the same dialog reports — not merely "not
+        `claude_proceed`", which a broken pattern reporting nothing would also
+        satisfy.
+        """
+        real_untyped = self._kind(getattr(fx, self.UNTYPED_CAPTURE))
+        self.assertEqual(real_untyped, (True, "claude_help_bar"),
+                         "premise: the untyped dialog reports the help bar")
+        for name in self.TYPED:
+            typed = getattr(fx, name)
+            with self.subTest(fixture=name):
+                self.assertEqual(self._kind(typed),
+                                 self._kind(self._untyped(typed)))
+                self.assertEqual(self._kind(typed), real_untyped)
+
+    def test_dialog_to_typed_transition_is_not_work(self):
+        """The defect at its cause, through the production classifier.
+
+        Kinds are taken from `classify_content` rather than hand-supplied: a
+        hand-supplied pair would pin the boundary comparison (already covered)
+        and step right over the kind flip, which is what actually fired the loop.
+        """
+        for name in self.TYPED:
+            typed = getattr(fx, name)
+            untyped = self._untyped(typed)
+            with self.subTest(fixture=name):
+                verdict = rl.classify_followed_change(
+                    untyped, self._kind(untyped)[1],
+                    typed, self._kind(typed)[1],
+                    True, "claude")
+                self.assertNotEqual(verdict, rl.WORK,
+                                    "typing into the editable option row fired "
+                                    "the review loop")
+                self.assertEqual(verdict, rl.SELECTION_ONLY)
 
 
 class SelectionNeverClassifiesWorkTests(unittest.TestCase):

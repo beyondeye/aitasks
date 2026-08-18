@@ -56,6 +56,23 @@ _TRUST_NO = (r"^[ \t]*(?:❯[ \t]*)?"
              r"No, (?:exit(?: Claude Code)?|continue without these permissions)[ \t]*$")
 
 
+# Claude's tool-permission dialog question, alone on its line.
+#
+# SHARED VERBATIM with `review_loop._CLAUDE_PERMISSION_RE`, which imports this
+# object: one line of one dialog, serving two different roles — the review
+# loop's block BOUNDARY and this file's KIND selection. They were two literals
+# until t1557, and they drifted: the boundary was tightened to a whole line by
+# t1540 while the kind selector stayed a substring, which is the defect below.
+# `ClaudePermissionBoundaryTests.test_boundary_and_prompt_pattern_share_one_object`
+# is the drift guard; unpick the sharing there first if the two roles ever have
+# to diverge.
+#
+# `(?m)` is load-bearing: `classify_content` searches the multi-line detection
+# window and `review_loop._ordered_state` searches the whole captured tail, so
+# without it `^`/`$` would anchor to the ends of the blob rather than to a line.
+CLAUDE_PROCEED_LINE_RE = re.compile(r"(?m)^[ \t]*Do you want to proceed\?[ \t]*$")
+
+
 # Per code agent. Empty lists are placeholders for agents whose prompt
 # wording has not been observed/needed yet.
 PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
@@ -128,7 +145,39 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         # usually falls outside _PROMPT_DETECTION_TAIL_LINES and the
         # bottom-anchored `claude_help_bar` is what matches those dialogs.
         # Kept as a cheap backstop for short renderings (t1474).
-        PromptPattern("claude_proceed", re.compile(r"Do you want to proceed\?")),
+        #
+        # WHOLE-LINE, since t1557, and that is load-bearing rather than tidiness
+        # — the same technique, and the same reason, as `claude_trust_folder`'s
+        # "each option line holds nothing but its label" above. The dialog's
+        # option rows are EDITABLE (`Tab` amends option 1), so a user who types
+        # this exact phrase into one puts a second copy of it inside the 6-line
+        # detection window while the real header stays outside it. Under the
+        # previous substring form the reported kind flipped `claude_help_bar` ->
+        # `claude_proceed` mid-dialog, and `classify_followed_change` returns
+        # WORK on the `prev_kind != curr_kind` short-circuit — a spurious
+        # auto-recheck round fired while the user was still typing, ahead of any
+        # boundary lookup. t1540 had already closed the identical hole in
+        # `review_loop`'s boundary; the two layers now share one literal.
+        #
+        # Measured against every Claude fixture in tests/review_loop_fixtures.py:
+        # the tightening keeps every legitimate in-window match (the ≤9-row
+        # regime, where Claude truncates the option list and lifts the real
+        # header to index -5 as a whole line) and drops only the typed copy.
+        #
+        # KNOWN LIMITS, both accepted and both the same disposition as
+        # `claude_trust_folder`'s — documented, not guarded:
+        #  * Whole-line anchoring rejects prose that puts anything ELSE on the
+        #    line (inline, bulleted, blockquoted, quote-marked), but it does NOT
+        #    tell a line holding only the question apart from the real header —
+        #    a doc or fixture reproducing it on its own line still fires. That
+        #    is irreducible: at ≤9 rows the real header IS exactly such a line,
+        #    so rejecting it would delete the detection this pattern exists for.
+        #    Pinned by `_check_claude_proceed_requires_a_whole_line`.
+        #  * Amend text long enough to WRAP could still put the phrase alone on
+        #    a continuation line. It needs the wrap point to fall exactly before
+        #    `Do`, no capture reproduces it, and rejecting it would require this
+        #    pattern to know the option rows' structure.
+        PromptPattern("claude_proceed", CLAUDE_PROCEED_LINE_RE),
         # Bottom-of-pane help bar shown whenever Claude Code blocks on input
         # (numbered selection, free-text amend prompt, etc.).
         #

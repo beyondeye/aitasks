@@ -73,6 +73,25 @@ t1474). Each one costs a line to follow and a release to discover.
   because it renders above the options and the bottom-anchored
   `claude_help_bar` matches those dialogs first.
 
+- **Require the anchor to hold its whole line whenever the dialog's own rows are
+  editable.** `claude_proceed` is the worked example here too. Claude's
+  permission dialog amends option 1 in place (`Tab`), so a *substring* anchor let
+  a user typing that phrase put a second copy of it inside the window while the
+  real header stayed outside it — flipping the reported kind mid-dialog, which
+  makes `review_loop.classify_followed_change` return `WORK` on its
+  `prev_kind != curr_kind` short-circuit and fire a spurious auto-recheck round.
+  The pattern is whole-line anchored since t1557, and its literal is **shared
+  with** `review_loop._CLAUDE_PERMISSION_RE`: the review loop's block boundary
+  and this file's kind selection are different roles reading the same line of the
+  same dialog, and they drifted once already. `test_boundary_and_prompt_pattern_share_one_object`
+  in `tests/test_review_loop.py` guards the sharing.
+  Note what whole-line anchoring does **not** buy: it rejects prose that puts
+  anything else on the line, but a line holding only the question is
+  indistinguishable from the real header — at ≤9 rows the header *is* exactly
+  such a line — so rule 3 below still applies in full. Both that limit and the
+  wrapped-amend one are recorded at the pattern and pinned by
+  `_check_claude_proceed_requires_a_whole_line`.
+
 - **Anchor on dialog structure, not on a quotable phrase.** Panes display
   plans, docs and test files, so any pattern that is a single phrase eventually
   fires on text *about* the dialog instead of the dialog. Prefer a line anchor
