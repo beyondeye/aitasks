@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-18 15:26
-updated_at: 2026-08-18 15:35
+updated_at: 2026-08-18 17:21
 ---
 
 ## Problem
@@ -146,3 +147,8 @@ mattering at post-review. Nothing invalidates the banner on either transition.
 5. `review_loop.py`'s firing input is provably unchanged: the loop still consumes
    the read-recency verdict, and the banner gating does not alter what it sees.
 6. `monitor_app.py`'s picker/toast staleness wording and behavior are unchanged.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T14:21:18Z status=pass attempt=1 type=human
