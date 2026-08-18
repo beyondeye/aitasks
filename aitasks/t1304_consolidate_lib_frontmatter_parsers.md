@@ -71,3 +71,20 @@ to it; if the cost is material, take option 1.
 - `./ait stats` output unchanged (diff the text report before/after)
 - If option 2 is taken: time `ait stats` before and after over the real archive
   and record the delta in the plan
+
+## Notes for sibling tasks
+
+- **From t1544_2 (category axis).** Four things to collapse together when this
+  lands: (1) `lib/stats_data.py`'s `parse_frontmatter` is now a thin caller of
+  the new `split_frontmatter(content) -> (metadata, body)` in the same module —
+  consolidate the pair, not just the one function; (2) `lib/task_category.py`'s
+  private `_unquote` exists *only* because the flat scanner keeps quotes
+  verbatim, and is deleted outright once this path gets typed values (measured:
+  zero quoted values in the corpus today); (3) `followup_backfill_classify.classify()`
+  compares `metadata.get("issue_type")` against unquoted literals, so a quoted
+  `issue_type: "manual_verification"` would silently miss its rule — the same
+  consolidation removes that gap; (4) `aitask_stats_legacy.sh:59` carries a dead
+  duplicate `get_type_display_name` (same 8 entries, `${_w^}` fallback) with no
+  caller anywhere in the repo — the Python map now lives in
+  `lib/task_category.py::TYPE_DISPLAY_NAMES`, so this shell copy is pure dead
+  parallel code and should be deleted here.
