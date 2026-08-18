@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, shadow, tui, monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-18 15:26
-updated_at: 2026-08-18 17:21
+updated_at: 2026-08-18 18:07
+completed_at: 2026-08-18 18:07
 ---
 
 ## Problem
