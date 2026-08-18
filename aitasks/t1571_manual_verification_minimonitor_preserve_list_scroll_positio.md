@@ -21,3 +21,14 @@ terminal state (Pass / Fail / Skip) before the task can be
 archived; Defer is allowed but creates a carry-over task.
 
 **Related to:** t1539
+
+## Verification Checklist
+
+- [ ] With more than one screenful of agents, scroll the list with a physical mouse wheel and confirm the position holds across several refresh ticks (default 3 s)
+- [ ] Scroll to the bottom, let an agent above the fold be killed, and confirm the view stays pinned to the bottom rather than jumping to the top
+- [ ] Scroll to a mid-list agent, kill that exact agent, and confirm the view settles on a neighbouring row rather than snapping to the top
+- [ ] Drag the scrollbar thumb with a real mouse (not the wheel) and confirm the position holds across refresh ticks — this is the ScrollTo path, distinct from the wheel
+- [ ] Confirm keyboard up/down still scrolls the focused card into view: the rebuild lock must not suppress active gestures, only the passive refresh
+- [ ] Confirm `s` (or regaining terminal focus on the pane) still re-selects and scrolls to this window's own agent
+- [ ] Confirm a list SHORTER than one screenful shows no stutter, no lag and no scroll artifacts — the restore path runs on every tick regardless of overflow
+- [ ] TODO: verify .aitask-scripts/monitor/minimonitor_app.py end-to-end in tmux
