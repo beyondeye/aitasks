@@ -473,3 +473,101 @@ without the assertion becoming a performance measurement.
 No Step 9 / skill edits (**t1560_2**). No website docs (**t1560_3**). No fetch
 added to Step 9 (**t1393**); no edit-time file-overlap advice (**t1343**/**t1344**);
 no change to push behaviour.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six planned artifacts landed.
+  `lib/stale_lock.sh` gained the three default-off seams (`STALE_LOCK_IDENTITY_PID`,
+  `_STALE_LOCK_LIVENESS_FN`, `STALE_LOCK_PUBLISH_FN`) plus the additive
+  `stale_lock_guarded_section` / `stale_lock_guard_critical` pair.
+  `lib/merge_lock.sh` is the adapter (five documented boundary deltas).
+  `aitask_merge_task.sh` is the broker (`begin` / `finish` / `abort` / `cleanup` /
+  `status` / `force-release`, plus `--list-verdicts` for t1560_2). Five whitelist
+  touchpoints added. Tests: `tests/test_merge_lock_broker.sh` (95 assertions) and
+  `tests/test_merge_lock_concurrency.sh` (30 assertions).
+
+- **Deviations from plan:**
+  - `cleanup` delegates to `aitask_task_worktree.sh remove <task_name> --strict`
+    rather than hand-rolling teardown, and its positional `[<worktree_path>]` was
+    dropped (Change 1). The helper already derives the path from the porcelain
+    record, and its contract forbids the `git worktree prune` the original plan
+    prescribed.
+  - Two extra test-only rendezvous seams were needed:
+    `AIT_MERGE_FORCE_HOOK_PREGUARD` and `AIT_MERGE_FORCE_HOOK_INGUARD`. Cases 12
+    and 13 must inject at two points `AIT_MERGE_BROKER_HOOK` cannot reach. Both
+    sit behind the same marker-file gate.
+  - Three verdicts were added after review: `PREFLIGHT_CHECKOUT_FAILED`,
+    `PREFLIGHT_HEAD_MISMATCH` and `RETAINED` (see Key decisions).
+
+- **Issues encountered:**
+  - `MERGE_FAILED` was emitted for checkout / `symbolic-ref` failures, which
+    RELEASE — but that verdict's contract is "reservation retained", so t1560_2
+    would have run held-lock recovery against a free lock. Split into the two
+    released `PREFLIGHT_*` verdicts above. Pinned by case 15, which asserts the
+    verdict *and* the actual lock state together.
+  - `_release_and_verdict` warned on a failed release and then reported the
+    ordinary verdict, telling the caller the lock was NOT held while it was.
+    A leaked `.gc` makes this reachable. Now reports `RETAINED:<original_verdict>`.
+    Pinned by case 16.
+  - Case 8c asserted only that the branch survived; it created no worktree, so a
+    cleanup regression removing the worktree would have passed a required proof.
+    It now creates a real `git worktree` and asserts the directory *and* the
+    porcelain record survive.
+  - The dry-run printed a raw pipe-delimited snapshot instead of the promised
+    digest; `--expect` now takes an opaque 16-hex token and the dry-run prints the
+    exact copy-safe command (case 17).
+
+- **Key decisions:**
+  - **No auto-release EXIT trap** in `merge_lock.sh` — boundary delta #1. Copying
+    `registry_lock.sh`'s shape verbatim would release the lock the instant `begin`
+    returns, silently reducing the mutex to a no-op that still passes every
+    single-process test. Case 0 is the positive control for exactly this.
+  - **Test seams are gated on a marker file** (`<lock_base>/.ait_merge_test_seams`),
+    never on `AITASKS_LOCK_DIR` — `stale_lock.sh:39-42` documents that variable as
+    a *deployment* seam for multi-user shared checkouts, i.e. precisely where
+    serialization matters most. Case 11 pins both directions.
+  - **`force-release` acts under the `.gc` guard**, with Read 1 before the guard
+    and Read 2 under it, because `_stale_lock_reclaim_under_gc` reclaims a `dead`
+    holder and a contender could otherwise republish between the verdict and the
+    delete. Case 12 injects exactly that replacement.
+  - `STALE_LOCK_IDENTITY_PID` is applied at **both** the write and the read-back
+    site; overriding only the write would fail every acquire closed.
+
+- **Upstream defects identified:**
+  - `aitask_plan_externalize.sh` — `--no-worktree` did not clear the stale
+    `Base branch:` / `Output branch:` frontmatter of this task's plan, though
+    `.claude/skills/task-workflow/plan-externalization.md` documents that it does
+    ("this also clears any stale `Base branch:` / `Output branch:` already present
+    in a plan's frontmatter, so a later session cannot consume it"). Observed on
+    `aiplans/p1560/p1560_1_merge_mutex_and_broker_script.md`, which kept
+    `Base branch: main` / `Output branch: main` after an externalize run passing
+    `--profile aitasks/metadata/profiles/fast.yaml --no-worktree`. Harmless for a
+    current-branch task, but a resumed session reads those fields.
+
+- **Notes for sibling tasks:**
+  - **t1560_2:** the full verdict vocabulary is exported by
+    `./.aitask-scripts/aitask_merge_task.sh --list-verdicts` (and delimited in
+    source between `BEGIN_VERDICT_VOCABULARY` / `END_VERDICT_VOCABULARY`). Parse
+    one of those rather than transcribing. Note the three verdicts added late:
+    `PREFLIGHT_CHECKOUT_FAILED`, `PREFLIGHT_HEAD_MISMATCH`, `RETAINED`.
+    `RETAINED:<original_verdict>` means **the lock is still held** even though the
+    inner verdict looks like a release — its branch must not skip recovery.
+    `ABORT_UNSAFE:<state>:<remedy_flag>` carries its own remedy flag; echo it
+    rather than hardcoding `--abort-merge` / `--reset-hard`.
+  - **t1560_3:** the `NO_SESSION_ANCHOR` precondition, the `force-release` ladder
+    (including `--expect <holder_token>`), and the leaked-`.gc` cure
+    (`rmdir <lock_dir>.gc`, never `rm -rf`) are the documentable surfaces.
+  - **Testing gotchas that cost real time here**, all worth reusing:
+    - A background child that inherits a command-substitution pipe blocks
+      `$(...)` until it exits — redirect fixture processes' stdout/stderr.
+    - `wait` inside a subshell cannot wait on the parent's children; it returns
+      immediately. Poll the workers' own result files instead.
+    - With job control off, bash sets `SIGINT` to *ignore* for background (`&`)
+      commands, and a signal ignored on entry **cannot be trapped**. Use `SIGTERM`
+      to test a signal handler in a backgrounded process.
+    - `( cd X; cmd ) &` gives you the subshell's pid, not `cmd`'s — `exec` it if
+      you intend to signal the command.
+    - Park a test rendezvous on a `read` builtin, not `sleep`: bash defers traps
+      until a foreground child exits, so a `sleep` park is never interrupted.
+    - The self-anchor triple in `lib/pid_anchor.sh` is memoized process-wide, so
+      "different session" cases must run as separate processes.
