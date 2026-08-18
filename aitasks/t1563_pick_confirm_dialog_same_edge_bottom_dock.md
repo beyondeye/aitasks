@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-18 09:49
-updated_at: 2026-08-18 10:01
+updated_at: 2026-08-18 12:23
 ---
 
 ## The defect
@@ -66,3 +67,8 @@ space, not the controls). Any fix has to preserve that property.
 
 - `.aitask-scripts/monitor/monitor_shared.py` — `TaskPickConfirmDialog` CSS
   (`:1486-1521`) and `compose` (`:1590-1631`)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T09:23:33Z status=pass attempt=1 type=human
