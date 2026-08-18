@@ -50,6 +50,20 @@ tmux:
     # pairing QR (LAN stays primary). Requires cloudflared on PATH; one-shot
     # CLI equivalent: --auto-tunnel. See aidocs/applink/tunnel_howto.md.
     # auto_tunnel: cloudflared
+  minimonitor:
+    # session_bar — the top counter bar of `ait minimonitor`
+    # (`multi: 3s · 17a 11 awaiting` / `<session>  N agents`).
+    #
+    # Hidden by default (t1566): in a 40-column companion pane the row is
+    # better spent on the followed agent, which now sits at the top. Set to
+    # true to bring the bar back.
+    #
+    # This hides the BAR ONLY. Agents from other sessions and projects keep
+    # appearing in the pane list and the `M` multi-session toggle keeps
+    # working — neither is affected by this key.
+    #
+    #   session_bar: true
+    session_bar: false
   default_session: aitasks
   default_split: horizontal
   prefer_tmux: true
