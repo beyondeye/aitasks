@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1159
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-17 21:56
-updated_at: 2026-08-18 08:36
+updated_at: 2026-08-18 09:05
+completed_at: 2026-08-18 09:05
 ---
 
 ## Origin
@@ -87,3 +88,14 @@ preserve that, or the short-pane regime loses detection entirely.
 > **✅ gate:plan_approved** run=2026-08-18T05:36:40Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-18T06:02:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-18T06:05:19Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e03bbc0c068bc556
+
+> **✅ gate:risk_evaluated** run=2026-08-18T06:05:19Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1557/risk_evaluated_2026-08-18T06:05:19Z-risk_evaluated-a1.log`
