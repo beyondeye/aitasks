@@ -479,3 +479,199 @@ the assembler's registry-inclusive path, not the stats wrapper.
 `disambiguate_labels` needed no change: its "guaranteed-unique" contract was
 violated by duplicate-root *input*, and removing the duplicate at source
 restores it.
+
+## Final Implementation Notes
+
+### Pre-phase baseline (captured 2026-08-18, before any edit)
+
+Machine: `omg16`. Captured per pre-phase item 3.
+
+**List A — no-flag (`ait monitor` / `ait minimonitor`)** — 3 entries:
+
+| key | session | project_name | live | stale |
+|---|---|---|---|---|
+| `/home/ddt/Work/aitasks` | `aitasks` | aitasks | yes | no |
+| `/home/ddt/Work/thinking_backend` | `thinking_back` | thinking_backend | yes | no |
+| `/home/ddt/Work/thinking_app` | `thinkingapp` | thinking_app | yes | no |
+
+duplicate keys: **none**
+
+**List B — `include_registered=True` (the `j` switcher)** — 7 entries:
+
+| key | session | project_name | live | stale |
+|---|---|---|---|---|
+| `/home/ddt/Work/aitasks` | `aitasks` | aitasks | yes | no |
+| `/home/ddt/Work/aitasks_go` | `aitasks_go` | aitasks_go | no | no |
+| `/home/ddt/Work/aitasks_mobile` | `aitasks_mob` | aitasks_mobile | no | no |
+| `/home/ddt/Work/teamim` | `teamim` | teamim | no | no |
+| `/home/ddt/Work/thinking_backend` | `thinking_back` | thinking_backend | yes | no |
+| `/home/ddt/Work/thinking_app` | `thinkingapp` | thinking_app | yes | no |
+| `/home/ddt/Work/timexchange` | `timeu` | timexchange | no | no |
+
+duplicate keys: **none**
+
+### Prediction
+
+Both lists have an empty duplicate-key set, so the predicted after-list is
+**byte-identical to the baseline for both A and B** — no row is removed on this
+machine. Every registered repo here has `name == basename`, which is exactly the
+"luck, not a guarantee" case the task file calls out.
+
+**Consequence, per post-phase item 2:** the surface comparison in post-phase
+item 1 is therefore *vacuous* on this machine — it observes nothing this change
+does. The disposable-registry switcher fixture is **mandatory**, not optional,
+and is the only manual evidence that the fix works.
+
+### Post-phase results (2026-08-18, after the fix)
+
+**List A — no-flag:** 3 entries, **byte-identical** to baseline. ✅
+**List B — registry-inclusive:** 7 entries, **matches the prediction** exactly;
+duplicate keys still `[]`. ✅
+
+Both comparisons are *vacuous on this machine*, exactly as predicted — there
+was no natural duplicate to remove. The real evidence is the fixture below.
+
+**Disposable-registry fixture (mandatory here).** Ran against a `mktemp -d`
+registry via `AITASKS_PROJECTS_INDEX`; `~/.config/aitasks/projects.yaml` was
+never read or written, and the fixture was `rm -rf`'d. Override confirmed
+effective (the real registered repos were absent from the result).
+
+Registry: `fixture_one` → `repo_one`, `fixture_alias` → `repo_one` (duplicate
+source 3), `fixture_two` → `repo_two`.
+
+| check | result |
+|---|---|
+| `fixture_alias` present | **False** (deduped) ✅ |
+| `fixture_one` present | True ✅ |
+| duplicate keys | `[]` ✅ |
+| ring entries / distinct keys | 5 / 5 ✅ |
+| full right-cycle reaches all repos | **True (5/5)** ✅ |
+| `repo_one`, `repo_two` reachable | both True ✅ |
+
+Note: the fixture result carries 5 rows, not 2 — `AITASKS_PROJECTS_INDEX`
+overrides the *registry* only, so the machine's 3 live tmux sessions are still
+discovered. That does not weaken the check; the alias row is the controlled
+variable and it is gone.
+
+### Live TUI verification (performed 2026-08-18)
+
+The post-phase smoke is an **inline** mitigation of this task, so the live
+checks were run here rather than deferred. Each TUI was launched in a new
+*window* of an existing tmux session — a window does not change the session
+list, so discovery was unperturbed (verified: 3 sessions before and after, and
+every launched window was removed afterwards).
+
+| check | surface | result |
+|---|---|---|
+| List A count | `ait monitor` (launched) | header `tmux Monitor — 3 sessions` ✅ matches baseline |
+| List A count | `ait minimonitor` | `multi: 3s` ✅ matches baseline |
+| List B rows | `ait monitor` → `j` | `aitasks · aitasks_go · aitasks_mob` in the selected group ✅ matches prediction |
+| ring traversal | `ait monitor` → `j` → `Right`×8 | crosses all 3 groups and wraps — not trapped ✅ |
+| List B rows | `ait board` → `j` | byte-identical overlay to monitor's ✅ confirms board has no separate session list |
+
+**Live duplicate fixture (the discriminating check).** With
+`AITASKS_PROJECTS_INDEX` pointed at a disposable registry carrying
+`fixture_one` and `fixture_alias` at the *same* path, `ait monitor` → `j`
+rendered:
+
+```
+Session: ▶ aitasks (aitasks)   aitasks (fixture_one)   aitasks (fixture_two)
+         thinking_back   thinkingapp
+```
+
+`fixture_alias` is **absent** — the duplicate collapsed in a real UI. The three
+colliding `aitasks` session names each escalate to a distinct
+`aitasks (<project>)` label, i.e. `disambiguate_labels`' unique-label contract
+is visibly restored. `ait board` → `j` rendered the identical overlay.
+
+**Live negative control.** With `_dedupe_sessions_by_key` disabled and the same
+fixture, the overlay grew a sixth row — `aitasks (fixture_alias)` — proving the
+live check discriminates rather than passing vacuously. The source was restored
+immediately and re-verified (0 mutation markers; 38/38 and 10/10 green).
+
+**Two live checks not obtained, with their standing evidence:**
+
+- *`ait minimonitor` launched by me* — `aitask_minimonitor.sh:64` refuses to
+  start when it finds a monitor marker on a pane in scope ("A monitor is
+  already running in this window"). The `multi: 3s` reading above therefore
+  came from an already-running minimonitor rather than one I started. That is
+  adequate for List A (whose criterion is *unchanged*, so pre- and post-fix
+  readings must agree) but is not proof of post-fix code.
+- *The ring trap seen inside a live TUI* — Textual renders selection with
+  colour attributes my capture could not isolate, so selection movement was not
+  observable in the pane text. The trap and its removal are pinned
+  deterministically instead by `tests/test_switcher_ring_dedupe.py` and its
+  negative control (with the dedupe disabled, 3 right-steps visit 1 repo
+  instead of 3).
+
+t1544_7's checklist was reworded in this change to the A/B split; its previous
+four-surface wording could have failed a correct change.
+
+### Actual work done
+
+- `_dedupe_sessions_by_key()` added to `agent_launch_utils.py` — a first-wins
+  filter over `AitasksSession.key`, called from `_assemble_aitasks_sessions`
+  **inside the `if include_registered:` block only**.
+- Two docstrings corrected (`_assemble_aitasks_sessions`, and
+  `discover_aitasks_sessions`' stale "deduped on `project_name`" clause).
+- `tests/test_discover_session_dedupe.py` (new, 38 checks),
+  `tests/test_switcher_ring_dedupe.py` (new, 10 checks), and an
+  assembler→stats seam check appended to `tests/test_stats_include_registered.py`.
+- `stats_app.py` and `tui_switcher.py`: **unchanged**, as the plan predicted.
+
+### Deviations from plan
+
+1. **Switcher-ring test is driven by assembler output, not hand-built session
+   lists.** The plan said "using pure helpers". While writing it I found that
+   `cross_group_ring` / `cross_group_step` are pure and *unchanged* by this
+   task — they remain duplicate-fragile by construction. A hand-built duplicate
+   list would therefore livelock identically before and after the fix, proving
+   nothing. The invariant this task actually establishes is one level up
+   (*discovery never hands the ring duplicates*), so the ring is fed
+   `_assemble_aitasks_sessions` output. Still no Textual app is mounted.
+2. **Negative-control expectation widened.** The plan predicted the mutation
+   would redden "the four duplicate checks plus the rewritten switcher-ring
+   checks". Measured: 8 assertions across those four checks, and 8 across the
+   ring file. Both characterization sets stayed green, which is the property
+   that mattered.
+
+### Issues encountered
+
+- The first commit attempt used `git commit -o -- <paths> -m <msg>`; `-m` after
+  `--` is parsed as a pathspec. Corrected to `-F <file>` before `--`.
+- The working tree carried 16 unrelated pre-existing modifications (in-flight
+  `task-workflow` / worktree-helper work). Every commit here was made
+  path-scoped with `git commit -o -- <paths>` so none of it was swept in.
+
+### Key decisions
+
+- **Dedupe gated on `include_registered=True`** — user-confirmed after review,
+  against two narrower alternatives. The no-flag path feeds `ait monitor`'s
+  `{session: project_root}` map and its session-name list, where two live
+  sessions on one repo are both real.
+- **The `live_names` name skip was kept**, not replaced. It is the only thing
+  that drops a STALE ghost sharing a name with a live repo at a *different*
+  path (pinned by t826_10's test, which still passes).
+- **The dedupe stays a filter, never a field merge** — user-confirmed. The
+  registry-alias label question is deferred to the spawned follow-up.
+
+### Upstream defects identified
+
+- `.aitask-scripts/lib/agent_launch_utils.py:1052-1100` — `cross_group_ring` /
+  `cross_group_step` locate the current entry by *first* `.key` match, so any
+  caller that hands them two entries sharing a key gets a livelocked ring with
+  other repos unreachable. t1544_1 removes the only known producer of such
+  input (discovery), but the helpers remain duplicate-fragile by construction
+  and would break again for any future duplicate source. A defensive guard or
+  documented precondition there is worth a separate task.
+
+### Notes for sibling tasks
+
+**t1544_3:** session uniqueness is guaranteed by the **assembler**
+(`_assemble_aitasks_sessions`) and **only for `include_registered=True`**.
+`discover_stats_sessions` adds no dedupe of its own — it only filters
+`is_stale`. Target the assembler's registry-inclusive path in the
+"no double-count" test, not the stats wrapper.
+
+`disambiguate_labels` needed no change: its unique-label contract was violated
+by duplicate-root *input*, and removing the duplicate at source restores it.
