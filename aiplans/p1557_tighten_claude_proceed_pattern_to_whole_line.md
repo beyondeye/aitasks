@@ -293,3 +293,77 @@ Step 9 (Post-Implementation) handles cleanup, archival and merge as usual.
 ### Planned mitigations
 - timing: pre-phase | name: characterize_ordered_state_negative_half | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the narrowing also reaches `_ordered_state`'s whole-tail SHADOW_DIALOG scan | desc: two-direction characterization flip table at the `_ordered_state` seam (positive half forced READY so only the pattern loop can answer), written green against the unmodified module, plus a production-level `_claude_state` half labelled as structural not pattern coverage
 - timing: post-phase | name: document_shared_literal_coupling | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — shared constant couples two roles; goal — residual wrapped-amend hole | desc: state the coupling and the residual limit at both call sites and in shadow_agent.md, naming the drift guard
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** `claude_proceed` is now whole-line anchored via a new
+  shared constant `prompt_patterns.CLAUDE_PROCEED_LINE_RE`
+  (`(?m)^[ \t]*Do you want to proceed\?[ \t]*$`), which `review_loop` imports as
+  `_CLAUDE_PERMISSION_RE` in place of its duplicated literal — one compiled
+  object now serves both the review-loop block boundary and the kind selector.
+  Tests: `OrderedStateNegativeHalfTests` (the pre-phase characterization),
+  `TypedAmendCannotFlipTheReportedKindTests` (the defect at its cause),
+  `test_boundary_and_prompt_pattern_share_one_object` (drift guard), a
+  `patched_claude_patterns` helper, and
+  `_check_claude_proceed_requires_a_whole_line` in `test_prompt_detection.py`.
+  Docs updated in `monitor_idle_and_prompt_detection.md` (a fourth regex rule)
+  and `shadow_agent.md` (the shared-literal bullet).
+
+- **Deviations from plan:** the plan named the pre-phase mitigation
+  `pin_shadow_dialog_negative_half` and described a positive-only pin through
+  `shadow_prompt_ready`; plan review established that such a pin is **vacuous**
+  and it was re-scoped to `characterize_ordered_state_negative_half` before any
+  code was written. Measured: with the claude pattern group emptied entirely,
+  `_claude_state` still answers `SHADOW_DIALOG` on all three real permission
+  captures, because `_composer_state`'s positive half returns `SHADOW_DIALOG` on
+  sight of an option row (`review_loop.py:533`) before the pattern loop runs. The
+  probe moved to `_ordered_state` with the positive half forced to
+  `SHADOW_READY`, where the pattern loop is the only thing that can answer, and
+  `test_claude_state_verdict_is_carried_by_structure` now records the vacuity so
+  the weaker pin is not rebuilt.
+
+  Step-8 review then narrowed the new test module's documentation: it claimed
+  prose "merely quoting" the question reports no kind, which is false. Whole-line
+  anchoring rejects only prose that puts something ELSE on the line; a line
+  holding only the question — inside a fenced code block included — still
+  matches, and irreducibly so, because at ≤9 rows the real header IS such a
+  line. The claim was narrowed and the limit pinned as an accepted
+  `claude_proceed` match, the same treatment
+  `_check_trust_pattern_known_false_positive` gives the trust dialog's limit.
+
+- **Issues encountered:** no pair of shipped fixtures could serve as the
+  untyped→typed transition — the `CLAUDE_PERMISSION_COMPACT_*` and
+  `CLAUDE_AMEND_TYPED_*` frames were captured from different commands, so their
+  text ABOVE the boundary differs and they classify WORK for a legitimate
+  reason. The "before typing" frame is therefore derived from each real typed
+  capture by removing the amend text from its option-1 row (two styling variants:
+  the selected row carries `❯` and its own escapes, the unselected one does not),
+  which is the derived-frame idiom the file already uses. Kind parity is still
+  asserted against the real `CLAUDE_PERMISSION_COMPACT_SEL1_RAW` capture, so the
+  derivation never stands alone as ground truth.
+
+- **Key decisions:** (1) Share one compiled object across the two layers rather
+  than keep two literals with a text-comparison guard — they already drifted once
+  (t1540 tightened the boundary and left the selector a substring), and identity
+  sharing makes that impossible; the drift guard now asserts `assertIs`. (2) Use
+  `[ \t]` rather than `\s` (house style in `prompt_patterns.py`, and
+  behaviour-identical at `_boundary_index`, which searches one split line at a
+  time). (3) Document rather than guard both known limits.
+
+- **Verification performed:** full Python suite — 4915 passed, 2 skipped, plus
+  the 5-test serial carve-out (`PYTHON SUITE: PASSED (runner=pytest, exit=0)`).
+  The pre-phase characterization was written green against the unmodified module
+  and failed on exactly one cell (`['claude_proceed'] != []`), which the change
+  then flipped. Negative control: reverting `claude_proceed` alone to the
+  substring form failed `test_typing_the_phrase_does_not_change_the_reported_kind`,
+  `test_dialog_to_typed_transition_is_not_work` (`'work'`),
+  `test_boundary_and_prompt_pattern_share_one_object`,
+  `test_typed_copy_alone_no_longer_claims_a_dialog` and
+  `_check_claude_proceed_requires_a_whole_line` (`'claude_proceed'`), while both
+  premise controls and `test_reported_kind_is_geometry_dependent_as_measured`
+  stayed green — the mutation reached the probed assertions rather than tripping
+  an earlier one, and the ≤9-row regime is intact.
+
+- **Upstream defects identified:** None
