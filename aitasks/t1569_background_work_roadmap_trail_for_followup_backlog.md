@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [backlog, scheduling, artifacts, skills, planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-18 12:33
-updated_at: 2026-08-18 12:33
+updated_at: 2026-08-18 12:36
 ---
 
 ## Problem
