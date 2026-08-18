@@ -273,3 +273,63 @@ control wrapped around a subTest-using test can never observe its own injection.
 green; `tests/test_minimonitor_top_chrome_render.py` (t1499) 13 green; full
 `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest,
 exit=0)`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-18 10:37)
+- **Requested by user:** The `.narrow` block comment at `monitor_shared.py:1527`
+  still named `#pick-confirm-row { dock: bottom }` as load-bearing, although the
+  fix deliberately removed that dock and made `#pick-bottom-dock` the single
+  docked widget. As written it could talk a later maintainer into restoring the
+  child's dock — the exact change that recreates this overlap class. Retarget it
+  to `#pick-bottom-dock`, as the plan intended.
+- **Changes made:** Confirmed the staleness (the plan retargeted the
+  "Docked, not in normal flow…" comment but missed this second reference).
+  Retargeted the `.narrow` comment to `#pick-bottom-dock` and added an explicit
+  "do not move the dock onto `#pick-confirm-row`" warning naming t1563, so the
+  comment now argues against the regression instead of for it. Swept the repo
+  for other stale `pick-confirm-row` + `dock` references — none; every remaining
+  mention is a live selector, the negative control's mutation string, or the new
+  warning. Re-ran the file: 120 tests green.
+- **Files affected:** `.aitask-scripts/monitor/monitor_shared.py`
+
+## Final Implementation Notes
+
+- **Actual work done:** `TaskPickConfirmDialog` now wraps `#pick-confirm-row`
+  and `#task-detail-footer` in a single docked `#pick-bottom-dock` container, so
+  exactly one widget docks to the dialog's bottom edge. The `.narrow` variant
+  reclaims the last stacked button's dead trailing margin
+  (`Button:last-of-type { margin: 0 }`), which repays the row the overlap used
+  to steal. The narrow footer's plan hint was shortened to `p: plan/task`.
+  `tests/test_minimonitor_pick_by_number.py` gained `plan_content` threading
+  through `_task_info` / `_ConfirmHost` and a 9-test `BottomDockGeometryTests`
+  class; the file went 111 → 120 tests.
+- **Deviations from plan:** One, in the negative control. The planned mutation
+  (re-dock the footer only) does **not** reproduce the fault — inside the
+  wrapper the footer becomes the single docked child and the confirm row flows
+  above it, so the geometry stays clean and the control passed. The control now
+  restores the pre-fix arrangement instead — `dock: bottom` on **both** wrapper
+  children — and is split in two, one against the region arithmetic and one
+  against the composited-frame check, since a control that trips only one of two
+  independent assertions leaves the other unpinned. This also clarified the real
+  invariant: *one docked widget per edge*, not "the footer is undocked".
+- **Issues encountered:** `subTest` absorbs an `AssertionError` into the result
+  object rather than raising it, so a negative control wrapped around a
+  subTest-using test can never observe its own injection. The probed assertion
+  was extracted into `_check_no_overlap`, callable without `subTest`.
+- **Key decisions:** Wrapper over undocking the footer into flow — it preserves
+  the visual order and keeps the load-bearing "the body scroll gives up space,
+  not the controls" property with the dock on the wrapper. The narrow margin
+  reclaim was chosen over dropping `#pick-confirm-row`'s top separator margin:
+  measured across 9 size × variant combinations, it lands content visibility
+  identical to the pre-fix baseline at every size, and the reclaimed row was
+  genuinely dead space. The plan-hint shortening is narrow-only; the wide
+  variant keeps the full wording.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_shared.py:1334 — TaskDetailDialog (the
+    read-only i/I surface, pushed from minimonitor_app.py:3741) clips its footer
+    to "q/Esc: close  p: switch" at 40 columns. Same root cause as the hint
+    defect fixed here (a 33-column string in a 30-column `height: 1` footer),
+    but in the base class, which has no `.narrow` variant and is shared with the
+    full monitor — so it was left out of scope. Verified on a composited frame
+    at 40x24 and 40x20; correct at 80x24.
