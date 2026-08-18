@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, tui, layout]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-18 12:22
-updated_at: 2026-08-18 15:53
+updated_at: 2026-08-18 16:55
+completed_at: 2026-08-18 16:55
 ---
 
 ## Symptom
@@ -181,3 +182,14 @@ the whole life of that defect) — see
 > **✅ gate:plan_approved** run=2026-08-18T12:54:02Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-18T13:44:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-18T13:55:51Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:80955675f4f3009a
+
+> **✅ gate:risk_evaluated** run=2026-08-18T13:55:51Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1566/risk_evaluated_2026-08-18T13:55:51Z-risk_evaluated-a1.log`
