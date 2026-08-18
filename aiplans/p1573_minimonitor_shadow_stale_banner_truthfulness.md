@@ -352,3 +352,83 @@ so the merge steps are no-ops; `ait gates run 1573` runs the declared
 ### Planned mitigations
 - timing: post-phase | name: pin_capture_window_loss_residual | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the applicability gate also retires a genuine block-age warning when the block leaves the capture window | desc: test pinning that a stale block leaving the deep capture window clears the banner, as an intended residual
 - timing: post-phase | name: assert_applicability_coupling | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — age.applicable is used as the feedback-existence predicate on a docstring-only contract | desc: tripwire asserting compute_block_age_staleness(...).applicable equals contains_block_evidence(text) across the module's block fixtures
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in one source file plus
+  two test modules and one aidocs page.
+  - `.aitask-scripts/monitor/minimonitor_app.py`: new `_record_banner_staleness`
+    (the single banner gate, in front of the untouched `_record_combined_staleness`
+    preserve rule), `_feedback_phase_retired` (the derived four-conjunct
+    predicate), `_shadow_feedback_key` (`hash(block_region(text))`), and the
+    `_shadow_feedback_phase` binding. `_refresh_shadow_stale_banner`'s signature
+    became `(snap, shadow_pane, capture_text)`; both write sites (per-tick and the
+    `c` picker) now route through the gate, and the picker's `stale=` to
+    `ConcernPickerModal` is deliberately left ungated. The no-shadow clear resets
+    the binding as hygiene only.
+  - `tests/test_minimonitor_concern_action.py`: `BlockAgeStalenessTests._app`
+    lifted into `_StalenessAppFixture` with an `_install_phase` hook that drives
+    the phase through the REAL `_phase_signal_for_pane` → `_phase_for_snap` →
+    `_gate_cache.phase_for` hops (only the two caches faked). 14 new tests in
+    `StaleBannerTruthfulnessTests` + `BlockEvidenceCouplingTests`, and
+    `test_no_block_pane_still_reports_read_recency_staleness` flipped (renamed
+    `..._reports_no_staleness_at_all`) because it pinned the defect itself.
+  - `tests/test_minimonitor_top_chrome_render.py`:
+    `test_the_gated_banner_gives_its_row_back` — AC4 on the composited frame.
+  - `aidocs/framework/shadow_agent.md`: the applicability bullet now states that a
+    consumer of the *join* needs its own gate and names
+    `_record_banner_staleness`; a new "The banner's two suppressions" paragraph
+    documents the predicate, the self-recovery property, and the rejected latch.
+- **Deviations from plan:** two, both forced by facts discovered during
+  implementation:
+  1. **Four `ShadowFreshnessTests` fixtures had to change.** They build "a
+     standing warning on a pane with **no** concern block" (`_fresh_app`'s
+     default `capture=""`), which after this change is not a reachable production
+     state. The invariant they guard (t1451/t1493: an indeterminate read must
+     never *clear* a standing warning) was preserved by re-homing it onto
+     `_CLOSED_BLOCK` rather than by deleting the assertions.
+     `test_option_read_failure_preserves_prior_stale`'s cost-gate pin moved from
+     `_lcw_calls == []` to `== ["%1"]` and got **sharper**: one lookup is the
+     block-age path (which needs it), two would mean the read-recency cost gate
+     broke. `test_change_after_analysis_marks_stale` kept its block-free fixture
+     and its verdict/cost pins; only its banner assertion flipped to `""`.
+  2. `_refresh_shadow_stale_banner` also had its `followed_pane` parameter folded
+     into `snap` (`snap.pane.pane_id`), since the caller passes `snap` anyway.
+- **Issues encountered:**
+  - **HEAD advanced mid-session.** `ce6a6a735` (t1566, "Lead the minimonitor
+    chrome with the followed agent") landed after this session started and touched
+    exactly this surface: `format_shadow_stale_banner` gained a `narrow=` arm,
+    both banner call sites now pass `narrow=True`, `SHADOW_STALE_NARROW` became
+    the asserted constant, `_TOP_CHROME` was reordered and the banner capped at
+    one row. Everything was re-read at HEAD before editing; the plan's edit points
+    survived unchanged apart from preserving `narrow=True` in the moved formatter
+    calls and using `SHADOW_STALE_NARROW` in the new assertions.
+- **Key decisions:**
+  - **Derived state over a latch** (the plan's decision 3, and the answer to
+    review concern 1): a transition latch cannot recover from a misclassified
+    phase, because the way back is *also* a known→known transition.
+  - **`(shadow pane, block)` scoping** (concern 2): a replacement shadow starts
+    unretired by construction, not because a reset happened to run.
+  - **The gate reuses `age.applicable`** rather than calling
+    `contains_block_evidence` a second time — with
+    `BlockEvidenceCouplingTests` as the tripwire for that docstring-only contract.
+  - **Verdict `False`, not `None`,** for both suppressions: `None` would have made
+    t1493's escalation test (`False` → pre-header block → `None`) vacuous.
+- **Verification performed:**
+  - `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest,
+    exit=0)`; 5019 passed, 2 skipped, plus 5 in the serial carve-out.
+  - Adjacent modules individually green: `test_shadow_seam`,
+    `test_monitor_concern_action`, `test_monitor_shadow_status`,
+    `test_monitor_shadow_zone`, `test_shadow_disposition_surfaces`,
+    `test_minimonitor_gate_phase_row`, `test_shadow_phase_restamp`,
+    `test_minimonitor_concern_smoke` (AC6: the full monitor is untouched).
+  - **Negative controls**, each disabling one thing surgically and restoring
+    afterwards:
+
+    | control | failures | verdict |
+    |---|---|---|
+    | existence gate off | AC1 (`True` + `None` subtests), the AC5 companion, the flipped characterization test | 4, exactly the intended set |
+    | phase retirement off | the 6 retirement-dependent tests | 6 |
+    | **transition latch instead of derived state** | flap-recovery + pane-replacement **only** | 2 — proves those two discriminate the design, not just the outcome |
+    | suppression clears text but leaves the widget displayed | the AC4 frame test | 1 — the t1499 bug class is caught |
+- **Upstream defects identified:** None
