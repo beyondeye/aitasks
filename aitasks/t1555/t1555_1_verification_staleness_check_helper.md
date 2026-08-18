@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 19:00
-updated_at: 2026-08-17 19:04
+updated_at: 2026-08-18 08:57
 ---
 
 Implement the deterministic staleness check for `issue_type: manual_verification`
@@ -177,3 +178,8 @@ materialisation).
   permission prompt.
 - `git diff --stat` shows no change to `union_file_references`,
   `aitask_fold_mark.sh`, or `file_references` emission in `aitask_update.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T05:57:31Z status=pass attempt=1 type=human
