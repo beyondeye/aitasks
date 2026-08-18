@@ -64,7 +64,8 @@ _HINT_WIDTH_BUDGET = 38
 _ROOT = Path("/proj/alpha")
 
 
-def _task_info(task_id: str, status: str = "Ready", depends=None) -> TaskInfo:
+def _task_info(task_id: str, status: str = "Ready", depends=None,
+               plan_content: str | None = None) -> TaskInfo:
     return TaskInfo(
         task_id=task_id,
         task_file=f"aitasks/t{task_id}_x.md",
@@ -74,7 +75,7 @@ def _task_info(task_id: str, status: str = "Ready", depends=None) -> TaskInfo:
         issue_type="feature",
         status=status,
         body="body",
-        plan_content=None,
+        plan_content=plan_content,
         depends=list(depends or []),
     )
 
@@ -633,12 +634,16 @@ def _flat(app: App) -> str:
 
 class _ConfirmHost(App):
     def __init__(self, narrow: bool, status: str = "Done",
-                 blocking=("1200",), already_running: str | None = None) -> None:
+                 blocking=("1200",), already_running: str | None = None,
+                 plan_content: str | None = None) -> None:
         super().__init__()
         self._narrow = narrow
         self._status = status
         self._blocking = list(blocking)
         self._already_running = already_running
+        # Defaults to None so every pre-existing test renders the short footer
+        # unchanged; the t1563 guard is the only caller that sets it.
+        self._plan_content = plan_content
 
     def compose(self) -> ComposeResult:
         yield Label("host")
@@ -646,7 +651,8 @@ class _ConfirmHost(App):
     def on_mount(self) -> None:
         self.push_screen(
             TaskPickConfirmDialog(
-                _task_info("1310", status=self._status),
+                _task_info("1310", status=self._status,
+                           plan_content=self._plan_content),
                 kill_target_label="t77 · Done · agent-pick-77",
                 already_running=self._already_running,
                 blocking=self._blocking,
@@ -854,6 +860,288 @@ class NarrowRenderTests(unittest.TestCase):
         with patch.object(TaskPickConfirmDialog, "DEFAULT_CSS", stripped):
             with self.assertRaises(AssertionError):
                 self._run(runner())
+
+
+class BottomDockGeometryTests(unittest.TestCase):
+    """`#pick-confirm-row` and `#task-detail-footer` must not share the dialog's
+    bottom edge (t1563).
+
+    Textual 8.2.7 does not stack same-edge docked siblings — it hands them
+    overlapping regions and the later-in-DOM widget wins. Both used to carry
+    `dock: bottom`, so the footer painted over the confirm row's last row on
+    every frame: the buttons' `tall` bottom border in the wide variant, a dead
+    trailing margin in the narrow one. Same bug class as t1499 (minimonitor top
+    chrome) and t1278 (board #filter_area).
+
+    Everything here asserts **rendered geometry** or the composited frame.
+    `display`, `visible` and a lone `.region` all stay green under this fault —
+    which is exactly how it shipped. And the assertions are on the widget that
+    LOSES the overlap (the confirm row, earlier in DOM), never on the footer,
+    which survives the fault intact and would make a green test out of a broken
+    dialog.
+    """
+
+    NARROW_SIZES = ((40, 16), (40, 20), (40, 24), (40, 30), (40, 50))
+    WIDE_SIZES = ((80, 24), (80, 30), (120, 40))
+    PLANS = (None, "# plan\n\nplan body")
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _cases(self):
+        for plan in self.PLANS:
+            for size in self.NARROW_SIZES:
+                yield size, True, plan
+            for size in self.WIDE_SIZES:
+                yield size, False, plan
+
+    async def _check_no_overlap(self, size, narrow, plan):
+        """The probed assertion, callable WITHOUT `subTest`.
+
+        `subTest` swallows an AssertionError into the result object instead of
+        raising, so a negative control wrapped around a subTest-using test can
+        never observe the failure it injected. The mutation has to reach this
+        function directly.
+        """
+        app = _ConfirmHost(narrow=narrow, plan_content=plan)
+        async with app.run_test(size=size) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            screen = app.screen
+            row = screen.query_one("#pick-confirm-row").region
+            footer = screen.query_one("#task-detail-footer").region
+            self.assertLessEqual(
+                row.y + row.height, footer.y,
+                f"#pick-confirm-row {row} overlaps #task-detail-footer "
+                f"{footer} at {size} narrow={narrow} — same-edge docked "
+                "siblings again (t1563)")
+
+    def test_confirm_row_and_footer_do_not_overlap(self):
+        async def runner():
+            for size, narrow, plan in self._cases():
+                with self.subTest(size=size, narrow=narrow, plan=bool(plan)):
+                    await self._check_no_overlap(size, narrow, plan)
+        self._run(runner())
+
+    def test_both_bottom_widgets_live_in_the_single_docked_wrapper(self):
+        """The structural half of the fix: one docked wrapper, two flowed
+        children. Geometry can be momentarily fine for other reasons; this pins
+        the arrangement that keeps it fine."""
+        async def runner():
+            for size, narrow, plan in self._cases():
+                with self.subTest(size=size, narrow=narrow, plan=bool(plan)):
+                    app = _ConfirmHost(narrow=narrow, plan_content=plan)
+                    async with app.run_test(size=size) as pilot:
+                        await pilot.pause()
+                        await pilot.pause()
+                        wrapper = app.screen.query_one("#pick-bottom-dock")
+                        for selector in ("#pick-confirm-row",
+                                         "#task-detail-footer"):
+                            self.assertEqual(
+                                len(wrapper.query(selector)), 1,
+                                f"{selector} is not inside #pick-bottom-dock")
+        self._run(runner())
+
+    def test_footer_is_contained_and_visible_at_the_tightest_size(self):
+        """Non-overlap alone is satisfied by a footer pushed BELOW the viewport,
+        which would lose the cancel hint entirely. Assert the three things the
+        inequality cannot: containment on both axes, an on-screen row index, and
+        the hint on that exact row (a frame-wide `assertIn` would be satisfied
+        by a match anywhere)."""
+        async def runner():
+            for plan in self.PLANS:
+                with self.subTest(plan=bool(plan)):
+                    app = _ConfirmHost(narrow=True, plan_content=plan)
+                    async with app.run_test(size=(40, 16)) as pilot:
+                        await pilot.pause()
+                        await pilot.pause()
+                        screen = app.screen
+                        footer = screen.query_one("#task-detail-footer").region
+                        dialog = screen.query_one("#task-detail-dialog").region
+                        self.assertGreaterEqual(
+                            footer.y, dialog.y,
+                            f"footer {footer} above dialog {dialog}")
+                        self.assertLessEqual(
+                            footer.y + footer.height, dialog.y + dialog.height,
+                            f"footer {footer} below dialog {dialog}")
+                        self.assertGreaterEqual(
+                            footer.x, dialog.x,
+                            f"footer {footer} left of dialog {dialog}")
+                        self.assertLessEqual(
+                            footer.x + footer.width, dialog.x + dialog.width,
+                            f"footer {footer} right of dialog {dialog}")
+                        rows = _screen_text(app).split("\n")
+                        self.assertTrue(
+                            0 <= footer.y < len(rows),
+                            f"footer row {footer.y} is off-screen "
+                            f"({len(rows)} rows composited)")
+                        self.assertIn(
+                            "q/Esc: cancel", rows[footer.y],
+                            f"cancel hint missing from row {footer.y}: "
+                            f"{rows[footer.y]!r}")
+        self._run(runner())
+
+    def test_footer_does_not_paint_the_confirm_rows_last_row(self):
+        """The render-level counterpart to the region check: the row the footer
+        used to steal now belongs to the confirm row."""
+        async def runner():
+            for size, narrow, plan in self._cases():
+                with self.subTest(size=size, narrow=narrow, plan=bool(plan)):
+                    app = _ConfirmHost(narrow=narrow, plan_content=plan)
+                    async with app.run_test(size=size) as pilot:
+                        await pilot.pause()
+                        await pilot.pause()
+                        row = app.screen.query_one("#pick-confirm-row").region
+                        rows = _screen_text(app).split("\n")
+                        last = row.y + row.height - 1
+                        if not 0 <= last < len(rows):
+                            continue
+                        self.assertNotIn(
+                            "q/Esc: cancel", rows[last],
+                            f"footer painted the confirm row's last row "
+                            f"({last}): {rows[last]!r}")
+        self._run(runner())
+
+    def test_button_bottom_border_survives_in_the_wide_variant(self):
+        """The row the fault actually destroyed. In the wide variant the
+        buttons keep their default `tall` border, so the overlapped row carried
+        the bottom border glyphs — the narrow variant only lost a margin row,
+        which is why the fault was invisible in production."""
+        async def runner():
+            app = _ConfirmHost(narrow=False)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                buttons = app.screen.query_one("#pick-buttons").region
+                rows = _screen_text(app).split("\n")
+                bottom = buttons.y + buttons.height - 1
+                self.assertIn(
+                    "\u2581", rows[bottom],
+                    f"buttons' bottom border missing from row {bottom}: "
+                    f"{rows[bottom]!r}")
+                self.assertNotIn(
+                    "q/Esc: cancel", rows[bottom],
+                    f"footer painted the buttons' bottom border row {bottom}: "
+                    f"{rows[bottom]!r}")
+        self._run(runner())
+
+    def test_narrow_content_visibility_matches_baseline(self):
+        """Undocking the footer costs a row the overlap used to steal; the
+        `.narrow` `Button:last-of-type { margin: 0 }` reclaim repays it. Without
+        that reclaim the eligibility warning silently drops off at 40x20, so
+        this is what pins the reclaim as load-bearing rather than cosmetic."""
+        probes = ("t1310 is Done", "blocked by t1200", "kill followed agent",
+                  "keeps t77", "Launch anyway", "Move to column", "Cancel",
+                  "q/Esc: cancel")
+
+        async def runner():
+            for size in ((40, 20), (40, 24)):
+                with self.subTest(size=size):
+                    app = _ConfirmHost(narrow=True)
+                    async with app.run_test(size=size) as pilot:
+                        await pilot.pause()
+                        await pilot.pause()
+                        flat = _flat(app)
+                        for probe in probes:
+                            self.assertIn(
+                                probe, flat,
+                                f"{probe!r} never reached the screen at {size}: "
+                                f"{flat!r}")
+        self._run(runner())
+
+    def test_narrow_footer_hint_is_complete_with_plan_content(self):
+        """The case no test covered: `_task_info` hard-coded
+        `plan_content=None`, so the long footer never rendered.
+
+        With a plan the base wording is 34 columns; the narrow footer is 30 wide
+        and `height: 1`, so it clipped to "p: switch" and the `p` affordance was
+        unreadable in every minimonitor pane (t1563).
+
+        The `assertNotIn("p: switch", …)` half is load-bearing — "p: switch" is
+        a prefix of the string that ships broken, so a test asserting only the
+        cancel hint passes on the truncated row."""
+        plan = "# plan\n\nplan body"
+
+        def footer_row(app):
+            footer = app.screen.query_one("#task-detail-footer").region
+            return _screen_text(app).split("\n")[footer.y]
+
+        async def runner():
+            for size in ((40, 16), (40, 20), (40, 50)):
+                with self.subTest(size=size, narrow=True):
+                    app = _ConfirmHost(narrow=True, plan_content=plan)
+                    async with app.run_test(size=size) as pilot:
+                        await pilot.pause()
+                        await pilot.pause()
+                        row = footer_row(app)
+                        self.assertIn("q/Esc: cancel", row, repr(row))
+                        self.assertIn("p: plan/task", row, repr(row))
+                        self.assertNotIn("p: switch", row, repr(row))
+                        self.assertNotIn("\u2026", row, repr(row))
+            # The wide variant has the columns to spare and keeps the base
+            # wording — the shortening is narrow-only, not a global rename.
+            with self.subTest(size=(80, 24), narrow=False):
+                app = _ConfirmHost(narrow=False, plan_content=plan)
+                async with app.run_test(size=(80, 24)) as pilot:
+                    await pilot.pause()
+                    await pilot.pause()
+                    row = footer_row(app)
+                    self.assertIn("q/Esc: cancel", row, repr(row))
+                    self.assertIn("p: switch plan/task", row, repr(row))
+                    self.assertNotIn("\u2026", row, repr(row))
+        self._run(runner())
+
+    def _redock_both_children_css(self):
+        """The pre-fix arrangement: both wrapper children docked to one edge.
+
+        Re-docking only the footer is deliberately NOT the mutation. Inside the
+        wrapper it would be the single docked child and the confirm row would
+        flow above it — no overlap, because the fix's real invariant is "one
+        docked widget per edge", not "the footer is undocked". Measured: that
+        weaker mutation leaves the geometry clean at both 40x20 and 80x24, so a
+        control built on it would pass and prove nothing.
+        """
+        css = TaskPickConfirmDialog.DEFAULT_CSS
+        patched = css.replace(
+            "TaskPickConfirmDialog #task-detail-footer { dock: none; }",
+            "TaskPickConfirmDialog #task-detail-footer { dock: bottom; }",
+        ).replace(
+            "    TaskPickConfirmDialog #pick-confirm-row {\n        width: 100%;",
+            "    TaskPickConfirmDialog #pick-confirm-row {\n"
+            "        dock: bottom;\n        width: 100%;",
+        )
+        self.assertNotIn(
+            "#task-detail-footer { dock: none; }", patched,
+            "the footer rule was not rewritten — the mutation never reached "
+            "the CSS, so this control proves nothing")
+        self.assertIn(
+            "dock: bottom;\n        width: 100%;", patched,
+            "the confirm-row rule was not rewritten — the mutation never "
+            "reached the CSS, so this control proves nothing")
+        return patched
+
+    def test_negative_control_both_children_redocked(self):
+        """Restore the pre-fix same-edge docked pair and `_check_no_overlap`
+        must fail — otherwise the geometry assertions above would pass no matter
+        what the CSS said.
+
+        Named failing assertion: `_check_no_overlap`'s
+        `#pick-confirm-row … overlaps #task-detail-footer` message."""
+        patched = self._redock_both_children_css()
+        with patch.object(TaskPickConfirmDialog, "DEFAULT_CSS", patched):
+            for size, narrow in (((40, 20), True), ((80, 24), False)):
+                with self.subTest(size=size, narrow=narrow):
+                    with self.assertRaises(AssertionError):
+                        self._run(self._check_no_overlap(size, narrow, None))
+
+    def test_negative_control_reaches_the_rendered_row_assertion_too(self):
+        """The same mutation must also break the composited-frame check, not
+        only the region arithmetic — the two assertions are independent claims
+        and a control that only trips one leaves the other unpinned."""
+        patched = self._redock_both_children_css()
+        with patch.object(TaskPickConfirmDialog, "DEFAULT_CSS", patched):
+            with self.assertRaises(AssertionError):
+                self.test_button_bottom_border_survives_in_the_wide_variant()
 
 
 class ModalKeyGatingTests(unittest.TestCase):

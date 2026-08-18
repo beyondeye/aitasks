@@ -1491,14 +1491,29 @@ class TaskPickConfirmDialog(TaskDetailDialog):
        window, and a flow-laid confirm row silently overflows *below* the dialog
        at ~20 rows — the buttons then render off-screen entirely. Docking makes
        "the controls are inside the dialog" structural: the body scroll is what
-       gives up space, down to a single row. */
-    TaskPickConfirmDialog #pick-confirm-row {
+       gives up space, down to a single row.
+
+       This wrapper is the ONE docked widget on this edge (t1563). The confirm
+       row and #task-detail-footer used to carry `dock: bottom` individually,
+       and Textual 8.2.7 does not stack same-edge docked siblings — it hands
+       them overlapping regions and the later-in-DOM widget wins, so the footer
+       painted over the confirm row's last row on every frame (in the wide
+       variant, the buttons' bottom border). NEVER re-add `dock:` to either
+       child; dock this wrapper instead. Same bug class as t1499 (minimonitor
+       top chrome) and t1278 (board #filter_area). */
+    TaskPickConfirmDialog #pick-bottom-dock {
         dock: bottom;
+        width: 100%;
+        height: auto;
+    }
+    TaskPickConfirmDialog #pick-confirm-row {
         width: 100%;
         height: auto;
         margin: 1 0 0 0;
     }
-    TaskPickConfirmDialog #task-detail-footer { dock: bottom; }
+    /* The base class docks this to the dialog; here it flows inside the
+       wrapper above. */
+    TaskPickConfirmDialog #task-detail-footer { dock: none; }
     #pick-eligibility { color: $warning; text-style: bold; margin: 0 0 1 0; }
     #pick-running { color: $warning; margin: 0 0 1 0; }
     #pick-kill-detail { color: $text-muted; text-style: bold; margin: 0 0 1 0; }
@@ -1509,8 +1524,11 @@ class TaskPickConfirmDialog(TaskDetailDialog):
        checkbox cannot share a row, so stack them — and drop the `tall`
        borders, which cost two rows per control in a pane that has none to
        spare. With the t1377_2 column button the stack is three rows tall, which
-       is why `#pick-confirm-row { dock: bottom }` above is load-bearing: the
-       body scroll gives up the space, not the controls. */
+       is why `#pick-bottom-dock { dock: bottom }` above is load-bearing: the
+       body scroll gives up the space, not the controls. The dock belongs to
+       that wrapper and to nothing else — do not move it onto
+       `#pick-confirm-row`, which is what this comment named before t1563 and
+       is exactly the same-edge pair that fix removed. */
     TaskPickConfirmDialog.narrow #task-detail-dialog { width: 90%; min-width: 30; }
     TaskPickConfirmDialog.narrow #pick-buttons { layout: vertical; height: auto; }
     TaskPickConfirmDialog.narrow #pick-buttons Button {
@@ -1519,6 +1537,9 @@ class TaskPickConfirmDialog(TaskDetailDialog):
         border: none;
         margin: 0 0 1 0;
     }
+    /* Repays the row the footer no longer steals (t1563): the last stacked
+       button's bottom margin is a separator with nothing after it. */
+    TaskPickConfirmDialog.narrow #pick-buttons Button:last-of-type { margin: 0; }
     TaskPickConfirmDialog.narrow #pick-kill {
         width: 1fr;
         height: 1;
@@ -1592,43 +1613,60 @@ class TaskPickConfirmDialog(TaskDetailDialog):
             self.add_class("narrow")
         with Container(id="task-detail-dialog"):
             yield from self._detail_widgets()
-            with Container(id="pick-confirm-row"):
-                eligibility = self._eligibility_lines()
-                if eligibility:
-                    yield Static("\n".join(eligibility), id="pick-eligibility")
-                if self._already_running:
-                    yield Static(self._already_running, id="pick-running")
-                if self._kill_target_label is not None:
-                    # Short label on purpose: ToggleButton is `text-wrap: nowrap;
-                    # text-overflow: ellipsis`, so a long one is silently clipped
-                    # *inside* the dialog — invisible to a region-fit test. The
-                    # detail goes in its own wrapping Static below.
-                    yield Checkbox("kill followed agent", value=False, id="pick-kill")
-                    yield Static(
-                        self._kill_detail_text(False), id="pick-kill-detail"
+            # One docked wrapper, not two docked siblings — see the
+            # #pick-bottom-dock CSS comment above (t1563).
+            with Container(id="pick-bottom-dock"):
+                with Container(id="pick-confirm-row"):
+                    eligibility = self._eligibility_lines()
+                    if eligibility:
+                        yield Static(
+                            "\n".join(eligibility), id="pick-eligibility"
+                        )
+                    if self._already_running:
+                        yield Static(self._already_running, id="pick-running")
+                    if self._kill_target_label is not None:
+                        # Short label on purpose: ToggleButton is `text-wrap:
+                        # nowrap; text-overflow: ellipsis`, so a long one is
+                        # silently clipped *inside* the dialog — invisible to a
+                        # region-fit test. The detail goes in its own wrapping
+                        # Static below.
+                        yield Checkbox(
+                            "kill followed agent", value=False, id="pick-kill"
+                        )
+                        yield Static(
+                            self._kill_detail_text(False), id="pick-kill-detail"
+                        )
+                    with Container(id="pick-buttons"):
+                        if self.has_eligibility_warning:
+                            yield Button(
+                                "Launch anyway", variant="warning",
+                                id="btn-pick-ok",
+                            )
+                        else:
+                            yield Button("OK", variant="primary", id="btn-pick-ok")
+                        if self.offers_column_action:
+                            # No trailing "…": no Button in this framework uses
+                            # one, and the narrow pane charges a column for it.
+                            yield Button(
+                                "Move to column", variant="default",
+                                id="btn-pick-column",
+                            )
+                        yield Button(
+                            "Cancel", variant="default", id="btn-pick-cancel"
+                        )
+                plan_hint = ""
+                if self._info.plan_content:
+                    # The base's wording is 34 columns with the cancel hint; the
+                    # narrow footer is 30 wide and `height: 1`, so it clipped to
+                    # "p: switch" and the affordance was unreadable (t1563).
+                    plan_hint = (
+                        "  [dim]p: plan/task[/]" if self._narrow
+                        else "  [dim]p: switch plan/task[/]"
                     )
-                with Container(id="pick-buttons"):
-                    if self.has_eligibility_warning:
-                        yield Button(
-                            "Launch anyway", variant="warning", id="btn-pick-ok"
-                        )
-                    else:
-                        yield Button("OK", variant="primary", id="btn-pick-ok")
-                    if self.offers_column_action:
-                        # No trailing "…": no Button in this framework uses one,
-                        # and the narrow pane charges a column for it.
-                        yield Button(
-                            "Move to column", variant="default",
-                            id="btn-pick-column",
-                        )
-                    yield Button("Cancel", variant="default", id="btn-pick-cancel")
-            plan_hint = (
-                "  [dim]p: switch plan/task[/]" if self._info.plan_content else ""
-            )
-            yield Static(
-                f"[dim]q/Esc: cancel[/]{plan_hint}",
-                id="task-detail-footer",
-            )
+                yield Static(
+                    f"[dim]q/Esc: cancel[/]{plan_hint}",
+                    id="task-detail-footer",
+                )
 
     def on_mount(self) -> None:
         # Confirm-mode only. The base's default AUTO_FOCUS lands on the
