@@ -1178,8 +1178,32 @@
       "name": "sonnet5",
       "cli_id": "claude-sonnet-5",
       "notes": "Best speed/intelligence balance, adaptive thinking, 1M context",
-      "verified": {},
-      "verifiedstats": {},
+      "verified": {
+        "docs-gap": 100
+      },
+      "verifiedstats": {
+        "docs-gap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-08",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W34",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      },
       "usagestats": {
         "docs-gap": {
           "all_time": {
