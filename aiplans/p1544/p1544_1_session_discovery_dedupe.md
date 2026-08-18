@@ -423,7 +423,7 @@ assertion, so **it passes unchanged** — and stops silently exercising the bug.
   outcome is *order-dependent* — `{s.key: lbl}` is last-wins over a
   session-name sort, so it may already resolve to the live record's basename —
   which makes the change hard to predict per-environment · severity: low ·
-  → mitigation: registry_alias_label_decision
+  → mitigation: t1568
 
   User-confirmed after review (2026-08-18): deferring this to the spawned
   follow-up was chosen over preserving the alias inside this task, which would
@@ -444,7 +444,7 @@ assertion, so **it passes unchanged** — and stops silently exercising the bug.
 - timing: pre-phase | name: characterize_switcher_ring | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — switcher selection/cycling semantics change | desc: pin the switcher ring's current livelocked behaviour over the pure ring helpers, then rewrite to the post-fix invariants so the fix is provable
 - timing: pre-phase | name: baseline_live_session_lists | type: manual_verification | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — shared session-discovery helper feeds every TUI | desc: capture BOTH discovery lists (no-flag for monitor/minimonitor, include_registered for the j switcher), record duplicate keys and the predicted after-list — the "before" half of the smoke, which cannot run in a post-phase
 - timing: post-phase | name: tui_discovery_smoke_after_dedupe | type: manual_verification | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — shared session-discovery helper feeds every TUI | desc: after-only check of the no-flag list as byte-identical and the registry-inclusive switcher list as matching its prediction, plus a disposable-registry switcher fixture (AITASKS_PROJECTS_INDEX, never the real registry) when the machine has no natural duplicate; reword t1544_7's four-surface checklist to the same A/B split
-- timing: after | name: registry_alias_label_decision | type: enhancement | priority: low | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — a deduped aliased registry row can change the surviving record's rendered label | desc: decide whether the record surviving a key-dedupe should adopt the registry `name` instead of `project_root.name`, and implement the chosen semantics
+- timing: after | name: registry_alias_label_decision | type: enhancement | priority: low | effort: low | inline_risk: medium | added_complexity: low | addresses: code-health — a deduped aliased registry row can change the surviving record's rendered label | desc: decide whether the record surviving a key-dedupe should adopt the registry `name` instead of `project_root.name`, and implement the chosen semantics | created: t1568
 
 `characterize_session_discovery` and `tui_discovery_smoke_after_dedupe` are
 inherited from the parent's decomposition-time confirmation, dispositioned
