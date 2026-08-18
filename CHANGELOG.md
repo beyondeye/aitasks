@@ -1,5 +1,53 @@
 # Changelog
 
+## v0.33.0
+
+### Features
+
+- **Spin a review concern off as its own task** (t1159_3): The shadow reviewer's concern picker gained a third disposition — `t` marks a concern for spin-off, and the picker creates a real task for each marked concern on confirm, alongside forwarding and rejecting.
+- **Codex and OpenCode prompt detection** (t1467): The monitors now recognise Codex and OpenCode question and permission prompts, so an agent waiting on you is flagged whichever CLI it is running. Detection is scoped per agent, so one CLI's wording can no longer be read off another's pane.
+- **Follow-up kind in the work report, sibling chooser and trail** (t1468_5): A task's follow-up kind now travels into the work report, the sibling chooser and the trail, so genuine new work is distinguishable from risk mitigations and QA spin-offs everywhere tasks are listed.
+- **Edit a task's follow-up kind from the board** (t1468_8): The board's task detail pane shows a `Follow-up:` row and opens a colour-coded picker to change it.
+- **By-Trail summary pane** (t1505_1): The board's By-Trail view gained a summary pane showing where the trail stands, and `v` expands it full-screen. The trail's depth is labelled so you can tell a lite trail from a deep one.
+- **Trail overview paragraph** (t1505_3): A trail can carry an optional one-paragraph overview stating what it is for, surfaced in the summary pane.
+- **Lite trails by default** (t1505_4): `ait trail` now creates and refreshes at lite depth by default, with `--deep` for the full evidence-backed document. The depth is recorded and validated, and every run ends with a summary of what it did.
+- **Shadow readiness for Codex and OpenCode** (t1509, t1520): The auto-recheck loop can now tell when a Codex or OpenCode shadow's composer is genuinely ready for input, instead of assuming Claude's.
+- **Review loop for Codex and OpenCode panes** (t1518): The auto-recheck review loop is no longer Claude-only. Codex and OpenCode followed panes arm it too, with each agent's native permission dialogs measured live and anchored so a dialog is never mistaken for review output.
+- **Manual-verification staleness check** (t1538, t1555, t1555_1): A manual-verification task that carries a curated file list and a recorded baseline can now be checked before you verify, warning you when the files under verification have moved on since the baseline was taken. The baseline survives archival carry-over and concurrent board merges.
+
+### Bug Fixes
+
+- **Minimonitor's top chrome did not render** (t1499): The own-agent panel, staleness banner and loop status were docked in a way that left them invisible. They now render, and collapse gracefully on short panes so the pane list always keeps a floor of rows.
+- **Minimonitor chrome ordering and sizing** (t1566): The followed agent now leads the chrome, the own panel is bounded to a fixed height with long window names wrapped, and the session bar ships hidden.
+- **Minimonitor list scrolled back to the top on every refresh** (t1539).
+- **Shadow staleness banner warned without evidence** (t1573): The banner is now gated on real feedback from the shadow, instead of firing whenever the phase could not be confirmed.
+- **Shadow recheck never submitted** (t1525): The auto-recheck loop typed its prompt and sent Enter without checking it landed. It now waits for the composer to settle, verifies the submit from a fresh capture, retries once, and disarms with a clear message rather than leaving text sitting in the composer.
+- **"Do you want to proceed?" matched mid-line** (t1557, t1540): Claude's permission prompt is now anchored to a whole line, measured live across seven pane geometries, so prose that merely mentions the phrase no longer reads as a permission dialog.
+- **Pick-confirm dialog's bottom chrome overlapped** (t1563): The button row and footer now dock as one widget, so the narrow layout no longer eats the last row.
+- **Codebrowser dead end outside a git repo** (t1500): The search box is no longer mounted when there is no project, so focus cannot land somewhere with no way out.
+- **`ait artifact rm` left a dangling key** (t1515): Removing the last artifact left an empty `artifacts:` header in the task's frontmatter. Any frontmatter list emptied by a remove now drops its key.
+- **Task abort missed a moved worktree** (t1548): Abort now resolves a task's worktree from the recorded worktree list rather than guessing its path, so a worktree that has been moved is still cleaned up.
+- **Step 5 still said it was creating the worktree** (t1558): After the fork was deferred to plan approval, three surfaces in the workflow's Step 5 still announced a worktree being created.
+- **Plan headers recorded the wrong base branch** (t1277): The plan header now records the base branch that was actually resolved, and the base-branch example uses a neutral placeholder.
+- **Trail drift blamed a child's plan on its parent** (t1532): A parent task's plan pattern absorbed its children's plans, so drift was attributed to the wrong task.
+- **Duplicate session records** (t1544_1): Session discovery could return the same repository more than once, duplicating entries in the monitors and the TUI switcher ring.
+- **Test-suite reliability fixes** (t1327, t1487, t1510, t1512): Restored stale pane-discovery test coverage, stopped board tests running real background workers into teardown, made the board-movement benchmark robust to machine contention, and replaced a racy dead-PID fixture with a shared helper.
+
+### Improvements
+
+- **The `docs_updated` gate knows what your task changed** (t1263): The gate now attributes the change surface per task — commit tags, plan scope and a claim baseline — instead of showing everything dirty in the tree, and asks you about anything it cannot attribute.
+- **Trail detail starts from the entry you focused** (t1505_2): The detail view shows the focused entry first with only the waves, drift, observations and evidence that bear on it; `a` reveals the whole document.
+- **Registry lock on the shared stale-lock core** (t1507): The project-registry lock now delegates to the framework's single stale-lock implementation rather than carrying its own, with single-winner behaviour proven under contention.
+- **Worktree fork deferred until after plan approval** (t1536): The task workflow resolves branch names in Step 5 but does not cut the worktree until the plan is approved and the drift check has run — so abandoning a task at plan time leaves nothing behind.
+
+### Documentation
+
+- **Shadow review loop, round headers and spin-off arm documented** (t1159_4): The shadow companion docs, the concern format reference and the monitor how-to pages were brought in line with the review loop's current behaviour, including the round header, the spin-off arm and the new keybindings.
+
+### Maintenance
+
+- **Follow-up kind backfilled** (t1468_6): A new backfill script classified and stamped `followup_kind` on 167 existing active tasks in one revertible commit.
+
 ## v0.32.0
 
 ### Features
