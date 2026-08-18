@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [1498]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, aitask_monitormini, shadow]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1159
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-08-12 17:21
-updated_at: 2026-08-18 08:52
+updated_at: 2026-08-18 10:00
+completed_at: 2026-08-18 10:00
 ---
 
 ## Failed verification item from t1498
@@ -119,3 +120,14 @@ _(not a commit regression — see "Not a t1493 regression" above)_
 > **✅ gate:plan_approved** run=2026-08-18T05:52:50Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-18T06:50:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-18T07:00:24Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:5c5fefadf71f2e9e
+
+> **✅ gate:risk_evaluated** run=2026-08-18T07:00:24Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1499/risk_evaluated_2026-08-18T07:00:24Z-risk_evaluated-a1.log`
