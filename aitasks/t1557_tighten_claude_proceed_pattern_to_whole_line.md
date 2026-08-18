@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 21:56
-updated_at: 2026-08-17 22:02
+updated_at: 2026-08-18 08:36
 ---
 
 ## Origin
@@ -77,3 +78,8 @@ preserve that, or the short-pane regime loses detection entirely.
   `python3 tests/test_prompt_detection.py` (the latter owns `claude_proceed`'s
   existing coverage).
 - Negative control: revert to the substring form; the new test must fail.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T05:36:40Z status=pass attempt=1 type=human
