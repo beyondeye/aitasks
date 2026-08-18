@@ -70,6 +70,7 @@
       "Bash(./.aitask-scripts/aitask_lock.sh:*)",
       "Bash(./.aitask-scripts/aitask_lock_diag.sh:*)",
       "Bash(./.aitask-scripts/aitask_ls.sh:*)",
+      "Bash(./.aitask-scripts/aitask_merge_task.sh:*)",
       "Bash(./.aitask-scripts/aitask_opencode_models.sh:*)",
       "Bash(./.aitask-scripts/aitask_pick_own.sh:*)",
       "Bash(./.aitask-scripts/aitask_plan_externalize.sh:*)",

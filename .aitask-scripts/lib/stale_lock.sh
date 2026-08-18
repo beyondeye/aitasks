@@ -59,6 +59,39 @@ _AIT_STALE_LOCK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # Legacy/foreign locks (no pid file) older than this are reclaimable.
 _STALE_LOCK_WINDOW="${_STALE_LOCK_WINDOW:-120}"
 
+# --- Opt-in seams (all default-off; unset => this file behaves exactly as it
+# --- did before they existed, so no existing caller changes behaviour) ------
+#
+#   STALE_LOCK_IDENTITY_PID   Value written into <lock_dir>/pid at publish time
+#                             INSTEAD of $$, and compared on read-back. Both
+#                             sites, always: overriding only the write makes the
+#                             read-back compare the override against $$, fail,
+#                             and take the partial-publish unwind path - i.e.
+#                             every acquire would fail closed. The owner token
+#                             keeps its own $$ prefix (it is per-process
+#                             uniqueness, not identity). For a holder whose
+#                             reservation must outlive the acquiring process,
+#                             set this to a durable session anchor.
+#   _STALE_LOCK_LIVENESS_FN   Called as `<fn> <lock_dir>` at the TOP of
+#                             _stale_lock_reclaim_under_gc, under the guard.
+#                             SOLE authority on the holder verdict: exit 0 =
+#                             do not displace, 1 = reclaim. Bypasses both the
+#                             kill -0 branch and the tokenless-age branch,
+#                             because a durable anchor is not this process tree.
+#   STALE_LOCK_PUBLISH_FN     Called as `<fn> <lock_dir>` INSIDE the .gc guard,
+#                             after pid/owner are written and read-back-verified
+#                             and before the guard is dropped. Nonzero is a
+#                             publish failure and takes the existing
+#                             unwind-and-fail-closed path. This seam exists
+#                             because the guard is released inside
+#                             stale_lock_acquire before it returns, so a caller
+#                             cannot make its own identity files atomic with the
+#                             acquisition from the outside.
+#
+# None of these relax the invariants above: identity is still published under
+# the guard and verified on read-back, a verdict is still formed and acted on in
+# one guarded section, and a publish failure still fails closed.
+
 # ait_lock_dir <name> — echo the resolved lock dir path for <name>.
 # $AITASKS_LOCK_DIR (the documented test/deployment seam) wins; otherwise a
 # per-user, per-repo base under $TMPDIR. Returns 1 (with a warn) when the
@@ -143,6 +176,14 @@ _stale_lock_gc_release() {
     rmdir "$1" 2>/dev/null
 }
 
+# _stale_lock_run_publish_fn <lock_dir> — dispatch the STALE_LOCK_PUBLISH_FN
+# seam. No seam configured is success (the default path publishes pid+owner and
+# nothing else). Runs under the guard; a nonzero return is a publish failure.
+_stale_lock_run_publish_fn() {
+    [[ -n "${STALE_LOCK_PUBLISH_FN:-}" ]] || return 0
+    "$STALE_LOCK_PUBLISH_FN" "$1"
+}
+
 # _stale_lock_pid_alive <pid> — 0 iff the process exists. EPERM ("we may not
 # signal it") counts as alive: fail-safe, never displace what might be running.
 _stale_lock_pid_alive() {
@@ -160,6 +201,16 @@ _stale_lock_pid_alive() {
 _stale_lock_reclaim_under_gc() {
     local lock_dir="$1" label="$2"
     [[ -d "$lock_dir" ]] || return 0            # vanished -> retry mkdir now
+    # Seam: a caller whose holder identity is a durable session anchor (not a
+    # pid in this process tree) owns the verdict entirely - neither kill -0 nor
+    # the tokenless-age window can reason about it.
+    if [[ -n "${_STALE_LOCK_LIVENESS_FN:-}" ]]; then
+        if "$_STALE_LOCK_LIVENESS_FN" "$lock_dir"; then
+            return 1                            # alive or undecidable: never displaced
+        fi
+        warn "Reclaiming $label from dead holder"
+        if _stale_lock_rm_verified "$lock_dir"; then return 0; else return 1; fi
+    fi
     local holder
     holder="$(cat "$lock_dir/pid" 2>/dev/null || true)"
     if [[ "$holder" =~ ^[0-9]+$ ]]; then
@@ -192,18 +243,22 @@ _stale_lock_reclaim_under_gc() {
 STALE_LOCK_TOKEN=""
 stale_lock_acquire() {
     local lock_dir="$1" retries="$2" sleep_s="$3" label="$4"
-    local gc="${lock_dir}.gc" retry=0 reclaimed token
+    local gc="${lock_dir}.gc" retry=0 reclaimed token ident_pid
+    ident_pid="${STALE_LOCK_IDENTITY_PID:-$$}"
     STALE_LOCK_TOKEN=""
     while :; do
         reclaimed=1
         if mkdir "$gc" 2>/dev/null; then
             if mkdir "$lock_dir" 2>/dev/null; then
                 # -- publish identity under the guard, verified --
+                # The token keeps its own $$ prefix: it is per-process
+                # uniqueness, not the holder identity ident_pid records.
                 token="$$-${RANDOM}-${RANDOM}-$(date +%s)"
-                if printf '%s\n' "$$" > "$lock_dir/pid" 2>/dev/null &&
+                if printf '%s\n' "$ident_pid" > "$lock_dir/pid" 2>/dev/null &&
                    printf '%s\n' "$token" > "$lock_dir/owner" 2>/dev/null &&
-                   [[ "$(cat "$lock_dir/pid" 2>/dev/null)" == "$$" ]] &&
-                   [[ "$(cat "$lock_dir/owner" 2>/dev/null)" == "$token" ]]; then
+                   [[ "$(cat "$lock_dir/pid" 2>/dev/null)" == "$ident_pid" ]] &&
+                   [[ "$(cat "$lock_dir/owner" 2>/dev/null)" == "$token" ]] &&
+                   _stale_lock_run_publish_fn "$lock_dir"; then
                     if _stale_lock_gc_release "$gc"; then
                         # shellcheck disable=SC2034  # consumed by sourcing callers
                         STALE_LOCK_TOKEN="$token"
@@ -242,6 +297,104 @@ stale_lock_acquire() {
             sleep "$sleep_s"
         fi
     done
+}
+
+# --- Guarded section (for destructive recovery paths) -----------------------
+#
+# stale_lock_guarded_section <lock_dir> <fn> [<max_tries>]
+#
+# Runs `<fn> <lock_dir>` while holding the .gc guard, so a whole
+# inspect -> repair -> destroy sequence is serialized against acquire, reclaim
+# and release. This upholds invariant 1 for callers that must act on a staleness
+# verdict with more than a file operation: without it, a contender can reclaim
+# and republish between the verdict and the destruction, and the destruction
+# then removes a FRESH, live reservation.
+#
+# Returns <fn>'s status; 1 if the guard could not be taken, and 1 (with a warn)
+# if the guard could not be released afterwards.
+#
+# SIGNALS. This is the only trap-installing function in this file, and it is a
+# shared-library export, so it SAVES and RESTORES the caller's INT/TERM/HUP
+# handlers rather than clearing them - `trap -` would silently strip a cleanup
+# path the caller installed. On a catchable signal it releases the guard,
+# restores the caller's handlers and RE-RAISES: a guarded section must not
+# swallow a signal the caller was prepared to handle. Releasing on a signal is
+# safe for a destroy-last <fn>, because the lock dir is still present with its
+# original holder, so the pre-section state is restored.
+#
+# A <fn> whose final step destroys the lock dir must wrap that step in
+# stale_lock_guard_critical: being interrupted between "lock dir removed" and
+# "guard released" is the one ordering that strands a guard over no lock.
+#
+# An UNCATCHABLE kill still leaks the guard - that is invariant 2, deliberately.
+# The published recovery applies unchanged: stale_lock_describe names the guard
+# path, and the cure is `rmdir <lock_dir>.gc` (never rm -rf).
+_STALE_LOCK_GUARD_ACTIVE=""
+_STALE_LOCK_GUARD_SAVED_TRAPS=""
+
+# _stale_lock_restore_traps <saved> — reinstall exactly what the caller had.
+# An empty <saved> means the caller had no handler, so ours must simply go.
+_stale_lock_restore_traps() {
+    trap - INT TERM HUP
+    [[ -z "$1" ]] || eval "$1"
+}
+
+_stale_lock_guard_on_signal() {
+    local sig="$1"
+    if [[ -n "$_STALE_LOCK_GUARD_ACTIVE" ]]; then
+        _stale_lock_gc_release "$_STALE_LOCK_GUARD_ACTIVE" ||
+            warn "stale_lock: guard '$_STALE_LOCK_GUARD_ACTIVE' retained after $sig"
+        _STALE_LOCK_GUARD_ACTIVE=""
+    fi
+    warn "stale_lock: INTERRUPTED:guard_released ($sig)"
+    _stale_lock_restore_traps "$_STALE_LOCK_GUARD_SAVED_TRAPS"
+    kill -s "$sig" $$           # re-raise into the caller's own handler
+}
+
+# stale_lock_guard_critical <cmd> [args...] — run <cmd> with INT/TERM/HUP
+# MASKED, then restore this section's handler. For the few file ops that must
+# not be interrupted partway (typically the lock-dir removal itself).
+stale_lock_guard_critical() {
+    local rc=0
+    trap '' INT TERM HUP
+    "$@" || rc=$?
+    trap '_stale_lock_guard_on_signal INT'  INT
+    trap '_stale_lock_guard_on_signal TERM' TERM
+    trap '_stale_lock_guard_on_signal HUP'  HUP
+    return "$rc"
+}
+
+stale_lock_guarded_section() {
+    local lock_dir="$1" fn="$2" max_tries="${3:-40}"
+    local gc="${lock_dir}.gc" tries=0 rc=0
+    _STALE_LOCK_GUARD_SAVED_TRAPS="$(trap -p INT TERM HUP)"
+    # Bounded guard wait, same shape as stale_lock_release: an ordinary
+    # contender holds the guard for microseconds; only a leaked guard exhausts.
+    while ! mkdir "$gc" 2>/dev/null; do
+        tries=$((tries + 1))
+        if [[ "$tries" -ge "$max_tries" ]]; then
+            warn "stale_lock: guard '$gc' busy — guarded section not entered"
+            _stale_lock_restore_traps "$_STALE_LOCK_GUARD_SAVED_TRAPS"
+            return 1
+        fi
+        sleep 0.05
+    done
+    _STALE_LOCK_GUARD_ACTIVE="$gc"
+    trap '_stale_lock_guard_on_signal INT'  INT
+    trap '_stale_lock_guard_on_signal TERM' TERM
+    trap '_stale_lock_guard_on_signal HUP'  HUP
+
+    "$fn" "$lock_dir" || rc=$?
+
+    if [[ -n "$_STALE_LOCK_GUARD_ACTIVE" ]]; then
+        if ! _stale_lock_gc_release "$gc"; then
+            warn "stale_lock: guard '$gc' retained"
+            rc=1
+        fi
+        _STALE_LOCK_GUARD_ACTIVE=""
+    fi
+    _stale_lock_restore_traps "$_STALE_LOCK_GUARD_SAVED_TRAPS"
+    return "$rc"
 }
 
 # stale_lock_release <lock_dir> <token>

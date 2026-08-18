@@ -59,6 +59,7 @@
       "./.aitask-scripts/aitask_lock.sh *": "allow",
       "./.aitask-scripts/aitask_lock_diag.sh *": "allow",
       "./.aitask-scripts/aitask_ls.sh *": "allow",
+      "./.aitask-scripts/aitask_merge_task.sh *": "allow",
       "./.aitask-scripts/aitask_opencode_models.sh *": "allow",
       "./.aitask-scripts/aitask_pick_own.sh *": "allow",
       "./.aitask-scripts/aitask_plan_externalize.sh *": "allow",
