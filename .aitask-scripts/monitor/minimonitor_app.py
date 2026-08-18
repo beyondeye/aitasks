@@ -295,6 +295,25 @@ KEY_HINTS_TEXT = (
     "space:mark ★ (followed agent)"
 )
 
+# Top-chrome layout budget (t1499). These four flow above #mini-pane-list in
+# compose order; #mini-key-hints is docked bottom. When the chrome's occupied
+# height leaves the list less than _PANE_LIST_FLOOR_ROWS, the hints compact to
+# _SHORT_HINT_ROWS rather than letting the flow overrun the docked band and
+# paint the agent list off the screen. See _refresh_short_mode.
+_TOP_CHROME = (
+    "#mini-session-bar",
+    "#mini-shadow-stale",
+    "#mini-loop-status",
+    "#mini-own-agent",
+)
+# Derived, never a second literal: a hint line added to KEY_HINTS_TEXT must not
+# require editing a count here too. Pinned against the rendered height at 40
+# columns by test_minimonitor_top_chrome_render.py, so a line long enough to
+# wrap invalidates this loudly instead of silently shifting the threshold.
+_KEY_HINTS_ROWS = KEY_HINTS_TEXT.count("\n") + 1
+_SHORT_HINT_ROWS = 2
+_PANE_LIST_FLOOR_ROWS = 3
+
 
 class MiniMonitorApp(
     AgentMarksMixin, ShadowRejectionsMixin, TuiSwitcherMixin, ShortcutsMixin, App
@@ -306,8 +325,31 @@ class MiniMonitorApp(
     TITLE = "Mini Monitor"
 
     CSS = """
+    /* Top chrome. NEVER re-add `dock:` to any of these four (t1499). Textual
+       places same-edge docked siblings at the SAME offset instead of stacking
+       them, so all four landed on y=0 and only #mini-own-agent — last in DOM
+       order — was composited. The other three never rendered in any state,
+       silently: each still reported display=True, visible=True and a
+       "correct" region, which is why the DOM-free banner seams
+       (_shadow_stale_banner_text / _loop_banner_text) and the markup contract
+       test stayed green while the user saw nothing. Same defect and same fix
+       as the board's #filter_area (t1278). Undocked, they flow in compose
+       order and #mini-pane-list (1fr) takes the rest.
+
+       `display: none` below is LOAD-BEARING, not cosmetic: an empty Static
+       with `height: auto` resolves to ONE row, not zero, so without it the
+       three collapsible widgets would cost 3 permanent rows in a 40-column
+       companion pane. Each write site turns display back on when it has
+       something to show — see _set_shadow_stale_banner, _set_loop_banner and
+       _maybe_build_own_agent_panel.
+
+       The `max-height` caps are load-bearing too: undocked chrome GROWS, and
+       unbounded it overruns the bottom-docked #mini-key-hints and paints the
+       agent list off the screen at ~20 rows. Capped, chrome tops out at 11
+       rows; when even that does not fit, _refresh_short_mode compacts the
+       hints instead — measuring what the chrome actually occupies, never a
+       worst-case budget. */
     #mini-session-bar {
-        dock: top;
         height: 1;
         background: $primary;
         color: $text;
@@ -315,9 +357,12 @@ class MiniMonitorApp(
         text-style: bold;
     }
 
+    /* Hidden until _set_shadow_stale_banner has text; capped so a long
+       staleness message cannot push the pane list off the screen. */
     #mini-shadow-stale {
-        dock: top;
+        display: none;
         height: auto;
+        max-height: 3;
         background: $error;
         color: $text;
         padding: 0 1;
@@ -325,19 +370,25 @@ class MiniMonitorApp(
     }
 
     /* Auto-recheck loop status (t1159_2). $warning, deliberately distinct
-       from the $error stale banner above; empty text ⇒ 0 rows. */
+       from the $error stale banner above. Hidden and capped on the same rule
+       as that banner — see the block comment at the top of this stylesheet. */
     #mini-loop-status {
-        dock: top;
+        display: none;
         height: auto;
+        max-height: 3;
         background: $warning;
         color: $text;
         padding: 0 1;
         text-style: bold;
     }
 
+    /* Hidden until _maybe_build_own_agent_panel mounts the panel. A
+       VerticalScroll, so the cap scrolls the overflow rather than dropping
+       it. */
     #mini-own-agent {
-        dock: top;
+        display: none;
         height: auto;
+        max-height: 4;
         background: $boost;
         border-bottom: solid $primary;
         padding: 0;
@@ -385,12 +436,21 @@ class MiniMonitorApp(
         padding: 0 1;
     }
 
+    /* The only `dock:` in this stylesheet, and it must stay the only one on
+       the bottom edge — see the top-of-file comment. */
     #mini-key-hints {
         dock: bottom;
         height: auto;
         background: $surface;
         color: $text-muted;
         padding: 0 1;
+    }
+
+    /* Short-pane mode (t1499): the static hints are the thing that yields
+       when live chrome needs the rows. Toggled by _refresh_short_mode, which
+       measures the chrome's actually-occupied height. */
+    MiniMonitorApp.short #mini-key-hints {
+        max-height: 2;
     }
     """
 
@@ -605,6 +665,54 @@ class MiniMonitorApp(
     def on_resize(self, event) -> None:
         """Re-pin the companion pane to its configured width on any resize."""
         self._maybe_pin_width()
+        self._schedule_short_mode_refresh()
+
+    def _schedule_short_mode_refresh(self) -> None:
+        """Queue a post-layout ``_refresh_short_mode``; no-op if unmounted.
+
+        Always ``call_after_refresh``, never a direct call: the predicate reads
+        widget regions, and before layout every one of them is 0.
+
+        Suppressed for the same reason as the banner setters' own
+        ``contextlib.suppress`` — several unit tests drive those write sites
+        against an app built with ``__new__`` and a stubbed ``query_one``,
+        where there is no message pump to schedule on.
+        """
+        with contextlib.suppress(Exception):
+            self.call_after_refresh(self._refresh_short_mode)
+
+    def _refresh_short_mode(self) -> None:
+        """Let the static key hints yield when live chrome needs the rows.
+
+        Undocking the top chrome (t1499) let it GROW for the first time, and
+        unbounded growth overruns the bottom-docked ``#mini-key-hints``: the
+        flow children are laid out inside ``height - hints``, so once the
+        chrome exceeds that the pane list is pushed into the docked band and
+        painted over — invisible, with a perfectly plausible region.
+
+        Measures the chrome's **actually occupied** height rather than a
+        worst-case budget. A budget-based predicate is wrong in the common
+        case: ``_maybe_build_own_agent_panel`` builds the followed-agent panel
+        once early in a normal session and leaves it displayed forever, so
+        "is any collapsible widget shown?" is true almost always, and a 22-row
+        pane with no banners would needlessly lose eight hint lines.
+
+        Converges in one pass and cannot oscillate: chrome heights depend on
+        width and content only, never on the hints' height, and the comparison
+        uses ``_KEY_HINTS_ROWS`` — the hints' *desired* height — rather than
+        their current rendered height, so the class never feeds back into its
+        own input. Always scheduled via ``call_after_refresh`` so the region
+        reads happen after layout; called before it, every region is 0.
+        """
+        with contextlib.suppress(Exception):
+            chrome = sum(
+                self.query_one(sel).region.height for sel in _TOP_CHROME
+            )
+            self.set_class(
+                chrome + _KEY_HINTS_ROWS + _PANE_LIST_FLOOR_ROWS
+                > self.size.height,
+                "short",
+            )
 
     def _maybe_pin_width(self) -> None:
         """Clamp this minimonitor's companion pane back to its target width.
@@ -1300,6 +1408,12 @@ class MiniMonitorApp(
             Static(f"[dim]── {label} ──[/]", classes="mini-own-header"),
             card,
         ])
+        # Load-bearing (t1499): the rule ships `display: none` so an empty
+        # panel costs zero rows before the own window resolves. This is the
+        # only line that ever reveals it — drop it and the panel is invisible
+        # forever while every widget-state assertion still passes.
+        panel.display = True
+        self._schedule_short_mode_refresh()
         self._own_card = card
         self._own_panel_built = True
 
@@ -2257,10 +2371,21 @@ class MiniMonitorApp(
         the warning is assertable without a mounted DOM) and best-effort updates
         the ``#mini-shadow-stale`` Static — suppressed if the widget is not
         mounted (e.g. unit tests), matching the panel's best-effort UX.
+
+        **The ``display`` toggle is load-bearing (t1499), not cosmetic.** The
+        rule ships ``display: none`` because an empty Static with
+        ``height: auto`` still occupies one row; this line is the only thing
+        that ever turns the banner on, and clearing the text must turn it off
+        again or the widget keeps its rows forever. Note the seam above is
+        exactly what let this surface ship dead — assert on the composited
+        frame, not on ``_shadow_stale_banner_text``.
         """
         self._shadow_stale_banner_text = text
         with contextlib.suppress(Exception):
-            self.query_one("#mini-shadow-stale", Static).update(text)
+            widget = self.query_one("#mini-shadow-stale", Static)
+            widget.update(text)
+            widget.display = bool(text)
+        self._schedule_short_mode_refresh()
 
     def _restamp_shadow_phase(self, shadow_pane: str, snap: PaneSnapshot) -> None:
         """Push the followed agent's current advisory phase onto its shadow.
@@ -2400,10 +2525,16 @@ class MiniMonitorApp(
         Records the last-set text on ``_loop_banner_text`` (DOM-free test
         seam, mirroring ``_shadow_stale_banner_text``) and best-effort updates
         the ``#mini-loop-status`` Static.
+
+        The ``display`` toggle is load-bearing for the same reason as in
+        :meth:`_set_shadow_stale_banner` (t1499) — see that docstring.
         """
         self._loop_banner_text = text
         with contextlib.suppress(Exception):
-            self.query_one("#mini-loop-status", Static).update(text)
+            widget = self.query_one("#mini-loop-status", Static)
+            widget.update(text)
+            widget.display = bool(text)
+        self._schedule_short_mode_refresh()
 
     def _derive_agent_presence(self, snap: PaneSnapshot | None) -> bool | None:
         """Tri-state followed-agent presence from discovery-level liveness.
