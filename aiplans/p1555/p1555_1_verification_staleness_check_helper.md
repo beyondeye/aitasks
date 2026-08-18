@@ -113,6 +113,21 @@ stderr discarded.
   and pass `-C "$repo_root"` to *every* git call. `git log -- <path>` pathspecs are
   **cwd-relative** while `<rev>:<path>` is root-relative; curated paths are
   root-relative, so mixing the two silently mis-resolves from any subdirectory.
+- **Curated paths are pathspecs, and git globs them — pass `:(literal)`.**
+  `git log -- <path>` matches a *pathspec*, and a pathspec containing `*`, `?` or
+  `[...]` is fnmatch-globbed. All three are legal POSIX filename characters, so a
+  task curated for the literal file `docs/a[bc].md` picks up every commit touching
+  `docs/ab.md` — the helper then reports `ASK_STALE` for a file nothing touched
+  (violating its own FRESH contract) and, when the file *did* change, inflates
+  `n_commits` and attributes the neighbour's task id to it. Both history queries
+  (the `CHANGED:` log and the `DELETED:` culprit lookup) therefore pass
+  `":(literal)$p"`. Consistent with existing practice — `:(exclude)` magic is
+  already used in `aitask_change_surface.sh` and `lib/gate_ledger.py`, so no new
+  git version floor. Bonus: it also neutralises a curated path that itself begins
+  with `:`, which git would otherwise read as pathspec magic.
+  The `git cat-file -e "<rev>:<path>"` probes need **no** such guard — that form
+  is an exact tree-path lookup, not a pathspec. Root-relativity stays a separate
+  property, supplied by `-C "$repo_root"`.
 - **Range suffixes are stripped** (`path:N`, `path:N-M`, `path:N-M^N-M`) — v1
   compares whole files. Strip with a bash regex mirroring `validate_file_ref`'s
   grammar, then **dedupe**: two ranges of one file are one path to check, and
@@ -377,6 +392,24 @@ its own sandbox factory.
     decodes back to itself — pins the encode-`%`-first ordering, which is the only
     part of the rule that can silently corrupt a name
   - an `invalid_reference` entry is encoded by the same rule
+- **glob-shaped filenames** — three fixtures, because the failure has three
+  distinct faces and a plain-pathspec implementation passes every other test in
+  this file:
+  - curated `docs/a[bc].md` untouched while the glob-matching neighbour
+    `docs/ab.md` changes => **`FRESH`**, no evidence lines, and the neighbour's
+    task id nowhere in the output (the false-positive / broken-FRESH-contract case)
+  - both changed => `ASK_STALE` with `CHANGED:docs/a[bc].md|1|888` exactly: the
+    genuine change is detected either way (git matches a literal path before
+    globbing), so the discriminator is the **evidence** — an unguarded pathspec
+    reads `2` commits and attributes the neighbour's id, sending the user to amend
+    a checklist for the wrong change
+  - both deleted => the culprit is the file's own deletion commit. **The neighbour
+    must be deleted LAST**: the culprit query is `-n1`, so deleting it first makes
+    both implementations agree and the fixture proves nothing (this ordering bug
+    was caught by the negative control, not by review).
+  The fixture helpers `commit_file` / `remove_file` must pass `:(literal)` too —
+  `git add` / `git rm` are pathspecs as well, and `git rm -- 'docs/a[bc].md'`
+  silently deletes `docs/ab.md`, destroying the fixture's own premise.
 - **ranged references** — the fixtures above use bare paths only, so nothing would
   catch a dropped or wrong strip: a literal probe of `path:1-4` returns
   `UNKNOWN:…|absent_at_baseline` and prompts **forever** on a perfectly valid
@@ -521,9 +554,131 @@ mode: no task branch to merge.
 - Path encoding is a cross-task contract slice 3 must decode; an undecoded render
   would show `a%7Cb.md` to the user. Confined to two sequences, stated in the helper
   header, and exercised by a decode round-trip test · severity: low · → mitigation: none (contract is pinned by test and header)
+- Curated paths reach git as pathspecs; `:(literal)` is required on every such
+  call site, and a future call site added without it silently re-opens the
+  false-`ASK_STALE` bug · severity: low · → mitigation: none (three fixtures cover
+  the changed / unchanged / deleted faces, and each was negative-controlled)
 - `--diff-filter=D -M` (spec-mandated) does not match a *renamed* file, so its
   culprit reads `unknown` while the `DELETED:` verdict stays correct · severity: low · → mitigation: none (verdict is unaffected; spec-faithful)
 
 ### Planned mitigations
 - timing: post-phase | name: pin_baseline_across_all_write_paths | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: silent field drop if one of the three write_task_file call sites is missed | desc: extend the setter tests to cover the parent-rewrite and interactive write paths, not only the batch path
 - timing: post-phase | name: assert_allowlist_coverage | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: a missed invocation allowlist surfacing only as a permission stall in slice 3 | desc: assert the new helper is present in all five allowlist files, naming the offending file on a miss
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All four scope items landed as planned. New read-only helper
+  `.aitask-scripts/aitask_verification_stale.sh` (`check <task_file>`, ~350 lines)
+  implementing the normative ordered evaluation, committed-tree existence probes,
+  range-strip + dedupe, delimiter-encoded protocol paths, and `:(literal)` pathspecs.
+  `verification_baseline:` added to `aitask_update.sh` following the `followup_kind`
+  precedent (positional 34, all three `write_task_file` call sites). Carry-over
+  inheritance in `aitask_archive.sh::create_carryover_task`. Base-aware merge rule +
+  `_normalize_opaque_scalar` in `board/aitask_merge.py`. Five invocation allowlists,
+  one website docs row. Tests: `tests/test_verification_stale.sh` (new, 90 assertions
+  across sections A–D) and 9 cases appended to `tests/test_aitask_merge.py`.
+
+- **Deviations from plan:**
+  - **Merge rule mechanism changed during planning review.** The first draft added a
+    newer-`updated_at`-wins branch beside `anchor`. That is wrong here: it sits inside
+    the both-present arm, while the one-sided-presence branch resolves first and
+    unconditionally — so a deliberate `--verification-baseline ""` clear would lose to a
+    stale checkout still carrying the old value and the baseline would **resurrect on
+    sync**, silently re-instating a dismissal the user revoked. Replaced with a
+    `_BASE_AWARE_FIELDS` entry (`deletion_aware=True`), which is the mechanism
+    `followup_kind` already established for this exact shape.
+  - **Delimiter guard replaced by encoding.** A draft rejected `|`-containing paths as
+    `UNKNOWN:<path>|delimiter_in_path` — a record that is itself ambiguous, i.e. the very
+    failure the guard existed to prevent. Replaced with uniform `%`-then-`|` encoding of
+    every emitted path, which deletes the special case *and* lets a `|`-named file be
+    checked normally.
+  - **Five allowlists, not the three named in the task.** `.codex/rules/default.rules`
+    and `seed/codex_rules.default.rules` also gate helper invocation.
+  - **`tests/test_followup_kind_roundtrip.sh` Part E amended** (see below).
+  - Docs: added only the `website/.../task-format.md` row. `CLAUDE.md` and
+    `seed/aitasks_agent_instructions.seed.md` carry a *representative* field list that
+    already omits `file_references` / `verifies` / the risk fields, so the field does not
+    belong there. No `aitasks_extension_points.md` worked example — this field is
+    `anchor` with a different name and teaches nothing new.
+
+- **Issues encountered:**
+  - **Curated paths are pathspecs and git globs them** (found in review, CONFIRMED by
+    reproduction on git 2.55). `git log -- 'docs/a[bc].md'` matches `docs/ab.md`, so an
+    untouched literal file reported `ASK_STALE` — a direct violation of the helper's own
+    FRESH contract — and when it *had* changed, `n_commits` and `task_ids` were
+    contaminated by the neighbour's commit. Fixed with `":(literal)$p"` on both history
+    queries. The `cat-file -e "<rev>:<path>"` probes are exact tree lookups, not
+    pathspecs, and needed no guard. The false-*negative* direction does **not** occur:
+    git matches a literal path before globbing.
+  - **The same hazard bit the test fixtures**: `git rm -- 'docs/a[bc].md'` also deleted
+    `docs/ab.md`, destroying the fixture's premise. `commit_file` / `remove_file` now
+    pass `:(literal)` too.
+  - **A negative control caught a vacuous fixture.** The deleted-glob-path fixture
+    initially deleted the neighbour *first*; since the culprit query is `-n1`, both
+    implementations then agreed and the fixture proved nothing. Reordering so the
+    neighbour is deleted **last** made the mutation reach the assertion.
+  - **`test_followup_kind_roundtrip.sh` Part E broke** on the appended positional: its
+    regex anchored `"$CURRENT_FOLLOWUP_KIND"` to end-of-line, encoding "is **last**"
+    rather than "is **forwarded**" — hostile to the append-at-the-end extension pattern
+    `aitasks_extension_points.md` prescribes. Loosened to tolerate a trailing line
+    continuation, keeping the whole-line anchoring that excludes assignments and the
+    invariant call. Verified still non-vacuous: dropping the positional from a call site
+    still fails it (`expected '3', got '2'`).
+
+- **Key decisions:**
+  - **Exit-status split:** every *content* state exits 0; CLI misuse (missing verb,
+    nonexistent task file) dies. Silently emitting `SKIP` for a typo'd path is exactly
+    the "silent-skip masks a broken implementation" hazard the design doc names.
+  - **`FILES:<n>` counts distinct entries after range-strip**, so it always equals the
+    number of paths actually probed.
+  - **Dedupe membership is newline-delimited, not `|`-delimited** — a path may legally
+    contain `|`, and a `|`-delimited test would false-positive (`a|b` recorded makes a
+    bare `a` look seen). A path can never contain a newline.
+  - **`DELETED:` subject is sanitized (`|`→space), not encoded** — it is human display
+    text, not an identity key anything reads back.
+  - **`DISPLAY:` carries raw, unencoded paths** — free-form human text with no internal
+    delimiters.
+  - **Not `issue_type`-scoped:** the normative order has no type check; scoping is the
+    caller's responsibility (documented in the helper header).
+  - Task-id extraction kept local rather than promoted to `lib/task_utils.sh` — a
+    shared-lib change this slice deliberately does not make.
+
+- **Verification performed:** `tests/test_verification_stale.sh` 90/90;
+  `test_followup_kind_roundtrip` 31/31, `test_update_risk` 21/21,
+  `test_update_multiline_yaml` 23/23, `test_archive_carryover` 13/13,
+  `test_archive_carryover_anchor` 5/5, `test_aitask_merge` 43/43,
+  `test_aitask_merge_boardgroup` 18/18; full Python suite
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)` (4937 passed / 2 skipped parallel +
+  5 serial). shellcheck introduced no new findings (`aitask_update.sh` had exactly one
+  pre-existing SC2034 before and after). Scope guard clean: no change to
+  `union_file_references`, `aitask_fold_mark.sh`, or `file_references` emission.
+  **Ten negative controls** were run — history-only deletion, identity encoding, no
+  range strip, removed carry-over, each of three un-wired `write_task_file` call sites,
+  unguarded `git rev-parse`, reverted `:(literal)`, and a loosened `followup_kind`
+  guard — each failing on exactly its targeted assertion.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **The setter contract is live and unchanged from the design:**
+    `./.aitask-scripts/aitask_update.sh --batch <task_id> --verification-baseline "<sha> @ <YYYY-MM-DD HH:MM>"`.
+    `""` clears it (key removal, no tombstone). Reads go through `read_yaml_field`.
+  - **t1555_3 must decode protocol paths.** Every emitted path is `%`-encoded: decode
+    `%7C`→`|` then `%25`→`%` (that order). Records split left-to-right on `|`; reason
+    tokens never contain `|`; the `DELETED:` subject is pre-sanitized. `DISPLAY:` is
+    already raw and needs no decoding — render it verbatim.
+  - **`DECISION:SKIP` is fail-open and must stay silent.** `SKIP` and `FRESH` continue
+    without any user-visible output; only `ASK_STALE` prompts.
+  - **`UNKNOWN:` is not advisory** — it raises `ASK_STALE`, and its remedy differs from a
+    changed file's: repair `file_references:` (via `--remove-file-ref`), don't amend the
+    checklist. `DISPLAY:` already separates the two causes into named segments, so the
+    prompt can quote it verbatim.
+  - **The review transaction ordering still stands:** decide → write items and scope →
+    advance the baseline **last** → commit. Never advance-then-edit.
+  - **t1555_2 (seeding) writes bare paths.** Ranges are stripped and ignored by the
+    check; recording them would imply a precision v1 does not have.
+  - **If you add a positional to `write_task_file`, give it its own continuation line**
+    and update both structural call-site guards
+    (`test_followup_kind_roundtrip.sh` Part E, `test_verification_stale.sh` Section B).
