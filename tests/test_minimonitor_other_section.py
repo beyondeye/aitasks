@@ -83,10 +83,17 @@ def _snap(
 
 
 class _FakeContainer:
-    """Captures what `_rebuild_pane_list` mounts."""
+    """Captures what `_rebuild_pane_list` mounts.
+
+    Also stands in for `#mini-own-agent` in the app-level cases, so it carries
+    the `display` and `styles` that `_maybe_build_own_agent_panel` writes
+    (t1499 reveal, t1566 row cap).
+    """
 
     def __init__(self) -> None:
         self.mounted: list = []
+        self.display = False
+        self.styles = SimpleNamespace(max_height=None)
 
     async def remove_children(self):
         pass
@@ -373,9 +380,14 @@ class OwnWindowResolverTests(unittest.TestCase):
 
 
 class _FakePanel:
+    # `display` and `styles` because _maybe_build_own_agent_panel writes both:
+    # the t1499 reveal and the t1566 row cap. A stub that models only the mount
+    # surface raises on the extra write rather than ignoring it.
     def __init__(self) -> None:
         self.mounted: list = []
         self.removals = 0
+        self.display = False
+        self.styles = SimpleNamespace(max_height=None)
 
     async def remove_children(self):
         self.removals += 1

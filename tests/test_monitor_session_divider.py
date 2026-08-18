@@ -190,10 +190,17 @@ def _snap(
 
 
 class _FakeContainer:
-    """Captures what `_rebuild_pane_list` mounts."""
+    """Captures what `_rebuild_pane_list` mounts.
+
+    Also stands in for `#mini-own-agent`, so it carries the `display` and
+    `styles` that `_maybe_build_own_agent_panel` writes (t1499 reveal, t1566
+    row cap).
+    """
 
     def __init__(self) -> None:
         self.mounted: list = []
+        self.display = False
+        self.styles = SimpleNamespace(max_height=None)
 
     async def remove_children(self):
         pass

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -1339,6 +1340,113 @@ class FormatShadowStaleBannerTests(unittest.TestCase):
         got = self._banner(False, self._age(True, with_operands=False), _Meta(3))
         self.assertIn("round 3 predates", got)
         self.assertNotIn("older", got)
+
+
+class NarrowShadowStaleBannerTests(unittest.TestCase):
+    """The one-row arm the minimonitor's two call sites use (t1566).
+
+    ``#mini-shadow-stale`` caps at a single row, and every verbose headline
+    above exceeds the 38 usable cells of a 40-column companion pane. The narrow
+    arm drops the age / round detail so the cap fits the text rather than
+    clipping it — the detail is not lost, it moves to
+    ``format_staleness_detail`` (the concern picker) and stays in ``ait monitor``.
+
+    Same verdict ladder as the verbose arm, asserted case for case: only the
+    *wording* may branch on ``narrow``, never the decision.
+    """
+
+    #: Usable cells in the default 40-column pane after `padding: 0 1`.
+    USABLE_CELLS = 38
+
+    # Borrowed from the verbose class rather than restated, so the two arms are
+    # compared over identical inputs and cannot drift apart.
+    REVIEWED = FormatShadowStaleBannerTests.REVIEWED
+    LAST_CHANGE = FormatShadowStaleBannerTests.LAST_CHANGE
+    ANALYZED_AT = FormatShadowStaleBannerTests.ANALYZED_AT
+    NOW = FormatShadowStaleBannerTests.NOW
+
+    _age = FormatShadowStaleBannerTests._age
+
+    def _banner(self, read_stale, age, meta=None):
+        from monitor.monitor_shared import format_shadow_stale_banner
+
+        return format_shadow_stale_banner(
+            read_stale, age, meta, self.ANALYZED_AT, self.NOW, narrow=True,
+        )
+
+    def _plain(self, markup):
+        return re.sub(r"\[/?[^]]*\]", "", markup)
+
+    def test_both_stale_flavours_collapse_to_one_line(self):
+        """Deliberate: at 38 cells there is no room to say WHICH kind of stale.
+
+        Both arms must still say *that* it is stale — a narrow form that went
+        empty on one of them would silently drop a warning.
+        """
+        moved_on = self._banner(True, self._age(False))
+        predates = self._banner(False, self._age(True), meta=_Meta(2))
+        self.assertEqual(moved_on, predates)
+        self.assertIn("stale", self._plain(moved_on))
+        for dropped in ("analyzed", "predates", "older", "round"):
+            self.assertNotIn(dropped, self._plain(moved_on))
+
+    def test_unknown_stays_distinct_from_stale(self):
+        """The indeterminate verdict is a different claim and keeps its own text."""
+        unknown = self._banner(False, self._age(None))
+        self.assertIn("unknown", self._plain(unknown).lower())
+        self.assertNotEqual(unknown, self._banner(True, self._age(False)))
+
+    def test_current_is_still_empty(self):
+        """`False` must yield "" in both arms — the collapse toggle depends on it."""
+        self.assertEqual(self._banner(False, self._age(False)), "")
+
+    def test_the_verdict_matches_the_verbose_arm_case_for_case(self):
+        """`narrow` may change wording, never the decision.
+
+        Compares emptiness — the only part of the verdict both arms express in
+        the same vocabulary — across the whole ladder.
+        """
+        from monitor.monitor_shared import format_shadow_stale_banner
+
+        cases = [
+            (True, self._age(False), None),
+            (True, self._age(True), _Meta(2)),
+            (False, self._age(True), _Meta(2)),
+            (None, self._age(True), _Meta(7)),
+            (False, self._age(None), None),
+            (False, self._age(False), None),
+            (False, self._age(None, applicable=False), None),
+            (True, self._age(None, applicable=False), None),
+        ]
+        for read_stale, age, meta in cases:
+            with self.subTest(read_stale=read_stale, age=age):
+                verbose = format_shadow_stale_banner(
+                    read_stale, age, meta, self.ANALYZED_AT, self.NOW,
+                )
+                self.assertEqual(
+                    bool(verbose), bool(self._banner(read_stale, age, meta)),
+                    "narrow and verbose disagree about whether to warn",
+                )
+
+    def test_every_narrow_string_fits_one_row(self):
+        """The cap is only safe because the text is sized to it.
+
+        A reworded banner that outgrew 38 cells would be silently clipped on
+        screen; measure the rendered width, not the markup length.
+        """
+        from rich.cells import cell_len
+
+        for label, text in (
+            ("stale", self._banner(True, self._age(False))),
+            ("unknown", self._banner(False, self._age(None))),
+        ):
+            with self.subTest(label=label):
+                width = cell_len(self._plain(text))
+                self.assertLessEqual(
+                    width, self.USABLE_CELLS,
+                    f"the narrow {label} banner is {width} cells — it no "
+                    "longer fits the one row #mini-shadow-stale allows",
+                )
 
 
 class FormatStalenessDetailTests(unittest.TestCase):

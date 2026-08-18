@@ -1201,14 +1201,36 @@ def _block_older_by(age: "BlockAge") -> str:
     return format_stale_duration(age.last_change_wall - age.reviewed_epoch)
 
 
+#: Narrow (one-row) banner texts — see ``format_shadow_stale_banner``'s
+#: ``narrow`` argument. Sized to fit ONE row of the 40-column companion pane
+#: (38 usable cells after ``padding: 0 1``), which is what lets
+#: ``#mini-shadow-stale`` carry ``max-height: 1`` without clipping (t1566).
+SHADOW_STALE_NARROW = "[bold]⚠ shadow feedback is stale[/]"
+SHADOW_UNKNOWN_NARROW = "[bold]⚠ freshness unknown[/]"
+
+
 def format_shadow_stale_banner(
     read_stale: bool | None,
     age: "BlockAge",
     meta: "BlockMeta | None",
     analyzed_at: float | None,
     now: float,
+    *,
+    narrow: bool = False,
 ) -> str:
     """Minimonitor's live staleness banner, chosen by an explicit ladder (t1493).
+
+    ``narrow=True`` returns the **one-row** form (t1566): the same verdict, with
+    the age / round detail dropped so the banner fits a single row of the
+    40-column companion pane. The detail is not lost — ``format_staleness_detail``
+    still carries it into the concern picker, and ``ait monitor`` keeps the full
+    wording. Only the *wording* branches on ``narrow``; the ``combine_staleness``
+    ladder that decides the verdict is shared, so the two forms can never
+    disagree about whether the feedback is stale.
+
+    The narrow form deliberately collapses both stale flavours into one string:
+    at 38 usable cells there is no room to say which, and the distinction stays
+    available on the wider surfaces above.
 
     Pure, so the wording is testable without a mounted DOM. Both signals can be
     stale at once, so precedence is stated rather than incidental:
@@ -1231,12 +1253,14 @@ def format_shadow_stale_banner(
     """
     combined = combine_staleness(read_stale, age)
     if combined is None:
-        return (
+        return SHADOW_UNKNOWN_NARROW if narrow else (
             "[bold]⚠ shadow freshness unknown — cannot tell whether the "
             "feedback is current[/]"
         )
     if combined is False:
         return ""
+    if narrow:
+        return SHADOW_STALE_NARROW
     older = _block_older_by(age)
     round_label = f"round {meta.round}" if meta is not None else "the block"
     if read_stale is True:

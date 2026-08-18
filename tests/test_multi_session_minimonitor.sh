@@ -177,6 +177,11 @@ from monitor import minimonitor_app as mm
 from textual.widgets import Static
 
 class FakeContainer:
+    # `display` and `styles` because _maybe_build_own_agent_panel writes both
+    # (the t1499 reveal and the t1566 row cap). A stub missing either raises
+    # rather than ignoring the write.
+    display = False
+    styles = SimpleNamespace(max_height=None)
     async def remove_children(self):
         pass
     async def mount_all(self, widgets):
@@ -315,6 +320,9 @@ from monitor import minimonitor_app as mm
 from textual.widgets import Static
 
 class FakeContainer:
+    # See the note on the other FakeContainer above (t1499 reveal + t1566 cap).
+    display = False
+    styles = SimpleNamespace(max_height=None)
     async def remove_children(self):
         pass
     async def mount_all(self, widgets):

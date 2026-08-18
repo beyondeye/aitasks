@@ -42,8 +42,17 @@ from monitor.concern_parser import (  # noqa: E402
 )
 from monitor.monitor_shared import (  # noqa: E402
     ConcernPickResult, format_stale_duration, _no_task_id_msg,
-    build_spinoff_name,
+    build_spinoff_name, SHADOW_STALE_NARROW,
 )
+
+# The minimonitor's two banner call sites pass `narrow=True` (t1566), so
+# `_shadow_stale_banner_text` carries the ONE-ROW wording — both stale flavours
+# collapse to the same string there. The cases below therefore assert the
+# constant exactly rather than a "moved on" / "predates" fragment; each already
+# pins WHICH branch fired through `_shadow_feedback_stale` /
+# `_shadow_stale_combined`, which is the discrimination that matters, and the
+# per-branch wording is covered where it is produced, in
+# `test_shadow_seam.FormatShadowStaleBannerTests`.
 
 
 _CLOSED_BLOCK = (
@@ -1007,8 +1016,7 @@ class ShadowFreshnessTests(unittest.TestCase):
         app = self._fresh_app(1000.0, 1010.0)
         asyncio.run(app._maybe_offer_concerns())
         self.assertIs(app._shadow_feedback_stale, True)
-        self.assertIn("stale", app._shadow_stale_banner_text.lower())
-        self.assertIn("analyzed", app._shadow_stale_banner_text.lower())
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
         self.assertEqual(app._lcw_calls, ["%1"])
 
     def test_no_change_since_analysis_is_current(self):
@@ -1161,7 +1169,7 @@ class BlockAgeStalenessTests(unittest.TestCase):
             "block age must hold the verdict at stale after a prose-only "
             "refetch (t1493)",
         )
-        self.assertIn("predates", app._shadow_stale_banner_text)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
         # The toast must NOT re-fire: the block is unchanged, so the dedup
         # return is correct and the BANNER owns this transition.
         self.assertEqual(len(app.spy_notify), 1)
@@ -1184,7 +1192,7 @@ class BlockAgeStalenessTests(unittest.TestCase):
         app = self._app("just agent prose\n$ ", _R1_EPOCH, _R1_EPOCH + 300)
         asyncio.run(app._maybe_offer_concerns())
         self.assertIs(app._shadow_stale_combined, True)
-        self.assertIn("moved on", app._shadow_stale_banner_text)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
 
     def test_a_pre_header_block_arriving_on_a_clean_pane_escalates(self):
         """The same-app transition, and the sharpest form of the applicability
@@ -1222,7 +1230,7 @@ class BlockAgeStalenessTests(unittest.TestCase):
         self.assertIs(app._shadow_feedback_stale, False)   # read recency: current
         self.assertIs(app._shadow_stale_combined, True)    # ...block age: stale
         standing = app._shadow_stale_banner_text
-        self.assertIn("predates", standing)
+        self.assertEqual(standing, SHADOW_STALE_NARROW)
 
         # The round header is lost (capture degrades / an older block scrolls
         # into the window), so block age becomes unknowable: combined -> None.

@@ -130,10 +130,24 @@ class _FakeTaskCache:
 
 
 class _FakePanel:
-    """Stand-in for the `#mini-own-agent` VerticalScroll."""
+    """Stand-in for the `#mini-own-agent` VerticalScroll.
+
+    Carries `display` and `styles` as well as the mount surface, because
+    `_maybe_build_own_agent_panel` writes all three: the t1499 reveal
+    (`display = True`) and the t1566 row cap
+    (`styles.max_height = _OWN_PANEL_MAX_ROWS`). The stub has to model whatever
+    the code under test actually touches — an incomplete one does not "ignore"
+    the extra write, it raises on it.
+
+    Neither value is asserted here; this layer is about the mark glyph. The cap
+    itself is pinned on the composited frame in
+    `test_minimonitor_top_chrome_render.OwnPanelSizingTests`.
+    """
 
     def __init__(self) -> None:
         self.mounted: list = []
+        self.display = False
+        self.styles = SimpleNamespace(max_height=None)
 
     async def remove_children(self):
         self.mounted = []

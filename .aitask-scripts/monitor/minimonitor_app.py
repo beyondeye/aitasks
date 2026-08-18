@@ -445,11 +445,42 @@ KEY_HINTS_TEXT = (
 # height leaves the list less than _PANE_LIST_FLOOR_ROWS, the hints compact to
 # _SHORT_HINT_ROWS rather than letting the flow overrun the docked band and
 # paint the agent list off the screen. See _refresh_short_mode.
+#
+# The followed agent leads (t1566): it is this pane's primary identity surface,
+# so the two advisory banners flow BELOW it rather than pushing it down. Keep
+# this tuple in compose() order — _refresh_short_mode only sums the heights, but
+# the stylesheet comment below describes the order and the two must agree.
 _TOP_CHROME = (
     "#mini-session-bar",
+    "#mini-own-agent",
     "#mini-shadow-stale",
     "#mini-loop-status",
-    "#mini-own-agent",
+)
+# Worst-case rendered height of #mini-own-agent, summed row-by-row from what
+# _maybe_build_own_agent_panel actually mounts rather than guessed (t1566). Every
+# term is bounded by CONTENT, not by width: _own_agent_identity_text pre-wraps
+# the window name to at most two lines and the title to at most two, so this
+# holds at 22 columns exactly as it does at 40. A row added to the panel must be
+# added here too.
+_OWN_PANEL_MAX_ROWS = (
+    1      # "── this agent ──" header (.mini-own-header, height: 1)
+    + 2    # identity — name wrapped to <=2 lines, mark glyph inline on line 1
+    + 2    # task title — textwrap.wrap(info.title, ...)[:2]
+    + 1    # advisory phase line (_own_phase_text)
+    + 1    # border-bottom: max-height is BORDER-BOX, so the border costs a row
+)
+# Caps of the two advisory banners, as CSS rows. Named here so
+# _MAX_CHROME_ROWS below is a derivation rather than a second set of literals.
+_SHADOW_STALE_ROWS = 1   # one-row contract (t1566) — see SHADOW_STALE_NARROW
+_LOOP_STATUS_ROWS = 2    # longest real literal is 39 cells => 2 rows at 38
+_SESSION_BAR_ROWS = 1    # `height: 1`, and only when the config enables it
+# Ceiling the pane list is sized against. The floor it buys is stated once, in
+# test_pane_list_keeps_a_row_under_full_live_chrome: at 40 columns this plus the
+# compacted hints leaves the list a row down to pane height 12. A cap raised
+# without raising this fails there instead of silently eating the list.
+_MAX_CHROME_ROWS = (
+    _SESSION_BAR_ROWS + _OWN_PANEL_MAX_ROWS
+    + _SHADOW_STALE_ROWS + _LOOP_STATUS_ROWS
 )
 # Derived, never a second literal: a hint line added to KEY_HINTS_TEXT must not
 # require editing a count here too. Pinned against the rendered height at 40
@@ -487,6 +518,25 @@ class MiniMonitorApp(
     # Fail-safe release, well inside the default 3 s refresh interval.
     _SCROLL_LOCK_TIMEOUT = 0.5
 
+    # Configured width of the companion column, mirrored as a CLASS attribute
+    # for the same reason as the scroll state above (t1566). It used to be read
+    # only inside `_own_agent_identity_text`'s has-a-task branch, so a
+    # `__new__`-built stub with no task never reached it; the identity text is
+    # now wrapped unconditionally, which made every such stub AttributeError.
+    # `__init__` still sets the real value — this is only the floor under it.
+    _target_width = 40
+
+    # Whether the top session bar is shown at all (t1566). Off by default;
+    # `tmux.minimonitor.session_bar: true` turns it on via main(). This gates
+    # only the BAR — monitor.multi_session is untouched, so agents from other
+    # sessions keep appearing in the pane list and `M` keeps working.
+    #
+    # A CLASS attribute for the same reason as the scroll state above: several
+    # test modules build the app with `MiniMonitorApp.__new__(...)` and hand-set
+    # only what they touch, so an `__init__`-only default would AttributeError
+    # the moment _rebuild_session_bar read it.
+    _session_bar_enabled = False
+
     CSS = """
     /* Top chrome. NEVER re-add `dock:` to any of these four (t1499). Textual
        places same-edge docked siblings at the SAME offset instead of stacking
@@ -499,20 +549,33 @@ class MiniMonitorApp(
        as the board's #filter_area (t1278). Undocked, they flow in compose
        order and #mini-pane-list (1fr) takes the rest.
 
+       Compose order is #mini-session-bar, #mini-own-agent, #mini-shadow-stale,
+       #mini-loop-status (t1566): the followed agent is this pane's primary
+       identity surface, so the advisory banners flow BELOW it. _TOP_CHROME
+       carries the same order.
+
        `display: none` below is LOAD-BEARING, not cosmetic: an empty Static
        with `height: auto` resolves to ONE row, not zero, so without it the
-       three collapsible widgets would cost 3 permanent rows in a 40-column
+       four collapsible widgets would cost 4 permanent rows in a 40-column
        companion pane. Each write site turns display back on when it has
-       something to show — see _set_shadow_stale_banner, _set_loop_banner and
-       _maybe_build_own_agent_panel.
+       something to show — see _set_shadow_stale_banner, _set_loop_banner,
+       _maybe_build_own_agent_panel and _rebuild_session_bar.
 
        The `max-height` caps are load-bearing too: undocked chrome GROWS, and
        unbounded it overruns the bottom-docked #mini-key-hints and paints the
-       agent list off the screen at ~20 rows. Capped, chrome tops out at 11
-       rows; when even that does not fit, _refresh_short_mode compacts the
-       hints instead — measuring what the chrome actually occupies, never a
-       worst-case budget. */
+       agent list off the screen at ~20 rows. Capped, chrome tops out at
+       _MAX_CHROME_ROWS; when even that does not fit, _refresh_short_mode
+       compacts the hints instead — measuring what the chrome actually
+       occupies, never a worst-case budget. The advisory banners are what yield
+       first (t1566): the pane list keeps a row before verbose chrome does. */
+
+    /* Ships HIDDEN (t1566) — the followed agent, not a counter, is what should
+       sit at the top of a 40-column pane. `tmux.minimonitor.session_bar: true`
+       brings it back; _rebuild_session_bar is the one site that reveals it, and
+       on_mount's "Not inside tmux" path reveals it independently because that
+       error has no other surface. */
     #mini-session-bar {
+        display: none;
         height: 1;
         background: $primary;
         color: $text;
@@ -520,12 +583,14 @@ class MiniMonitorApp(
         text-style: bold;
     }
 
-    /* Hidden until _set_shadow_stale_banner has text; capped so a long
-       staleness message cannot push the pane list off the screen. */
+    /* Hidden until _set_shadow_stale_banner has text. ONE row (t1566): the
+       narrow banner text is sized to fit 38 usable cells, so the cap is a
+       structural guarantee rather than a clip. Advisory chrome yields before
+       the pane list does. Keep in sync with _SHADOW_STALE_ROWS. */
     #mini-shadow-stale {
         display: none;
         height: auto;
-        max-height: 3;
+        max-height: 1;
         background: $error;
         color: $text;
         padding: 0 1;
@@ -533,25 +598,43 @@ class MiniMonitorApp(
     }
 
     /* Auto-recheck loop status (t1159_2). $warning, deliberately distinct
-       from the $error stale banner above. Hidden and capped on the same rule
-       as that banner — see the block comment at the top of this stylesheet. */
+       from the $error stale banner above. Hidden on the same rule as that
+       banner. Capped at 2, not 3 (t1566): the longest literal
+       _set_loop_banner is ever called with is 39 cells, which is exactly two
+       rows at 38 usable — the third row was dead budget the pane list wanted.
+       Keep in sync with _LOOP_STATUS_ROWS. */
     #mini-loop-status {
         display: none;
         height: auto;
-        max-height: 3;
+        max-height: 2;
         background: $warning;
         color: $text;
         padding: 0 1;
         text-style: bold;
     }
 
-    /* Hidden until _maybe_build_own_agent_panel mounts the panel. A
-       VerticalScroll, so the cap scrolls the overflow rather than dropping
-       it. */
+    /* Hidden until _maybe_build_own_agent_panel mounts the panel. NO
+       `max-height:` here on purpose (t1566) — the cap is _OWN_PANEL_MAX_ROWS,
+       applied at that same reveal site so the number sits next to the
+       row-by-row derivation that produces it. A literal here would be a second,
+       silently-drifting copy. */
     #mini-own-agent {
         display: none;
         height: auto;
-        max-height: 4;
+        /* No scrollbar, ever (t1566). Two independent reasons, either alone
+           sufficient:
+
+           1. Nothing can scroll it. The panel mounts plain Statics and is
+              excluded from the focus ring (see action_show_own_task_info), so
+              a thumb would advertise rows the user has no way to reach — which
+              IS the defect this task fixes, not a mitigation of it.
+           2. `auto` is unstable at the boundary. A visible scrollbar takes two
+              columns, which re-wraps the name, which makes the panel taller,
+              which keeps the scrollbar: at 22 columns a long name settled into
+              exactly that loop and scrolled a panel whose content otherwise
+              fit. Reserving nothing breaks the cycle, which is what makes
+              _OWN_PANEL_MAX_ROWS hold at every width rather than only at 40. */
+        overflow-y: hidden;
         background: $boost;
         border-bottom: solid $primary;
         padding: 0;
@@ -656,9 +739,13 @@ class MiniMonitorApp(
         compare_mode_default: str = "stripped",
         target_width: int = 40,
         mark_pane: bool = False,
+        session_bar: bool = False,
     ) -> None:
         super().__init__()
         self.current_tui_name = "minimonitor"
+        # Shadows the class attribute above; see it for why the default lives
+        # there rather than here.
+        self._session_bar_enabled = session_bar
         # Only the production launcher (main()) passes mark_pane=True. Gating it
         # keeps a Textual run_test() mount — which inherits the running agent's
         # $TMUX_PANE — from stamping @aitask_monitor_kind on a live pane, the
@@ -776,12 +863,15 @@ class MiniMonitorApp(
         self._init_agent_marks()
 
     def compose(self) -> ComposeResult:
+        # Order matters and is mirrored in _TOP_CHROME + the stylesheet comment:
+        # the followed agent leads, the advisory banners flow below it (t1566).
+        # Hidden by default; `tmux.minimonitor.session_bar: true` reveals it.
         yield Static(id="mini-session-bar")
+        yield VerticalScroll(id="mini-own-agent")
         # Live staleness warning for shadow feedback (t1104); empty ⇒ 0 rows.
         yield Static("", id="mini-shadow-stale")
         # Auto-recheck loop status (t1159_2); empty ⇒ 0 rows.
         yield Static("", id="mini-loop-status")
-        yield VerticalScroll(id="mini-own-agent")
         # MiniPaneList, not a bare VerticalScroll: it carries the scroll seams
         # the per-tick restore needs (t1539). `query_one(..., VerticalScroll)`
         # still resolves it, so no lookup site had to change.
@@ -792,9 +882,14 @@ class MiniMonitorApp(
         self._mount_time = time.monotonic()
 
         if not os.environ.get("TMUX"):
-            self.query_one("#mini-session-bar", Static).update(
-                "[bold red]Not inside tmux[/]"
-            )
+            bar = self.query_one("#mini-session-bar", Static)
+            bar.update("[bold red]Not inside tmux[/]")
+            # Reveal unconditionally, ignoring _session_bar_enabled (t1566).
+            # The bar ships `display: none` and this path returns before
+            # _start_monitoring(), so _rebuild_session_bar never runs — without
+            # this line a user who launched outside tmux gets a blank pane and
+            # no explanation. Guarded by test_not_inside_tmux_error_is_visible.
+            bar.display = True
             return
 
         # Stamp our own pane so the single-instance guards can see us (t1451).
@@ -1416,6 +1511,11 @@ class MiniMonitorApp(
             elif s == TmuxControlState.FALLBACK:
                 state_badge = " [red]rc:fb[/]"
         bar = self.query_one("#mini-session-bar", Static)
+        # The one site that reveals the bar in normal operation (t1566). The
+        # rule ships `display: none`, so this is what the config key actually
+        # controls; set every tick so a future runtime toggle takes effect
+        # without a special-cased second write site.
+        bar.display = self._session_bar_enabled
 
         if self._monitor is not None and self._monitor.multi_session:
             # Count unique sessions currently represented in the snapshot so
@@ -1586,22 +1686,47 @@ class MiniMonitorApp(
         agent's own task finishing is not surfaced here; the panel stays static.
         Use `ait monitor`, or the general list, to see a completed badge. Left
         this way so the omission reads as a choice, not an oversight.
+
+        **Every part is wrapped to a bounded number of rows (t1566).** The name
+        used to be handed to Rich unwrapped, so it folded over as many rows as
+        the width demanded — which is why no fixed `max-height` could hold: the
+        panel's worst case was an artifact of 40 columns and grew as the pane
+        narrowed. Wrapping it here to at most two lines is what makes
+        ``_OWN_PANEL_MAX_ROWS`` true at 22 columns as well as at 40.
         """
-        name = snap.pane.window_name
-        line = f"[bold]{name}[/]"
+        # One budget for both blocks, and NOT a round number: `padding: 0 1`
+        # leaves `target_width - 2` usable and the mark glyph costs 2 more, so
+        # this is exactly the "★ " budget CompositedWidthTests pins (36 at 40
+        # columns). The floor is deliberately small — a floor ABOVE what fits
+        # (the old `max(20, …)`) makes each line wrap again on a narrow pane,
+        # which is precisely how the row budget used to escape.
+        wrap_width = max(8, self._target_width - 4)
+
+        def _fold(text: str) -> list[str]:
+            """`text` over at most two lines, ellipsized when truncated.
+
+            Empty in, empty out — an empty task title must add NO row, which is
+            what the pre-wrap version did by way of `textwrap.wrap("") == []`.
+            """
+            lines = textwrap.wrap(text, wrap_width)[:2]
+            if len(lines) == 2 and len(text) > sum(len(w) for w in lines) + 1:
+                lines[1] = lines[1][: max(1, wrap_width - 1)] + "…"
+            return lines
+
+        # The name line always exists, even for a nameless window — that is the
+        # row the mark glyph is rendered on.
+        name_lines = _fold(snap.pane.window_name) or [""]
+        # The glyph is prefixed to the whole string later by _own_card_text, so
+        # it lands on the first line; the continuation carries no indent, which
+        # is how it read before this wrapping was made explicit.
+        line = "\n".join(f"[bold]{part}[/]" for part in name_lines)
         task_id = self._task_cache.get_task_id_for_pane(snap.pane)
         if task_id:
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info:
                 # Wrap the task description over up to two lines, sized to the
                 # companion column (minus its padding + the 2-space indent).
-                wrap_width = max(20, self._target_width - 4)
-                wrapped = textwrap.wrap(info.title, wrap_width)[:2]
-                if len(wrapped) == 2 and len(info.title) > sum(
-                    len(w) for w in wrapped
-                ) + 1:
-                    wrapped[1] = wrapped[1][: max(1, wrap_width - 1)] + "…"
-                for wline in wrapped:
+                for wline in _fold(info.title):
                     line += f"\n  [dim]{wline}[/]"
         return line
 
@@ -1751,6 +1876,12 @@ class MiniMonitorApp(
         # only line that ever reveals it — drop it and the panel is invisible
         # forever while every widget-state assertion still passes.
         panel.display = True
+        # Equally load-bearing (t1566), and here rather than in the stylesheet
+        # so the cap sits beside the row-by-row derivation that produces it.
+        # Drop this line and the chrome is unbounded — a pathological window
+        # name would push the pane list off the screen — which is what
+        # guard_own_panel_cap_is_applied exists to catch.
+        panel.styles.max_height = _OWN_PANEL_MAX_ROWS
         self._schedule_short_mode_refresh()
         self._own_card = card
         self._own_panel_built = True
@@ -2826,9 +2957,10 @@ class MiniMonitorApp(
         )
         self._record_combined_staleness(
             combine_staleness(recency.stale, age),
+            # narrow=True (t1566): #mini-shadow-stale is a one-row surface.
             format_shadow_stale_banner(
                 recency.stale, age, parse_block_meta(capture_text),
-                recency.analyzed_at, time.time(),
+                recency.analyzed_at, time.time(), narrow=True,
             ),
         )
 
@@ -3539,8 +3671,10 @@ class MiniMonitorApp(
             self._shadow_read_recency = ReadRecency(read_stale, analyzed_at)
         self._record_combined_staleness(
             stale,
+            # narrow=True (t1566) — same one-row surface as the tick path.
             format_shadow_stale_banner(
-                read_stale, age, block_meta, analyzed_at, time.time()
+                read_stale, age, block_meta, analyzed_at, time.time(),
+                narrow=True,
             ),
         )
         # Resolved and stashed here: the dismissal callback receives only the
@@ -3927,6 +4061,14 @@ def main() -> None:
     # the app re-pins its pane to this width on resize.
     mm_cfg = tmux_config.get("minimonitor", {})
     target_width = int(mm_cfg["width"]) if isinstance(mm_cfg, dict) and "width" in mm_cfg else 40
+    # Sibling of `width`, same guard shape so a malformed `minimonitor:` value
+    # falls back instead of raising (t1566). Default off: the followed agent,
+    # not a counter, owns the top of a 40-column companion pane.
+    session_bar = (
+        bool(mm_cfg["session_bar"])
+        if isinstance(mm_cfg, dict) and "session_bar" in mm_cfg
+        else False
+    )
 
     app = MiniMonitorApp(
         session=session,
@@ -3939,6 +4081,7 @@ def main() -> None:
         compare_mode_default=config.get("compare_mode_default", "stripped"),
         target_width=target_width,
         mark_pane=True,   # production launcher only — see MiniMonitorApp.__init__
+        session_bar=session_bar,
     )
     app.run()
 
