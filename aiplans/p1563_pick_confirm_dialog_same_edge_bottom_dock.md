@@ -247,3 +247,29 @@ which strips `.narrow` rules — the new one-line rule is stripped cleanly by
 
 ### Planned mitigations
 - timing: after | name: sweep_same_edge_dock_siblings | type: chore | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health — the same-edge dock bug class recurs (t1278, t1499, t1563) and is silent | desc: audit every Textual screen under .aitask-scripts/ for two or more siblings sharing a dock: edge, fix any found, and add a guard so the class stops recurring
+
+## Implementation notes
+
+Implemented as planned. One deviation, in the negative control only.
+
+**The planned mutation did not reach the fault.** Re-docking *only* the footer
+(`dock: none` → `dock: bottom`) leaves the geometry clean at both 40×20 and
+80×24: inside `#pick-bottom-dock` the footer becomes the single docked child and
+the confirm row simply flows above it. A control built on it passes, proving
+nothing — which is what the first run showed (`AssertionError not raised`).
+
+The fix's real invariant is **one docked widget per edge**, not "the footer is
+undocked", so the control now restores the pre-fix arrangement: `dock: bottom`
+on **both** wrapper children. Measured to reproduce the overlap in both variants.
+Split into `_redock_both_children_css()` plus two controls — one on the region
+arithmetic, one on the composited-frame check — because a single control that
+trips only one of the two independent assertions leaves the other unpinned.
+
+`_check_no_overlap` is deliberately callable **without** `subTest`: `subTest`
+absorbs an `AssertionError` into the result object instead of raising, so a
+control wrapped around a subTest-using test can never observe its own injection.
+
+**Result:** `tests/test_minimonitor_pick_by_number.py` 111 → 120 tests, all
+green; `tests/test_minimonitor_top_chrome_render.py` (t1499) 13 green; full
+`bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest,
+exit=0)`.
