@@ -467,3 +467,45 @@ verification" cases:
 
 The isolated tmux server was torn down afterwards; the user's `-L ait` server was
 never reachable from the probe and is intact.
+
+### Review round 1 — readiness gate was insufficient (fixed)
+
+Raised in review: the bottom-pinned branch set `want = container.max_scroll_y`
+and then tested `want > container.max_scroll_y`, which is vacuously false, so
+that path never retried. **Valid**, and verification showed the hole is wider
+than reported: the *anchor* path fails the same way by a different route.
+In the un-laid-out window every card's `virtual_region.y` reads 0, so
+`resolve_anchor_target` returns 0, the target collapses to ~0, and
+`target > max_scroll_y` is false too. Both paths would commit a bogus restore
+to 0, clear the snapshot in the `finally`, and leave no way back.
+
+A per-path arithmetic tweak would have patched only the reported half. The fix
+replaces the range-only test with a shared **layout**-readiness gate:
+
+* new pure `list_layout_pending(card_tops)` — `len > 1 and not any(tops)`,
+  i.e. "cards are mounted but none has geometry". That is the state the live
+  trace shows in 320 of 488 sampled ticks, and it is observable independently of
+  whether the list overflows, which is exactly what a `max_scroll_y` comparison
+  cannot be;
+* it runs **before** the anchor is resolved (resolving first would compute a
+  target from the same zeroed offsets and then "succeed");
+* the range check is kept as a second gate for the frame where the list is laid
+  out but the range is still short of the target.
+
+New coverage: `ListLayoutPendingTests` (5 pure cases, including the
+first-card-at-0 case that must NOT read as pending, or the restore would burn
+its whole retry budget every tick) and `EarlyRestoreCallbackTests` (2 cases).
+The latter makes the window deterministic by running only the FIRST restore
+callback synchronously, at the un-laid-out moment — faithful to the real timing,
+and unlike faking `max_scroll_y` it does not corrupt the scroll arithmetic
+Textual performs against that property every frame (tried first; it produced a
+nonsense `scroll_y=17` on a list whose `max_scroll_y` was 8).
+
+Negative control 4: drop the layout gate and keep the range-only test — both
+`EarlyRestoreCallbackTests` cases fail (`0 != 17` bottom, `0 != 6` anchor).
+Controls 1–3 re-run and still fail as documented. Full suite re-run: PASSED.
+Live re-verified: mid-list held at 6.0 across ticks; bottom-pin held at
+`scroll_y=7 == max_scroll_y=7` across an agent kill.
+
+This defect is a direct instance of the plan's own code-health risk bullet about
+deferred-callback ordering being easy to get subtly wrong.
