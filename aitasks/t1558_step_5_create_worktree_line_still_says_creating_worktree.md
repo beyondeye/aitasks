@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1536
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 23:06
-updated_at: 2026-08-17 23:12
+updated_at: 2026-08-18 09:38
 ---
 
 ## Problem
@@ -71,3 +72,8 @@ Found during t1546 (manual verification of t1536) by autonomous auto-execution;
 recorded in `aiplans/p1546_manual_verification_auto.md` under "## Finding". It
 falsifies no checklist item's literal criterion — nothing *is* created at Step 5
 — so it was not recorded as a verification failure.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T06:38:53Z status=pass attempt=1 type=human
