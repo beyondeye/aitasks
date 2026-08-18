@@ -253,6 +253,81 @@ class TestCollection(unittest.TestCase):
         self.assertIn("GPT5.3-Codex", report)
         self.assertIn("Unknown", report)
 
+    def test_label_type_table_uses_canonical_display_names(self):
+        """The label x type table must render types through the canonical map.
+
+        Before t1577 this table used a bare ``issue_type.capitalize()``, so the
+        same type printed two ways in one report -- ``Bug Fixes`` in the
+        adjacent ``### By Task Type`` table and ``Bug`` here. The fixture has no
+        ``task_types.txt``, so ``get_valid_task_types()`` falls back to
+        ``["bug", "feature", "refactor"]`` -- exactly the three types whose
+        display name differs from ``raw.capitalize()``.
+        """
+        data = stats.collect_stats(today=date(2026, 3, 5), week_start_dow=1)
+        report = stats.render_text_report(
+            data,
+            days=7,
+            verbose=False,
+            week_start_dow=1,
+            today=date(2026, 3, 5),
+        )
+
+        section = report.split("### By Issue Type per Label")[1].split("\n###")[0]
+
+        # Parse the Type cell per row rather than substring-matching: "| Bug |"
+        # is a substring of "| Bug Fixes |", so a bare assertNotIn would pass
+        # against the fixed code for the wrong reason.
+        rendered = {}
+        for line in section.splitlines():
+            if not line.startswith("| ") or line.startswith("| Label"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            rendered[cells[0]] = cells[1]
+
+        # Exact equality: the pre-fix raw.capitalize() forms were Bug /
+        # Feature / Refactor, so each of these fails against the old code.
+        self.assertEqual(rendered["alpha"], "Bug Fixes")
+        self.assertEqual(rendered["beta"], "Features")
+        self.assertEqual(rendered["gamma"], "Refactors")
+        self.assertEqual(rendered["epsilon"], "Features")
+
+        # The Type column is wide enough for the longest display name
+        # (Manual_verification, 19 chars).
+        self.assertIn("| Label        | Type                | Total |", section)
+
+    def test_stats_tui_issue_type_chart_uses_canonical_display_names(self):
+        """The stats-TUI "Issue types" bar chart shares the same display map.
+
+        Drives the real ``_render_issue_types`` and captures the labels handed
+        to ``plt.bar``; ``render_chart`` is patched on the pane module (where it
+        is name-bound by the ``from .base import ...``) so no Textual app or
+        plotext figure is needed.
+        """
+        import stats.panes.labels as pane_mod
+
+        captured = {}
+
+        class _Plt:
+            def bar(self, labels, values):
+                captured["labels"] = list(labels)
+
+            def title(self, *args, **kwargs):
+                pass
+
+        original = pane_mod.render_chart
+        pane_mod.render_chart = lambda setup_fn, container: setup_fn(_Plt())
+        try:
+            data = stats.collect_stats(today=date(2026, 3, 5), week_start_dow=1)
+            pane_mod._render_issue_types(data, object())
+        finally:
+            pane_mod.render_chart = original
+
+        self.assertIn("Bug Fixes", captured["labels"])
+        self.assertIn("Refactors", captured["labels"])
+        self.assertIn("Features", captured["labels"])
+        self.assertNotIn("Bug", captured["labels"])
+        self.assertNotIn("Refactor", captured["labels"])
+
     def test_write_csv_includes_implementation_columns(self):
         data = stats.collect_stats(today=date(2026, 3, 5), week_start_dow=1)
         output = self.base / "stats.csv"

@@ -368,8 +368,8 @@ def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow
     print(file=out)
 
     print("### By Issue Type per Label - Weekly Trend (Last 4 Weeks)", file=out)
-    print("| Label        | Type    | Total | W-3 | W-2 | W-1 | This Week |", file=out)
-    print("|--------------|---------|-------|-----|-----|-----|-----------|", file=out)
+    print("| Label        | Type                | Total | W-3 | W-2 | W-1 | This Week |", file=out)
+    print("|--------------|---------------------|-------|-----|-----|-----|-----------|", file=out)
 
     for label in sorted_labels:
         if label == "(unlabeled)":
@@ -379,7 +379,7 @@ def render_text_report(data: StatsData, days: int, verbose: bool, week_start_dow
             if total == 0:
                 continue
             print(
-                f"| {label:<12} | {issue_type.capitalize():<7} | {total:<5} | "
+                f"| {label:<12} | {get_type_display_name(issue_type):<19} | {total:<5} | "
                 f"{data.label_type_week_counts.get((label, issue_type, 3), 0):<3} | "
                 f"{data.label_type_week_counts.get((label, issue_type, 2), 0):<3} | "
                 f"{data.label_type_week_counts.get((label, issue_type, 1), 0):<3} | "

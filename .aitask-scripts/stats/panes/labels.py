@@ -5,6 +5,7 @@ from textual.containers import Container
 from textual.widgets import DataTable
 
 from stats_data import StatsData, build_chart_title, get_valid_task_types
+from task_category import type_display_name
 
 from .base import PaneDef, empty_state, register, render_chart
 
@@ -38,7 +39,7 @@ def _render_issue_types(stats: StatsData, container: Container) -> None:
         return
 
     def setup(plt):
-        plt.bar([t.capitalize() for t in types], values)
+        plt.bar([type_display_name(t) for t in types], values)
         plt.title(build_chart_title("Issue Types", "this week"))
 
     render_chart(setup, container)
