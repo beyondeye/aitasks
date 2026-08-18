@@ -703,6 +703,48 @@ def _project_root_from_pane_paths(pane_paths: list[str]) -> Path | None:
     return None
 
 
+def _dedupe_sessions_by_key(
+    sessions: list[AitasksSession],
+) -> list[AitasksSession]:
+    """Collapse records that resolve to the same repo, keeping the first (t1544_1).
+
+    Identity is :attr:`AitasksSession.key` — the realpath of ``project_root``,
+    with its own ``OSError`` fallback — so this is the *only* path
+    normalization involved. Three inputs can yield two records for one repo:
+
+    1. two live tmux sessions whose panes walk up to the same project root;
+    2. a registry row whose ``name`` differs from ``project_root.name`` at a
+       path that is also live (the ``live_names`` skip matches on name, so it
+       misses this one);
+    3. two registry rows pointing at the same path under different names.
+
+    All three are indistinguishable to the registry-inclusive consumers, where
+    ``key`` *is* the identity: ``merge_stats_data`` sums the same ``StatsData``
+    twice (every counter doubles), ``multi_session`` flips true for a single
+    repo, ``{s.key: label}`` maps silently collapse, and
+    :func:`disambiguate_labels` cannot honor its unique-label contract because
+    its escalation fallback (:func:`compact_root`) is identical for both
+    records. The TUI switcher fares worst: :func:`cross_group_step` finds the
+    current entry by *first* key match, so a duplicate pair traps the cycle
+    ring and every other repo becomes unreachable.
+
+    Callers append every live record before any registered one, so "first
+    wins" is also "the live record wins" whenever a live and a registered
+    record share a key — no explicit ``is_live`` preference is needed.
+    Survivors keep input order, so a caller's stable ``sort(key=session)``
+    still applies unchanged.
+    """
+    seen: set[str] = set()
+    out: list[AitasksSession] = []
+    for session in sessions:
+        key = session.key
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(session)
+    return out
+
+
 def _assemble_aitasks_sessions(
     live_roots: list[tuple[str, Path]],
     *,
@@ -713,6 +755,17 @@ def _assemble_aitasks_sessions(
     All non-I/O discovery behavior lives here so sync and async discovery stay
     identical: registry/config project-group resolution, registered-project
     synthesis, live dedupe, stale marking, and stable sorting.
+
+    Two dedupe layers run for ``include_registered=True``, and they are **not**
+    redundant — deleting either reintroduces a distinct bug:
+
+    * the ``live_names`` skip drops a registered row whose *name* matches a
+      live session's, **even at a different path** (t826_10: a STALE ghost must
+      not render beside the live repo it names);
+    * :func:`_dedupe_sessions_by_key` then drops anything resolving to a repo
+      already emitted — the only thing that catches two live sessions on one
+      root, an aliased registry row at a live path, or two registry rows on one
+      path (t1544_1).
     """
     # Group resolution support (t1025_1): a path-keyed registry-group lookup so
     # live sessions match their registry row even when basename != project.name
@@ -755,6 +808,15 @@ def _assemble_aitasks_sessions(
                 project_group=_group_for(root, group),
             ))
 
+        # One record per repo for the project-oriented consumers (t1544_1).
+        # Deliberately NOT applied to the default (no-flag) call: `ait monitor`
+        # builds {session: project_root} and lists live session names, so two
+        # live tmux sessions rooted in one repo are both real there and
+        # collapsing them would hide a session from monitor. The
+        # `include_registered` flag is exactly the project-oriented vs
+        # session-oriented boundary.
+        found = _dedupe_sessions_by_key(found)
+
     found.sort(key=lambda s: s.session)
     return found
 
@@ -779,7 +841,14 @@ def discover_aitasks_sessions(
 
     When ``include_registered=True``, additionally emits synthesized entries
     for every registered project in ``~/.config/aitasks/projects.yaml`` that
-    is not already covered by a live session (deduped on ``project_name``).
+    is not already covered by a live session. Deduping is then two-layered: a
+    registered row is skipped when its ``name`` matches a live session's
+    ``project_name``, and the whole result is collapsed on
+    ``AitasksSession.key`` (realpath of ``project_root``) so one repo yields
+    exactly one record, preferring the live one (t1544_1). **The key dedupe
+    applies only to** ``include_registered=True``: the default call still
+    reports every live tmux session, including two rooted in the same repo,
+    because ``ait monitor`` keys on the session name.
     Synthesized entries carry ``is_live=False`` and a ``session`` field
     resolved from each project's ``tmux.default_session`` config; STALE
     registry rows (path missing the marker file) additionally carry

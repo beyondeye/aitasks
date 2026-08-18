@@ -236,6 +236,66 @@ def _check_no_flag_call_keeps_both_live_sessions() -> None:
         )
 
 
+# --- duplicate inputs: exactly one survivor ---------------------------------
+# RED before the dedupe lands (each returns 2), green after.
+
+
+def _check_dup_live_vs_live() -> None:
+    """Source 1: two live tmux sessions on one repo."""
+    with _Fixture() as fx:
+        proj = _make_fake_project(fx.tmp / "shared_repo")
+        out = _assemble_aitasks_sessions(
+            [("sess_a", proj), ("sess_b", proj)], include_registered=True
+        )
+        assert_eq("two live sessions on one repo -> one record", 1, len(out))
+        assert_true("survivor is live", out[0].is_live)
+        assert_eq("first-seen live session wins", "sess_a", out[0].session)
+
+
+def _check_dup_live_vs_live_through_symlink() -> None:
+    """Source 1, proving identity is AitasksSession.key (realpath), not the
+    literal path string."""
+    with _Fixture() as fx:
+        proj = _make_fake_project(fx.tmp / "real_repo")
+        link = fx.tmp / "link_repo"
+        link.symlink_to(proj, target_is_directory=True)
+        out = _assemble_aitasks_sessions(
+            [("sess_real", proj), ("sess_link", link)], include_registered=True
+        )
+        assert_eq("symlinked duplicate collapses", 1, len(out))
+        assert_eq("first-seen path wins", proj, out[0].project_root)
+
+
+def _check_dup_registered_alias_at_live_path() -> None:
+    """Source 2: registry name != basename at a path that is also live, so the
+    live_names skip cannot fire."""
+    with _Fixture() as fx:
+        proj = _make_fake_project(fx.tmp / "realname")
+        fx.set_registry([("registry_alias", proj)])
+        out = _assemble_aitasks_sessions(
+            [("live_sess", proj)], include_registered=True
+        )
+        assert_eq(
+            "aliased registry row at a live path -> one record", 1, len(out)
+        )
+        assert_true("the LIVE record wins", out[0].is_live)
+        assert_eq("live session name kept", "live_sess", out[0].session)
+        assert_eq("live project_name kept", "realname", out[0].project_name)
+
+
+def _check_dup_two_registry_rows_same_path() -> None:
+    """Source 3: two registry rows, one path, different names."""
+    with _Fixture() as fx:
+        proj = _make_fake_project(fx.tmp / "twice", default_session="dupsess")
+        fx.set_registry([("alpha", proj), ("beta", proj)])
+        out = _assemble_aitasks_sessions([], include_registered=True)
+        assert_eq("two registry rows on one path -> one record", 1, len(out))
+        assert_false("survivor is a registered record", out[0].is_live)
+        assert_eq(
+            "first registry row (file order) wins", "alpha", out[0].project_name
+        )
+
+
 def main() -> int:
     _check_single_live_root()
     _check_live_plus_registered_distinct_names()
@@ -243,6 +303,10 @@ def main() -> int:
     _check_sort_by_session_name()
     _check_sort_is_stable_on_session_ties()
     _check_no_flag_call_keeps_both_live_sessions()
+    _check_dup_live_vs_live()
+    _check_dup_live_vs_live_through_symlink()
+    _check_dup_registered_alias_at_live_path()
+    _check_dup_two_registry_rows_same_path()
     print(f"\n{PASS}/{TOTAL} passed" + (f", {FAIL} FAILED" if FAIL else ""))
     return 1 if FAIL else 0
 

@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """TUI-switcher ring invariants over discovery output (t1544_1).
 
->>> CHARACTERIZATION OF A DEFECT — NOT A DESIRED INVARIANT. <<<
-This file currently pins the switcher ring's **broken** behaviour so the fix in
-t1544_1 is provable rather than asserted. It is rewritten to the post-fix
-invariants in the same task. If you are reading this comment after t1544_1
-landed, the rewrite was skipped — that is a bug.
+The invariant this file pins is **one ring entry per repository**, and the
+traversal property that follows from it: right-cycling reaches every repo.
 
 Why the ring is fed *assembler output* rather than hand-built sessions:
 `cross_group_ring` / `cross_group_step` are pure helpers and t1544_1 does not
-change them. Feeding them a hand-built duplicate list would livelock before and
-after the fix alike, proving nothing. The invariant t1544_1 actually
-establishes is one level up — *discovery never hands the ring two records for
-one repo* — so the ring must be driven from `_assemble_aitasks_sessions`.
+change them — they remain duplicate-fragile by construction. What t1544_1
+establishes is one level up: *discovery never hands the ring two records for
+one repo*. Driving the ring from hand-built lists would therefore prove
+nothing about the fix; it must be driven from `_assemble_aitasks_sessions`.
 
-The defect: `cross_group_step` locates the current entry by the FIRST `.key`
-match. Two entries sharing a key therefore trap the walk — stepping off the
-first lands on the second, whose key re-resolves to the first's index, so the
-cursor oscillates inside the pair and every other repo becomes unreachable.
+The defect this replaced (kept here as the rationale for the assertions
+below): `cross_group_step` locates the current entry by the FIRST `.key`
+match, so two entries sharing a key trapped the walk — stepping off the first
+landed on the second, whose key re-resolved to the first's index, so the
+cursor oscillated inside the pair and every other repo became unreachable.
+Before the fix, six right-steps from a duplicated repo returned the same
+session six times and the second repo was never reached.
 
 Run: python3 tests/test_switcher_ring_dedupe.py
   or: bash tests/run_all_python_tests.sh
@@ -76,10 +76,18 @@ class _Fixture:
         self._td = tempfile.TemporaryDirectory()
         self.tmp = Path(self._td.name)
         self._saved = os.environ.get("AITASKS_PROJECTS_INDEX")
-        idx = self.tmp / "projects.yaml"
-        idx.write_text("projects:\n")
-        os.environ["AITASKS_PROJECTS_INDEX"] = str(idx)
+        self.set_registry([])
         return self
+
+    def set_registry(self, entries: list[tuple[str, Path]]) -> Path:
+        idx = self.tmp / "projects.yaml"
+        lines = ["projects:\n"]
+        for name, root in entries:
+            lines.append(f"  - name: {name}\n")
+            lines.append(f"    path: {root}\n")
+        idx.write_text("".join(lines))
+        os.environ["AITASKS_PROJECTS_INDEX"] = str(idx)
+        return idx
 
     def __exit__(self, *exc) -> bool:
         if self._saved is None:
@@ -90,86 +98,101 @@ class _Fixture:
         return False
 
 
-def _walk(ring, start_key: str, steps: int) -> list[str]:
-    """Session names visited by `steps` successive right-steps from start_key."""
+def _walk_keys(ring, start_key: str, steps: int) -> list[str]:
+    """Repo keys visited by `steps` successive right-steps from start_key."""
     seen = []
     key = start_key
     for _ in range(steps):
         entry = cross_group_step(ring, key, 1)
-        seen.append(entry.session)
+        seen.append(entry.key)
         key = entry.key
     return seen
 
 
-def _two_live_one_repo_plus_another(fx: "_Fixture"):
-    """Duplicate source 1: two live tmux sessions rooted at one repo."""
-    repo_one = _make_fake_project(fx.tmp / "repo_one")
-    repo_two = _make_fake_project(fx.tmp / "repo_two")
-    sessions = _assemble_aitasks_sessions(
-        [("sess_a", repo_one), ("sess_b", repo_one), ("sess_c", repo_two)],
-        include_registered=True,
-    )
-    return sessions, repo_one, repo_two
-
-
-def _check_duplicate_pair_reaches_the_ring() -> None:
-    """CURRENT: discovery hands the ring two entries for one repo."""
-    with _Fixture() as fx:
-        sessions, repo_one, _ = _two_live_one_repo_plus_another(fx)
-        ring = cross_group_ring(sessions)
-        assert_eq("ring has one entry per discovered record", 3, len(ring))
-        keys = [e.key for e in ring]
-        assert_eq("only two distinct repos exist", 2, len(set(keys)))
-        assert_true(
-            "two ring entries share a key (the defect)",
-            len(keys) != len(set(keys)),
-        )
-
-
-def _check_ring_walk_is_trapped_by_the_duplicate() -> None:
-    """CURRENT: the second repo is unreachable by right-cycling."""
-    with _Fixture() as fx:
-        sessions, repo_one, repo_two = _two_live_one_repo_plus_another(fx)
-        ring = cross_group_ring(sessions)
-        start = os.path.realpath(repo_one)
-        visited = _walk(ring, start, 6)
-        assert_eq(
-            "six right-steps oscillate inside the duplicate pair",
-            ["sess_b"] * 6, visited,
-        )
-        assert_true(
-            "the other repo is NEVER reached (the defect)",
-            "sess_c" not in visited,
-        )
-
-
-def _check_no_duplicates_walks_every_repo() -> None:
-    """Control: without a duplicate the walk already reaches every repo.
-
-    Pins that the livelock is caused by the duplicate specifically, not by the
-    ring helpers being broken in general — so the fix belongs upstream in
-    discovery, which is where t1544_1 puts it.
-    """
+def _check_duplicate_live_sessions_yield_one_ring_entry() -> None:
+    """Duplicate source 1 must not reach the ring."""
     with _Fixture() as fx:
         repo_one = _make_fake_project(fx.tmp / "repo_one")
         repo_two = _make_fake_project(fx.tmp / "repo_two")
         sessions = _assemble_aitasks_sessions(
-            [("sess_a", repo_one), ("sess_c", repo_two)],
+            [("sess_a", repo_one), ("sess_b", repo_one), ("sess_c", repo_two)],
             include_registered=True,
         )
         ring = cross_group_ring(sessions)
-        assert_eq("ring has two entries", 2, len(ring))
-        visited = _walk(ring, os.path.realpath(repo_one), 4)
+        assert_eq("one ring entry per repo, not per record", 2, len(ring))
+        keys = [e.key for e in ring]
+        assert_eq("all ring keys distinct", len(keys), len(set(keys)))
+        assert_true(
+            "the surviving entry for the duplicated repo is the live one",
+            "sess_a" in [e.session for e in ring],
+        )
+
+
+def _check_walk_reaches_every_repo() -> None:
+    """The traversal property: N steps visit all N repos, none unreachable.
+
+    Asserted positively — visiting every distinct repo key — rather than by
+    checking that the ring merely shrank, which a broken walk could satisfy.
+    """
+    with _Fixture() as fx:
+        repo_one = _make_fake_project(fx.tmp / "repo_one")
+        repo_two = _make_fake_project(fx.tmp / "repo_two")
+        repo_three = _make_fake_project(fx.tmp / "repo_three")
+        sessions = _assemble_aitasks_sessions(
+            [
+                ("sess_a", repo_one),
+                ("sess_b", repo_one),      # duplicate of repo_one
+                ("sess_c", repo_two),
+                ("sess_d", repo_three),
+            ],
+            include_registered=True,
+        )
+        ring = cross_group_ring(sessions)
+        assert_eq("three repos -> three ring entries", 3, len(ring))
+        expected = {
+            os.path.realpath(repo_one),
+            os.path.realpath(repo_two),
+            os.path.realpath(repo_three),
+        }
+        visited = _walk_keys(ring, os.path.realpath(repo_one), 3)
+        assert_eq("three steps visit three distinct repos", 3, len(set(visited)))
+        assert_eq("every repo is reachable by right-cycling", expected, set(visited))
         assert_eq(
-            "walk alternates between the two repos",
-            ["sess_c", "sess_a", "sess_c", "sess_a"], visited,
+            "the walk wraps back to the starting repo",
+            os.path.realpath(repo_one), visited[-1],
+        )
+
+
+def _check_aliased_registry_row_yields_one_ring_entry() -> None:
+    """Duplicate source 2 must not reach the ring either.
+
+    A registry row whose name differs from the directory basename at a live
+    path is invisible to the name-based skip, so before t1544_1 it produced a
+    second ring entry for a repo already present.
+    """
+    with _Fixture() as fx:
+        repo = _make_fake_project(fx.tmp / "realname")
+        other = _make_fake_project(fx.tmp / "other_repo")
+        fx.set_registry([("registry_alias", repo)])
+        sessions = _assemble_aitasks_sessions(
+            [("live_sess", repo), ("other_sess", other)],
+            include_registered=True,
+        )
+        ring = cross_group_ring(sessions)
+        assert_eq("aliased row does not add a ring entry", 2, len(ring))
+        keys = [e.key for e in ring]
+        assert_eq("all ring keys distinct", len(keys), len(set(keys)))
+        visited = _walk_keys(ring, os.path.realpath(repo), 2)
+        assert_eq(
+            "both repos reachable despite the alias",
+            {os.path.realpath(repo), os.path.realpath(other)}, set(visited),
         )
 
 
 def main() -> int:
-    _check_duplicate_pair_reaches_the_ring()
-    _check_ring_walk_is_trapped_by_the_duplicate()
-    _check_no_duplicates_walks_every_repo()
+    _check_duplicate_live_sessions_yield_one_ring_entry()
+    _check_walk_reaches_every_repo()
+    _check_aliased_registry_row_yields_one_ring_entry()
     print(f"\n{PASS}/{TOTAL} passed" + (f", {FAIL} FAILED" if FAIL else ""))
     return 1 if FAIL else 0
 
