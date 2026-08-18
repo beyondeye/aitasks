@@ -91,6 +91,8 @@ from rich.cells import cell_len, set_cell_size  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
+from textual.css.query import NoMatches  # noqa: E402
+from textual.geometry import Offset  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.timer import Timer  # noqa: E402
 from textual.widgets import Static  # noqa: E402
@@ -252,12 +254,155 @@ def format_gate_phase_row(phase: str, gates: str, budget: int) -> str:
 
 # -- Widgets ------------------------------------------------------------------
 
+def pick_scroll_anchor(
+    card_offsets: list[tuple[str, int]], scroll_y: float
+) -> tuple[str, float] | None:
+    """``(pane_id, delta)`` for the topmost visible card, or ``None`` (t1539).
+
+    ``card_offsets`` is the pre-rebuild ``[(pane_id, virtual_region.y), ...]`` in
+    DOM order. Picks the last card starting at or above ``scroll_y``, falling
+    back to the first card when the view sits above all of them. ``delta`` is the
+    remainder — the distance from that card's top to the actual scroll offset —
+    so a position part-way through a tall card, or above the first card when a
+    section divider precedes it, survives the round trip. It is deliberately
+    allowed to be negative for exactly that divider case.
+
+    Pure so it can be tested without booting a Textual app; the caller owns
+    every DOM read.
+    """
+    if not card_offsets:
+        return None
+    anchor_id, anchor_top = card_offsets[0]
+    for pane_id, top in card_offsets:
+        if top > scroll_y:
+            break
+        anchor_id, anchor_top = pane_id, top
+    return anchor_id, scroll_y - anchor_top
+
+
+def resolve_anchor_target(
+    order: list[str], anchor_id: str, live_offsets: dict[str, int]
+) -> int | None:
+    """Content ``y`` for ``anchor_id`` after the rebuild, or ``None`` (t1539).
+
+    ``order`` is the pre-rebuild pane_id sequence and ``live_offsets`` maps the
+    pane_ids that survived to their new ``virtual_region.y``. A code-agent can be
+    killed between two refreshes, so the anchor is not guaranteed to exist: walk
+    ``order`` outward from its old index — nearer-above first, because settling
+    just above where the dead agent was reads as "the list closed up" rather than
+    "the list jumped" — and return the first survivor's offset.
+
+    ``None`` means nothing from the old list survived at all, which the caller
+    turns into a clamp rather than a guess.
+    """
+    if anchor_id in live_offsets:
+        return live_offsets[anchor_id]
+    try:
+        idx = order.index(anchor_id)
+    except ValueError:
+        return None
+    for distance in range(1, len(order) + 1):
+        for candidate in (idx - distance, idx + distance):
+            if 0 <= candidate < len(order):
+                pane_id = order[candidate]
+                if pane_id in live_offsets:
+                    return live_offsets[pane_id]
+    return None
+
+
+def list_layout_pending(card_tops: list[int]) -> bool:
+    """True while freshly mounted cards still have no geometry (t1539).
+
+    Textual lays children out asynchronously, so a restore posted with
+    ``call_after_refresh`` can run before the rebuilt list has a scroll range.
+    In that window every card reports ``virtual_region.y == 0`` and
+    ``max_scroll_y`` is 0 — measured live, 320 of 488 sampled ticks. Both
+    numbers a restore would use are therefore lies: ``validate_scroll_y`` clamps
+    the write to 0, which is the bug being fixed.
+
+    Detecting the state from the *card offsets* rather than from ``max_scroll_y``
+    is what makes one predicate serve both restore paths. A range comparison
+    cannot: for a bottom-pinned list the target IS ``max_scroll_y``, so
+    ``target > max_scroll_y`` is vacuously false; and for an anchored list the
+    anchor's own offset reads 0 here, so the target collapses to ~0 and the
+    comparison is false again. Both would commit a bogus restore.
+
+    ``len > 1`` because a single card legitimately sits at 0 and a one-card list
+    has nothing to scroll anyway.
+    """
+    return len(card_tops) > 1 and not any(card_tops)
+
+
 class MiniPaneCard(Static, can_focus=True):
     """Compact status entry for an agent pane."""
 
     def __init__(self, pane_id: str, text: str, **kwargs) -> None:
         super().__init__(text, **kwargs)
         self.pane_id = pane_id
+
+
+class MiniPaneList(VerticalScroll):
+    """The agent list's scroller, with the two seams the restore needs (t1539).
+
+    ``_rebuild_pane_list`` tears every card down and remounts it each tick. While
+    the container is childless its ``max_scroll_y`` is 0, so ``validate_scroll_y``
+    clamps ``scroll_y`` to 0 — measured live: ``scroll_y`` goes ``8.0 -> 0``
+    between the ``remove_children()`` and the end of ``mount_all()``. Restoring
+    the offset afterwards therefore has to fight two things: Textual's own
+    uninvited scrolls (the focus restore and friends), and its own timing.
+
+    The two overrides below discriminate *uninvited* from *user-driven* scrolls
+    by call path, which is exhaustive because the two paths are disjoint:
+
+    * every uninvited scroll arrives via ``Screen.scroll_to_widget``, which walks
+      the ancestor chain calling ``scroll_to_region`` on each — that covers
+      ``focus()``'s ``scroll_visible``, its deferred re-post for an unlaid-out
+      widget, ``Screen.set_focus``'s ``scroll_to_center``, the focus Textual
+      re-homes when the focused card is torn down, and ``ScrollToRegion``;
+    * every user gesture lands in ``_scroll_to`` without ever touching
+      ``scroll_to_region`` — wheel via ``_scroll_*_for_pointer``, scrollbar thumb
+      drag via ``_on_scroll_to``, trough/arrow click via ``scroll_page_*``, and
+      the scroll key bindings.
+
+    Overriding ``allow_vertical_scroll`` instead — the seam the board's design
+    reached for — would be too blunt here: it refuses *both* classes, so a
+    gesture landing inside the rebuild window would be dropped **and** would not
+    retire the pending restore, letting the stale anchor overwrite what the user
+    just did. The scrollbar thumb drag is the sharpest case, because
+    ``_on_scroll_to`` gates on ``_allow_scroll``, which a vertical-only scroller
+    makes false the moment ``allow_vertical_scroll`` is.
+    """
+
+    def _owner(self):
+        """The owning app, or None. Both overrides run during teardown too, when
+        `self.app` raises NoActiveAppError rather than returning None."""
+        try:
+            return self.app
+        except Exception:
+            return None
+
+    def _locked(self) -> bool:
+        """True while the app is mid-rebuild. False if there is no app yet."""
+        return bool(getattr(self._owner(), "_list_scroll_lock", False))
+
+    def scroll_to_region(self, region, *args, **kwargs):
+        # The single funnel for every UNINVITED scroll; see the class docstring.
+        # `force=True` is the deliberate bypass, and nothing in this app passes
+        # it here — the restore scrolls through `scroll_to`/`scroll_end`.
+        if not kwargs.get("force") and self._locked():
+            return Offset()    # falsy ⇒ "nothing scrolled" for the caller's arithmetic
+        return super().scroll_to_region(region, *args, **kwargs)
+
+    def _scroll_to(self, x=None, y=None, *, force=False, **kwargs):
+        # Anything non-forced reaching here is a real user gesture. The restore
+        # always passes force=True and uninvited scrolls were turned away above,
+        # so this needs no allowlist of Textual's private `_on_*` handler names —
+        # a new one would route through here like the rest.
+        if not force:
+            abandon = getattr(self._owner(), "_abandon_scroll_restore", None)
+            if abandon is not None:
+                abandon()
+        return super()._scroll_to(x, y, force=force, **kwargs)
 
 
 # Accepted shapes for a hand-typed task number (t1310): a parent id, or one
@@ -323,6 +468,24 @@ class MiniMonitorApp(
     _shortcuts_scope = "minimonitor"
 
     TITLE = "Mini Monitor"
+
+    # List scroll preservation across the per-tick rebuild (t1539).
+    #
+    # CLASS attributes, not `__init__` assignments, and that is load-bearing:
+    # several test modules build the app with `MiniMonitorApp.__new__(...)` and
+    # hand-set only the attributes the case under test touches, so an
+    # `__init__`-only default would `AttributeError` the moment `_refresh_data`
+    # or `MiniPaneList` read one.
+    _list_scroll_lock = False
+    # (at_bottom, anchor_id, delta, order) captured before the rebuild, or None.
+    _pending_scroll_state: tuple[bool, str, float, list[str]] | None = None
+    _scroll_restore_gen = 0
+    _scroll_lock_timer: Timer | None = None
+    # Frames the restore may wait for `max_scroll_y` to come back. Bounded by
+    # construction; falling through restores what fits.
+    _SCROLL_RESTORE_MAX_ATTEMPTS = 8
+    # Fail-safe release, well inside the default 3 s refresh interval.
+    _SCROLL_LOCK_TIMEOUT = 0.5
 
     CSS = """
     /* Top chrome. NEVER re-add `dock:` to any of these four (t1499). Textual
@@ -619,7 +782,10 @@ class MiniMonitorApp(
         # Auto-recheck loop status (t1159_2); empty ⇒ 0 rows.
         yield Static("", id="mini-loop-status")
         yield VerticalScroll(id="mini-own-agent")
-        yield VerticalScroll(id="mini-pane-list")
+        # MiniPaneList, not a bare VerticalScroll: it carries the scroll seams
+        # the per-tick restore needs (t1539). `query_one(..., VerticalScroll)`
+        # still resolves it, so no lookup site had to change.
+        yield MiniPaneList(id="mini-pane-list")
         yield Static(KEY_HINTS_TEXT, id="mini-key-hints")
 
     def on_mount(self) -> None:
@@ -869,9 +1035,29 @@ class MiniMonitorApp(
         # after `_set_session_root_map` and `_refresh_marks` above, which
         # `_is_marked` reads, and after the build so there is a card to update.
         self._refresh_own_live_state()
+
+        # Scroll preservation (t1539). Capture BEFORE the rebuild — that is where
+        # `validate_scroll_y` clamps the offset to 0 — then hold the lock across
+        # it so Textual's own scrolls (the focus restore and its deferred
+        # variants) cannot land while the anchor restore is pending.
+        self._capture_list_scroll()
+        gen = self._scroll_restore_gen = self._scroll_restore_gen + 1
+        self._list_scroll_lock = True
+        # The fail-safe is armed HERE, on the acquisition line, and not inside
+        # the restore. `Screen._invoke_and_clear_callbacks` has no per-callback
+        # try, so an exception raised by an EARLIER callback in the same batch
+        # drops every remaining one — including the restore. A release scheduled
+        # from within the restore would then never run and the lock would stick,
+        # silently killing scroll-into-view for the rest of the session.
+        self._stop_scroll_lock_timer()
+        self._scroll_lock_timer = self.set_timer(
+            self._SCROLL_LOCK_TIMEOUT, lambda: self._abandon_scroll_restore(gen)
+        )
+
         await self._rebuild_pane_list()
 
         self._restore_focus(saved_pane_id)
+        self.call_after_refresh(self._restore_list_scroll, gen, 0)
 
         # Proactive concern auto-offer (t1037_4): hint once per *new* complete
         # concern block on the followed agent's shadow pane. Best-effort and
@@ -1011,12 +1197,164 @@ class MiniMonitorApp(
                 return mapping[sess]
         return self._project_root
 
+    # -- List scroll preservation (t1539) --------------------------------------
+
+    def _capture_list_scroll(self) -> None:
+        """Snapshot the list's scroll position, keyed on a card identity.
+
+        Runs immediately before `_rebuild_pane_list`, which is where the offset
+        dies: while the container is childless `max_scroll_y` is 0 and
+        `validate_scroll_y` clamps `scroll_y` to 0 (measured live: 8.0 -> 0
+        between `remove_children()` and the end of `mount_all()`).
+
+        A raw `scroll_y` could not be restored faithfully — agents come and go
+        between ticks, so the content height changes and the row that occupied a
+        given offset may no longer exist. The anchor is a `pane_id` plus the
+        remainder within that card, and the pre-rebuild order is carried too so a
+        killed anchor can fall back to its nearest surviving neighbour.
+
+        Deliberately called from `_refresh_data` rather than from inside
+        `_rebuild_pane_list`: every existing test drives that method with a
+        `_FakeContainer` exposing only `remove_children`/`mount_all`, and reading
+        `scroll_y` there would break all of them.
+        """
+        if self._pending_scroll_state is not None:
+            # A tick landing mid-restore reuses the first snapshot. Re-capturing
+            # would record the transient zeros of a half-laid-out rebuild.
+            return
+        try:
+            container = self.query_one("#mini-pane-list", VerticalScroll)
+        except NoMatches:
+            return          # pre-compose tick; nothing to preserve yet
+        cards = [
+            card for card in container.query(MiniPaneCard)
+            if hasattr(card, "pane_id")
+        ]
+        if not cards:
+            return
+        max_y = container.max_scroll_y
+        scroll_y = container.scroll_y
+        at_bottom = max_y <= 0 or scroll_y >= max_y - 1
+        anchor = pick_scroll_anchor(
+            [(card.pane_id, card.virtual_region.y) for card in cards], scroll_y
+        )
+        if anchor is None:
+            return
+        anchor_id, delta = anchor
+        self._pending_scroll_state = (
+            at_bottom, anchor_id, delta, [card.pane_id for card in cards]
+        )
+
+    def _restore_list_scroll(self, gen: int, attempt: int = 0) -> None:
+        """Re-apply the captured offset once the container can actually hold it."""
+        if gen != self._scroll_restore_gen:
+            return          # superseded — a newer tick (or the user) owns the state
+        state = self._pending_scroll_state
+        if state is None:
+            return
+        try:
+            container = self.query_one("#mini-pane-list", VerticalScroll)
+        except NoMatches:
+            self._abandon_scroll_restore(gen)
+            return
+        at_bottom, anchor_id, delta, order = state
+        live = {
+            card.pane_id: card.virtual_region.y
+            for card in container.query(MiniPaneCard)
+            if hasattr(card, "pane_id")
+        }
+
+        # READINESS GATE, and it must come BEFORE the anchor is resolved.
+        # `force=True` bypasses `allow_vertical_scroll` but NOT
+        # `validate_scroll_y`'s clamp to `max_scroll_y`, so a restore issued
+        # before the rebuilt list has geometry is silently written as 0 — the bug
+        # itself. In that window the anchor's own offset also reads 0, so
+        # resolving first would compute a target of ~0 and then "succeed".
+        if (attempt < self._SCROLL_RESTORE_MAX_ATTEMPTS
+                and list_layout_pending(list(live.values()))):
+            self.call_after_refresh(self._restore_list_scroll, gen, attempt + 1)
+            return
+
+        target: float | None = None
+        if not at_bottom:
+            anchor_top = resolve_anchor_target(order, anchor_id, live)
+            if anchor_top is not None:
+                target = anchor_top + delta
+
+        # Second gate: the range may be laid out but still short of the target
+        # for a frame. Falling through the budget restores what fits, which is
+        # the right answer when the list genuinely shrank.
+        if (attempt < self._SCROLL_RESTORE_MAX_ATTEMPTS
+                and target is not None and target > container.max_scroll_y):
+            self.call_after_refresh(self._restore_list_scroll, gen, attempt + 1)
+            return
+
+        try:
+            if at_bottom:
+                # Keeps a bottom-pinned list pinned as agents come and go.
+                container.scroll_end(animate=False, immediate=True, force=True)
+            elif target is not None:
+                container.scroll_to(
+                    y=target, animate=False, immediate=True, force=True
+                )
+            else:
+                # Nothing from the old list survived: clamp rather than guess.
+                container.scroll_to(
+                    y=container.max_scroll_y, animate=False, immediate=True,
+                    force=True,
+                )
+        finally:
+            self._pending_scroll_state = None
+            self._stop_scroll_lock_timer()
+            # One extra flush before unlocking, so focus scrolls the rebuild
+            # deferred are still refused. The acquisition timer is the backstop.
+            self.call_after_refresh(self._release_list_scroll_lock, gen)
+
+    def _abandon_scroll_restore(self, gen: int | None = None) -> None:
+        """Drop the pending restore and unlock.
+
+        Called by the fail-safe timer with the generation it was armed for, and
+        by `MiniPaneList._scroll_to` with none — meaning "whatever is current" —
+        when the user scrolls for real.
+
+        RETIRING the generation is the load-bearing half. Unlocking alone would
+        leave a late `_restore_list_scroll` passing its own guard and forcing the
+        stale offset over the scroll the user just performed, and would leave the
+        next tick reusing a stale snapshot (the capture skips while one is
+        pending).
+        """
+        if gen is not None and gen != self._scroll_restore_gen:
+            return          # a stale timer from a superseded tick
+        if self._pending_scroll_state is None and not self._list_scroll_lock:
+            return          # nothing in flight — the common case for a user scroll
+        self._scroll_restore_gen += 1
+        self._pending_scroll_state = None
+        self._stop_scroll_lock_timer()
+        self._list_scroll_lock = False
+
+    def _release_list_scroll_lock(self, gen: int) -> None:
+        """Clear the lock if this generation is still the current one."""
+        if gen == self._scroll_restore_gen:
+            self._list_scroll_lock = False
+
+    def _stop_scroll_lock_timer(self) -> None:
+        if self._scroll_lock_timer is not None:
+            self._scroll_lock_timer.stop()
+            self._scroll_lock_timer = None
+
     def _restore_focus(self, pane_id: str | None) -> None:
         """Re-focus the previously focused card after a rebuild."""
         if pane_id is not None:
             for card in self.query("#mini-pane-list MiniPaneCard"):
                 if hasattr(card, "pane_id") and card.pane_id == pane_id:
-                    card.focus()
+                    # scroll_visible=False: during a passive refresh the captured
+                    # anchor is authoritative, not the focused card's position
+                    # (t1539). The lock refuses this scroll anyway; suppressing it
+                    # here saves a queued no-op and makes the decision legible at
+                    # the call site. Active gestures — keyboard nav, on_app_focus
+                    # -> _auto_select_own_window — are unaffected: they run with
+                    # the lock clear.
+                    card.focus(scroll_visible=False)
                     # Widget.focus() is deferred, so on_descendant_focus may
                     # not fire before the next refresh cycle. Set directly to
                     # avoid a stale saved_pane_id on the next tick.
