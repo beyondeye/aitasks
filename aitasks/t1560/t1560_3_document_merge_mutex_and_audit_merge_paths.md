@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1560_1]
 issue_type: documentation
 status: Ready
 labels: [documentation, git, task_workflow]
