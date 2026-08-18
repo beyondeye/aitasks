@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [1498]
 issue_type: bug

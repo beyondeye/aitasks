@@ -3,10 +3,11 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, tui, scroll]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-17 12:42
-updated_at: 2026-08-17 12:42
+updated_at: 2026-08-18 08:53
 ---
 
 ## Symptom
