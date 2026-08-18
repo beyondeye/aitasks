@@ -456,3 +456,129 @@ just a note.** Concretely, during Step 8:
 - timing: pre-phase | name: characterize_composited_minimonitor_rows | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — existing composited/CSS-text tests may shift | desc: run the five affected modules green on the unmodified tree and record CompositedWidthTests' current ★ row index
 - timing: post-phase | name: display_toggle_contract_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the display-toggle contract is implicit | desc: pin both directions of the collapse toggle (text appears with height>=1, cleared text leaves the frame at height 0)
 - timing: post-phase | name: negative_control_redock_stale_banner | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the guard could pass for the wrong reason | desc: re-add dock:top to #mini-shadow-stale alone, confirm the two named tests fail on the loser widget, revert
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan. `dock: top` removed from all
+  four top-chrome rules in `.aitask-scripts/monitor/minimonitor_app.py`;
+  `display: none` + `max-height` caps added to the three collapsible widgets,
+  with the `display` flip added at each of the three production write sites;
+  `_refresh_short_mode` / `_schedule_short_mode_refresh` added and scheduled
+  from `on_resize` plus those three write sites; module constants `_TOP_CHROME`,
+  `_KEY_HINTS_ROWS` (derived from `KEY_HINTS_TEXT`), `_SHORT_HINT_ROWS`,
+  `_PANE_LIST_FLOOR_ROWS`. New guard `tests/test_minimonitor_top_chrome_render.py`
+  (13 tests). `compose()` unchanged, as planned. Net: +138/−7 in the app,
+  408 lines of new test.
+
+- **Pre-phase `[characterize_composited_minimonitor_rows]`:** all five modules
+  green on the unmodified tree (`own_mark` 26, `session_divider` 18,
+  `markup_colour_contract` 25, `other_section` 25, `gate_phase_row` 37).
+  Baseline recorded: `CompositedWidthTests` found its `★` line at **composited
+  row index 1** at `size=(40,24)`, with `#mini-own-agent` at
+  `Region(0, 0, 40, 3)` and the other three collapsed behind it at
+  `Region(0, 0, 40, 1)`. After the fix the `★` line is at **row index 2** and
+  `#mini-own-agent` is at `Region(0, 1, 40, 3)` — exactly the predicted one-row
+  shift, with the session bar taking y=0.
+
+- **Deviations from plan:**
+  - `_refresh_short_mode` is scheduled through a new
+    `_schedule_short_mode_refresh()` wrapper rather than a bare
+    `self.call_after_refresh(...)` at each site. Forced by a real regression
+    (see below), not a preference.
+  - The plan's floor test `test_pane_list_keeps_a_row_at_the_minimum_pane_height`
+    (pin 1 row at `(40,12)`, 0 at `(40,11)`) was replaced by
+    `test_pane_list_keeps_a_row_at_every_pane_height`, a sweep over
+    30/20/14/13/12/8/5/4. Short mode makes the old floor obsolete: the hints now
+    yield, so the list keeps ≥1 row and never overruns all the way down to a
+    4-row pane. Stating it as an invariant over the range is strictly stronger
+    than the two magic heights.
+  - Short-mode probes moved from `(40, 22)` to `(40, 20)` (`SHORT_PROBE_HEIGHT`).
+    At height 22 the measured chrome is 9 rows, not the planned 11
+    (`#mini-own-agent` renders 3, not its 4-row cap), so `9 + 10 + 3 = 22` is
+    exactly *not* over budget and both the with-banners and without-banners
+    cases agreed — a non-discriminating pair. At 20 the single variable
+    "are the banners live" flips the outcome, which is what the pair must test.
+  - Negative-control injection 1 needed a second variant. Re-docking **one**
+    widget makes it the sole occupant of that edge, so nothing is occluded and
+    only the geometry test fires; the plan predicted the text test would fire
+    too. Re-docking **two** siblings reproduces the original defect shape and
+    does fail both. Both variants are recorded below.
+
+- **Issues encountered:**
+  - **Regression, caught and fixed:** the first cut called
+    `self.call_after_refresh(self._refresh_short_mode)` directly at the three
+    write sites. Twelve existing tests across `test_minimonitor_own_mark.py`,
+    `test_minimonitor_other_section.py` and `test_monitor_session_divider.py`
+    drive those sites against an app built with `MiniMonitorApp.__new__` and a
+    stubbed `query_one`, which has no message pump — every one failed with
+    `AttributeError: 'MiniMonitorApp' object has no attribute '_closing'`.
+    Fixed by routing all four schedule points through
+    `_schedule_short_mode_refresh()`, which wraps the call in
+    `contextlib.suppress(Exception)` — the same best-effort rationale the banner
+    setters already document.
+  - The live tmux fixture first hit minimonitor's single-instance guard
+    ("A monitor is already running in this window"). Cause: the tmux gateway
+    resolves its socket from `AITASKS_TMUX_SOCKET`, defaulting to `-L ait`, so
+    the guard enumerated the **real** `ait` socket's panes rather than the
+    throwaway one. Setting `AITASKS_TMUX_SOCKET=<socket>` for both the
+    `new-session` and the launched command isolates it properly.
+  - An empty `Static` with `height: auto` occupies **one** row, not zero. The
+    pre-existing CSS comments claiming "empty text ⇒ 0 rows" were never true —
+    the dock collision had been masking it. Without the `display` toggle the
+    fix would have cost 3 permanent rows instead of 0.
+
+- **Key decisions:**
+  - **Undock + flow, not a container wrapper.** Matches the in-repo precedent
+    for this exact bug class (t1278, `aitask_board.py:7980-7990`) and needs zero
+    `compose()` churn, which keeps the five existing tests that iterate
+    `compose()`'s top-level yields untouched.
+  - **Fixed `#mini-loop-status` too**, though t1499's description named only
+    three widgets. It is the fourth `dock: top` sibling and equally dead;
+    leaving it would have half-fixed the root cause. Confirmed with the user.
+  - **Short mode measures occupied chrome height, not a worst-case budget.**
+    `_maybe_build_own_agent_panel` builds the panel once and leaves it displayed
+    for the rest of the session, so a "is anything displayed?" predicate is true
+    almost always and would compact the hints on any pane under 24 rows. The
+    occupied-height form keeps full hints down to 18 rows in the common
+    (no-banner) case.
+  - **`max-height: 3` on the banners is an accepted information trade**: it
+    clips the parenthetical tail of the two longest staleness messages
+    (`analyzed …; round N block … older still`). The leading
+    `⚠ shadow feedback is stale — …` clause carries the actionable signal and
+    the concern picker still shows the full text.
+
+- **Verification results:**
+  - New guard: **13 passed**.
+  - The 12 affected minimonitor/monitor modules: **499 passed**.
+  - `bash tests/test_multi_session_minimonitor.sh`: **43/43 passed**.
+  - Full suite: **`PYTHON SUITE: PASSED (runner=pytest, exit=0)`**.
+  - **Live tmux, isolated socket, 40x30 pane** — fixed build, row 0 reads
+    ` multi: 1s · 0a`. Positive control on the unmodified file at the same size:
+    rows 0-4 all blank. This is the independent ground truth `run_test` cannot
+    supply on its own.
+  - **Post-phase `[negative_control_redock_stale_banner]`** — four single-mutation
+    injections, reverted between each, re-run after the
+    `_schedule_short_mode_refresh` refactor:
+
+    | injection | observed |
+    |---|---|
+    | `dock: top` on `#mini-shadow-stale` alone | `test_top_chrome_widgets_do_not_share_a_region` FAILED — `#mini-session-bar Region(0,3,40,1)` vs `#mini-shadow-stale Region(0,0,40,3)`. Text test did **not** fire: a single docked widget is the sole occupant of its edge, so nothing is occluded. |
+    | `dock: top` on `#mini-session-bar` **and** `#mini-shadow-stale` (the original defect shape) | `test_chrome_text_reaches_the_composited_frame` FAILED — "session bar never reached the screen"; `test_top_chrome_widgets_do_not_share_a_region` FAILED tripping on `#mini-session-bar Region(0,0,40,1)`, i.e. on the **loser**, not the surviving later-in-DOM widget; `test_live_chrome_never_overruns_the_docked_key_hints` FAILED. |
+    | delete `panel.display = True` | `test_own_agent_panel_is_visible_and_flows_below_the_banners` FAILED (plus 6 others). |
+    | delete the `MiniMonitorApp.short #mini-key-hints` rule | `test_live_chrome_never_overruns_the_docked_key_hints` FAILED — `pane list Region(0,9,38,1)` ran into `hints Region(0,6,38,10)` at height 20; `test_pane_list_keeps_a_row_at_every_pane_height` and `test_short_mode_engages_with_live_banners` FAILED. |
+
+    Restored after each: **13 passed**.
+
+- **Upstream defects identified:**
+  - `monitor_shared.py:1495-1501` — TaskPickConfirmDialog docks #pick-confirm-row
+    and #task-detail-footer to the same bottom edge inside #task-detail-dialog;
+    the footer is last in DOM order and overpaints the confirm row's last row
+    (same class as t1499)
+
+- **Deferral closure (plan Verification step 6):** the upstream defect above was
+  created as **t1563**
+  (`aitasks/t1563_pick_confirm_dialog_same_edge_bottom_dock.md`), confirmed via
+  `./.aitask-scripts/aitask_query_files.sh resolve 1563` →
+  `TASK_FILE:aitasks/t1563_pick_confirm_dialog_same_edge_bottom_dock.md`. The
+  task records that the overlap is inferred from CSS + DOM order and not yet
+  observed on a composited frame, so confirming it is that task's first step.
