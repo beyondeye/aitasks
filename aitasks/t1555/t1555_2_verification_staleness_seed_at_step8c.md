@@ -3,14 +3,14 @@ priority: medium
 effort: medium
 depends: [t1555_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [verification, task-workflow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 created_at: 2026-08-17 19:00
-updated_at: 2026-08-17 19:00
+updated_at: 2026-08-18 11:29
 ---
-
 
 Seed the two staleness fields at Step 8c, per
 `aidocs/framework/manual_verification_staleness.md` (read it first — it is the

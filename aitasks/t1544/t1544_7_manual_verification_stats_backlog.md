@@ -22,11 +22,10 @@ archived; Defer is allowed but creates a carry-over task.
 
 ## Verification Checklist
 
-- [ ] [t1544_1] Launch `ait board` and confirm the session list is unchanged from before the dedupe — same count, same names, same order (compare against the before/after lists recorded in t1544_1's Final Implementation Notes)
-- [ ] [t1544_1] Launch `ait monitor` and confirm the same session list is unchanged
-- [ ] [t1544_1] Launch `ait minimonitor` and confirm the same session list is unchanged
-- [ ] [t1544_1] Press `j` in any TUI to open the switcher and confirm its session list is unchanged
+- [ ] [t1544_1] **List A (no-flag).** Launch `ait monitor`, then `ait minimonitor`, and confirm each session list is **byte-identical** to the List A baseline in t1544_1's Final Implementation Notes. These use no-flag discovery, which the dedupe deliberately does not touch, so the bar is "unchanged" and *any* difference is a regression — including a duplicate live session disappearing, which must still be listed twice here.
+- [ ] [t1544_1] **List B (registry-inclusive).** Press `j` in any TUI (board, monitor or minimonitor — all three render the same switcher overlay) and confirm the list matches the **predicted after-list** in t1544_1's Final Implementation Notes. A row vanishing whose key was NOT in the recorded duplicate-key set is a regression. Note `ait board` has no session list of its own; its `j` overlay is this same list, so do not check it as a separate surface.
 - [ ] [t1544_1] With two live tmux sessions rooted at the same repo, confirm the stats TUI shows that repo once and its totals are NOT doubled
+- [ ] [t1544_1] With two live tmux sessions rooted at the same repo, open the `j` switcher and confirm left/right cycling still reaches **every other repo** (before the dedupe the cycle ring was trapped inside the duplicated pair and no other repo was reachable)
 - [ ] [t1544_4] Run `ait stats` and confirm both new sections render — backlog level and net flow — each split by the category axis
 - [ ] [t1544_4] Confirm the backlog table fits in an 80-column terminal at the default horizon, and that the follow-up rows (lowercase names) read as visually distinct from the issue-type rows (Title Case)
 - [ ] [t1544_4] Confirm the `-- follow-ups`, `-- genuine` and `TOTAL OPEN` rows are present, and that TOTAL OPEN carries the (parents / children) split
