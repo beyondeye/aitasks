@@ -182,7 +182,7 @@ done
 
    | # | state of the tree | run | required outcome |
    |---|---|---|---|
-   | NC-A | §3 applied (test pins added); template **not yet** edited | suite | **FAILS** on exactly the new pins: `SKILL.md default: create_worktree question states the deferral`, `SKILL.md default: no creating-now claim`, `create_worktree: true bakes the deferral into the display line`. Every `golden SKILL × <profile>` assertion still **passes** — the template is untouched, so this run isolates the pins. |
+   | NC-A | §3 applied (test pins added); template **not yet** edited | suite | **FAILS** on exactly the new pins: `SKILL.md default: create_worktree question states the deferral`, `SKILL.md default: no creating-now claim`, `create_worktree: true bakes the deferral into the display line`, `create_worktree: true makes no creating-now claim` (4 pins — see Final Implementation Notes). Every `golden SKILL × <profile>` assertion still **passes** — the template is untouched, so this run isolates the pins. |
    | NC-B | §1 + §2 applied (template edited); goldens **not yet** regenerated | suite | **FAILS** on exactly `golden SKILL × default` and `golden SKILL × remote` — proving the goldens do cover the changed lines and would have caught a stale-artifact commit. `golden SKILL × fast` still **passes** (the `false` branch is untouched). The three new pins from NC-A now **pass**. |
    | final | §4 applied (variants + goldens regenerated) | suite | **all green** |
 
@@ -229,3 +229,56 @@ severities below record the pre-mitigation assessment.)*
 
 ### Planned mitigations
 - timing: post-phase | name: path_scoped_commit_audit | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — rerender sweep can dirty unrelated tracked files | desc: Audit the full working-tree diff and commit with an explicit path allowlist instead of the index
+
+## Final Implementation Notes
+
+- **Actual work done:** All three defective `create_worktree` surfaces in Step 5
+  of `.claude/skills/task-workflow/SKILL.md` now state the deferral, reusing the
+  exact suffix t1536 already shipped on the base-branch surfaces: the Jinja-baked
+  `true` branch, the runtime profile-check `true` rung, and the `AskUserQuestion`
+  question text (plus its affirmative option label, retensed to "Yes, use a
+  separate worktree"). `profiles.md`'s schema row for `create_worktree` was
+  brought into line with the `base_branch` row (`Step 5 (resolve), Step 7 (fork)`).
+  Four assertions were added to `tests/test_skill_render_task_workflow.sh`, the
+  three tracked `task-workflow-remote-` variants were re-rendered, and
+  `SKILL-{default,remote}.md` goldens regenerated.
+- **Deviations from plan:** One. The plan listed 3 new test pins; 4 were added —
+  `create_worktree: true makes no creating-now claim` (an `assert_not_contains`
+  on `$OB_OUT`) was added alongside the positive pin, so a partial edit of the
+  baked `true` branch cannot pass. The NC-A row above was updated to name all
+  four rather than letting the implementation contradict its own audit rule.
+- **Issues encountered:**
+  - `aitask_skill_rerender.sh` **skips** `task-workflow` directly — it looks for
+    `SKILL.md.j2` and task-workflow's authoring file is `SKILL.md` with inline
+    Jinja, so it logs `Skipping orphaned rendered dir (no template at
+    .claude/skills/task-workflow/SKILL.md.j2)`. The tracked remote variants were
+    still refreshed, but only as a side effect of the **entry-point** skills'
+    (aitask-pick, aitask-pickrem, …) dependency-closure walk. The skip message
+    reads like a failure and is not one; anyone auditing a rerender of this
+    closure will hit it.
+  - The working tree carried unrelated modifications from a concurrent session
+    (`.aitask-scripts/aitask_archive.sh`, `aitask_update.sh`,
+    `board/aitask_merge.py`, `monitor/minimonitor_app.py`,
+    `.codex/rules/default.rules`, `seed/*`, `website/.../task-format.md`,
+    `tests/test_aitask_merge.py`, `tests/test_followup_kind_roundtrip.sh`, plus
+    untracked files). The `path_scoped_commit_audit` post-phase mitigation is
+    exactly what kept them out of this commit.
+- **Key decisions:**
+  - The question's leading sentence was **appended to**, not rewritten — that is
+    what t1536 did to the base-branch question, and it keeps the existing Test 3
+    pin (`Do you want to create a separate branch and worktree for this task?`)
+    valid rather than churning it.
+  - No duplicate rationale paragraph was added to the `create_worktree` block:
+    the "the deferral belongs inside the question text" paragraph in the
+    `base_branch` block already states the rule for all of Step 5.
+  - The `true` branch renders under **no committed profile**, so it can never
+    have a golden. Test 4b's synthetic profile (which already sets
+    `create_worktree: true`) is its only executable coverage — hence pinning
+    there rather than adding a synthetic profile of its own.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_skill_rerender.sh:~60 — the orphaned-dir skip keys on
+    `<skill>/SKILL.md.j2`, so a closure whose authoring template is a Jinja-inline
+    `SKILL.md` (task-workflow, user-file-select) is never re-rendered directly and
+    is refreshed only incidentally via an entry-point skill's dependency walk. A
+    project with no entry-point skill rendered for that profile would silently
+    keep stale rendered variants.
