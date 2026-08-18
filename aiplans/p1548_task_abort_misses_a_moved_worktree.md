@@ -395,3 +395,84 @@ lists only intended paths across all three agent trees.
 8. Post-phase drift sweep (above).
 
 Step 9 (Post-Implementation) handles cleanup, archival and merge.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-18 08:40)
+
+- **Requested by user:** The two call sites could read a *missing* result as a
+  benign one. Step 7's `read -r wt_state wt_path <<<"$(… resolve …)"` succeeds
+  with an empty state when the helper exits 3 (git failed / not a repository)
+  with no stdout, and that empty state could fall through toward cutting a new
+  worktree. `task-abort.md` likewise hid an environment error behind `|| true`
+  without requiring a well-formed three-line result. Blocking; confirmed.
+- **Verified:** reproduced directly — outside a repository, `resolve` exits 3
+  with empty stdout, `read` returns 0, `wt_state=''`, matching none of the
+  documented branches; `remove … --force || true` produced zero stdout lines
+  while the prose said "read the three printed lines".
+- **Changes made:**
+  - `SKILL.md` Step 7 reuse check now captures the status
+    (`wt_rc=0; wt_out="$(…)" || wt_rc=$?`) and treats a non-zero status, an
+    empty state, or an unrecognised state as "the classification did not
+    happen" → stop and ask, never cut.
+  - `SKILL.md` Re-entry Routing carries the same rule.
+  - `SKILL.md` Step 9 states explicitly that exit 2/3 prints nothing and also
+    exits non-zero, which is what makes the bare `--strict` call stop the block.
+  - `task-abort.md` captures the status instead of a bare `|| true`, and
+    requires a well-formed result (`wt_rc` ∈ {0,1} **and** exactly three lines
+    shaped `WORKTREE_…` / `BRANCH_…` / `CLEAN|PRESERVED|RESIDUE`) before reading
+    the verdict. Anything else is reported as a **failed cleanup**, never a
+    clean abort.
+  - The helper's header now documents that stdout is empty on exit 2/3 and that
+    callers must key on the exit status.
+  - New test case 21 pins the empty-stdout property (usage errors: missing
+    argument, unknown subcommand, `--force` on `resolve`, unknown option →
+    exit 2, no stdout, usage on stderr) — the premise the prose guards rest on.
+    Negative control M4 (leak a `NONE` line on usage error) fails exactly those
+    four assertions.
+- **Files affected:** `.aitask-scripts/aitask_task_worktree.sh`,
+  `.claude/skills/task-workflow/SKILL.md`,
+  `.claude/skills/task-workflow/task-abort.md`,
+  `tests/test_task_worktree_helper.sh`, the 3 goldens and the 6 tracked
+  `-remote-` prerenders (regenerated).
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `.aitask-scripts/aitask_task_worktree.sh`, the
+  single canonical classifier / teardown for a task worktree, and rewired the
+  four prose sites that previously hardcoded `aiwork/<task_name>` or inlined the
+  porcelain awk: `task-abort.md`'s cleanup, `SKILL.md` Step 7's reuse check,
+  Re-entry Routing's cross-reference, and Step 9's teardown. Added
+  `tests/test_task_worktree_helper.sh` (21 cases, 90 assertions), whitelisted the
+  helper across all 5 touchpoints, regenerated the 3 goldens and rerendered all
+  three profiles across the claude / codex / opencode trees.
+- **Deviations from plan:** none in shape. Two additions the plan did not
+  anticipate: the record-boundary parsing fix below, and Change Request 1's
+  fail-closed call-site guards.
+- **Issues encountered:**
+  - *`locked` / `prunable` are emitted AFTER `branch` in each porcelain record.*
+    The first implementation captured attributes at the `branch` field, so both
+    were always false for the matched record. `prunable` was masked by the
+    `! -d "$hit_path"` check, but `locked` was not: a deliberately locked
+    worktree fell through to the forced `rm -rf` fallback and was destroyed.
+    Fixed by buffering each record and evaluating at the record boundary; test
+    case 8 pins it. This is the one defect that would have shipped had the tests
+    been written to match the implementation rather than the intent.
+  - *Bash cannot carry NUL through command substitution.* The design needed both
+    `--porcelain -z` (for newline-safe paths) and "capture before parsing" (to
+    avoid a SIGPIPE under `pipefail`); those are mutually exclusive. Resolved
+    with a temp file plus an explicit `|| die`, since process substitution would
+    have hidden git's exit status.
+- **Key decisions:**
+  - `git worktree prune` is never run. It is repo-global, and — measured — a
+    prune of a *matching* stale record is exactly what lets the following
+    `git branch -d` succeed, stranding a manually-moved worktree with no branch.
+    Administrative metadata is instead removed per-worktree, resolved from git's
+    own registry (`<git_common_dir>/worktrees/*/gitdir`), never by following a
+    `gitdir:` pointer stored inside the directory being deleted.
+  - `git branch -d`, never `-D`. An unmerged branch surviving an abort is
+    reported as `PRESERVED` (a correct outcome), distinct from `RESIDUE` (a
+    failure), so the common abort-after-commits path does not read as an error.
+  - `--strict` exists so Step 9's "requires CLEAN" is an exit code rather than a
+    sentence the agent is asked to honour.
+- **Upstream defects identified:** None.
