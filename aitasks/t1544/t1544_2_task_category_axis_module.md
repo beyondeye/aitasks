@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [reporting, metrics, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 created_at: 2026-08-17 22:04
-updated_at: 2026-08-17 22:04
+updated_at: 2026-08-18 12:48
 ---
 
 ## Context
