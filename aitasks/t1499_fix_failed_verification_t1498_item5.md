@@ -117,3 +117,5 @@ _(not a commit regression — see "Not a t1493 regression" above)_
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-18T05:52:50Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-18T06:50:52Z status=pass attempt=1 type=human
