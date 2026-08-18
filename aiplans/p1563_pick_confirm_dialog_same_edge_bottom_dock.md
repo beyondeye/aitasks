@@ -225,7 +225,7 @@ which strips `.narrow` rules — the new one-line rule is stripped cleanly by
   `#filter_area`), t1499 (minimonitor top chrome), t1563 — each found only after
   shipping, because the fault is silent. Fixing this dialog leaves any other
   same-edge docked pair in the repo undiscovered. · severity: medium ·
-  → mitigation: sweep_same_edge_dock_siblings
+  → mitigation: t1572
 - The plan-hint fix changes **user-visible wording** in the narrow variant
   (`p: switch plan/task` → `p: plan/task`), which is scope beyond the declared
   dock defect. It is included because the requested "assert the complete footer
@@ -246,7 +246,7 @@ which strips `.narrow` rules — the new one-line rule is stripped cleanly by
   wide-variant border test makes the content-loss claim concrete.
 
 ### Planned mitigations
-- timing: after | name: sweep_same_edge_dock_siblings | type: chore | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health — the same-edge dock bug class recurs (t1278, t1499, t1563) and is silent | desc: audit every Textual screen under .aitask-scripts/ for two or more siblings sharing a dock: edge, fix any found, and add a guard so the class stops recurring
+- timing: after | name: sweep_same_edge_dock_siblings | type: chore | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: code-health — the same-edge dock bug class recurs (t1278, t1499, t1563) and is silent | desc: audit every Textual screen under .aitask-scripts/ for two or more siblings sharing a dock: edge, fix any found, and add a guard so the class stops recurring | created: t1572
 
 ## Implementation notes
 
