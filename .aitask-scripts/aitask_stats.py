@@ -73,6 +73,7 @@ from stats_data import (
     week_start_display_name,
     week_start_for,
 )
+from task_category import type_display_name
 
 # Re-exports (kept at module scope so existing tests and call sites that
 # reference `aitask_stats.X` continue to work after the data layer split).
@@ -210,19 +211,16 @@ def avg(num: int, denom: int) -> str:
 
 
 def get_type_display_name(raw: str) -> str:
-    mapping = {
-        "feature": "Features",
-        "bug": "Bug Fixes",
-        "refactor": "Refactors",
-        "documentation": "Documentation",
-        "performance": "Performance",
-        "style": "Style Changes",
-        "test": "Tests",
-        "chore": "Chores",
-        "parent": "Parent Tasks",
-        "child": "Child Tasks",
-    }
-    return mapping.get(raw, raw.capitalize())
+    """Issue-type display name. Thin delegator; the map lives in task_category.
+
+    Delegates to ``type_display_name``, **never** to ``category_display_name``.
+    The map has no entry for `manual_verification` or `enhancement`, so they
+    render through ``raw.capitalize()`` as ``Manual_verification`` /
+    ``Enhancement`` -- which is what ``ait stats`` prints today. A kind-first
+    resolver would turn the first into ``manual verification`` and change
+    existing output.
+    """
+    return type_display_name(raw)
 
 
 def render_pipeline_timing(data: StatsData, out: io.StringIO) -> None:

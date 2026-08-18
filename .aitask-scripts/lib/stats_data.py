@@ -246,6 +246,44 @@ def week_offset_for(completed: date, today: date, week_start_dow: int) -> int:
     return (curr - comp).days // 7
 
 
+def split_frontmatter(content: str) -> Tuple[Dict[str, str], str]:
+    """Flat frontmatter scan that also returns the body after the terminator.
+
+    Same scanner as :func:`parse_frontmatter` (which now calls this), extended
+    to hand back the prose. `followup_backfill_classify.classify()` keys several
+    of its provenance rules on body headings, so it needs the text that follows
+    the closing ``---`` — and it must be *only* that text.
+
+    The body is taken as the lines after the terminator, never by a substring
+    split on ``content.split('---', 2)[2]``. That shortcut agrees with this on
+    almost every task in the corpus, but it is wrong on the real archived tasks
+    whose first line is ``--- effort:med pri:hi``: it splits on that pseudo
+    delimiter and returns garbage, whereas the line scan correctly reports "no
+    frontmatter". The classifier's anti-false-positive guarantee rests on the
+    body starting after the frontmatter *terminator*, which only the line scan
+    knows.
+
+    Returns ``({}, content)`` when the first line is not exactly ``---`` (no
+    frontmatter: the whole file is body), and ``(parsed, "")`` when the block
+    never terminates (the scanner consumed the file as frontmatter, so there is
+    no body to hand back).
+    """
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, content
+
+    result: Dict[str, str] = {}
+    for i, line in enumerate(lines[1:], start=1):
+        stripped = line.strip()
+        if stripped == "---":
+            return result, "\n".join(lines[i + 1:])
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        result[key.strip()] = value.strip()
+    return result, ""
+
+
 def parse_frontmatter(content: str) -> Dict[str, str]:
     """Lightweight string-map frontmatter reader (every value stays a string).
 
@@ -253,21 +291,11 @@ def parse_frontmatter(content: str) -> Dict[str, str]:
     ``lib/``, but they are not interchangeable: that one is the YAML-backed
     parser returning typed values, this one is the flat scanner the stats
     aggregation path uses. Import the one you mean, explicitly.
-    """
-    lines = content.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return {}
 
-    result: Dict[str, str] = {}
-    for line in lines[1:]:
-        stripped = line.strip()
-        if stripped == "---":
-            break
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        result[key.strip()] = value.strip()
-    return result
+    A thin caller of :func:`split_frontmatter` that discards the body, so the
+    frontmatter/body boundary has exactly one definition.
+    """
+    return split_frontmatter(content)[0]
 
 
 def parse_labels(raw: Optional[str]) -> List[str]:
