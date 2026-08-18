@@ -207,3 +207,5 @@ Also run: `shellcheck .aitask-scripts/aitask_merge_task.sh .aitask-scripts/lib/m
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-18T19:11:47Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-18T20:41:19Z status=pass attempt=1 type=human
