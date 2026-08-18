@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, shadow, tui, monitor]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-18 15:26
-updated_at: 2026-08-18 15:26
+updated_at: 2026-08-18 15:35
 ---
 
 ## Problem
