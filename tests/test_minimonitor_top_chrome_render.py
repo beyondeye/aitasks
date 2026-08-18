@@ -58,8 +58,9 @@ STALE_TEXT = ms.format_shadow_stale_banner(
     _NOW - 93.0,
     _NOW,
 )
-#: Longest of the four literals `_set_loop_banner` is ever called with.
-LOOP_TEXT = "↻ recheck #12 sent — waiting for shadow"
+#: Longest of the four literals `_set_loop_banner` is ever called with,
+#: glyph included (U+27F3, not the similar-looking U+21BB).
+LOOP_TEXT = "⟳ recheck #12 sent — waiting for shadow"
 
 #: The height both short-mode directions are probed at. Chosen so ONE variable
 #: — whether the banners are live — flips the outcome: with them the chrome
