@@ -287,6 +287,42 @@ class TopChromeGeometryTests(_ChromeFixture):
                 probe, flat, f"{label} never reached the screen: {flat!r}"
             )
 
+    def test_the_gated_banner_gives_its_row_back(self):
+        """t1573's AC4, on the composited frame rather than on the seam.
+
+        The banner is first driven live (rows > 0, text on screen), then the
+        **production gate** is driven with a block-free capture — the
+        `agent-pick-1566` case, an explain-only shadow with nothing to be stale
+        about. `#mini-shadow-stale` must go back to occupying zero rows.
+
+        Distinct from `test_empty_chrome_costs_no_rows`, which only covers a
+        banner that was NEVER set: the row is reclaimed by
+        `_set_shadow_stale_banner`'s `display` toggle, and a suppression that
+        cleared the text without turning the widget off would keep its row
+        forever while every seam assertion stayed green (t1499's bug class).
+        """
+        async def after(app, pilot, result):
+            live = app.query_one("#mini-shadow-stale").region
+            self.assertGreaterEqual(
+                live.height, 1, "precondition: the banner must be on screen"
+            )
+            self.assertIn(STALE_PROBE, _flatten(app))
+            # The real per-tick write site, with a capture carrying no block.
+            app._refresh_shadow_stale_banner(
+                _own_snapshot(), "%99", "just agent prose\n$ "
+            )
+            await pilot.pause()
+            gated = app.query_one("#mini-shadow-stale").region
+            self.assertEqual(
+                gated.height, 0,
+                f"#mini-shadow-stale kept rows while carrying no warning: "
+                f"{gated}",
+            )
+            self.assertNotIn(STALE_PROBE, _flatten(app))
+            self.assertEqual(app._shadow_stale_banner_text, "")
+
+        self._run((40, 30), after=after)
+
     def test_own_agent_panel_is_visible_and_flows_above_the_banners(self):
         """Fails if `panel.display = True` is ever dropped.
 

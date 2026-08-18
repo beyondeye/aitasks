@@ -38,7 +38,7 @@ from monitor.prompt_patterns import agent_key_from_command  # noqa: E402
 from monitor import monitor_core as mc  # noqa: E402
 from monitor.concern_parser import (  # noqa: E402
     Concern,
-    build_clipboard_payload, concern_marker_line,
+    build_clipboard_payload, concern_marker_line, contains_block_evidence,
 )
 from monitor.monitor_shared import (  # noqa: E402
     ConcernPickResult, format_stale_duration, _no_task_id_msg,
@@ -1016,7 +1016,11 @@ class ShadowFreshnessTests(unittest.TestCase):
         app = self._fresh_app(1000.0, 1010.0)
         asyncio.run(app._maybe_offer_concerns())
         self.assertIs(app._shadow_feedback_stale, True)
-        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+        # The default capture carries NO concern block, so since t1573 the
+        # BANNER stays empty here — there is no feedback for it to call stale.
+        # This test owns the read-recency VERDICT and its cost gate; the banner
+        # for a real block is pinned in `StaleBannerTruthfulnessTests`.
+        self.assertEqual(app._shadow_stale_banner_text, "")
         self.assertEqual(app._lcw_calls, ["%1"])
 
     def test_no_change_since_analysis_is_current(self):
@@ -1044,7 +1048,7 @@ class ShadowFreshnessTests(unittest.TestCase):
     def test_unobserved_followed_preserves_prior_stale(self):
         # Followed pane not observed yet (last-change None) must NOT clear a
         # standing 'stale' warning.
-        app = self._fresh_app(1000.0, None)
+        app = self._fresh_app(1000.0, None, capture=_CLOSED_BLOCK)
         app._shadow_read_recency = mm.ReadRecency(True, 1000.0)
         app._shadow_stale_combined = True
         app._shadow_stale_banner_text = "PRIOR-WARNING"
@@ -1052,7 +1056,7 @@ class ShadowFreshnessTests(unittest.TestCase):
         _assert_warning_still_standing(self, app)
 
     def test_malformed_stamp_preserves_prior_stale(self):
-        app = self._fresh_app("not-a-number", 1010.0)
+        app = self._fresh_app("not-a-number", 1010.0, capture=_CLOSED_BLOCK)
         app._shadow_read_recency = mm.ReadRecency(True, 1000.0)
         app._shadow_stale_combined = True
         app._shadow_stale_banner_text = "PRIOR-WARNING"
@@ -1070,13 +1074,20 @@ class ShadowFreshnessTests(unittest.TestCase):
         produced it: this fails against the pre-fix code (the banner clears)
         rather than merely re-asserting the fixed shape.
         """
-        app = self._fresh_app(None, 1010.0, option_ok=False)
+        app = self._fresh_app(None, 1010.0, option_ok=False,
+                              capture=_CLOSED_BLOCK)
         app._shadow_read_recency = mm.ReadRecency(True, 1000.0)
         app._shadow_stale_combined = True
         app._shadow_stale_banner_text = "PRIOR-WARNING"
         asyncio.run(app._maybe_offer_concerns())
         _assert_warning_still_standing(self, app)
-        self.assertEqual(app._lcw_calls, [])  # cost gate holds on this path too
+        # EXACTLY one lookup, and it is the block-age path's — which needs it.
+        # The read-recency cost gate still holds: were it to look too, this
+        # would be two calls. (Pre-t1573 these fixtures carried no block, so
+        # both paths skipped and the count was 0; a standing warning about a
+        # pane with no feedback is no longer a reachable state, which is why
+        # the block is now part of the fixture.)
+        self.assertEqual(app._lcw_calls, ["%1"])
 
     def test_auto_offer_notify_carries_stale_marker(self):
         app = self._fresh_app(1000.0, 1010.0, capture=_CLOSED_BLOCK)
@@ -1106,16 +1117,18 @@ _R1_EPOCH = 1786457007.0
 _R2_EPOCH = 1786457381.0
 
 
-class BlockAgeStalenessTests(unittest.TestCase):
-    """The third freshness signal, end to end through the app (t1493).
+class _StalenessAppFixture(unittest.TestCase):
+    """One app builder for every banner/freshness test in this module.
 
-    The live defect: after round 1, three `refetch and recheck` rounds each
-    re-read the pane and answered in PROSE — no block. Every refetch restamped
-    `@aitask_shadow_analyzed_at`, so read recency said "current" and the picker
-    re-offered round 1's concerns with no stale warning.
+    Holds no tests of its own: `BlockAgeStalenessTests` (t1493) and
+    `StaleBannerTruthfulnessTests` (t1573) both drive the SAME production path
+    (`_maybe_offer_concerns` -> `_refresh_shadow_stale_banner` ->
+    `_record_banner_staleness`), so one fixture keeps them from drifting into
+    two subtly different timelines.
     """
 
-    def _app(self, capture, analyzed_at, last_change, option_ok=True):
+    def _app(self, capture, analyzed_at, last_change, option_ok=True,
+             phase=None):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))
         app._find_own_agent_snapshot = lambda: _snap("%1")
         _stub_capture(self, _async_return(capture))
@@ -1131,7 +1144,43 @@ class BlockAgeStalenessTests(unittest.TestCase):
         app._monitor.get_pane_option = _opt
         app._lcw = [last_change]
         app._monitor.get_last_change_wall = lambda pane: app._lcw[0]
+        if phase is not None:
+            self._install_phase(app, phase)
         return app
+
+    @staticmethod
+    def _install_phase(app, phase):
+        """Drive the advisory phase through the REAL resolution path.
+
+        Only the two caches are faked (the idiom from
+        `tests/test_minimonitor_gate_phase_row.py`), so the value still travels
+        `_phase_signal_for_pane` -> `_phase_for_snap` -> `_gate_cache.phase_for`
+        — the same three hops production uses. `app._phase` is a one-cell list
+        the tests mutate between ticks to move the followed agent through the
+        workflow; stubbing `_phase_signal_for_pane` itself would skip the hops
+        and could not catch a wiring break.
+        """
+        app._phase = [phase]
+        app._task_cache = SimpleNamespace(
+            get_task_id_for_pane=lambda pane: "1573",
+            get_task_info=lambda task_id, session=None: SimpleNamespace(),
+        )
+        app._gate_cache = SimpleNamespace(
+            summary_for=lambda info: "",
+            phase_for=lambda info, **kw: _wp.PhaseSignal(phase=app._phase[0]),
+            clear=lambda: None,
+        )
+        return app
+
+
+class BlockAgeStalenessTests(_StalenessAppFixture):
+    """The third freshness signal, end to end through the app (t1493).
+
+    The live defect: after round 1, three `refetch and recheck` rounds each
+    re-read the pane and answered in PROSE — no block. Every refetch restamped
+    `@aitask_shadow_analyzed_at`, so read recency said "current" and the picker
+    re-offered round 1's concerns with no stale warning.
+    """
 
     # -- the reported chronology, on ONE app ---------------------------------
 
@@ -1188,11 +1237,23 @@ class BlockAgeStalenessTests(unittest.TestCase):
         self.assertIs(app._shadow_stale_combined, False)
         self.assertEqual(app._shadow_stale_banner_text, "")
 
-    def test_no_block_pane_still_reports_read_recency_staleness(self):
+    def test_no_block_pane_reports_no_staleness_at_all(self):
+        """FLIPPED by t1573 — this test used to pin the defect itself.
+
+        It asserted that a no-block pane with stale READ RECENCY still renders
+        "shadow feedback is stale". That is the `agent-pick-1566` banner: an
+        explain-only shadow, zero concern markers in its whole scrollback, and a
+        warning about feedback that was never produced. Read recency is a
+        well-defined question here (the shadow really has not looked since the
+        agent changed) — it is the *banner* that has nothing to be stale about,
+        which is why the gate lives at the banner and read recency itself is
+        untouched (see the companion assertion in
+        `StaleBannerTruthfulnessTests`).
+        """
         app = self._app("just agent prose\n$ ", _R1_EPOCH, _R1_EPOCH + 300)
         asyncio.run(app._maybe_offer_concerns())
-        self.assertIs(app._shadow_stale_combined, True)
-        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+        self.assertIs(app._shadow_stale_combined, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
 
     def test_a_pre_header_block_arriving_on_a_clean_pane_escalates(self):
         """The same-app transition, and the sharpest form of the applicability
@@ -1369,6 +1430,298 @@ class BlockAgeStalenessTests(unittest.TestCase):
         asyncio.run(app._maybe_offer_concerns())
         self.assertNotIn("STALE", app.spy_notify[0][0])
         self.assertNotIn("unknown", app.spy_notify[0][0])
+
+
+class StaleBannerTruthfulnessTests(_StalenessAppFixture):
+    """The banner must only warn about feedback that exists and still applies.
+
+    Two untrue assertions, from live use (t1573):
+
+    1. An explain-only shadow — one asked to explain the screen, never to review
+       — has no feedback at all, yet read recency drove the banner to "shadow
+       feedback is stale". Observed on window `agent-pick-1566`: shadow pane
+       `%287`, zero concern markers in its whole scrollback, two of ~38 usable
+       columns spent saying something untrue.
+    2. Once standing, the warning never went away: for a one-shot shadow read
+       recency is permanently True after the agent types, and the preserve rule
+       (correctly) never clears a standing True. Concerns about a *plan* stop
+       mattering once the agent implements, and nothing said so.
+    """
+
+    _PROSE = "just agent prose\n$ "
+
+    # -- 1. no feedback ⇒ no banner, in EVERY read-recency state --------------
+
+    def test_an_explain_only_shadow_never_warns(self):
+        """AC1, the `agent-pick-1566` reproduction.
+
+        All three read-recency states are driven, because the defect was in the
+        JOIN: gating only the True case would leave the same class of claim
+        reachable through `None` ("freshness unknown" about nothing).
+        """
+        cases = (
+            # (label, analyzed_at, last_change, option_ok, expected recency)
+            ("stale read recency", _R1_EPOCH, _R1_EPOCH + 300, True, True),
+            ("current read recency", _R1_EPOCH, _R1_EPOCH - 10, True, False),
+            ("indeterminate read recency", None, _R1_EPOCH, False, None),
+        )
+        for label, analyzed, lcw, ok, expected in cases:
+            with self.subTest(label):
+                app = self._app(self._PROSE, analyzed, lcw, option_ok=ok)
+                asyncio.run(app._maybe_offer_concerns())
+                self.assertIs(
+                    app._shadow_feedback_stale, expected,
+                    "fixture did not produce the read-recency state it names",
+                )
+                self.assertEqual(
+                    app._shadow_stale_banner_text, "",
+                    f"banner asserted staleness about no feedback ({label})",
+                )
+                self.assertIs(app._shadow_stale_combined, False)
+
+    def test_the_review_loop_still_sees_the_read_recency_verdict(self):
+        """AC5 — and the negative control for the whole approach.
+
+        The auto-recheck loop fires on `awaiting_input AND stale`, reading
+        `_shadow_feedback_stale` (see `_service_review_loop`'s
+        `stale_input = self._shadow_feedback_stale`). A "fix" that gated read
+        recency itself — rather than the banner that consumes its join — would
+        silence the loop as a side effect and still pass every banner assertion
+        above. So the verdict is asserted True on exactly the tick whose banner
+        is empty.
+        """
+        app = self._app(self._PROSE, _R1_EPOCH, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertEqual(app._shadow_stale_banner_text, "")
+        self.assertIs(app._shadow_feedback_stale, True)
+        self.assertEqual(
+            app._shadow_read_recency.analyzed_at, _R1_EPOCH,
+            "the recency tuple must still carry its stamp",
+        )
+
+    # -- 2. a real block still goes stale, unchanged (AC2) -------------------
+
+    def test_a_real_block_still_goes_stale_by_read_recency(self):
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    def test_a_real_block_still_goes_stale_by_block_age_alone(self):
+        """The shadow DID re-read (recency current); only the block is old."""
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH + 400, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, False)
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    def test_a_head_truncated_block_is_never_retired(self):
+        """No identifiable region ⇒ no identity ⇒ the warning always shows.
+
+        "There is a block I cannot delimit" is not "there is no block": the
+        first is uncertainty and must fail safe toward warning, the second is
+        `age.applicable`'s question. A key of `None` must therefore never
+        compare equal to a binding.
+        """
+        app = self._app(_HEAD_TRUNCATED, _R1_EPOCH, _R1_EPOCH + 300,
+                        phase="PLAN")
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)
+        app._phase[0] = "IMPLEMENT"                      # would retire a keyed block
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    # -- 3. phase retirement (AC3) -------------------------------------------
+
+    def _standing(self, phase, capture=_ROUND1_BLOCK):
+        """An app with a STANDING warning and its feedback bound to `phase`."""
+        app = self._app(capture, _R1_EPOCH, _R1_EPOCH + 300, phase=phase)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True,
+                      "precondition: a warning must be standing")
+        return app
+
+    def _tick(self, app):
+        app._shadow_freshness_tick = 0   # let the throttled compare run again
+        asyncio.run(app._maybe_offer_concerns())
+
+    def test_leaving_the_planning_phase_retires_the_warning(self):
+        app = self._standing("PLAN")
+        app._phase[0] = "IMPLEMENT"
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+    def test_leaving_implementation_review_retires_the_warning(self):
+        app = self._standing("IMPLEMENT")
+        app._phase[0] = "POSTIMPL"
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+    def test_no_transition_involving_unknown_retires_the_warning(self):
+        """The advisory anti-gating rule: an UNKNOWN phase must cost nothing.
+
+        Both directions are covered — degrading INTO unknown must not suppress,
+        and a block whose origin could never be bound (first seen while the
+        phase was unknown) must not be suppressed by a later known phase either.
+        """
+        for origin, later in (("PLAN", "UNKNOWN"), ("UNKNOWN", "IMPLEMENT")):
+            with self.subTest(f"{origin} -> {later}"):
+                app = self._standing(origin)
+                app._phase[0] = later
+                self._tick(app)
+                self.assertIs(app._shadow_stale_combined, True)
+                self.assertEqual(
+                    app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    def test_staying_in_the_same_phase_retires_nothing(self):
+        app = self._standing("PLAN")
+        self._tick(app)
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    def test_a_misclassified_known_phase_flap_restores_the_warning(self):
+        """The discriminating case for derived-vs-latched retirement (t1573).
+
+        A latch keyed on "a known->known transition happened" fails this
+        PERMANENTLY: `PLAN -> IMPLEMENT` retires the block, and the way back,
+        `IMPLEMENT -> PLAN`, is *also* a known->known transition, so it
+        re-retires the same unchanged block. One misclassification would then
+        hide a still-relevant plan-feedback warning forever — exactly what the
+        advisory anti-gating rule forbids. Suppression is therefore a property
+        of the CURRENT phase versus the feedback's origin, re-evaluated every
+        tick, so the way back is free.
+        """
+        app = self._standing("PLAN")
+        app._phase[0] = "IMPLEMENT"
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, False)   # retired
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+        app._phase[0] = "PLAN"                             # it was a misread
+        self._tick(app)
+        self.assertIs(
+            app._shadow_stale_combined, True,
+            "back in the origin phase, the plan feedback applies again — a "
+            "transition latch could never recover here",
+        )
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    def test_a_replacement_shadow_pane_starts_unretired(self):
+        """A new shadow's feedback is never born retired.
+
+        The binding is keyed on `(shadow_pane, block_key)`, so this holds even
+        in the worst case: the replacement pane serves the BYTE-IDENTICAL block
+        while the phase never moves back. A fixture with a fresh round would
+        pass with an unscoped binding too and prove nothing. There is
+        deliberately NO intervening no-shadow tick — correctness must not depend
+        on a reset having run.
+        """
+        app = self._standing("PLAN")
+        app._phase[0] = "IMPLEMENT"
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, False)   # retired on %5
+
+        app._monitor._async_list = "%6\t%1"                # the shadow is replaced
+        self._tick(app)
+        self.assertIs(
+            app._shadow_stale_combined, True,
+            "the new pane's block inherited the old pane's retirement",
+        )
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    def test_a_new_round_re_arms_the_banner(self):
+        """Retirement is about ONE piece of feedback, not about the phase.
+
+        A fresh round is the shadow saying something new — under the phase the
+        agent is in now — so it must be able to go stale on its own terms with
+        no further phase change.
+        """
+        app = self._standing("PLAN")
+        app._phase[0] = "IMPLEMENT"
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, False)
+
+        _stub_capture(self, _async_return(_ROUND2_BLOCK))  # new round, same items
+        app._lcw[0] = _R2_EPOCH + 300                      # and the agent moved on
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, True)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW)
+
+    def test_the_picker_path_applies_the_same_gate(self):
+        """`c` writes the banner too, so it cannot skip the gate.
+
+        The value handed to the MODAL is deliberately ungated (the user is
+        looking at that block and asked to act on it) — only the banner write
+        is suppressed. Both are asserted here so the split cannot silently
+        collapse either way.
+        """
+        app = self._standing("PLAN")
+        app._phase[0] = "IMPLEMENT"
+        asyncio.run(app.action_pick_concerns())
+        self.assertEqual(app._shadow_stale_banner_text, "")
+        self.assertIs(app._shadow_stale_combined, False)
+        modal, _ = app.spy_pushed[0]
+        self.assertIs(modal._stale, True, "the picker's own warning must stand")
+
+    # -- risk-mitigation post-phase (t1573 plan, inline mitigations) ---------
+
+    def test_a_block_leaving_the_capture_window_clears_the_banner(self):
+        """INTENDED RESIDUAL of the feedback-existence gate, pinned on purpose.
+
+        The gate is `age.applicable`, so it suppresses whenever the capture
+        shows no block — including when a block that WAS warned about scrolls
+        entirely out of the `--deep` window. That is deliberate rather than
+        incidental: the banner describes the feedback the pane is showing, and a
+        warning about a block no longer in the capture cannot be acted on (the
+        `c` path takes its own deeper re-capture and is the recovery route).
+        Pinning it here makes the behaviour a decision instead of an accident,
+        and makes a future change to it visible.
+        """
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH + 400, _R1_EPOCH + 300)
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_feedback_stale, False)   # block age drove it
+        self.assertIs(app._shadow_stale_combined, True)
+
+        _stub_capture(self, _async_return(self._PROSE))    # block scrolled away
+        self._tick(app)
+        self.assertIs(app._shadow_stale_combined, False)
+        self.assertEqual(app._shadow_stale_banner_text, "")
+
+
+class BlockEvidenceCouplingTests(unittest.TestCase):
+    """`age.applicable` IS the feedback-existence predicate — a tripwire.
+
+    `_record_banner_staleness` uses `BlockAge.applicable` as its "does feedback
+    exist?" gate rather than calling `contains_block_evidence` a second time,
+    on the strength of `compute_block_age_staleness`'s docstring ("this
+    function, and only this function, decides applicability"). That equivalence
+    is load-bearing and enforced nowhere, so an edit to the producer could
+    unhook the banner gate silently. This fails first if it ever diverges.
+    """
+
+    def test_applicability_is_exactly_the_block_evidence_predicate(self):
+        for label, text in (
+            ("prose only", "just agent prose\n$ "),
+            ("empty", ""),
+            ("closed block", _CLOSED_BLOCK),
+            ("unclosed block", _UNCLOSED_BLOCK),
+            ("head truncated", _HEAD_TRUNCATED),
+            ("malformed markers only", _MALFORMED_ONLY_BLOCK),
+            ("round headed", _ROUND1_BLOCK),
+            ("metadata only", _METADATA_ONLY_BLOCK),
+        ):
+            with self.subTest(label):
+                self.assertIs(
+                    mc.compute_block_age_staleness(text, None, 3.0).applicable,
+                    contains_block_evidence(text),
+                    "the banner gate reads `applicable` as the "
+                    "feedback-existence predicate (see "
+                    "MiniMonitorApp._record_banner_staleness)",
+                )
 
 
 # ===========================================================================

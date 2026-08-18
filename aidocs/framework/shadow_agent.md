@@ -396,6 +396,15 @@ So there are **three** freshness signals, and every surface must say which it us
   exist. A block that *is* present but whose age cannot be established (no
   header, clipped header, unparseable timestamp) yields `None` — real
   uncertainty, which never clears a standing warning and never reads as current.
+  **The gate protects one input; a consumer of the JOIN needs its own** (t1573).
+  Read recency stays well-defined with no feedback in sight — "has the shadow
+  re-read since the agent changed?" has an answer either way — so
+  `combine_staleness` correctly hands it back, and minimonitor's banner
+  consequently warned that "shadow feedback is stale" about an explain-only
+  shadow that had never emitted a block. `combine_staleness` was *not* changed
+  (its other callers, both picker paths, are correct): the existence gate lives
+  at the banner, in `MiniMonitorApp._record_banner_staleness`, which reuses
+  `age.applicable` rather than re-deriving the predicate.
 - **Join.** `monitor_core.combine_staleness` — `True` wins, then `None`, then
   `False`.
 
@@ -416,6 +425,39 @@ return early on an unchanged block, so a block that goes stale in place can neve
 re-toast, and that is correct — a toast announces arrival, not ageing. `ait
 monitor` has no continuous banner, so its picker is the sole owner there; the `!`
 badge's clearing edge is t1448's.
+
+**The banner's two suppressions** (t1573). Both live in
+`MiniMonitorApp._record_banner_staleness`, in front of the single preserve rule
+in `_record_combined_staleness` (which is unchanged — each suppression is an
+explicit `False` clear, like the existing no-shadow clear, not a loosening of the
+fail-safe join). They are what keep a *wanted* banner truthful:
+
+1. **Feedback must exist** — `not age.applicable` ⇒ no banner, whatever read
+   recency says. See the applicability bullet above.
+2. **The feedback must still apply to the agent's current phase** — concerns
+   about a *plan* stop mattering once the agent is implementing, and
+   implementation-review concerns stop mattering at post-review.
+
+The phase rule is **derived state, not a latch**. Each block binds to the phase
+it was first observed in, keyed on `(shadow pane id, block identity)`, and the
+warning is suppressed only while
+
+```
+the block is identifiable AND its origin phase is bound and KNOWN
+AND the current phase is KNOWN AND current != origin
+```
+
+A latch keyed on "a known→known transition happened" was rejected because it
+cannot recover: `PLAN → IMPLEMENT` retires the block and the way back,
+`IMPLEMENT → PLAN`, is *also* a known→known transition, so one misclassified
+phase would hide a still-relevant warning permanently — precisely what the
+anti-gating rule under "Phase detection (advisory)" forbids. Re-deriving the
+predicate every tick makes every escape free: back in the origin phase the
+warning returns, an `UNKNOWN` phase on either side never suppresses, a new round
+rebinds, and a replacement shadow pane starts unretired by construction rather
+than by depending on a reset. The banner's `display` toggle is what turns the
+reclaimed row off — assert that on the composited frame, never on
+`_shadow_stale_banner_text` (t1499).
 
 **Canonical recheck phrase.** The shadow entry point (`SKILL.md.j2` Step 3) routes
 re-review asks, and the phrase any automation should inject is **`refetch and

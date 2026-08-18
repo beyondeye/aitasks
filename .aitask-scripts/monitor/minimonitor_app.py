@@ -820,6 +820,17 @@ class MiniMonitorApp(
         # user-facing surface reads. Kept separate from the read-recency
         # verdict above so each keeps one meaning and one provenance.
         self._shadow_stale_combined: bool | None = None
+        # Phase binding behind the banner's retirement rule (t1573):
+        # (shadow_pane_id, block_key, origin_phase) for the feedback currently
+        # on the shadow pane — the phase the followed agent was in when THIS
+        # block was first observed. Derived state, deliberately NOT a
+        # "transition happened" latch: a latch has no way back, because
+        # PLAN->IMPLEMENT->PLAN is two known->known transitions and the second
+        # would re-retire the same unchanged block forever, hiding a warning a
+        # misclassified phase never justified. This rebinds on a new block or a
+        # new pane and stops suppressing the moment the agent is observed back
+        # in the origin phase. See _feedback_phase_retired.
+        self._shadow_feedback_phase: tuple[str, int, str] | None = None
         # Throttle the staleness compare to every OTHER refresh tick (~6s at the
         # 3s default) to halve the extra pane reads; the concern auto-offer still
         # runs every tick. Odd counter ⇒ checks on the first tick a shadow is
@@ -2927,9 +2938,15 @@ class MiniMonitorApp(
             self._loop_stale_false_pending = True
 
     def _refresh_shadow_stale_banner(
-        self, capture_text: str, followed_pane: str
+        self, snap: PaneSnapshot, shadow_pane: str, capture_text: str
     ) -> None:
         """Combine read recency with block age and repaint the banner (t1493).
+
+        Takes the followed snapshot and the shadow pane rather than a bare
+        followed-pane id (t1573): the gate in
+        :meth:`_record_banner_staleness` needs the agent's advisory phase (from
+        ``snap``) and the pane the feedback is on, and deriving them here keeps
+        one call at the tick site.
 
         Runs on **every** tick, unlike the throttled read-recency compare, and
         costs no tmux traffic: ``capture_text`` is the capture the auto-offer
@@ -2951,11 +2968,12 @@ class MiniMonitorApp(
         if (contains_block_evidence(capture_text) and monitor is not None
                 and hasattr(monitor, "get_last_change_wall")):
             with contextlib.suppress(Exception):
-                last_change = monitor.get_last_change_wall(followed_pane)
+                last_change = monitor.get_last_change_wall(snap.pane.pane_id)
         age = compute_block_age_staleness(
             capture_text, last_change, self._shadow_freshness_eps()
         )
-        self._record_combined_staleness(
+        self._record_banner_staleness(
+            snap, shadow_pane, capture_text, age,
             combine_staleness(recency.stale, age),
             # narrow=True (t1566): #mini-shadow-stale is a one-row surface.
             format_shadow_stale_banner(
@@ -2986,6 +3004,122 @@ class MiniMonitorApp(
             return  # would clear a standing warning — preserve it
         self._shadow_stale_combined = combined
         self._set_shadow_stale_banner(banner_text)
+
+    @staticmethod
+    def _shadow_feedback_key(capture_text: str) -> int | None:
+        """Identity of the feedback the shadow pane is currently showing (t1573).
+
+        ``hash`` of the block's own region text — the same idiom as the review
+        loop's ``hash(raw_tail)`` ring. A new round changes the ``Round:`` header
+        (and usually the items), so a new key is exactly what "the shadow said
+        something new" looks like from here.
+
+        ``None`` when no region can be established at all (a head-truncated
+        capture: a block is plainly present but its extent is not). Callers must
+        read that as "cannot identify" and fall back to *showing* the warning —
+        never as "no feedback", which is :attr:`BlockAge.applicable`'s question.
+        """
+        region = block_region(capture_text)
+        return hash(region) if region else None
+
+    def _feedback_phase_retired(
+        self, snap: PaneSnapshot, shadow_pane: str, capture_text: str
+    ) -> bool:
+        """Has the followed agent moved past the phase THIS feedback belongs to?
+
+        Concerns raised about a *plan* stop mattering once the agent is
+        implementing, and concerns from an implementation review stop mattering
+        at post-review (t1573). So the banner retires a warning while the agent
+        is positively observed in a different known phase than the one its
+        feedback was produced under::
+
+            retired  <=>  the block is identifiable
+                     AND  its origin phase is bound and KNOWN
+                     AND  the current phase is KNOWN
+                     AND  current != origin
+
+        **Derived, not latched — and that is the whole design.** A latch keyed on
+        "a known->known transition happened" cannot recover: ``PLAN ->
+        IMPLEMENT`` retires the block and ``IMPLEMENT -> PLAN`` is *also* a
+        known->known transition, so a single misclassification would re-retire
+        the same unchanged block and hide a still-relevant warning permanently.
+        That would break the advisory anti-gating rule
+        (``aidocs/framework/shadow_agent.md``, "Phase detection (advisory)"),
+        which requires a wrong or ``UNKNOWN`` phase to cost the user almost
+        nothing. Evaluating the predicate every tick instead makes every
+        direction free:
+
+        - the agent flaps back to the origin phase   -> warning returns
+        - the phase degrades to ``UNKNOWN`` (either side) -> warning shows
+        - a new round arrives                        -> rebind, warning shows
+        - the shadow pane is replaced                -> rebind, warning shows
+
+        The binding is keyed on ``(shadow_pane, block_key)`` so a *replacement*
+        shadow starts unretired by construction — even in the worst case where
+        its first block is byte-identical to the previous pane's — rather than
+        depending on some reset having run first.
+
+        Cost: the ledger half of the phase is mtime-cached
+        (``GateSummaryCache._entry_for``); this adds one ``workflow_phase.compose``
+        over the followed pane's already-captured text per tick, and only on ticks
+        where a block is actually present (the caller's existence gate runs first).
+        No tmux traffic.
+        """
+        key = self._shadow_feedback_key(capture_text)
+        if key is None:
+            return False  # cannot identify the feedback ⇒ never suppress it
+        signal = self._phase_signal_for_pane(snap)
+        phase = getattr(signal, "phase", workflow_phase.UNKNOWN_PHASE)
+        known = bool(phase) and phase != workflow_phase.UNKNOWN_PHASE
+        bound = getattr(self, "_shadow_feedback_phase", None)
+        if bound is None or bound[0] != shadow_pane or bound[1] != key:
+            # First sighting of this feedback on this pane. Bind its origin only
+            # from a KNOWN phase; an UNKNOWN one leaves it unbound so a later
+            # tick can bind it, and nothing is retired meanwhile.
+            self._shadow_feedback_phase = (
+                (shadow_pane, key, phase) if known else None
+            )
+            return False
+        return known and phase != bound[2]
+
+    def _record_banner_staleness(
+        self, snap: PaneSnapshot, shadow_pane: str, capture_text: str,
+        age: "BlockAge", combined: bool | None, banner_text: str,
+    ) -> None:
+        """Banner-only gate in front of the shared preserve rule (t1573).
+
+        The banner asserts something *about feedback* ("shadow feedback is
+        stale"), so its precondition is that feedback exists. Read recency
+        answers a different question — "has the shadow re-read since the agent
+        last changed?" — which stays well-defined for an explain-only shadow
+        that never emitted a block, and ``combine_staleness`` correctly returns
+        it untouched when block age is inapplicable. The result was a banner
+        warning about feedback that was never produced: the existence gate
+        protected one *input* while the banner consumed the *join*. Hence the
+        gate belongs here, at the banner, and NOT in ``combine_staleness``,
+        whose other callers (both monitor picker paths) are correct today.
+
+        Two suppressions, in cost order, both recorded as explicit ``False``
+        clears through :meth:`_record_combined_staleness` so the fail-safe join
+        keeps exactly one home and is not weakened:
+
+        1. ``not age.applicable`` — no block evidence on the pane. This is
+           ``compute_block_age_staleness``'s own applicability verdict, which
+           that function documents as the single decider of the question, so the
+           existence predicate is reused rather than re-derived.
+        2. :meth:`_feedback_phase_retired` — the agent has moved past the phase
+           this block belongs to.
+
+        Both write sites (the per-tick refresh and the ``c`` picker) go through
+        here, so they cannot diverge.
+        """
+        if not age.applicable:
+            self._record_combined_staleness(False, "")
+            return
+        if self._feedback_phase_retired(snap, shadow_pane, capture_text):
+            self._record_combined_staleness(False, "")
+            return
+        self._record_combined_staleness(combined, banner_text)
 
     # -- Auto-recheck loop (t1159_2) --------------------------------------
 
@@ -3669,8 +3803,13 @@ class MiniMonitorApp(
         # finding and must be established even when read recency is None.
         if read_stale is not None:
             self._shadow_read_recency = ReadRecency(read_stale, analyzed_at)
-        self._record_combined_staleness(
-            stale,
+        # The BANNER goes through the t1573 gate; the `stale=` handed to the
+        # modal below deliberately does NOT. The picker's warning is about the
+        # block the user is looking at right now, which by construction exists
+        # and which they asked to act on — it is correct today and stays
+        # ungated.
+        self._record_banner_staleness(
+            snap, shadow_pane, text, age, stale,
             # narrow=True (t1566) — same one-row surface as the tick path.
             format_shadow_stale_banner(
                 read_stale, age, block_meta, analyzed_at, time.time(),
@@ -3741,6 +3880,10 @@ class MiniMonitorApp(
             self._shadow_read_recency = _UNKNOWN_RECENCY
             self._shadow_stale_combined = None
             self._set_shadow_stale_banner("")
+            # Hygiene only (t1573): the phase binding is keyed on the shadow
+            # pane, so a later shadow can never inherit this one's origin phase
+            # even if this branch never runs.
+            self._shadow_feedback_phase = None
             await self._service_review_loop(snap, shadow_ok, None, "", None)
             return
         # Freshness (t1104) — independent of whether a concern block is present,
@@ -3769,7 +3912,7 @@ class MiniMonitorApp(
         # any early return below: a pane whose block never changes is exactly
         # the case that must still go stale, and a pane with no block at all
         # must keep behaving as it did before block age existed (t1493).
-        self._refresh_shadow_stale_banner(text, snap.pane.pane_id)
+        self._refresh_shadow_stale_banner(snap, shadow_pane, text)
         if not has_concern_block(text):
             # A block whose opening fence fell outside the window looks exactly
             # like "no concerns" to the strict predicate. Say so once per pane
