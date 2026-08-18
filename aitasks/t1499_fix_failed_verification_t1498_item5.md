@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: verification_failure
+implemented_with: claudecode/opus5
 created_at: 2026-08-12 17:21
-updated_at: 2026-08-17 17:59
+updated_at: 2026-08-18 08:52
 ---
 
 ## Failed verification item from t1498
@@ -109,3 +110,8 @@ _(not a commit regression — see "Not a t1493 regression" above)_
 ### Files touched
 
 - `.aitask-scripts/monitor/minimonitor_app.py` — `compose` (:470-474), `DEFAULT_CSS` (:275-299)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T05:52:50Z status=pass attempt=1 type=human
