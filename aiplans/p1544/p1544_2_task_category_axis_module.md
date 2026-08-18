@@ -483,3 +483,78 @@ For the **t1304** note, name four things to collapse together:
 the quoted-`issue_type` gap in `classify()`'s internal comparison (step 2's
 recorded limitation), and the **dead** duplicate `get_type_display_name` in
 `aitask_stats_legacy.sh:59`.
+
+---
+
+## Final Implementation Notes
+
+All deliverables landed. Four corrections to the plan, found by executing it.
+
+### Correction 1 — Finding 5 was wrong; its "tripwire" could not trip
+
+The plan claimed the `stripped`/unstripped asymmetry in `parse_frontmatter` was
+behavioural, and made case 6 (indented `key: value`) the tripwire for it.
+**Measured: it is behaviourally inert.** `key.strip()` / `value.strip()` already
+normalize everything the raw `line` carries — 0 divergences across 9 whitespace
+shapes (indented, tab-indented, trailing space, whitespace-only line, padded
+delimiter, colon-in-value, …). A test asserting it would have been a permanently
+passing negative control.
+
+The loop body was still moved verbatim, but the characterization cases were
+rebuilt so each one *names the mutation it discriminates*, verified by
+injection:
+
+| case | mutation it catches |
+|---|---|
+| body `key: value` after the terminator | dropping the `break` at the closing `---` |
+| `issue: https://x/a:b` | `split(":")` instead of `split(":", 1)` |
+| line without a colon | removing the `if ":" not in line` guard |
+| indented key | **none** — kept, explicitly labelled documentation, not a guard |
+
+### Correction 2 — the off-by-one discriminator was vacuous as first written
+
+`test_first_body_line_is_not_dropped` originally went through the `resolve()`
+helper, which builds `…\n---\n\n` + body. That blank line meant a `lines[i+2:]`
+slice ate *the blank line*, not the heading, so the test passed under the very
+defect it named. Caught by injecting the mutation and seeing it pass.
+
+Fixed by adding `resolve_raw()`, which takes verbatim text so a caller controls
+the exact byte after the terminator; the fixture now puts `## Upstream defect`
+genuinely first. Re-verified: mutation → this test fails, and only this one.
+
+### Correction 3 — `lines[i:]` is not a frontmatter leak
+
+The plan's leak discriminator named `lines[i:]` as a defect direction. It is
+not: the frontmatter sits *before* index `i`, so that slice only prepends the
+terminator line. The real "body includes the frontmatter" defect is
+`return result, content`. The negative control and the test docstring were
+corrected to that mutation, and re-verified.
+
+### Correction 4 — there are two type-rendering sites, not one
+
+Finding 1 said `get_type_display_name` has one caller. True, but
+`aitask_stats.py:384` renders the label×type table with a **bare
+`issue_type.capitalize()`**, bypassing the map entirely — so `bug` shows as
+`Bug Fixes` in one table and `Bug` in the other. Pre-existing inconsistency,
+untouched here (this child changes no renderer). Recorded for t1544_4, which
+must pick one convention for the new axis rather than inherit both.
+
+## Verification results
+
+- `tests/test_stats_split_frontmatter.py` — 16 tests. Characterization run
+  **green before** `stats_data.py` was edited, then re-run unchanged after: no
+  assertion edited. Three defect injections (`lines[i+2:]`, `lines[i:]`,
+  `({}, "")` for no-frontmatter) each caught.
+- `tests/test_task_category.py` — 20 tests, including both boundary
+  discriminators, each verified to fail on exactly one injected mutation.
+- `bash tests/run_all_python_tests.sh --test-dir tests` →
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; 5055 passed, 2 skipped, plus
+  the 5-test serial carve-out.
+- `bash tests/test_stats_data.sh` → 6/6. `bash tests/test_no_lib_to_tui_import.sh`
+  → 13/13. `tests/test_stats_multistage.py` → 22/22.
+- `tests/test_collection_parity.py` → 4 passed; both new modules 20=20 and 16=16.
+- **`./ait stats` byte-identical** across the whole 786-line report (baseline
+  captured before the first edit, per pre-phase P1; `Generated:` line excluded).
+- Lazy-import layering verified live: `followup_backfill_classify` is absent
+  from `sys.modules` after importing `task_category` and after calling the
+  display functions, and present only after `resolve_category` runs.
