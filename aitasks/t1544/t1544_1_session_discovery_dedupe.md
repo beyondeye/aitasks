@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 22:04
-updated_at: 2026-08-17 22:55
+updated_at: 2026-08-18 11:14
 ---
 
 ## Context
@@ -185,3 +186,8 @@ Record in the Final Implementation Notes whether the dedupe landed in the
 assembler or only in `discover_stats_sessions` — t1544_3's
 "multi-project run does not double-count" test depends on knowing which layer
 guarantees uniqueness.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T08:14:13Z status=pass attempt=1 type=human
