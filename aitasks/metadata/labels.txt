@@ -68,6 +68,7 @@ html_plans
 install
 install_scripts
 installation
+layout
 legal
 license
 macos
