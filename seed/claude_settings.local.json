@@ -77,6 +77,7 @@
       "Bash(./.aitask-scripts/aitask_relay_ask.sh:*)",
       "Bash(./.aitask-scripts/aitask_relay_payload.sh:*)",
       "Bash(./.aitask-scripts/aitask_remote_drift_check.sh:*)",
+      "Bash(./.aitask-scripts/aitask_task_worktree.sh:*)",
       "Bash(./.aitask-scripts/aitask_verification_followup.sh:*)",
       "Bash(./.aitask-scripts/aitask_verification_parse.sh:*)",
       "Bash(./.aitask-scripts/aitask_verified_update.sh:*)",

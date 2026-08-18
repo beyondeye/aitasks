@@ -294,7 +294,7 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 
   - **Non-empty and safe** → worktree mode; `worktree_path` is the header's value.
   - **Empty** → the header makes no claim: either the task is current-branch, or it predates this field. Resolve it **without guessing**, in this order:
-    1. If `git worktree list --porcelain` already shows a `branch refs/heads/aitask/<task_name>` record, that is evidence, not inference → worktree mode, and `worktree_path` is **that record's** `worktree <path>` (extract it record-aware, as Step 7 does).
+    1. Ask the canonical classifier — `./.aitask-scripts/aitask_task_worktree.sh resolve <task_name>`, keeping its exit status as Step 7 does. A `USABLE <path>` answer is evidence, not inference → worktree mode, and `worktree_path` is **that path** (the helper reads the record's own `worktree <path>`, so a moved worktree resolves correctly). `NONE` → fall through to the question below. Any other state (`STALE` / `LOCKED` / `MAIN` / `UNSAFE`), a non-zero exit, or empty output → **stop and ask the user**, naming the state or exit status: a dead, locked, root-held or control-character path means someone moved or pinned this worktree by hand and their work may be in it, and a silent empty answer means the classifier never ran.
     2. Otherwise **ask the user** (`AskUserQuestion`) whether this task should get its own worktree, saying that the plan header records none and that the current profile is not authoritative for a resumed task. Do **not** read `profile.create_worktree` to answer it for them. Both answers have a defined handoff:
        - **"Create the worktree now"** → worktree mode, and `worktree_path=aiwork/<task_name>` — the conventional location, which is the only defensible value when the header names none.
        - **"Work on the current branch"** → current-branch mode: leave `worktree_path` unset and treat Step 7's fork block as a no-op. Do not carry a path forward from any earlier context.
@@ -470,15 +470,20 @@ This is the fork **Step 5** resolved but did not perform. Reaching here means th
 
      `BASE_MISMATCH` → **stop and ask** which base is correct; do not guess and do not cut.
 
-- **Reuse check next** (the same rule Re-entry Routing states). A worktree can already exist here — the risk-mitigation "before" stop below leaves one in place, and `git worktree add -b` fails on an existing branch. Reuse means working in **that record's** directory, which is the `worktree <path>` line of the *same* porcelain record, not a guessed `aiwork/<task_name>`:
+- **Reuse check next** (the same rule Re-entry Routing states). A worktree can already exist here — the risk-mitigation "before" stop below leaves one in place, and `git worktree add -b` fails on an existing branch. Ask the **canonical classifier** rather than parsing porcelain here; it is the one definition of "a usable worktree record", shared with Re-entry Routing and with the abort / Step 9 teardown, so the two halves of the framework cannot drift (t1548):
+
+  **Keep the exit status — `read` alone cannot tell "no worktree" from "the helper never ran".** On a usage or environment failure (exit 2 / 3 — not a repository, `git worktree list` failed) the helper prints **nothing** to stdout, and `read` still succeeds with an empty state. Capture both:
 
   ```bash
-  reuse_dir=$(git worktree list --porcelain | awk -v b="branch refs/heads/aitask/<task_name>" '
-    /^worktree /  { p = substr($0, 10) }
-    $0 == b       { print p; exit }')
+  wt_rc=0
+  wt_out="$(./.aitask-scripts/aitask_task_worktree.sh resolve <task_name>)" || wt_rc=$?
+  read -r wt_state wt_path <<<"$wt_out"
   ```
 
-  If `reuse_dir` is non-empty: work in `"$reuse_dir"` and **skip the cut below**. Do not assume it equals `<worktree_path>` — a worktree that was moved makes that guess wrong, and the failure mode is silent (implementing in the wrong tree).
+  - **`wt_rc` is non-zero, or `wt_state` is empty or not one of the six states below** → the classification did not happen. **Stop and ask the user**; report `wt_rc` and the helper's stderr. Do **not** treat it as "no worktree" and do **not** cut — the whole point of the helper's fail-closed contract is that a producer error is its own state, never a negative result.
+  - **`USABLE`** → work in `"$wt_path"` and **skip the cut below**. Do not assume it equals `<worktree_path>` — a worktree that was moved makes that guess wrong, and the failure mode is silent (implementing in the wrong tree).
+  - **`NONE`** → nothing is registered; cut it below.
+  - **`STALE` / `LOCKED` / `MAIN` / `UNSAFE`** → **stop and ask the user**, naming the state and the path. Do **not** fall through to the cut: `aitask/<task_name>` already exists, so `git worktree add -b` would fail outright. And do not "repair" it by pruning — a `STALE` record is a worktree someone moved by hand, and the record is the only thing keeping their branch from being deletable. Offer the concrete remedies instead (`git worktree repair <new path>` to re-link it, `git worktree unlock` for a locked one) and let the user decide.
 
 - **Otherwise cut it now**, at `<worktree_path>` and from the confirmed base:
 
@@ -835,10 +840,15 @@ authorizing the merge in chat before the prompt fires.
 
 - **Clean up branch and worktree:**
   ```bash
-  git worktree remove aiwork/<task_name>
-  rm -rf aiwork/<task_name>
-  git branch -d aitask/<task_name>
+  ./.aitask-scripts/aitask_task_worktree.sh remove <task_name> --strict
   ```
+
+  Run it from the repo root, **bare** — no `|| true`, and no `--force`.
+
+  - Omitting `--force` keeps today's behaviour that uncommitted work blocks removal rather than being discarded one line after the merge; the helper reports it as `WORKTREE_KEPT dirty <path>`.
+  - `--strict` makes *only* `CLEAN` exit 0. A merged branch that nonetheless survives (`PRESERVED`) or any refusal (`RESIDUE`) exits non-zero, so archival cannot proceed over a worktree or branch that is still there. Read the three printed lines to see which it was, fix it, and re-run. A usage or environment failure (exit 2 / 3) prints **nothing** to stdout and also exits non-zero — running the command bare is what makes that stop the block too, so an empty result can never be mistaken for a clean teardown.
+
+  The helper resolves the worktree from its `git worktree list` record, so a worktree that was moved out of `aiwork/<task_name>` is torn down rather than silently missed (t1548). It never runs `git worktree prune` and never uses `git branch -D`.
 
 **For child tasks — verify plan completeness before archival:**
 

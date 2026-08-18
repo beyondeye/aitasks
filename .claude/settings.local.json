@@ -37,6 +37,7 @@
       "Bash(./.aitask-scripts/aitask_shadow_capture.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_context.sh:*)",
       "Bash(./.aitask-scripts/aitask_shadow_rejected.sh:*)",
+      "Bash(./.aitask-scripts/aitask_task_worktree.sh:*)",
       "Bash(./.aitask-scripts/aitask_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_create.sh:*)",
       "Bash(./.aitask-scripts/aitask_create_manual_verification.sh:*)",

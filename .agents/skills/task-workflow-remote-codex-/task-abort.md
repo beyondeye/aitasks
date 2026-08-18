@@ -2,6 +2,12 @@
 
 This procedure is referenced from Step 6 (plan checkpoint) and Step 8 (user review) wherever the user selects "Abort task". It handles lock release, status revert, email clearing, and worktree cleanup.
 
+**Run this procedure from the repo root.** Every step below invokes
+`./.aitask-scripts/…` or `./ait git`, which an abort taken from inside
+`aiwork/<task_name>` cannot even resolve — and the cleanup at the end removes
+that directory, so a shell standing in it is left with no working directory at
+all. `cd` to the repository root before starting.
+
 When abort is selected at any checkpoint after Step 4, execute these steps:
 
 - **Ask about plan file (if one was created):**
@@ -58,30 +64,67 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
   If a worktree was created — which happens at the top of **Step 7**, not in
   Step 5 (Step 5 only resolves the branch context):
   ```bash
-  git worktree remove aiwork/<task_name> --force 2>/dev/null || true
-  rm -rf aiwork/<task_name> 2>/dev/null || true
-  git branch -d aitask/<task_name> 2>/dev/null || true
+  wt_rc=0
+  wt_out="$(./.aitask-scripts/aitask_task_worktree.sh remove <task_name> --force)" || wt_rc=$?
+  printf '%s\n' "$wt_out"
   ```
-  Run these unconditionally — every command is `2>/dev/null || true` guarded, so
-  an abort reached **before** the fork (a Step 6 "Abort task", or the Step 7
-  ownership-guard abort that precedes the fork) is a clean no-op: nothing is
-  removed and nothing is claimed to have been.
+  Run this unconditionally. The helper resolves the worktree from its
+  `git worktree list` record rather than from the conventional path, so a
+  worktree that was moved out of `aiwork/<task_name>` is actually removed
+  instead of silently missed (t1548). `--force` carries the abort's discard
+  intent to `git worktree remove`.
 
-  **Known limitation — a worktree that does not live at `aiwork/<task_name>`
-  survives this cleanup.** Step 7's fork block reuses a worktree by resolving the
-  `worktree <path>` of its `git worktree list --porcelain` record, so a moved
-  worktree is worked in correctly; these commands still target the conventional
-  path, and the same `|| true` guards that make a pre-fork abort quiet also make
-  that miss quiet. Before telling the user the task is aborted, check:
+  **Capture the status — do not run it under a bare `|| true`.** The exit status
+  is non-zero for anything other than a fully clean teardown, so the procedure
+  must not die on it; but `|| true` *alone* also swallows a usage or environment
+  failure (exit 2 / 3 — not a repository, `git worktree list` failed), and those
+  print **nothing** to stdout. An abort that treated no output as no residue
+  would report a clean abort for a cleanup that never ran.
 
-  ```bash
-  git worktree list --porcelain | awk -v b="branch refs/heads/aitask/<task_name>" '
-    /^worktree /  { p = substr($0, 10) }
-    $0 == b       { print p; exit }'
-  ```
+  So before reading the verdict, require a well-formed result: `wt_rc` is `0` or
+  `1` **and** `$wt_out` is exactly three lines, the first starting `WORKTREE_`,
+  the second `BRANCH_`, the third one of `CLEAN` / `PRESERVED` / `RESIDUE`.
 
-  If it still prints a path, say so explicitly and name that path — do **not**
-  report a clean abort. Resolving it automatically is tracked separately.
+  - **Anything else** (`wt_rc` of 2 or 3, empty output, a malformed shape) →
+    **the cleanup did not run.** Report it as a failed cleanup, naming `wt_rc`
+    and the helper's stderr, and tell the user the worktree and branch may both
+    still exist. Do **not** report a clean abort. The usual cause is running the
+    procedure from somewhere other than the repo root — see the prerequisite at
+    the top of this file.
+
+  An abort reached **before** the fork (a Step 6 "Abort task", or the Step 7
+  ownership-guard abort that precedes the fork) is still a clean no-op: the
+  helper prints `WORKTREE_NONE` / `BRANCH_NONE` / `CLEAN`, exits 0, and writes
+  nothing to stderr. Nothing is removed and nothing is claimed to have been.
+
+  **With a well-formed result, read the three lines and report what they say —
+  do not assume a clean abort.** The last line is the verdict:
+
+  - `CLEAN` — the worktree and branch are gone (or never existed). Report the
+    abort normally.
+  - `PRESERVED` — the teardown did exactly what it should and deliberately kept
+    something. The case that reaches here is `BRANCH_KEPT unmerged_into:<ref>`:
+    the branch carries commits that are not in `<ref>`, and the procedure uses
+    `git branch -d`, never `-D`, so an abort never destroys them. Tell the user
+    calmly: "your commits are still on `aitask/<task_name>`" — and mention
+    `git branch -D aitask/<task_name>` only as the way to discard them *if they
+    want to*, never as a cleanup step to run.
+  - `RESIDUE` — the teardown could not finish. Name each `WORKTREE_KEPT
+    <reason> <path>` / `BRANCH_KEPT <reason> <branch>` line with its remedy, and
+    do **not** report a clean abort:
+    - `stale_record` — the worktree was moved by hand; the record still names
+      the old path. Nothing was pruned and the branch was left alone on purpose,
+      because that record is what keeps the branch un-deletable while the user's
+      work sits in the moved directory. Remedy: `git worktree repair <new path>`
+      to re-link it, or `git worktree prune` if it really is abandoned.
+    - `locked` — the user locked this worktree. Remedy: `git worktree unlock
+      <path>`, then re-run.
+    - `dirty` — uncommitted changes (only when `--force` was omitted).
+    - `main_worktree` — `aitask/<task_name>` is checked out at the repo root.
+      Remedy: check out another branch there first.
+    - `unsafe_path` — the worktree path contains a tab, newline or carriage
+      return; the helper refuses to operate on it. Remedy: move it somewhere
+      without control characters (`git worktree move`), then re-run.
 
 - **Inform user:**
   "Task t<N> has been reverted to '<status>' and is available for others."
