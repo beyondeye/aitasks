@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 22:04
-updated_at: 2026-08-18 18:28
+updated_at: 2026-08-18 22:10
 ---
 
 ## Context
@@ -204,3 +205,8 @@ only `unittest.TestCase` methods — no module-level `test_*(arg)` helper.
 **Path resolution:** `lib/` modules are imported via a `sys.path` bootstrap, and
 the stats data layer resolves task paths from the **process cwd**. Import
 `task_category` the way the sibling tests do, and do not assume a cwd.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-18T19:10:53Z status=pass attempt=1 type=human
