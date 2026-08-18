@@ -156,3 +156,16 @@ mattering at post-review. Nothing invalidates the banner on either transition.
 > **✅ gate:plan_approved** run=2026-08-18T14:21:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-18T15:04:40Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-18T15:07:18Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4d5705a5c07a06c2
+
+> **✅ gate:risk_evaluated** run=2026-08-18T15:07:18Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1573/risk_evaluated_2026-08-18T15:07:18Z-risk_evaluated-a1.log`
+
+> **✅ gate:merge_approved** run=2026-08-18T15:07:25Z status=pass attempt=1 type=human
