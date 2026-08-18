@@ -1,11 +1,11 @@
 ---
 priority: medium
 effort: medium
-depends: [t1560_3]
+depends: [t1560_1, t1560_2, t1560_3]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1560_1, 1560_2, 1560_3]
+verifies: [t1560_1, t1560_2, t1560_3]
 anchor: 1560
 followup_kind: manual_verification
 created_at: 2026-08-18 12:26
