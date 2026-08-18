@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, aitask_monitormini]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-18 09:49
-updated_at: 2026-08-18 09:49
+updated_at: 2026-08-18 10:00
 ---
 
 ## The defect
