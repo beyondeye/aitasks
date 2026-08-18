@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [reporting, metrics]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1544
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-18 22:35
-updated_at: 2026-08-18 23:52
+updated_at: 2026-08-19 00:48
+completed_at: 2026-08-19 00:48
 ---
 
 ## Origin
@@ -89,3 +90,14 @@ these conventions explicitly rather than inherit both.
 > **✅ gate:plan_approved** run=2026-08-18T20:52:05Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-18T21:39:20Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-18T21:48:50Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:02ec5ce36b986278
+
+> **✅ gate:risk_evaluated** run=2026-08-18T21:48:50Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1577/risk_evaluated_2026-08-18T21:48:50Z-risk_evaluated-a1.log`
