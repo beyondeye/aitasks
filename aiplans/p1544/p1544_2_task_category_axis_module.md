@@ -488,7 +488,45 @@ recorded limitation), and the **dead** duplicate `get_type_display_name` in
 
 ## Final Implementation Notes
 
-All deliverables landed. Four corrections to the plan, found by executing it.
+- **Actual work done:** All four deliverables as planned. `lib/task_category.py`
+  (new, pure) with `resolve_category` / `category_display_name` /
+  `type_display_name` / `is_followup_category` / `_unquote`;
+  `lib/stats_data.py` gained `split_frontmatter` with `parse_frontmatter`
+  reduced to a thin caller; `aitask_stats.py::get_type_display_name` became a
+  delegator; the t1304 sibling note was appended and committed separately.
+  Tests: `tests/test_task_category.py` (20) and
+  `tests/test_stats_split_frontmatter.py` (16).
+- **Deviations from plan:** Two. (1) The characterization lives in its own
+  stats-only module rather than in `tests/test_task_category.py` — the latter's
+  bootstrap imports `task_category`, which does not exist until after the
+  guarded edit, so the pre-refactor run would have failed on import. (2)
+  `classify` is imported lazily inside `resolve_category` rather than at module
+  scope, keeping the display half dependency-free for `aitask_stats` and the
+  t1544_5 TUI panes. Both were agreed before implementation. Everything else
+  followed the plan; the four corrections below are to the plan's *claims*, not
+  to its design.
+- **Issues encountered:** Three of the plan's own assertions were false and were
+  caught by executing them rather than by review — see Corrections 1-3. The
+  most instructive: a discriminator that passed under the exact mutation it
+  named, found only by injecting that mutation.
+- **Key decisions:** Namespaced keys (`kind:` / `type:`) kept as the
+  disambiguator rather than display casing, after measuring that `label_for`
+  labels are not uniformly lowercase. `_unquote` kept local rather than reusing
+  `followup_backfill_classify._norm_scalar`, which is an id canonicalizer.
+  `parse_frontmatter`'s `__all__` re-export left untouched; `split_frontmatter`
+  deliberately not added to it.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_stats.py:384` — the label x type table renders types
+    with a bare `issue_type.capitalize()`, bypassing the display map that the
+    adjacent `### By Task Type` table uses via `get_type_display_name`. The same
+    type therefore prints two ways in one report (`Bug` vs `Bug Fixes`,
+    `Refactor` vs `Refactors`). Pre-existing and untouched here — this child
+    changes no renderer.
+- **Notes for sibling tasks:** see the `## Notes for sibling tasks` section
+  above; t1544_4 additionally inherits the `:384` inconsistency as a decision it
+  must make explicitly rather than copy.
+
+### Corrections to this plan, found by executing it
 
 ### Correction 1 — Finding 5 was wrong; its "tripwire" could not trip
 
