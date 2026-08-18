@@ -146,6 +146,27 @@ _PROMPTABLE_FIELDS = frozenset({"priority", "effort"})
 # profile ever produced) and resolved as ONE group in merge_frontmatter.
 _ACTIVE_TUPLE_FIELDS = ("active_gates", "active_gates_filtered",
                         "active_gates_profile", "active_gates_digest")
+
+
+def _normalize_opaque_scalar(raw) -> str:
+    """Comparison-only normalizer for a scalar with no vocabulary of its own.
+
+    An absent key, an explicit ``None``, a non-string (a hand-edited list) and an
+    empty string all read as *absent*, so a side that deleted the key and a side
+    that never had it compare equal. A real value is returned **verbatim, not
+    stripped** — it is an identity key, and trimming would make two genuinely
+    different values compare equal.
+
+    Deliberately not ``normalize_followup_kind`` despite an identical body: that
+    one lives in the follow-up-kind *vocabulary* module and its contract is about
+    that vocabulary. A third such field should promote this helper rather than
+    add a fourth copy.
+    """
+    if isinstance(raw, str):
+        return raw if raw.strip() else ""
+    return ""
+
+
 # Base-aware fields (t1243_8): resolved by comparing each side against the MERGE
 # BASE rather than by presence or timestamp, and resolved BEFORE the loop so the
 # unconditional one-sided-presence branch never sees them.
@@ -176,11 +197,26 @@ _ACTIVE_TUPLE_FIELDS = ("active_gates", "active_gates_filtered",
 #   * it must not compare through `normalize_group_slug`: that is boardgroup's
 #     tombstone vocabulary, not this field's.
 #
+# `verification_baseline` (t1555_1) is shape-identical to `followup_kind`: a
+# semantic scalar with NO tombstone, so it needs the same two properties for the
+# same two reasons.
+#   * Base comparison, not presence: clearing it REMOVES the key, so the
+#     unconditional one-sided-presence branch below would let a stale checkout
+#     still carrying the old value beat a checkout that deliberately cleared it
+#     -- the baseline would resurrect on sync, and with it a staleness dismissal
+#     the user had revoked.
+#   * Base comparison, not `updated_at`: the baseline advances when a user
+#     reviews a staleness prompt, while `updated_at` moves on every unrelated
+#     edit -- so a newer-timestamp rule would let a stale checkout's `--status`
+#     edit win a field it never touched.
+# `deletion_aware=True` for the tombstone-less reason spelled out above.
+#
 # field -> (comparison normalizer, deletion_aware). Membership (`key in
 # _BASE_AWARE_FIELDS`) and iteration both still yield the field names.
 _BASE_AWARE_FIELDS = {
     "boardgroup": (normalize_group_slug, False),
     "followup_kind": (normalize_followup_kind, True),
+    "verification_baseline": (_normalize_opaque_scalar, True),
 }
 
 

@@ -95,6 +95,8 @@ BATCH_ANCHOR=""
 BATCH_ANCHOR_SET=false
 BATCH_FOLLOWUP_KIND=""
 BATCH_FOLLOWUP_KIND_SET=false
+BATCH_VERIFICATION_BASELINE=""
+BATCH_VERIFICATION_BASELINE_SET=false
 BATCH_BOARDCOL=""
 BATCH_BOARDCOL_SET=false
 BATCH_BOARDIDX=""
@@ -152,6 +154,7 @@ CURRENT_FOLDED_TASKS=""
 CURRENT_FOLDED_INTO=""
 CURRENT_IMPLEMENTED_WITH=""
 CURRENT_FILE_REFERENCES=""
+CURRENT_VERIFICATION_BASELINE=""
 
 # --- Helper Functions ---
 
@@ -196,6 +199,11 @@ Verifies options (batch mode, for manual-verification tasks):
   --verifies VERIFIES    Verifies list (comma-separated task IDs, replaces all)
   --add-verifies ID      Add a task ID to verifies (can be repeated)
   --remove-verifies ID   Remove a task ID from verifies (can be repeated)
+  --verification-baseline VALUE
+                         Commit a manual-verification checklist is known to
+                         match, as "<sha> @ <YYYY-MM-DD HH:MM>" (use "" to
+                         clear). Read by aitask_verification_stale.sh to decide
+                         whether the checklist may have gone stale.
 
 Label options (batch mode):
   --labels, -l LABELS    Labels (comma-separated, replaces all existing labels).
@@ -366,6 +374,7 @@ parse_args() {
             --assigned-to|-a) BATCH_ASSIGNED_TO="$2"; BATCH_ASSIGNED_TO_SET=true; shift 2 ;;
             --anchor) BATCH_ANCHOR="$2"; BATCH_ANCHOR_SET=true; shift 2 ;;
             --followup-kind) BATCH_FOLLOWUP_KIND="$2"; BATCH_FOLLOWUP_KIND_SET=true; shift 2 ;;
+            --verification-baseline) BATCH_VERIFICATION_BASELINE="$2"; BATCH_VERIFICATION_BASELINE_SET=true; shift 2 ;;
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --boardgroup) BATCH_BOARDGROUP="$2"; BATCH_BOARDGROUP_SET=true; shift 2 ;;
@@ -481,6 +490,7 @@ parse_yaml_frontmatter() {
     CURRENT_FOLDED_INTO=""
     CURRENT_IMPLEMENTED_WITH=""
     CURRENT_FILE_REFERENCES=""
+    CURRENT_VERIFICATION_BASELINE=""
 
     # Read entire file content
     local file_content
@@ -590,6 +600,7 @@ parse_yaml_frontmatter() {
                 file_references)
                     CURRENT_FILE_REFERENCES=$(parse_yaml_list "$value")
                     ;;
+                verification_baseline) CURRENT_VERIFICATION_BASELINE="$value" ;;
             esac
         fi
     done < <(printf '%s\n' "$yaml_content" | join_yaml_flow_lists)
@@ -681,6 +692,9 @@ write_task_file() {
     # `_present` companion: followup_kind has no tombstone -- clearing it
     # removes the key, so empty means absent and the emit below skips it.
     local followup_kind="${33:-}"
+    # Appended for the same reason (t1555_1). Same no-tombstone shape as
+    # followup_kind: `--verification-baseline ""` removes the key.
+    local verification_baseline="${34:-}"
 
     # Preserve the `attachments:` (t1030) and `artifacts:` (t1076_2) blocks
     # verbatim: write_task_file rebuilds frontmatter from a fixed field set and
@@ -773,6 +787,12 @@ write_task_file() {
             local verifies_yaml
             verifies_yaml=$(format_yaml_list "$verifies")
             echo "verifies: $verifies_yaml"
+        fi
+        # Only write verification_baseline if present (t1555_1). The commit a
+        # manual-verification checklist is known to match, as "<sha> @ <ts>".
+        # Omit-by-default, no tombstone: clearing removes the key.
+        if [[ -n "$verification_baseline" ]]; then
+            echo "verification_baseline: $verification_baseline"
         fi
         # Only write risk_mitigation_tasks if present (list; omitted by default,
         # dropped on fold by aitask_fold_mark.sh)
@@ -1170,6 +1190,7 @@ handle_child_task_completion() {
     local saved_folded_tasks="$CURRENT_FOLDED_TASKS"
     local saved_folded_into="$CURRENT_FOLDED_INTO"
     local saved_implemented_with="$CURRENT_IMPLEMENTED_WITH"
+    local saved_verification_baseline="$CURRENT_VERIFICATION_BASELINE"
 
     parse_yaml_frontmatter "$parent_file"
 
@@ -1188,7 +1209,8 @@ handle_child_task_completion() {
         "$CURRENT_RISK_CODE_HEALTH" "$CURRENT_RISK_GOAL_ACHIEVEMENT" "$CURRENT_RISK_MITIGATION_TASKS" \
         "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
         "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
-        "$CURRENT_FOLLOWUP_KIND"
+        "$CURRENT_FOLLOWUP_KIND" \
+        "$CURRENT_VERIFICATION_BASELINE"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1228,6 +1250,7 @@ handle_child_task_completion() {
     CURRENT_FOLDED_TASKS="$saved_folded_tasks"
     CURRENT_FOLDED_INTO="$saved_folded_into"
     CURRENT_IMPLEMENTED_WITH="$saved_implemented_with"
+    CURRENT_VERIFICATION_BASELINE="$saved_verification_baseline"
 }
 
 # Validate that parent cannot be completed with pending children
@@ -1714,7 +1737,8 @@ run_interactive_mode() {
         "$new_risk_code_health" "$new_risk_goal_achievement" "$CURRENT_RISK_MITIGATION_TASKS" \
         "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
         "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
-        "$CURRENT_FOLLOWUP_KIND"
+        "$CURRENT_FOLLOWUP_KIND" \
+        "$CURRENT_VERIFICATION_BASELINE"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1824,6 +1848,7 @@ run_batch_mode() {
     [[ "$BATCH_ASSIGNED_TO_SET" == true ]] && has_update=true
     [[ "$BATCH_ANCHOR_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLLOWUP_KIND_SET" == true ]] && has_update=true
+    [[ "$BATCH_VERIFICATION_BASELINE_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDGROUP_SET" == true ]] && has_update=true
@@ -2060,6 +2085,15 @@ run_batch_mode() {
         new_followup_kind="$BATCH_FOLLOWUP_KIND"
     fi
 
+    # Process verification_baseline (the commit a manual-verification checklist
+    # is known to match). Like followup_kind, clearing is key removal -- there is
+    # no tombstone, so `--verification-baseline ""` yields an empty value and the
+    # emit omits the line.
+    local new_verification_baseline="$CURRENT_VERIFICATION_BASELINE"
+    if [[ "$BATCH_VERIFICATION_BASELINE_SET" == true ]]; then
+        new_verification_baseline="$BATCH_VERIFICATION_BASELINE"
+    fi
+
     # Cross-field invariant on the RESULTING pair (t1468_1). It MUST be checked
     # here rather than beside the flag validation in main(): new_type is not
     # computed until this function runs, so a check up there cannot see the
@@ -2162,7 +2196,8 @@ run_batch_mode() {
         "$new_risk_code_health" "$new_risk_goal_achievement" "$new_risk_mitigation_tasks" \
         "$new_gates" "$new_abd" "$new_anchor" \
         "$new_boardgroup" "$new_boardgroup_present" \
-        "$new_followup_kind"
+        "$new_followup_kind" \
+        "$new_verification_baseline"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then

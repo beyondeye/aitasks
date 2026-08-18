@@ -627,6 +627,19 @@ create_carryover_task() {
     local new_id
     new_id=$(basename "$new_file" .md | sed -E 's/^t([0-9]+(_[0-9]+)?)_.*/\1/')
 
+    # Inherit verification_baseline (t1555_1). The carry-over re-seeds the
+    # original's deferred item text verbatim into a task with a FRESH
+    # created_at, so resetting the baseline would make the staleness pre-check
+    # measure from the wrong commit -- which is precisely why the field exists
+    # instead of reusing created_at. Written before the commit below so it
+    # lands in the same seed commit.
+    local orig_baseline
+    orig_baseline=$(read_yaml_field "$orig_file" "verification_baseline")
+    if [[ -n "$orig_baseline" ]]; then
+        ./.aitask-scripts/aitask_update.sh --batch "$new_id" \
+            --verification-baseline "$orig_baseline" --silent >/dev/null
+    fi
+
     if [[ "$NO_COMMIT" != true ]]; then
         task_git add "$new_file"
         task_git commit -m "ait: Seed carry-over checklist on t${new_id}" --quiet

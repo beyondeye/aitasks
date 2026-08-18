@@ -329,9 +329,16 @@ echo "--- Part E: call-site coverage (structural) ---"
 # Both patterns are anchored to a whole line so the `local
 # new_followup_kind="$CURRENT_FOLLOWUP_KIND"` assignment and the invariant call
 # are not miscounted as forwards.
+#
+# A trailing line-continuation is tolerated (t1555_1). The guard's invariant is
+# "every call site FORWARDS followup_kind", not "followup_kind is the LAST
+# positional" -- and requiring end-of-line made it fail the moment a later field
+# was appended after it, which is exactly the extension pattern
+# aidocs/framework/aitasks_extension_points.md prescribes. Whole-line anchoring
+# (the property that excludes assignments and the invariant call) is unchanged.
 UPD_SRC="$PROJECT_DIR/.aitask-scripts/aitask_update.sh"
 call_sites="$(grep -cE '^[[:space:]]*write_task_file "' "$UPD_SRC")"
-forwarded="$(grep -cE '^[[:space:]]*"\$(CURRENT_FOLLOWUP_KIND|new_followup_kind)"$' "$UPD_SRC")"
+forwarded="$(grep -cE '^[[:space:]]*"\$(CURRENT_FOLLOWUP_KIND|new_followup_kind)"[[:space:]]*\\?$' "$UPD_SRC")"
 assert_eq "every write_task_file call site forwards followup_kind" \
     "$call_sites" "$forwarded"
 # ...and the guard itself is not vacuous: the call sites still exist.

@@ -858,5 +858,115 @@ class TestFollowupKindBaseAwareMerge(unittest.TestCase):
         self.assertIn("followup_kind", aitask_merge._BASE_AWARE_FIELDS)
 
 
+class TestMergeVerificationBaseline(unittest.TestCase):
+    """`verification_baseline` (t1555_1) resolves base-aware, like followup_kind.
+
+    The field records the commit a manual-verification checklist is known to
+    match, and `--verification-baseline ""` REMOVES the key. Both generic rules
+    are wrong for it, which is what these cases pin:
+
+      * one-sided presence resolves first and unconditionally, so a stale
+        checkout still carrying the old value would beat a checkout that
+        deliberately cleared it — the baseline resurrects on sync, silently
+        re-instating a staleness dismissal the user revoked;
+      * `updated_at` is task-wide and minute-resolution, so an unrelated
+        `--status` edit on a stale checkout would win a field it never touched.
+    """
+
+    V1 = "aaaaaaa @ 2026-08-01 10:00"
+    V2 = "bbbbbbb @ 2026-08-17 18:30"
+
+    def _merge(self, local, remote, base=None):
+        return merge_frontmatter(local, remote, batch=True, base_meta=base)
+
+    # --- the clear-versus-stale-carrier pair, both ways round ------------
+    def test_local_clear_beats_stale_remote_carrier(self):
+        merged, unresolved = self._merge(
+            {}, {"verification_baseline": self.V1},
+            base={"verification_baseline": self.V1})
+        # Remote is unchanged from base, local cleared it -> the clear wins, and
+        # the key must be ABSENT rather than present-as-None: serialize_frontmatter
+        # gates on key membership, so a None would be written as a literal
+        # `verification_baseline: null`.
+        self.assertNotIn("verification_baseline", merged)
+        self.assertNotIn("verification_baseline", unresolved)
+
+    def test_remote_clear_beats_stale_local_carrier(self):
+        """The mirror direction: an implementation reading presence instead of
+        the base passes one direction and fails this one."""
+        merged, unresolved = self._merge(
+            {"verification_baseline": self.V1}, {},
+            base={"verification_baseline": self.V1})
+        self.assertNotIn("verification_baseline", merged)
+        self.assertNotIn("verification_baseline", unresolved)
+
+    # --- advance versus unchanged ----------------------------------------
+    def test_advance_beats_unchanged_side(self):
+        merged, unresolved = self._merge(
+            {"verification_baseline": self.V2}, {"verification_baseline": self.V1},
+            base={"verification_baseline": self.V1})
+        self.assertEqual(merged["verification_baseline"], self.V2)
+        self.assertNotIn("verification_baseline", unresolved)
+
+    def test_stale_unrelated_edit_does_not_win(self):
+        """The case a newer-`updated_at`-wins rule would get wrong.
+
+        Local did not touch the baseline but carries a NEWER task-wide timestamp
+        (an unrelated `--status` edit); remote actually advanced it.
+        """
+        merged, unresolved = self._merge(
+            {"verification_baseline": self.V1, "updated_at": "2026-08-18 09:00"},
+            {"verification_baseline": self.V2, "updated_at": "2026-08-17 18:30"},
+            base={"verification_baseline": self.V1})
+        self.assertEqual(merged["verification_baseline"], self.V2)
+        self.assertNotIn("verification_baseline", unresolved)
+
+    # --- fail-closed ------------------------------------------------------
+    def test_both_advanced_differently_is_unresolved(self):
+        merged, unresolved = self._merge(
+            {"verification_baseline": self.V2},
+            {"verification_baseline": "ccccccc @ 2026-08-18 08:00"},
+            base={"verification_baseline": self.V1})
+        self.assertIn("verification_baseline", unresolved)
+
+    def test_no_base_available_is_unresolved(self):
+        """An add/add conflict has no stage-1 base -> fail closed to PARTIAL."""
+        merged, unresolved = self._merge(
+            {"verification_baseline": self.V1},
+            {"verification_baseline": self.V2},
+            base=None)
+        self.assertIn("verification_baseline", unresolved)
+
+    def test_identical_sides_are_not_a_conflict(self):
+        merged, unresolved = self._merge(
+            {"verification_baseline": self.V1}, {"verification_baseline": self.V1},
+            base={"verification_baseline": self.V1})
+        self.assertEqual(merged["verification_baseline"], self.V1)
+        self.assertNotIn("verification_baseline", unresolved)
+
+    # --- guards -----------------------------------------------------------
+    def test_verification_baseline_is_base_aware_and_deletion_aware(self):
+        import aitask_merge
+        self.assertIn("verification_baseline", aitask_merge._BASE_AWARE_FIELDS)
+        _normalize, deletion_aware = \
+            aitask_merge._BASE_AWARE_FIELDS["verification_baseline"]
+        self.assertTrue(deletion_aware,
+                        "a tombstone-less field must be deletion_aware, or a "
+                        "clear serializes as `verification_baseline: null`")
+        self.assertNotIn("verification_baseline", aitask_merge._KEEP_LOCAL_FIELDS)
+        self.assertNotIn("verification_baseline", aitask_merge._LIST_UNION_FIELDS)
+
+    def test_opaque_scalar_normalizer_semantics(self):
+        import aitask_merge
+        norm = aitask_merge._normalize_opaque_scalar
+        # absent / None / non-string / blank all read as absent
+        self.assertEqual(norm(None), "")
+        self.assertEqual(norm(""), "")
+        self.assertEqual(norm("   "), "")
+        self.assertEqual(norm(["x"]), "")
+        # a real value is returned verbatim, NOT stripped: it is an identity key
+        self.assertEqual(norm(" a @ b "), " a @ b ")
+
+
 if __name__ == "__main__":
     unittest.main()
