@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, tui, scroll]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-17 12:42
-updated_at: 2026-08-18 12:35
+updated_at: 2026-08-18 14:20
+completed_at: 2026-08-18 14:20
 ---
 
 ## Symptom
@@ -117,3 +118,14 @@ Mirror the pattern the **full monitor** already uses for its preview column
 > **✅ gate:plan_approved** run=2026-08-18T09:35:27Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-18T11:16:49Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-18T11:20:29Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ef1a79ba9dabd537
+
+> **✅ gate:risk_evaluated** run=2026-08-18T11:20:29Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1539/risk_evaluated_2026-08-18T11:20:29Z-risk_evaluated-a1.log`
