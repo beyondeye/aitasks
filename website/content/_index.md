@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.33.0: Your shadow reviewer works with Codex and OpenCode now, Turn a review concern straight into a task, and Trails got lighter and easier to read](blog/v0330-your-shadow-reviewer-works-with-codex-and-opencode-now-turn-a-review-conce/)** -- Aug 18, 2026
 - **[v0.32.0: Board columns you can actually manage, Grouped cards, and Reject a concern and it stays rejected](blog/v0320-board-columns-you-can-actually-manage-grouped-cards-reject-a-concern-and-i/)** -- Aug 13, 2026
 - **[v0.31.0: Mark cards and move them in bulk, The board got noticeably faster, and Every shortcut is visible again](blog/v0310-mark-cards-and-move-them-in-bulk-the-board-got-noticeably-faster-every-sho/)** -- Aug 5, 2026
-- **[v0.30.0: The shadow companion,  in the full monitor, Manage every linked repo from the syncer, and Triage that keeps up with you](blog/v0300-the-shadow-companion-in-the-full-monitor-manage-every-linked-repo-from-the/)** -- Jul 31, 2026
 
 [All releases &rarr;](blog/)
 
