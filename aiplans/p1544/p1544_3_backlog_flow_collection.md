@@ -394,9 +394,12 @@ is caught by the old buggy guard too and would therefore discriminate nothing.
 
    **Assert the real cost contract, not a stronger one.** The flag **cannot**
    eliminate a live-tree walk (`collect_inflight` runs regardless). What it
-   eliminates is the per-file classification and bookkeeping — measured
-   **120 ms archived + 16 ms live = ~136 ms**, roughly doubling `collect_stats`'s
-   161 ms. Gating `collect_inflight` itself is **out of scope**: pre-existing
+   eliminates is the per-file classification and bookkeeping. Planning
+   estimated ~136 ms by timing the classification standalone (120 ms archived +
+   16 ms live); the **implemented** flag delta measured **~77 ms** (171 ms ->
+   248 ms, +45%, median of 5), because the archive loop's `split_frontmatter` is
+   shared with the existing parse rather than duplicated. 77 ms is the figure
+   the code comments carry. Gating `collect_inflight` itself is **out of scope**: pre-existing
    cost this task does not introduce, and it would change the meaning of a field
    other callers read.
 
@@ -580,3 +583,199 @@ display map) as a decision it must make explicitly rather than copy.
 **Reassessment after inlining:** both phases are bounded verification steps that
 add no production code; the levels above already describe the plan as augmented
 (code-health **medium**, goal-achievement **low**).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-19 01:05)
+
+- **Requested by user:** Two review findings, both verified as valid before acting.
+  1. `_check_backlog` asserted "every exclusion reason fires exactly once" but
+     supplied no frontmatter-less fixture and no `no_frontmatter` assertion,
+     even though that branch is a required contract for the three legacy
+     archived files (`t20`/`t21`/`t22`). A later move of the backlog booking
+     below the archive loop's completion short-circuit could silently stop
+     reporting them while the suite stayed green.
+  2. The `~136 ms` cost figure written into `collect_stats`'s docstring and
+     `work_report_gather.py`'s comment was the planning estimate, not the
+     implemented delta measured at the review checkpoint.
+- **Changes made:**
+  1. Added two archived fixtures covering **both** real corpus shapes — a file
+     with no frontmatter at all (`t20`) and one opening with a pseudo-delimiter
+     that is not an exact `---` (`t21`/`t22`) — and asserted `no_frontmatter: 2`
+     plus zero flow contribution (pinned by the unchanged arrival/departure
+     totals). Added negative control **M6**: moving the booking below the
+     `completed is None` short-circuit reddens exactly
+     "legacy frontmatter-less archived files are reported" and the exclusion-dict
+     assertion (2 failures), and nothing else.
+     - This surfaced a real property worth recording: `backlog_excluded` is a
+       **corpus-wide tally with no per-tree split**, so reconciliation identity 1
+       has to name the live share explicitly. The test now does, with a comment;
+       t1544_4 must render the counter as a whole-corpus figure.
+  2. Re-measured and corrected both comments to **~77 ms** (171 -> 248 ms, +45%,
+     median of 5). Step 9 of this plan now records the estimate-vs-measured gap
+     and why it exists.
+- **Files affected:** `.aitask-scripts/lib/stats_data.py`,
+  `.aitask-scripts/lib/work_report_gather.py`, `tests/test_stats_multistage.py`,
+  and this plan.
+
+**Verification gotcha found while re-running the negative controls.** A mutation
+and its `cp` restore landed in the same second with an identical file size, so
+CPython's `(mtime, size)` bytecode-cache check considered the **mutated**
+`__pycache__/stats_data.cpython-314.pyc` still valid: the source was provably
+correct (md5-matched) while the executed bytecode was not. Every negative
+control and both `./ait stats` byte-identity captures were therefore re-run with
+`__pycache__` cleared before each step. Any future in-place mutation testing in
+this repo must clear the cache between mutation and restore rather than trusting
+the source hash.
+
+## Final Implementation Notes
+
+- **Actual work done:** All ten main-phase steps plus both inline mitigation
+  phases, as planned. `lib/task_category.py` gained `_declared_kind` (pure
+  extraction of the clamp `resolve_category` already ran inline) and the public
+  `has_invalid_followup_kind` predicate. `lib/stats_data.py` gained the `field`
+  import, `BACKLOG_WEEKS_DEFAULT`, five `StatsData` counters wired through all
+  three lockstep sites, `backlog_week_offsets` / `week_end_for_offset` /
+  `backlog_levels`, `_parse_frontmatter_date` / `_accumulate_backlog`, the
+  `new/` prune, `collect_inflight`'s `on_file` observer, and `collect_stats`'s
+  `with_backlog` parameter. `lib/work_report_gather.py` opts out.
+  `tests/test_stats_multistage.py` 22 -> 77 checks (4 new `_check_*`);
+  `tests/test_task_category.py` 20 -> 25 tests.
+- **Deviations from plan:** Two, both recorded during planning rather than
+  discovered late. (1) **Five** new `StatsData` fields, not three — the
+  parents/children split needs its own per-week flow pair, since a task is
+  simultaneously a category and a scope (Finding 4). (2) The single live walk is
+  shared via an `on_file` callback on `collect_inflight` rather than by
+  extracting the walk, because
+  `tests/test_gate_ledger_only_surfaces.py` freezes
+  `("lib/stats_data.py", "collect_inflight")` with exact set equality and an
+  extraction would have forced a rename of that registry key. User-confirmed
+  against the measured alternative (a second live walk costs 4 ms of 161 ms).
+  Also added `_parse_frontmatter_date`, unnamed in the plan, so `created_at` and
+  `completed_at` are parsed by one rule.
+- **Issues encountered:** Two review findings, both valid and both fixed — see
+  Post-Review Changes. Separately, a **verification-methodology defect**: an
+  in-place mutation and its `cp` restore landed in the same second with an
+  identical file size, so CPython's `(mtime, size)` bytecode check kept the
+  mutated `.pyc` while the source was provably correct. Every negative control
+  and both byte-identity captures were re-run with `__pycache__` cleared. A
+  source hash is not evidence that the *executed* code was restored.
+- **Key decisions:**
+  - **Flows only, no stored stock.** The level is derived at render time by
+    `backlog_levels`, which keeps `merge_stats_data` a plain additive
+    `Counter.update` — a stock derived from summed flows equals the sum of the
+    stocks, so multi-project aggregation needs no new merge semantic.
+  - **`invalid_followup_kind` is a real exclusion, not a fall-through tally.**
+    `resolve_category` counts it and then returns a real category, so booking
+    the flows afterwards would count the task while reporting it excluded.
+    The predicate decides *before* resolution and `tally=None` is passed to the
+    resolver so the count cannot be doubled.
+  - **Future-date guards compare raw dates to `today`, never week offsets.**
+    `week_offset_for` compares week *starts*, so a date later than today inside
+    the current week returns `0`, not `-1`; the offset form admitted a phantom
+    arrival and a premature departure for up to six days. The date form also
+    guarantees every bucketed offset is >= 0.
+  - **One event clock** — `parse_completed_date`, never
+    `resolve_completion_date`, whose ledger stamps mean "in flight" on a live
+    file. The report therefore carries two completion clocks; measured on the
+    live corpus they never disagree on *whether* a task completed (0 cases) and
+    disagree on *which week* for 6 of ~1840.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/stats_data.py:1219-1220` — `collect_inflight` declares
+    `today: date` and `week_start_dow: int` but references neither in its body;
+    both are dead parameters every caller must still supply positionally.
+    Pre-existing (t635_20) and untouched here — removing them is a signature
+    change across `collect_stats`, `aitask_stats`'s re-export and
+    `tests/test_stats_multistage.py`, so it belongs in its own task.
+- **Notes for sibling tasks:** see below.
+
+### Contract for t1544_4 / t1544_5 (render directly from this)
+
+**Five `StatsData` fields**, all `Counter`, all defaulted:
+
+| field | key | meaning |
+|---|---|---|
+| `backlog_arrivals` | `(category, week_offset)` | tasks created that week |
+| `backlog_departures` | `(category, week_offset)` | tasks that departed that week |
+| `backlog_scope_arrivals` | `("parent"\|"child", week_offset)` | same, split by scope |
+| `backlog_scope_departures` | `("parent"\|"child", week_offset)` | same, split by scope |
+| `backlog_excluded` | `reason` | data-quality tally |
+
+Offsets are **unclamped full history** (~30 weeks today); the horizon is
+render-time only.
+
+**Helpers:** `BACKLOG_WEEKS_DEFAULT = 8` (the single horizon default — read it,
+do not re-declare), `backlog_week_offsets(weeks) -> [weeks-1 … 0]`,
+`week_end_for_offset(today, week_start_dow, offset) -> date`, and
+
+```python
+backlog_levels(arrivals, departures, out_offsets, excluded=None) -> Counter
+```
+
+keyed `(key, week_offset)`. `out_offsets` selects **output columns only** — the
+cumulation always runs over the full keyspace. It is generic over the first key
+element, so the scope split uses the same call. Pass `data.backlog_excluded` as
+`excluded` to keep the clamp counter live.
+
+**The eight `backlog_excluded` reason strings**, verbatim:
+`no_frontmatter`, `folded`, `invalid_followup_kind`, `no_created_at`,
+`future_created_at`, `archived_no_completed_at`, `future_completed_at`,
+`negative_level`.
+
+Two things not to get wrong when rendering it:
+
+- The first seven mean "this task contributed to **neither** flow".
+  `negative_level` counts clamped **output cells**, not tasks — never sum it
+  into a task-count column.
+- It is a **corpus-wide tally with no per-tree split**. `no_frontmatter` and
+  `archived_no_completed_at` can only come from the archived tree, but the
+  counter itself cannot attribute a reason to live vs archived, so any
+  "N live tasks excluded" wording is unsupported.
+
+**`collect_inflight(..., on_file=None)`** — the observer fires for *every* live
+file **before** the gate-marker filter. If a future change needs another live
+consumer, add it here rather than opening a second walk.
+
+**Measured cost:** `with_backlog=True` adds **~77 ms** on a ~2280-task corpus
+(171 -> 248 ms, +45%, median of 5). The flag cannot remove a live-tree walk —
+`collect_inflight` runs regardless.
+
+**Real-corpus sanity values** (2026-08-19, 8-week horizon), for eyeballing a
+renderer: TOTAL OPEN 164 -> 435; at `Now` parents 308 / children 128; top
+categories `type:feature` 116, `kind:manual_verification` 71,
+`kind:risk_mitigation` 68, `kind:upstream_defect` 54. Excluded: 3
+`no_frontmatter`, 5 `folded`, everything else 0.
+
+t1544_4 also inherits t1544_2's recorded rendering note (the label x type table)
+— though t1577 has since landed that fix, so re-check the current source rather
+than the note.
+
+### Verification results
+
+- `tests/test_stats_multistage.py` 77/77; `tests/test_task_category.py` 25/25
+  (the 20 pre-existing checks passed **unedited** across the `_declared_kind`
+  extraction); `tests/test_stats_data.sh` 6/6;
+  `tests/test_no_lib_to_tui_import.sh` 13/13;
+  `tests/test_gate_ledger_only_surfaces.py` 17/17 with its frozen registry
+  **untouched**; `tests/test_collection_parity.py` 4/4.
+- `bash tests/run_all_python_tests.sh --test-dir tests` ->
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; 5062 passed, 2 skipped.
+- **`./ait stats` byte-identical.** The morning baseline was invalidated when
+  the session clock rolled over, so the real evidence is a **same-clock
+  control**: the three changed `lib/` files reverted to HEAD, captured, restored,
+  captured again — identical with `__pycache__` cleared for both runs.
+- **Post-phase cross-check (`crosscheck_level_against_direct_stock`):** an
+  independently written direct stock (`created <= E AND (dep is None or dep > E)`
+  straight from the definition) agrees with `backlog_levels` to the unit at all
+  eight week ends.
+- **Six negative controls**, each re-run with cleared bytecode, each reddening
+  its named assertion and no unrelated one:
+
+  | mutation | failures | discriminating assertion |
+  |---|---|---|
+  | invalid kind tallied but not excluded | 5 | bogus followup_kind: no arrival / no departure |
+  | future guard uses week offsets | 10 | same-week future created_at / completed_at |
+  | observer below the gate-marker filter | 17 | parent + child arrive in their created week |
+  | `new/` not pruned | 5 | draft under new/ is never seen |
+  | `backlog_levels` cumulates over `out_offsets` only | 5 | pre-horizon arrival is open at the oldest rendered week |
+  | booking below the archival short-circuit | 2 | legacy frontmatter-less archived files are reported |
