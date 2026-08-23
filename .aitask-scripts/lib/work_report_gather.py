@@ -391,7 +391,10 @@ def emit_velocity_block(
     its archive through the shared TASK_DIR resolver, so `project_root=None`
     cannot pick up a different project's completions.
     """
-    daily_counts = collect_stats(now, 1, project_root=None).daily_counts
+    # with_backlog=False: only daily_counts is read here, and the backlog
+    # collection costs ~77ms of category classification over the whole corpus
+    # (measured on ~2280 tasks) for series this caller never touches (t1544_3).
+    daily_counts = collect_stats(now, 1, project_root=None, with_backlog=False).daily_counts
     estimate = model.estimate(daily_counts, now, window_days)
     window = _window_dates(now, window_days)
 

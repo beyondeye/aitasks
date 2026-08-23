@@ -113,6 +113,31 @@ def is_followup_category(cat: str) -> bool:
     return cat.startswith(KIND_PREFIX)
 
 
+def _declared_kind(metadata) -> str:
+    """The task's *declared* follow-up kind, clamped to the vocabulary.
+
+    Returns a real kind, ``UNKNOWN_ENUM`` (no ``followup_kind`` field) or
+    ``INVALID_ENUM`` (present but unrecognised).
+
+    ``_unquote`` runs BEFORE the clamp on purpose: ``'"carry_over"'`` must
+    resolve to ``carry_over``, not ``invalid``, so a caller counting invalid
+    values counts genuinely bogus ones rather than quoting artefacts.
+    """
+    return followup_kind_field(_unquote(metadata.get("followup_kind")))
+
+
+def has_invalid_followup_kind(metadata) -> bool:
+    """True when ``followup_kind`` is PRESENT but not a recognised kind.
+
+    Exposed for callers that must **exclude** such a task rather than merely
+    count it. :func:`resolve_category` tallies the invalid value and then falls
+    through to a derived or ``type:`` category, so a caller that needs the task
+    left out of its own aggregates has to decide *before* calling it (t1544_3).
+    Asking here keeps :func:`_unquote` private and the clamp expressed once.
+    """
+    return _declared_kind(metadata) == INVALID_ENUM
+
+
 def resolve_category(
     metadata,
     body: str,
@@ -148,10 +173,7 @@ def resolve_category(
     # not transitively load the classifier to render a string map.
     from followup_backfill_classify import classify
 
-    # _unquote runs BEFORE the clamp on purpose: '"carry_over"' must resolve to
-    # carry_over, not invalid, so the tally counts genuinely bogus values rather
-    # than quoting artefacts.
-    declared = followup_kind_field(_unquote(metadata.get("followup_kind")))
+    declared = _declared_kind(metadata)
     if declared not in (UNKNOWN_ENUM, INVALID_ENUM):
         return KIND_PREFIX + declared
     if declared == INVALID_ENUM and tally is not None:

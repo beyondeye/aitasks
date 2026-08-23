@@ -6,8 +6,9 @@ Consumed by the CLI text/CSV report (`aitask_stats.py`), the stats TUI
 
 It lived under ``stats/`` for historical reasons only; it sits in ``lib/``
 because every layer above depends on it and it depends on none of them —
-`archive_iter`, `config_utils` and `gate_ledger` are all base-layer siblings
-(t1235). ``tests/test_no_lib_to_tui_import.sh`` freezes that direction.
+`archive_iter`, `config_utils`, `gate_ledger` and `task_category` are all
+base-layer siblings (t1235, t1544_3).
+``tests/test_no_lib_to_tui_import.sh`` freezes that direction.
 """
 
 from __future__ import annotations
@@ -17,10 +18,10 @@ import os
 import re
 import sys
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 # Make lib/ importable however this module is loaded (path-loaded by a test, or
 # imported bare with lib/ on sys.path). Every module imported below now lives
@@ -40,12 +41,24 @@ from gate_ledger import (  # noqa: E402
     has_gate_markers,
 )
 
+# The unified category axis (t1544_2). Safe at module scope: task_category's
+# display half is dependency-free and it imports the retro-classifier lazily
+# inside resolve_category, so this adds no eager dependency here.
+from task_category import has_invalid_followup_kind, resolve_category  # noqa: E402
+
 # Honor the framework-wide TASK_DIR override via the canonical resolver rather
 # than hardcoding "aitasks": a caller that scans one task tree for membership
 # must not silently read a different tree's archive for completion history.
 TASK_DIR = _config_task_dir()
 ARCHIVE_DIR = TASK_DIR / "archived"
 TASK_TYPES_FILE = TASK_DIR / "metadata" / "task_types.txt"
+
+#: Default horizon, in weeks, for the backlog level / net-flow series (t1544_3).
+#: The SINGLE source for it: the CLI's `--backlog-weeks` default and the stats
+#: TUI's backlog pane both read this, so the two surfaces cannot show different
+#: windows for the same metric. Render-time only — the stored flows are
+#: unclamped full history, so changing it never invalidates collected data.
+BACKLOG_WEEKS_DEFAULT = 8
 
 
 def _paths_for(project_root: Optional[Path]) -> Tuple[Path, Path, Path]:
@@ -163,6 +176,26 @@ class StatsData:
     inflight: Optional[InflightData] = None
     phase_timings: Optional[PhaseTimings] = None
 
+    # --- backlog level / net flow (t1544_3) -------------------------------
+    # FLOWS ONLY — the open-task *level* is derived at render time by
+    # backlog_levels(). Storing flows rather than a stock is what keeps
+    # merge_stats_data() a plain additive Counter.update: a stock derived from
+    # summed flows equals the sum of the stocks, so multi-project aggregation
+    # needs no new merge semantic.
+    #: (category, week_offset) -> tasks created that week. Unclamped history.
+    backlog_arrivals: Counter = field(default_factory=Counter)
+    #: (category, week_offset) -> tasks that departed that week.
+    backlog_departures: Counter = field(default_factory=Counter)
+    #: ("parent"|"child", week_offset) -> same flows split by task scope, so the
+    #: TOTAL OPEN row can carry a (parents / children) breakdown. A task is
+    #: simultaneously a category and a scope, so this cannot live in the
+    #: category key; it reuses backlog_levels() unchanged.
+    backlog_scope_arrivals: Counter = field(default_factory=Counter)
+    backlog_scope_departures: Counter = field(default_factory=Counter)
+    #: reason -> count. Every reason names tasks that contributed to NEITHER
+    #: flow, except `negative_level`, which counts clamped OUTPUT CELLS.
+    backlog_excluded: Counter = field(default_factory=Counter)
+
 
 @dataclass(frozen=True)
 class ImplementationInfo:
@@ -244,6 +277,77 @@ def week_offset_for(completed: date, today: date, week_start_dow: int) -> int:
     if comp > curr:
         return -1
     return (curr - comp).days // 7
+
+
+def backlog_week_offsets(weeks: int) -> List[int]:
+    """Output column offsets for a `weeks`-wide backlog horizon: [weeks-1 … 1, 0].
+
+    Oldest first, current week last — the same ordering
+    ``stats/panes/labels.py`` builds inline for its 4-week heatmap, generalized
+    so the horizon is a parameter rather than a constant.
+    """
+    return list(range(weeks - 1, -1, -1))
+
+
+def week_end_for_offset(today: date, week_start_dow: int, offset: int) -> date:
+    """The last day of the week `offset` weeks back from `today`'s week.
+
+    Derived from :func:`week_start_for` so there is exactly one week-boundary
+    definition in the module.
+    """
+    return week_start_for(today, week_start_dow) - timedelta(days=7 * offset) + timedelta(days=6)
+
+
+def backlog_levels(
+    arrivals: Counter,
+    departures: Counter,
+    out_offsets: Sequence[int],
+    excluded: Optional[dict] = None,
+) -> Counter:
+    """Open-task level per ``(key, week_offset)``, derived from the two flows.
+
+    ``out_offsets`` selects **OUTPUT COLUMNS ONLY**. The cumulation always runs
+    over every offset present in ``arrivals`` / ``departures``, however old.
+
+    Level at offset ``w`` = Σ arrivals at offsets >= ``w`` − Σ departures at
+    offsets >= ``w`` (a larger offset is an older week).
+
+    Cumulating over ``out_offsets`` instead of the full keyspace would drop
+    every task created before the horizon: measured on the real corpus, 1628 of
+    2279 arrivals sit outside the default 8-week window, so the rendered series
+    would be a fabricated hockey stick with the negative that proves it wrong
+    hidden by the clamp below.
+
+    ``excluded`` is an optional counter (the same opt-in sink shape as
+    ``task_category.resolve_category``'s ``tally``). The clamp is deliberately
+    **not** silent: a negative level is impossible from consistent flows, so
+    counting it is what turns a future regression into a visible signal instead
+    of a plausible-looking zero. Note it counts clamped OUTPUT CELLS, not tasks
+    — do not sum it into a task-count column.
+
+    Generic over the first key element, so it serves both the category axis and
+    the parent/child scope split.
+    """
+    per_key: Dict[str, Counter] = defaultdict(Counter)
+    for (key, off), n in arrivals.items():
+        per_key[key][off] += n
+    for (key, off), n in departures.items():
+        per_key[key][off] -= n
+
+    out = set(out_offsets)
+    levels: Counter = Counter()
+    for key, deltas in per_key.items():
+        running = 0
+        # Single suffix scan, oldest offset first. The delta at `off` is added
+        # BEFORE the membership test, so week w's own arrivals count toward
+        # level w.
+        for off in sorted(set(deltas) | out, reverse=True):
+            running += deltas.get(off, 0)
+            if off in out:
+                if running < 0 and excluded is not None:
+                    excluded["negative_level"] += 1
+                levels[(key, off)] = max(0, running)
+    return levels
 
 
 def split_frontmatter(content: str) -> Tuple[Dict[str, str], str]:
@@ -880,16 +984,22 @@ def iter_active_markdown_files(
     """Yield ``(basename, content)`` for active (non-archived) task files.
 
     Walks ``<task_dir>`` (parent ``t*.md`` plus child ``t<N>/t<N>_*.md``),
-    pruning ``archived/`` and ``metadata/``. The content is read here so the
-    caller classifies from the body alone — no second open — keeping the scan
-    correct under a rebased ``project_root`` (t635_20 D-2). Unreadable files are
-    skipped silently (best-effort, like the archive iterator).
+    pruning ``archived/``, ``metadata/`` and ``new/``. The content is read here
+    so the caller classifies from the body alone — no second open — keeping the
+    scan correct under a rebased ``project_root`` (t635_20 D-2). Unreadable
+    files are skipped silently (best-effort, like the archive iterator).
+
+    ``new/`` holds drafts, which are not active tasks: a draft dropped there
+    would otherwise become a phantom backlog arrival (t1544_3). The prune must
+    live HERE rather than in a caller, because this generator yields the bare
+    ``os.walk`` basename — by the time a caller sees a file its directory is
+    already lost.
     """
     task_dir, _, _ = _paths_for(project_root)
     if not task_dir.exists():
         return
     for root, dirs, files in os.walk(task_dir):
-        dirs[:] = [d for d in dirs if d not in ("archived", "metadata")]
+        dirs[:] = [d for d in dirs if d not in ("archived", "metadata", "new")]
         for name in files:
             if not name.startswith("t") or not name.endswith(".md"):
                 continue
@@ -1001,10 +1111,116 @@ def _accumulate_phase_timings(
         review_merge_hours.append(rm)
 
 
+def _parse_frontmatter_date(raw: str) -> Optional[date]:
+    """Parse a `YYYY-MM-DD[ HH:MM]` frontmatter timestamp to a date.
+
+    Same tolerance as :func:`parse_completed_date` (leading 10 chars, then
+    ``date.fromisoformat``) so an arrival and a departure are read by the same
+    rule.
+    """
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def _accumulate_backlog(
+    filename: str,
+    frontmatter: Dict[str, str],
+    body: str,
+    today: date,
+    week_start_dow: int,
+    *,
+    archived: bool,
+    arrivals: Counter,
+    departures: Counter,
+    scope_arrivals: Counter,
+    scope_departures: Counter,
+    excluded: Counter,
+) -> None:
+    """Book one task's arrival and departure into the backlog flows (t1544_3).
+
+    **One event clock, one population rule.** A task has departed iff
+    :func:`parse_completed_date` returns a date (``completed_at``, else
+    ``updated_at`` when the status is Done/Completed). The identical rule
+    applies to archived and live files — there is no archived-vs-live special
+    case.
+
+    Deliberately NOT :func:`resolve_completion_date`: that one prefers the
+    ``merge_approved`` / ``review_approved`` ledger stamps, which on a *live*
+    file mean "in flight", not "gone". A `status: Ready` task with a passing
+    review_approved marker and no completed_at resolves to a date weeks in the
+    past under that function, booking a departure for a task sitting open on the
+    board.
+
+    **Exclusions skip entirely on BOTH axes and are always tallied.** Keeping an
+    arrival whose departure was dropped leaves the task open forever, so every
+    guard below returns before either flow is touched.
+    """
+    if not frontmatter:
+        excluded["no_frontmatter"] += 1
+        return
+
+    # Folded tasks never get a completed_at, and the file is DELETED when the
+    # primary archives — counting them would make the historical series
+    # irreproducible (re-running next month would give different numbers for the
+    # same past week). Either signal alone is sufficient.
+    if frontmatter.get("status") == "Folded" or "folded_into" in frontmatter:
+        excluded["folded"] += 1
+        return
+
+    # A present-but-unrecognised followup_kind must EXCLUDE, not merely count:
+    # resolve_category tallies it and then falls through to a real category, so
+    # asking it to do both would leave the task in the flows while reporting it
+    # as excluded. Hence the check here, and tally=None below.
+    if has_invalid_followup_kind(frontmatter):
+        excluded["invalid_followup_kind"] += 1
+        return
+
+    created = _parse_frontmatter_date(frontmatter.get("created_at", ""))
+    if created is None:
+        excluded["no_created_at"] += 1
+        return
+
+    # Compare RAW DATES against today, never week_offset_for(...) < 0:
+    # week_offset_for compares week *starts*, so a date later than today inside
+    # the current week returns 0, and a phantom arrival would be counted as open
+    # now. The date form also guarantees every bucketed offset is >= 0, which is
+    # the invariant the renderers rely on.
+    if created > today:
+        excluded["future_created_at"] += 1
+        return
+
+    departed = parse_completed_date(frontmatter)
+    if archived and departed is None:
+        # An archived task with no departure date would stay open forever. None
+        # exist today; if this ever fires it is a genuine data-quality signal.
+        excluded["archived_no_completed_at"] += 1
+        return
+    if departed is not None and departed > today:
+        excluded["future_completed_at"] += 1
+        return
+
+    category = resolve_category(frontmatter, body, filename, tally=None)
+    scope = "child" if is_child_task(filename) else "parent"
+
+    arrival_offset = week_offset_for(created, today, week_start_dow)
+    arrivals[(category, arrival_offset)] += 1
+    scope_arrivals[(scope, arrival_offset)] += 1
+
+    if departed is not None:
+        departure_offset = week_offset_for(departed, today, week_start_dow)
+        departures[(category, departure_offset)] += 1
+        scope_departures[(scope, departure_offset)] += 1
+
+
 def collect_inflight(
     today: date,
     week_start_dow: int,
     project_root: Optional[Path] = None,
+    on_file: Optional[Callable[[str, str], None]] = None,
 ) -> InflightData:
     """Count active tasks that are implementation-complete but gate-blocked.
 
@@ -1012,10 +1228,19 @@ def collect_inflight(
     present, ``review_approved`` is ``pass``, and archival is ``BLOCKED`` (a
     declared gate is not yet pass — t635_4's deferred-archival state). Tasks that
     are merely mid-implementation (``plan_approved`` only) are excluded.
+
+    ``on_file`` is an optional per-file observer, called as
+    ``on_file(basename, content)`` for **every** file this walk yields, so a
+    caller needing the same live scan can share it instead of opening a second
+    one (t1544_3's backlog arrivals). It fires *before* the gate-marker filter
+    below — most active tasks carry no ledger at all, so an observer invoked
+    after the ``continue`` would see almost nothing. Do not move it.
     """
     daily_counts: Counter = Counter()
     task_ids: List[str] = []
     for filename, content in iter_active_markdown_files(project_root=project_root):
+        if on_file is not None:
+            on_file(filename, content)
         if not has_gate_markers(content):
             continue
         runs = derive_gate_runs(content)
@@ -1035,7 +1260,18 @@ def collect_stats(
     today: date,
     week_start_dow: int,
     project_root: Optional[Path] = None,
+    with_backlog: bool = True,
 ) -> StatsData:
+    """Collect every ait-stats series from the archived and active task trees.
+
+    ``with_backlog=False`` skips the backlog level / net-flow collection
+    (t1544_3). It is **purely subtractive**: every pre-existing field is
+    identical either way. What it saves is the per-file category classification
+    and bookkeeping over the whole corpus — measured **~77 ms** on a ~2280-task
+    corpus (171 ms -> 248 ms, +45%; median of 5). It does **not** save a
+    live-tree walk: ``collect_inflight`` runs regardless and the arrival scan
+    rides along on it via ``on_file``.
+    """
     daily_counts: Counter = Counter()
     daily_tasks: Dict[date, List[str]] = defaultdict(list)
     dow_counts_thisweek: Counter = Counter()
@@ -1064,8 +1300,33 @@ def collect_stats(
     implement_hours: List[float] = []
     review_merge_hours: List[float] = []
 
+    backlog_arrivals: Counter = Counter()
+    backlog_departures: Counter = Counter()
+    backlog_scope_arrivals: Counter = Counter()
+    backlog_scope_departures: Counter = Counter()
+    backlog_excluded: Counter = Counter()
+
+    def _book_backlog(filename: str, frontmatter: Dict[str, str], body: str,
+                      *, archived: bool) -> None:
+        _accumulate_backlog(
+            filename, frontmatter, body, today, week_start_dow,
+            archived=archived,
+            arrivals=backlog_arrivals,
+            departures=backlog_departures,
+            scope_arrivals=backlog_scope_arrivals,
+            scope_departures=backlog_scope_departures,
+            excluded=backlog_excluded,
+        )
+
     for filename, content in iter_archived_markdown_files(project_root=project_root):
-        frontmatter = parse_frontmatter(content)
+        # split_frontmatter rather than parse_frontmatter: identical metadata
+        # (the latter IS this call, discarding the body) but the retro-classifier
+        # needs the body. Booking happens BEFORE the `continue` below — an
+        # archived task with no resolvable completion date is exactly the case
+        # `no_frontmatter` / `archived_no_completed_at` exist to report.
+        frontmatter, body = split_frontmatter(content)
+        if with_backlog:
+            _book_backlog(filename, frontmatter, body, archived=True)
         completed = resolve_completion_date(content, frontmatter)
         if completed is None:
             continue
@@ -1131,6 +1392,19 @@ def collect_stats(
             ]
         )
 
+    # Hoisted out of the constructor below so the ordering is explicit: this is
+    # the walk that populates the backlog arrival counters, and relying on
+    # argument-evaluation order to fill counters passed earlier in the same call
+    # would be a silent trap.
+    def _observe_live(filename: str, content: str) -> None:
+        frontmatter, body = split_frontmatter(content)
+        _book_backlog(filename, frontmatter, body, archived=False)
+
+    inflight = collect_inflight(
+        today, week_start_dow, project_root=project_root,
+        on_file=_observe_live if with_backlog else None,
+    )
+
     return StatsData(
         total_tasks=total_tasks,
         tasks_7d=tasks_7d,
@@ -1153,7 +1427,12 @@ def collect_stats(
         codeagent_display_names=codeagent_display_names,
         model_display_names=model_display_names,
         csv_rows=csv_rows,
-        inflight=collect_inflight(today, week_start_dow, project_root=project_root),
+        inflight=inflight,
+        backlog_arrivals=backlog_arrivals,
+        backlog_departures=backlog_departures,
+        backlog_scope_arrivals=backlog_scope_arrivals,
+        backlog_scope_departures=backlog_scope_departures,
+        backlog_excluded=backlog_excluded,
         phase_timings=PhaseTimings(
             implement_hours=implement_hours,
             review_merge_hours=review_merge_hours,
@@ -1186,6 +1465,11 @@ def _empty_stats_data() -> StatsData:
         csv_rows=[],
         inflight=InflightData(count=0, daily_counts=Counter(), task_ids=[]),
         phase_timings=PhaseTimings(implement_hours=[], review_merge_hours=[]),
+        backlog_arrivals=Counter(),
+        backlog_departures=Counter(),
+        backlog_scope_arrivals=Counter(),
+        backlog_scope_departures=Counter(),
+        backlog_excluded=Counter(),
     )
 
 
@@ -1219,6 +1503,11 @@ def merge_stats_data(parts: List[StatsData]) -> StatsData:
         merged.codeagent_display_names.update(part.codeagent_display_names)
         merged.model_display_names.update(part.model_display_names)
         merged.csv_rows.extend(part.csv_rows)
+        merged.backlog_arrivals.update(part.backlog_arrivals)
+        merged.backlog_departures.update(part.backlog_departures)
+        merged.backlog_scope_arrivals.update(part.backlog_scope_arrivals)
+        merged.backlog_scope_departures.update(part.backlog_scope_departures)
+        merged.backlog_excluded.update(part.backlog_excluded)
 
         if part.inflight is not None and merged.inflight is not None:
             merged.inflight.count += part.inflight.count

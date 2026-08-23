@@ -143,6 +143,53 @@ class TestUnquoteAndClamp(unittest.TestCase):
         resolve(["issue_type: bug"], "## Goal\n\nprose\n", tally=tally)
         self.assertEqual(tally["invalid_followup_kind"], 0)
 
+
+class TestHasInvalidFollowupKind(unittest.TestCase):
+    """The declared-kind state, exposed for callers that must EXCLUDE (t1544_3).
+
+    `resolve_category`'s tally counts an invalid kind and then falls through to
+    a real category, so a caller needing the task left out of its aggregates
+    cannot use the tally alone — it has to ask before resolving.
+    """
+
+    @staticmethod
+    def _meta(*lines):
+        raw = "---\n" + "\n".join(lines) + "\n---\n\nprose\n"
+        return stats_data.split_frontmatter(raw)[0]
+
+    def test_present_but_bogus_is_invalid(self):
+        self.assertTrue(task_category.has_invalid_followup_kind(
+            self._meta("followup_kind: not_a_real_kind", "issue_type: bug")))
+
+    def test_absent_field_is_not_invalid(self):
+        """Absent is `unknown`, not `invalid` — the overwhelmingly common case."""
+        self.assertFalse(task_category.has_invalid_followup_kind(
+            self._meta("issue_type: bug")))
+
+    def test_recognised_kind_is_not_invalid(self):
+        self.assertFalse(task_category.has_invalid_followup_kind(
+            self._meta("followup_kind: risk_mitigation", "issue_type: bug")))
+
+    def test_quoted_recognised_kind_is_not_invalid(self):
+        """Pins that _unquote still runs BEFORE the clamp on this path too."""
+        self.assertFalse(task_category.has_invalid_followup_kind(
+            self._meta('followup_kind: "carry_over"', "issue_type: bug")))
+
+    def test_agrees_with_the_tally_resolve_category_would_write(self):
+        """The predicate and the resolver must not drift apart: whatever the
+        predicate calls invalid is exactly what resolve_category tallies."""
+        for lines in (["followup_kind: not_a_real_kind", "issue_type: bug"],
+                      ["issue_type: bug"],
+                      ["followup_kind: risk_mitigation", "issue_type: bug"],
+                      ['followup_kind: "carry_over"', "issue_type: bug"]):
+            tally = Counter()
+            resolve(lines, "## Goal\n\nprose\n", tally=tally)
+            self.assertEqual(
+                task_category.has_invalid_followup_kind(self._meta(*lines)),
+                tally["invalid_followup_kind"] == 1,
+                f"predicate and tally disagree for {lines}",
+            )
+
     def test_tally_is_optional(self):
         self.assertEqual(
             resolve(["followup_kind: not_a_real_kind", "issue_type: bug"],
