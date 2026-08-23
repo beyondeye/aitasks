@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: [t1544_1, t1544_2]
 issue_type: feature
@@ -310,3 +312,5 @@ t1544_4 and t1544_5 render directly from them.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-18T20:53:23Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-23T13:21:54Z status=pass attempt=1 type=human
