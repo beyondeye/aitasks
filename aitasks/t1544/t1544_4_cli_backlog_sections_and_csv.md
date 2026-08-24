@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1544_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [reporting, metrics, backlog]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 created_at: 2026-08-17 22:06
-updated_at: 2026-08-17 22:09
+updated_at: 2026-08-24 11:54
 ---
 
 ## Context
