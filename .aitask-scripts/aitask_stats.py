@@ -368,9 +368,19 @@ def _build_backlog_axis(data: StatsData, offsets: Sequence[int]) -> BacklogAxis:
     )
 
 
-def _backlog_week_labels(offsets: Sequence[int]) -> List[str]:
-    """Column labels for the horizon weeks, in `offsets` order (oldest first)."""
-    return [f"W-{o}" for o in offsets if o != 0]
+def _backlog_columns(offsets: Sequence[int], now_label: str) -> Tuple[List[int], List[str]]:
+    """Column offsets and their labels, shared by both backlog tables.
+
+    Chronological, oldest first, with the current week LAST. Defined once so the
+    two tables cannot drift into different column orders: they are meant to be
+    read stacked, and aligning them is the whole point of the shared layout.
+
+    `now_label` differs by table -- the flow table marks its current column
+    `Now*` because a flow over a partial week is genuinely incomplete, while a
+    level is a stock and is correct as-of-now.
+    """
+    weeks = [o for o in offsets if o != 0]
+    return weeks + [0], [f"W-{o}" for o in weeks] + [now_label]
 
 
 def _backlog_table_row(label: str, cells: Sequence[str], cell_w: int) -> str:
@@ -403,10 +413,11 @@ def _render_backlog_exclusions(data: StatsData, out: io.StringIO, clamped_cells:
 def render_backlog_level(axis: BacklogAxis, data: StatsData, out: io.StringIO, today: date, week_start_dow: int) -> None:
     """Weekly open-task level by category (t1544_4).
 
-    Columns are `Now` (offset 0) first -- the headline role the existing weekly
-    tables give `Total` -- then the horizon weeks oldest-first. Offset 0 is a
-    *stock* here and is correct as-of-now, so unlike the net-flow section it is
-    not distorted by the current week being partial.
+    Columns run chronologically, oldest first, with `Now` (offset 0) LAST -- the
+    same layout as the net-flow section, so the two tables align column for
+    column and can be read stacked. Offset 0 is a *stock* here and is correct
+    as-of-now, which is why it carries no `*` partial marker: unlike a flow, a
+    level is not distorted by the current week being incomplete.
     """
     weeks = len(axis.offsets)
     print(f"### Backlog Level (Open Tasks) - Weekly (Last {weeks} Weeks)", file=out)
@@ -420,8 +431,7 @@ def render_backlog_level(axis: BacklogAxis, data: StatsData, out: io.StringIO, t
         print(file=out)
         return
 
-    columns = [0] + [o for o in axis.offsets if o != 0]
-    headers = ["Now"] + _backlog_week_labels(axis.offsets)
+    columns, headers = _backlog_columns(axis.offsets, "Now")
 
     def level_cells(source: Counter, key: str) -> List[str]:
         return [str(source.get((key, o), 0)) for o in columns]
@@ -500,8 +510,7 @@ def render_backlog_netflow(
         print(file=out)
         return
 
-    columns = [o for o in axis.offsets if o != 0] + [0]
-    headers = _backlog_week_labels(axis.offsets) + ["Now*"]
+    columns, headers = _backlog_columns(axis.offsets, "Now*")
 
     rows: List[Tuple[str, List[str]]] = [
         (category_display_name(c), [f"{net(c, o):+d}" if net(c, o) else "0" for o in columns]) for c in rows_src

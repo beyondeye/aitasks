@@ -557,6 +557,11 @@ def _section(report, heading):
     return report.split(heading)[1].split("\n###")[0]
 
 
+def _table_headers(section):
+    """The column labels of a rendered backlog table, in emission order."""
+    return [c.strip() for c in section.splitlines()[1].strip().strip("|").split("|")][1:]
+
+
 def _table_rows(section):
     """{label: [cells]} for every pipe row except the header and separator."""
     rows = {}
@@ -668,8 +673,13 @@ class TestBacklogSections(unittest.TestCase):
         self.assertIn("Bug Fixes", rows)
 
     def test_totals_reconcile_across_all_three_axes(self):
-        rows = _table_rows(_section(self.report, self.LEVEL_H))
-        now = lambda label: int(rows[label][0])  # noqa: E731 - column 0 is "Now"
+        section = _section(self.report, self.LEVEL_H)
+        rows = _table_rows(section)
+        # Resolve the column by HEADER, never by a hardcoded index: the layout
+        # is chronological with "Now" last, and an index would silently read a
+        # different week if the column order ever changes again.
+        now_col = _table_headers(section).index("Now")
+        now = lambda label: int(rows[label][now_col])  # noqa: E731
         self.assertEqual(now("-- follow-ups") + now("-- genuine"), now("TOTAL OPEN"))
         self.assertEqual(now("of which parents") + now("of which children"), now("TOTAL OPEN"))
         self.assertEqual(now("TOTAL OPEN"), 4)   # alpha, beta, child, mv
@@ -683,8 +693,7 @@ class TestBacklogSections(unittest.TestCase):
         would read 1 short at every offset from 2 onward.
         """
         rows = _table_rows(_section(self.report, self.LEVEL_H))
-        headers = [c.strip() for c in
-                   _section(self.report, self.LEVEL_H).splitlines()[1].strip().strip("|").split("|")][1:]
+        headers = _table_headers(_section(self.report, self.LEVEL_H))
         col = headers.index("W-2")
         # alpha + beta + child (all created that week) + doc (created earlier,
         # not yet departed). churn arrived and departed inside the week, so it
@@ -711,9 +720,26 @@ class TestBacklogSections(unittest.TestCase):
         self.assertNotIn("Chores", _table_rows(_section(self.report, self.LEVEL_H)))
         self.assertIn("Chores", _table_rows(_section(self.report, self.FLOW_H)))
 
+    def test_level_table_runs_chronologically_with_now_last(self):
+        headers = _table_headers(_section(self.report, self.LEVEL_H))
+        self.assertEqual(headers[0], "W-7")
+        self.assertEqual(headers[-1], "Now")
+        self.assertEqual(headers, [f"W-{o}" for o in range(7, 0, -1)] + ["Now"])
+        # A level is a stock and is correct as-of-now, so it carries NO partial
+        # marker -- that asterisk belongs to the flow table alone.
+        self.assertNotIn("Now*", headers)
+
+    def test_both_tables_share_one_column_layout(self):
+        """The two tables are meant to be read stacked, so their columns must
+        line up. Only the current-week label differs (`Now` vs `Now*`)."""
+        level = _table_headers(_section(self.report, self.LEVEL_H))
+        flow = _table_headers(_section(self.report, self.FLOW_H))
+        self.assertEqual(level[:-1], flow[:-1])
+        self.assertEqual((level[-1], flow[-1]), ("Now", "Now*"))
+
     def test_flow_table_puts_the_partial_week_last_and_marks_it(self):
         section = _section(self.report, self.FLOW_H)
-        headers = [c.strip() for c in section.splitlines()[1].strip().strip("|").split("|")][1:]
+        headers = _table_headers(section)
         self.assertEqual(headers[-1], "Now*")
         self.assertEqual(headers[0], "W-7")
         # A flow covers a span, so the marker names a range.
@@ -721,7 +747,7 @@ class TestBacklogSections(unittest.TestCase):
 
     def test_flow_table_carries_a_negative_net(self):
         section = _section(self.report, self.FLOW_H)
-        headers = [c.strip() for c in section.splitlines()[1].strip().strip("|").split("|")][1:]
+        headers = _table_headers(section)
         rows = _table_rows(section)
         self.assertEqual(rows["Documentation"][headers.index("W-1")], "-1")
 
