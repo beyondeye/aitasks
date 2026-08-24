@@ -535,6 +535,11 @@ or `aiplans/` file — those landed in step 0's separate `./ait git` commit.
 - Five shipped verdicts have **no row** in the parent plan's §4 table — `PREFLIGHT_CHECKOUT_FAILED`, `PREFLIGHT_HEAD_MISMATCH`, `RETAINED`, `HOLDER_INCOMPLETE`, `FREE_GUARD_PRESENT`. Their dispositions are decided by this task rather than inherited, as is the stated deviation from §4a's "always finish" on foreign/absent locks. · severity: low (residual — every one is an explicit reviewable row, derived from the broker source, with the two inversion traps and the deviation called out by name) · → mitigation: inline post-phase structural_held_lock_invariant_assertion
 - The coverage test proves every verdict has a row *and* a non-contradicting branch; it cannot prove the branch's full prose instructs the agent well. · severity: low (residual — I1–I8 plus the linkage check make the wedge-producing and race-reopening classes executable; what remains unverified is wording quality, not disposition) · → mitigation: inline post-phase verb_coverage_drift_guard
 
+### Planned mitigations
+- timing: pre-phase | name: repin_injection_safety_pins | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: Test 4c deletes three injection-safety pins | desc: add the replacement broker-call injection pins before deleting the moved git-primitive pins
+- timing: post-phase | name: structural_held_lock_invariant_assertion | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: coverage proves verdict presence but not branch correctness; five verdicts whose dispositions this task decides; the four-hop procedure cycle | desc: assert invariants I1-I8 executably over the parsed disposition table plus the bidirectional handoff anchors
+- timing: post-phase | name: verb_coverage_drift_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: a future broker verb would escape coverage silently | desc: assert the tested verb set equals --list-verdicts' verbs minus force-release
+
 ## Final Implementation Notes
 
 - **Actual work done:** New `.claude/skills/task-workflow/merge-broker.md` (590
