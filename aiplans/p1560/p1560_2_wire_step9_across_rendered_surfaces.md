@@ -1,140 +1,519 @@
 ---
 Task: t1560_2_wire_step9_across_rendered_surfaces.md
 Parent Task: aitasks/t1560_serialize_step9_merge_across_concurrent_tasks.md
-Sibling Tasks: aitasks/t1560/t1560_1_*.md, aitasks/t1560/t1560_3_*.md
-Archived Sibling Plans: aiplans/archived/p1560/p1560_*_*.md
+Sibling Tasks: aitasks/t1560/t1560_3_document_merge_mutex_and_audit_merge_paths.md, aitasks/t1560/t1560_4_manual_verification_serialize_step9_merge.md
+Archived Sibling Plans: aiplans/archived/p1560/p1560_1_merge_mutex_and_broker_script.md
 Base branch: main
 Output branch: main
-plan_verified: []
+plan_verified:
+  - claudecode/opus5 @ 2026-08-24 17:55
 ---
 
-# t1560_2 — Wire Step 9 across every rendered surface
+# t1560_2 — Wire the Step 9 merge broker across every rendered surface
 
 ## Context
 
-Sibling **t1560_1** ships `.aitask-scripts/aitask_merge_task.sh` (the merge
-broker), `lib/merge_lock.sh` and three opt-in seams in `lib/stale_lock.sh`. This
-task replaces Step 9's inline, unserialized merge with calls to that broker, and
+Sibling **t1560_1** shipped `.aitask-scripts/aitask_merge_task.sh` (the merge
+broker), `lib/merge_lock.sh` and three opt-in seams in `lib/stale_lock.sh`.
+Nothing invokes it yet — `grep -rn aitask_merge_task` outside the broker's own
+files, its two tests and the five permission allowlists returns nothing. Step 9
+still performs the merge as inline, unserialized bash in the shared repo root,
+which is the concurrency hazard the parent task t1560 exists to close.
+
+This task replaces that inline critical section with broker calls, gives **every**
+verdict the broker can emit an explicit, verb-qualified disposition, and
 propagates the change to every rendered variant, port and golden.
 
-Read the parent plan
-`aiplans/p1560_serialize_step9_merge_across_concurrent_tasks.md` — its **§4**
-(Step 9 control flow, one branch per verdict) and **§4a** (the verification
-window) are this task's specification. Then read
-`aiplans/archived/p1560/p1560_1_*.md`: **verdict strings must be taken from what
-shipped**, not from the plan's prose, in case the two diverged.
+Parent spec: `aiplans/p1560_serialize_step9_merge_across_concurrent_tasks.md`
+§4 (verdict control flow), §4a (the verification window), §5 (the prompt-drift
+finding). Verdict strings and their lock semantics come from the
+**implementation**, not that prose.
 
-`depends: [1560_1]`.
+### Findings from plan verification (the existing plan is stale on three points)
+
+1. **The cleanup block is already guarded.** Both t1560 and the current
+   `p1560_2` say Step 9's cleanup is an unguarded
+   `git worktree remove` / `rm -rf` / `git branch -d` sequence at
+   `SKILL.md:836-841` that "must gain the error handling it currently lacks".
+   **t1548 already fixed that.** It is now
+   `./.aitask-scripts/aitask_task_worktree.sh remove <task_name> --strict`, run
+   bare, at `SKILL.md:841-851`. The broker's `cleanup` verb delegates to that
+   same helper, so this change is about running cleanup **under the reservation**
+   and branching its verdicts — not about adding error handling.
+
+2. **`tests/test_skill_render_task_workflow.sh` Test 4c will break.** Named by
+   neither the task nor the plan. It pins three literals that move into the
+   broker: `git checkout "$output_branch" --`,
+   `git rev-parse --verify --quiet "refs/heads/$output_branch"`, and
+   `git merge "aitask/<task_name>"`. `UNSAFE_OUTPUT_BRANCH` survives — it is now
+   a broker verdict — as do the `Resolve the merge target` and
+   `output_branch=$(sed -n 's/^Output branch: //p'` assertions.
+
+3. **The shipped vocabulary is larger than §4's table, and two of the additions
+   invert its assumptions.** §4 has no row for `PREFLIGHT_CHECKOUT_FAILED`,
+   `PREFLIGHT_HEAD_MISMATCH`, `RETAINED`, `HOLDER_INCOMPLETE` or
+   `FREE_GUARD_PRESENT`. Two of these are traps:
+   - `PREFLIGHT_CHECKOUT_FAILED` / `PREFLIGHT_HEAD_MISMATCH` were **split out of
+     `MERGE_FAILED`** by t1560_1 precisely because `MERGE_FAILED` retains the
+     reservation and these **release** it — so treating them like `MERGE_FAILED`
+     would run held-lock recovery against a free lock.
+   - `RETAINED:<inner>` wraps a verdict that *reads* like a release but means
+     **the lock is still held**. Treating it as its inner verdict wedges the lock.
+
+The plan's own "what is NOT needed" claim **is** correct and is kept:
+`workflow_phase.py:103` and `test_workflow_phase_prompt_drift.sh:60,104` both
+match the 39-character prefix `Proceed with merge of code changes into`;
+everything after `into` is outside both guards. Guard A greps
+`.claude/skills/task-workflow/` recursively for `hits >= 1`.
+
+### Decisions taken with the user
+
+- **Extract to a procedure file.** The broker control flow goes in a new
+  `.claude/skills/task-workflow/merge-broker.md`, invoked from Step 9 — the
+  pattern already used by `remote-drift-check.md`, `merge-target-sync.md` and
+  `gate-recording.md`.
+- **Coverage scope is `begin` / `finish` / `abort` / `cleanup` / `status`** — the
+  five verbs Step 9 invokes; **41 verb-qualified rows** over 30 distinct tokens.
+  `force-release` is excluded: it is a human recovery ladder run outside the
+  workflow, documented by **t1560_3**.
+
+Both deviate from the acceptance criteria as written (which name
+`SKILL-{default,fast,remote}.md` as the coverage target and four verbs), so the
+task file and the durable plan are amended **first** — step 0 below.
 
 ## Implementation
 
-### Step 1 — The Jinja source `.claude/skills/task-workflow/SKILL.md`
+### Pre-phase (risk mitigations)
 
-This is the **only** hand-edited copy; everything else is rendered from it.
+1. [repin_injection_safety_pins] **Before** removing any of Test 4c's three
+   assertions in `tests/test_skill_render_task_workflow.sh`, add their
+   replacements in the same edit: assert the rendered Step 9 invokes
+   `aitask_merge_task.sh begin` passing `"$output_branch"` as a bound, quoted
+   shell variable, and assert (via a counted `grep -cE`, expecting 0) that no
+   rendered command line substitutes the literal `<output_branch>` placeholder.
+   Only once the replacements are in the file may the three moved git-primitive
+   pins be deleted. The injection-safety property must never be unpinned, not
+   even between two edits of one commit.
 
-Re-locate the merge block (currently around `:778-791`) and the cleanup block
-(currently around `:836-841`) — line numbers drift. Replace with:
+### 0. Amend the acceptance criteria — and commit it separately
 
-1. an `aitask_merge_task.sh status` probe **before** the approval prompt, so the
-   question can name the task it is queued behind;
-2. `begin` / `finish` / `abort` around the merge;
-3. the broker's guarded `cleanup … --task-complete` verb in place of the
-   unguarded `git worktree remove` / `rm -rf` / `git branch -d` sequence, plus
-   its `CLEANED_PARTIAL` branch. This is the parent task's "cleanup must gain the
-   error handling it currently lacks" requirement.
+Update `aitasks/t1560/t1560_2_wire_step9_across_rendered_surfaces.md` and
+`aiplans/p1560/p1560_2_wire_step9_across_rendered_surfaces.md` to record: the
+procedure extraction and its golden, the five-verb coverage scope, the
+disposition-table contract below, finding 1 (cleanup already guarded by t1548),
+and finding 2 (Test 4c). No silent deviation.
 
-Render **every row** of parent-plan §4 and §4a, and include this invariant
-sentence verbatim in the skill text:
+**Commit boundary — task data goes in its own commit, through `./ait git`.**
+Files under `aitasks/` and `aiplans/` are committed with `./ait git`, never plain
+`git` (CLAUDE.md). Land the amendment on its own, path-scoped, **before** any
+source edit:
 
-> Every path on which the broker reported the lock **held** ends in exactly one
-> `finish` or `abort`. Every path on which it is **not** held calls neither, and
-> never proceeds to verification, cleanup or archival.
+```bash
+# -m goes BEFORE the `--`; after it git reads it as a pathspec and fails.
+./ait git commit -o -m "ait: Amend t1560_2 AC for the merge-broker procedure extraction (t1560_2)" -- \
+  aitasks/t1560/t1560_2_wire_step9_across_rendered_surfaces.md \
+  aiplans/p1560/p1560_2_wire_step9_across_rendered_surfaces.md
+```
 
-Two branches are easy to get wrong:
+`-o --` commits exactly those paths and ignores whatever else is staged. The
+implementation, tests, rerender and goldens land later in a separate `feature:`
+commit — an amended AC mixed into the implementation commit is unreviewable,
+because the reviewer cannot tell which came first.
 
-- **`ABORT_UNSAFE:<state>:<remedy_flag>`** — the rendered text must **echo the
-  broker-supplied `<remedy_flag>`**, never a hardcoded `--abort-merge` or
-  `--reset-hard`. The broker owns the state→remedy mapping; a hardcoded command
-  sends the user to a `WRONG_REMEDY` refusal in the state it does not match.
-- **In-flight exits must not clean up.** `cleanup` deletes `aitask/<task_name>`
-  and its worktree, so every §4a row that leaves the task in-flight
-  (`error` / `blocked` / `pending` / `gates_rc` nonzero / "release and stop
-  here") calls `finish` **alone** and retains the branch. Deleting it would
-  destroy the branch the `POSTIMPL` resume must re-merge — and would falsify Re-
-  entry Routing's own claim that `aitask/<task_name>` "already exists" at
-  re-entry.
+### 1. The disposition table — the canonical, machine-checkable contract
 
-The **non-skippable merge-approval banner stays intact**. The mutex serializes
-the merge; it is not a reason to auto-approve it.
+`merge-broker.md` carries **one table row per (verb, verdict) pair**, and that
+table is what the coverage test parses. A verb-qualified row is the unit of
+coverage: `NOT_HELD` appears under `finish`, `abort` **and** `cleanup`, and
+`RETAINED` under `begin`, `finish` and `abort`, so a token-union check would pass
+with an entire verb's branch missing. Prose alone cannot be asserted on; the
+table can.
 
-The "queued behind t\<N\>" clause goes at the **end** of the question — see
-Step 2.
+Five closed-vocabulary columns. `terminal-release` is deliberately **not** named
+"release-call": it is the release verb that *terminates* the path, not one to
+call on receipt of the verdict. `lock-through` is what says when.
 
-### Step 2 — What is NOT needed (verify, do not assume)
+| column | values |
+|---|---|
+| `lock` (at verdict time) | `ours-held` · `not-ours` · `none` |
+| `terminal-release` | `finish` · `abort` · `ladder` · `none` |
+| `lock-through` (stages the reservation spans *before* that release) | `n/a` · `immediate` · `verification` · `verification+cleanup` |
+| `continues-to` | `approval` · `verification` · `archival` · `caller-path` · `stop-in-flight` · `stop` · `recovery` |
+| `terminal-lock` | `released` · `held-ladder` · `n/a` |
 
-The parent task expected `tests/test_workflow_phase_prompt_drift.sh:60,104` and
-`.aitask-scripts/lib/workflow_phase.py:103` to need updating. They do **not**,
-provided the new clause is appended to the end: both match on the **prefix**
-`Proceed with merge of code changes into`.
+`ladder` = the reservation is held and this branch makes **no further broker
+release call**; it hands the user the recovery ladder. `caller-path` = resume
+whatever path called this verb.
 
-Prove it rather than assuming it — add an assertion that the new question form
-still matches `workflow_phase.WORKFLOW_PROMPTS` — and do not reword the prefix.
+**Alternation.** A row may carry `|`-separated alternatives in the four closed
+columns; all alternating cells in a row must have **equal arity**, and
+alternative *i* of each column pairs positionally with alternative *i* of the
+others. Each positional tuple must satisfy the invariants independently. The
+verdict cell is matched by **token prefix** (up to the first `:`), so a payload
+containing `\|` never confuses the parser.
 
-### Step 3 — New test: rendered-verdict coverage
+**The 41 rows.** Derived from the broker source, not from §4's prose:
 
-Every verdict string the broker can emit (`begin`, `abort`, `cleanup`, `finish`)
-must appear in the rendered
-`tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md`. Source the
-list from t1560_1's exported vocabulary (its `--list-verdicts` verb / delimited
-comment block), not from a hand transcription — a transcribed list silently rots.
+*`begin`* — `begin <task_id> "$output_branch" "aitask/<task_name>" --wait-secs 120`
 
-The same test asserts the rendered `ABORT_UNSAFE` branch carries **no** hardcoded
-`--abort-merge` / `--reset-hard` literal.
+| verdict | lock | terminal-release | lock-through | continues-to | terminal-lock |
+|---|---|---|---|---|---|
+| `MERGE_OK:<sha>` | ours-held | finish | verification+cleanup | verification | released |
+| `MERGE_CONFLICT:<paths>` | ours-held | finish\|abort | verification+cleanup\|immediate | verification\|stop-in-flight | released\|released |
+| `MERGE_FAILED:<msg>` | ours-held | abort | immediate | stop-in-flight | released |
+| `RETAINED:<inner>` | ours-held | finish\|ladder | immediate\|immediate | stop-in-flight\|recovery | released\|held-ladder |
+| `BUSY:<holder>:<waited>` | none | none | n/a | stop-in-flight | n/a |
+| `STALE_MERGE_RESIDUE` | none | none | n/a | stop | n/a |
+| `DIRTY_TREE:<n>` | none | none | n/a | stop | n/a |
+| `PREFLIGHT_MISSING:<b>` | none | none | n/a | stop | n/a |
+| `PREFLIGHT_FOREIGN_WORKTREE:<p>` | none | none | n/a | stop | n/a |
+| `PREFLIGHT_CHECKOUT_FAILED:<msg>` | none | none | n/a | stop | n/a |
+| `PREFLIGHT_HEAD_MISMATCH:<b>:<head>` | none | none | n/a | stop | n/a |
+| `UNSAFE_OUTPUT_BRANCH:<b>` | none | none | n/a | stop | n/a |
+| `NO_SESSION_ANCHOR` | none | none | n/a | stop | n/a |
+| `LOCK_UNAVAILABLE` | none | none | n/a | stop | n/a |
 
-**Negative control:** delete one verdict's branch from the Jinja source and
-confirm the test fails **naming that verdict**, not merely going red somewhere.
+*`finish`* — `finish <task_id>`
 
-### Step 4 — Rerender and goldens, in the same commit
+| verdict | lock | terminal-release | lock-through | continues-to | terminal-lock |
+|---|---|---|---|---|---|
+| `RELEASED` | none | none | n/a | caller-path | n/a |
+| `NOT_HELD` | none | none | n/a | caller-path | n/a |
+| `NOT_HOLDER:<t>` | not-ours | none | n/a | caller-path | n/a |
+| `NOT_OWNER_SESSION:<t>:<pid>` | not-ours | none | n/a | caller-path | n/a |
+| `HOLDER_INCOMPLETE` | not-ours | none | n/a | caller-path | n/a |
+| `RETAINED:release_failed` | ours-held | ladder | immediate | recovery | held-ladder |
 
-- `./.aitask-scripts/aitask_skill_rerender.sh` **once per profile** — `default`,
-  `fast`, `remote`. One call does not cover them all.
-- The Codex ports under `.agents/skills/task-workflow-*-codex-` and the OpenCode
-  ports under `.opencode/skills/task-workflow-*`.
-- Regenerate `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md`.
-- `./.aitask-scripts/aitask_skill_verify.sh` before committing.
+*`abort`* — `abort <task_id>`
 
-Stage explicitly by path — a rerender touches many targets, and only the
-task-workflow ones belong in this commit.
+| verdict | lock | terminal-release | lock-through | continues-to | terminal-lock |
+|---|---|---|---|---|---|
+| `ABORTED` | none | none | n/a | stop-in-flight | n/a |
+| `RELEASED_NO_MERGE` | none | none | n/a | stop-in-flight | n/a |
+| `ABORT_FAILED:<msg>` | ours-held | ladder | immediate | recovery | held-ladder |
+| `ABORT_UNSAFE:<state>:<remedy_flag>` | ours-held | ladder | immediate | recovery | held-ladder |
+| `NOT_HELD` | none | none | n/a | stop-in-flight | n/a |
+| `NOT_HOLDER:<t>` | not-ours | none | n/a | stop-in-flight | n/a |
+| `NOT_OWNER_SESSION:<t>:<pid>` | not-ours | none | n/a | stop-in-flight | n/a |
+| `HOLDER_INCOMPLETE` | not-ours | none | n/a | stop-in-flight | n/a |
+| `RETAINED:<inner>` | ours-held | ladder | immediate | recovery | held-ladder |
+
+*`cleanup`* — `cleanup <task_id> <task_name> --task-complete` (never releases)
+
+| verdict | lock | terminal-release | lock-through | continues-to | terminal-lock |
+|---|---|---|---|---|---|
+| `CLEANED` | ours-held | finish | immediate | archival | released |
+| `CLEANED_PARTIAL:<remains>` | ours-held | finish | immediate | archival | released |
+| `CLEANUP_REQUIRES_COMPLETION` | ours-held | finish | immediate | stop-in-flight | released |
+| `TARGET_MISMATCH:<recorded>` | ours-held | finish | immediate | stop-in-flight | released |
+| `NOT_HELD` | none | none | n/a | stop-in-flight | n/a |
+| `NOT_HOLDER:<t>` | not-ours | none | n/a | stop-in-flight | n/a |
+| `NOT_OWNER_SESSION:<t>:<pid>` | not-ours | none | n/a | stop-in-flight | n/a |
+| `HOLDER_INCOMPLETE` | not-ours | none | n/a | stop-in-flight | n/a |
+
+*`status`* — `status` (never acquires)
+
+| verdict | lock | terminal-release | lock-through | continues-to | terminal-lock |
+|---|---|---|---|---|---|
+| `FREE` | none | none | n/a | approval | n/a |
+| `FREE_GUARD_PRESENT:<dir>.gc` | none | none | n/a | approval | n/a |
+| `HELD:<t>\|<pid>\|<live>\|<branch>\|<at>` | not-ours | none | n/a | approval | n/a |
+| `HOLDER_INCOMPLETE:<pid>\|<live>` | not-ours | none | n/a | approval | n/a |
+
+Notes the prose beside the table must carry:
+
+- **`MERGE_OK` does not release now.** Its `finish` is terminal, reached only
+  after verification *and* cleanup. Releasing on receipt would hand the shared
+  tree to another task while `ait gates run` is reading it — the contamination
+  hazard the reservation exists to prevent. `lock-through` is the column that
+  says so, and `I6` is what enforces it.
+- `RETAINED` is the trap: **the reservation is still held** even though the inner
+  verdict reads like a release. On `begin` it attempts exactly one `finish`; if
+  that does not report `RELEASED`, the ladder takes over and the terminal state
+  is `held-ladder`. On `finish` / `abort` the release has already been attempted,
+  so the branch goes straight to the ladder — never a second release call.
+- `PREFLIGHT_CHECKOUT_FAILED` / `PREFLIGHT_HEAD_MISMATCH` **release**. They were
+  split out of `MERGE_FAILED` for exactly this reason; calling `abort` on them
+  runs held-lock recovery against a free lock.
+- `ABORT_UNSAFE:<state>:<remedy_flag>` must **echo the broker-supplied
+  `<remedy_flag>`** into the `force-release <flag> --yes` instruction — never a
+  hardcoded `--abort-merge` / `--reset-hard`. All three shipped states currently
+  carry `--reset-hard`; hardcoding it would be accidentally correct today and
+  wrong the moment the broker's state→remedy mapping grows.
+- **A stated deviation from §4a's "any refusal verdict → still `finish`".** That
+  holds only where the broker reports **our** lock still held
+  (`CLEANUP_REQUIRES_COMPLETION`, `TARGET_MISMATCH`). Where it reports the lock
+  absent (`NOT_HELD`) or foreign (`NOT_HOLDER` / `NOT_OWNER_SESSION` /
+  `HOLDER_INCOMPLETE`), `terminal-release` is `none`: a second call cannot change
+  the outcome, and releasing another task's reservation is never correct.
+- `LOCK_UNAVAILABLE` is declared in `_VERDICTS_BEGIN` but only `force-release`
+  emits it. Its row exists because the vocabulary declares it; record the wart
+  for t1560_1 rather than editing the broker.
+- `BUSY` → name the holder, offer wait-and-retry (`--wait-secs 300`) / stop,
+  bounded at 3 declines.
+
+**The §4a verification-outcome table** is separate and also machine-checkable.
+Every row's `lock-through` includes `verification` — that is the executable form
+of "the reservation spans the gates run":
+
+| outcome | cleanup | terminal-release | lock-through | continues-to |
+|---|---|---|---|---|
+| all `pass`/`skip`, or no declared gates and `verify_build` passed | `--task-complete` | finish | verification+cleanup | archival |
+| `fail` caused by this task | no | none (keep holding) | verification | re-run under the reservation; after each failure offer "keep the reservation" / "release and stop here" |
+| `fail` pre-existing / unrelated | `--task-complete` | finish | verification+cleanup | archival |
+| `error` / `blocked:` / `pending` | no | finish | verification | stop-in-flight |
+| `gates_rc` nonzero | no | finish | verification | stop-in-flight |
+
+`abort` is valid on **no** §4a row — the merge commit already exists and
+`git merge --abort` cannot undo it. `finish` on an in-flight row is a **release,
+not a success claim**. Cleanup is a completion step only: every in-flight exit
+retains `aitask/<task_name>` and its worktree, because that is the branch the
+`POSTIMPL` resume re-merges.
+
+### 2. New `.claude/skills/task-workflow/merge-broker.md`
+
+Profile-invariant (no `{% if profile.* %}`). Sections, in this order and with
+these exact headings — they are the handoff anchors step 4 asserts on:
+
+- `## Carried state` — the four values that must remain valid across **every**
+  hop, and which no hop may be entered without: `task_id`, `task_name`,
+  `$output_branch` (bound and validated, never a literal), and `lock` (one of
+  `none` / `ours-held` / `not-ours`). A hop that cannot state the current `lock`
+  value must stop rather than guess.
+- `## Preconditions` — worktree mode only, under Step 9's existing
+  `**If a separate branch was created:**` prose gate. The broker has **no**
+  no-task-branch guard: `begin` with `task_branch == output_branch` merges as
+  "Already up to date" and returns `MERGE_OK` **with the reservation held**, so
+  invoking it in current-branch mode acquires a lock nothing will release.
+- `## Invariant` — verbatim:
+
+  > Every path on which the broker reported the lock **held** ends in exactly one
+  > `finish` or `abort`. Every path on which it is **not** held calls neither, and
+  > never proceeds to verification, cleanup or archival.
+
+- `## Output contract` — exit status is disjoint from the verdict: `0` = a
+  verdict was produced (including `BUSY` and `MERGE_CONFLICT`), `1` =
+  infrastructure failure with nothing on stdout, `2` = usage error. Exactly one
+  verdict line on stdout; `WAITING:<holder>:<elapsed>` on stderr. Nonzero exit →
+  **stop and diagnose**; never fall through to a verdict branch.
+- `## Entry — acquire the reservation and merge` — in: `lock: none`. The `begin`
+  table and its 14 branches. The tag/detached-HEAD and foreign-worktree
+  explanations move here from Step 9's pre-flight prose, since the broker now
+  performs those checks.
+- `## Return to Step 9 — Verify implementation` — out: `lock: ours-held`, and it
+  **stays** `ours-held` for the whole of Step 9's verification block. Hands
+  control back to Step 9.
+- `## Re-entry — release decision` — in: `lock: ours-held` plus the gates
+  outcome. The §4a table.
+- `## Exit — cleanup and release` — the `cleanup`, `finish` and `abort` tables.
+  Terminal state is `lock: none` on the archival path **and on every ordinary
+  in-flight exit** (released; task and branch retained). **Rows whose
+  `continues-to` is `recovery` are exempt:** their terminal state is
+  `held-ladder` — the reservation is still held, the agent must say so in plain
+  words, must not report a released lock, and must not take ordinary in-flight
+  routing. They leave via `## Recovery ladder` instead.
+- `## Recovery ladder` — where every `held-ladder` row goes: `status`, then
+  `force-release` echoing the broker-named remedy flag, `rmdir <lock_dir>.gc`
+  first if a guard leaked. Point at it; do not render `force-release`'s own
+  verdicts (t1560_3).
+
+**Per-verdict branches.** Below the tables, each of the 41 rows gets exactly one
+operational branch introduced by a level-4 heading `#### <verb> / <TOKEN>` (e.g.
+`#### begin / MERGE_OK`). The branch body must name that row's
+`terminal-release` and `continues-to` values in its instructions. The heading is
+the linkage anchor step 4.7 asserts on — a correct table is worthless if the
+prose beside it says something else.
+
+The verification block **stays in `SKILL.md`** because
+`tests/test_gate_verifiers.sh:246` pins `ait gates run` and the engine sentinel
+to that exact file, and the `record_gates` Jinja block lives with it. That is
+what creates the Step 9 → procedure → Step 9 → procedure hop sequence; the named
+headings above plus the `## Carried state` block are what make it auditable
+instead of implicit.
+
+### 3. Step 9 in `.claude/skills/task-workflow/SKILL.md`
+
+The **only** hand-edited copy. Re-locate the blocks; line numbers drift.
+
+- Keep the `output_branch` resolution block unchanged (`:731-748`).
+- Replace the inline pre-flight (`:750-763`) with the **queue probe**:
+  `aitask_merge_task.sh status`, four verdicts branched inline per the table — it
+  stays here because it shapes the approval question.
+- Keep the **non-skippable banner** (`:765-775`) byte-identical.
+- Append the queued clause to the **end** of the approval question, leaving the
+  prefix untouched: `… branch (<provenance>)? Queued behind t<N>.` — rendered
+  only when the probe reported `HELD`.
+- Keep the `record_gates` merge_approved block (`:778-781`).
+- Replace the `git status --porcelain` check (`:783-786`), the
+  checkout/symbolic-ref/merge block (`:788-794`) and the one-line conflict
+  handler (`:796`) with the hand-off to `merge-broker.md`
+  `## Entry — acquire the reservation and merge`.
+- Keep the verification block (`:798-839`) where it is, prefixed by a line naming
+  it as the re-entry target of `## Return to Step 9 — Verify implementation` and
+  stating that the reservation is held for its entire duration, and suffixed by
+  the hand-off to `## Re-entry — release decision`. Those two lines bracket
+  `ait gates run`, which is what step 4.6 asserts positionally.
+- Replace the cleanup block (`:841-851`) — cleanup now happens inside
+  `## Exit — cleanup and release`.
+- Archival and everything below unchanged, prefixed by a line stating it is
+  entered with `lock: none`.
+
+### 4. Tests
+
+**`tests/test_merge_broker_rendered_verdicts.sh`** (new). For each profile it
+renders `SKILL.md` and `merge-broker.md` via
+`.aitask-scripts/lib/skill_template.py` and parses the **disposition tables** out
+of the rendered `merge-broker.md` — never a token grep over concatenated prose.
+
+1. **Coverage.** Parse `./.aitask-scripts/aitask_merge_task.sh --list-verdicts`
+   (the live seam, never a transcription). For each of the five verbs and each of
+   its verdict tokens, assert **exactly one** row exists under that verb's table
+   whose verdict cell starts with that token. Missing → fail printing
+   `MISSING_ROW:<verb>:<token>`; duplicated → `DUPLICATE_ROW:<verb>:<token>`.
+   Also assert no row exists for a token the broker does not declare
+   (`UNKNOWN_ROW:<verb>:<token>`), so the table cannot drift ahead of the broker.
+2. **Closed vocabularies + arity.** Every cell value must come from its column's
+   set; all alternating cells in a row must have equal arity. Failures name the
+   row and column.
+3. **`ABORT_UNSAFE` remedy.** The `abort`/`ABORT_UNSAFE` row and its
+   `#### abort / ABORT_UNSAFE` branch contain no literal `--abort-merge` /
+   `--reset-hard`, scoped to that block (the recovery ladder legitimately names
+   flags).
+4. **Prompt compatibility.** Extract the rendered merge-approval question and
+   regex-search it with the real `workflow_phase.WORKFLOW_PROMPTS`. This is the
+   plan's "prove it, don't assume it".
+5. **Handoff anchors.** Each of the four handoff headings appears in the rendered
+   `merge-broker.md`, and `SKILL.md` references each by name — asserted in both
+   directions, so moving one side without the other fails.
+6. **Handoff ordering (release-after-verification, structurally).** In the
+   rendered `SKILL.md`, the reference to
+   `## Return to Step 9 — Verify implementation` appears at a **lower line number
+   than** the `ait gates run` line, and the reference to
+   `## Re-entry — release decision` at a **higher** one. This is what proves the
+   gates run is entered *and completed* inside the held window, on the rendered
+   output rather than the source.
+7. **Branch linkage.** For every row, exactly one `#### <verb> / <TOKEN>` heading
+   exists (`MISSING_BRANCH` / `DUPLICATE_BRANCH`), every such heading has a row
+   (`ORPHAN_BRANCH`), and the branch body names that row's `terminal-release` and
+   `continues-to` values (`BRANCH_CONTRADICTS_ROW:<verb>:<token>:<column>`).
+
+**Negative controls** — each a single mutation on a scratch copy of
+`merge-broker.md`, each of which must fail *naming the specific row and check*:
+
+- delete the `cleanup` / `NOT_HELD` **row** → `MISSING_ROW:cleanup:NOT_HELD`
+  **while the `finish` and `abort` `NOT_HELD` rows remain present**. This is the
+  duplicated-name control: a token-union check passes here, so it pins that the
+  check is genuinely verb-qualified.
+- delete the `begin` / `RETAINED` row → `MISSING_ROW:begin:RETAINED` while
+  `finish`/`RETAINED` and `abort`/`RETAINED` remain.
+- flip `begin` / `MERGE_OK`'s `lock-through` from `verification+cleanup` to
+  `immediate` → must fail **`I6`** naming `begin:MERGE_OK` — *not* the coverage
+  check and *not* `I1`. This is the release-ordering control: the pre-rename
+  plan's `I1` accepted this mutation, which is the merge race reopening.
+- rewrite the `#### abort / ABORT_FAILED` branch body to instruct `finish`
+  instead of `ladder` → must fail
+  `BRANCH_CONTRADICTS_ROW:abort:ABORT_FAILED:terminal-release`, proving the
+  linkage check catches a table that is right beside prose that is wrong.
+
+**`tests/test_skill_render_task_workflow.sh`:** add `merge-broker.md` to
+`WRAPPED_FILES_INVARIANT`, and complete the pre-phase's re-pin-then-delete of
+Test 4c's three moved assertions.
+
+### Post-phase (risk mitigations)
+
+1. [structural_held_lock_invariant_assertion] In
+   `tests/test_merge_broker_rendered_verdicts.sh`, assert the invariants
+   **executably** over the parsed table, per positional alternative:
+   - `I1` `lock=ours-held` ⟹ `terminal-release ∈ {finish, abort, ladder}`
+   - `I2` `lock ∈ {none, not-ours}` ⟹ `terminal-release=none` ∧ `lock-through=n/a` ∧ `terminal-lock=n/a`
+   - `I3` `continues-to ∈ {verification, archival}` ⟹ `lock=ours-held`
+   - `I4` `continues-to=archival` ⟹ `terminal-release=finish`
+   - `I5` §4a table: `cleanup=no` ⟹ `continues-to ≠ archival`
+   - `I5b` §4a table: every row's `lock-through` contains `verification`
+   - `I6` `continues-to=verification` ⟹ `lock-through ∈ {verification, verification+cleanup}` — **no branch may release before the gates run completes**
+   - `I7` `terminal-release=ladder` ⟺ `continues-to=recovery` ⟺ `terminal-lock=held-ladder`
+   - `I8` `terminal-release ∈ {finish, abort}` ⟹ `terminal-lock=released`
+   Each violation fails naming `<verb>:<verdict>` and the invariant id.
+   *(Disposition changed from the confirmed `after`/spawned to inline
+   `post-phase`: once the dispositions are a parsed table rather than prose, a
+   safe enforceable version costs a handful of assertions and belongs with the
+   first live consumer of the broker — this task — rather than after it.)*
+2. [verb_coverage_drift_guard] Parse the verb names from `--list-verdicts` (the
+   token before each `:`), subtract `force-release`, and assert the result equals
+   the tested set `begin finish abort cleanup status` exactly. A verdict added to
+   an existing verb is already caught because the vocabulary is sourced live;
+   this closes the remaining hole, where a **new verb** would ship with no
+   rendered branch and no failing test. Fail printing the unexpected/missing verb
+   names.
+
+### 5. Rerender, goldens and ports — same commit
+
+```bash
+for p in default fast remote; do ./.aitask-scripts/aitask_skill_rerender.sh "$p"; done
+```
+
+One positional profile argument, no flags; each invocation covers that profile
+across claude/codex/opencode, so the `.agents/…-codex-` and `.opencode/…` ports
+need no separate step. `merge-broker.md` is picked up automatically — the
+dep-walker discovers backtick-wrapped refs whose file exists, so no manifest
+registration.
+
+Regenerate goldens with the documented loop: `SKILL-{default,fast,remote}.md`,
+plus a single canonical `merge-broker-default.md` (profile-invariant files keep
+one golden plus the byte-equality invariance assertion — the coverage test
+asserts against the three live **renders**, so per-profile coverage is proven
+regardless of golden count).
+
+Stage explicitly by path: a rerender touches many targets and only the
+task-workflow ones belong in this commit. This commit contains **no** `aitasks/`
+or `aiplans/` file — those landed in step 0's separate `./ait git` commit.
 
 ## Verification
 
-- `bash tests/test_workflow_phase_prompt_drift.sh` — passes unchanged
+- `bash tests/test_merge_broker_rendered_verdicts.sh` — passes; each of the four
+  negative controls fails naming its specific row and check id
+- `bash tests/test_skill_render_task_workflow.sh` — golden diffs green, Test 4c
+  green against the re-pinned assertions
+- `bash tests/test_workflow_phase_prompt_drift.sh` — passes **unchanged**
+- `bash tests/test_gate_verifiers.sh` — Test 6 still finds `ait gates run` and the
+  engine sentinel in `SKILL.md`
 - `bash tests/test_skill_render.sh`, `bash tests/test_skill_verify.sh`
-- the new rendered-verdict coverage test, **plus its negative control**
 - `./.aitask-scripts/aitask_skill_verify.sh` exits 0
-- `git diff` on the goldens is reviewable and matches the Jinja change
-- read the rendered `SKILL-fast.md` and confirm no in-flight row reaches
-  `cleanup` — check the **rendered** output, not the Jinja source
+- `shellcheck tests/test_merge_broker_rendered_verdicts.sh`
+- Read the **rendered** `merge-broker-default.md` and confirm no §4a in-flight row
+  reaches `cleanup`, and that no `recovery` branch claims a released lock
+- `git log --oneline -2` shows the `ait:` task-data commit **before** the
+  `feature:` implementation commit, with no overlap in paths
+- `git diff` on the goldens is reviewable and matches the source change
 
 ## Notes for the implementer
 
-- This repo has **no `fast_worktree` profile** — only `default` / `fast` /
-  `remote` exist under `aitasks/metadata/profiles/`. The parent task's mention of
-  one refers to downstream installs.
-- **Verify, do not assume**, that Re-entry Routing's `POSTIMPL` text still holds.
-- Under `create_worktree: false` (this repo's own `fast.yaml:5`) there is no task
-  branch and the merge block does not run at all — the broker must **not** be
-  invoked there.
-- Read `aidocs/framework/skill_authoring_conventions.md` before editing.
-
-## Step 9 (Post-Implementation)
-
-Standard cleanup, archival and merge per the shared workflow's Step 9.
+- Only `default`/`fast`/`remote` exist here; the parent's `fast_worktree` is a
+  downstream install.
+- Under this repo's own `fast.yaml` (`create_worktree: false`) the merge block
+  never runs, so day-to-day use will not exercise this — the tests are the only
+  regression net.
+- Re-entry Routing's `POSTIMPL` claim that `aitask/<task_name>` already exists
+  holds **because** no in-flight row cleans up. If a rendered branch cleans up
+  before archival, that is the bug.
 
 ## Non-goals
 
-- No changes to the broker script — **t1560_1**. If a verdict is missing or
-  misshapen, note it and coordinate rather than editing it here.
-- No website docs — **t1560_3**.
-- **No fetch added to Step 9** — that is **t1393**. Record in the Final
-  Implementation Notes that t1393's wiring point is now the broker script.
+- No changes to the broker — **t1560_1**. Two warts to record and coordinate
+  rather than fix: `LOCK_UNAVAILABLE` is declared in `_VERDICTS_BEGIN` but only
+  `force-release` emits it; and a flag given without its value (`--wait-secs`)
+  exits 1 under `set -e` instead of 2.
+- No website docs, no audit of the other merge paths — **t1560_3**.
+- **No fetch added to Step 9** — **t1393**. Record in Final Implementation Notes
+  that t1393's wiring point is now the broker script.
+
+## Risk
+
+### Code-health risk: medium
+- Step 9 is the framework's most consequential agent-executed procedure, and this rewrites its critical section. Because the artifact is instructions rather than executable code, a wrong branch surfaces as an agent doing the wrong thing, not as a crash — and this repo's own `fast` profile (`create_worktree: false`) never runs the block, so local use will not catch it. · severity: medium (residual — the disposition table plus I1–I8 make the lock-wedging and release-ordering classes machine-detectable; branch *wording* beyond the linkage check remains unverified) · → mitigation: inline post-phase structural_held_lock_invariant_assertion
+- Rewriting `test_skill_render_task_workflow.sh` Test 4c deletes three existing injection-safety pins (`git checkout "$output_branch" --`, the fully-qualified `rev-parse`, the quoted `git merge`). The property genuinely relocates into the broker, but deleting a guard rather than re-pinning it at its new home is how a safety property silently evaporates. · severity: low (residual — addressed by inline pre-phase repin_injection_safety_pins) · → mitigation: inline pre-phase repin_injection_safety_pins
+- The procedure extraction introduces a four-hop cycle (Step 9 → `## Entry` → Step 9 verification → `## Re-entry` → `## Exit`), which a later editor can break by moving one side. · severity: low (residual — the named handoff headings, the `## Carried state` block, the bidirectional anchor assertion and the positional ordering check in test steps 5–6 make a one-sided move fail the build) · → mitigation: inline post-phase structural_held_lock_invariant_assertion
+
+### Goal-achievement risk: low
+- Five shipped verdicts have **no row** in the parent plan's §4 table — `PREFLIGHT_CHECKOUT_FAILED`, `PREFLIGHT_HEAD_MISMATCH`, `RETAINED`, `HOLDER_INCOMPLETE`, `FREE_GUARD_PRESENT`. Their dispositions are decided by this task rather than inherited, as is the stated deviation from §4a's "always finish" on foreign/absent locks. · severity: low (residual — every one is an explicit reviewable row, derived from the broker source, with the two inversion traps and the deviation called out by name) · → mitigation: inline post-phase structural_held_lock_invariant_assertion
+- The coverage test proves every verdict has a row *and* a non-contradicting branch; it cannot prove the branch's full prose instructs the agent well. · severity: low (residual — I1–I8 plus the linkage check make the wedge-producing and race-reopening classes executable; what remains unverified is wording quality, not disposition) · → mitigation: inline post-phase verb_coverage_drift_guard

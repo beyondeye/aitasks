@@ -46,10 +46,15 @@ Replace the inline merge block (currently `SKILL.md:778-791` in the Jinja source
 1. a `aitask_merge_task.sh status` probe **before** the approval prompt, so the
    question can name the task it is queued behind;
 2. `begin` / `finish` / `abort` around the merge;
-3. the unguarded cleanup block (currently `SKILL.md:836-841`) replaced by the
-   broker's guarded `cleanup ... --task-complete` verb and its `CLEANED_PARTIAL`
-   branch. This is the "cleanup must gain the error handling it currently lacks"
-   requirement from the parent task.
+3. the cleanup block (now `SKILL.md:841-851`) routed through the broker's
+   `cleanup ... --task-complete` verb, with a branch per cleanup verdict
+   including `CLEANED_PARTIAL`. **Amended:** the parent task's "cleanup must
+   gain the error handling it currently lacks" premise is stale — **t1548**
+   already replaced the unguarded `git worktree remove` / `rm -rf` /
+   `git branch -d` sequence with a bare, `--strict`
+   `aitask_task_worktree.sh remove`, which is the same helper the broker's
+   `cleanup` delegates to. What this task adds is running cleanup **under the
+   reservation** and branching its verdicts, not error handling.
 
 **Render every row of parent-plan §4 and §4a**, including this invariant sentence
 verbatim in the skill text — it is what stops an agent proceeding to gates after
@@ -83,14 +88,48 @@ both match on the **prefix** `Proceed with merge of code changes into`.
 
 **Prove it, don't assume it:** add an assertion that the new question form still
 matches `workflow_phase.WORKFLOW_PROMPTS`, and do not reword the prefix.
+(Verified at plan verification: both guards match the 39-character prefix, and
+everything after `into` is outside them. Guard A greps
+`.claude/skills/task-workflow/` recursively for `hits >= 1`.)
+
+**Amended — one test this task did not name DOES need updating.**
+`tests/test_skill_render_task_workflow.sh` **Test 4c** pins three literals that
+move *into* the broker: `git checkout "$output_branch" --`,
+`git rev-parse --verify --quiet "refs/heads/$output_branch"` and
+`git merge "aitask/<task_name>"`. They must be **re-pinned before they are
+deleted** — replacement assertions that the rendered `begin` invocation passes
+`"$output_branch"` as a bound quoted variable and that no rendered command line
+substitutes the literal `<output_branch>` placeholder — so the injection-safety
+property is never unpinned, not even between two edits of one commit.
+`UNSAFE_OUTPUT_BRANCH` survives unchanged: it is now a broker verdict.
 
 ### 3. New test: rendered-verdict coverage
 
-Every verdict string the broker can emit — `begin`, `abort`, `cleanup` and
-`finish` alike — must appear in the rendered
-`tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md`. A verdict with
-no branch must **fail the build, not ship**. The same test asserts the
-`ABORT_UNSAFE` branch carries no hardcoded remedy literal.
+**Amended at plan verification — the control flow is extracted to a procedure
+file, and the coverage unit is a verb-qualified table row.**
+
+The broker control flow lives in a new
+`.claude/skills/task-workflow/merge-broker.md`, invoked from Step 9 (the pattern
+already used by `remote-drift-check.md` / `merge-target-sync.md` /
+`gate-recording.md`); rendering ~26 verdict branches inline would take Step 9
+from ~260 to ~410 lines across nine rendered surfaces. The coverage target is
+therefore the rendered `merge-broker.md` (canonical golden
+`tests/golden/procs/task-workflow/merge-broker-default.md`, plus the
+profile-invariance assertion) rather than `SKILL-{default,fast,remote}.md`.
+
+`merge-broker.md` carries **one row per (verb, verdict) pair** — 41 rows over 30
+distinct tokens — with closed-vocabulary `lock` / `terminal-release` /
+`lock-through` / `continues-to` / `terminal-lock` columns, and one
+`#### <verb> / <TOKEN>` operational branch per row. Coverage scope is the five
+verbs Step 9 invokes: `begin` / `finish` / `abort` / `cleanup` / **`status`**
+(the pre-approval holder probe). `force-release` is excluded — it is a human
+recovery ladder run outside the workflow, documented by **t1560_3**.
+
+A row-less verdict, an orphan branch, or a branch contradicting its row must
+**fail the build, not ship**, and the test also asserts the `ABORT_UNSAFE` branch
+carries no hardcoded remedy literal. Verb-qualification is the point:
+`NOT_HELD` appears under three verbs and `RETAINED` under three, so a token-union
+check passes with an entire verb's branch missing.
 
 ### 4. Rerender and goldens — in the same commit
 
@@ -107,10 +146,24 @@ no branch must **fail the build, not ship**. The same test asserts the
 - `.claude/skills/task-workflow/SKILL.md` — the Jinja source (the ONLY hand-edited copy)
 - `.aitask-scripts/aitask_skill_rerender.sh` — the rerender driver
 - `.aitask-scripts/aitask_skill_verify.sh` — run before committing
+- `.claude/skills/task-workflow/merge-broker.md` — the new procedure file
 - `tests/golden/procs/task-workflow/SKILL-{default,fast,remote}.md`
+- `tests/golden/procs/task-workflow/merge-broker-default.md` — canonical golden
+- `tests/test_merge_broker_rendered_verdicts.sh` — the new coverage test
+- `tests/test_skill_render_task_workflow.sh` — Test 4c re-pin; register the new
+  procedure in `WRAPPED_FILES_INVARIANT`
 - `tests/test_workflow_phase_prompt_drift.sh` — Guard A greps the literal prefix
 - `.aitask-scripts/lib/workflow_phase.py:96-108` — `WORKFLOW_PROMPTS`
 - `aidocs/framework/skill_authoring_conventions.md` — read before editing any `.md.j2` / skill file
+
+## Commit boundary
+
+`aitasks/` and `aiplans/` are symlinks into the `aitask-data` branch, so this
+amendment is committed **on its own**, path-scoped, through `./ait git`, before
+any source edit. The implementation, tests, rerender and goldens land in a
+separate `feature:` commit that contains no `aitasks/` or `aiplans/` path — an
+amended AC mixed into the implementation commit is unreviewable, because the
+reviewer cannot tell which came first.
 
 ## Verification
 
