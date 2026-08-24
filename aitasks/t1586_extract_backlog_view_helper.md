@@ -5,11 +5,15 @@ depends: []
 issue_type: refactor
 status: Implementing
 labels: [reporting, tui, backlog]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: risk_mitigation
 created_at: 2026-08-24 16:18
-updated_at: 2026-08-24 18:48
+updated_at: 2026-08-24 18:49
 ---
 
 ## Origin
