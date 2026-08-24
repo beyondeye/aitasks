@@ -268,3 +268,102 @@ the source, line by line, and correct any divergence:
 ### Planned mitigations
 - timing: post-phase | name: verdict_prose_crosscheck | type: documentation | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: destructive-remedy mis-mapping + liveness asymmetry (goal-achievement) | desc: walk every verdict name, remedy flag and residue-state mapping in the drafted prose against the force-release branches in aitask_merge_task.sh and the adapter deltas in merge_lock.sh, line by line, before commit
 - timing: after | name: merge_verdict_docs_drift_guard | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: destructive-remedy mis-mapping + liveness asymmetry, durably (goal-achievement) | desc: a test pinning the CURATED published recovery mapping in locks.md (the residue-state to remedy-flag pairs and the user-facing verdicts the page names) against the broker's behaviour — scoped to that curated set, never to the full --list-verdicts vocabulary, so a new workflow-internal verdict cannot fail the website guard
+
+---
+
+## Final Implementation Notes
+
+### What landed
+
+Two website pages, no skill files, no code.
+
+**`website/content/docs/concepts/locks.md`** — a framing sentence in
+`## What it is` naming the two locks, then a new `## The merge mutex` section
+with four sub-headings, all of which render as page-TOC entries
+(`#the-merge-mutex`, `#what-the-merge-mutex-excludes`,
+`#the-reservation-outlives-the-command`,
+`#before-a-merge-can-start-the-session-anchor`,
+`#recovering-a-stuck-merge-mutex`). Additions to `## Why it exists`,
+`## How to use` (stating that `ait lock` does **not** manage the merge mutex —
+the broker is not exposed through the `ait` dispatcher, so the existing text
+would have sent users to the wrong command) and `## See also`.
+
+**`website/content/docs/workflows/parallel-development.md`** — a new
+`## Serialized Merge-Back` section. Line 20 was accurate and was left as it was.
+
+Both pages keep the existing agent-set-agnostic phrasing, use `> **Note:**`
+rather than an `{{% alert %}}` shortcode (which appears zero times site-wide),
+and use absolute `{{< relref >}}` links.
+
+This also satisfies the dangling forward reference at
+`.claude/skills/task-workflow/merge-broker.md:607`, which says force-release's
+verdicts "are documented with the lock model rather than rendered here".
+
+### Audit outcome — all three merge paths
+
+| skill | disposition | evidence |
+|---|---|---|
+| `aitask-pickrem` | **Exempt** | No merge and no branch switch. Zero `git checkout\|merge\|switch` across the `.j2`, all three rendered variants and all six Codex/OpenCode ports. Its only push is the `./ait git` aitask-data wrapper. Explicit at `SKILL.md.j2:170`: "Remote mode always works on the current branch." |
+| `aitask-pickweb` | **Exempt** | Zero `git checkout\|merge\|switch\|push` across the `.j2` and all three rendered variants — its description ("No cross-branch operations") is literally true of current source. It is the *producer* whose consumer is web-merge. |
+| `aitask-web-merge` | **NOT exempt — hazard confirmed** | Merges `origin/<branch>` with `--no-ff --no-commit` (`:69`) in the shared repo root, never asserts HEAD (zero `git checkout` tokens — it assumes `main`), takes no lock, commits (`:92`) and pushes the target (`:167`). Deferred to **t1592**. |
+
+**Why web-merge was not fixed here.** The broker cannot be adopted as-is and this
+task's non-goals forbid changing it: `begin` runs a plain `git merge` that
+*creates* the commit (`aitask_merge_task.sh:207`), while web-merge needs the index
+left uncommitted to strip `.aitask-data-updated/` first; and `begin`'s
+`task_branch` is a local `aitask/<name>` ref while web-merge's source is a remote
+`origin/<branch>`. There is no acquire-only verb. Recorded as an explicit,
+user-approved deferral — **not** an exemption: the hazard is real and tracked.
+
+### Deviations from the task
+
+- **No Codex / OpenCode port follow-ups were created**, contrary to the task's
+  instruction to suggest them. Both web-merge ports are thin "Source of Truth"
+  pointer wrappers carrying no merge code, so a fix to the Claude Code file
+  propagates with no regeneration. The clause was vacuous.
+- **`aitask_skill_verify.sh` was not run.** Its precondition in the task's
+  verification list is "if `aitask-web-merge` gains the mutex"; it did not, and
+  this task edits no skill file at all.
+
+### Verification performed
+
+- `hugo build --gc --minify` → exit 0, **237 pages** (identical to the baseline
+  taken before any edit), and only the two pre-existing deprecation warnings.
+  Hugo fails the build on an unresolvable `relref`, so this *is* the
+  cross-reference check.
+- Heading anchors confirmed against the **rendered** HTML, not the source: every
+  anchor targeted by a cross-page link exists (`#the-merge-mutex`,
+  `#recovering-a-stuck-merge-mutex`, `#serialized-merge-back`).
+- Content greps: merge mutex, `NO_SESSION_ANCHOR`, both anchor remedies,
+  `force-release`, `--abort-merge`, `--reset-hard`, `REFUSED_LIVE_HOLDER` all
+  present on `locks.md`; serialization, the queued-behind statement and
+  `create_worktree: false` all present on `parallel-development.md`.
+- No-regression: zero `diffviewer` occurrences site-wide; no real repository name
+  on either page.
+
+### Post-phase mitigation `verdict_prose_crosscheck` — completed
+
+Every published claim was walked against source before commit:
+
+- verdict names against `aitask_merge_task.sh:498-505`;
+- residue-state → remedy mapping against the `force-release` branches at
+  `aitask_merge_task.sh:403-427` — `MERGE_HEAD` present → `--abort-merge`;
+  unmerged index / dirty tree with no `MERGE_HEAD` → `--reset-hard`, which warns
+  and prints `git status --porcelain` **before** resetting (the published "prints
+  exactly what it is about to discard first" is accurate);
+- `status` field list against the `HELD:<task_id>|<pid>|<liveness>|<output_branch>|<acquired_at>` format;
+- the liveness asymmetry: acquire protects `alive` **and** `unknown`
+  (`merge_lock.sh:50-54`), while force-release refuses only a literal `alive`
+  (`aitask_merge_task.sh:399-401`) — the page states both, and does not blur them;
+- the anchor remedies against `pid_anchor.sh:274-290`, including that the prose
+  states the *requirement* (a process representing and outliving the agent
+  session) rather than only the *check* the framework performs, and names both
+  failure directions;
+- the scope qualification: no sentence claims the mutex governs the shared
+  working tree in general, and the boundary note precedes the mechanism.
+
+One correction made during the cross-check: the first draft framed the mutex as
+deciding "who may drive the shared working tree". That over-claims — it governs
+only the merge paths that take it — and was rewritten, with the boundary moved
+to a `> **Note:**` directly under the section lead so a reader meets the
+qualification before the mechanism.
