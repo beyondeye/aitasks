@@ -475,3 +475,49 @@ coverage gap that drove it).
 ### Planned mitigations
 - timing: post-phase | name: escape_session_divider_label | type: bug | priority: medium | effort: low | inline_risk: low | added_complexity: high | addresses: code-health — unescaped session name in the shared divider seam | desc: escape the label in format_session_divider so a `[/]`-bearing tmux session name cannot raise MarkupError in either TUI's pane list
 - timing: post-phase | name: own_header_disambiguates_generic_session | type: enhancement | priority: medium | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement — the generic "aitasks" session identifies no repo | desc: substitute basename(project_root) for the session name in the own-panel header whenever the session name is the ambiguous literal "aitasks" (implicit fallback or explicit config alike), via the existing _root_for_snap seam
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-24 10:32)
+
+- **Requested by user:** A Step-8 review finding, verified CONFIRMED. During
+  implementation I added a `DefaultSessionConstantTests` case that imported
+  `.aitask-scripts/applink/server.py` from
+  `tests/test_minimonitor_own_header_session.py` and pinned applink's
+  independent `DEFAULT_SESSION` equal to the launcher's `DEFAULT_TMUX_SESSION`.
+  The approved plan (post-phase 2a) deliberately kept applink out of scope
+  **except for a comment**. The guard exceeded that scope and, worse, would have
+  *created* a cross-subsystem contract — turning an independent listener default
+  into a shared one — as a side effect of a minimonitor header test, rather than
+  recording a decision to have such a contract. Remedy offered: move the guard to
+  an applink/launcher-focused module if the contract is intended, or retain the
+  planned comment-only change. Disposition: follow-up.
+
+- **Changes made:**
+  1. Deleted `test_applink_keeps_the_same_value` and the
+     `.aitask-scripts/applink` `sys.path` insertion from
+     `tests/test_minimonitor_own_header_session.py`. The module no longer
+     imports applink at all — it survives only as a docstring reference.
+  2. **Kept** the sibling `test_read_default_session_returns_the_constant`. The
+     finding was specifically about the cross-subsystem import; this case is
+     entirely inside `agent_launch_utils`, pins that `_read_default_session`
+     *derives* both returns from the constant rather than restating the literal,
+     and is what stops the substitution rule from keying off a value the resolver
+     no longer returns. Its class docstring now states why applink is
+     deliberately excluded.
+  3. Rewrote the `.aitask-scripts/applink/server.py:39` comment. It had been
+     edited mid-implementation to claim the equality was test-enforced; it now
+     says plainly that **nothing enforces it** and names the follow-up. A comment
+     asserting an enforcement that does not exist is worse than no comment.
+  4. Created **t1583** (`chore`, `followup-kind: review_finding`,
+     `followup-of: 1580`) to answer the actual open question — are these one
+     contract or two independent defaults? — before any guard is written. Its
+     acceptance criteria require the decision to be recorded either way, and
+     require any guard to live in an applink- or launcher-focused module.
+
+- **Not changed:** the substance of post-phase 2a (the `DEFAULT_TMUX_SESSION`
+  constant and the two rerouted `_read_default_session` returns) is untouched —
+  it was in scope and approved.
+
+- **Re-verified after the change:** `test_minimonitor_own_header_session.py`
+  27 passed (was 28; one case removed).
