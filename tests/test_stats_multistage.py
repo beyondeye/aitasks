@@ -494,7 +494,17 @@ def _check_with_backlog_off(tmp: Path) -> None:
     assert_eq("total_tasks unaffected", on.total_tasks, off.total_tasks)
     assert_eq("daily_counts unaffected", on.daily_counts, off.daily_counts)
     assert_eq("inflight unaffected", on.inflight.task_ids, off.inflight.task_ids)
-    assert_eq("csv_rows unaffected", on.csv_rows, off.csv_rows)
+    # csv_rows gained two columns in t1544_4. The PRE-EXISTING ten are still
+    # identical either way -- that is what "purely subtractive" claims -- and so
+    # is created_at, which needs no classification. Only `category` is
+    # conditional, because populating it would mean calling resolve_category,
+    # which is exactly the work this flag exists to skip. Both directions are
+    # pinned below so the semantic is a contract, not an accident.
+    assert_eq("csv_rows unaffected (pre-existing columns)",
+              [r[:11] for r in on.csv_rows], [r[:11] for r in off.csv_rows])
+    assert_true("csv_rows category empty when off", all(r[11] == "" for r in off.csv_rows))
+    assert_true("csv_rows category populated when on", all(r[11] for r in on.csv_rows))
+    assert_true("csv_rows non-empty (the assertions above are not vacuous)", len(on.csv_rows) > 0)
     assert_eq("phase_timings unaffected", on.phase_timings.implement_hours,
               off.phase_timings.implement_hours)
 

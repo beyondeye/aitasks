@@ -1377,6 +1377,14 @@ def collect_stats(
             codeagent_display_names[implementation.codeagent_key] = implementation.codeagent_display
             model_display_names[implementation.model_key] = implementation.model_display
 
+        # The two appended columns are the other half of a contract with
+        # `aitask_stats.write_csv`'s header -- edit them in lockstep (t1544_4).
+        # `category` is gated on `with_backlog` because that flag's measured
+        # contract is that it classifies NOTHING: work_report_gather.py is a
+        # live caller that passes False and never reads csv_rows. `created_at`
+        # needs no classification, so it is unconditional and the column is
+        # identical either way.
+        created = _parse_frontmatter_date(frontmatter.get("created_at", ""))
         csv_rows.append(
             [
                 completed.isoformat(),
@@ -1389,6 +1397,8 @@ def collect_stats(
                 implementation.raw,
                 implementation.codeagent_key,
                 implementation.model_key,
+                created.isoformat() if created else "",
+                resolve_category(frontmatter, body, filename) if with_backlog else "",
             ]
         )
 

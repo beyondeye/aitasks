@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -215,7 +217,8 @@ class TestCollection(unittest.TestCase):
         self.assertEqual(data.model_week_counts[("gpt5_3codex", 2)], 1)
         self.assertEqual(data.model_week_counts[("unknown", 0)], 1)
         self.assertEqual(len(data.csv_rows), 5)
-        self.assertEqual(len(data.csv_rows[0]), 10)
+        # 12 since t1544_4 appended created_at + category to the fact table.
+        self.assertEqual(len(data.csv_rows[0]), 12)
 
     def test_normalize_implemented_with_handles_legacy_and_missing_values(self):
         canonical = stats.normalize_implemented_with("codex/gpt5_4")
@@ -350,10 +353,17 @@ class TestCollection(unittest.TestCase):
                 "implemented_with",
                 "codeagent",
                 "llm_model",
+                "created_at",
+                "category",
             ],
         )
+        # The fixture tasks carry no created_at, so that cell is empty and the
+        # category falls through to the issue_type half of the axis.
         self.assertIn(
-            ["2026-03-04", "Wed", "0", "t4_legacy_impl", "epsilon", "feature", "parent", "codex/gpt-5", "codex", "gpt5"],
+            [
+                "2026-03-04", "Wed", "0", "t4_legacy_impl", "epsilon", "feature", "parent",
+                "codex/gpt-5", "codex", "gpt5", "", "type:feature",
+            ],
             rows[1:],
         )
 
@@ -530,6 +540,486 @@ class TestVerifiedRankings(unittest.TestCase):
         self.assertEqual(stats.bucket_avg(0, 0), 0)
         self.assertEqual(stats.bucket_avg(3, 240), 80)
         self.assertEqual(stats.bucket_avg(10, 960), 96)
+
+
+# --------------------------------------------------------------------------
+# Backlog sections, flags and CSV (t1544_4). The data-layer arithmetic is
+# already pinned by tests/test_stats_multistage.py -- everything here is about
+# RENDERING, the CLI surface and the exported contract.
+# --------------------------------------------------------------------------
+
+_BACKLOG_TODAY = date(2026, 3, 5)   # a Thursday; week (dow=1) starts 2026-03-02
+_BACKLOG_DOW = 1
+
+
+def _section(report, heading):
+    """Slice one '### ' section out of a rendered report."""
+    return report.split(heading)[1].split("\n###")[0]
+
+
+def _table_rows(section):
+    """{label: [cells]} for every pipe row except the header and separator."""
+    rows = {}
+    for line in section.splitlines():
+        if not line.startswith("| ") or line.startswith("| Category"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        rows[cells[0]] = cells[1:]
+    return rows
+
+
+def _synthetic_stats(arrivals=None, departures=None, excluded=None):
+    """An empty StatsData with only the backlog counters populated."""
+    data = stats_data_mod._empty_stats_data()
+    data.backlog_arrivals.update(arrivals or {})
+    data.backlog_departures.update(departures or {})
+    data.backlog_excluded.update(excluded or {})
+    for (cat, off), n in (arrivals or {}).items():
+        data.backlog_scope_arrivals[("parent", off)] += n
+    for (cat, off), n in (departures or {}).items():
+        data.backlog_scope_departures[("parent", off)] += n
+    return data
+
+
+def _render_level(data, weeks=8):
+    out = io.StringIO()
+    axis = stats._build_backlog_axis(data, stats.backlog_week_offsets(weeks))
+    stats.render_backlog_level(axis, data, out, _BACKLOG_TODAY, _BACKLOG_DOW)
+    return out.getvalue()
+
+
+class TestBacklogSections(unittest.TestCase):
+    """Fixture-backed rendering tests with their own tree.
+
+    Deliberately does NOT extend TestCollection's fixture: those six tests pin
+    an archive with no created_at, and widening it would churn them.
+    """
+
+    LEVEL_H = "### Backlog Level (Open Tasks) - Weekly (Last 8 Weeks)"
+    FLOW_H = "### Backlog Net Flow (Arrivals - Departures) - Weekly (Last 8 Weeks)"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        tasks = self.base / "aitasks"
+        archived = tasks / "archived"
+        archived.mkdir(parents=True)
+        (tasks / "metadata").mkdir()
+
+        def write(path, **fm):
+            body = fm.pop("body", "Body.")
+            text = "---\n" + "".join(f"{k}: {v}\n" for k, v in fm.items()) + "---\n" + body + "\n"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+
+        # Live/open. alpha and beta share an arrival WEEK with different
+        # categories -- the discriminating case for the all-tasks re-key: a dict
+        # comprehension would keep only one of them and TOTAL OPEN would then
+        # disagree with parents + children.
+        write(tasks / "t10_alpha.md", status="Ready", created_at="2026-02-18 09:00", issue_type="feature")
+        write(tasks / "t11_beta.md", status="Ready", created_at="2026-02-18 09:00", issue_type="bug")
+        write(tasks / "t10" / "t10_1_child.md", status="Ready", created_at="2026-02-18 09:00", issue_type="feature")
+        write(
+            tasks / "t12_mv.md",
+            status="Ready", created_at="2026-02-25 09:00",
+            issue_type="chore", followup_kind="manual_verification",
+        )
+        # Excluded: no created_at at all.
+        write(tasks / "t14_missing.md", status="Ready", issue_type="feature")
+
+        # Archived. `churn` arrives and departs in the SAME week, so its level
+        # is 0 at every rendered offset while its flow is real -- the row a
+        # level-based suppression would wrongly hide from the flow table.
+        write(
+            archived / "t20_churn.md",
+            status="Done", created_at="2026-02-17 09:00", completed_at="2026-02-19 09:00", issue_type="chore",
+        )
+        # Departs a week after it is still open, giving a NEGATIVE net at
+        # offset 1 -- the discriminating case for an inverted sign.
+        write(
+            archived / "t21_doc.md",
+            status="Done", created_at="2026-02-10 09:00", completed_at="2026-02-25 09:00", issue_type="documentation",
+        )
+
+        self.orig = (stats.TASK_DIR, stats.ARCHIVE_DIR, stats.TASK_TYPES_FILE)
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR = tasks
+            mod.ARCHIVE_DIR = archived
+            mod.TASK_TYPES_FILE = tasks / "metadata" / "task_types.txt"
+
+        self.data = stats.collect_stats(today=_BACKLOG_TODAY, week_start_dow=_BACKLOG_DOW)
+        self.report = stats.render_text_report(
+            self.data, days=7, verbose=False, week_start_dow=_BACKLOG_DOW, today=_BACKLOG_TODAY
+        )
+
+    def tearDown(self):
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR, mod.ARCHIVE_DIR, mod.TASK_TYPES_FILE = self.orig
+        self.tmp.cleanup()
+
+    def test_both_sections_render_with_the_unified_category_axis(self):
+        self.assertIn(self.LEVEL_H, self.report)
+        self.assertIn(self.FLOW_H, self.report)
+        rows = _table_rows(_section(self.report, self.LEVEL_H))
+        # Follow-up kinds render lowercase, issue types Title Case via the
+        # display map -- a bare .capitalize() here would regress t1577.
+        self.assertIn("manual verification", rows)
+        self.assertIn("Features", rows)
+        self.assertIn("Bug Fixes", rows)
+
+    def test_totals_reconcile_across_all_three_axes(self):
+        rows = _table_rows(_section(self.report, self.LEVEL_H))
+        now = lambda label: int(rows[label][0])  # noqa: E731 - column 0 is "Now"
+        self.assertEqual(now("-- follow-ups") + now("-- genuine"), now("TOTAL OPEN"))
+        self.assertEqual(now("of which parents") + now("of which children"), now("TOTAL OPEN"))
+        self.assertEqual(now("TOTAL OPEN"), 4)   # alpha, beta, child, mv
+        self.assertEqual(now("of which children"), 1)
+
+    def test_all_tasks_axis_sums_categories_sharing_a_week(self):
+        """The discriminating assertion for the re-key.
+
+        alpha (type:feature) and beta (type:bug) both arrive in week offset 2.
+        A dict comprehension over the flows keeps only the last, so TOTAL OPEN
+        would read 1 short at every offset from 2 onward.
+        """
+        rows = _table_rows(_section(self.report, self.LEVEL_H))
+        headers = [c.strip() for c in
+                   _section(self.report, self.LEVEL_H).splitlines()[1].strip().strip("|").split("|")][1:]
+        col = headers.index("W-2")
+        # alpha + beta + child (all created that week) + doc (created earlier,
+        # not yet departed). churn arrived and departed inside the week, so it
+        # contributes 0.
+        self.assertEqual(int(rows["TOTAL OPEN"][col]), 4)
+        # The two independent cross-checks. Under the dict-comprehension bug the
+        # aggregate keeps one arbitrary category's arrivals for this offset, so
+        # TOTAL OPEN reads 1-2 and both of these break.
+        self.assertEqual(
+            int(rows["of which parents"][col]) + int(rows["of which children"][col]),
+            int(rows["TOTAL OPEN"][col]),
+        )
+        self.assertEqual(
+            int(rows["-- follow-ups"][col]) + int(rows["-- genuine"][col]),
+            int(rows["TOTAL OPEN"][col]),
+        )
+
+    def test_zero_level_category_with_flow_appears_only_in_the_flow_table(self):
+        """Row membership is per-table, not shared.
+
+        `Chores` arrives and departs in one week: level 0 everywhere, real flow.
+        Reusing the level table's all-zero suppression here deletes the row.
+        """
+        self.assertNotIn("Chores", _table_rows(_section(self.report, self.LEVEL_H)))
+        self.assertIn("Chores", _table_rows(_section(self.report, self.FLOW_H)))
+
+    def test_flow_table_puts_the_partial_week_last_and_marks_it(self):
+        section = _section(self.report, self.FLOW_H)
+        headers = [c.strip() for c in section.splitlines()[1].strip().strip("|").split("|")][1:]
+        self.assertEqual(headers[-1], "Now*")
+        self.assertEqual(headers[0], "W-7")
+        # A flow covers a span, so the marker names a range.
+        self.assertIn("_Now* covers 2026-03-02..2026-03-05 (partial week)._", section)
+
+    def test_flow_table_carries_a_negative_net(self):
+        section = _section(self.report, self.FLOW_H)
+        headers = [c.strip() for c in section.splitlines()[1].strip().strip("|").split("|")][1:]
+        rows = _table_rows(section)
+        self.assertEqual(rows["Documentation"][headers.index("W-1")], "-1")
+
+    def test_exclusion_tally_is_reported_with_reason_and_count(self):
+        section = _section(self.report, self.LEVEL_H)
+        self.assertIn("no_created_at: 1", section)
+        self.assertIn("Excluded from the backlog series: 1 task(s)", section)
+        # negative_level counts CELLS, never tasks -- it must not appear in the
+        # task tally, and nothing clamps on this fixture.
+        self.assertNotIn("Clamped negative level cells", section)
+
+    def test_backlog_csv_is_a_complete_dense_series(self):
+        axis = stats._build_backlog_axis(self.data, stats.backlog_week_offsets(8))
+        out = self.base / "backlog.csv"
+        stats.write_backlog_csv(out, self.data, axis, _BACKLOG_TODAY, _BACKLOG_DOW)
+        with out.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.reader(handle))
+
+        self.assertEqual(rows[0], ["week_ending", "category", "open", "arrived", "departed", "net"])
+
+        offsets = stats.backlog_week_offsets(8)
+        categories = {c for c, _ in self.data.backlog_arrivals} | {c for c, _ in self.data.backlog_departures}
+
+        # The COMPLETE expected row set, built independently of the writer from
+        # the documented contract. A len() plus two membership checks would pass
+        # against display labels on unasserted categories, dropped zero rows,
+        # swapped arrived/departed, or an inverted net -- comparing the whole
+        # set of tuples catches all four at once.
+        expected = set()
+        for offset in offsets:
+            ending = stats.week_end_for_offset(_BACKLOG_TODAY, _BACKLOG_DOW, offset).isoformat()
+            for category in categories:
+                arrived = self.data.backlog_arrivals.get((category, offset), 0)
+                departed = self.data.backlog_departures.get((category, offset), 0)
+                expected.add((
+                    ending,
+                    category,                                   # raw namespaced key, never a display name
+                    str(axis.levels.get((category, offset), 0)),
+                    str(arrived),
+                    str(departed),
+                    str(arrived - departed),
+                ))
+        self.assertEqual({tuple(r) for r in rows[1:]}, expected)
+        # Dense: every category x every rendered week, zero cells included. (Set
+        # equality alone would tolerate duplicate rows, so pin the count too.)
+        self.assertEqual(len(rows) - 1, len(categories) * len(offsets))
+
+        # Emission order is GLOBALLY non-decreasing by week, not merely
+        # "oldest first": a category-major emission still starts at the oldest
+        # week while interleaving every later one.
+        weeks = [r[0] for r in rows[1:]]
+        self.assertEqual(weeks, sorted(weeks))
+        # Unclamped canonical week end -- in the FUTURE for the current week.
+        # Clamping it to today would export one calendar week under two
+        # different dates on two different days, silently breaking joins.
+        self.assertEqual(weeks[-1], "2026-03-08")
+
+        # Spot values from fixture knowledge, so the set above is not purely
+        # self-referential. arrived/departed are not interchangeable: doc
+        # departs in a week it did not arrive; feature arrives twice in one.
+        by_key = {(r[0], r[1]): r for r in rows[1:]}
+        self.assertEqual(tuple(by_key[("2026-03-01", "type:documentation")][2:]), ("0", "0", "1", "-1"))
+        self.assertEqual(tuple(by_key[("2026-02-22", "type:feature")][2:]), ("2", "2", "0", "2"))
+        self.assertEqual(tuple(by_key[("2026-02-22", "type:chore")][2:]), ("0", "1", "1", "0"))
+
+    def test_backlog_csv_open_minus_next_equals_net(self):
+        """The exported identity, on a clamp-free fixture.
+
+        open[w] - open[w+1] == net[w] for every offset except the oldest
+        rendered one, which has no cell past the horizon to subtract.
+        """
+        axis = stats._build_backlog_axis(self.data, stats.backlog_week_offsets(8))
+        self.assertEqual(axis.clamped_cells, 0)
+        out = self.base / "backlog2.csv"
+        stats.write_backlog_csv(out, self.data, axis, _BACKLOG_TODAY, _BACKLOG_DOW)
+        with out.open(newline="", encoding="utf-8") as handle:
+            rows = list(csv.DictReader(handle))
+
+        offsets = stats.backlog_week_offsets(8)
+        ends = {o: stats.week_end_for_offset(_BACKLOG_TODAY, _BACKLOG_DOW, o).isoformat() for o in offsets}
+        table = {(r["week_ending"], r["category"]): r for r in rows}
+        checked = 0
+        for category in {r["category"] for r in rows}:
+            for older, newer in zip(offsets, offsets[1:]):   # oldest -> newest
+                cur, prev = table[(ends[newer], category)], table[(ends[older], category)]
+                self.assertEqual(
+                    int(cur["open"]) - int(prev["open"]), int(cur["net"]),
+                    msg=f"{category} at {ends[newer]}",
+                )
+                checked += 1
+        self.assertGreater(checked, 0)
+
+
+class TestBacklogRendering(unittest.TestCase):
+    """Renderer-level tests driven by synthetic counters.
+
+    Magnitudes like a five-digit level are unreachable through a file fixture,
+    and the layout contract is a property of the renderer, not of the corpus.
+    """
+
+    LEVEL_H = "### Backlog Level (Open Tasks) - Weekly (Last 8 Weeks)"
+
+    def test_default_horizon_table_is_exactly_80_chars(self):
+        report = _render_level(_synthetic_stats({("type:feature", 4): 12, ("kind:docs_gap", 2): 3}))
+        pipe_rows = [ln for ln in report.splitlines() if ln.startswith("|")]
+        self.assertTrue(pipe_rows)
+        self.assertEqual({len(ln) for ln in pipe_rows}, {80})
+
+    def test_five_digit_values_widen_every_row_uniformly(self):
+        """`f"{v:>4}"` widens rather than truncating, so the guarantee is that
+        the table stays ALIGNED, not that it stays 80 characters."""
+        report = _render_level(_synthetic_stats({("type:feature", 4): 12345}))
+        pipe_rows = [ln for ln in report.splitlines() if ln.startswith("|")]
+        widths = {len(ln) for ln in pipe_rows}
+        self.assertEqual(len(widths), 1, msg=f"ragged table: {sorted(widths)}")
+        self.assertNotEqual(widths.pop(), 80)
+        self.assertIn("12345", report)
+
+    def test_over_long_category_label_is_truncated_not_wrapped(self):
+        long_type = "a" * 40
+        report = _render_level(_synthetic_stats({(f"type:{long_type}", 3): 1}))
+        pipe_rows = [ln for ln in report.splitlines() if ln.startswith("|")]
+        self.assertEqual({len(ln) for ln in pipe_rows}, {80})
+        self.assertIn("| " + ("A" + "a" * 19)[:20] + " |", report)
+
+    def test_empty_state_still_surfaces_the_exclusion_tally(self):
+        """The tally is the EXPLANATION for the table's absence, not a footnote
+        of it -- main()'s has_backlog predicate admits such a repo precisely
+        because these counters are non-empty."""
+        report = _render_level(_synthetic_stats(excluded={"no_created_at": 7, "folded": 2}))
+        self.assertIn("No open tasks could be placed in the backlog series.", report)
+        self.assertIn("no_created_at: 7", report)
+        self.assertIn("folded: 2", report)
+        self.assertIn("9 task(s)", report)
+
+    def test_empty_state_without_exclusions_says_so(self):
+        report = _render_level(_synthetic_stats())
+        self.assertIn("No open tasks found.", report)
+        self.assertNotIn("Excluded from the backlog series", report)
+
+    def test_clamped_cells_are_reported_separately_from_tasks(self):
+        # A departure with no matching arrival forces a negative raw level.
+        report = _render_level(_synthetic_stats(departures={("type:feature", 2): 3}))
+        self.assertIn("Clamped negative level cells", report)
+        # ... and is never summed into a task count.
+        self.assertNotIn("task(s)", report.split("Clamped")[1])
+
+
+
+class TestBacklogFlags(unittest.TestCase):
+    def test_backlog_weeks_default_is_the_shared_constant(self):
+        """Asserted against the CONSTANT, not the literal 8.
+
+        The stats TUI pane reads the same constant; a literal default here is
+        exactly how two surfaces drift into different windows for one metric.
+        """
+        args = stats.parse_args([])
+        self.assertIs(args.backlog_weeks, stats_data_mod.BACKLOG_WEEKS_DEFAULT)
+
+    def test_backlog_weeks_bounds(self):
+        for accepted in (1, 8, 26, 99):
+            self.assertEqual(stats.parse_args(["--backlog-weeks", str(accepted)]).backlog_weeks, accepted)
+        # 0 would make backlog_week_offsets() return [] -- a header row with no
+        # data columns. 100 would print `W-100`, wider than the 4-char cell.
+        for rejected in ("0", "-1", "100", "abc"):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                stats.parse_args(["--backlog-weeks", rejected])
+
+    def test_bare_csv_flags_use_distinct_defaults(self):
+        """A missing `const` makes the bare flag parse identically to an omitted
+        one -- exit 0, no file, no message. Assert the value, and assert it is
+        not None, so a dropped const cannot pass."""
+        backlog = stats.parse_args(["--csv-backlog"]).csv_backlog
+        self.assertIsNotNone(backlog)
+        self.assertEqual(backlog, "aitask_backlog.csv")
+        self.assertEqual(stats.parse_args(["--csv"]).csv, "aitask_stats.csv")
+        # ... and the two defaults must differ, or the bare pair would collide.
+        both = stats.parse_args(["--csv", "--csv-backlog"])
+        self.assertNotEqual(both.csv, both.csv_backlog)
+
+    def test_colliding_csv_paths_are_refused_including_aliases(self):
+        for pair in (
+            ["--csv", "out.csv", "--csv-backlog", "out.csv"],
+            ["--csv", "out.csv", "--csv-backlog", "./out.csv"],
+            ["--csv", "out.csv", "--csv-backlog", "sub/../out.csv"],
+        ):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                stats.parse_args(pair)
+
+
+class TestMainDegenerateStates(unittest.TestCase):
+    """The two early-return messages, plus the cases that must bypass them.
+
+    Neither message had any test before t1544_4, so a regression shipped
+    silently; these are the first.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.tasks = self.base / "aitasks"
+        self.archived = self.tasks / "archived"
+        self.tasks.mkdir()
+        self.orig = (stats.TASK_DIR, stats.ARCHIVE_DIR, stats.TASK_TYPES_FILE)
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR = self.tasks
+            mod.ARCHIVE_DIR = self.archived
+            mod.TASK_TYPES_FILE = self.tasks / "metadata" / "task_types.txt"
+
+    def tearDown(self):
+        for mod in (stats, stats_data_mod):
+            mod.TASK_DIR, mod.ARCHIVE_DIR, mod.TASK_TYPES_FILE = self.orig
+        self.tmp.cleanup()
+
+    def _write(self, name, **fm):
+        path = self.tasks / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("---\n" + "".join(f"{k}: {v}\n" for k, v in fm.items()) + "---\nBody.\n", encoding="utf-8")
+
+    def _run(self, argv=()):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = stats.main(list(argv))
+        return rc, buf.getvalue()
+
+    def test_open_tasks_with_no_archive_render_the_backlog_section(self):
+        """total_tasks counts ARCHIVED tasks only, so a young repo with open
+        work and no archive -- the repo that most needs this report -- used to
+        print 'No completed tasks found.' and exit."""
+        self._write("t1_open.md", status="Ready", created_at="2026-02-18 09:00", issue_type="feature")
+        rc, out = self._run()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("No completed tasks found.", out)
+        self.assertNotIn("No archived tasks found", out)
+        self.assertIn("### Backlog Level (Open Tasks)", out)
+        self.assertIn("TOTAL OPEN", out)
+
+    def test_all_excluded_repo_names_the_reason_and_count(self):
+        """The discriminating case for the has_backlog predicate.
+
+        No arrivals and no levels, so a bare early-returning empty state would
+        render a heading and nothing else -- passing a 'section renders' check
+        while hiding the tasks and the reason they were dropped.
+        """
+        self._write("t1_nocreated.md", status="Ready", issue_type="feature")
+        self._write("t2_nocreated.md", status="Ready", issue_type="bug")
+        rc, out = self._run()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("No completed tasks found.", out)
+        self.assertIn("### Backlog Level (Open Tasks)", out)
+        self.assertIn("no_created_at: 2", out)
+        self.assertIn("2 task(s)", out)
+
+    def test_repo_with_nothing_prints_the_original_messages_verbatim(self):
+        rc, out = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), f"No archived tasks found in {self.archived}")
+
+        # ... and with an archive directory present but empty, the other one.
+        self.archived.mkdir()
+        rc, out = self._run()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), "No completed tasks found.")
+
+    def test_bare_csv_flags_write_two_files_and_do_not_collide(self):
+        self._write("t1_open.md", status="Ready", created_at="2026-02-18 09:00", issue_type="feature")
+        cwd = os.getcwd()
+        os.chdir(self.base)
+        try:
+            rc, _ = self._run(["--csv", "--csv-backlog"])
+        finally:
+            os.chdir(cwd)
+        self.assertEqual(rc, 0)
+        self.assertTrue((self.base / "aitask_stats.csv").exists())
+        self.assertTrue((self.base / "aitask_backlog.csv").exists())
+
+    def test_colliding_paths_leave_both_files_untouched(self):
+        """The guard is a preflight: write_csv is the last statement in main(),
+        so a collision caught at the writers would already have destroyed the
+        requested task CSV."""
+        self._write("t1_open.md", status="Ready", created_at="2026-02-18 09:00", issue_type="feature")
+        target = self.base / "out.csv"
+        target.write_text("SENTINEL\n", encoding="utf-8")
+        before = target.read_bytes()
+        # The alias forms must be resolved against the same cwd, or they simply
+        # name two different files and the test proves nothing.
+        cwd = os.getcwd()
+        os.chdir(self.base)
+        try:
+            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
+                self._run(["--csv", "out.csv", "--csv-backlog", "./out.csv"])
+        finally:
+            os.chdir(cwd)
+        self.assertNotEqual(ctx.exception.code, 0)
+        # Untouched: without the preflight, main() writes the fact table to this
+        # path first and only then overwrites it with the backlog export.
+        self.assertEqual(target.read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()
