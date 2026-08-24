@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 22:07
-updated_at: 2026-08-24 16:44
+updated_at: 2026-08-24 17:18
 ---
 
 ## Context
@@ -167,3 +168,8 @@ ait stats-tui        # app starts at all (the import trap)
 
 Note `tests/test_collection_parity.py` enforces unittest-count == pytest-count
 per module; keep new test files to plain `unittest.TestCase` methods.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-24T14:18:34Z status=pass attempt=1 type=human
