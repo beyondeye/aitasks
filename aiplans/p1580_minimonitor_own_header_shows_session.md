@@ -521,3 +521,89 @@ coverage gap that drove it).
 
 - **Re-verified after the change:** `test_minimonitor_own_header_session.py`
   27 passed (was 28; one case removed).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in the planned order (steps 1–5
+  landed and were green before either post-phase began).
+  - `minimonitor_app.py`: `_own_header_text()` — a pure, module-level formatter
+    beside `_row_budget` / `_detail_budget` / `_clip`, with `_OWN_HEADER_PADDING`
+    / `_OWN_HEADER_SEP` / `_MIN_SESSION_CELLS`. Reuses the existing `_clip` for
+    cell-aware truncation rather than reimplementing one. Call site in
+    `_maybe_build_own_agent_panel`; `_OWN_PANEL_MAX_ROWS`'s first term re-worded
+    so it does not become a stale description of the header.
+  - Post-phase 1: `escape()` on `format_session_divider`'s label
+    (`monitor_shared.py`), with the deliberate non-escaping of
+    `format_section_header` documented on both functions.
+  - Post-phase 2: `DEFAULT_TMUX_SESSION` in `agent_launch_utils.py` (both
+    `_read_default_session` returns rerouted through it, `AitasksSession.key`
+    cross-referenced); `_session_is_ambiguous()` + `_own_header_session()` in
+    `minimonitor_app.py`; `_monitor` / `_project_root` class floors.
+  - Tests: new `tests/test_minimonitor_own_header_session.py` (27 cases), +5 in
+    `tests/test_monitor_session_divider.py`, +1 live composited case in
+    `tests/test_minimonitor_top_chrome_render.py`.
+
+- **Deviations from plan:**
+  1. **The live-render sweep floors at 15, not 12.** The plan specified
+     `(40, 30, 26, 22, 19, 18, 12)`. Measured: below width 15 this app's whole
+     layout degenerates — `#mini-own-agent` is allotted fewer columns than the
+     screen and the bottom-docked `#mini-key-hints` paints over row 0, so the
+     frame at `region.y` carries hint text (`' tch'`, `' tab:agent'`) and can
+     testify about no widget at all. Pre-existing and unrelated to this change.
+     The sweep is now `(40, 30, 26, 22, 19, 18, 17, 15)`, which still straddles
+     both rule thresholds live; widths 1–14 are covered where they *can* be
+     answered, by the pure-formatter sweep. The floor and its reason are
+     documented in the test docstring so it does not read as cherry-picking.
+  2. **Threaded `own_category` through the chrome fixture.** `_own_snapshot`
+     hardcoded `PaneCategory.AGENT`, so the `this window` label was unreachable
+     from `_run`. Added an optional parameter to `_own_snapshot` / `_populate` /
+     `_run`, all defaulting to the previous value — every pre-existing case is
+     unchanged.
+  3. **Added, then removed on review, an applink drift guard.** See Post-Review
+     Changes → Change Request 1. Net effect on the plan: post-phase 2a's applink
+     item is comment-only exactly as planned, and t1583 carries the open
+     question.
+
+- **Issues encountered:**
+  - **A negative control in the approved plan was wrong, and re-reading caught
+    it.** NC1 claimed that deleting the `_MIN_SESSION_CELLS` guard would fail the
+    width-22 case by clipping. It would not: with the guard gone, width 22
+    renders `── this agent · … ──` at exactly 20 cells, which *fits*. The
+    mutation is invisible to any width assertion. The control now targets what
+    the constant actually buys — legibility — via an equality assertion against
+    the bare rule, and the controls are split by which guard each one trips.
+  - The widget-level fixture initially built no panel:
+    `_find_own_window_snapshot` matches `session_name in ("", self._session)`, so
+    the snapshot's session and the app's are not independent. `app_session` is
+    now an explicit parameter with a docstring saying why.
+  - `main` advanced mid-session: the uncommitted `plan-externalization` work
+    present at session start was landed by another session as t1578. Verified
+    committed (not lost) before staging; disjoint from these files.
+
+- **Key decisions:**
+  - **Value source = tmux session name** (user-selected at planning), so the
+    followed agent reads like a pane-list entry. Its hole — the ambiguous
+    `aitasks` — is closed by post-phase 2 rather than by changing the source.
+  - **The ambiguity predicate is "this name cannot identify a repo", NOT "this
+    repo is unconfigured."** Runtime carries no provenance: `_read_default_session`
+    returns `"aitasks"` both when the field is absent and when a repo sets
+    `default_session: aitasks` deliberately (`seed/project_config.yaml:316`
+    documents exactly that). Reading the owning config to honour an explicit
+    choice was considered and rejected — it costs a config read per panel build
+    to preserve a label that still collides with every unconfigured repo. The
+    explicit-config case is pinned as its own test so the decision is not an
+    untested corollary.
+  - **Three-rung shedding ladder, not two.** Dropping only the session segment
+    still overflows below width 19 for `this window`. Rung 3 drops the rule
+    glyphs and keeps the label.
+  - **`_root_for_snap`'s `-> Path` annotation was NOT widened** to `Path | None`.
+    It has four production callers that all run after `__init__` and genuinely
+    cannot take a None; widening it would push a null-check onto all four to
+    serve a test-construction floor. `_own_header_session` is the single caller
+    that tolerates the stub's None, under an explicit fail-soft contract.
+  - **Escape after truncation**, so the backslashes are never charged to the
+    cell budget; and measure budgets on rendered plain text, never on markup.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:1714 — _own_agent_identity_text` floors its wrap at `max(8, target_width - 4)`, which stops shrinking below 8 and overflows the row on a pane narrower than ~10 columns. Pre-existing; belongs to the t1351 row-width audit. Named in the plan's Scope note so that fixing the header and not its neighbour reads as a decision.
+  - `.aitask-scripts/monitor/minimonitor_app.py:4206 — target_width` is read as a bare `int(mm_cfg["width"])` with no clamp or validation, so `tmux.minimonitor.width: 3` reaches the layout intact. The header now degrades safely at any width, but the rest of the panel does not, and widths below 15 break the app's layout outright (see Deviations 1).
