@@ -69,6 +69,10 @@ WRAPPED_FILES_VARYING=(
 )
 WRAPPED_FILES_INVARIANT=(
     "remote-drift-check.md"
+    # The Step 9 merge broker control flow (t1560_2). Profile-invariant: the
+    # verdict dispositions are the same under every profile, and Step 9's only
+    # profile conditionals (record_gates) stayed in SKILL.md.
+    "merge-broker.md"
     "planning-cross-repo.md"
     "cross-repo-child-assignment.md"
     "risk-evaluation.md"
@@ -263,7 +267,7 @@ baked_checkout=$(printf '%s\n' "$OB_OUT" | grep -cE '^[[:space:]]*git checkout d
 assert_eq "Step 9 never bakes a literal merge target into the checkout command" \
     "0" "$baked_checkout"
 assert_contains "Step 9 consumes the validated shell variable, not the profile value" \
-    'git checkout "$output_branch" --' "$OB_OUT"
+    'the bound `$output_branch`' "$OB_OUT"
 rm -f "$TMP_OB_PROFILE"
 
 # === Test 4c: the hardcoded `main` merge target is gone from every render ===
@@ -283,12 +287,21 @@ for profile in "${PROFILES[@]}"; do
     # Quoting alone is NOT sufficient: "dev$(id)" executes inside double quotes
     # and git accepts such refs. Every sink must consume the shell VARIABLE that
     # Step 5/Step 9 bind and validate, never a textual placeholder.
-    assert_contains "SKILL.md $profile: checkout consumes the shell variable" \
-        'git checkout "$output_branch" --' "$rendered"
-    assert_contains "SKILL.md $profile: pre-flight consumes the shell variable" \
-        'git rev-parse --verify --quiet "refs/heads/$output_branch"' "$rendered"
-    assert_contains "SKILL.md $profile: merge quotes the task branch" \
-        'git merge "aitask/<task_name>"' "$rendered"
+    # t1560_2: `git checkout`, the fully-qualified `git rev-parse` pre-flight and
+    # `git merge` moved OUT of Step 9 and INTO the merge broker, which performs
+    # them inside the mutex. The injection-safety property did not move with
+    # them -- it is re-pinned on both sides: here, that Step 9 hands the broker
+    # the BOUND variable and substitutes no literal; and in
+    # tests/test_merge_broker_rendered_verdicts.sh (BEGIN_CALL_NOT_BOUND /
+    # BEGIN_CALL_SUBSTITUTES_LITERAL), that the rendered `begin` invocation
+    # consumes that variable. Neither half may be deleted without the other
+    # being in place first.
+    assert_contains "SKILL.md $profile: hands the merge to the broker procedure" \
+        '## Entry — acquire the reservation and merge' "$rendered"
+    assert_contains "SKILL.md $profile: passes the bound variable, not a literal" \
+        'the bound `$output_branch`' "$rendered"
+    assert_contains "SKILL.md $profile: names the quoting rule at the call site" \
+        'quoted shell variable' "$rendered"
     assert_contains "SKILL.md $profile: Step 9 validates the branch name" \
         'UNSAFE_OUTPUT_BRANCH' "$rendered"
     assert_contains "SKILL.md $profile: Step 9 binds from the plan header" \
@@ -300,7 +313,7 @@ for profile in "${PROFILES[@]}"; do
     assert_eq "SKILL.md $profile: no fallback onto an unbound \$base_branch" "0" "$unbound"
     # No command line may interpolate the placeholder -- that is the injectable form.
     placeholder_sink=$(printf '%s\n' "$rendered" \
-        | grep -cE '^[[:space:]]*git .*(<output_branch>|"<output_branch>")' || true)
+        | grep -cE '^[[:space:]]*(git|\./\.aitask-scripts/aitask_merge_task\.sh) .*(<output_branch>|"<output_branch>")' || true)
     assert_eq "SKILL.md $profile: no git command substitutes the literal placeholder" \
         "0" "$placeholder_sink"
     # The legacy fallback must stop at main -- never rebound to Base branch, which

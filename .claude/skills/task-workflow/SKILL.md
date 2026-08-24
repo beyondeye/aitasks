@@ -747,20 +747,9 @@ Execute the post-implementation cleanup steps.
 
   Call the resolved value `<output_branch>`. Resolve it **only** from the plan header — never from `profile.output_branch`. A resumed session (POSTIMPL re-entry) may run under a different profile, and the header is what guarantees it merges into the same branch the original session did, keeping the "re-merge is a git no-op" property this workflow relies on.
 
-- **Pre-flight the merge target.** Run from the repo root, not from `aiwork/<task_name>/`. Before asking for approval:
+- **Probe the merge queue.** Run from the repo root, not from `aiwork/<task_name>/`. Before asking for approval, execute the **Merge Broker Procedure** (see `merge-broker.md`) section **`## Probe — report the queue holder`** with `task_id`, `task_name` and the bound `$output_branch`. It runs `aitask_merge_task.sh status`, which acquires nothing, and returns the queue state so the approval question can name the task this merge is waiting on.
 
-  ```bash
-  # 1. It must exist as a LOCAL BRANCH — not a tag, remote-tracking ref, or SHA.
-  git rev-parse --verify --quiet "refs/heads/$output_branch" || echo "MISSING"
-
-  # 2. If another worktree holds it, checkout will refuse.
-  git rev-parse --show-toplevel        # the worktree we are operating in
-  git worktree list --porcelain        # records: `worktree <path>` … `branch refs/heads/<b>`
-  ```
-
-  - **Always fully-qualify the ref.** A bare `<output_branch>` resolves through the gitrevisions order, which places `refs/tags/<name>` *above* `refs/heads/<name>`. A tag named `dev` passes a bare `git rev-parse --verify dev`, and the subsequent `git checkout dev` lands in **detached HEAD** — the merge then commits onto no branch at all and the output branch never moves.
-  - **Branch missing locally** (`MISSING`) → **stop and ask** the user (fetch or create it, pick a different target, or abort). Do not let `git checkout` DWIM a tracking branch into existence unnoticed.
-  - **Held by another worktree** → parse the `worktree <path>` of the record whose `branch` is `refs/heads/<output_branch>` and compare it to `git rev-parse --show-toplevel`. **Reject only when the paths differ.** The repo root is itself listed in `git worktree list --porcelain`, so an unqualified match would stop the workflow whenever the root is already on the output branch — exactly the case where checkout is a safe no-op. When they differ, `git checkout` fails with `fatal: '<branch>' is already used by worktree at …`; surface that and ask rather than failing mid-merge.
+  The merge itself — pre-flight, checkout and `git merge` — is performed by the broker inside the mutex, so it is **not** duplicated here. The tag/detached-HEAD trap and the foreign-worktree rule are explained with the `PREFLIGHT_MISSING` / `PREFLIGHT_FOREIGN_WORKTREE` branches in that procedure.
 
 **⚠️ NON-SKIPPABLE — Auto mode and execution profiles do NOT bypass this merge approval.**
 
@@ -774,28 +763,21 @@ The only valid skips are profile keys explicitly named in this SKILL.md as
 covering Step 9 merge approval (currently: none) or the user explicitly
 authorizing the merge in chat before the prompt fires.
 
-**IMPORTANT:** Use `AskUserQuestion` to ask: "Proceed with merge of code changes into the `<output_branch>` branch (\<provenance\>)?" with options "Yes, proceed with merge" / "No, not yet". Name the resolved branch and its provenance in the question text itself — a target guessed via the legacy `main` fallback must be visible to the user as a guess. Do NOT proceed until the user approves.
+**IMPORTANT:** Use `AskUserQuestion` to ask: "Proceed with merge of code changes into the `<output_branch>` branch (\<provenance\>)?" with options "Yes, proceed with merge" / "No, not yet". Name the resolved branch and its provenance in the question text itself — a target guessed via the legacy `main` fallback must be visible to the user as a guess. **When the probe reported `HELD`, append `Queued behind t<N>.` to the END of that question**, naming the holding task — appended, because the leading `Proceed with merge of code changes into` is a pinned phase anchor and must not be reworded. Serializing the merge is not a reason to auto-approve it. Do NOT proceed until the user approves.
 {%- if profile.record_gates is defined and profile.record_gates %}
 
 **Record merge-approved gate:** Once the user approves the merge, execute the **Gate Recording Procedure** (see `gate-recording.md`) with `task_id`, `gate_name=merge_approved`, `status=pass`, `fields="type=human"`.
 {%- endif %}
 
-- **Check for uncommitted changes:**
-  ```bash
-  git status --porcelain
-  ```
+- **Merge under the mutex.** The merge runs in the **shared repo root**, so concurrent tasks drive one HEAD, one index and one working tree. Execute the **Merge Broker Procedure** (see `merge-broker.md`) section **`## Entry — acquire the reservation and merge`** with `task_id`, `task_name` and the bound `$output_branch`. It holds the merge mutex across the pre-flight, `git checkout "$output_branch" --`, the `symbolic-ref` assertion and `git merge "aitask/<task_name>"`, and it branches on every verdict — including the dirty-tree and conflict cases this step used to handle inline.
 
-- **Merge branch into `<output_branch>`:**
-  ```bash
-  git checkout "$output_branch" --   # trailing `--`: the arg is a branch, never a pathspec
-  git symbolic-ref --short HEAD    # MUST print "$output_branch"; if not, STOP — do not merge
-  git merge "aitask/<task_name>"
-  ```
-  The `symbolic-ref` assertion is what makes a detached HEAD impossible rather than merely unlikely: if it prints nothing (or a different branch), the checkout did not land where the pre-flight expected and merging would commit onto no branch.
+  Pass `$output_branch` as the **quoted shell variable**, never as a pasted literal: `"dev$(id)"` executes inside double quotes and git accepts such refs, so binding is what makes an injected name inert. The broker validates it again and answers `UNSAFE_OUTPUT_BRANCH` if it is not shell-safe.
 
-- **Handle merge conflicts:** Ask user for guidance if needed.
+  The procedure returns here with the reservation **held** only when the merge landed. On every other verdict it stops the workflow itself — do not continue past it to verification.
 
 - **Verify implementation (build / tests / lint):**
+
+  This block is the re-entry target of the Merge Broker Procedure's **`## Return to Step 9 — Verify implementation`**. The merge reservation is **held for its entire duration** — that is what makes the verdict attributable, since nothing else can check out, merge into, or mutate the tree the build is reading. Do not release it here; the release decision comes after.
 
   Do **not** re-derive which gates this task declares — the **gate orchestrator**
   owns that decision and reports it. Dispatch it once, capturing both its output
@@ -838,17 +820,11 @@ authorizing the merge in chat before the prompt fires.
     - `pending` (human gate) — surface to the user; never self-signal.
     - Do **NOT** also run the manual "Record build-verified gate" step in this branch — the orchestrator already appended each gate's run (no double-record).
 
-- **Clean up branch and worktree:**
-  ```bash
-  ./.aitask-scripts/aitask_task_worktree.sh remove <task_name> --strict
-  ```
+- **Release decision, cleanup and release.** With the verification outcome in hand, return to the **Merge Broker Procedure** (see `merge-broker.md`) section **`## Re-entry — release decision`**, still holding the reservation. Its verification-outcome table decides whether this task completes or exits in-flight, and `## Exit — cleanup and release` performs `cleanup` and `finish` accordingly.
 
-  Run it from the repo root, **bare** — no `|| true`, and no `--force`.
+  Two rules that block the two damaging mistakes: **cleanup is a completion step, never an in-flight one** — it deletes `aitask/<task_name>` and its worktree, which is the branch a `POSTIMPL` resume must re-merge — and `finish` on an in-flight exit is a **release, not a success claim**. The broker's `cleanup` delegates to the same bare, `--strict` `aitask_task_worktree.sh remove <task_name>` this step used to run directly, so the teardown semantics are unchanged: uncommitted work blocks removal rather than being discarded, only `CLEAN` exits 0, the worktree is resolved from its `git worktree list` record so a moved one is still torn down (t1548), and nothing is ever pruned or force-deleted.
 
-  - Omitting `--force` keeps today's behaviour that uncommitted work blocks removal rather than being discarded one line after the merge; the helper reports it as `WORKTREE_KEPT dirty <path>`.
-  - `--strict` makes *only* `CLEAN` exit 0. A merged branch that nonetheless survives (`PRESERVED`) or any refusal (`RESIDUE`) exits non-zero, so archival cannot proceed over a worktree or branch that is still there. Read the three printed lines to see which it was, fix it, and re-run. A usage or environment failure (exit 2 / 3) prints **nothing** to stdout and also exits non-zero — running the command bare is what makes that stop the block too, so an empty result can never be mistaken for a clean teardown.
-
-  The helper resolves the worktree from its `git worktree list` record, so a worktree that was moved out of `aiwork/<task_name>` is torn down rather than silently missed (t1548). It never runs `git worktree prune` and never uses `git branch -D`.
+  Return here with `lock: none` for archival. If the release decision took an in-flight exit, the procedure ends the workflow — do not archive.
 
 **For child tasks — verify plan completeness before archival:**
 
@@ -858,6 +834,8 @@ authorizing the merge in chat before the prompt fires.
 - Ensure the notes include: actual work done, issues encountered and resolutions, and any information useful for sibling tasks
 
 **Run the archive script:**
+
+Entered with `lock: none` — the merge reservation was released by the Merge Broker Procedure's `finish` before control returned here.
 
 All archival operations (metadata updates, file moves, lock releases, folded task cleanup, git staging, and commit) are handled by a single script call:
 
