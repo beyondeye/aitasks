@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t1544_4, t1544_5]
 issue_type: documentation
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 22:07
-updated_at: 2026-08-24 18:48
+updated_at: 2026-08-24 22:41
 ---
 
 ## Context
@@ -112,3 +115,8 @@ cd website && npm install && hugo build --gc --minify
   ```
 - The preset count in the prose matches
   `.aitask-scripts/stats/stats_config.py::DEFAULT_PRESETS`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-24T19:41:28Z status=pass attempt=1 type=human
