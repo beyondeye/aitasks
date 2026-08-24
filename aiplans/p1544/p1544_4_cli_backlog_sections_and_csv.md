@@ -105,14 +105,31 @@ Private `_build_backlog_axis(data, week_offsets)` returning a small dataclass:
 - `levels` — `backlog_levels(data.backlog_arrivals, data.backlog_departures,
   week_offsets, excluded=<scratch>)`;
 - `scope_levels` — same over `backlog_scope_*`, own scratch counter;
-- `total_levels` — over a **re-keyed all-tasks axis**
-  (`Counter({("all", o): n for (c, o), n in arrivals.items()})`), own scratch
-  counter. This is what `TOTAL OPEN` renders. Deriving it independently rather
-  than summing the clamped category rows keeps `TOTAL OPEN` equal to
-  `parents + children` even if a clamp ever fires — a clamp then disagrees only
-  with the category rows, and the footnote explains it. Verified today: all
-  three agree at every offset (436 at `Now`), and **0 clamps over full
-  history**;
+- `total_levels` — over a **re-keyed all-tasks axis**, own scratch counter. This
+  is what `TOTAL OPEN` renders. Deriving it independently rather than summing
+  the clamped category rows keeps `TOTAL OPEN` equal to `parents + children`
+  even if a clamp ever fires — a clamp then disagrees only with the category
+  rows, and the footnote explains it. Verified today: all three agree at every
+  offset (436 at `Now`), and **0 clamps over full history**.
+
+  **The re-key must accumulate, not comprehend.** A dict comprehension
+  (`Counter({("all", o): n for (c, o), n in arrivals.items()})`) keeps only the
+  **last** value written for each `("all", o)` key, so every category arriving
+  in the same week silently overwrites the previous one — demonstrated: three
+  categories totalling 14 at one offset re-key to **2**. `TOTAL OPEN` would then
+  be one arbitrary category's level, and would disagree with the parent/child
+  partition — destroying the exact invariant this independent axis exists to
+  protect. Build both aggregates by summation:
+
+  ```python
+  agg_arrivals, agg_departures = Counter(), Counter()
+  for (_cat, off), n in data.backlog_arrivals.items():
+      agg_arrivals[("all", off)] += n
+  for (_cat, off), n in data.backlog_departures.items():
+      agg_departures[("all", off)] += n
+  ```
+
+  The same rule applies to any future re-key of these flows;
 - the ordered follow-up / genuine row blocks, each sorted
   `key=lambda c: (-levels[(c, 0)], category_display_name(c))` — the explicit
   tie-break matters because sorting a `Counter` keyset on `-level` alone is
@@ -415,7 +432,11 @@ sliced with `report.split("### <Header>")[1].split("\n###")[0]`. Assert:
 - the category axis carries a `kind:` row (lowercase) and a `type:` row (Title
   Case via the display map — a bare `.capitalize()` here regresses t1577);
 - `-- follow-ups` + `-- genuine` == `TOTAL OPEN` == `of which parents` +
-  `of which children`;
+  `of which children` — on a fixture where **at least two categories arrive in
+  the same week**, which is the discriminating case for the all-tasks re-key: a
+  dict comprehension keeps only the last category per offset, and with one
+  category per week the wrong and right forms agree, so a single-category
+  fixture pins nothing;
 - an all-zero-level category is suppressed from the level table but a
   zero-level category **with flow** still appears in the net-flow table — the
   discriminating case for Correction 6;
@@ -508,6 +529,7 @@ Step 9 (Post-Implementation) handles cleanup, archival and merge.
 - `main()`'s new `has_backlog` predicate admits a repo whose tasks are all *excluded* from the series, but both renderers early-return on empty axis data and carry the exclusion tally below the table — so the exact case the predicate exists to admit could render as an empty section that hides the tally, while still passing a "section renders" assertion. · severity: medium · → mitigation: covered — the tally is factored into a helper called on both the populated and empty paths, and pinned by an all-excluded fixture asserting the reason string and count
 - `main()`'s archive-missing path now runs a full `collect_stats` — including a live-tree walk — where it previously returned immediately, and **neither** degenerate message has any test today. · severity: medium · → mitigation: covered — this task adds the first tests of both messages, asserted verbatim
 - ~150 lines of render logic (three level axes, per-axis scratch clamp counters, two different row-membership rules) land in `aitask_stats.py`, and t1544_5 will want a subset of the same ordering/subtotal logic for its panes. · severity: low · → mitigation: extract_backlog_view_helper
+- The all-tasks axis feeding `TOTAL OPEN` is a re-key of the category flows, and the obvious dict-comprehension form silently keeps only the last category per offset — making `TOTAL OPEN` one arbitrary category's level and breaking the very `parents + children` invariant the independent axis exists to protect. · severity: medium · → mitigation: covered — the plan pins the accumulating form explicitly, and the equality is asserted on a fixture with ≥2 categories sharing an offset, where the broken form gives a different answer
 - The `write_csv` header and the `lib/stats_data.py` row producer are two halves of one contract in two files; editing one alone is silently wrong. · severity: low · → mitigation: covered — the exact-header assertion and the column-count assertion each fail on a half-edit
 - Two sections are inserted into `render_text_report` and both `main()` guards move, so a slip silently changes existing report output — and the only check is a byte-comparison against a capture taken by the same session that made the change. t1544_3 recorded a real trap here: an in-place mutation and its restore landed in the same second at identical size, so CPython kept the stale `.pyc` and every capture was meaningless. · severity: low (residual — addressed by inline pre-phase capture_stats_baseline) · → mitigation: inline pre-phase capture_stats_baseline
 - The net-flow table's row membership differs from the level table's by design (a zero-level category with real flow must still appear); a later reader "unifying" them would silently delete rows. · severity: low (residual — addressed by inline post-phase negative_control_row_membership) · → mitigation: inline post-phase negative_control_row_membership
