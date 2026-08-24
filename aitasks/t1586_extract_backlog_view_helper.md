@@ -3,12 +3,13 @@ priority: low
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [reporting, tui, backlog]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: risk_mitigation
 created_at: 2026-08-24 16:18
-updated_at: 2026-08-24 16:18
+updated_at: 2026-08-24 18:48
 ---
 
 ## Origin
