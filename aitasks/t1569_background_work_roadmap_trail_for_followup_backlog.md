@@ -13,6 +13,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-18 12:33
 updated_at: 2026-08-18 12:36
+boardcol: now
+boardidx: 2118
 ---
 
 ## Problem
