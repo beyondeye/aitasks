@@ -2,7 +2,10 @@
 """Calculate and display AI task completion statistics.
 
 Supports text output and CSV export. Pure data extraction lives in
-`lib/stats_data.py` and is shared with the stats TUI (`ait stats-tui`).
+`lib/stats_data.py` and is shared with the stats TUI (`ait stats-tui`); the
+shared backlog row axis lives in `lib/backlog_view.py` (t1586). What remains
+here is CLI presentation: pipe-table formatting, the truncating label cell, the
+width-adaptive numeric cells, and the flow table's own row-membership rule.
 """
 
 from __future__ import annotations
@@ -21,7 +24,6 @@ sys.path.insert(0, _SCRIPT_DIR)
 sys.path.insert(0, os.path.join(_SCRIPT_DIR, "lib"))
 
 from collections import Counter
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
@@ -45,7 +47,6 @@ from stats_data import (
     VerifiedModelEntry,
     VerifiedRankingData,
     WINDOW_KEYS,
-    backlog_levels,
     backlog_week_offsets,
     bucket_avg,
     build_chart_title,
@@ -78,13 +79,28 @@ from stats_data import (
     week_start_display_name,
     week_start_for,
 )
-from task_category import category_display_name, is_followup_category, type_display_name
+from task_category import category_display_name, type_display_name
+
+# The shared backlog row axis (t1586). Lifted out of this file once
+# `stats/panes/backlog.py` became a real second consumer -- see that module's
+# docstring for the split between what is shared and what stays per-surface.
+from backlog_view import (
+    BACKLOG_TASK_EXCLUSION_REASONS,
+    BacklogAxis,
+    aggregate_all,
+    backlog_columns,
+    build_backlog_axis,
+    order_categories,
+)
 
 # Re-exports (kept at module scope so existing tests and call sites that
-# reference `aitask_stats.X` continue to work after the data layer split).
+# reference `aitask_stats.X` continue to work after the data layer split, and
+# after the t1586 backlog-axis split).
 __all__ = [
     "AGENT_DISPLAY_NAMES",
     "ARCHIVE_DIR",
+    "BACKLOG_TASK_EXCLUSION_REASONS",
+    "BacklogAxis",
     "DAY_FULL_NAMES",
     "DAY_NAMES",
     "ImplementationInfo",
@@ -100,7 +116,10 @@ __all__ = [
     "VerifiedModelEntry",
     "VerifiedRankingData",
     "WINDOW_KEYS",
+    "aggregate_all",
+    "backlog_columns",
     "bucket_avg",
+    "build_backlog_axis",
     "build_chart_title",
     "canonical_model_id",
     "chart_totals",
@@ -115,6 +134,7 @@ __all__ = [
     "model_display_from_cli_id",
     "model_key_from_cli_id",
     "normalize_implemented_with",
+    "order_categories",
     "parse_completed_date",
     "resolve_completion_date",
     "collect_inflight",
@@ -284,105 +304,6 @@ BACKLOG_WEEKS_MAX = 99
 #: they never truncate, because a wrong number is worse than a wide table.
 BACKLOG_MIN_CELL_W = 4
 
-#: The `backlog_excluded` reasons that count TASKS. `negative_level` is
-#: deliberately absent: it counts clamped OUTPUT CELLS, so summing it into a
-#: task total would overstate the tally (t1544_3's recorded contract).
-BACKLOG_TASK_EXCLUSION_REASONS = (
-    "no_frontmatter",
-    "folded",
-    "invalid_followup_kind",
-    "no_created_at",
-    "future_created_at",
-    "archived_no_completed_at",
-    "future_completed_at",
-)
-
-
-@dataclass
-class BacklogAxis:
-    """Row axis + derived levels shared by the two backlog sections.
-
-    Built ONCE per report. `backlog_levels`' `excluded=` sink counts clamped
-    output cells per call, so calling it again per section would multiply-book
-    `negative_level` and make `render_text_report` non-idempotent; each axis
-    therefore gets its own scratch counter, reported separately from the seven
-    task-level reasons.
-    """
-
-    offsets: List[int]
-    levels: Counter
-    scope_levels: Counter
-    total_levels: Counter
-    followup_rows: List[str]
-    genuine_rows: List[str]
-    clamped_cells: int = 0
-    cell_w: int = BACKLOG_MIN_CELL_W
-
-    @property
-    def has_rows(self) -> bool:
-        return bool(self.followup_rows or self.genuine_rows)
-
-
-def _aggregate_all(flow: Counter) -> Counter:
-    """Re-key a `(category, offset)` flow onto a single `("all", offset)` axis.
-
-    MUST accumulate. A dict comprehension keeps only the LAST value written for
-    each `("all", offset)` key, so every category arriving in the same week
-    would silently overwrite the previous one -- `TOTAL OPEN` would then be one
-    arbitrary category's level and would disagree with the parent/child
-    partition, destroying the invariant this independent axis exists to protect.
-    """
-    agg: Counter = Counter()
-    for (_category, offset), n in flow.items():
-        agg[("all", offset)] += n
-    return agg
-
-
-def _build_backlog_axis(data: StatsData, offsets: Sequence[int]) -> BacklogAxis:
-    """Derive every level series the two backlog sections render."""
-    clamps: Counter = Counter()
-    levels = backlog_levels(data.backlog_arrivals, data.backlog_departures, offsets, excluded=clamps)
-    scope_levels = backlog_levels(
-        data.backlog_scope_arrivals, data.backlog_scope_departures, offsets, excluded=clamps
-    )
-    total_levels = backlog_levels(
-        _aggregate_all(data.backlog_arrivals), _aggregate_all(data.backlog_departures), offsets, excluded=clamps
-    )
-
-    categories = {c for c, _ in data.backlog_arrivals} | {c for c, _ in data.backlog_departures}
-    # backlog_levels emits explicit ZERO cells for every requested offset, so
-    # "all-zero" must be tested on the values -- key absence means nothing here.
-    visible = [c for c in categories if any(levels.get((c, o), 0) for o in offsets)]
-    # Explicit tie-break: sorting a Counter keyset on -level alone is
-    # insertion-order dependent, which makes the table non-deterministic.
-    visible.sort(key=lambda c: (-levels.get((c, 0), 0), category_display_name(c)))
-
-    return BacklogAxis(
-        offsets=list(offsets),
-        levels=levels,
-        scope_levels=scope_levels,
-        total_levels=total_levels,
-        followup_rows=[c for c in visible if is_followup_category(c)],
-        genuine_rows=[c for c in visible if not is_followup_category(c)],
-        clamped_cells=clamps.get("negative_level", 0),
-    )
-
-
-def _backlog_columns(offsets: Sequence[int], now_label: str) -> Tuple[List[int], List[str]]:
-    """Column offsets and their labels, shared by both backlog tables.
-
-    Chronological, oldest first, with the current week LAST. Defined once so the
-    two tables cannot drift into different column orders: they are meant to be
-    read stacked, and aligning them is the whole point of the shared layout.
-
-    `now_label` differs by table -- the flow table marks its current column
-    `Now*` because a flow over a partial week is genuinely incomplete, while a
-    level is a stock and is correct as-of-now.
-    """
-    weeks = [o for o in offsets if o != 0]
-    return weeks + [0], [f"W-{o}" for o in weeks] + [now_label]
-
-
 def _backlog_table_row(label: str, cells: Sequence[str], cell_w: int) -> str:
     body = "".join(f" {c:>{cell_w}} |" for c in cells)
     return f"| {label:<{BACKLOG_LABEL_W}.{BACKLOG_LABEL_W}} |{body}"
@@ -431,7 +352,7 @@ def render_backlog_level(axis: BacklogAxis, data: StatsData, out: io.StringIO, t
         print(file=out)
         return
 
-    columns, headers = _backlog_columns(axis.offsets, "Now")
+    columns, headers = backlog_columns(axis.offsets, "Now")
 
     def level_cells(source: Counter, key: str) -> List[str]:
         return [str(source.get((key, o), 0)) for o in columns]
@@ -454,11 +375,11 @@ def render_backlog_level(axis: BacklogAxis, data: StatsData, out: io.StringIO, t
     rows.append(("of which parents", level_cells(axis.scope_levels, "parent")))
     rows.append(("of which children", level_cells(axis.scope_levels, "child")))
 
-    axis.cell_w = max(BACKLOG_MIN_CELL_W, *(len(c) for _, cells in rows for c in cells), *(len(h) for h in headers))
-    print(_backlog_table_row("Category", headers, axis.cell_w), file=out)
-    print(_backlog_table_sep(len(columns), axis.cell_w), file=out)
+    cell_w = max(BACKLOG_MIN_CELL_W, *(len(c) for _, cells in rows for c in cells), *(len(h) for h in headers))
+    print(_backlog_table_row("Category", headers, cell_w), file=out)
+    print(_backlog_table_sep(len(columns), cell_w), file=out)
     for label, cells in rows:
-        print(_backlog_table_row(label, cells, axis.cell_w), file=out)
+        print(_backlog_table_row(label, cells, cell_w), file=out)
 
     _render_backlog_exclusions(data, out, axis.clamped_cells)
     print("_Postponed tasks count as open; Folded tasks are excluded._", file=out)
@@ -502,15 +423,17 @@ def render_backlog_netflow(
         if any(data.backlog_arrivals.get((c, o), 0) or data.backlog_departures.get((c, o), 0) for o in axis.offsets)
     ]
     # Same ordering rule as the level table (follow-ups first, then current
-    # level descending, name as tie-break) over a DIFFERENT membership.
-    rows_src.sort(key=lambda c: (not is_followup_category(c), -axis.levels.get((c, 0), 0), category_display_name(c)))
+    # level descending, name as tie-break) over a DIFFERENT membership -- which
+    # is exactly why only the ordering is shared (t1586) and the membership
+    # predicate above stays here.
+    rows_src = order_categories(rows_src, axis.levels, followups_first=True)
 
     if not rows_src:
         print("No backlog arrivals or departures in this window.", file=out)
         print(file=out)
         return
 
-    columns, headers = _backlog_columns(axis.offsets, "Now*")
+    columns, headers = backlog_columns(axis.offsets, "Now*")
 
     rows: List[Tuple[str, List[str]]] = [
         (category_display_name(c), [f"{net(c, o):+d}" if net(c, o) else "0" for o in columns]) for c in rows_src
@@ -596,7 +519,7 @@ def render_text_report(
     # of label tables: "is the backlog growing faster than we burn it down" is
     # the standing-state question this report could not answer before (t1544).
     # The axis is built ONCE and shared -- see BacklogAxis for why.
-    backlog_axis = _build_backlog_axis(data, backlog_week_offsets(backlog_weeks))
+    backlog_axis = build_backlog_axis(data, backlog_week_offsets(backlog_weeks))
     render_backlog_level(backlog_axis, data, out, today, week_start_dow)
     render_backlog_netflow(backlog_axis, data, out, today, week_start_dow)
 
@@ -914,7 +837,7 @@ def main(argv: Sequence[str]) -> int:
         write_backlog_csv(
             backlog_path,
             data,
-            _build_backlog_axis(data, backlog_week_offsets(args.backlog_weeks)),
+            build_backlog_axis(data, backlog_week_offsets(args.backlog_weeks)),
             today,
             week_start_dow,
         )

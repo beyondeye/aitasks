@@ -12,11 +12,14 @@ persisted-but-unread `week_start` key would require moving that resolver first.
 See the `t597_4` TODO in `overview.py`. This module derives no dates, so it needs
 no `week_start_dow` of its own.
 
-The row-axis / ordering / subtotal logic below duplicates `aitask_stats.py`'s,
-whose versions are underscore-private, absent from its `__all__`, and part of the
-CLI rather than `lib/` — importing them would make this the first pane->CLI
-import and invert the layering. t1586 lifts the shared parts into
-`lib/backlog_view.py`, designed against this module as the real second consumer.
+The row axis, the level derivation, the column order and the ordering rule come
+from `lib/backlog_view.py` (t1586), which was designed against this module as the
+real second consumer — so this pane and the CLI cannot drift apart on any of
+them. What stays here is what is genuinely pane-specific: the `_LEVEL_ROW_CAP`
+row cap and its `Other` bucket, the volume-ranked `_NETFLOW_SERIES` chart split,
+the fixed-width totals strip, and the flow table's own row-MEMBERSHIP rule
+(a category can have real flow and a level of zero at every offset, so
+membership is per-table even though the ordering is shared).
 """
 from __future__ import annotations
 
@@ -27,14 +30,19 @@ from rich.text import Text
 from textual.containers import Container
 from textual.widgets import DataTable, Static
 
+from backlog_view import (
+    BACKLOG_TASK_EXCLUSION_REASONS,
+    backlog_columns,
+    build_backlog_axis,
+    order_categories,
+)
 from stats_data import (
     BACKLOG_WEEKS_DEFAULT,
     StatsData,
-    backlog_levels,
     backlog_week_offsets,
     build_chart_title,
 )
-from task_category import category_display_name, is_followup_category
+from task_category import category_display_name
 
 from .base import PaneDef, register, render_chart
 
@@ -51,86 +59,7 @@ _NETFLOW_SERIES = 5
 #: totals strip (4 rows) + this + padding (2) must fit the terminal.
 _NETFLOW_CHART_H = 18
 
-#: The `backlog_excluded` reasons that count TASKS. `negative_level` is
-#: deliberately absent: it counts clamped OUTPUT CELLS, so summing it into a
-#: task total would overstate the tally (t1544_3's recorded contract).
-#: Mirrors `aitask_stats.BACKLOG_TASK_EXCLUSION_REASONS`, which is private there.
-_TASK_EXCLUSION_REASONS = (
-    "no_frontmatter",
-    "folded",
-    "invalid_followup_kind",
-    "no_created_at",
-    "future_created_at",
-    "archived_no_completed_at",
-    "future_completed_at",
-)
-
 _OTHER_LABEL = "Other"
-
-
-def _columns(offsets: Sequence[int], now_label: str) -> Tuple[List[int], List[str]]:
-    """Column offsets and their labels, shared by both backlog panes.
-
-    Chronological, oldest first, with the current week LAST. Defined once so the
-    two panes cannot drift into different column orders: they are meant to be
-    read stacked, and aligning them is the whole point of the shared layout.
-
-    `now_label` differs by pane -- the flow pane marks its current column `Now*`
-    because a flow over a partial week is genuinely incomplete, while a level is
-    a stock and is correct as-of-now.
-
-    Mirrors `aitask_stats._backlog_columns` (t1588), which is private to the CLI.
-    Keeping the same shape here is what makes t1586's extraction a straight lift.
-    """
-    weeks = [o for o in offsets if o != 0]
-    return weeks + [0], [f"W-{o}" for o in weeks] + [now_label]
-
-
-def _aggregate_all(flow: Counter) -> Counter:
-    """Re-key a `(category, offset)` flow onto a single `("all", offset)` axis.
-
-    MUST accumulate. A dict comprehension keeps only the LAST value written for
-    each `("all", offset)` key, so every category arriving in the same week would
-    silently overwrite the previous one. That matters more here than in the CLI:
-    this pane CAPS its rows, so `TOTAL OPEN` cannot be recovered by summing what
-    is on screen -- it has to come from this independent axis.
-    """
-    agg: Counter = Counter()
-    for (_category, offset), n in flow.items():
-        agg[("all", offset)] += n
-    return agg
-
-
-def _derive_levels(stats: StatsData, offsets: Sequence[int]):
-    """`(levels, scope_levels, total_levels, clamped_cells)` for one render.
-
-    The `excluded=` sink is a **per-call scratch Counter**, never
-    `stats.backlog_excluded`. t1544_3's contract says to pass the shared counter
-    "to keep the clamp counter live" -- correct for the one-shot CLI, wrong here:
-    `stats_app._show_pane` re-renders against the SAME cached `StatsData` on every
-    pane switch, so the shared counter would accumulate `negative_level` without
-    bound for the life of the session.
-
-    The scratch counter is read out and returned rather than dropped -- allocating
-    a sink and discarding it is capturing a diagnostic without surfacing it.
-    """
-    clamps: Counter = Counter()
-    levels = backlog_levels(
-        stats.backlog_arrivals, stats.backlog_departures, offsets, excluded=clamps
-    )
-    scope_levels = backlog_levels(
-        stats.backlog_scope_arrivals,
-        stats.backlog_scope_departures,
-        offsets,
-        excluded=clamps,
-    )
-    total_levels = backlog_levels(
-        _aggregate_all(stats.backlog_arrivals),
-        _aggregate_all(stats.backlog_departures),
-        offsets,
-        excluded=clamps,
-    )
-    return levels, scope_levels, total_levels, clamps.get("negative_level", 0)
 
 
 def _diagnostic_lines(stats: StatsData, clamped_cells: int) -> List[str]:
@@ -142,7 +71,7 @@ def _diagnostic_lines(stats: StatsData, clamped_cells: int) -> List[str]:
     output CELLS and must never be summed into a task total.
     """
     lines: List[str] = []
-    present = [(r, stats.backlog_excluded.get(r, 0)) for r in _TASK_EXCLUSION_REASONS]
+    present = [(r, stats.backlog_excluded.get(r, 0)) for r in BACKLOG_TASK_EXCLUSION_REASONS]
     present = [(r, n) for r, n in present if n]
     if present:
         detail = ", ".join(f"{r}: {n}" for r, n in present)
@@ -178,27 +107,17 @@ def _level_rows(
     distorted by the current week being partial.
     """
     offsets = backlog_week_offsets(weeks)
-    levels, scope_levels, total_levels, clamped = _derive_levels(stats, offsets)
-    diagnostics = _diagnostic_lines(stats, clamped)
+    axis = build_backlog_axis(stats, offsets)
+    levels = axis.levels
+    diagnostics = _diagnostic_lines(stats, axis.clamped_cells)
 
-    columns, headers = _columns(offsets, "Now")
-
-    categories = {c for c, _ in stats.backlog_arrivals} | {c for c, _ in stats.backlog_departures}
-    # `backlog_levels` emits explicit ZERO cells for every requested offset, so
-    # "all-zero" must be tested on the values -- key absence means nothing here.
-    visible = [c for c in categories if any(levels.get((c, o), 0) for o in offsets)]
-    # Explicit tie-break: sorting a Counter keyset on -level alone is
-    # insertion-order dependent, which makes the table non-deterministic.
-    visible.sort(key=lambda c: (-levels.get((c, 0), 0), category_display_name(c)))
-
-    followups = [c for c in visible if is_followup_category(c)]
-    genuine = [c for c in visible if not is_followup_category(c)]
+    columns, headers = backlog_columns(offsets, "Now")
 
     def cells(source: Counter, key: str) -> List[str]:
         return [str(source.get((key, o), 0)) for o in columns]
 
     rows: List[Tuple[str, List[str]]] = []
-    for block, subtotal_label in ((followups, "-- follow-ups"), (genuine, "-- genuine")):
+    for block, subtotal_label in ((axis.followup_rows, "-- follow-ups"), (axis.genuine_rows, "-- genuine")):
         if not block:
             # No categories in this half -- an all-zero subtotal of nothing is
             # noise, and TOTAL OPEN still accounts for the other half.
@@ -216,9 +135,9 @@ def _level_rows(
         )
 
     if rows:
-        rows.append(("TOTAL OPEN", cells(total_levels, "all")))
-        rows.append(("of which parents", cells(scope_levels, "parent")))
-        rows.append(("of which children", cells(scope_levels, "child")))
+        rows.append(("TOTAL OPEN", cells(axis.total_levels, "all")))
+        rows.append(("of which parents", cells(axis.scope_levels, "parent")))
+        rows.append(("of which children", cells(axis.scope_levels, "child")))
 
     return headers, rows, diagnostics
 
@@ -237,9 +156,9 @@ def _netflow_rows(
     would suppress exactly the row a flow table exists to show.
     """
     offsets = backlog_week_offsets(weeks)
-    levels, _scope, _total, _clamped = _derive_levels(stats, offsets)
+    levels = build_backlog_axis(stats, offsets).levels
 
-    columns, labels = _columns(offsets, "Now*")
+    columns, labels = backlog_columns(offsets, "Now*")
 
     arrivals, departures = stats.backlog_arrivals, stats.backlog_departures
 
@@ -256,10 +175,10 @@ def _netflow_rows(
         return labels, [], [], []
 
     # Same ordering rule as the level table (follow-ups first, then current level
-    # descending, name as tie-break) over a DIFFERENT membership.
-    members.sort(
-        key=lambda c: (not is_followup_category(c), -levels.get((c, 0), 0), category_display_name(c))
-    )
+    # descending, name as tie-break) over a DIFFERENT membership -- which is
+    # exactly why t1586 shares only the ordering and leaves the membership
+    # predicate above with each surface.
+    members = order_categories(members, levels, followups_first=True)
 
     # Chart series are ranked by HORIZON VOLUME (arrivals + departures), not by
     # net. A category with many arrivals and equally many departures nets to ~0
@@ -308,7 +227,7 @@ def _render_level(stats: StatsData, container: Container) -> None:
         # the tally here too, because on the empty path it is the EXPLANATION for
         # the table's absence -- `main()`'s `has_backlog` predicate admits an
         # all-excluded repo precisely on the strength of those counters.
-        if any(stats.backlog_excluded.get(r, 0) for r in _TASK_EXCLUSION_REASONS):
+        if any(stats.backlog_excluded.get(r, 0) for r in BACKLOG_TASK_EXCLUSION_REASONS):
             message = "No open tasks could be placed in the backlog series."
         else:
             message = "No open tasks found."

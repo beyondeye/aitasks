@@ -13,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from collections import Counter
 from datetime import date
 from pathlib import Path
 from typing import Any, cast
@@ -588,9 +589,52 @@ def _synthetic_stats(arrivals=None, departures=None, excluded=None):
 
 def _render_level(data, weeks=8):
     out = io.StringIO()
-    axis = stats._build_backlog_axis(data, stats.backlog_week_offsets(weeks))
+    axis = stats.build_backlog_axis(data, stats.backlog_week_offsets(weeks))
     stats.render_backlog_level(axis, data, out, _BACKLOG_TODAY, _BACKLOG_DOW)
     return out.getvalue()
+
+#: Whole-section goldens for the two backlog tables on `TestBacklogSections`'
+#: fixture, minted against the pre-t1586 sources and confirmed green there.
+#:
+#: The characterization pin for the t1586 extraction (`lib/backlog_view.py`):
+#: the per-row assertions elsewhere in this class check values, but only a
+#: whole-section compare also pins COLUMN WIDTHS, footnote text, row ORDER and
+#: blank-line placement -- which is what makes it discriminate on a lost
+#: `category_display_name` tie-break, a mis-lifted cell width, or a dropped
+#: exclusion line. Deliberately scoped to these two sections: the wall-clock
+#: `Generated:` line and the ~450 lines of unrelated label tables are excluded,
+#: so unrelated report changes cannot make this brittle.
+_LEVEL_SECTION_GOLDEN = """
+| Category             |  W-7 |  W-6 |  W-5 |  W-4 |  W-3 |  W-2 |  W-1 |  Now |
+|----------------------|------|------|------|------|------|------|------|------|
+| manual verification  |    0 |    0 |    0 |    0 |    0 |    0 |    1 |    1 |
+| -- follow-ups        |    0 |    0 |    0 |    0 |    0 |    0 |    1 |    1 |
+| Features             |    0 |    0 |    0 |    0 |    0 |    2 |    2 |    2 |
+| Bug Fixes            |    0 |    0 |    0 |    0 |    0 |    1 |    1 |    1 |
+| Documentation        |    0 |    0 |    0 |    0 |    1 |    1 |    0 |    0 |
+| -- genuine           |    0 |    0 |    0 |    0 |    1 |    4 |    3 |    3 |
+| TOTAL OPEN           |    0 |    0 |    0 |    0 |    1 |    4 |    4 |    4 |
+| of which parents     |    0 |    0 |    0 |    0 |    1 |    3 |    3 |    3 |
+| of which children    |    0 |    0 |    0 |    0 |    0 |    1 |    1 |    1 |
+_Excluded from the backlog series: 1 task(s) (no_created_at: 1)._
+_Postponed tasks count as open; Folded tasks are excluded._
+_`bug` here is net of `upstream defect` follow-ups; `### By Task Type` counts it gross._
+_Backlog uses `completed_at` (falling back to `updated_at` for Done); the other sections prefer gate-ledger stamps -- the same set of completed tasks, a different week for ~0.3%._
+"""
+
+_FLOW_SECTION_GOLDEN = """
+| Category             |  W-7 |  W-6 |  W-5 |  W-4 |  W-3 |  W-2 |  W-1 | Now* |
+|----------------------|------|------|------|------|------|------|------|------|
+| manual verification  |    0 |    0 |    0 |    0 |    0 |    0 |   +1 |    0 |
+| Features             |    0 |    0 |    0 |    0 |    0 |   +2 |    0 |    0 |
+| Bug Fixes            |    0 |    0 |    0 |    0 |    0 |   +1 |    0 |    0 |
+| Chores               |    0 |    0 |    0 |    0 |    0 |    0 |    0 |    0 |
+| Documentation        |    0 |    0 |    0 |    0 |   +1 |    0 |   -1 |    0 |
+| ARRIVALS             |    0 |    0 |    0 |    0 |    1 |    4 |    1 |    0 |
+| DEPARTURES           |    0 |    0 |    0 |    0 |    0 |    1 |    1 |    0 |
+| NET                  |    0 |    0 |    0 |    0 |   +1 |   +3 |    0 |    0 |
+_Now* covers 2026-03-02..2026-03-05 (partial week)._
+"""
 
 
 class TestBacklogSections(unittest.TestCase):
@@ -760,7 +804,7 @@ class TestBacklogSections(unittest.TestCase):
         self.assertNotIn("Clamped negative level cells", section)
 
     def test_backlog_csv_is_a_complete_dense_series(self):
-        axis = stats._build_backlog_axis(self.data, stats.backlog_week_offsets(8))
+        axis = stats.build_backlog_axis(self.data, stats.backlog_week_offsets(8))
         out = self.base / "backlog.csv"
         stats.write_backlog_csv(out, self.data, axis, _BACKLOG_TODAY, _BACKLOG_DOW)
         with out.open(newline="", encoding="utf-8") as handle:
@@ -819,7 +863,7 @@ class TestBacklogSections(unittest.TestCase):
         open[w] - open[w+1] == net[w] for every offset except the oldest
         rendered one, which has no cell past the horizon to subtract.
         """
-        axis = stats._build_backlog_axis(self.data, stats.backlog_week_offsets(8))
+        axis = stats.build_backlog_axis(self.data, stats.backlog_week_offsets(8))
         self.assertEqual(axis.clamped_cells, 0)
         out = self.base / "backlog2.csv"
         stats.write_backlog_csv(out, self.data, axis, _BACKLOG_TODAY, _BACKLOG_DOW)
@@ -839,6 +883,104 @@ class TestBacklogSections(unittest.TestCase):
                 )
                 checked += 1
         self.assertGreater(checked, 0)
+
+    def test_backlog_sections_render_byte_for_byte(self):
+        """Characterization pin for the t1586 extraction into lib/backlog_view.py.
+
+        Compares each rendered section WHOLE against a golden minted before the
+        extraction. The value assertions elsewhere in this class would survive a
+        changed column width, a reordered row block or a dropped footnote; this
+        one would not.
+        """
+        self.assertEqual(_section(self.report, self.LEVEL_H), _LEVEL_SECTION_GOLDEN)
+        self.assertEqual(_section(self.report, self.FLOW_H), _FLOW_SECTION_GOLDEN)
+
+
+class TestBacklogViewSeam(unittest.TestCase):
+    """Direct probes of the `lib/backlog_view.py` public boundary (t1586).
+
+    The rendered-report tests above exercise the same code, but only through two
+    layers of formatting. These assert the contracts at the seam itself, which is
+    where a future caller will read them.
+    """
+
+    def test_aggregate_all_sums_categories_sharing_an_offset(self):
+        """The negative control the accumulation contract exists for.
+
+        A dict comprehension over the same input keeps only the LAST value per
+        `("all", offset)` key, so this reads 3 instead of 8 -- and TOTAL OPEN
+        then silently disagrees with the parent/child partition.
+        """
+        flow = Counter({("type:feature", 2): 5, ("type:bug", 2): 3, ("type:chore", 1): 4})
+        self.assertEqual(
+            stats.aggregate_all(flow),
+            Counter({("all", 2): 8, ("all", 1): 4}),
+        )
+
+    def test_aggregate_all_of_an_empty_flow_is_empty(self):
+        self.assertEqual(stats.aggregate_all(Counter()), Counter())
+
+    def test_order_categories_breaks_level_ties_on_display_name(self):
+        """Without the tie-break the order follows Counter insertion order, which
+        makes the table non-deterministic between runs over the same data."""
+        levels = Counter({("type:feature", 0): 2, ("type:bug", 0): 2, ("type:chore", 0): 9})
+        # Insertion order deliberately disagrees with the expected output.
+        cats = ["type:feature", "type:bug", "type:chore"]
+        self.assertEqual(
+            stats.order_categories(cats, levels),
+            ["type:chore", "type:bug", "type:feature"],   # 9 first; then Bug Fixes < Features
+        )
+
+    def test_order_categories_puts_followups_first_only_when_asked(self):
+        """The flow tables partition before ranking; the level axis does not."""
+        levels = Counter({("type:feature", 0): 9, ("kind:manual_verification", 0): 1})
+        cats = ["type:feature", "kind:manual_verification"]
+        # Default: pure level ranking -- the level-9 genuine category leads.
+        self.assertEqual(stats.order_categories(cats, levels), ["type:feature", "kind:manual_verification"])
+        # followups_first: the level-1 follow-up outranks it anyway.
+        self.assertEqual(
+            stats.order_categories(cats, levels, followups_first=True),
+            ["kind:manual_verification", "type:feature"],
+        )
+
+    def test_backlog_columns_put_the_current_week_last(self):
+        """Offset 0 is a partial week for a flow, so it must never lead the
+        table; both surfaces read this one helper so they cannot disagree."""
+        columns, headers = stats.backlog_columns([0, 1, 2, 3], "Now*")
+        self.assertEqual(columns, [1, 2, 3, 0])
+        self.assertEqual(headers, ["W-1", "W-2", "W-3", "Now*"])
+        # The label is the caller's -- the level table passes "Now" (a stock is
+        # correct as-of-now and carries no partial marker).
+        self.assertEqual(stats.backlog_columns([0, 1], "Now")[1], ["W-1", "Now"])
+
+    def test_axis_clamp_sink_is_per_call_not_the_shared_counter(self):
+        """Building the axis twice must not double-book `negative_level`, and
+        must never write into `data.backlog_excluded` -- the stats TUI re-renders
+        against one cached StatsData on every pane switch."""
+        # A departure with no matching arrival forces a negative raw level.
+        data = _synthetic_stats(departures={("type:feature", 2): 1})
+        offsets = stats.backlog_week_offsets(8)
+        first = stats.build_backlog_axis(data, offsets)
+        second = stats.build_backlog_axis(data, offsets)
+        self.assertGreater(first.clamped_cells, 0)
+        self.assertEqual(first.clamped_cells, second.clamped_cells)
+        self.assertEqual(data.backlog_excluded.get("negative_level", 0), 0)
+
+    def test_axis_partitions_visible_rows_and_reports_has_rows(self):
+        data = _synthetic_stats(
+            arrivals={("type:feature", 3): 2, ("kind:manual_verification", 3): 1},
+        )
+        axis = stats.build_backlog_axis(data, stats.backlog_week_offsets(8))
+        self.assertEqual(axis.followup_rows, ["kind:manual_verification"])
+        self.assertEqual(axis.genuine_rows, ["type:feature"])
+        self.assertTrue(axis.has_rows)
+        self.assertFalse(stats.build_backlog_axis(_synthetic_stats(), stats.backlog_week_offsets(8)).has_rows)
+
+    def test_exclusion_reasons_are_task_level_and_exclude_negative_level(self):
+        """`negative_level` counts output CELLS; summing it into a task tally
+        would overstate it. One tuple, read by both surfaces."""
+        self.assertNotIn("negative_level", stats.BACKLOG_TASK_EXCLUSION_REASONS)
+        self.assertEqual(len(stats.BACKLOG_TASK_EXCLUSION_REASONS), 7)
 
 
 class TestBacklogRendering(unittest.TestCase):

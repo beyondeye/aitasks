@@ -416,13 +416,13 @@ class TestCliParity(unittest.TestCase):
 
     def _cli_sections(self, d):
         offsets = stats_data.backlog_week_offsets(stats_data.BACKLOG_WEEKS_DEFAULT)
-        level_axis = CLI._build_backlog_axis(d, offsets)
+        level_axis = CLI.build_backlog_axis(d, offsets)
         out = io.StringIO()
         CLI.render_backlog_level(level_axis, d, out, self.TODAY, 1)
         level_text = out.getvalue()
         # A fresh axis per section: `backlog_levels`' clamp sink counts per call,
         # which is the same non-idempotency the pane avoids with a scratch Counter.
-        flow_axis = CLI._build_backlog_axis(d, offsets)
+        flow_axis = CLI.build_backlog_axis(d, offsets)
         out = io.StringIO()
         CLI.render_backlog_netflow(flow_axis, d, out, self.TODAY, 1)
         return level_text, out.getvalue()
