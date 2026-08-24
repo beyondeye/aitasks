@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1544_4, t1544_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, web_site, reporting]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 created_at: 2026-08-17 22:07
-updated_at: 2026-08-17 22:09
+updated_at: 2026-08-24 18:48
 ---
 
 ## Context
