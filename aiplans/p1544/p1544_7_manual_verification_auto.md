@@ -96,3 +96,51 @@ retrospective rather than filed as a verification failure.
 - Scratch captures, CSVs and the throwaway projects live under the session
   scratchpad only — nothing was written into `aitasks/` or `aiplans/` beyond
   this plan and the checklist marks.
+
+## Final Implementation Notes
+
+**Outcome: all 20 checklist items PASS. No verification failure, no follow-up
+task spawned from the checklist.** The t1544 backlog feature is verified end to
+end across all four surfaces (CLI, stats TUI, session discovery, website docs).
+
+### What the verification actually established
+
+- **The strongest single piece of evidence is item 11.** Running the *pre-change*
+  code (worktree at `t1544_4^`) against the *same* live task tree proved the two
+  new sections are purely additive: current output minus those 50 lines is
+  byte-identical to pre-change output except `Generated:`. No pre-existing
+  section moved, and no number changed.
+- **The stock and the flow reconcile exactly.** `-- follow-ups + -- genuine ==
+  TOTAL OPEN == parents + children` holds in all 8 columns, and each week's `NET`
+  equals that week's level delta. The two series are independently derived, so
+  this is a real cross-check, not one artifact agreeing with itself.
+- **CLI and TUI agree.** Same horizon, same values, with the TUI's row cap
+  reconciling: its `Other` row equals CLI `Tests + Performance + Refactors` in
+  every column — which is exactly the `shown + Other == subtotal` property the
+  cap was designed to preserve.
+
+### For sibling tasks (t1544_8 retrospective in particular)
+
+1. **The t1544_1 baselines were vacuous and are no longer.** The 2026-08-18
+   pre-phase recorded an empty duplicate-key set, so items 1–4 as originally
+   captured observed nothing the dedupe does — the plan said so itself. This run
+   fabricated a real duplicate live tmux session and confirmed the actual
+   contract: **List A still lists the duplicate twice** (no-flag discovery is
+   deliberately untouched) while **List B / stats collapse it to one**, prefer
+   the live entry, and leave totals unchanged (aggregate `2197` with and without
+   the duplicate). If a future task needs this evidence, the fixture is one
+   `tmux new-session -d -c <same repo>` away — no disposable registry needed.
+2. **`aitasks/metadata/stats_config.json` drift is real but harmless.** It pins
+   5 presets and omits `sessions` **and** `backlog`, against the parent task's
+   explicit "add to both / do not add a third divergence" instruction.
+   `load_layered_config` merges per preset key, so both still appear — verified
+   live. Worth a retrospective decision: either finish the sync or delete the
+   duplicated JSON preset block, since it now silently disagrees with the
+   shipped defaults in two places.
+3. **Do not re-investigate the footnote "corruption".** An early tmux capture
+   appeared to show ` (no_` dropped from the excluded-tally line. It was a
+   mid-repaint capture; the real widget renders correctly at every geometry.
+   Any future TUI verification here must settle the app before capturing.
+4. **The `~0.3%` two-clocks footnote is a frozen literal** in the report text
+   while the docs deliberately say "a small number" instead. t1590 is already
+   in flight to unpin it; the docs side needs no change.
