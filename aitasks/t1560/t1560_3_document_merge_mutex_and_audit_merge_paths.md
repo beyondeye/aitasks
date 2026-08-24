@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1560_1]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, git, task_workflow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1560
 created_at: 2026-08-18 11:40
-updated_at: 2026-08-18 11:40
+updated_at: 2026-08-24 22:29
 ---
 
 ## Context
