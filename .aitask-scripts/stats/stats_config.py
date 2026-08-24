@@ -21,6 +21,7 @@ DEFAULT_PRESETS: dict[str, list[str]] = {
     "velocity": ["velocity.daily", "velocity.rolling", "velocity.parent_child"],
     "pipeline": ["pipeline.timing", "pipeline.inflight"],
     "sessions": ["sessions.totals", "overview.summary", "overview.daily"],
+    "backlog":  ["backlog.level", "backlog.netflow"],
 }
 
 DEFAULTS: dict = {
