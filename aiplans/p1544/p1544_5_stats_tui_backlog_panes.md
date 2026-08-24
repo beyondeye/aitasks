@@ -423,6 +423,40 @@ verification defect where a same-second, same-size restore left a stale `.pyc`):
 
 ---
 
+## Post-Review Changes
+
+### Change Request 1 (2026-08-24 18:28)
+
+- **Requested by user:** Move the `Now` column in the backlog **level** pane from
+  first to last (after `W-1`), matching the change they had just landed in the
+  CLI as **t1588**. A peer session (the t1544_4 CLI author) independently sent
+  the same notice, reporting that t1588 had broken this task's in-flight parity
+  test.
+- **Confirmed before changing:** the two `TestCliParity` tests failed on header
+  order alone — `['Now','W-7'…'W-1'] != ['W-7'…'W-1','Now']`. The parity test
+  detected the upstream reorder immediately, which is what it was added for.
+- **Changes made:**
+  - Added `_columns(offsets, now_label)` to `stats/panes/backlog.py`, mirroring
+    t1588's `aitask_stats._backlog_columns` — same signature and body, same
+    `now_label` split (`Now` for the level, a stock correct as-of-now; `Now*` for
+    the flow, where a partial week is genuinely incomplete).
+  - Both `_level_rows` and `_netflow_rows` now call it, so the two panes cannot
+    drift into different column orders. The flow pane's output is unchanged (it
+    already ended in `Now*`); only the level pane reorders.
+  - **Not** imported from `aitask_stats`: nothing in the tree imports that module,
+    and a pane→CLI import would invert the layering. An identical local shape
+    keeps t1586 a straight lift of both copies into `lib/backlog_view.py`.
+  - Corrected `_level_rows`' docstring, which still claimed "`Now` first then the
+    horizon weeks oldest-first, matching the CLI" — wrong in both directions
+    after t1588.
+  - Added a negative control (`level columns put Now FIRST again`) pinning the
+    order; it reddens both parity tests and nothing else.
+- **Files affected:** `.aitask-scripts/stats/panes/backlog.py`
+- **Re-verified:** full suite `PYTHON SUITE: PASSED (runner=pytest, exit=0)` —
+  5193 passed, 2 skipped; 13/13 negative controls redden their named assertion;
+  pyflakes clean; live tmux boot shows the level table ending in `Now` and
+  matching `ait stats` row-for-row.
+
 ## Risk
 
 *Levels reassessed against the augmented plan, after both mitigations were
@@ -454,3 +488,161 @@ confirmed as inline post-phases.*
 ### Planned mitigations
 - timing: post-phase | name: pin_cli_tui_backlog_parity | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — CLI/TUI parity asserted only by eye | desc: Assert the pane's derived rows against the CLI's rendered backlog tables from one shared StatsData.
 - timing: post-phase | name: smoke_render_backlog_panes_live | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: code-health — eager-import trap and the never-exercised real mount path | desc: Boot the stats TUI under App.run_test, apply the backlog layout, assert both panes mount their widgets; add the module to the serial carve-out.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven implementation steps plus both inline
+  post-phase mitigations, as planned. New `.aitask-scripts/stats/panes/backlog.py`
+  (~310 lines): `_columns`, `_aggregate_all`, `_derive_levels`,
+  `_diagnostic_lines`, `_cap_block`, the two pure row functions
+  (`_level_rows` / `_netflow_rows`), `_totals_strip`, the two `_render_*` shells,
+  and both `register()` calls. `stats/panes/__init__.py` gained `backlog` at the
+  end of the eager-import list; `stats/stats_config.py` gained the `backlog`
+  preset. **No config file was changed**, as Deliverable 3 requires. New
+  `tests/test_stats_backlog_panes.py` (25 tests) and
+  `tests/test_stats_backlog_panes_live.py` (9 tests).
+
+- **Deviations from plan:** Four, three of which are corrections to plan steps
+  that could not have worked as written.
+
+  1. **The live-render module is NOT in `SERIAL_CARVE_OUT`.** The plan said to add
+     it and to edit CLAUDE.md's marker block. Verified instead that the carve-out
+     exists for modules booting a real TUI **in a tmux pane** under a hard
+     wall-clock budget; this module uses `App.run_test` (headless, in-process),
+     and **93 existing modules** already do so inside the parallel pool. Adding it
+     would have grown a deliberately-small carve-out for no reason and forced an
+     unnecessary CLAUDE.md edit plus the `test_serial_carveout_doc_drift.sh`
+     coupling.
+  2. **The `#content` fit assertion is wanted-lines vs available-rows, not
+     region vs region.** The planned region comparison is **structurally incapable
+     of failing**: Textual clips a child's `region` to its parent, so an
+     overflowing widget reports a clipped height. Caught by its own negative
+     control, which passed while the mutation was live. (Also learned: plotext
+     clamps its own output to the terminal, so `_NETFLOW_CHART_H` can never
+     overflow by itself — the discriminating mutation is a taller *strip*.)
+  3. **The pane-registration test runs in a subprocess.** In-process it was
+     vacuous: this test module imports `stats.panes.backlog` directly for the row
+     functions, and that import alone runs `register()`, so `PANE_DEFS` contained
+     both ids even with `backlog` removed from the eager-import list — blind to
+     the exact trap it exists to guard. Also caught by its negative control.
+  4. **Two extra live tests for `_render_level`'s empty branch.** The planned
+     pure-function test asserts on `_level_rows`' return value, which stays
+     correct even when the render path throws the message away; deleting the
+     empty-path message left the suite green.
+
+- **Issues encountered:**
+  - **Upstream reorder mid-review (t1588).** After implementation was complete,
+    the user asked to move the level pane's `Now` column last, and the t1544_4
+    session independently reported that t1588 had already landed the same change
+    in the CLI. The parity test failed on header order immediately — see
+    Post-Review Changes above. Resolved by mirroring t1588's `_backlog_columns`
+    as a local `_columns`, used by both panes.
+  - Three of eleven initial negative controls were **vacuous** (nothing failed).
+    Each exposed a real test defect, listed under Deviations 2-4. Re-running the
+    controls after each fix is what turned them into guards rather than decoration.
+  - A test bug of my own: the CLI-footnote parity assertion stripped `_` globally
+    to remove markdown italics, which also mangled `no_frontmatter`. Fixed to
+    assert the exact wrapped line.
+  - Manual TUI verification persisted `active: backlog` into the gitignored
+    `aitasks/metadata/stats_config.local.json`; restored to `labels`.
+
+- **Key decisions:**
+  - **The `excluded=` clamp sink is a per-render scratch `Counter`, never
+    `stats.backlog_excluded`.** t1544_3's recorded contract says to pass the
+    shared counter "to keep the clamp counter live" — correct for a one-shot CLI,
+    **wrong for a TUI**: `stats_app._show_pane` re-renders against the same cached
+    `StatsData` on every pane switch, so the shared counter would accumulate
+    `negative_level` without bound for the session. The scratch counter is read
+    out and returned, not dropped — allocating a sink and discarding it is
+    capturing a diagnostic without surfacing it.
+  - **Diagnostics render on BOTH the populated and the empty path**, with the
+    CLI's two-branch empty message. On the empty path the tally is the
+    *explanation for the table's absence*, not a footnote — `main()`'s
+    `has_backlog` predicate admits an all-excluded repo precisely on the strength
+    of those counters. The original plan omitted this entirely; it was added
+    after review feedback.
+  - **Net-flow chart series rank by horizon VOLUME (arrivals + departures), not
+    net.** A category with many arrivals and equally many departures nets to ~0
+    while being among the most active — ranking on net buries exactly the
+    category this pane exists to show. That is the live `kind:docs_gap` shape.
+  - **Row derivation is pure and Textual-free**, with the `_render_*` functions as
+    thin mounting shells. This is what makes the invariants unit-testable without
+    an app, and it is the seam t1586 lifts.
+  - **`TOTAL OPEN` comes from the independent all-tasks axis**, which matters more
+    here than in the CLI because this pane caps rows: the total cannot be
+    recovered by summing what is on screen.
+  - **Per-block row cap with a per-block `Other`**, so `shown + Other == subtotal`
+    holds per column and the capped table stays reconcilable.
+
+- **Upstream defects identified:** None.
+
+- **Notes for sibling tasks:**
+
+  **For t1586 (`extract_backlog_view_helper`) — this task is its second consumer.**
+  The duplication is now concrete and enumerable. `stats/panes/backlog.py` carries
+  local mirrors of four things private to `aitask_stats.py`: `_columns` /
+  `_backlog_columns` (t1588), `_aggregate_all`, the level and flow ordering +
+  membership rules, and `BACKLOG_TASK_EXCLUSION_REASONS`. Both copies were
+  deliberately kept **shape-identical** so the extraction is a straight lift
+  rather than a reconciliation of two designs. Two things the extraction must
+  decide rather than inherit:
+  1. **Clamp-sink ownership.** The CLI wants a per-section scratch counter for
+     idempotency; the TUI wants a per-render one because it re-renders against a
+     cached `StatsData`. A lifted helper should own the scratch counter and return
+     the clamp count, never accept a caller-supplied shared sink — otherwise every
+     consumer re-decides it and the TUI's answer is the non-obvious one.
+  2. **The row cap is a TUI concern, not a shared one.** The CLI never caps. Lift
+     the ordering and membership rules; leave `_cap_block` behind.
+
+  **For t1544_6 (documentation):** the TUI surface is the `backlog` preset with
+  panes `backlog.level` ("Backlog level") and `backlog.netflow` ("Net flow"). The
+  level pane caps each block at 6 rows with an `Other` bucket — a difference from
+  the CLI worth documenting, since `Other` has no CLI counterpart. Both panes read
+  `BACKLOG_WEEKS_DEFAULT`; the horizon is not configurable from the TUI (no CLI
+  `--backlog-weeks` equivalent), and week start is fixed to Monday.
+
+  **For t1544_7 (manual verification):** the checklist items in this plan's
+  `## Verification` "Manual" block were all executed and passed during this
+  session against a live tmux boot at 150x45.
+
+### Verification results
+
+- `tests/test_stats_backlog_panes.py` 25/25; `tests/test_stats_backlog_panes_live.py`
+  9/9, under **both** backends (pytest and the `unittest discover` fallback).
+- `bash tests/run_all_python_tests.sh --test-dir tests` ->
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; 5193 passed, 2 skipped.
+- `pyflakes` clean on all three new/changed Python files. (`stats/panes/__init__.py`
+  reports its side-effect imports as unused — pre-existing, verified against
+  `HEAD`; pyflakes does not honour the `# noqa: F401`.)
+- **Live in a tmux pane (150x45):** `ait stats-tui` starts; the `backlog` layout
+  appears in the picker and applies; both panes appear in the sidebar; the level
+  table renders 9 columns ending in `Now` with the cap engaged (`Other 27`) and
+  `TOTAL OPEN 438 = 312 + 126`; the diagnostic line matches the CLI footnote
+  verbatim; the net-flow pane shows the totals strip over a 5-series category
+  chart, unwrapped and unclipped. All six pre-existing presets still list their
+  original panes.
+- **13 negative controls**, each re-run with `__pycache__` cleared, each reddening
+  its named assertion and no unrelated one:
+
+  | mutation | discriminating assertion |
+  |---|---|
+  | level columns put `Now` first again (pre-t1588) | both `TestCliParity` level tests |
+  | `_aggregate_all` uses a dict comprehension | `test_total_open_is_independent_of_the_row_cap` |
+  | netflow reuses the LEVEL membership rule | `test_zero_level_category_with_flow_is_a_netflow_row` |
+  | `_derive_levels` passes the shared exclusion counter | `test_rendering_does_not_mutate_the_shared_exclusion_counter` |
+  | `backlog` dropped from the eager-import list | `test_backlog_panes_are_registered` |
+  | block subtotal summed over shown rows only | `test_other_row_and_shown_rows_reconcile_with_the_block_subtotal` |
+  | netflow `net` sign inverted | `test_netflow_totals_and_per_category_nets_match_the_cli` |
+  | empty level path falls through to a generic message | `test_empty_level_pane_explains_itself_rather_than_saying_no_data` |
+  | `negative_level` summed into the task tally | `test_clamped_cells_are_reported_separately_from_the_task_tally` |
+  | netflow series ranked by net instead of volume | `test_netflow_series_are_ranked_by_horizon_volume` |
+  | `plotext` import forced to fail | `test_netflow_chart_is_a_real_chart_not_the_fallback` |
+  | totals strip blown past the `#content` budget | `test_netflow_fits_the_content_budget` |
+  | level diagnostics dropped from the render path | `test_level_pane_mounts_its_diagnostic_line` |
+
+  The `plotext`-failure and strip-overflow controls are the two that matter most:
+  the first is the only thing separating a real chart from `render_chart`'s
+  silent fallback, and the second is the only thing that makes the height budget
+  a real constraint rather than a comment.
