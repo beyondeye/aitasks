@@ -249,7 +249,7 @@ carries the same figure.
   seven shipped, and let the skill doc claim 7 CSV columns against 12. Step 1
   removes the standalone count, which narrows but does not close it: the preset
   table, the 13-section list and the 12-column list all still duplicate source
-  values by hand. · severity: medium · → mitigation: stats_docs_source_drift_guard
+  values by hand. · severity: medium · → mitigation: t1591
 
 ### Goal-achievement risk: low
 - The task's named failure mode is documenting the plan rather than the shipped
@@ -259,7 +259,7 @@ carries the same figure.
   · severity: low · → mitigation: none needed
 
 ### Planned mitigations
-- timing: after | name: stats_docs_source_drift_guard | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: high | addresses: code-health — hand-pinned doc counts/column lists have no drift guard | desc: Assert the preset names and pane titles in website/content/docs/tuis/stats/_index.md match stats_config.DEFAULT_PRESETS and the register(PaneDef(...)) titles, and that the CSV column lists in board-stats.md and .claude/skills/aitask-stats/SKILL.md match the headers aitask_stats.py emits.
+- timing: after | name: stats_docs_source_drift_guard | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: high | addresses: code-health — hand-pinned doc counts/column lists have no drift guard | desc: Assert the preset names and pane titles in website/content/docs/tuis/stats/_index.md match stats_config.DEFAULT_PRESETS and the register(PaneDef(...)) titles, and that the CSV column lists in board-stats.md and .claude/skills/aitask-stats/SKILL.md match the headers aitask_stats.py emits. | created: t1591
 
 ## Final Implementation Notes
 
