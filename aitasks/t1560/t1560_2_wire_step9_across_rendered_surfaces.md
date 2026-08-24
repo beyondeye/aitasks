@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1560_1]
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1560
+implemented_with: claudecode/opus5
 created_at: 2026-08-18 11:40
-updated_at: 2026-08-18 23:49
+updated_at: 2026-08-24 18:05
 ---
 
 ## Context
@@ -139,3 +142,8 @@ no branch must **fail the build, not ship**. The same test asserts the
 - No website docs — that is **t1560_3**.
 - **No fetch added to Step 9** — that is **t1393**. Record in this task's Final
   Implementation Notes that t1393's wiring point is now the broker script.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-24T15:06:05Z status=pass attempt=1 type=human
