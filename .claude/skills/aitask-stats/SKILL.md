@@ -14,8 +14,11 @@ Run the statistics script:
 ### Options
 
 - `-d, --days N` - Show daily breakdown for last N days (default: 7)
+- `-w, --week-start DAY` - First day of week: mon, sun, tue, etc. (default: Monday)
 - `-v, --verbose` - Show individual task IDs in daily breakdown
 - `--csv [FILE]` - Export raw data to CSV (default: aitask_stats.csv)
+- `--backlog-weeks N` - Weeks of backlog history to render (default: 8, max: 99)
+- `--csv-backlog [FILE]` - Export the weekly backlog series to CSV (default: aitask_backlog.csv)
 - `-h, --help` - Show usage information
 
 ### Examples
@@ -43,17 +46,36 @@ Export to CSV for graphing in LibreOffice:
 ## Statistics Provided
 
 1. **Summary** - Total completions, 7-day and 30-day counts
-2. **Daily Breakdown** - Completions per day with optional task IDs
-3. **Day of Week Stats** - Current week counts + 30d/all-time averages per weekday
-4. **Label Weekly Trends** - Per-label completions for last 4 weeks (W-3, W-2, W-1, This Week)
-5. **Label Day-of-Week Breakdown** - Per-label averages by day of week
-6. **Task Type Weekly Trends** - Parent/child and feature/bug trends for last 4 weeks
-7. **Features/Bugs by Label Trends** - Combined label + issue type weekly trends
+2. **Backlog Level** - Weekly count of open tasks per category, with follow-up / genuine subtotals, `TOTAL OPEN`, and a parent/child split
+3. **Backlog Net Flow** - Weekly arrivals minus departures per category, with ARRIVALS / DEPARTURES / NET rows
+4. **Daily Breakdown** - Completions per day with optional task IDs
+5. **Day of Week Stats** - Current week counts + 30d/all-time averages per weekday
+6. **Pipeline Timing** - Average time in the implement and review/merge phases, for gated tasks
+7. **Label Weekly Trends** - Per-label completions for last 4 weeks (W-3, W-2, W-1, This Week)
+8. **Label Day-of-Week Breakdown** - Per-label averages by day of week
+9. **Task Type Weekly Trends** - Parent/child and feature/bug trends for last 4 weeks
+10. **Features/Bugs by Label Trends** - Combined label + issue type weekly trends
+11. **Code Agent Weekly Trends** - Weekly completions split by code agent
+12. **LLM Model Weekly Trends** - Weekly completions split by normalized LLM model
+13. **Verified Model Rankings** - Model scores per skill, aggregated across providers
+
+The backlog sections cover the last 8 weeks by default (`--backlog-weeks` changes
+the horizon). Their columns run chronologically with the current week last; in the
+net-flow table that final column is a partial week, marked `Now*`.
 
 ## Export Format
 
-**CSV Export:** Raw task data with columns:
-- date, day_of_week, week_offset, task_id, labels, issue_type, task_type
+**CSV Export (`--csv`):** one row per *completed* task, with columns:
+- date, day_of_week, week_offset, task_id, labels, issue_type, task_type, implemented_with, codeagent, llm_model, created_at, category
+
+**Backlog Export (`--csv-backlog`):** the weekly backlog series, with columns:
+- week_ending, category, open, arrived, departed, net
+
+One row per category per week, oldest week first, zero cells included. `category`
+holds raw namespaced keys (`type:feature`, `kind:manual_verification`) and only real
+categories -- no subtotal or `TOTAL OPEN` rows for a pivot to double-count. Open
+tasks are not rows in the `--csv` table, so the backlog level is not reproducible
+from it.
 
 Open in LibreOffice Calc to create custom charts and pivot tables for trend analysis.
 

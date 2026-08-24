@@ -14,4 +14,4 @@ OpenCode adaptations, read **`.opencode/skills/opencode_tool_mapping.md`**.
 
 ## Arguments
 
-Accepts optional flags: `--days N`, `--verbose`/`-v`, `--csv [FILE]`. Example: `/aitask-stats --days 14 --verbose`.
+Accepts optional flags: `--days N`, `--week-start DAY`/`-w`, `--verbose`/`-v`, `--csv [FILE]`, `--backlog-weeks N`, `--csv-backlog [FILE]`. Example: `/aitask-stats --days 14 --verbose`.

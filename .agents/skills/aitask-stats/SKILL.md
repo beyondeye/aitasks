@@ -15,4 +15,4 @@ Read that file and follow its complete workflow.
 
 ## Arguments
 
-Run the statistics script:
+Accepts optional flags: `--days N`, `--week-start DAY`/`-w`, `--verbose`/`-v`, `--csv [FILE]`, `--backlog-weeks N`, `--csv-backlog [FILE]`. Example: `/aitask-stats --days 14 --verbose`.
