@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [t1560_3]
 issue_type: bug
 status: Ready
 labels: [git, task_workflow, bash_scripts]
