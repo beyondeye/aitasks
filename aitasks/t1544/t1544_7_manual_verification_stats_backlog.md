@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [t1544_6]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
 verifies: [t1544_1, t1544_4, t1544_5, t1544_6]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: manual_verification
 created_at: 2026-08-17 22:08
-updated_at: 2026-08-17 22:09
+updated_at: 2026-08-24 23:06
 ---
 
 ## Manual Verification Task
