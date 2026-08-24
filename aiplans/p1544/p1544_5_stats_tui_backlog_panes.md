@@ -487,7 +487,7 @@ confirmed as inline post-phases.*
 
 ### Planned mitigations
 - timing: post-phase | name: pin_cli_tui_backlog_parity | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — CLI/TUI parity asserted only by eye | desc: Assert the pane's derived rows against the CLI's rendered backlog tables from one shared StatsData.
-- timing: post-phase | name: smoke_render_backlog_panes_live | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: code-health — eager-import trap and the never-exercised real mount path | desc: Boot the stats TUI under App.run_test, apply the backlog layout, assert both panes mount their widgets; add the module to the serial carve-out.
+- timing: post-phase | name: smoke_render_backlog_panes_live | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: code-health — eager-import trap and the never-exercised real mount path | desc: Boot the stats TUI under App.run_test, apply the backlog layout, assert both panes mount their widgets (implemented; the carve-out step was dropped -- App.run_test is not a tmux-pane boot, see Final Implementation Notes deviation 1).
 
 ---
 
