@@ -145,8 +145,8 @@ call on receipt of the verdict. `lock-through` is what says when.
 release call**; it hands the user the recovery ladder. `caller-path` = resume
 whatever path called this verb.
 
-**Alternation.** A row may carry `|`-separated alternatives in the four closed
-columns; all alternating cells in a row must have **equal arity**, and
+**Alternation.** A row may carry `;`-separated alternatives in the four closed
+columns (`;`, not `|`: a bare pipe cannot live inside a markdown table cell); all alternating cells in a row must have **equal arity**, and
 alternative *i* of each column pairs positionally with alternative *i* of the
 others. Each positional tuple must satisfy the invariants independently. The
 verdict cell is matched by **token prefix** (up to the first `:`), so a payload
@@ -159,9 +159,9 @@ containing `\|` never confuses the parser.
 | verdict | lock | terminal-release | lock-through | continues-to | terminal-lock |
 |---|---|---|---|---|---|
 | `MERGE_OK:<sha>` | ours-held | finish | verification+cleanup | verification | released |
-| `MERGE_CONFLICT:<paths>` | ours-held | finish\|abort | verification+cleanup\|immediate | verification\|stop-in-flight | released\|released |
+| `MERGE_CONFLICT:<paths>` | ours-held | finish;abort | verification+cleanup;immediate | verification;stop-in-flight | released;released |
 | `MERGE_FAILED:<msg>` | ours-held | abort | immediate | stop-in-flight | released |
-| `RETAINED:<inner>` | ours-held | finish\|ladder | immediate\|immediate | stop-in-flight\|recovery | released\|held-ladder |
+| `RETAINED:<inner>` | ours-held | finish | immediate | stop-in-flight | released |
 | `BUSY:<holder>:<waited>` | none | none | n/a | stop-in-flight | n/a |
 | `STALE_MERGE_RESIDUE` | none | none | n/a | stop | n/a |
 | `DIRTY_TREE:<n>` | none | none | n/a | stop | n/a |
@@ -203,7 +203,7 @@ containing `\|` never confuses the parser.
 | verdict | lock | terminal-release | lock-through | continues-to | terminal-lock |
 |---|---|---|---|---|---|
 | `CLEANED` | ours-held | finish | immediate | archival | released |
-| `CLEANED_PARTIAL:<remains>` | ours-held | finish | immediate | archival | released |
+| `CLEANED_PARTIAL:<remains>` | ours-held | finish | immediate | stop-in-flight | released |
 | `CLEANUP_REQUIRES_COMPLETION` | ours-held | finish | immediate | stop-in-flight | released |
 | `TARGET_MISMATCH:<recorded>` | ours-held | finish | immediate | stop-in-flight | released |
 | `NOT_HELD` | none | none | n/a | stop-in-flight | n/a |
@@ -228,10 +228,22 @@ Notes the prose beside the table must carry:
   hazard the reservation exists to prevent. `lock-through` is the column that
   says so, and `I6` is what enforces it.
 - `RETAINED` is the trap: **the reservation is still held** even though the inner
-  verdict reads like a release. On `begin` it attempts exactly one `finish`; if
-  that does not report `RELEASED`, the ladder takes over and the terminal state
-  is `held-ladder`. On `finish` / `abort` the release has already been attempted,
-  so the branch goes straight to the ladder — never a second release call.
+  verdict reads like a release. On `begin` it attempts exactly one `finish` and
+  then **branches on that call's own verdict** via the `finish` table — `finish`
+  can also answer `NOT_HELD` (the lock is gone) or
+  `NOT_HOLDER` / `NOT_OWNER_SESSION` / `HOLDER_INCOMPLETE` (it is not ours), and
+  reporting any of those as "still held" would be false and would start the wrong
+  recovery. Only `finish`'s own `RETAINED:release_failed` is the still-held case.
+  On `finish` / `abort` the release has already been attempted, so those branches
+  go straight to the ladder — never a second release call.
+- **`CLEANED_PARTIAL` never archives.** A surviving worktree or
+  `aitask/<task_name>` is exactly what the `POSTIMPL` resume needs; archiving
+  would close the only route back to it, and would regress the pre-existing Step 9
+  contract where the bare `--strict` teardown makes **only** `CLEAN` exit 0, so
+  "archival cannot proceed over a worktree or branch that is still there". The
+  options are "Retry cleanup" (branch on the new verdict; only a fresh `CLEANED`
+  reaches archival) and "Release and stop in-flight". Either way `finish` runs, so
+  the ladder terminates — but the task is not completed.
 - `PREFLIGHT_CHECKOUT_FAILED` / `PREFLIGHT_HEAD_MISMATCH` **release**. They were
   split out of `MERGE_FAILED` for exactly this reason; calling `abort` on them
   runs held-lock recovery against a free lock.
@@ -379,9 +391,14 @@ of the rendered `merge-broker.md` — never a token grep over concatenated prose
    `#### abort / ABORT_UNSAFE` branch contain no literal `--abort-merge` /
    `--reset-hard`, scoped to that block (the recovery ladder legitimately names
    flags).
-4. **Prompt compatibility.** Extract the rendered merge-approval question and
-   regex-search it with the real `workflow_phase.WORKFLOW_PROMPTS`. This is the
-   plan's "prove it, don't assume it".
+4. **Prompt compatibility.** Locate the rendered line carrying the phase anchor,
+   **extract the quoted question text from it**, instantiate its placeholders the
+   way Step 9 does at runtime, and regex-search *that* value with the real
+   `workflow_phase.WORKFLOW_PROMPTS` — both without the queued clause and with it
+   appended. Asserting a hardcoded copy of the question would keep passing while a
+   rewrite broke the real anchor, which is the one thing this check exists to
+   catch. Fail as `PROMPT_ANCHOR_MISSING` / `QUESTION_NOT_EXTRACTED` /
+   `PROMPT_NO_MATCH:<variant>`.
 5. **Handoff anchors.** Each of the four handoff headings appears in the rendered
    `merge-broker.md`, and `SKILL.md` references each by name — asserted in both
    directions, so moving one side without the other fails.
@@ -517,3 +534,96 @@ or `aiplans/` file — those landed in step 0's separate `./ait git` commit.
 ### Goal-achievement risk: low
 - Five shipped verdicts have **no row** in the parent plan's §4 table — `PREFLIGHT_CHECKOUT_FAILED`, `PREFLIGHT_HEAD_MISMATCH`, `RETAINED`, `HOLDER_INCOMPLETE`, `FREE_GUARD_PRESENT`. Their dispositions are decided by this task rather than inherited, as is the stated deviation from §4a's "always finish" on foreign/absent locks. · severity: low (residual — every one is an explicit reviewable row, derived from the broker source, with the two inversion traps and the deviation called out by name) · → mitigation: inline post-phase structural_held_lock_invariant_assertion
 - The coverage test proves every verdict has a row *and* a non-contradicting branch; it cannot prove the branch's full prose instructs the agent well. · severity: low (residual — I1–I8 plus the linkage check make the wedge-producing and race-reopening classes executable; what remains unverified is wording quality, not disposition) · → mitigation: inline post-phase verb_coverage_drift_guard
+
+## Final Implementation Notes
+
+- **Actual work done:** New `.claude/skills/task-workflow/merge-broker.md` (590
+  lines) carrying five disposition tables — 41 verb-qualified rows over 30
+  distinct tokens — the §4a verification-outcome table, five named handoff
+  anchors and one `#### <verb> / <TOKEN>` operational branch per row. Step 9 in
+  the Jinja source now probes the queue, appends `Queued behind t<N>.` to the end
+  of the (otherwise byte-identical) approval question, hands the merge to the
+  broker, brackets the verification block with the two anchors, and routes
+  cleanup/release through the procedure. New
+  `tests/test_merge_broker_rendered_verdicts.sh` (25 assertions, **7** negative
+  controls); `tests/test_skill_render_task_workflow.sh` re-pins injection safety
+  and registers the new procedure in `WRAPPED_FILES_INVARIANT`. Rerendered all
+  three profiles; the tracked `task-workflow-remote-` ports in all three agent
+  trees updated (`default`/`fast` renders are gitignored by
+  `.gitignore:52 .claude/skills/*-/`). Goldens: `SKILL-{default,fast,remote}.md`
+  regenerated plus the new canonical `merge-broker-default.md`.
+
+- **Deviations from plan:**
+  - **Alternation separator is `;`, not `|`.** A bare pipe cannot live inside a
+    markdown table cell, and escaping it (`\|`) collides with the payloads that
+    genuinely contain one (`HELD:<t>\|<pid>\|…`). The plan's table has been
+    corrected to match.
+  - **Five handoff anchors, not four.** The `status` verdicts and their branches
+    live in `merge-broker.md` under `## Probe — report the queue holder` rather
+    than inline in Step 9, so all 41 rows sit in one parsed file and Step 9 stays
+    lean — which was the point of the extraction. Step 9 still *calls* the probe
+    before the approval question, as specified.
+  - **The `## Recovery ladder` is a sixth section** but not a handoff anchor: it
+    is where `terminal-lock: held-ladder` rows terminate.
+
+- **Issues encountered:**
+  - `./ait git commit -o -- <paths> -m "<msg>"` **fails** — after `--` git reads
+    `-m` as a pathspec. The correct form is `-o -m "<msg>" -- <paths>`, and the
+    plan's step-0 snippet was corrected in place so the recorded command is
+    copy-safe.
+  - Three defects found in review of the first implementation, all fixed:
+    `cleanup / CLEANED_PARTIAL` routed to `archival`, which would archive a task
+    over a surviving worktree or branch — a regression against the pre-existing
+    Step 9 contract (bare `--strict` teardown: only `CLEAN` exits 0) and a
+    destruction of the `POSTIMPL` recovery route. It now stops in-flight.
+    `begin / RETAINED` claimed any non-`RELEASED` `finish` result proved the lock
+    was still held, which is false for `NOT_HELD` / `NOT_HOLDER` /
+    `NOT_OWNER_SESSION` / `HOLDER_INCOMPLETE`; it now branches on the `finish`
+    table. The prompt check asserted a hardcoded copy of the approval question
+    instead of the rendered one; it now extracts the real text and adds negative
+    control G to prove a reworded prefix fails.
+
+- **Key decisions:**
+  - **The disposition table is the contract, not the prose.** A `grep -w` union
+    over rendered text cannot tell which verb a token belongs to — `NOT_HELD`
+    appears under three verbs and `RETAINED` under three — so an entire verb's
+    branch can go missing while the check passes. Negative control A pins exactly
+    that case by deleting `cleanup / NOT_HELD` while the `finish` and `abort` rows
+    stay.
+  - **`terminal-release` + `lock-through`, not "release-call".** A single column
+    saying "`finish`" is temporally ambiguous: an implementation calling `finish`
+    immediately after `MERGE_OK` would satisfy it and reopen the merge race.
+    `lock-through` names the stages the reservation must span first, and `I6`
+    enforces it; negative control C performs that exact mutation and must fail
+    naming `I6`, not `I1`.
+  - **The verification block stays in `SKILL.md`.** `tests/test_gate_verifiers.sh`
+    Test 6 pins `ait gates run` and the engine sentinel to that exact file, and
+    the `record_gates` Jinja block lives with it. That is what creates the
+    four-hop cycle, so the ordering check (test step 6) asserts on the **rendered**
+    SKILL.md that the acquire anchor precedes `ait gates run` and the release
+    anchor follows it.
+  - **`force-release` is excluded** from coverage: it is a human recovery ladder
+    run outside the workflow. `merge-broker.md` points at it without rendering its
+    verdicts — **t1560_3** documents it.
+  - Confirmed by verification, not assumption: `workflow_phase.py:103` and
+    `tests/test_workflow_phase_prompt_drift.sh:60,104` both match the 39-character
+    prefix, so appending the queued clause needed **no** change to either.
+
+- **t1393 (no fetch in Step 9):** its wiring point is now
+  `.aitask-scripts/aitask_merge_task.sh` — the fetch belongs inside the broker's
+  critical section, before the pre-flight, so the merge target is refreshed while
+  the mutex is held rather than in Step 9's prose.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_merge_task.sh:499 — `LOCK_UNAVAILABLE` is declared in
+    `_VERDICTS_BEGIN` but `cmd_begin` (110-217) never emits it; only
+    `cmd_force_release` does (490, 492). The rendered `begin / LOCK_UNAVAILABLE`
+    branch is therefore unreachable, and any coverage test sourcing the vocabulary
+    is forced to require a branch for a verdict the verb cannot produce.
+  - `.aitask-scripts/aitask_merge_task.sh:116 — a flag given without its value
+    (`begin --wait-secs` with nothing after it) makes `shift 2` fail under
+    `set -euo pipefail`, exiting **1** (documented as "infrastructure failure")
+    instead of the **2** the header specifies for usage errors.
+  Both are t1560_1's surface; per this task's non-goals they are recorded for
+  coordination rather than fixed here.
+
