@@ -36,6 +36,10 @@ import tunnel  # noqa: E402
 from pairing import Endpoint  # noqa: E402
 
 DEFAULT_HOST = "0.0.0.0"   # accept from the LAN; the QR carries the routable IP
+# Same value as `agent_launch_utils.DEFAULT_TMUX_SESSION`, spelled separately on
+# purpose: applink is a standalone listener that must not pull in the launcher
+# module just for a string. Nothing enforces the equality — whether these two
+# should be one contract at all is open, and is tracked by t1583 (t1580).
 DEFAULT_SESSION = "aitasks"
 DEFAULT_PORT = 8765
 

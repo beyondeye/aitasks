@@ -246,8 +246,17 @@ def format_session_divider(label: str) -> str:
     Callers own their own leading indent (the full monitor indents by two
     columns; minimonitor pads via CSS) but never the style — that is the point
     of this seam.
+
+    ``label`` is a **tmux session name**, i.e. user-controlled text reaching a
+    markup-enabled renderer, so it is escaped (t1580). Unescaped, a session
+    named ``[/]`` raises ``MarkupError`` and takes the whole pane list down
+    with it, and one named ``[dim]`` is silently swallowed — the same hazard
+    already recorded on :meth:`ColumnPickerModal` below, and the reason the
+    minimonitor's own-panel header (``_own_header_text``) escapes the same
+    value. Contrast :func:`format_section_header`, whose label is built by the
+    framework and needs none.
     """
-    return f"[{SESSION_DIVIDER_STYLE}]── {label} ──[/]"
+    return f"[{SESSION_DIVIDER_STYLE}]── {escape(label)} ──[/]"
 
 
 # Pane-list section header (t1449): the `── other (N) ──` rule that heads the
@@ -274,6 +283,12 @@ def format_section_header(label: str) -> str:
     Deliberately NOT :data:`SESSION_DIVIDER_STYLE`: a section boundary and a
     repo boundary are different things, and the shared ``── … ──`` shape is
     exactly why they must not share a colour.
+
+    Also deliberately **not escaped**, unlike :func:`format_session_divider`
+    directly above (t1580). The asymmetry is the rule, not an oversight: every
+    caller builds this label itself (``f"other ({len(others)})"``), so no
+    user-controlled text reaches it. Escape it here too the moment a caller
+    starts passing something a user can name.
     """
     return f"[{SECTION_HEADER_STYLE}]── {label} ──[/]"
 

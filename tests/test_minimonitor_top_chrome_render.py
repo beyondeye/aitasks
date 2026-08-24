@@ -104,10 +104,16 @@ OWN_PHASE = "implement 2/4"
 OWN_WINDOW_PATHOLOGICAL = "agent-" + "x" * 120
 
 
-def _own_snapshot(window: str = OWN_WINDOW):
-    """A followed-window snapshot `_maybe_build_own_agent_panel` accepts."""
+def _own_snapshot(window: str = OWN_WINDOW, category=mm.PaneCategory.AGENT):
+    """A followed-window snapshot `_maybe_build_own_agent_panel` accepts.
+
+    `category` selects which header label the panel builds — `AGENT` gives
+    "this agent", anything else gives "this window" (t1580). The two labels
+    differ in width by one cell, so the header's shedding thresholds differ
+    too, and a width case that only ever sees `AGENT` cannot pin both.
+    """
     pane = SimpleNamespace(
-        category=mm.PaneCategory.AGENT,
+        category=category,
         session_name="probe-session",
         window_index="1",
         pane_index="0",
@@ -182,7 +188,8 @@ class _ChromeFixture(unittest.TestCase):
         )
 
     async def _populate(self, app, pilot, *, banners=True, own=True,
-                        session=True, window=OWN_WINDOW):
+                        session=True, window=OWN_WINDOW,
+                        own_category=mm.PaneCategory.AGENT):
         """Drive chrome through the production write sites only.
 
         ``own`` is tri-state: ``False`` builds no panel, ``True`` builds the
@@ -204,7 +211,9 @@ class _ChromeFixture(unittest.TestCase):
             if own == "full":
                 app._task_cache = _TitleCache()
                 app._own_phase_text = lambda snap: OWN_PHASE
-            app._find_own_window_snapshot = lambda: _own_snapshot(window)
+            app._find_own_window_snapshot = (
+                lambda: _own_snapshot(window, own_category)
+            )
             app._is_marked = lambda snap: True
             await app._maybe_build_own_agent_panel()
         if session is not None:
@@ -224,7 +233,7 @@ class _ChromeFixture(unittest.TestCase):
         await pilot.pause()
 
     def _run(self, size, *, banners=True, own=True, session=True, after=None,
-             window=OWN_WINDOW):
+             window=OWN_WINDOW, own_category=mm.PaneCategory.AGENT):
         """Boot, populate, and hand the live app to ``after``."""
         result = {}
 
@@ -232,7 +241,8 @@ class _ChromeFixture(unittest.TestCase):
             app = self._app(width=size[0])
             async with app.run_test(size=size) as pilot:
                 await self._populate(app, pilot, banners=banners, own=own,
-                                     session=session, window=window)
+                                     session=session, window=window,
+                                     own_category=own_category)
                 result["regions"] = {
                     sel: app.query_one(sel).region
                     for sel in CHROME_IDS + ["#mini-pane-list", "#mini-key-hints"]
@@ -582,6 +592,60 @@ class OwnPanelSizingTests(_ChromeFixture):
                 f"task title word {fragment!r} never reached the screen — the "
                 "title is still being clipped",
             )
+
+    def test_own_header_names_the_session_without_clipping_at_any_width(self):
+        """The header rule survives every width, on real composited output (t1580).
+
+        `.mini-own-header` is `height: 1`, so an over-long header is CLIPPED and
+        the trailing `──` silently disappears — the rule then reads as broken.
+        `_own_header_text` sheds in three rungs to prevent that, and this is the
+        only place its budget, the CSS `padding: 0 1` and the configured
+        `target_width` are proven to agree on what actually reaches the frame.
+
+        **The widths below 22 are the point.** Both shedding thresholds (18 for
+        `this agent`, 19 for `this window`) sit under the 22 that
+        `test_own_panel_holds_its_cap_at_every_pane_width` bottoms out at, so
+        that sweep is structurally blind to a rung that clips.
+
+        A HALF rule is the failure mode, so the sub-threshold case asserts the
+        rule is **absent** rather than inferring it from a length check.
+
+        **Floors at 15, and that is a measured limit of the fixture, not a
+        convenient stopping point.** Below it this app's whole layout
+        degenerates — `#mini-own-agent` is allotted fewer columns than the
+        screen and the bottom-docked `#mini-key-hints` paints over row 0, so
+        the frame at `y` carries hint text and can testify about no widget at
+        all. That is pre-existing and unrelated to the header. Widths 1..14 are
+        covered where they *can* be answered: the pure-formatter sweep in
+        `tests/test_minimonitor_own_header_session.py`.
+        """
+        cases = (
+            (mm.PaneCategory.AGENT, "this agent"),
+            (mm.PaneCategory.OTHER, "this window"),
+        )
+        for category, label in cases:
+            threshold = len(f"── {label} ──") + mm._OWN_HEADER_PADDING
+            for width in (40, 30, 26, 22, 19, 18, 17, 15):
+                out = self._run((width, 30), banners=False, session=False,
+                                own_category=category)
+                row = out["rows"][out["regions"]["#mini-own-agent"].y].rstrip()
+                with self.subTest(label=label, width=width):
+                    self.assertIn(label, row, f"the label itself is gone: {row!r}")
+                    if width >= threshold:
+                        self.assertTrue(
+                            row.endswith("──"),
+                            f"header rule clipped at width {width}: {row!r}",
+                        )
+                    else:
+                        self.assertNotIn(
+                            "──", row,
+                            f"a clipped half-rule survived at {width}: {row!r}",
+                        )
+        # The feature, at the width the pane actually ships at.
+        full = self._run((40, 30), banners=False, session=False)
+        full_row = full["rows"][full["regions"]["#mini-own-agent"].y]
+        self.assertIn("probe-session", full_row,
+                      f"the session name never reached the header: {full_row!r}")
 
     def test_the_scrollbar_detector_can_actually_fire(self):
         """POSITIVE CONTROL for every ``assertFalse(scrollbar)`` above.

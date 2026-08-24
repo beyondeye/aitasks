@@ -67,6 +67,12 @@ from monitor.tmux_monitor import (  # noqa: E402
 )
 
 
+#: A tmux session name that is also Textual markup. `[/]` is the dangerous
+#: half: unescaped it closes the enclosing span and raises `MarkupError`.
+#: tmux itself accepts brackets in a session name, so this is reachable input,
+#: not a synthetic probe (t1580).
+BRACKET_SESSION = "[dim]x[/]"
+
 #: Colour half of each style ("bold #af87ff" → "#af87ff").
 SECTION_HEADER_COLOUR = SECTION_HEADER_STYLE.split()[-1]
 SESSION_DIVIDER_COLOUR = SESSION_DIVIDER_STYLE.split()[-1]
@@ -162,6 +168,38 @@ class SharedSeamTests(unittest.TestCase):
         markup = format_section_header("other (2)")
         self.assertIn(SECTION_HEADER_STYLE, markup)
         self.assertIn("── other (2) ──", markup)
+
+    def test_a_session_name_containing_markup_renders_literally(self):
+        """The label is a tmux session name, i.e. user-controlled text (t1580).
+
+        Unescaped, ``[/]`` closes the cyan span early and ``[dim]`` is eaten
+        outright — and Textual raises ``MarkupError`` on the stray close, which
+        takes the whole pane list down rather than mis-styling one row. Driven
+        through a real ``Static`` because that is what both TUIs mount, so this
+        exercises Textual's parser rather than only the f-string.
+        """
+        content = Static(format_session_divider(BRACKET_SESSION)).render()
+        self.assertEqual(content.plain, f"── {BRACKET_SESSION} ──")
+
+    def test_escaping_does_not_fragment_the_rule(self):
+        """One cyan span, not a cyan part and an unstyled part."""
+        content = Static(format_session_divider(BRACKET_SESSION)).render()
+        styles = [sp.style for sp in content.spans]
+        self.assertEqual(len(styles), 1, f"rule was fragmented: {styles!r}")
+        self.assertIn("cyan", styles[0])
+
+    def test_the_framework_built_section_label_is_left_alone(self):
+        """The asymmetry is deliberate and must stay visible.
+
+        ``format_section_header``'s label is always built by its caller
+        (``f"other (N)"``), so it carries no user text and is NOT escaped. If
+        this ever fails, a caller started passing something a user can name and
+        the escape has to move there too.
+        """
+        self.assertEqual(
+            Static(format_section_header("other (2)")).render().plain,
+            "── other (2) ──",
+        )
 
 
 # --- minimonitor ------------------------------------------------------------
@@ -267,6 +305,25 @@ class MiniMonitorDividerTests(unittest.TestCase):
             _assert_divider_style(self, div, "minimonitor")
         plains = [d.render().plain for d in dividers]
         self.assertEqual(plains, ["── sA ──", "── sB ──"])
+
+    def test_a_bracket_bearing_session_survives_the_real_pane_list(self):
+        """End-to-end for minimonitor: the seam is escaped where it is MOUNTED.
+
+        The shared-seam case proves the formatter; this proves the pane list
+        actually reaches the frame with such a session in it. Unescaped, the
+        `[/]` raises `MarkupError` inside `_rebuild_pane_list` and this fails as
+        an ERROR rather than a mismatch — which is the real user-visible
+        outcome (t1580).
+        """
+        app, container = _mk_list_app(
+            [_snap("%1", session=BRACKET_SESSION),
+             _snap("%2", window_index="2", session="sB")],
+            multi_session=True,
+        )
+        asyncio.run(app._rebuild_pane_list())
+        plains = [w.render().plain for w in _statics(container.mounted)
+                  if w.has_class("mini-session-divider")]
+        self.assertIn(f"── {BRACKET_SESSION} ──", plains)
 
     def test_other_section_header_has_its_own_colour(self):
         """The scope decision, pinned: distinguishable, but NOT the divider's.
@@ -419,16 +476,21 @@ def _monitor_snapshot(pane_id: str, session: str) -> PaneSnapshot:
 
 
 class MonitorDividerTests(unittest.TestCase):
-    def _dividers(self) -> list[str]:
-        """Render the real app in multi-session mode; return divider plains."""
+    def _dividers(self, sessions=("sA", "sB")) -> list[str]:
+        """Render the real app in multi-session mode; return divider plains.
+
+        ``sessions`` is a parameter so the escaping case can drive a
+        bracket-bearing name through this same production path; the default
+        keeps every pre-existing case unchanged.
+        """
         captured: dict[str, list] = {}
 
         async def runner():
-            app = MonitorApp(session="sA", project_root=REPO_ROOT)
+            app = MonitorApp(session=sessions[0], project_root=REPO_ROOT)
             async with app.run_test(size=(100, 30)) as pilot:
                 snapshots = {
-                    "%1": _monitor_snapshot("%1", "sA"),
-                    "%2": _monitor_snapshot("%2", "sB"),
+                    "%1": _monitor_snapshot("%1", sessions[0]),
+                    "%2": _monitor_snapshot("%2", sessions[1]),
                 }
                 app._monitor = _FakeMonitor(snapshots)
                 app._snapshots = snapshots
@@ -465,6 +527,16 @@ class MonitorDividerTests(unittest.TestCase):
         """The indent belongs to the call site, and the seam must not eat it."""
         captured = self._dividers()
         self.assertEqual(captured["plains"], ["  ── sA ──", "  ── sB ──"])
+
+    def test_a_bracket_bearing_session_survives_the_real_pane_list(self):
+        """End-to-end for the full monitor — the other TUI mounting the seam.
+
+        Both TUIs are asserted, not just one: the escape lives in shared code,
+        so covering a single caller would leave the other free to regress by
+        formatting its own rule.
+        """
+        captured = self._dividers(sessions=(BRACKET_SESSION, "sB"))
+        self.assertIn(f"  ── {BRACKET_SESSION} ──", captured["plains"])
 
 
 class _RuleHost(App):

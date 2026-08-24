@@ -74,6 +74,7 @@ from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
+    DEFAULT_TMUX_SESSION,
     resolve_dry_run_command,
     resolve_agent_string,
     TmuxLaunchConfig,
@@ -88,6 +89,7 @@ from agent_command_screen import AgentCommandScreen, resolve_skill_profile  # no
 import gate_ledger  # noqa: E402  (narrow gate-summary shed; same import path as monitor_core)
 
 from rich.cells import cell_len, set_cell_size  # noqa: E402
+from rich.markup import escape  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
@@ -187,6 +189,79 @@ def _clip(text: str, budget: int) -> str:
     if budget == 1:
         return "…"
     return set_cell_size(text, budget - 1).rstrip() + "…"
+
+
+# -- Own-panel header budget --------------------------------------------------
+#
+# `.mini-own-header` is `padding: 0 1` inside a panel with `padding: 0`, so the
+# rule gets `target_width - 2` cells — and it is `height: 1`, which CLIPS rather
+# than wraps. An over-long header therefore loses its trailing `──` and reads as
+# broken, which is why this is a budget and not a format string (t1580).
+_OWN_HEADER_PADDING = 2       # `.mini-own-header` padding: 0 1
+_OWN_HEADER_SEP = " · "
+_MIN_SESSION_CELLS = 4        # below this a clipped session name says nothing
+
+
+def _own_header_text(label: str, session: str, target_width: int) -> str:
+    """``── this agent · <session> ──``, sized to ONE row at ``target_width``.
+
+    Returns Textual markup carrying a single ``[dim]`` span over the whole rule
+    — deliberately NOT ``format_session_divider``'s cyan, which stays reserved
+    for the pane list's repo boundaries. ``test_own_panel_header_stays_dim`` in
+    ``tests/test_monitor_session_divider.py`` is the negative control that says
+    so.
+
+    Budgeted in **cells** off ``target_width``, never off the literal 40:
+    ``tmux.minimonitor.width`` reaches it as a bare ``int(mm_cfg["width"])``
+    with no clamp (see ``main``), so this must hold at ANY width, not merely at
+    plausible ones.
+
+    A three-rung shedding ladder, decoration first — the same shape
+    ``format_gate_phase_row`` uses when its row will not fit:
+
+        1. ``── <label> · <session> ──``  full form
+        2. ``── <label> ──``              session segment dropped whole
+        3. ``<label>``                    rule glyphs dropped, label clipped
+
+    Rung 2 alone is not enough: ``── this window ──`` is 17 cells, so any width
+    below 19 would still overflow, and the trailing ``──`` would vanish — the
+    exact failure this function exists to prevent. **Post-condition, on every
+    rung:** the rendered plain text is ``<= max(0, target_width - 2)`` cells.
+
+    The session name is tmux-side user input, so it is escaped: an unescaped
+    ``[/]`` would close the ``[dim]`` span early and an unescaped ``[dim]``
+    would be eaten outright. Escaped AFTER truncation, so the backslashes never
+    count against the budget (they vanish again in the rendered plain text).
+    ``label`` is framework-controlled and deliberately NOT escaped — the same
+    rule ``format_section_header`` records for its own caller-built label.
+    """
+    usable = max(0, target_width - _OWN_HEADER_PADDING)
+    bare = f"── {label} ──"
+    room = usable - cell_len(bare) - cell_len(_OWN_HEADER_SEP)
+    if session and room >= _MIN_SESSION_CELLS:
+        body = f"── {label}{_OWN_HEADER_SEP}{escape(_clip(session, room))} ──"
+    elif cell_len(bare) <= usable:
+        body = bare
+    else:
+        body = _clip(label, usable)
+    return f"[dim]{body}[/]"
+
+
+def _session_is_ambiguous(session: str) -> bool:
+    """True when a tmux session name cannot identify a repo (t1580).
+
+    ``DEFAULT_TMUX_SESSION`` is what every unconfigured repo reports **and** a
+    name a repo may configure deliberately (``seed/project_config.yaml``
+    documents it as its example). Runtime carries no provenance to tell those
+    apart — and does not need to: the name collides across repos either way, so
+    it is never a repo signal.
+
+    Named for what it tests rather than written as a bare
+    ``== DEFAULT_TMUX_SESSION`` at the call site, because the inline form reads
+    as an *unconfigured-repo* check — a claim this cannot make and does not
+    need to.
+    """
+    return session == DEFAULT_TMUX_SESSION
 
 
 async def _composer_drain(seconds: float) -> None:
@@ -463,7 +538,9 @@ _TOP_CHROME = (
 # holds at 22 columns exactly as it does at 40. A row added to the panel must be
 # added here too.
 _OWN_PANEL_MAX_ROWS = (
-    1      # "── this agent ──" header (.mini-own-header, height: 1)
+    1      # "── this agent · <session> ──" header — `.mini-own-header` is
+           # `height: 1`, so the session name costs no row; _own_header_text
+           # budgets it to fit at every target_width instead (t1580)
     + 2    # identity — name wrapped to <=2 lines, mark glyph inline on line 1
     + 2    # task title — textwrap.wrap(info.title, ...)[:2]
     + 1    # advisory phase line (_own_phase_text)
@@ -536,6 +613,21 @@ class MiniMonitorApp(
     # only what they touch, so an `__init__`-only default would AttributeError
     # the moment _rebuild_session_bar read it.
     _session_bar_enabled = False
+
+    # CLASS attributes for the same reason as `_target_width` above (t1580):
+    # several test modules build the app with `MiniMonitorApp.__new__(...)` and
+    # hand-set only what they touch, so `_own_header_session` reaching
+    # `_root_for_snap` would AttributeError on every such stub. `__init__` still
+    # sets the real values — these are only the floor under them.
+    #
+    # `_root_for_snap`'s `-> Path` annotation is deliberately NOT widened to
+    # `Path | None`: its four production callers all run after `__init__` and
+    # genuinely cannot take a None, so widening it would push a null-check onto
+    # all four to serve a test-construction floor. `_own_header_session` is the
+    # one caller that tolerates the stub's None, and its fail-soft contract
+    # says so explicitly.
+    _monitor: "TmuxMonitor | None" = None
+    _project_root: "Path | None" = None
 
     CSS = """
     /* Top chrome. NEVER re-add `dock:` to any of these four (t1499). Textual
@@ -1303,6 +1395,34 @@ class MiniMonitorApp(
                 return mapping[sess]
         return self._project_root
 
+    def _own_header_session(self, snap) -> str:
+        """Repo label for the own-panel header (t1580).
+
+        The tmux **session name** is the primary value, because that is exactly
+        what the pane list's `format_session_divider` rules show — the followed
+        agent should read like a list entry, which is the whole point of naming
+        it here at all.
+
+        When `_session_is_ambiguous`, that name identifies no repo, and
+        `basename(project_root)` is the value that does (see
+        `AitasksSession.key`). **Substituted, not appended:** this row has one
+        line, and `── this agent · aitasks (aitasks_mobile) ──` does not fit a
+        40-column pane.
+
+        Resolved through `_root_for_snap`, not from `self._project_root`
+        directly: in multi-session mode the followed pane may belong to a
+        different project than this minimonitor's own.
+
+        Fails soft, like `_own_phase_text`: any resolution problem yields the
+        session name unchanged rather than a wrong or empty label. That covers
+        the `__new__`-built test stub where `_root_for_snap` answers None.
+        """
+        session = snap.pane.session_name or getattr(self, "_session", "") or ""
+        if not _session_is_ambiguous(session):
+            return session
+        root = self._root_for_snap(snap)
+        return root.name if root is not None and root.name else session
+
     # -- List scroll preservation (t1539) --------------------------------------
 
     def _capture_list_scroll(self) -> None:
@@ -1868,6 +1988,11 @@ class MiniMonitorApp(
             return  # not resolved yet — try again next cycle
         is_agent = own_snap.pane.category == PaneCategory.AGENT
         label = "this agent" if is_agent else "this window"
+        # The repo signal for the followed agent, mirroring the pane list's
+        # `format_session_divider` rows (t1580). Shown unconditionally, NOT
+        # gated on multi_session: the divider is multi-session-only, so in
+        # single-session mode this is the only repo signal on screen.
+        session = self._own_header_session(own_snap)
         # Freeze the identity here; only the mark glyph tracks reality after.
         self._own_identity_text = self._own_agent_identity_text(own_snap)
         self._own_mark_state = self._is_marked(own_snap) if is_agent else None
@@ -1879,7 +2004,8 @@ class MiniMonitorApp(
         panel = self.query_one("#mini-own-agent", VerticalScroll)
         await panel.remove_children()
         await panel.mount_all([
-            Static(f"[dim]── {label} ──[/]", classes="mini-own-header"),
+            Static(_own_header_text(label, session, self._target_width),
+                   classes="mini-own-header"),
             card,
         ])
         # Load-bearing (t1499): the rule ships `display: none` so an empty

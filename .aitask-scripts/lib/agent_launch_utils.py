@@ -116,6 +116,20 @@ class TmuxLaunchConfig:
     select_window: bool = True
 
 
+#: The tmux session name an unconfigured repo reports — the fallback
+#: :func:`_read_default_session` returns when ``tmux.default_session`` is
+#: absent, matching ``aitask_ide.sh::resolve_session``'s bash default.
+#:
+#: **It is NOT unique across repos**, for two independent reasons: every
+#: unconfigured repo reports it, and a repo may also configure it deliberately
+#: (``seed/project_config.yaml`` documents exactly that as its example). Nothing
+#: at runtime can tell those two apart — a tmux session name carries no
+#: provenance — so a display that needs to identify a repo must treat this value
+#: as carrying no information at all, rather than as evidence the repo is
+#: unconfigured. See :attr:`AitasksSession.key` for the identity that IS unique.
+DEFAULT_TMUX_SESSION = "aitasks"
+
+
 @dataclass(frozen=True)
 class AitasksSession:
     """A tmux session identified as belonging to an aitasks project.
@@ -149,7 +163,7 @@ class AitasksSession:
         """Stable unique identity, independent of the tmux session name (t1099).
 
         The tmux ``session`` name is NOT unique across discovered repos:
-        unconfigured repos all fall back to the literal ``"aitasks"`` (see
+        unconfigured repos all fall back to :data:`DEFAULT_TMUX_SESSION` (see
         :func:`_read_default_session`), and two live repos can share a
         basename. ``project_root`` is truly unique, so it is the identity used
         for caching / selection / cycling by the registry-inclusive consumers
@@ -660,7 +674,7 @@ def _read_default_session(project_root: Path) -> str:
     """
     cfg = project_root / "aitasks" / "metadata" / "project_config.yaml"
     if not cfg.is_file():
-        return "aitasks"
+        return DEFAULT_TMUX_SESSION
 
     def _unquote(s: str) -> str:
         s = s.strip()
@@ -689,7 +703,7 @@ def _read_default_session(project_root: Path) -> str:
                     break
     except OSError:
         pass
-    return "aitasks"
+    return DEFAULT_TMUX_SESSION
 
 
 def _project_root_from_pane_paths(pane_paths: list[str]) -> Path | None:
