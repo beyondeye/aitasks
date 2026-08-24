@@ -653,6 +653,61 @@ create_worktree false + base_branch|create_worktree: false\nbase_branch: dev\n||
 CASES
 rm -rf "$TMPDIR7S"
 
+# --- Test 7t: --force rebuild replaces a stale external header ---
+# The t1578 shape: the stale pair lives in the EXISTING EXTERNAL plan and the
+# internal source has NO frontmatter, so the header is rebuilt by build_header()
+# rather than spliced. Every other --no-worktree test seeds the stale value in the
+# SOURCE frontmatter and therefore only exercises the splice.
+#
+# Stale values are non-primary on purpose: `main` -> `main` asserts nothing, which
+# is exactly why the original report read the overwrite as a no-op (t1578).
+#
+# The contract is REPLACEMENT with the detected primary, not deletion: only
+# `Worktree:` is actually removed. The final block characterizes the asymmetry the
+# corrected doc states -- on this path build_header() writes both fields
+# unconditionally, so the per-field intent gating never applies and a bare --force
+# replaces them just as thoroughly. It is expected to pass with the same values;
+# the real negative controls for intent gating live in Test 14c.
+echo "--- Test 7t: --force rebuild replaces a stale external header ---"
+TMPDIR7T=$(new_sandbox)
+mkdir -p "$TMPDIR7T/prof"
+printf 'name: fast\ncreate_worktree: false\n' > "$TMPDIR7T/prof/fast.yaml"
+write_stale_external_7t() {
+    cat > "$TMPDIR7T/aiplans/p999_sandbox_task.md" <<'EOF'
+---
+Task: t999_sandbox_task.md
+Worktree: aiwork/t999_sandbox_task
+Base branch: dev
+Output branch: dev
+---
+
+# old body
+EOF
+}
+write_stale_external_7t
+make_fresh_internal "$TMPDIR7T/fakehome/.claude/plans/one-recent.md"
+result=$(run_externalize "$TMPDIR7T" "$TMPDIR7T/fakehome/.claude/plans" 999 --force \
+    --profile "$TMPDIR7T/prof/fast.yaml" --no-worktree)
+plan="$TMPDIR7T/aiplans/p999_sandbox_task.md"
+assert_contains "7t: existing external plan is OVERWRITTEN" "OVERWRITTEN:" "$result"
+assert_eq "7t: stale base replaced by the primary" "Base branch: main" \
+    "$(grep '^Base branch:' "$plan" || true)"
+assert_eq "7t: stale output replaced by the primary" "Output branch: main" \
+    "$(grep '^Output branch:' "$plan" || true)"
+assert_eq "7t: stale Worktree line removed" "0" \
+    "$(grep -c '^Worktree:' "$plan" || true)"
+assert_eq "7t: exactly one base line" "1" "$(grep -c '^Base branch:' "$plan" || true)"
+assert_eq "7t: exactly one output line" "1" "$(grep -c '^Output branch:' "$plan" || true)"
+assert_eq "7t: frontmatter block intact" "2" "$(grep -c '^---$' "$plan" || true)"
+
+write_stale_external_7t
+run_externalize "$TMPDIR7T" "$TMPDIR7T/fakehome/.claude/plans" 999 --force >/dev/null 2>&1
+assert_eq "7t: bare --force rebuild also replaces the stale base" "Base branch: main" \
+    "$(grep '^Base branch:' "$plan" || true)"
+assert_eq "7t: bare --force rebuild also replaces the stale output" "Output branch: main" \
+    "$(grep '^Output branch:' "$plan" || true)"
+rm -rf "$TMPDIR7T"
+
 # --- Test 8: AIT_PLAN_EXTERNALIZE_MAX_AGE_SECS widens window ---
 echo "--- Test 8: age-window env var ---"
 TMPDIR8=$(new_sandbox)

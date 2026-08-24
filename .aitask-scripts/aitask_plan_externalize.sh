@@ -820,7 +820,10 @@ if [[ "$has_frontmatter" == true ]]; then
         _splice_wt="$WORKTREE_PATH"
     elif [[ "$NO_WORKTREE_FLAG_SEEN" == true ]]; then
         # Positively "there is no worktree" -- clear any stale line, so a later
-        # session cannot consume it. Mirrors --no-worktree clearing the branches.
+        # session cannot consume it. `Worktree:` is the ONLY field --no-worktree
+        # deletes: the two branch fields are OVERWRITTEN with the detected primary
+        # instead, because an absent `Base branch:` is what Re-entry Routing reads
+        # as a legacy plan (and then confirms the guessed base with the user).
         _splice_wt_claim="none"
     fi
     splice_header_branches "$EXTERNAL_PLAN" "$_splice_base" "$_splice_out" \
