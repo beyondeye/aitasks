@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
+implemented_with: claudecode/opus5
 created_at: 2026-08-17 22:06
-updated_at: 2026-08-24 11:54
+updated_at: 2026-08-24 13:30
 ---
 
 ## Context
@@ -180,3 +181,8 @@ head -3 /tmp/backlog.csv
 
 **Do not** pipe `ait stats` through `tail` when checking exit status — the pipe
 discards it; use `set -o pipefail` or `${PIPESTATUS[0]}`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-24T10:30:37Z status=pass attempt=1 type=human
