@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t1560_1]
 issue_type: documentation
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1560
+implemented_with: claudecode/opus5
 created_at: 2026-08-18 11:40
-updated_at: 2026-08-24 22:29
+updated_at: 2026-08-24 22:52
 ---
 
 ## Context
@@ -113,3 +116,8 @@ OpenCode (`.opencode/skills/`) trees rather than doing it here.
 - No changes to the broker script (**t1560_1**) or to Step 9 (**t1560_2**).
 - No `diffviewer` mention in user-facing website docs (it is transitional).
 - Do not document `aidocs/` internals in user-facing pages.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-24T19:52:39Z status=pass attempt=1 type=human
