@@ -260,3 +260,108 @@ carries the same figure.
 
 ### Planned mitigations
 - timing: after | name: stats_docs_source_drift_guard | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: high | addresses: code-health — hand-pinned doc counts/column lists have no drift guard | desc: Assert the preset names and pane titles in website/content/docs/tuis/stats/_index.md match stats_config.DEFAULT_PRESETS and the register(PaneDef(...)) titles, and that the CSV column lists in board-stats.md and .claude/skills/aitask-stats/SKILL.md match the headers aitask_stats.py emits.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six implementation steps, across seven files. Website:
+  `commands/board-stats.md` (option table + two examples, "Statistics provided"
+  rewritten to the 13 rendered sections, CSV format 10 -> 12 columns plus the
+  `--csv-backlog` columns, "Data sources" split into the completion clock and the
+  backlog clock with the population rules, and the "Interactive charts" pane list);
+  `tuis/stats/_index.md` (count-free preset lead-in, complete 7-preset table,
+  corrected definition site + precedence, new `## The backlog panes` section,
+  frontmatter `description:`, the Purpose paragraph plus a `**Data scope:**` line,
+  the Config-persistence project layer, and the `r` keybinding);
+  `skills/aitask-stats.md` and `tuis/_index.md` (contents lists + option line).
+  Skills: `.claude/skills/aitask-stats/SKILL.md` (Options gained `-w`,
+  `--backlog-weeks`, `--csv-backlog`; "Statistics Provided" 7 -> 13 entries;
+  "Export Format" 7 -> 12 columns plus the backlog export), then the `.opencode/`
+  and `.agents/` wrapper `## Arguments` lines.
+
+- **Deviations from plan:** Two, both additive and both the same rule the plan
+  already applied elsewhere ("do not append to a list that is already wrong").
+  1. `board-stats.md`'s "Interactive charts" paragraph carries a *third* mirrored
+     pane list that the plan did not enumerate; it gained the backlog panes.
+  2. The plan's step 2b named four data-scope sites. `tuis/stats/_index.md`'s
+     Purpose paragraph needed both halves of the fix — the archive-only framing
+     *and* the backlog series added to its enumeration of what `lib/stats_data.py`
+     covers — so the correction there is a rewritten sentence plus a new
+     `**Data scope:**` line rather than a single-clause edit.
+
+- **Issues encountered:** None in the edits. One planning-time correction worth
+  recording: p1544_4's plan text says the level table renders `Now` **first**.
+  t1588 (`a260eb599`) since reordered it, so both tables now run chronologically
+  with `Now` last. The docs were written from live output, which is why the stale
+  plan text did not propagate — this is exactly the failure mode the task warned
+  about, and it would have shipped had the numbers been read off the plan.
+
+- **Key decisions:**
+  - **The preset count is not pinned in prose.** "Four presets ship with the
+    framework" was wrong by three and sat next to a table that was also wrong. The
+    replacement lead-in ("The framework ships these presets:") carries no count, so
+    only the table can rot — a standalone number can no longer contradict it.
+  - **The `~0.3%` figure was deliberately omitted** (user decision after review).
+    It is a frozen literal at `aitask_stats.py:471` from a single t1544_3
+    measurement (6 of ~1828 archived tasks by week bucket), with no maintained
+    metric behind it, so it drifts with every task added or metadata repair. The
+    docs state the behavioural invariant instead — the two clocks agree on
+    *whether* a task completed and can disagree on *which week* — which stays true
+    as the corpus grows. This deviates from the task text
+    (`t1544_6…md:69`), which asked for the percentage.
+  - **The data-scope sweep was widened beyond the backlog feature.** Four passages
+    called Stats an archive-only view. That was already imprecise before this task
+    (`pipeline.inflight` reads active tasks via `collect_inflight`), so the fix is
+    framed as current state, not as "the backlog panes now also scan active tasks".
+  - **All three skill trees were edited in one task** (user decision), rather than
+    fixing `.claude/` and spawning a follow-up. `.claude/` was edited first as the
+    source of truth; the two wrappers are one-line `## Arguments` flag lists. The
+    `.agents/` wrapper's `## Arguments` section was a truncated stub with no flag
+    list at all — that is fixed, not merely extended.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_stats.py:471 — the backlog footnote prints "~0.3%" as a hardcoded literal, a frozen t1544_3 sample with no maintained metric behind it; stats/panes/backlog.py mirrors the line verbatim and t1544_5's CLI-parity test pins the pair, so changing it is a coupled code+test edit. Out of scope for a docs task. t1544_8 (retrospective) carries the same figure.`
+  - `aitasks/metadata/stats_config.json — pins five of the seven presets (sessions and backlog are absent). Harmless today because deep_merge merges the presets dict per key, so the code-only presets still appear; but the parent task's scope asked for both sites to be updated, and t1544_5 deliberately left the JSON alone (its Deliverable 3 required no config change). Recorded because the divergence is now documented behaviour rather than a silent inconsistency.`
+
+- **Notes for sibling tasks:**
+  - **For t1544_7 (manual verification):** the documented TUI-only behaviours are
+    the ones worth eyeballing, since none has a CLI counterpart — the level table's
+    6/5-plus-`Other` block cap, the net-flow chart's 4-plus-`Other` series cap
+    ranked by horizon volume, and that `TOTAL OPEN` / `ARRIVALS` / `DEPARTURES` /
+    `NET` stay computed over *all* categories when a cap engages. On this repo's
+    live data the level cap does engage (`Other 27`), so it is observable without a
+    synthetic fixture.
+  - **For t1544_8 (retrospective):** the `~0.3%` figure it quotes is the frozen
+    literal described above; the docs deliberately do not repeat it.
+  - **Drift guard spawned:** `stats_docs_source_drift_guard` (Step 8d, `after`).
+    The verification this session ran by hand is the shape it should automate — a
+    parse of the doc's preset table compared against `DEFAULT_PRESETS` plus
+    `PANE_DEFS[...].title`, which caught nothing only because the table was written
+    from that source in the first place.
+
+### Verification results
+
+- `cd website && hugo build --gc --minify` -> exit 0, 237 pages, no broken
+  `relref`. (Two `WARN deprecated:` lines are pre-existing theme-level warnings
+  about `.Language.LanguageDirection` / `.Site.AllPages`, unrelated to this change.)
+- `./.aitask-scripts/aitask_skill_verify.sh` -> `OK (13 template(s) verified across
+  3 agents, 4 stub surfaces; wrapper parity clean)`.
+- **Preset table asserted equal to source**, not eyeballed: parsing the rendered
+  markdown table and comparing it to
+  `{k: [PANE_DEFS[i].title for i in v] for k, v in DEFAULT_PRESETS.items()}`
+  returns `True` for all seven presets.
+- **Section list asserted against render order:** the 13 documented entries pair
+  1:1, in order, with `./ait stats | grep '^### '`.
+- CSV headers checked live: `--csv` emits the documented 12 columns in the
+  documented order; `--csv-backlog` emits
+  `week_ending,category,open,arrived,departed,net`.
+- Documented caps match `_LEVEL_ROW_CAP = 6` and `_NETFLOW_SERIES = 5`.
+- Precedence prose matches `tests/test_stats_backlog_panes.py::TestPresetPrecedence`
+  on all three of its assertions (code-only preset appears; a JSON-pinned preset
+  list replaces the shipped list; a code-only preset survives a JSON `presets`
+  block).
+- `grep -rn '0\.3%'` over the four website files and all three skill trees returns
+  nothing.
+- `grep -rn -i archiv` over the four website files leaves only correct
+  completion-metric passages (plus the unrelated Code Browser bullet).
+- No test module references the edited files (`grep -rln` over `tests/` is empty),
+  and no source file changed, so the suite is unaffected.
