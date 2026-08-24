@@ -577,3 +577,91 @@ paste and confirm the clipboard holds the edited text.
 ## Post-implementation
 
 Step 9 (Post-Implementation) handles cleanup, archival and the merge.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. `ConcernPayloadEditModal`
+  (`monitor_shared.py`, beside `ConcernBlockInspectModal`) with its own
+  `DEFAULT_CSS`, three width tiers, `ctrl+s`/`Esc` bindings, Save/Cancel buttons
+  delegating to those actions, and a `TextArea` seeded with a built string.
+  `ConcernPickerModal` gained `e` → `action_edit_payload`, the
+  `_payload_override` / `_payload_seed` pair, and the single stale reader
+  `_resolve_payload_override(on_confirm=…)`. `ConcernPickResult` gained
+  `payload_override: str | None = None`; `apply_concern_pick_result` became
+  payload-first. `_apply_measured_width_tier` was extracted and both dialogs now
+  call it. 38 tests added across three files; docs updated in
+  `aidocs/framework/shadow_agent.md` and four website surfaces.
+
+- **Deviations from plan:** None in approach. Three additions came out of
+  in-flight review and were folded into the plan before coding:
+  1. `on_button_pressed` **delegating to** `action_save`/`action_cancel` rather
+     than duplicating them — the plan composed the buttons but never wired them,
+     so at every width above `.xnarrow` a mouse user would have clicked a dead
+     Save button while the keyboard-only tests passed.
+  2. The `_payload_override` / `_payload_seed` split plus reseeding from the
+     override. The first draft reseeded unconditionally from
+     `build_clipboard_payload`, so a second `e` showed the regenerated payload
+     and the next `ctrl+s` wrote it back over the user's work.
+  3. A dedicated 24×**20** case. The original sweep ran at height 30, and 24×20
+     is the actual companion-pane geometry the help-line budget is about.
+  A fourth came from the Step-8 review: add `t` to the monitor reference's
+  picker-key list, which had always omitted it and which this change made
+  conspicuous by inserting `e` next to the gap.
+
+- **Issues encountered:**
+  - The `narrow` constructor kwarg is inert without an explicit
+    `add_class("narrow")` in `compose` (`_apply_measured_width_tier` only owns
+    `xnarrow`). Caught in review before coding; pinned by a **geometry**
+    assertion rather than a class-name check, because `has_class("narrow")`
+    would still pass with a broken or deleted CSS selector.
+  - `tests/test_monitor_concern_action.py` carried the same misplaced
+    `if __name__ == "__main__"` guard as `test_concern_picker_modal.py` (guard
+    above later class definitions — the t1518 defect). Both were fixed by moving
+    the guard to end-of-file, which was load-bearing here: without it a direct
+    `python3 tests/…` run would silently skip the classes this task adds.
+
+- **Key decisions:**
+  - **Seed with a string, never `Concern` objects.** Confirmed empirically: the
+    AST guard passes with **no new `EXPECTED_ACCESSES` row**, which was the
+    task's stated acceptance signal.
+  - **State comparison, not an event hook, for staleness.** Rows stop their own
+    disposition keys, so `set_state` is unobservable from the picker; comparing
+    the regenerated payload against the canonical seed is also the better rule,
+    since toggling a row off and back on correctly preserves the edit.
+  - **One reader for the stale rule**, consulted by both reopen and confirm, and
+    discarding by *clearing* the field so the warning fires exactly once.
+  - **Payload-first in the mixin.** `if result.forwarded:` became a check on the
+    resolved payload, so the mixin honours what it is handed instead of
+    depending on the picker's "an override always accompanies forwarded rows"
+    invariant. Byte-identical behaviour whenever `payload_override is None`.
+  - **Help wording chosen by measurement.** `· e edit` was added first and the
+    24-column budget tests run before touching any other token; they passed, so
+    no existing token was shortened. The new token was added to
+    `ConcernHelpLineBudgetTests.COMPACT_TOKENS` — without that the constant
+    could have grown while nothing asserted the key reached the screen.
+  - **Verification beyond a green first run.** Every test guarding a review
+    finding was mutation-probed: dropping `add_class("narrow")`, reseeding
+    canonically, a button bypassing `action_save`, clobbering `_payload_seed`,
+    and the mixin ignoring the override each produce a failure. Two of my own
+    predictions were wrong and corrected: clobbering the seed makes staleness
+    *over*-trigger (caught by the keep-direction test, not the discard one), and
+    a mixin mutation is invisible to picker-side suites.
+  - **Live 24×20 tmux render** in addition to the composited-strip tests: border
+    intact on every row, `shift+Right` selection + typing replaced the span,
+    `ctrl+s` returned to the picker with the tick intact.
+
+- **Upstream defects identified:**
+  - `tests/test_monitor_concern_action.py:1649` — the `__main__`
+    guard sat above `_spin_concerns` and `MonitorSpinoffParityTests`, so a
+    direct `python3 tests/test_monitor_concern_action.py` run silently skipped
+    every class below it (the t1518 defect class). Fixed in this change because
+    it was load-bearing for the tests added here.
+  - `website/content/docs/tuis/monitor/reference.md:35` — the picker-key
+    parenthetical had never listed `t` (spin off), although the full monitor
+    pushes the same picker and `monitor/how-to.md:206` documents the key. Fixed
+    in this change.
+
+- **Not verified:** the end-to-end manual smoke against a **live shadow agent**
+  (a real followed pane emitting a real concern block). The tmux render covers
+  the geometry and the keyboard path with a synthetic host App, but not a real
+  capture → parse → forward round trip.
