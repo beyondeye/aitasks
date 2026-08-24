@@ -548,3 +548,116 @@ Step 9 (Post-Implementation) handles cleanup, archival and merge.
 - timing: post-phase | name: negative_control_row_membership | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the net-flow table's deliberate row-membership divergence could be silently "unified" later | desc: Mutate the net-flow predicate to the level table's all-zero-level suppression, confirm the named zero-level-with-flow test reddens and no unrelated one does, then revert
 - timing: after | name: memoize_backlog_category | type: performance | priority: low | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health — the CSV category column costs a second resolve_category pass, +62 ms / +25% on every ait stats and stats-TUI load | desc: Have _accumulate_backlog expose the category it already resolves so the archived tree is classified once, keeping off_calls at zero
 - timing: after | name: extract_backlog_view_helper | type: refactor | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health — ~150 lines of axis/ordering/subtotal logic locked inside aitask_stats.py that t1544_5 will partly duplicate | desc: Extract the backlog view logic to a pure lib/backlog_view.py once the TUI panes exist; must depend on t1544_5 so it is designed against a real second consumer
+
+## Final Implementation Notes
+
+- **Actual work done:** Both inline phases plus all seven implementation steps,
+  as planned. `aitask_stats.py` gained `BACKLOG_LABEL_W` / `BACKLOG_WEEKS_MAX` /
+  `BACKLOG_MIN_CELL_W` / `BACKLOG_TASK_EXCLUSION_REASONS`, the `BacklogAxis`
+  dataclass, `_aggregate_all`, `_build_backlog_axis`, three small table helpers,
+  `_render_backlog_exclusions`, `render_backlog_level`,
+  `render_backlog_netflow`, `write_backlog_csv`, `--backlog-weeks`,
+  `--csv-backlog`, the `parse_args` collision preflight, the 12-column
+  `write_csv` header, and the restructured `main()` guards.
+  `lib/stats_data.py` gained the two appended CSV cells (row producer only).
+  `tests/test_aitask_stats_py.py` 18 -> 42 tests;
+  `tests/test_stats_multistage.py` 77 -> 80 checks.
+- **Deviations from plan:** One, cosmetic and found at first render: a block
+  with no categories emitted an all-zero `-- follow-ups` / `-- genuine`
+  subtotal row (visible in any repo with only genuine work). Empty blocks now
+  skip their subtotal; `TOTAL OPEN` still accounts for the other half.
+- **Issues encountered:** Two, both in the verification rather than the code.
+  (1) The pre-phase baseline was **invalidated by this session's own writes** —
+  recording gates on t1544_4 changed `phase_timings`, and a concurrent session
+  archived t1580 — so a straight before/after diff reported every section as
+  changed. The real evidence is the **same-clock control** t1544_3 prescribes:
+  stash the two source files, capture, restore, capture again, `__pycache__`
+  cleared for both runs. Under that control every pre-existing section body is
+  byte-identical and the diff is exactly the two added sections. (2) The first
+  version of the collision test passed an absolute `--csv` and a relative
+  `--csv-backlog` **without chdir**, so the paths did not collide, `main()` ran,
+  and it wrote a stray `out.csv` into the repo root. Both the assertion and the
+  pollution are fixed; a full module run now leaves the working tree clean.
+- **Key decisions:**
+  - **`TOTAL OPEN` comes from an independent all-tasks axis**, not from summing
+    the clamped category rows, so it stays equal to `parents + children` even if
+    a clamp ever fires. The re-key **accumulates** (`agg[("all", off)] += n`) —
+    a dict comprehension keeps only the last category per offset and was pinned
+    by a negative control.
+  - **Row membership is per-table.** The level table suppresses all-zero-level
+    categories; the flow table selects on flow. Only the ordering rule is
+    shared. `kind:docs_gap` is the live case: real flow, zero level.
+  - **The exclusion tally prints on the empty path too**, because `main()`'s
+    `has_backlog` predicate admits an all-excluded repo precisely on the
+    strength of those counters.
+  - **The CSV `category` cell is gated on `with_backlog`.** Populating it
+    unconditionally would call `resolve_category` ~1845 times under
+    `with_backlog=False` and delete t1544_3's measured contract. `created_at`
+    needs no classification and is unconditional.
+- **Known optimization (not taken):** the `category` cell costs a second
+  classification pass over the archived tree, measured at **+62 ms on a 248 ms
+  baseline (+25%)**, paid on every `ait stats` and stats-TUI load. Removing it
+  means having `_accumulate_backlog` expose the category it already resolves at
+  `stats_data.py:1206` — a signature change to t1544_3's helper, which is why it
+  is the spawned `memoize_backlog_category` follow-up rather than part of this
+  task.
+- **Upstream defects identified:**
+  - `.claude/skills/aitask-stats/SKILL.md:56 — CSV Export documents 7 columns (date, day_of_week, week_offset, task_id, labels, issue_type, task_type) against the 10 the script already emitted before this task; it is now 12.`
+  - `.claude/skills/aitask-stats/SKILL.md:16-19 — the Options list omits -w/--week-start, which the CLI has supported for a long time.`
+  - `.claude/skills/aitask-stats/SKILL.md:44-50 — the report-sections list stops at 7 and predates Pipeline Timing, By Code Agent, By LLM Model and Verified Model Rankings.`
+  - `.opencode/skills/aitask-stats/SKILL.md:1 — this and the .agents/ copy have diverged from the .claude/ source of truth (differing md5s), so any fix must sweep all three trees.`
+
+  All four are pre-existing documentation drift in a file this task does not
+  touch; the task is gated on `risk_evaluated` only and `procedure-gates`
+  reported no `docs_updated` gate. t1544_6 owns this feature's documentation and
+  should absorb the column count; the rest predates t1544 entirely.
+- **Notes for sibling tasks:** `_build_backlog_axis` and its ordering/subtotal
+  logic are private to `aitask_stats.py`. Promoting them to a pure
+  `lib/backlog_view.py` was considered and deliberately deferred to
+  `extract_backlog_view_helper` (which must depend on t1544_5), so the seam is
+  designed against a real second consumer rather than a guessed one. t1544_6
+  should document: the two completion clocks, Postponed-counts-as-open,
+  Folded-excluded, the `bug` gross-vs-net footnote, and that
+  `.claude/skills/aitask-stats/SKILL.md` documents 7 CSV columns against the 12
+  now emitted (its `.opencode/` and `.agents/` copies have also diverged).
+
+### Verification results
+
+- `tests/test_aitask_stats_py.py` 42/42; `tests/test_stats_multistage.py`
+  80/80 with `off_calls == 0` passing **unedited**; `pyflakes` clean on all four
+  files.
+- `bash tests/run_all_python_tests.sh --test-dir tests` ->
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- **Same-clock control:** every pre-existing report section byte-identical;
+  the only difference is the two new sections.
+- Live: default horizon renders at **exactly 80 characters** (every pipe row);
+  `--backlog-weeks 26` renders at 206 (`24 + 7N`) and stays aligned;
+  `--backlog-weeks 0 / -1 / 100 / abc` exit 2; bare `--csv --csv-backlog`
+  writes two distinct files; `--csv out.csv --csv-backlog ./out.csv` is refused
+  with the sentinel file byte-unchanged.
+- Fact table: 12 columns, first 10 unmoved, row set unchanged (the one added row
+  is a task that genuinely completed mid-session), all 1847 rows carry a
+  `created_at` and a non-empty `category`.
+- Backlog CSV: 136 rows = 17 categories x 8 weeks, dense including zero cells,
+  raw namespaced keys, oldest week first, unclamped `week_ending`.
+- **Eight negative controls**, each re-run with `__pycache__` cleared, each
+  reddening its named assertion and no unrelated one:
+
+  | mutation | failures | discriminating assertion |
+  |---|---|---|
+  | net-flow reuses the level table's all-zero-level suppression | 1 | `test_zero_level_category_with_flow_appears_only_in_the_flow_table` |
+  | all-tasks re-key uses a dict comprehension | 2 | `test_all_tasks_axis_sums_categories_sharing_a_week`, `test_totals_reconcile_across_all_three_axes` |
+  | backlog CSV emits display names, not raw keys | 1 | `test_backlog_csv_is_a_complete_dense_series` (full row-set equality) |
+  | `arrived` / `departed` columns swapped | 1 | same, full row-set equality |
+  | `net` sign inverted | 2 | same, plus `test_backlog_csv_open_minus_next_equals_net` |
+  | zero rows suppressed | 2 | same pair |
+  | `week_ending` clamped to `today` | 2 | same pair |
+  | category-major emission (weeks interleaved) | 1 | `assertEqual(weeks, sorted(weeks))` — the global non-decreasing check |
+
+  The last one is why the ordering assertion is global rather than
+  "first row is the oldest week": a category-major emission still *starts* at
+  the oldest week, so the weaker form passes it. Equally, a `len()` plus two
+  membership checks passes against display labels or wrong values on any
+  unasserted category — hence the complete `(week_ending, category, open,
+  arrived, departed, net)` tuple-set comparison, plus three spot values taken
+  from fixture knowledge so the expected set is not purely self-referential.
