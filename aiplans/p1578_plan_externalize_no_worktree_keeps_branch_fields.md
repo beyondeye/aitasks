@@ -274,3 +274,72 @@ rm -rf "$TMPDIR7T"
 
 Current-branch mode — nothing is cut and nothing is merged, so Step 9's merge
 block does not run. Archive t1578 and its plan normally.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan, no deviations. Two prose sites
+  corrected in the canonical `.claude/skills/task-workflow/plan-externalization.md`
+  (the `--no-worktree` bullet and the "Current-branch mode **always** includes
+  `--no-worktree`" paragraph); the misleading comment at
+  `.aitask-scripts/aitask_plan_externalize.sh:823` rewritten (comment only — no
+  logic change); re-render run for all three profiles; **Test 7t** added to
+  `tests/test_plan_externalize.sh` with 9 assertions.
+
+- **Deviations from plan:** None. Three plan revisions were made *before* approval
+  in response to user review: (1) the forced-failure injection was rescoped from
+  mutating `PRIMARY_BRANCH` in the production script to flipping only Test 7t's two
+  expectations — the global mutation would have failed dozens of earlier assertions
+  and proved nothing specific about 7t; (2) the assertion count was corrected
+  (7 → 8 → 9) and the duplicated characterization prose consolidated, with "drops"
+  replaced by "replaces" everywhere except `Worktree:`, which genuinely is deleted;
+  (3) the render-verification check was rebuilt on `git ls-files` after discovering
+  the recursive-grep count was unstable.
+
+- **Issues encountered:**
+  - **The task's premise was wrong, and this was the main finding.** t1578 reported
+    that `--no-worktree` "did not clear" the stale branch fields. It does act on
+    both: it **overwrites them with the detected primary branch** rather than
+    deleting the lines. Reproduced in a sandbox with stale non-primary values —
+    `dev`/`dev` → `main`/`main` on both header paths (`build_header` and the
+    splice), with `Worktree:` genuinely removed. The original observation
+    ("still read `Base branch: main`") was an artifact of this repo's primary
+    branch *being* `main`, making the overwrite indistinguishable from a no-op.
+    The intent gating is intact: `--no-worktree` sets `OUTPUT_INTENT=true` (`:393`)
+    and drives `BASE_INTENT=true` via `WORKTREE_MODE != true` (`:574`).
+  - **The task's second claim — "the current suite appears to cover only the write
+    path, not the clear path" — was also wrong.** `tests/test_plan_externalize.sh`
+    already covered the clear path at `:506`, `:605`, and in Test 14c's intent
+    matrix, which pins `stale → main` for both fields under `--no-worktree`
+    alongside genuine negative-control rows. Baseline was 255/255 green.
+  - The user was shown the evidence and both remediation options and chose to
+    correct the doc rather than change the code. Deleting the lines would have been
+    a regression: Re-entry Routing reads an absent `Base branch:` as
+    `legacy plan, no Base branch field`, and Step 7 then raises a confirmation
+    before cutting — so every resumed current-branch task would start prompting.
+  - **Only 4 of the 11 on-disk copies of `plan-externalization.md` are tracked.**
+    Rendered skill dirs are gitignored (`.gitignore:52-54`) with `!` un-ignore
+    rules only for the `remote` variants (`:71-73`). A naive recursive-grep
+    propagation count would have been wrong in both directions, because
+    `.claude/skills/task-workflow-_skillrun_416236_1779701547729-/` is a stale
+    untracked render predating the entire branch-flags section and carries
+    *neither* the old nor the new wording.
+
+- **Key decisions:**
+  - Fixed the doc, not the code — the script's own contract (`:58-59`, `:77-79`)
+    and `planning.md` already stated the real behavior; only
+    `plan-externalization.md` said "clears", which reads as "removes the lines".
+  - Test 7t targets the one genuinely uncovered path: the stale pair living in the
+    **pre-existing external plan** with a **frontmatter-less** internal source under
+    `--force`, which rebuilds via `build_header` rather than splicing. Stale values
+    are non-primary (`dev`) on purpose — `main → main` would assert nothing, which
+    is precisely the trap the original report fell into.
+  - The trailing bare-`--force` block is labelled a **characterization** of the
+    path asymmetry, not a negative control: it is expected to pass with the same
+    values. On that path `build_header` writes both fields unconditionally, so the
+    per-field intent gating never applies. The real negative controls live in
+    Test 14c.
+  - Assertion liveness was proved by flipping only Test 7t's two expectations to
+    `dev`: exactly 2 failures, both named, reporting `got 'Base branch: main'`,
+    with all 262 other assertions still passing. Restored to 264/0.
+
+- **Upstream defects identified:** None.
