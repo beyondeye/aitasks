@@ -225,6 +225,20 @@ Minimonitor reports the **paths** it created, because drafts have no id to repor
 
 A spun-off concern is also recorded as handled for this task, so the shadow stops raising it in later rounds — it is being tracked elsewhere now. If the drafts are created but that record cannot be written, minimonitor says so explicitly rather than reporting success: the drafts exist, the concern will come back next round, and spinning it off again would create duplicates.
 
+### How to Edit the Payload Before It Is Copied
+
+Ticking rows decides *which* concerns are forwarded. What actually gets pasted into the coding agent is prose, and prose sometimes needs a hand: a concern's body may be twice as long as the part that matters, the preamble may not suit this particular hand-off, or you may want to add a sentence of your own ("only the second one — the first is already handled in the plan").
+
+Press **e** in the concern picker to open the outgoing payload in an editor, showing exactly the text that will land on the clipboard. It is a normal text box: arrow keys move, **shift+arrows** select, typing replaces the selection, and **ctrl+z** undoes. **ctrl+s** saves and returns to the picker; **Esc** returns without keeping the edit. Confirming the picker then copies your text rather than the generated payload, and the toast says "Edited payload copied to clipboard" so you can tell which one you got.
+
+Three behaviours are worth knowing:
+
+- **`e` needs something to edit.** With no row ticked to forward there is no payload, so `e` says so instead of opening an empty box.
+- **An emptied editor is refused.** Saving a blank buffer would silently fall back to the generated text, so `ctrl+s` declines and tells you; use **Esc** if you want to abandon the edit.
+- **Changing the ticks after editing discards the edit.** Your text was written against a particular selection, so if you tick or untick a row afterwards the picker copies the regenerated payload and warns you that the edit was dropped — it never quietly pastes text that disagrees with the rows you marked. (Toggling a row off and straight back on changes nothing, so the edit survives that.)
+
+Editing only affects the clipboard. Rejections and spin-offs always record the concern's original text, because the shadow matches its own records against freshly parsed concerns on the next round.
+
 ### How to Run the Auto-Recheck Loop
 
 Reviewing a plan with a shadow is a loop: the shadow raises concerns, you forward some, the agent revises, and then the shadow has to re-read and review again. Press **L** to have minimonitor drive that last step for you. While the loop is armed, minimonitor watches the followed agent; once it has produced real work and settled back at a prompt, minimonitor sends a single-line recheck into the **shadow** pane, naming the round to review next.
@@ -347,7 +361,7 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `p` | Pick any task by typing its number, then launch it or move it to a board column |
 | `e` | Launch an advisory [shadow agent]({{< relref "/docs/workflows/shadow-agent" >}}) beside the followed agent |
 | `E` | Launch a shadow agent, choosing the code agent and model first |
-| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
+| `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `e` edits the outgoing payload before it is copied, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
 | `L` | Arm or disarm the [auto-recheck loop](#how-to-run-the-auto-recheck-loop) — minimonitor asks the shadow for a fresh review round once the followed agent settles |
 | `Space` | Toggle the prioritized mark (`★`) on the **followed** agent (the one pinned at the top) — shared across all your projects |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |

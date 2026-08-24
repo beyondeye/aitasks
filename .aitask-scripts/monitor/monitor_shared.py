@@ -48,7 +48,7 @@ from textual.binding import Binding  # noqa: E402
 from textual.containers import Container, VerticalScroll  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
 from textual.widgets import (  # noqa: E402
-    Button, Checkbox, Input, Label, Markdown, Static,
+    Button, Checkbox, Input, Label, Markdown, Static, TextArea,
 )
 from textual.app import ComposeResult  # noqa: E402
 from rich.text import Text  # noqa: E402
@@ -1027,15 +1027,29 @@ class ShadowRejectionsMixin:
         if result is None:
             return
 
-        if result.forwarded:
+        # Payload-first (t1582): honour whatever the result carries rather than
+        # depending on the picker's invariant that an override always
+        # accompanies a non-empty `forwarded`. Behaviour is byte-identical to
+        # before whenever `payload_override is None`, which is every caller
+        # that never opened the editor.
+        payload = result.payload_override
+        if payload is None and result.forwarded:
+            payload = build_clipboard_payload(result.forwarded)
+        if payload is not None:
             # copy_to_system_clipboard, never app.copy_to_clipboard: a bare
             # OSC 52 from a non-visible tmux window never reaches the system
             # clipboard. tests/test_tui_clipboard_seam.sh enforces this.
             # Forwarding owns the clipboard alone — the spin-off path reports
             # its draft paths by notify and never writes here, so a mixed
             # confirmation cannot clobber the payload the user asked for.
-            copy_to_system_clipboard(self, build_clipboard_payload(result.forwarded))
-            self.notify("Concerns copied to clipboard.")
+            copy_to_system_clipboard(self, payload)
+            # Distinct wording, not decoration: it is the only way the user can
+            # tell WHICH text was copied — their edit, or the generated payload.
+            self.notify(
+                "Edited payload copied to clipboard."
+                if result.payload_override is not None
+                else "Concerns copied to clipboard."
+            )
 
         if not result.rejected and not result.unrejected and not result.spun_off:
             return
@@ -2463,6 +2477,14 @@ class ConcernPickResult(NamedTuple):
     ``tests/test_minimonitor_concern_action.py`` and
     ``tests/test_monitor_concern_action.py``.
 
+    ``payload_override`` (t1582) **does** take a default, and the difference
+    from ``spun_off`` is the point rather than an inconsistency. That one is a
+    disposition channel, where "absent" and "empty" are the same claim and a
+    default would let a stale site make it silently. This one is an *optional*
+    override of text that is otherwise derived: ``None`` is the correct and
+    meaningful reading for every caller that never opened the editor, which is
+    exactly what keeps ``Enter`` the unchanged zero-friction fast path.
+
     **All-empty is a valid result** — the user confirmed without marking
     anything. Cancellation is signalled by ``None`` instead, so a consumer must
     test ``result is None`` and never ``if not result``.
@@ -2472,6 +2494,9 @@ class ConcernPickResult(NamedTuple):
     rejected: list["Concern"]
     unrejected: tuple[str, ...]   # store entry ids to un-reject, e.g. ("r1", "r3")
     spun_off: list["Concern"]     # park each as its own draft task (t1159_3)
+    #: The user's edited clipboard text, or None when they never edited (t1582).
+    #: Never ``""``: an emptied editor is refused at save time.
+    payload_override: str | None = None
 
 
 def parse_rejected_machine_lines(out: str) -> list[RejectedEntry]:
@@ -2744,7 +2769,8 @@ _PICKER_MIN_COLS = 24
 
 _CONCERN_HELP_FULL = (
     "[dim]\\[↑/↓] navigate  \\[Space] forward  \\[r] reject  \\[t] spin off  "
-    "\\[R] rejected list  \\[u] unparsed  \\[Enter/OK] confirm  \\[Esc] cancel[/]"
+    "\\[e] edit payload  \\[R] rejected list  \\[u] unparsed  "
+    "\\[Enter/OK] confirm  \\[Esc] cancel[/]"
 )
 
 #: Same keys, ~50 columns instead of ~100 — at the xnarrow tier the full line
@@ -2754,9 +2780,41 @@ _CONCERN_HELP_FULL = (
 #: :class:`ConcernHelpLineBudgetTests` asserts every token below still reaches
 #: the composited screen at :data:`_PICKER_MIN_COLS` — shorten a token here
 #: rather than widening the dialog if a future key stops fitting.
+#:
+#: `e edit` (t1582) is the ninth key. Its wording was chosen by MEASUREMENT,
+#: not by guess: the variant below was added first and
+#: :class:`ConcernHelpLineBudgetTests` plus the 24x20
+#: ``test_short_pane_keeps_the_row_and_the_help`` were run before any other
+#: token was touched. They passed, so no existing token was shortened.
 _CONCERN_HELP_COMPACT = (
-    "[dim]↑↓ move · spc fwd · r rej · t spin · R list · u raw · ↵ ok · esc[/]"
+    "[dim]↑↓ move · spc fwd · r rej · t spin · e edit · R list · u raw · "
+    "↵ ok · esc[/]"
 )
+
+
+def _apply_measured_width_tier(
+    screen, threshold: int, help_id: str, full: str, compact: str
+) -> None:
+    """Set the ``xnarrow`` class and swap the help line from MEASURED width.
+
+    Textual has no media queries, so every dialog that distinguishes 24 / 30 /
+    40 columns re-runs this from ``on_mount`` and ``on_resize``. Extracted at
+    t1582 so :class:`ConcernPickerModal` and :class:`ConcernPayloadEditModal`
+    share one definition of *how* the tier is applied — the rule is subtle
+    enough (measured width, not the caller's hint; the help swap and the class
+    must move together) that two copies would be two places to get it wrong.
+
+    ``threshold`` is the **calling dialog's own** declared minimum, passed in
+    rather than read here: it is a component floor, never a shared terminal
+    tier. ``tui_layout.terminal_tier`` bounds NARROW at 80 and so answers True
+    for every width these dialogs distinguish — see
+    :data:`_PICKER_NARROW_MIN_WIDTH` for the full reasoning.
+    """
+    xnarrow = screen.size.width <= threshold
+    screen.set_class(xnarrow, "xnarrow")
+    help_widgets = list(screen.query(f"#{help_id}"))
+    if help_widgets:
+        help_widgets[0].update(compact if xnarrow else full)
 
 
 def format_block_meta(meta: "BlockMeta | None") -> str:
@@ -2839,6 +2897,202 @@ class ConcernBlockInspectModal(ModalScreen):
 
     def action_dismiss_dialog(self) -> None:
         self.dismiss()
+
+
+#: :class:`ConcernPayloadEditModal`'s own component floor — the width at or
+#: below which it drops to the extra-narrow chrome. Deliberately a SEPARATE
+#: constant from :data:`_PICKER_NARROW_MIN_WIDTH` even though the numbers match
+#: today: each is a property of its own dialog, and tying them would make
+#: retuning one silently retune the other (``tui_conventions.md`` rule 3, which
+#: forbids reusing a tier constant as a component floor).
+_PAYLOAD_EDIT_NARROW_MIN_WIDTH = 30
+
+_PAYLOAD_EDIT_HELP_FULL = (
+    "[dim]\\[ctrl+s] save  \\[Esc] cancel  \\[←→↑↓] move  "
+    "\\[shift+arrows] select  \\[ctrl+z] undo[/]"
+)
+
+#: The two keys that actually commit or abandon the edit, and nothing else.
+#: At the xnarrow tier the Save/Cancel buttons are hidden, so this line is the
+#: ONLY place they are named — ``ConcernPayloadEditWidthTierTests`` asserts both
+#: tokens reach the composited screen at :data:`_PICKER_MIN_COLS`.
+_PAYLOAD_EDIT_HELP_COMPACT = "[dim]^s save · esc cancel[/]"
+
+
+class ConcernPayloadEditModal(ModalScreen):
+    """Edit the outgoing clipboard payload before it is copied (t1582).
+
+    Pushed by :class:`ConcernPickerModal` on ``e``, **over** the still-open
+    picker — the same modal-over-modal shape as
+    :meth:`ConcernPickerModal.action_inspect_unrecovered` — so cancelling
+    returns to an intact selection. It carries its own ``DEFAULT_CSS`` because
+    two Apps reach it through that picker (``tui_conventions.md``, "Modals
+    pushed by multiple Apps").
+
+    **Takes a ``str``, never ``Concern`` objects.** Two reasons, and the second
+    is a hard constraint:
+
+    - WYSIWYG — the box holds byte-for-byte what will land on the clipboard.
+    - ``tests/test_concern_body_display_contract.py`` is an AST guard over the
+      whole ``monitor/`` package: a DISPLAY surface must never read
+      ``Concern.body``, while the FORWARD path must. An editor showing forward
+      text is both at once; receiving an already-rendered string is what lets it
+      be neither, registering no ``Concern``-body read at all.
+
+    **Dismiss contract:** the edited text on save (``ctrl+s`` / Save), ``None``
+    on cancel (``Esc`` / Cancel). ``None`` is the ONLY cancel signal — an
+    all-whitespace buffer is refused rather than dismissed, so a caller must
+    branch on ``is None`` and never on truthiness.
+
+    Nothing here writes the clipboard or touches the filesystem; the picker
+    carries the result out on ``ConcernPickResult.payload_override`` and the
+    caller's mixin still owns the copy.
+    """
+
+    BINDINGS = [
+        # No `priority=True` needed: `ctrl+s` and `escape` are both absent from
+        # `TextArea.BINDINGS` (verified against the pinned textual 8.2.7) and
+        # neither is printable, so the focused editor lets them bubble here.
+        # `show=False` because this modal composes no Footer — the in-dialog
+        # help line is the discoverability surface, exactly as the picker's is.
+        Binding("ctrl+s", "save", "Save", show=False),
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    ConcernPayloadEditModal { align: center middle; }
+    #payload-edit-dialog {
+        width: 70%;
+        max-height: 80%;
+        background: $surface;
+        border: thick $accent;
+        padding: 1 2;
+    }
+    #payload-edit-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
+    #payload-edit-text { height: 1fr; min-height: 3; margin: 0 0 1 0; }
+    #payload-edit-help { color: $text-muted; margin: 0 0 1 0; }
+    #payload-edit-buttons { width: 100%; height: auto; layout: horizontal; }
+    #payload-edit-buttons Button { margin: 0 1; }
+
+    /* Narrow variant (minimonitor companion pane, ~40 cols), mirroring the
+       picker this is pushed from so the two dialogs agree at every width. */
+    /* `min-width` here is the CANONICAL value _PAYLOAD_EDIT_NARROW_MIN_WIDTH
+       mirrors; a drift guard in tests/test_concern_picker_modal.py keeps the
+       two equal, so retuning this number moves the tier boundary with it. */
+    ConcernPayloadEditModal.narrow #payload-edit-dialog {
+        width: 90%;
+        min-width: 30;
+    }
+
+    /* Extra-narrow tier, applied from the modal's MEASURED width at or below
+       _PAYLOAD_EDIT_NARROW_MIN_WIDTH. The `min-width` above is exactly what
+       would overflow a 24-column screen, so it is cleared here, not reduced.
+       `border: thick` is deliberately KEPT: an intact border on every dialog
+       row is what the layout tests assert against to prove nothing is clipped. */
+    ConcernPayloadEditModal.xnarrow #payload-edit-dialog {
+        width: 100%;
+        min-width: 0;
+        max-height: 100%;
+        padding: 0 1;
+    }
+    /* No Save/Cancel at this tier, for the picker's reason: side by side the
+       second label truncates, stacked they evict the help line — and they are
+       fully redundant with ctrl+s / Esc, which the compact help does name.
+       Nothing is ever half-drawn. */
+    ConcernPayloadEditModal.xnarrow #payload-edit-buttons { display: none; }
+    """
+
+    def __init__(self, payload: str, narrow: bool = False) -> None:
+        super().__init__()
+        self._payload = payload
+        self._narrow = narrow
+
+    def compose(self) -> ComposeResult:
+        # The class must be added explicitly — the constructor kwarg alone does
+        # nothing, and `_apply_measured_width_tier` only ever owns `xnarrow`.
+        # The two knobs are independent by design: `narrow` is the caller's
+        # host-role hint (minimonitor's ~40-column companion pane), `xnarrow` is
+        # derived from measured width. Without this line every `.narrow` rule
+        # above is dormant and that pane gets the 70% base dialog.
+        if self._narrow:
+            self.add_class("narrow")
+        with Container(id="payload-edit-dialog"):
+            yield Static("[bold]Edit payload[/]", id="payload-edit-header")
+            # No markup-enabled widget ever renders the payload: a TextArea is
+            # not markup-rendered, and the header/help are static literals. A
+            # concern body may contain `[dim]` or a bare `[/]`, which a
+            # markup-enabled Static would eat or raise MarkupError on.
+            yield TextArea(
+                self._payload,
+                id="payload-edit-text",
+                # Long marker lines must stay readable in a ~20-column box.
+                soft_wrap=True,
+                # Line numbers would cost ~4 of the 20 usable columns there.
+                show_line_numbers=False,
+                # language=None: the payload is prose, not code.
+            )
+            # Swapped for the compact variant by _apply_width_tier() once the
+            # modal knows its measured width.
+            yield Static(_PAYLOAD_EDIT_HELP_FULL, id="payload-edit-help")
+            with Container(id="payload-edit-buttons"):
+                yield Button("Save", variant="primary", id="btn-payload-save")
+                yield Button("Cancel", variant="default", id="btn-payload-cancel")
+
+    def on_mount(self) -> None:
+        self._apply_width_tier()
+
+    def on_resize(self) -> None:
+        self._apply_width_tier()
+
+    def _apply_width_tier(self) -> None:
+        """Dialog chrome from this modal's MEASURED width — see the picker's.
+
+        Shares :func:`_apply_measured_width_tier` with
+        :class:`ConcernPickerModal` while keeping its own threshold, so the two
+        dialogs cannot drift on the mechanism.
+        """
+        _apply_measured_width_tier(
+            self,
+            _PAYLOAD_EDIT_NARROW_MIN_WIDTH,
+            "payload-edit-help",
+            _PAYLOAD_EDIT_HELP_FULL,
+            _PAYLOAD_EDIT_HELP_COMPACT,
+        )
+
+    def action_save(self) -> None:
+        """Commit the edit — unless the buffer is empty, which is refused.
+
+        An emptied box must never fall back to the generated payload (the user
+        would be told "copied" and get text they had deleted), and dismissing
+        with ``""`` would be indistinguishable from "forward nothing" at the
+        one place the distinction matters. So it stays open and says why; Esc
+        is still the way out.
+        """
+        text = self.query_one("#payload-edit-text", TextArea).text
+        if not text.strip():
+            self.app.notify(
+                "Editor is empty — nothing to copy. Esc to cancel, or type a "
+                "payload.",
+                severity="warning",
+            )
+            return
+        # The raw `.text`, never the stripped one: what the user sees is what
+        # gets copied.
+        self.dismiss(text)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        # Routed to the ACTIONS, not to duplicated bodies: the empty-buffer
+        # refusal must behave identically whether the user pressed ctrl+s or
+        # clicked Save, and a second copy of that rule would be a place for the
+        # two paths to drift. Note `action_save` may decline to dismiss — the
+        # click path inherits that for free, which is why it delegates.
+        if event.button.id == "btn-payload-save":
+            self.action_save()
+        else:
+            self.action_cancel()
 
 
 class _RejectedRow(Static):
@@ -3025,16 +3279,20 @@ class ConcernPickerModal(ModalScreen):
     **Dismiss contract (t1427_2; supersedes the t1037_4 list contract):**
     dismisses with a :class:`ConcernPickResult` on confirm (OK / Enter) and with
     ``None`` on Esc / Cancel. ``None`` is the ONLY cancel signal — a result whose
-    three fields are all empty is a legitimate "confirmed nothing", so consumers
-    MUST branch on ``is None`` and never on truthiness.
+    ``forwarded`` / ``rejected`` / ``unrejected`` / ``spun_off`` channels are all
+    empty (with ``payload_override`` at its ``None`` default) is a legitimate
+    "confirmed nothing", so consumers MUST branch on ``is None`` and never on
+    truthiness.
 
-    The modal stays pure-UI: it does NOT build the clipboard payload, touch the
-    clipboard, or write the rejection store — the caller's action handler runs
-    ``concern_parser.build_clipboard_payload`` +
-    ``tui_clipboard.copy_to_system_clipboard`` and the
-    ``aitask_shadow_rejected.sh`` seam. This keeps it unit-testable without a
-    clipboard backend or a filesystem. ``rejected_entries`` is likewise
-    pre-fetched by the caller and passed in.
+    **Pure-UI, with one narrowed exception (t1582).** It does NOT touch the
+    clipboard, the filesystem or any subprocess — the caller's action handler
+    still runs ``tui_clipboard.copy_to_system_clipboard`` and the
+    ``aitask_shadow_rejected.sh`` seam, and ``rejected_entries`` is pre-fetched
+    by the caller and passed in. It *does* now call
+    ``concern_parser.build_clipboard_payload`` — a pure string function — to
+    seed the payload editor and to detect a stale edit. That keeps it
+    unit-testable without a clipboard backend or a filesystem, which was the
+    point of the original rule; what it must never do is *perform* the copy.
     """
 
     BINDINGS = [
@@ -3042,8 +3300,13 @@ class ConcernPickerModal(ModalScreen):
         Binding("enter", "confirm", "OK"),
         Binding("R", "show_rejected", "Rejected list"),
         # `u` for "unparsed". Deliberately not `i` — both apps bind that to Task
-        # Info. `_ConcernRow.on_key` stops only space/up/down, so this bubbles.
+        # Info. `_ConcernRow.on_key` stops only space/r/t/up/down, so this
+        # bubbles.
         Binding("u", "inspect_unrecovered", "Unparsed", show=False),
+        # `e` for "edit" (t1582). Free here for the same reason: the row stops
+        # neither, and both apps' App-level `e` (launch shadow) is a plain
+        # non-priority binding, which does not dispatch under a ModalScreen.
+        Binding("e", "edit_payload", "Edit payload", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -3134,6 +3397,12 @@ class ConcernPickerModal(ModalScreen):
         # Round metadata from the block header (t1159_1) — display-only.
         self._block_meta = block_meta
         self._unreject_ids: list[str] = []
+        # Two fields, two jobs — never one field doing both (t1582). The
+        # override is the user's text, verbatim; the seed is the CANONICAL
+        # payload for the selection that edit was made against. Collapsing them
+        # would make staleness undetectable the moment the user changed a word.
+        self._payload_override: str | None = None
+        self._payload_seed: str = ""
 
     def _partitions(self) -> list[tuple[str, list[tuple[int, "Concern"]]]]:
         """``[(section_title, [(original_index, concern), …]), …]``, non-empty only.
@@ -3243,14 +3512,18 @@ class ConcernPickerModal(ModalScreen):
         The threshold is this dialog's own declared minimum, not a shared
         terminal tier — see :data:`_PICKER_NARROW_MIN_WIDTH` for why
         ``tui_layout.is_narrow_terminal`` cannot express this decision.
+
+        The mechanism itself lives in :func:`_apply_measured_width_tier`, shared
+        with :class:`ConcernPayloadEditModal` (t1582) so the two dialogs cannot
+        drift on *how* a tier is applied while keeping their own thresholds.
         """
-        xnarrow = self.size.width <= _PICKER_NARROW_MIN_WIDTH
-        self.set_class(xnarrow, "xnarrow")
-        help_widgets = list(self.query("#concern-help"))
-        if help_widgets:
-            help_widgets[0].update(
-                _CONCERN_HELP_COMPACT if xnarrow else _CONCERN_HELP_FULL
-            )
+        _apply_measured_width_tier(
+            self,
+            _PICKER_NARROW_MIN_WIDTH,
+            "concern-help",
+            _CONCERN_HELP_FULL,
+            _CONCERN_HELP_COMPACT,
+        )
 
     def action_inspect_unrecovered(self) -> None:
         """Show the marker lines this block lost, over the still-open picker.
@@ -3281,12 +3554,94 @@ class ConcernPickerModal(ModalScreen):
         rows = [row for row in self._rows() if row.state == state]
         return [row.concern for row in sorted(rows, key=lambda r: r.original_index)]
 
+    def action_edit_payload(self) -> None:
+        """Edit the outgoing payload, over the still-open picker (t1582).
+
+        Same modal-over-modal shape as :meth:`action_inspect_unrecovered` — the
+        picker is NOT dismissed, so cancelling returns to an intact selection.
+
+        **Reopening resumes the user's own text**, not a regenerated payload:
+        the editor is a place to iterate, and reseeding from the canonical build
+        would silently throw the previous edit away the moment the user pressed
+        ``e`` a second time to revise it.
+
+        Seeded with a BUILT STRING, never with ``Concern`` objects — see
+        :class:`ConcernPayloadEditModal` for why that is a hard constraint and
+        not just a convenience.
+        """
+        forwarded = self._concerns_in_state("forward")
+        if not forwarded:
+            # Refused, not opened on an empty box: same shape as `u` and `R`,
+            # which each say which empty case they hit rather than showing
+            # nothing.
+            self.app.notify(
+                "Nothing marked for forwarding — press Space on a row first"
+            )
+            return
+        # Resolve BEFORE re-snapshotting: the comparison has to run against the
+        # seed the existing override was made against, not the one about to
+        # replace it.
+        override = self._resolve_payload_override(on_confirm=False)
+        self._payload_seed = build_clipboard_payload(forwarded)
+        self.app.push_screen(
+            ConcernPayloadEditModal(
+                self._payload_seed if override is None else override,
+                narrow=self._narrow,
+            ),
+            callback=self._on_payload_edited,
+        )
+
+    def _on_payload_edited(self, text) -> None:
+        """Store a saved edit; a cancel leaves any PRIOR override untouched.
+
+        `is None` is the cancel test, mirroring the editor's own contract — an
+        empty buffer never reaches here, because saving one is refused.
+        """
+        if text is None:
+            return
+        self._payload_override = text
+
+    def _resolve_payload_override(self, *, on_confirm: bool) -> str | None:
+        """The saved edit if it still matches the selection; else discard it.
+
+        The single application of the stale rule, consulted by BOTH
+        :meth:`action_edit_payload` (before reseeding) and :meth:`_result`
+        (before dismissing) — applying it in one place and forgetting the other
+        is how the two would come to disagree about which text is live.
+
+        A STATE comparison, not an event hook: rows own their disposition keys
+        and stop them (:meth:`_ConcernRow.on_key`), so no route through
+        ``set_state`` is observable from here. It is also the better rule — a
+        row toggled off and back on regenerates an identical payload, so the
+        edit correctly survives, which a "touched" flag would not manage.
+
+        Discards by CLEARING the field, so the warning fires exactly once even
+        though two callers consult it. Never silently: the user has to be able
+        to tell which text was copied.
+        """
+        if self._payload_override is None:
+            return None
+        current = build_clipboard_payload(self._concerns_in_state("forward"))
+        if current == self._payload_seed:
+            return self._payload_override
+        self._payload_override = None
+        self.app.notify(
+            "Selection changed after editing — copied the regenerated payload, "
+            "your edit was discarded."
+            if on_confirm
+            else "Selection changed since your last edit — reopening on the "
+                 "current payload.",
+            severity="warning",
+        )
+        return None
+
     def _result(self) -> ConcernPickResult:
         return ConcernPickResult(
             forwarded=self._concerns_in_state("forward"),
             rejected=self._concerns_in_state("rejected"),
             unrejected=tuple(self._unreject_ids),
             spun_off=self._concerns_in_state("spinoff"),
+            payload_override=self._resolve_payload_override(on_confirm=True),
         )
 
     def action_show_rejected(self) -> None:

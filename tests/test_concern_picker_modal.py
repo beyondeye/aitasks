@@ -27,16 +27,18 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
 
 from textual.app import App, ComposeResult  # noqa: E402
-from textual.widgets import Label  # noqa: E402
+from textual.widgets import Label, TextArea  # noqa: E402
 
 from tui_layout import NARROW_TERMINAL_WIDTH, is_narrow_terminal  # noqa: E402
 
-from monitor.concern_parser import BlockMeta, Concern  # noqa: E402
+from monitor.concern_parser import (  # noqa: E402
+    BlockMeta, Concern, build_clipboard_payload,
+)
 from monitor import monitor_shared  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
-    ConcernBlockInspectModal, ConcernPickerModal, ConcernPickResult,
-    RejectedEntry, RejectedStoreModal, _ConcernRow, _RejectedRow,
-    format_block_meta,
+    ConcernBlockInspectModal, ConcernPayloadEditModal, ConcernPickerModal,
+    ConcernPickResult, RejectedEntry, RejectedStoreModal, _ConcernRow,
+    _RejectedRow, format_block_meta,
 )
 
 
@@ -965,9 +967,14 @@ class ConcernHelpLineBudgetTests(unittest.TestCase):
 
     #: Every key the compact help names, as it appears once whitespace is
     #: collapsed. Each must reach the screen at the narrowest supported width.
-    #: `spin` is the t1159_3 addition — the acceptance half of this pre-phase:
+    #: `spin` is the t1159_3 addition — the acceptance half of that pre-phase:
     #: the fourth key must reach the screen without evicting the other seven.
-    COMPACT_TOKENS = ("move", "fwd", "rej", "spin", "list", "raw", "ok", "esc")
+    #: `edit` is the t1582 addition, the ninth key, and the acceptance half of
+    #: ITS pre-phase: adding it to this tuple is what turns "the line still
+    #: renders" into "the new key actually reached the screen".
+    COMPACT_TOKENS = (
+        "move", "fwd", "rej", "spin", "edit", "list", "raw", "ok", "esc",
+    )
 
     def test_every_compact_help_key_reaches_the_screen(self):
         for width in (monitor_shared._PICKER_NARROW_MIN_WIDTH,
@@ -993,7 +1000,8 @@ class ConcernHelpLineBudgetTests(unittest.TestCase):
     def test_full_help_names_every_key_at_a_comfortable_width(self):
         flat = self._flat_at(100)
         for token in ("navigate", "forward", "reject", "spin off",
-                      "rejected list", "unparsed", "confirm", "cancel"):
+                      "edit payload", "rejected list", "unparsed", "confirm",
+                      "cancel"):
             with self.subTest(token=token):
                 self.assertIn(token, flat)
 
@@ -1366,10 +1374,6 @@ class RejectedStoreViewTests(unittest.TestCase):
         self._run(runner())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ConcernStaleTriStateTests(unittest.TestCase):
     """`stale` is tri-state since t1493: True / False / **None**.
 
@@ -1468,3 +1472,702 @@ class ConcernStaleTriStateTests(unittest.TestCase):
                     flat = self._run(runner())
                     self.assertIn("2 to address", flat)
                     self.assertIn("1 informational", flat)
+
+
+# ---------------------------------------------------------------------------
+# t1582 — edit the outgoing payload before it reaches the clipboard
+# ---------------------------------------------------------------------------
+
+
+async def _open_editor(pilot, app):
+    """Press `e` and settle; returns the editor screen (or the picker on refusal)."""
+    await pilot.press("e")
+    await pilot.pause()
+    await pilot.pause()
+    return app.screen
+
+
+def _editor_text(app) -> str:
+    return app.screen.query_one("#payload-edit-text", TextArea).text
+
+
+class ConcernPayloadEditAffordanceTests(unittest.TestCase):
+    """`e` opens the payload editor OVER the picker, seeded with the real payload.
+
+    The modal-over-modal contract mirrors ``u`` / ``R`` (t1293, t1427_2): the
+    picker is never dismissed, so cancelling lands on an intact selection.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_e_with_nothing_forwarded_is_refused_with_a_notify(self):
+        """The empty case says which one it hit, exactly as `u` and `R` do.
+
+        Opening an empty box with no explanation is the failure being avoided.
+        """
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                screen = await _open_editor(pilot, app)
+                self.assertIsInstance(screen, ConcernPickerModal)
+                self.assertIn(
+                    ("Nothing marked for forwarding — press Space on a row first",
+                     "information"),
+                    app.notifications,
+                )
+
+        self._run(runner())
+
+    def test_editor_is_seeded_byte_for_byte_with_the_clipboard_payload(self):
+        """WYSIWYG: what is in the box is what would land on the clipboard.
+
+        Asserted against ``build_clipboard_payload`` itself rather than a
+        hand-written literal, so a change to the preamble or the marker grammar
+        cannot make this pass while the box shows something else.
+        """
+        async def runner():
+            concerns = _sample_concerns()
+            app = _Host(concerns)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")          # forward row 0
+                await pilot.press("down")
+                await pilot.press("space")          # forward row 1
+                await pilot.pause()
+                screen = await _open_editor(pilot, app)
+                self.assertIsInstance(screen, ConcernPayloadEditModal)
+                self.assertEqual(
+                    _editor_text(app),
+                    build_clipboard_payload([concerns[0], concerns[1]]),
+                )
+                # And the picker is still underneath, undismissed.
+                self.assertIs(app.result, _Host._UNSET)
+
+        self._run(runner())
+
+    def test_escape_returns_to_an_intact_selection(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.press("down")           # focus row 1
+                await pilot.pause()
+                await _open_editor(pilot, app)
+                await pilot.press("escape")
+                await pilot.pause()
+                await pilot.pause()
+                picker = app.screen
+                self.assertIsInstance(picker, ConcernPickerModal)
+                rows = list(picker.query(_ConcernRow))
+                self.assertTrue(rows[0].selected)
+                self.assertFalse(rows[1].selected)
+                self.assertIs(picker.focused, rows[1])
+                self.assertIsNone(picker._payload_override)
+                self.assertIs(app.result, _Host._UNSET)
+
+        self._run(runner())
+
+    def test_cancelling_does_not_clear_a_previously_saved_edit(self):
+        """A cancel abandons THIS visit, not the last saved one."""
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await _open_editor(pilot, app)
+                app.screen.query_one("#payload-edit-text", TextArea).load_text("KEPT")
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(app.screen._payload_override, "KEPT")
+                # Reopen and cancel out.
+                await _open_editor(pilot, app)
+                await pilot.press("escape")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertEqual(app.screen._payload_override, "KEPT")
+
+        self._run(runner())
+
+    def test_saving_an_empty_buffer_is_refused_not_dismissed(self):
+        """An emptied box must never fall back to the generated payload.
+
+        Refusing keeps the editor open and says why; Esc is still the way out.
+        """
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await _open_editor(pilot, app)
+                app.screen.query_one("#payload-edit-text", TextArea).load_text("   \n\n")
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ConcernPayloadEditModal)
+                self.assertIn(
+                    "Editor is empty",
+                    " ".join(m for m, _ in app.notifications),
+                )
+                self.assertEqual(
+                    [s for m, s in app.notifications if "Editor is empty" in m],
+                    ["warning"],
+                )
+
+        self._run(runner())
+
+
+class ConcernPayloadEditButtonTests(unittest.TestCase):
+    """The Save / Cancel buttons do what the keys do.
+
+    They render at every width above the xnarrow tier, so a keyboard-only
+    implementation would leave a mouse user clicking a dead control. Each case
+    asserts against the SAME expectation as its keyboard twin, so the two paths
+    cannot drift.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _editor(self, pilot, app):
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+        return await _open_editor(pilot, app)
+
+    def test_clicking_save_commits_the_edit_like_ctrl_s(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await self._editor(pilot, app)
+                app.screen.query_one("#payload-edit-text", TextArea).load_text("BY MOUSE")
+                await pilot.click("#btn-payload-save")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ConcernPickerModal)
+                self.assertEqual(app.screen._payload_override, "BY MOUSE")
+
+        self._run(runner())
+
+    def test_clicking_cancel_abandons_the_visit_like_escape(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await self._editor(pilot, app)
+                app.screen.query_one("#payload-edit-text", TextArea).load_text("DISCARD")
+                await pilot.click("#btn-payload-cancel")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ConcernPickerModal)
+                self.assertIsNone(app.screen._payload_override)
+
+        self._run(runner())
+
+    def test_clicking_save_on_an_empty_buffer_inherits_the_refusal(self):
+        """The test that fails if ``on_button_pressed`` grows its own body.
+
+        The empty-buffer rule lives in ``action_save``; the click path is only
+        correct because it delegates there rather than re-implementing a save.
+        """
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await self._editor(pilot, app)
+                app.screen.query_one("#payload-edit-text", TextArea).load_text("")
+                await pilot.click("#btn-payload-save")
+                await pilot.pause()
+                await pilot.pause()
+                self.assertIsInstance(app.screen, ConcernPayloadEditModal)
+                self.assertIn(
+                    "Editor is empty",
+                    " ".join(m for m, _ in app.notifications),
+                )
+
+        self._run(runner())
+
+    def test_buttons_are_absent_at_the_extra_narrow_tier(self):
+        """Not merely hidden from the eye — gone from the composited screen.
+
+        So the click path above is not silently expected to work at 24 columns,
+        where ctrl+s / Esc (named by the compact help) are the whole interface.
+        """
+        async def runner():
+            app = _Host(_sample_concerns(), narrow=True)
+            async with app.run_test(
+                size=(monitor_shared._PICKER_MIN_COLS, 20)
+            ) as pilot:
+                await self._editor(pilot, app)
+                flat = _flat_text(_screen_rows(app))
+                self.assertNotIn("Save", flat)
+                self.assertNotIn("Cancel", flat)
+
+        self._run(runner())
+
+
+class ConcernPayloadReopenTests(unittest.TestCase):
+    """Pressing `e` a second time resumes the user's text, not a fresh build.
+
+    The editor is a place to iterate. Reseeding from the canonical payload would
+    throw the previous edit away exactly when the user came back to revise it.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _save(self, pilot, app, text):
+        await _open_editor(pilot, app)
+        app.screen.query_one("#payload-edit-text", TextArea).load_text(text)
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await pilot.pause()
+
+    def test_reopening_shows_the_saved_edit_not_the_regenerated_payload(self):
+        async def runner():
+            concerns = _sample_concerns()
+            app = _Host(concerns)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._save(pilot, app, "MY OWN WORDS")
+                await _open_editor(pilot, app)
+                shown = _editor_text(app)
+                # Named both ways round so a failure says WHICH one it showed.
+                self.assertEqual(shown, "MY OWN WORDS")
+                self.assertNotEqual(shown, build_clipboard_payload([concerns[0]]))
+
+        self._run(runner())
+
+    def test_a_second_edit_is_what_confirm_carries(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._save(pilot, app, "FIRST")
+                await self._save(pilot, app, "SECOND")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result.payload_override, "SECOND")
+
+        self._run(runner())
+
+    def test_the_seed_stays_canonical_after_a_save(self):
+        """The direct pin that one field is not doing two jobs.
+
+        If ``_payload_seed`` were overwritten with the edited text, every later
+        comparison would trivially match and staleness would be undetectable.
+        """
+        async def runner():
+            concerns = _sample_concerns()
+            app = _Host(concerns)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._save(pilot, app, "REWRITTEN ENTIRELY")
+                self.assertEqual(
+                    app.screen._payload_seed,
+                    build_clipboard_payload([concerns[0]]),
+                )
+
+        self._run(runner())
+
+    def test_reopening_after_a_selection_change_drops_the_stale_edit_once(self):
+        """The stale rule applies at BOTH entry points, and warns exactly once.
+
+        A second warning at confirm would mean the two call sites disagreed
+        about which text was live.
+        """
+        async def runner():
+            concerns = _sample_concerns()
+            app = _Host(concerns)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._save(pilot, app, "STALE SOON")
+                await pilot.press("down")
+                await pilot.press("space")        # forward a second row
+                await pilot.pause()
+                await _open_editor(pilot, app)
+                self.assertEqual(
+                    _editor_text(app),
+                    build_clipboard_payload([concerns[0], concerns[1]]),
+                )
+                warnings = [m for m, s in app.notifications if s == "warning"]
+                self.assertEqual(len(warnings), 1, warnings)
+                self.assertIn("Selection changed since your last edit", warnings[0])
+                # Confirming now must NOT warn a second time.
+                await pilot.press("escape")       # leave the editor
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(
+                    len([m for m, s in app.notifications if s == "warning"]), 1
+                )
+
+        self._run(runner())
+
+
+class ConcernPayloadStaleOverrideTests(unittest.TestCase):
+    """The settled stale rule, pinned in BOTH directions.
+
+    Dropping either half — never discarding, or always discarding — fails here.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _edit(self, pilot, app, text="EDITED"):
+        await _open_editor(pilot, app)
+        app.screen.query_one("#payload-edit-text", TextArea).load_text(text)
+        await pilot.press("ctrl+s")
+        await pilot.pause()
+        await pilot.pause()
+
+    def test_an_untouched_selection_carries_the_edit_through(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._edit(pilot, app)
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result.payload_override, "EDITED")
+                self.assertEqual(
+                    [m for m, s in app.notifications if s == "warning"], []
+                )
+
+        self._run(runner())
+
+    def test_changing_a_row_after_editing_discards_the_edit_with_a_warning(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._edit(pilot, app)
+                await pilot.press("down")
+                await pilot.press("space")
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertIsNone(app.result.payload_override)
+                warnings = [m for m, s in app.notifications if s == "warning"]
+                self.assertEqual(len(warnings), 1, warnings)
+                self.assertIn("your edit was discarded", warnings[0])
+
+        self._run(runner())
+
+    def test_toggling_a_row_off_and_back_on_keeps_the_edit(self):
+        """A payload comparison, not a "touched" flag — the net change is nil."""
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._edit(pilot, app)
+                await pilot.press("down")
+                await pilot.press("space")        # forward row 1
+                await pilot.press("space")        # …and un-forward it
+                await pilot.press("enter")
+                await pilot.pause()
+                self.assertEqual(app.result.payload_override, "EDITED")
+
+        self._run(runner())
+
+    def test_un_rejecting_an_entry_does_not_invalidate_the_edit(self):
+        """Un-rejection is a different channel — it never changes `forwarded`."""
+        async def runner():
+            entries = (RejectedEntry("r1", "2026-01-01T00:00:00Z", "picker",
+                                     "- [high | old] a previously rejected one"),)
+            app = _Host(_sample_concerns(), rejected_entries=entries)
+            async with app.run_test(size=(80, 24)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await self._edit(pilot, app)
+                await pilot.press("R")            # rejected-store view
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.press("space")        # mark r1 for un-rejection
+                await pilot.press("enter")        # back to the picker
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.press("enter")        # confirm the picker
+                await pilot.pause()
+                self.assertEqual(app.result.unrejected, ("r1",))
+                self.assertEqual(app.result.payload_override, "EDITED")
+
+        self._run(runner())
+
+
+class ConcernPayloadEditWidthTierTests(unittest.TestCase):
+    """The editor renders intact and stays usable at every supported width.
+
+    Same shape as :class:`ConcernPickerWidthTierTests`: widths read from the
+    production constants, the composited strips as the assertion surface, and a
+    one-mutation negative control proving the tier is what buys it.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    SUPPORTED_WIDTHS = (
+        80,
+        40,
+        monitor_shared._PAYLOAD_EDIT_NARROW_MIN_WIDTH,
+        monitor_shared._PICKER_MIN_COLS,
+    )
+
+    def _rows_at(self, width: int, height: int = 30, narrow: bool = True):
+        async def runner():
+            app = _Host([Concern("high", "x.py:1", "BODYMARKER the body.")],
+                        narrow=narrow)
+            async with app.run_test(size=(width, height)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await _open_editor(pilot, app)
+                return _screen_rows(app)
+
+        return self._run(runner())
+
+    def test_dialog_is_never_clipped_at_a_supported_width(self):
+        for width in self.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                rows = self._rows_at(width)
+                self.assertEqual(_clipped_rows(rows, width), [])
+
+    def test_the_help_names_save_and_cancel_at_every_width(self):
+        """The keys that commit or abandon the edit are named at every tier.
+
+        At the xnarrow tier the buttons are gone, so this line is the only place
+        they appear at all.
+        """
+        for width in self.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                flat = _flat_text(self._rows_at(width)).lower()
+                self.assertTrue(
+                    "ctrl+s" in flat or "^s" in flat, f"no save key at {width}"
+                )
+                self.assertIn("esc", flat)
+
+    def test_editor_is_usable_in_a_real_companion_pane(self):
+        """24x20 — the actual minimonitor geometry, not a roomier 24x30.
+
+        Height is what the help-line budget is about, and ten spare rows are
+        exactly the slack that would hide a regression here. "Renders" is not
+        the claim: the box must have a real height, hold focus, and accept a
+        keystroke.
+        """
+        width, height = monitor_shared._PICKER_MIN_COLS, 20
+
+        async def runner():
+            app = _Host([Concern("high", "x.py:1", "BODYMARKER the body.")],
+                        narrow=True)
+            async with app.run_test(size=(width, height)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await _open_editor(pilot, app)
+                rows = _screen_rows(app)
+                self.assertEqual(_clipped_rows(rows, width), [])
+                flat = _flat_text(rows).lower()
+                self.assertIn("^s", flat)
+                self.assertIn("esc", flat)
+                area = app.screen.query_one("#payload-edit-text", TextArea)
+                self.assertGreater(area.size.height, 0)
+                self.assertIs(app.screen.focused, area)
+                before = area.text
+                await pilot.press("x")
+                await pilot.pause()
+                self.assertNotEqual(area.text, before)
+
+        self._run(runner())
+
+    def test_tier_threshold_is_derived_from_the_declared_min_width(self):
+        """The constant mirrors the stylesheet; retuning one moves the other."""
+        match = re.search(
+            r"ConcernPayloadEditModal\.narrow #payload-edit-dialog\s*\{[^}]*"
+            r"min-width:\s*(\d+)",
+            ConcernPayloadEditModal.DEFAULT_CSS,
+        )
+        self.assertIsNotNone(match, "no .narrow min-width in DEFAULT_CSS")
+        self.assertEqual(
+            int(match.group(1)), monitor_shared._PAYLOAD_EDIT_NARROW_MIN_WIDTH
+        )
+
+    def test_narrow_class_is_applied_and_is_not_the_measured_tier(self):
+        """`narrow` (caller's hint) and `xnarrow` (measured) are separate knobs.
+
+        Also the guard against dormant CSS: a `.narrow` rule that nothing ever
+        activates is invisible to a reading of the stylesheet alone.
+        """
+        async def runner():
+            for narrow in (True, False):
+                app = _Host([Concern("high", "x.py:1", "body")], narrow=narrow)
+                async with app.run_test(size=(40, 30)) as pilot:
+                    await pilot.pause()
+                    await pilot.press("space")
+                    await pilot.pause()
+                    await _open_editor(pilot, app)
+                    with self.subTest(narrow=narrow):
+                        self.assertEqual(app.screen.has_class("narrow"), narrow)
+                        self.assertFalse(app.screen.has_class("xnarrow"))
+
+        self._run(runner())
+
+    def test_the_narrow_class_actually_widens_the_dialog(self):
+        """Pinned on GEOMETRY, not on a class name.
+
+        `has_class("narrow")` would still pass if the CSS selector were wrong or
+        the rule were deleted; a measured width would not.
+        """
+        async def runner():
+            widths = {}
+            for narrow in (True, False):
+                app = _Host([Concern("high", "x.py:1", "body")], narrow=narrow)
+                async with app.run_test(size=(40, 30)) as pilot:
+                    await pilot.pause()
+                    await pilot.press("space")
+                    await pilot.pause()
+                    await _open_editor(pilot, app)
+                    widths[narrow] = app.screen.query_one(
+                        "#payload-edit-dialog"
+                    ).size.width
+            return widths
+
+        widths = self._run(runner())
+        self.assertGreater(widths[True], widths[False], widths)
+
+    def test_without_the_tier_the_narrow_widths_break(self):
+        """ONE mutation: the tier threshold is patched to 0.
+
+        The negative control proving the clipping assertion above is not
+        vacuous — without the tier, `min-width: 30` overflows a 24-column
+        screen and takes the right border with it.
+        """
+        with unittest.mock.patch.object(
+            monitor_shared, "_PAYLOAD_EDIT_NARROW_MIN_WIDTH", 0
+        ):
+            rows = self._rows_at(monitor_shared._PICKER_MIN_COLS)
+            self.assertNotEqual(
+                _clipped_rows(rows, monitor_shared._PICKER_MIN_COLS), [],
+                "expected the un-tiered editor to overflow a 24-column screen",
+            )
+
+    def test_tier_is_reapplied_on_resize(self):
+        """Textual has no media queries — `on_resize` is what keeps it live."""
+        async def runner():
+            app = _Host([Concern("high", "x.py:1", "body")], narrow=True)
+            async with app.run_test(size=(80, 30)) as pilot:
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                await _open_editor(pilot, app)
+                self.assertFalse(app.screen.has_class("xnarrow"))
+                await pilot.resize_terminal(24, 30)
+                await pilot.pause()
+                await pilot.pause()
+                self.assertTrue(app.screen.has_class("xnarrow"))
+
+        self._run(runner())
+
+
+class ConcernPayloadEditEditingTests(unittest.TestCase):
+    """Editing behaviour through the REAL widget, not a stand-in.
+
+    The whole design rests on `TextArea` already providing selection, overwrite
+    and arrow navigation; these assert that against the pinned Textual, so a
+    version bump that changed it fails here rather than in the field.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _editor(self, pilot, app, text):
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+        await _open_editor(pilot, app)
+        area = app.screen.query_one("#payload-edit-text", TextArea)
+        area.load_text(text)
+        await pilot.pause()
+        return area
+
+    def test_selecting_a_span_and_typing_replaces_it(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                area = await self._editor(pilot, app, "abcdef")
+                area.move_cursor((0, 0))
+                await pilot.pause()
+                for _ in range(3):
+                    await pilot.press("shift+right")
+                await pilot.pause()
+                self.assertEqual(area.selected_text, "abc")
+                await pilot.press("Z")
+                await pilot.pause()
+                self.assertEqual(area.text, "Zdef")
+
+        self._run(runner())
+
+    def test_arrow_keys_move_the_cursor(self):
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                area = await self._editor(pilot, app, "line one\nline two")
+                area.move_cursor((0, 0))
+                await pilot.pause()
+                await pilot.press("right")
+                await pilot.pause()
+                self.assertEqual(area.cursor_location, (0, 1))
+                await pilot.press("down")
+                await pilot.pause()
+                self.assertEqual(area.cursor_location, (1, 1))
+
+        self._run(runner())
+
+    def test_ctrl_s_and_escape_are_not_swallowed_by_the_focused_editor(self):
+        """The binding-availability pin the whole key choice rests on.
+
+        Neither key is in ``TextArea.BINDINGS`` on the pinned Textual, so both
+        bubble to the screen with no `priority=True`. If a future version bound
+        either, `ctrl+s` would insert nothing and `Esc` would stop cancelling —
+        silently. Asserted on the widget's own binding table AND on the
+        behaviour, because either alone could pass while the other broke.
+        """
+        keys = set()
+        for binding in TextArea.BINDINGS:
+            keys.update(k.strip() for k in binding.key.split(","))
+        self.assertNotIn("ctrl+s", keys)
+        self.assertNotIn("escape", keys)
+
+        async def runner():
+            app = _Host(_sample_concerns())
+            async with app.run_test(size=(80, 24)) as pilot:
+                area = await self._editor(pilot, app, "payload text")
+                self.assertIs(app.screen.focused, area)
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                await pilot.pause()
+                # It reached the screen's action, not the buffer.
+                self.assertIsInstance(app.screen, ConcernPickerModal)
+                self.assertEqual(app.screen._payload_override, "payload text")
+
+        self._run(runner())
+
+if __name__ == "__main__":
+    unittest.main()

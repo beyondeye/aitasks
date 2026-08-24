@@ -275,12 +275,14 @@ def _writes(app):
     return [c for c in app.spy_rejected if c[0][0] in ("add", "remove")]
 
 
-def _pick_result(forwarded=(), rejected=(), unrejected=(), spun_off=()):
+def _pick_result(forwarded=(), rejected=(), unrejected=(), spun_off=(),
+                 payload_override=None):
     return ConcernPickResult(
         forwarded=list(forwarded),
         rejected=list(rejected),
         unrejected=tuple(unrejected),
         spun_off=list(spun_off),
+        payload_override=payload_override,
     )
 
 
@@ -1644,9 +1646,6 @@ class ConstructedAppTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 # Epoch of the round-headed fixtures below (2026-08-11T14:03:27Z / 14:09:41Z).
 _R1_EPOCH = 1786457007.0
@@ -1824,3 +1823,93 @@ class MonitorSpinoffParityTests(unittest.TestCase):
             "1427_2",
         )
         self.assertEqual(len(app.spy_workers), 1)
+
+
+class PayloadOverrideForwardTests(unittest.TestCase):
+    """An edited payload reaches the clipboard verbatim (t1582).
+
+    Deliberately duplicated in the minimonitor and monitor suites rather than
+    parameterized across apps: the mixin is shared, but the claim under test is
+    that BOTH apps get the behaviour, and a single parameterized copy would
+    still pass if one app stopped mixing the shared body in.
+    """
+
+    def test_an_override_is_copied_verbatim(self):
+        app = _mk_app()
+        concerns = _spin_concerns("alpha", "beta")
+        edited = "I trimmed this myself.\n\n- [high | alpha] only the part that matters"
+        app.apply_concern_pick_result(
+            _pick_result(forwarded=concerns, payload_override=edited), "1427_2"
+        )
+        # Verbatim: not stripped, not re-rendered, not re-wrapped.
+        self.assertEqual(app.spy_clipboard, [edited])
+        self.assertTrue(
+            any("edited" in m.lower() for m, _ in app.spy_notify),
+            app.spy_notify,
+        )
+
+    def test_without_an_override_the_generated_payload_is_copied(self):
+        """NEGATIVE CONTROL for the test above.
+
+        The un-edited path is the overwhelmingly common one, and the failure
+        mode being guarded is an override branch that swallows it. Asserted
+        byte-for-byte against ``build_clipboard_payload``, and on the unchanged
+        wording — if the toast started saying "Edited" here, the user would
+        have no way to tell which text they got.
+        """
+        app = _mk_app()
+        concerns = _spin_concerns("alpha", "beta")
+        app.apply_concern_pick_result(_pick_result(forwarded=concerns), "1427_2")
+
+        self.assertEqual(app.spy_clipboard, [build_clipboard_payload(concerns)])
+        messages = [m for m, _ in app.spy_notify]
+        self.assertIn("Concerns copied to clipboard.", messages)
+        self.assertFalse(
+            any("edited" in m.lower() for m in messages), messages
+        )
+
+    def test_an_edited_run_still_stores_canonical_marker_lines(self):
+        """The edit owns the clipboard and NOTHING else.
+
+        The rejection store matches its entries against freshly parsed concerns
+        on the shadow's next round, so an edited line reaching it would silently
+        stop matching and the concern would come back.
+        """
+        app = _mk_app()
+        fwd = _spin_concerns("forwarded-one")
+        rej = _spin_concerns("rejected-one")
+        app.apply_concern_pick_result(
+            _pick_result(
+                forwarded=fwd, rejected=rej,
+                payload_override="totally rewritten by hand",
+            ),
+            "1427_2",
+        )
+
+        self.assertEqual(app.spy_clipboard, ["totally rewritten by hand"])
+        writes = _writes(app)
+        self.assertEqual(len(writes), 1, writes)
+        self.assertEqual(writes[0][1], concern_marker_line(rej[0]) + "\n")
+
+    def test_an_override_with_no_forwarded_rows_is_still_honoured(self):
+        """The mixin honours what it is handed, not the picker's invariant.
+
+        The picker refuses `e` with nothing forwarded, so this pairing cannot
+        arise through the UI today. Pinning it anyway is what makes the mixin
+        independent of that upstream rule rather than quietly coupled to it.
+        """
+        app = _mk_app()
+        app.apply_concern_pick_result(
+            _pick_result(forwarded=[], payload_override="hand written"), "1427_2"
+        )
+        self.assertEqual(app.spy_clipboard, ["hand written"])
+
+    def test_nothing_forwarded_and_no_override_copies_nothing(self):
+        """The other half of the gate — unchanged from before t1582."""
+        app = _mk_app()
+        app.apply_concern_pick_result(_pick_result(forwarded=[]), "1427_2")
+        self.assertEqual(app.spy_clipboard, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

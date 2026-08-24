@@ -506,11 +506,12 @@ rejection is a read-modify-write, which atomic-write alone does not serialize.
 "impossible", every path validates the store path before acquiring.
 
 **TUI write path.** Both apps mix in `ShadowRejectionsMixin`. The picker's `r`
-marks a row rejected, `t` marks it to be spun off, and `R` opens the
-rejected-store view; all are **staged** — the modals write nothing. The store is
-touched only when the *picker* is confirmed (`ConcernPickResult` carries
-`forwarded` / `rejected` / `unrejected` / `spun_off`; `None` is the sole cancel
-signal), at which point rejections go in via `add … --producer picker`,
+marks a row rejected, `t` marks it to be spun off, `e` edits the outgoing
+clipboard payload, and `R` opens the rejected-store view; all are **staged** —
+the modals write nothing. The store is touched only when the *picker* is
+confirmed (`ConcernPickResult` carries `forwarded` / `rejected` / `unrejected` /
+`spun_off` / `payload_override`; `None` is the sole cancel signal), at which
+point rejections go in via `add … --producer picker`,
 un-rejections via `remove`, and each successfully spun-off concern via
 `add … --producer spinoff` (see "Spin-off triage arm" below). **`producer` is
 free-form, not a closed vocabulary** — it is provenance for the reader, and the
@@ -519,7 +520,17 @@ suppresses the concern on the next round exactly as a `picker` one does.
 Cancelling the picker discards every staged set. Outcomes are always visible: a success toast per
 operation, a warning when the pane has no task id (`Rejections not persisted`),
 and distinct messages for exit 3 vs. exit 4 — conflating them would turn a
-permanent misconfiguration into an endless retry. `list --machine` emits
+permanent misconfiguration into an endless retry.
+
+**`payload_override` (t1582) reaches the clipboard and nothing else** — the
+rejection store and the spin-off drafts always receive canonical
+`concern_marker_line` text, because the shadow matches store entries against
+freshly parsed concerns on its next round and an edited line would silently stop
+matching. The override is dropped, with a warning, if the forward selection
+changes after the edit was made, so the copied text can never disagree with the
+ticked rows without the user being told.
+
+`list --machine` emits
 `REJECTED:r<id>|<ts>|<producer>|<marker line>` — ids are `r`-prefixed on the
 wire; parse with `split('|', 3)`, the marker last because it may itself contain
 `|`. The empty signal is the single line `NO_REJECTIONS`, for a missing store and
