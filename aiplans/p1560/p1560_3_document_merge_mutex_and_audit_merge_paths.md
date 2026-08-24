@@ -263,11 +263,11 @@ the source, line by line, and correct any divergence:
   mitigation: inline post-phase verdict_prose_crosscheck
 - "Findable without prior knowledge" (t1560_4's checklist) is a human verdict
   passed later; TOC-level headings are the design response but cannot guarantee it
-  · severity: low · → mitigation: merge_verdict_docs_drift_guard
+  · severity: low · → mitigation: t1593
 
 ### Planned mitigations
 - timing: post-phase | name: verdict_prose_crosscheck | type: documentation | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: destructive-remedy mis-mapping + liveness asymmetry (goal-achievement) | desc: walk every verdict name, remedy flag and residue-state mapping in the drafted prose against the force-release branches in aitask_merge_task.sh and the adapter deltas in merge_lock.sh, line by line, before commit
-- timing: after | name: merge_verdict_docs_drift_guard | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: destructive-remedy mis-mapping + liveness asymmetry, durably (goal-achievement) | desc: a test pinning the CURATED published recovery mapping in locks.md (the residue-state to remedy-flag pairs and the user-facing verdicts the page names) against the broker's behaviour — scoped to that curated set, never to the full --list-verdicts vocabulary, so a new workflow-internal verdict cannot fail the website guard
+- timing: after | name: merge_verdict_docs_drift_guard | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: destructive-remedy mis-mapping + liveness asymmetry, durably (goal-achievement) | desc: a test pinning the CURATED published recovery mapping in locks.md (the residue-state to remedy-flag pairs and the user-facing verdicts the page names) against the broker's behaviour — scoped to that curated set, never to the full --list-verdicts vocabulary, so a new workflow-internal verdict cannot fail the website guard | created: t1593
 
 ---
 
@@ -367,3 +367,5 @@ deciding "who may drive the shared working tree". That over-claims — it govern
 only the merge paths that take it — and was rewritten, with the boundary moved
 to a `> **Note:**` directly under the section lead so a reader meets the
 qualification before the mechanism.
+
+- **Upstream defects identified:** `.claude/skills/aitask-web-merge/SKILL.md:69,167 — merges origin/<branch> in the shared repo root and pushes the target without ever asserting HEAD (zero git checkout tokens; it assumes main), so a run after any Step 9 merge to a non-main output branch pulls, merges and pushes that branch instead`. Filed as **t1592** together with the missing merge mutex, since both fixes land in the same block.
