@@ -283,3 +283,104 @@ dimensions were already `low` pre-insertion and remain `low`; the two
 ### Planned mitigations
 - timing: pre-phase | name: characterize_backlog_sections | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "the lift must be verbatim" + goal-achievement "live byte-identity is noisy" | desc: Whole-section golden of the two rendered backlog sections on the existing synthetic fixture, minted and confirmed green against the UNMODIFIED sources before any edit.
 - timing: post-phase | name: pin_no_residual_duplication | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: code-health "a later edit can silently re-fork the seam" | desc: Guard test (with a negative control) that neither surface re-declares an extracted name and both import them from backlog_view.
+
+## Implementation Notes
+
+Landed as planned; no deviations from the approved approach. Both inline
+mitigation phases were executed in their planned positions.
+
+**Pre-phase — `characterize_backlog_sections`.** Added
+`_LEVEL_SECTION_GOLDEN` / `_FLOW_SECTION_GOLDEN` and
+`TestBacklogSections::test_backlog_sections_render_byte_for_byte` to
+`tests/test_aitask_stats_py.py`, minted and confirmed green against the
+unmodified sources. Its discriminating power was then proven rather than
+assumed: mutating `_aggregate_all` to the dict comprehension made `TOTAL OPEN`
+read 2 instead of 4 and the golden failed; the source was restored byte-identical
+before proceeding.
+
+**Post-phase — `pin_no_residual_duplication`.** Added
+`tests/test_backlog_view_is_single_sourced.py` (7 tests). It scans via `ast` at
+module level rather than textually, so a lifted name inside a docstring, comment
+or `import` line cannot trip it. Four negative controls: a re-forked `def` is
+flagged (and exactly one file is), a restated constant is flagged, a nested copy
+is *not* (pinning the documented boundary so the header's claim cannot rot), and
+an `import` of the constant is not mistaken for a re-declaration.
+
+**Two small in-scope adjustments beyond the named lift**, both of which the
+Approach called for:
+- `is_followup_category`, `backlog_levels` and `dataclass` became unused in
+  `aitask_stats.py` once the axis moved, and were dropped from its imports.
+- All six lifted names are re-exported and listed in `__all__` (not just the
+  four originally named), so `aggregate_all` and `order_categories` are reachable
+  as `aitask_stats.X` like every other re-export and no import is left unused.
+
+### Verification results
+
+| check | result |
+|---|---|
+| `tests/test_no_lib_to_tui_import.sh` | 13 passed, 0 failed |
+| `tests/run_all_python_tests.sh --test-dir tests` | `PYTHON SUITE: PASSED (runner=pytest, exit=0)` |
+| `ait stats` old vs new, live repo | identical (control: two `new` captures identical, so the window was stable) |
+| `ait stats --csv-backlog` old vs new | identical |
+| `tests/test_aitask_stats_py.py` | 53 passed (was 69 across both stats modules; now 79 with the 10 added) |
+| `tests/test_stats_backlog_panes.py` + `_live.py` + `test_stats_multistage.py` | 35 passed |
+| TUI pane row output old vs new, live repo | `_level_rows` + `_netflow_rows` byte-identical |
+
+The pane check was run as a direct old-vs-new comparison of the pure row
+derivations against live data, not inferred transitively from `TestCliParity`.
+
+**Not done by the agent:** the by-hand `ait stats-tui` pass over the two Backlog
+panes (Verification step 5). The automated live-render module
+(`tests/test_stats_backlog_panes_live.py`) boots the real TUI and passes, and the
+pure row output is proven identical, but a human eyeball on the rendered chart
+was not performed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved approach. `lib/backlog_view.py`
+  created with the six shared names; `aitask_stats.py` and
+  `stats/panes/backlog.py` both reduced to importing them (−151 / −143 lines
+  respectively) with only per-surface presentation left behind. Both inline
+  risk-mitigation phases executed in their planned positions.
+- **Deviations from plan:** None in approach. Two mechanical consequences the
+  Approach anticipated: three imports (`is_followup_category`, `backlog_levels`,
+  `dataclass`) became unused in the CLI and were dropped, and all six lifted
+  names — not only the four originally named — are re-exported and listed in
+  `__all__`, so no imported name is left unused and every one is reachable as
+  `aitask_stats.X`.
+- **Issues encountered:** None substantive. One scripted edit asserted a
+  substring count of 2 for `_TASK_EXCLUSION_REASONS` and saw 3, because
+  `BACKLOG_TASK_EXCLUSION_REASONS` contains it; the assertion aborted the write
+  before any change, and the edit was redone against the unambiguous
+  `in _TASK_EXCLUSION_REASONS` fragment. No file was left half-edited.
+- **Key decisions:**
+  - **Seam extent** was settled with the user before planning finished: the
+    three names t1586 lists, plus `backlog_columns` (t1588's pane docstring
+    forward-pointed to this task for it) and `order_categories`. The two
+    net-flow row-MEMBERSHIP predicates stay per-surface, as the task directs —
+    membership is a per-table decision, only the ordering is shared.
+  - **`BacklogAxis.cell_w` was dropped, not moved.** It was CLI pipe-table width
+    state written and read inside one function; carrying a "width-adaptive
+    numeric cell" field into `lib/` is precisely what the task says to leave
+    behind. It is now a local, matching what the flow table already did.
+  - **`build_backlog_axis` keeps its `StatsData` parameter** rather than taking
+    four bare Counters. A narrower signature would be more purist, but both
+    consumers hold a `StatsData` and the wider one makes this a straight lift
+    with no behavioural surface at all.
+  - **The pane's sharper scratch-Counter rationale won** over the CLI's when the
+    two docstrings were merged: it names the concrete failure
+    (`stats_app._show_pane` re-rendering against one cached `StatsData`, so a
+    shared clamp sink grows unbounded for the session).
+  - **The drift guard scans with `ast`, not text**, so a lifted name in a
+    docstring, comment or import cannot trip it — and its documented blind spot
+    (a copy nested inside a function) is pinned by its own test rather than only
+    claimed in prose.
+- **Upstream defects identified:** None.
+
+### `depends: [1544_5]`
+
+The task file asked for this to be wired at pick time. It was **not** added, on
+purpose: t1544_5 landed and was archived before this task was picked
+(commit `7eb74d761`), so the blocking condition the instruction expressed is
+already satisfied and a `depends:` edge onto an archived task would only leave
+`ait ls` a dangling reference to resolve.
