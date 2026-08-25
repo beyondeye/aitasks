@@ -428,6 +428,58 @@ every child task id repo-wide. It is tracked as **t1611**
 parses every task file in the repo under both loaders and asserts equality,
 covers the no-libyaml fallback explicitly, and re-measures `ait ls`.
 
+## Risk
+
+### Code-health risk: medium
+- The new `deps-blocking-scan` subprocess is a process boundary in the
+  most-used command, and its *total* failure degrades to "no blocking info at
+  all" — i.e. every task lists as Ready. That is fail-**open**, the exact defect
+  class this task removes. · severity: medium · → mitigation: inline pre-phase scan_failure_is_its_own_state
+- Three dep implementations are replaced at once, including `ait ls`'s hottest
+  loop (`calculate_blocked_status` + `is_task_uncompleted`, both deleted). A
+  subtle bash regression there silently re-verdicts every listing, and nothing
+  in the current suite compares whole-listing output before vs after.
+  · severity: medium · → mitigation: inline pre-phase characterize_ls_listing_baseline
+- `dependents_status_batch` is refactored onto the new `DependentsEvaluator`
+  seam, so this task edits the t1472 perf-critical path it also has to preserve.
+  · severity: low · → mitigation: covered — `tests/test_deps_unblock_batch.sh`
+  pins its existing contract and Verification §5 pins the hoisting it exists for
+- The evaluator hoisting that satisfies rule 3 is the same mechanism that, held
+  too long, freezes signature verdicts (t1416). Perf and freshness pull in
+  opposite directions here and the cycle boundary is the only thing separating
+  them. · severity: medium · → mitigation: covered — the boundary is placed on
+  the existing `clear_gate_cache()` line so it cannot drift, and Verification §7
+  pins both directions (a new cycle re-decides; within a cycle it does not)
+- Accepted residual (decision 2): a dep swept into a numbered bundle later flips
+  to `(UNRESOLVED)` and blocks its dependent, requiring a data cleanup. Deliberate
+  — the honest rendering rule 1 asks for. · severity: low · → mitigation: none (accepted)
+
+### Goal-achievement risk: low
+- The parity assertion could pass vacuously if the three surfaces are reduced
+  through one lossy helper (e.g. `ait ls` display parsing that drops the
+  `(UNRESOLVED)` marker), making all three agree on a tuple that hides a real
+  difference. · severity: low · → mitigation: covered by the two negative
+  controls already in Verification §2
+
+### Planned mitigations
+- timing: pre-phase | name: scan_failure_is_its_own_state | type: bug | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (scan subprocess degrades fail-open) | desc: Define and test the deps-blocking-scan failure contract before wiring ait ls to it, so "cannot verify" is its own state rather than "nothing is blocked".
+- timing: pre-phase | name: characterize_ls_listing_baseline | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 2 (silent re-verdict of every listing) | desc: Golden the live-tree ait ls output before touching aitask_ls.sh and diff it after, so any re-verdict is deliberate.
+
+**Reassessment after inlining both mitigations:** code-health stays **medium** —
+the two named risks are now covered, but the blast radius (6 load-bearing files,
+including the most-used command and both main TUIs) is unchanged and is what the
+level describes. Goal-achievement stays **low**.
+
+**Post-implementation reassessment (Step 9).** Both named code-health risks were
+realised in some form and caught by their own mitigations, which is the outcome
+the levels described: the scan's failure contract needed tightening twice (exact
+terminal trailer), and the `ait ls` characterization golden is what proved zero
+re-verdicts. A third, unforeseen risk of the same class landed too — the scan's
+own pre-filter briefly reintroduced a surface disagreement (block-list
+`depends:`) — and was caught by the cross-surface parity test rather than by a
+listed mitigation. Code-health **medium** was the right call. Goal-achievement
+**low** held: the delivered shape is the planned one.
+
 ## Out of scope
 
 - **t1528** (write-time `depends` validation) is the producer side. This task
