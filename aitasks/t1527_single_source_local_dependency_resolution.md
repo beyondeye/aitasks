@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [dependencies, aitask_ls, aitask_monitormini, aitask_board, child_tasks]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-16 11:26
-updated_at: 2026-08-16 11:26
+updated_at: 2026-08-25 12:30
 ---
 
 Three surfaces independently resolve a task's `depends` field, with three
