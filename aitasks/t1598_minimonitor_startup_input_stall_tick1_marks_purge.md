@@ -180,12 +180,48 @@ Ordered by what actually removes the symptom:
 2. **Get the first refresh off the App pump** (`set_timer(0, ...)` or an explicit
    worker), so a slow tick can never queue input. Move the trailing maintenance
    at `:1263` and `:1267` out of the render callback entirely.
-3. **Fix the wedged-lock recovery gap** in `stale_lock.sh:251`: a `.gc` guard dir
-   whose own creator is long gone must itself be reclaimable, otherwise a single
-   crash at the wrong instant disables the mutex permanently with no automatic
-   cure. (Immediate manual workaround for the reporting machine:
-   `rmdir ~/.config/aitasks/agent_marks.json.lockd.gc` and remove
-   `~/.config/aitasks/agent_marks.json.lockd`.)
+3. **Fix the wedged-lock recovery gap** in `stale_lock.sh`: a `.gc` guard dir
+   left behind by a crashed acquire disables the mutex permanently, with no
+   automatic cure.
+
+   **The guard carries no identity — design the fix around that.** `$gc` is
+   created by a bare `mkdir "$gc"` (`stale_lock.sh:251`) and released by a bare
+   `rmdir` (`_stale_lock_gc_release`, `:175`). It holds **no `pid` file, no
+   `owner` token, nothing** — verified on the wedged instance, which was an
+   empty directory. So "is the guard's creator still alive?" is **not a
+   decidable question**, and no fix may be specified in those terms.
+
+   The only available signal is the guard dir's **mtime**, mirroring what
+   `_stale_lock_maybe_reclaim` (`:225-234`) already does for the lock dir with
+   `_STALE_LOCK_WINDOW` (`:60`, default 120 s). Two viable shapes:
+   - **age-based guard reclaim** — reclaim a `$gc` older than a window that
+     comfortably dominates any legitimate acquire (a real acquire holds the
+     guard for a few `mkdir`/`printf`/`cat` calls, i.e. milliseconds); or
+   - **give the guard an identity** — publish a pid into `$gc` the same way the
+     lock dir publishes one, making the liveness question decidable and letting
+     the existing dead-pid logic apply. Note this changes the guard from a
+     single atomic `mkdir` into a publish sequence, so it needs the same
+     partial-publish unwind the lock dir already has.
+
+   **Treat the current behaviour as deliberate, not as an oversight.**
+   `stale_lock.sh:147` already emits a user-facing hint — *"stale-reclaim guard
+   `<lock>.gc` present — remove it too if no reclaim is running"* — and the
+   acquire path comments that the guard "is never auto-broken". The authors knew
+   this state was reachable and chose a manual cure. The plan must argue why
+   automatic reclaim is now preferable and what it costs, rather than treating
+   the hint as a missing feature.
+
+   **State what an age-based fix does NOT buy:** it cannot distinguish a wedged
+   guard from a legitimately slow acquire — it only makes that case
+   vanishingly unlikely by choosing a window orders of magnitude above the real
+   hold time. It also does not repair a guard that is recreated as fast as it is
+   reclaimed.
+
+   (Manual cure, already applied on the reporting machine on 2026-08-25:
+   `rmdir ~/.config/aitasks/agent_marks.json.lockd.gc` plus removal of
+   `~/.config/aitasks/agent_marks.json.lockd`, whose `pid` file held the dead
+   pid 3733146. `aitask_agent_marks.sh list` went from 10.267 s to 0.060 s.
+   The data file `agent_marks.json` was not touched.)
 4. Make `start_control_client` genuinely async (`await asyncio.to_thread(backend.start)`)
    or launch the worker with `thread=True`.
 5. Port minimonitor's `_refresh_data` to the async gateway variants and extend
@@ -199,8 +235,15 @@ Ordered by what actually removes the symptom:
   small bounded budget (well under 1 s) instead of ~10 s.
 - The marks purge still runs — it is deferred, not deleted — and its recurrence
   interval (`_MARKS_PURGE_INTERVAL`) is unchanged.
-- A wedged lock whose guard-dir creator is dead is recoverable without manual
-  intervention.
+- A lock wedged by a leftover `.gc` guard recovers **without manual
+  intervention**. Because the guard carries no identity (see Suggested
+  direction #3), the criterion is stated in terms that are actually decidable:
+  given a `.gc` dir whose mtime is older than the chosen window and a lock dir
+  whose `pid` is dead, a fresh `stale_lock_acquire` succeeds rather than
+  spinning to its deadline.
+- The reclaim is **not** reachable for a guard younger than that window — a
+  negative control proves a fresh guard is still respected, so the fix cannot
+  break a legitimate in-flight acquire.
 - `tests/test_monitor_refresh_no_sync_tmux.py` (or a sibling) covers
   `MiniMonitorApp` and fails on any sync tmux call left on its refresh path.
 - A regression test asserts on **input-dispatch latency**, not event-loop lag.
