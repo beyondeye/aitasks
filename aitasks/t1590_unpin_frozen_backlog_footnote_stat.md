@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-24 22:51
-updated_at: 2026-08-25 09:51
+updated_at: 2026-08-25 10:16
 ---
 
 ## Origin
@@ -59,3 +60,8 @@ For `stats_config.json`: decide whether the shipped JSON should mirror
 the file is only needed to *override*; shipping a partial copy of the code
 defaults invites exactly this drift. Removing the redundant entries may be
 better than completing them.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T07:16:30Z status=pass attempt=1 type=human
