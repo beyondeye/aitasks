@@ -344,17 +344,17 @@ Then Step 9 (Post-Implementation): cleanup, archival and merge per the workflow.
 - Opt-in means the downstream project that motivated the task (thinking_app, whose
   `test_command` already exits 2 since its t280) is **not** fixed by this change alone
   — it stays red until it adds the key · severity: medium ·
-  → mitigation: thinking_app_opt_in
+  → mitigation: thinking_app#322
 - The legacy Step-9 `verify_build` prose path keeps treating an opted-in command's
   exit 2 as a build failure, so a project sees two different answers for the same
   command depending on which path ran it · severity: medium ·
-  → mitigation: legacy_verify_build_exit_contract
+  → mitigation: t1610
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_command_resolution | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — shared resolver extraction on all three gates' path | desc: Land the resolver extraction alone first and prove Tests 1–3 plus quoted-scalar / block-list forms still pass before any behavior change
 - timing: post-phase | name: pin_status_exitcode_agreement | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — skip is terminal-satisfied on a blocks_dependents gate | desc: Assert the returned RC and the appended ledger status agree under map_exit for all four outcomes
-- timing: after | name: thinking_app_opt_in | type: chore | priority: high | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement — motivating project not fixed by this change alone | desc: Cross-repo (thinking_app) — add gate_command_exit_contract: [test_command] to its project_config.yaml and verify a real heavy-lock refusal records skip end-to-end
-- timing: after | name: legacy_verify_build_exit_contract | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — legacy Step-9 prose path disagrees with the gate path | desc: Teach the legacy verify_build prose path (task-workflow / pickrem / pickweb + goldens) the same opt-in contract, or document the divergence deliberately
+- timing: after | name: thinking_app_opt_in | type: chore | priority: high | effort: low | inline_risk: high | added_complexity: high | addresses: goal-achievement — motivating project not fixed by this change alone | desc: Cross-repo (thinking_app) — add gate_command_exit_contract: [test_command] to its project_config.yaml and verify a real heavy-lock refusal records skip end-to-end | created: thinking_app#322
+- timing: after | name: legacy_verify_build_exit_contract | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — legacy Step-9 prose path disagrees with the gate path | desc: Teach the legacy verify_build prose path (task-workflow / pickrem / pickweb + goldens) the same opt-in contract, or document the divergence deliberately | created: t1610
 
 **Reassessment after inlining:** both inline phases only add tests and reorder the
 landing sequence — no new production code — so both dimensions stay **low**.
@@ -438,10 +438,10 @@ landing sequence — no new production code — so both dimensions stay **low**.
 
 ### Deferred mitigations (created at Step 8d)
 
-- `thinking_app_opt_in` — cross-repo (`thinking_app`): add
+- `thinking_app_opt_in` → **thinking_app#322** — cross-repo (`thinking_app`): add
   `gate_command_exit_contract: [test_command]` to its `project_config.yaml` and verify a
   real heavy-lock refusal records `skip` end-to-end. Until then the motivating project is
   not fixed by this change.
-- `legacy_verify_build_exit_contract` — teach the legacy Step-9 `verify_build` prose path
+- `legacy_verify_build_exit_contract` → **t1610** — teach the legacy Step-9 `verify_build` prose path
   (`task-workflow/SKILL.md`, `aitask-pickrem`, `aitask-pickweb` + goldens) the same
   opt-in contract, or document the divergence deliberately.
