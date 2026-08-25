@@ -430,6 +430,18 @@ So markerless reclaim becomes a **5th positional argument** to
 - `stale_lock_release` and `stale_lock_guarded_section` pass nothing either — they
   get dead-marker reclaim only, so force-release stays the human ladder it was
   designed to be.
+- **`aitask_create.sh:1150`** — the contributor-list (`emails`) lock added by
+  t1608 — passes `600` too. See the agreement rule below.
+
+**Agreement rule: one lock dir, one window — every call site must pass the same
+value.** The opt-in is expressed per call site, but it is a property of the
+*lock dir*. `ait_lock_dir emails` is reached through **two different adapters**:
+`registry_lock_acquire` (`aitask_pick_own.sh:267`) and `stale_lock_acquire`
+**directly** (`aitask_create.sh:1150`) — the t1608 comment at `:258-264` states
+this split deliberately, since a mutex only excludes writers that honour it. If
+one adapter opted in and the other did not, whether a wedged `emails` guard
+self-heals would depend on which writer happened to arrive first. Any future lock
+dir reached from more than one call site inherits the same requirement.
 
 A **positional argument, not an env var**: a process-global would leak the opt-in
 onto the merge lock in any process sourcing both adapters, and `_STALE_LOCK_WINDOW`
@@ -592,6 +604,7 @@ live test isolates; but each of these must pass:
 bash tests/test_stale_lock.sh
 bash tests/test_registry_lock.sh
 bash tests/test_agent_marks_concurrency.sh
+bash tests/test_create_email_lock.sh          # new lock caller (t1608)
 bash tests/test_merge_lock_broker.sh
 bash tests/test_merge_lock_concurrency.sh
 bash tests/test_no_raw_tmux.sh
@@ -715,3 +728,65 @@ Verbatim summary lines from the five lock suites, on `main` at `6e91f5d28`,
 All green. Protocol G predicts every one of these stays green — the existing
 leaked-guard assertions use markerless, non-opted-in fixtures. Any red below is
 therefore a real signal, not an expected inversion.
+
+### Mid-implementation: concurrent sessions and HEAD drift
+
+Two other agent sessions were active in this repo during implementation. Four
+commits landed on `main` while t1598 was in flight — t1275, t1595, t1601, and
+then t1527 / t1608 / t1609 — and a third session holds `aiwork/t1606_…`.
+
+Consequences worth recording, because they shaped the work:
+
+1. **`monitor_shared.py` was co-edited.** t1527's dep-resolution refactor and
+   t1598's purge grace occupied the same file simultaneously. It resolved when
+   t1527 landed; the file now carries only t1598 hunks.
+2. **One t1598 test edit was swept into t1527's commit** (`9cda5eb66`) — the
+   `_set_session_root_map(...)` line in `tests/test_minimonitor_pick_by_number.py`
+   (now at `:157`). The change is correct and present; only its attribution is
+   wrong. Not reverted — undoing and re-committing it would churn a landed commit
+   for a provenance nicety.
+3. **22 test failures observed mid-implementation were not t1598's.** Established
+   by running the suite in a pristine `HEAD` worktree (120/120 green) rather than
+   by stashing — stashing shared paths in a live repo would have suspended the
+   other session's uncommitted work, and must not be used for this.
+4. **The lock baseline was re-captured after the drift**, because t1608 added a
+   new `stale_lock_acquire` caller. Identical to the first capture
+   (79 / 51 / 95 / 30 / 21, all green), and `stale_lock_guarded_section` still has
+   exactly one production caller — so the Step-6 scoping argument and its T8c
+   structural guard both survive the drift.
+
+### Progress — Steps 1-5 and 7 complete
+
+| step | state | evidence |
+|---|---|---|
+| Pre-phase 1 `characterize_lock_baseline` | ✅ | 79/51/95/30/21, re-captured after HEAD drift, identical |
+| Pre-phase 2 `autoclose_parity_test_first` | ✅ | written red (7 async `AttributeError`s), then 28/28 green |
+| Step 1 purge grace | ✅ | `_MARKS_PURGE_STARTUP_GRACE = 60.0`; seed deferred |
+| Step 2 control client off-loop + generation guard | ✅ | `asyncio.to_thread` + `_backend_gen`; T6b passes |
+| Step 3 async gateway port | ✅ | `_parse_window_panes` extracted, `discover_window_panes_async`, `refresh_shadow_phase_stamp_async`, `_root_for_snap` off the sync mapping; monitor's card renderer now queues stamps and flushes after the rebuild |
+| Step 4 first refresh off the App pump | ✅ | `run_worker(name="first_refresh")` in both apps; `_dispatch_refresh_maintenance` seam; `_refresh_inflight` in `try`/`finally` |
+| Step 5 desync gate | ✅ | gated on `_session_bar_enabled`, not `bar.display` |
+| Step 7 `list` takes no lock | ✅ | 25/25, negative control fails at **11 s** — the reported 10.267 s reproduced as a test failure |
+| **Step 6 Protocol G** | **not started** | the remaining substantive work |
+| Doc sweep + post-phase drift guard | not started | gated on Step 6 |
+
+**Positive controls actually run, not just described:**
+
+- `_start_monitoring` reverted to `call_later` → the input-latency test fails in
+  1.49 s. Reverted to `set_timer(0, …)` → fails in 5.54 s. The second is the one
+  that matters: it empirically confirms `set_timer` is **not** an escape from the
+  App pump, contradicting the task file's Suggested direction #2.
+- `cmd_list` given its lock back → 4 assertions fail, the timing one at 11 s.
+- The parity suite was authored against a red `discover_window_panes_async`.
+
+One test-design defect found and fixed by running the control rather than
+trusting it: the first version of the input-latency test dispatched the worker
+**itself**, so the `call_later` mutation could not reach it and the control
+passed. It now drives `_start_monitoring` (patching `TmuxMonitor` to return the
+stalled fake), which is the production path. A second pass added `try`/`finally`
+around the assertions so a failure still releases the gate — without it the
+control **hung** instead of failing, and a hanging regression test is worse than
+none.
+
+Suite state: **984 monitor/minimonitor tests green**, plus 25/25 agent-marks and
+the five lock suites unchanged.
