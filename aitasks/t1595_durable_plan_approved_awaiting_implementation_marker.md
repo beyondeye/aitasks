@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task-workflow, planning, gates]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-25 10:16
-updated_at: 2026-08-25 10:16
+updated_at: 2026-08-25 10:24
 ---
 
 # Durable, surface-visible "plan approved, awaiting implementation" marker
