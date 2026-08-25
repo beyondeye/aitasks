@@ -1377,10 +1377,33 @@ update_claudemd_git_section() {
         return 0
     fi
 
+    # Since t1612 this runs on EVERY `ait setup`, so a project whose markerless
+    # CLAUDE.md carries no aitasks prose receives the managed block on upgrade --
+    # a file the framework had never touched before. Announce that case
+    # separately from "created it" and "refreshed the block I already own", so it
+    # is not indistinguishable from a routine refresh.
+    local pre_state="absent"
+    if [[ -f "$claudemd" ]]; then
+        if grep -qF ">>>aitasks" "$claudemd"; then
+            pre_state="managed"
+        else
+            pre_state="unmanaged"
+        fi
+    fi
+
     insert_aitasks_instructions "$claudemd" "$content"
 
     if grep -qF ">>>aitasks" "$claudemd"; then
-        info "  Updated aitasks instructions in CLAUDE.md"
+        if [[ "$pre_state" == "unmanaged" ]]; then
+            info "  Added a managed '>>>aitasks' block to your existing CLAUDE.md."
+            info "  Everything between the markers is regenerated on every setup; the rest of your file is untouched."
+            # Deleting the markers ALONE just makes the file append-eligible again
+            # next run -- it is the sentinel section that arms the guard above, so
+            # both halves must be named. Reuse the constant; T39 pins it to the seed.
+            info "  To keep CLAUDE.md hand-maintained instead: delete the marker pair and keep a '$CLAUDEMD_HAND_MAINTAINED_SENTINEL' section of your own — 'ait setup' then leaves the file alone."
+        else
+            info "  Updated aitasks instructions in CLAUDE.md"
+        fi
     fi
 }
 
@@ -1677,18 +1700,25 @@ setup_data_branch() {
         gitignore_changed=true
     fi
 
-    # --- Step 8: Update CLAUDE.md ---
-    update_claudemd_git_section "$project_dir"
+    # --- Step 8: (retired) ---
+    # CLAUDE.md is intentionally NOT written here: it is regenerated on every
+    # `ait setup` from setup_code_agents, beside update_agentsmd (t1612). This
+    # function early-returns in four places before this point -- most of all when
+    # .aitask-data/.git already exists, i.e. on every re-run -- so a call here
+    # could never refresh the file. Do not re-add one.
 
     # --- Step 9: Commit on main ---
+    # CLAUDE.md is deliberately absent from files_to_add: nothing above writes it
+    # any more, and this commit is NOT path-scoped, so staging it here could only
+    # sweep a user's unrelated edits into the data-branch commit -- bypassing the
+    # snapshot_pre_setup_dirty baseline. commit_framework_files owns CLAUDE.md
+    # (it is in _ait_framework_paths), commits it path-scoped, and honours that
+    # baseline (t1612).
     (
         cd "$project_dir"
         local files_to_add=()
         if [[ "$gitignore_changed" == true ]]; then
             files_to_add+=(".gitignore")
-        fi
-        if [[ -f "CLAUDE.md" ]]; then
-            files_to_add+=("CLAUDE.md")
         fi
         if [[ ${#files_to_add[@]} -gt 0 ]]; then
             git add "${files_to_add[@]}" 2>/dev/null || true
@@ -2553,6 +2583,14 @@ setup_code_agents() {
     # other agents may too). Install unconditionally so it is in place
     # whether or not specific agent CLIs are available.
     update_agentsmd "$project_dir"
+
+    # CLAUDE.md gets the same unconditional lifecycle as AGENTS.md, but it is
+    # project-OWNED mixed content: update_claudemd_git_section's
+    # CLAUDEMD_HAND_MAINTAINED_SENTINEL guard (t1607) skips a markerless file
+    # that already documents the conventions by hand. Living here rather than in
+    # setup_data_branch Step 8 is what makes that guard -- and the refresh --
+    # reachable on re-runs and in legacy mode (t1612).
+    update_claudemd_git_section "$project_dir"
 
     # Other agents: only set up if their CLI is installed
     if _is_agent_installed codex; then

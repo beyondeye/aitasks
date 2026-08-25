@@ -60,6 +60,29 @@ setup_seed_file() {
 }
 
 # Create a repo with remote for testing
+# Drive the real setup_code_agents against <project_dir> (t1612). Only
+# _is_agent_installed is stubbed, and only for determinism: it is
+# `command -v codex/opencode`, a property of the developer's machine.
+# setup_claude_code and prune_retired_skills self-no-op in these fixtures (no
+# aitasks/metadata/claude_settings.seed.json, no prune helper in SCRIPT_DIR), so
+# update_agentsmd and update_claudemd_git_section run for real.
+# stdout is returned unmerged and the real exit status is preserved. Callers that
+# assert on the output use  out=""; rc=0; out="$(run_setup_code_agents "$d")" || rc=$?
+# others discard it:            rc=0; run_setup_code_agents "$d" >/dev/null || rc=$?
+# Assertions stay OUTSIDE the subshell: PASS/FAIL/TOTAL are in-process counters.
+run_setup_code_agents() {
+    local project_dir="$1"
+    (
+        SCRIPT_DIR="$project_dir/.aitask-scripts"
+        mkdir -p "$SCRIPT_DIR"
+        # Overrides the sourced aitask_setup.sh definition that setup_code_agents
+        # calls; shellcheck cannot see that indirect invocation.
+        # shellcheck disable=SC2329
+        _is_agent_installed() { return 1; }
+        setup_code_agents </dev/null
+    )
+}
+
 setup_repo_with_remote() {
     local tmpdir
     tmpdir="$(mktemp -d)"
@@ -201,9 +224,39 @@ assert_file_contains "gates.yaml carries risk_evaluated verifier" \
 # Check data branch .gitignore has aitasks/new/
 assert_file_contains "Data .gitignore has aitasks/new/" "$TMPDIR_1/local/.aitask-data/.gitignore" "aitasks/new/"
 
-# Check CLAUDE.md was created
+# CLAUDE.md is NOT setup_data_branch's job any more (t1612). This is the only
+# fixture in this file that ever reached the old Step 8, so it is the
+# discriminating production-reachable case for the move -- flipped rather than
+# deleted. The absence assertion alone would be vacuous (nothing else here writes
+# CLAUDE.md), so the positive control below runs on the SAME fixture: together
+# they prove the responsibility MOVED rather than vanished.
+assert_file_not_exists "setup_data_branch does not write CLAUDE.md (t1612)" "$TMPDIR_1/local/CLAUDE.md"
+
+# Positive control: the new owner writes it.
+rc=0
+run_setup_code_agents "$TMPDIR_1/local" >/dev/null || rc=$?
+assert_eq_trim "setup_code_agents exited 0" "0" "$rc"
 assert_file_contains "CLAUDE.md has git operations section" "$TMPDIR_1/local/CLAUDE.md" "## Git Operations on Task/Plan Files"
 assert_file_contains "CLAUDE.md mentions ait git" "$TMPDIR_1/local/CLAUDE.md" "./ait git"
+marker_starts_1=$(grep -c '^>>>aitasks$' "$TMPDIR_1/local/CLAUDE.md" || true)
+assert_eq_trim "CLAUDE.md has exactly one start marker" "1" "${marker_starts_1:-0}"
+
+# The re-run case t1612 exists for, on a GENUINELY already-configured project:
+# .aitask-data/.git now exists, so setup_data_branch early-returns -- and the
+# marker-managed block must still be refreshed by setup_code_agents.
+sed -i.bak 's/^## Git Operations on Task\/Plan Files$/STALE BLOCK t1612/' "$TMPDIR_1/local/CLAUDE.md"
+rm -f "$TMPDIR_1/local/CLAUDE.md.bak"
+rerun_out=$(cd "$TMPDIR_1/local" && setup_data_branch </dev/null 2>&1)
+assert_contains_ci "Re-run: setup_data_branch says already configured" "already configured" "$rerun_out"
+assert_file_contains "Re-run: setup_data_branch left the stale block alone" "$TMPDIR_1/local/CLAUDE.md" "STALE BLOCK t1612"
+rc=0
+run_setup_code_agents "$TMPDIR_1/local" >/dev/null || rc=$?
+assert_eq_trim "Re-run: setup_code_agents exited 0" "0" "$rc"
+claudemd_rerun="$(cat "$TMPDIR_1/local/CLAUDE.md")"
+assert_not_contains "Re-run: stale block refreshed away" "STALE BLOCK t1612" "$claudemd_rerun"
+assert_file_contains "Re-run: regenerated content present" "$TMPDIR_1/local/CLAUDE.md" "## Git Operations on Task/Plan Files"
+marker_starts_1b=$(grep -c '^>>>aitasks$' "$TMPDIR_1/local/CLAUDE.md" || true)
+assert_eq_trim "Re-run: still exactly one start marker" "1" "${marker_starts_1b:-0}"
 
 rm -rf "$TMPDIR_1"
 
@@ -462,6 +515,34 @@ section_count=$(grep -c "## Git Operations on Task/Plan Files" "$TMPDIR_8/CLAUDE
 assert_eq_trim "Section appears exactly once" "1" "$section_count"
 
 rm -rf "$TMPDIR_8"
+
+# --- Test 8b: setup_data_branch's Step 9 commit never sweeps a dirty CLAUDE.md ---
+echo "--- Test 8b: Step 9 does not sweep a user's CLAUDE.md edits (t1612) ---"
+
+# Before t1612 Step 9 did `git add CLAUDE.md` unconditionally-if-present and then
+# committed with NO pathspec, so a user's uncommitted CLAUDE.md edits were swept
+# into "ait: Configure task data branch..." -- bypassing the
+# snapshot_pre_setup_dirty baseline that commit_framework_files honours. Dropping
+# CLAUDE.md from files_to_add is what fixes that, and this is the only assertion
+# in the suite that can see it: every other test passes either way.
+TMPDIR_8B="$(setup_local_repo)"
+SCRIPT_DIR="$TMPDIR_8B/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+setup_seed_file "$TMPDIR_8B"
+
+# CLAUDE.md tracked in HEAD, then edited in the worktree.
+printf '# My Project\n\n## Build\n\nRun make.\n' > "$TMPDIR_8B/CLAUDE.md"
+(cd "$TMPDIR_8B" && git add CLAUDE.md && git commit -m "add CLAUDE.md" --quiet)
+printf '\nUSER EDIT t1612\n' >> "$TMPDIR_8B/CLAUDE.md"
+
+(cd "$TMPDIR_8B" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+head_claudemd=$(git -C "$TMPDIR_8B" show HEAD:CLAUDE.md 2>/dev/null || true)
+assert_not_contains "Step 9 did not commit the user's CLAUDE.md edit" "USER EDIT t1612" "$head_claudemd"
+porcelain_8b=$(git -C "$TMPDIR_8B" status --porcelain -- CLAUDE.md 2>/dev/null || true)
+assert_contains "User's CLAUDE.md edit still uncommitted in the worktree" "CLAUDE.md" "$porcelain_8b"
+
+rm -rf "$TMPDIR_8B"
 
 # --- Test 9: Syntax check + shellcheck ---
 echo "--- Test 9: Syntax check ---"

@@ -74,6 +74,43 @@ cleanup_tmpdir() {
     fi
 }
 
+# Drive the real setup_code_agents against <project_dir> (t1612).
+#
+# Only _is_agent_installed is stubbed, and only for determinism: it is
+# `command -v codex/opencode` (aitask_setup.sh), i.e. a property of the
+# developer's machine -- both ARE present on some dev boxes, so without the stub
+# the drive would really run setup_codex_cli/setup_opencode against the fixture.
+# setup_claude_code and prune_retired_skills self-no-op here (no
+# aitasks/metadata/claude_settings.seed.json, no
+# $SCRIPT_DIR/aitask_prune_retired_skills.sh). Note that in PRODUCTION both DO
+# run -- ensure_agent_config_seeds installs the settings seed before
+# setup_code_agents -- so this fixture is deliberately unrepresentative there.
+# update_agentsmd and update_claudemd_git_section run for real, which is the point.
+#
+# stdout: setup_code_agents' own output, unmerged -- T41/T42 assert on info()
+#         lines, and info() writes to STDOUT (aitask_setup.sh:137).
+# stderr: passed through, so assemble_aitasks_instructions' warn stays visible on
+#         failure without being able to satisfy a stdout message assertion.
+# exit:   setup_code_agents' real status. Callers MUST use
+#             out=""; rc=0; out="$(run_setup_code_agents "$d")" || rc=$?
+#         -- this file runs under `set -e` (:7) AND inherits -u/-o pipefail from
+#         sourcing aitask_setup.sh, so a bare assignment on a non-zero return
+#         would abort the whole file before any FAIL: line or the summary.
+# The subshell keeps the stub from leaking into later tests; assertions must stay
+# OUTSIDE it, since PASS/FAIL/TOTAL are in-process counters (t1207).
+run_setup_code_agents() {
+    local project_dir="$1"
+    (
+        SCRIPT_DIR="$project_dir/.aitask-scripts"
+        mkdir -p "$SCRIPT_DIR"
+        # Overrides the sourced aitask_setup.sh definition that setup_code_agents
+        # calls; shellcheck cannot see that indirect invocation.
+        # shellcheck disable=SC2329
+        _is_agent_installed() { return 1; }
+        setup_code_agents </dev/null
+    )
+}
+
 trap cleanup_tmpdir EXIT
 
 echo "=== Agent Instruction Management Tests (t130_2) ==="
@@ -844,9 +881,13 @@ rm -rf "$NEG_DIR"
 # T22-T27 pin three surfaces as marker-managed and matching the generator.
 # CLAUDE.md is deliberately NOT one of them -- it is project-owned mixed content
 # that this repo maintains by hand (aidocs/framework/aitasks_extension_points.md).
-# That contract was true only by accident until t1607: setup_data_branch Step 8
-# early-returns here because .aitask-data/.git exists, so the append branch was
-# never reached. These two tests make it true by construction instead.
+# That contract used to hold for the wrong reason: before t1607 there was no
+# guard at all, and the only thing keeping this repo's CLAUDE.md markerless was
+# that update_claudemd_git_section sat in setup_data_branch Step 8, which
+# early-returns whenever .aitask-data/.git exists. t1612 then moved the call to
+# setup_code_agents, so `ait setup` in THIS repo now really does reach the
+# function on every run -- and T38 passes because the t1607 sentinel guard fires,
+# not because the code path is unreachable. Same assertions, real coverage.
 
 echo "--- CLAUDE.md hand-maintained contract (t1607) ---"
 
@@ -868,6 +909,129 @@ assert_file_contains "T38: committed CLAUDE.md carries the guard sentinel" \
 CLAUDEMD_SEED="$(resolved_shared_seed "$PROJECT_DIR")"
 assert_file_contains "T39: sentinel still present in the resolved shared seed" \
     "$CLAUDEMD_HAND_MAINTAINED_SENTINEL" "$CLAUDEMD_SEED"
+
+# ============================================================
+# CLAUDE.md refresh lifecycle: reachable from setup_code_agents (t1612)
+# ============================================================
+# Until t1612, update_claudemd_git_section had exactly one production call site --
+# setup_data_branch Step 8 -- behind four early returns, so CLAUDE.md was written
+# only on a successful FIRST-TIME data-branch setup: never refreshed on re-runs,
+# never written at all in legacy mode. AGENTS.md never had that problem because
+# update_agentsmd is called unconditionally from setup_code_agents. T40-T42 drive
+# the REAL setup_code_agents to prove the call now lives there; T43 proves it no
+# longer lives in setup_data_branch.
+#
+# Deliberately NOT added here: a marker-refresh test (T12d already pins stale-body
+# removal and the one-marker-pair invariant) and a separate "legacy layout" test
+# (setup_tmpdir already IS a legacy layout -- real aitasks/, no .aitask-data/ --
+# and nothing in setup_code_agents' call graph reads .aitask-data/, symlinks or
+# branch mode, so such a test could not distinguish any implementation from any
+# other). The legacy-mode DECLINE branch cannot be driven at all: it needs
+# [[ -t 0 ]] true and tests/ has no pty harness. T43 is what generalizes T40-T42
+# to every setup_data_branch early return, decline included.
+
+echo "--- CLAUDE.md refresh lifecycle via setup_code_agents (t1612) ---"
+
+# Test 40: reachability. A fixture with no CLAUDE.md gets the managed block from
+# setup_code_agents. The AGENTS.md half is the positive control: without it a
+# drive that no-opped entirely would be indistinguishable from one that ran.
+setup_tmpdir
+out=""; rc=0
+out="$(run_setup_code_agents "$TMPDIR_TEST")" || rc=$?
+assert_eq "T40: setup_code_agents exited 0" "0" "$rc"
+result="$(cat "$TMPDIR_TEST/CLAUDE.md" 2>/dev/null || true)"
+assert_contains "T40: setup_code_agents wrote CLAUDE.md start marker" ">>>aitasks" "$result"
+assert_contains "T40: CLAUDE.md carries the shared content" "## Git Operations" "$result"
+assert_contains "T40: CLAUDE.md has end marker" "<<<aitasks" "$result"
+agents_result="$(cat "$TMPDIR_TEST/AGENTS.md" 2>/dev/null || true)"
+assert_contains "T40: positive control -- AGENTS.md written by the same drive" ">>>aitasks" "$agents_result"
+cleanup_tmpdir
+
+# Test 41: the upgrade path t1612 actually unlocks. An already-installed project
+# whose markerless CLAUDE.md carries user prose and NO sentinel now receives the
+# whole block on its next `ait setup`. That is a large, unsolicited mutation of a
+# project-owned file, so pin both runs: the block lands once, the user's prose
+# survives, and the second run REFRESHES in place rather than appending a second
+# block. The two stdout assertions pin the append-vs-refresh announcement -- the
+# file writes are byte-identical either way, so nothing else can see a regression
+# that collapses the two messages back into one.
+setup_tmpdir
+cat > "$TMPDIR_TEST/CLAUDE.md" <<'EOF'
+# My Project
+
+## Build
+
+Run make. This line is mine and must survive setup.
+EOF
+out1=""; rc=0
+out1="$(run_setup_code_agents "$TMPDIR_TEST")" || rc=$?
+assert_eq "T41: first run exited 0" "0" "$rc"
+result="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+assert_contains "T41: block appended on upgrade" ">>>aitasks" "$result"
+assert_contains "T41: user prose survives the append" "This line is mine and must survive setup." "$result"
+assert_contains "T41: append is announced as an append" "Added a managed '>>>aitasks' block" "$out1"
+out2=""; rc=0
+out2="$(run_setup_code_agents "$TMPDIR_TEST")" || rc=$?
+assert_eq "T41: second run exited 0" "0" "$rc"
+result="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+assert_contains "T41: user prose survives the refresh too" "This line is mine and must survive setup." "$result"
+marker_starts_41=$(grep -c '^>>>aitasks$' "$TMPDIR_TEST/CLAUDE.md" || true)
+marker_ends_41=$(grep -c '^<<<aitasks$' "$TMPDIR_TEST/CLAUDE.md" || true)
+assert_eq "T41: still exactly one start marker after two runs" "1" "${marker_starts_41:-0}"
+assert_eq "T41: still exactly one end marker after two runs" "1" "${marker_ends_41:-0}"
+assert_contains "T41: refresh announced as a refresh" "Updated aitasks instructions in CLAUDE.md" "$out2"
+assert_not_contains "T41: refresh does NOT repeat the append announcement" "Added a managed '>>>aitasks' block" "$out2"
+cleanup_tmpdir
+
+# Test 42: the t1607 hand-maintained guard now stands on the path `ait setup`
+# really takes. T12b asserts the same behavior against a direct call; the whole
+# point of t1612 is that the guard used to be near-unreachable, so it needs an
+# assertion through setup_code_agents too. T40 and T42 together cover both
+# branches of the new call site.
+setup_tmpdir
+cat > "$TMPDIR_TEST/CLAUDE.md" <<'EOF'
+# My Project
+
+## Git Operations on Task/Plan Files
+
+Use `./ait git` for task files. My own wording, hand-maintained.
+
+## House rules
+
+Never reformat the config.
+EOF
+before_42="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+out=""; rc=0
+out="$(run_setup_code_agents "$TMPDIR_TEST")" || rc=$?
+assert_eq "T42: setup_code_agents exited 0" "0" "$rc"
+after_42="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+assert_eq "T42: hand-maintained CLAUDE.md untouched via setup_code_agents" "$before_42" "$after_42"
+assert_not_contains "T42: no markers appended via setup_code_agents" ">>>aitasks" "$after_42"
+assert_contains "T42: skip reason announced on the live path" "leaving it hand-maintained" "$out"
+assert_contains "T42: opt-in path announced on the live path" "'>>>aitasks' / '<<<aitasks' line pair" "$out"
+assert_contains "T42: overwrite warning announced on the live path" "overwritten on every setup" "$out"
+cleanup_tmpdir
+
+# Test 43: structural pair, both halves load-bearing. Probes the SOURCED function
+# bodies -- declare -f reproduces from the parsed AST and strips comments, so the
+# explanatory comments t1612 left at both sites cannot skew either half
+# (precedent: tests/test_setup_git.sh Test 22).
+#
+# The negative half is the ONLY detector of "added the new call but forgot to
+# delete Step 8": a double write is functionally invisible, because
+# insert_aitasks_instructions' marker replacement makes the second write
+# byte-identical to the first. It is also what generalizes T40-T42 to the
+# setup_data_branch decline branch, which no test can drive.
+# The positive half keeps the probe from being vacuous -- renaming the function
+# would otherwise zero out both greps and read green.
+data_branch_body="$(declare -f setup_data_branch)"
+code_agents_body="$(declare -f setup_code_agents)"
+assert_not_contains "T43: setup_data_branch no longer calls update_claudemd_git_section" \
+    "update_claudemd_git_section" "$data_branch_body"
+assert_contains "T43: setup_code_agents calls update_claudemd_git_section" \
+    "update_claudemd_git_section" "$code_agents_body"
+assert_contains "T43: control -- setup_code_agents still calls update_agentsmd" \
+    "update_agentsmd" "$code_agents_body"
 
 # ============================================================
 # Summary

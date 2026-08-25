@@ -92,7 +92,13 @@ cross-PC sync) silently drops or mangles it:
 
      Also note `ait setup` **commits `AGENTS.md` itself** (`ait: Add aitask
      framework`), so that mirror arrives in its own commit rather than the
-     task's.
+     task's. The same is true of `CLAUDE.md` since t1612 — both are written by
+     `setup_code_agents` and committed by `commit_framework_files`, which is
+     path-scoped and subtracts the pre-setup dirty baseline. One consequence
+     worth knowing: if either file was **already modified before `ait setup`
+     ran**, the refreshed block is deliberately left *uncommitted* and reported
+     under "Pre-existing uncommitted changes under framework paths" — setup never
+     sweeps in-progress work into its own commit.
    - `CLAUDE.md` "### Task File Format" YAML block — **hand-maintained; edit
      directly.** Unlike the three surfaces above, `CLAUDE.md` is *project-owned
      mixed content*: `AGENTS.md`, `.codex/instructions.md` and
@@ -102,10 +108,26 @@ cross-PC sync) silently drops or mangles it:
      `update_claudemd_git_section` skips any markerless `CLAUDE.md` that already
      documents the aitasks conventions, detected via the
      `CLAUDEMD_HAND_MAINTAINED_SENTINEL` constant in `aitask_setup.sh` (the
-     shared seed's `## Git Operations on Task/Plan Files` heading). A project
-     with **no** aitasks prose in `CLAUDE.md` still gets the block appended on
-     first setup — the guard is a hand-maintenance escape hatch, not a blanket
-     opt-out.
+     shared seed's `## Git Operations on Task/Plan Files` heading).
+
+     **What runs when.** The call lives in `setup_code_agents`, right beside
+     `update_agentsmd`, so it runs on **every** `ait setup` — a project with
+     **no** aitasks prose in `CLAUDE.md` gets the block appended on the next
+     setup (announced as an append, distinctly from a routine refresh), and a
+     marker-managed block is regenerated in place from then on. The guard is a
+     hand-maintenance escape hatch, not a blanket opt-out; it is what keeps the
+     contract true, rather than an accident of reachability. (Before t1612 the
+     call sat in `setup_data_branch` Step 8, behind four early returns, so
+     `CLAUDE.md` was written only on a successful first-time data-branch setup:
+     never refreshed on re-runs, never written at all in legacy mode.)
+
+     **One case this still does not cover.** If `git worktree add` fails on a
+     fresh clone of a branch-mode *installed* project, `aitasks/` is a dangling
+     committed symlink and `install.sh` has already deleted the `seed/` fallback,
+     so `assemble_aitasks_instructions` can resolve no seed at all and returns 1.
+     `CLAUDE.md` is then skipped — and so is every other instruction surface,
+     `AGENTS.md` included. That is a seed-resolution gap, not a `CLAUDE.md` one;
+     moving the call does not fix it.
 
      **Opting a project in — add an *empty* marker pair, never wrap existing
      prose.** `insert_aitasks_instructions` **discards every line between
@@ -124,7 +146,13 @@ cross-PC sync) silently drops or mangles it:
      precedence), **T38** pins this repo's `CLAUDE.md` state (markers absent,
      sentinel present) and **T39** pins the sentinel against the live seed, so a
      heading rename fails a test instead of silently disarming the guard
-     (t1607).
+     (t1607). **T40–T43** then pin the lifecycle: that `setup_code_agents` is
+     what writes the file, that the upgrade append lands once and is announced,
+     that the guard fires on that live path, and — structurally, via
+     `declare -f` — that `setup_data_branch` no longer writes it at all.
+     `tests/test_setup_git.sh` T24–T26 pin the commit half: committed exactly
+     once when clean, reported and left alone when pre-dirty, and `main()`
+     ordering (t1612).
    - `website/content/docs/development/task-format.md` "### Frontmatter Fields"
      table.
    - The canonical creation contract

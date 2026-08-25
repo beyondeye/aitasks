@@ -661,6 +661,123 @@ assert_contains_re "Pre-staged task file still staged (data twin)" "^A  aitasks/
 AIT_SETUP_BASELINE_ARMED=0
 rm -rf "$TMPDIR_23"
 
+# ============================================================
+# CLAUDE.md commit ownership + main() wiring (t1612)
+# ============================================================
+# t1612 moved update_claudemd_git_section out of setup_data_branch Step 8 (which
+# also committed CLAUDE.md itself, unscoped) into setup_code_agents (which commits
+# nothing). CLAUDE.md's commit is therefore now owned by commit_framework_files --
+# path-scoped and baseline-protected -- and correctness depends on a cross-function
+# ordering invariant in main() that nothing else pins. Tests 24-26 pin both.
+#
+# Fixture note: setup_fake_project creates aitasks/metadata/ but NO instructions
+# seed and no seed/ dir, so assemble_aitasks_instructions returns 1 and
+# update_claudemd_git_section writes nothing. Both drives below MUST copy the real
+# shared seed in first or they pass vacuously.
+
+# Drive the real setup_code_agents against <project_dir>. Only _is_agent_installed
+# is stubbed, and only for determinism (it is `command -v codex/opencode`, a
+# property of the developer's machine). setup_claude_code and prune_retired_skills
+# self-no-op in this fixture. Assertions stay outside the subshell.
+run_setup_code_agents() {
+    local project_dir="$1"
+    (
+        SCRIPT_DIR="$project_dir/.aitask-scripts"
+        mkdir -p "$SCRIPT_DIR"
+        # Overrides the sourced aitask_setup.sh definition that setup_code_agents
+        # calls; shellcheck cannot see that indirect invocation.
+        # shellcheck disable=SC2329
+        _is_agent_installed() { return 1; }
+        setup_code_agents </dev/null
+    )
+}
+
+# --- Test 24: generated CLAUDE.md is committed, exactly once ---
+echo "--- Test 24: generated CLAUDE.md committed exactly once (t1612) ---"
+
+TMPDIR_24="$(setup_fake_project)"
+cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_24/aitasks/metadata/"
+(cd "$TMPDIR_24" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && git add -A && git commit -m "init" --quiet)
+SCRIPT_DIR="$TMPDIR_24/.aitask-scripts"
+
+snapshot_pre_setup_dirty
+run_setup_code_agents "$TMPDIR_24" >/dev/null 2>&1
+commit_framework_files </dev/null >/dev/null 2>&1
+
+head_claudemd=$(git -C "$TMPDIR_24" show HEAD:CLAUDE.md 2>/dev/null || true)
+assert_contains "T24: generated CLAUDE.md is in HEAD" "## Git Operations on Task/Plan Files" "$head_claudemd"
+status_24=$(git -C "$TMPDIR_24" status --porcelain -- CLAUDE.md 2>/dev/null || true)
+assert_eq "T24: CLAUDE.md clean after commit_framework_files" "" "$status_24"
+# "Committed exactly once" — the task's own scope note. Also fails if a future
+# edit reintroduces a second writer (e.g. restores Step 9's files_to_add clause).
+claudemd_commits=$(git -C "$TMPDIR_24" log --oneline -- CLAUDE.md 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "T24: CLAUDE.md touched by exactly one commit" "1" "${claudemd_commits:-0}"
+
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$TMPDIR_24"
+
+# --- Test 25: NEGATIVE CONTROL — a pre-dirty CLAUDE.md is reported, not committed ---
+echo "--- Test 25: pre-dirty CLAUDE.md reported, not committed (t1612) ---"
+
+# The replacement half of the guarantee. Step 9's unscoped `git add CLAUDE.md`
+# used to force-commit a user's in-progress edits; commit_framework_files must
+# instead subtract them via the pre-setup baseline and report them. The fixture
+# CLAUDE.md carries NO sentinel, so the t1607 guard does not fire and the block
+# really is appended on top of the dirty file — the strong version of the claim.
+TMPDIR_25="$(setup_fake_project)"
+cp "$PROJECT_DIR/seed/aitasks_agent_instructions.seed.md" "$TMPDIR_25/aitasks/metadata/"
+printf '# My Project\n\n## Build\n\nRun make.\n' > "$TMPDIR_25/CLAUDE.md"
+(cd "$TMPDIR_25" && git init --quiet && git config user.email "t@t.com" && git config user.name "T" \
+    && git add -A && git commit -m "init" --quiet)
+SCRIPT_DIR="$TMPDIR_25/.aitask-scripts"
+
+# The user's in-progress edit, pre-existing when the snapshot runs
+printf '\nUSER EDIT t1612\n' >> "$TMPDIR_25/CLAUDE.md"
+
+snapshot_pre_setup_dirty
+run_setup_code_agents "$TMPDIR_25" >/dev/null 2>&1
+output=$(commit_framework_files 2>&1 </dev/null)
+
+head_claudemd=$(git -C "$TMPDIR_25" show HEAD:CLAUDE.md 2>/dev/null || true)
+assert_not_contains "T25: pre-dirty CLAUDE.md edit NOT committed" "USER EDIT t1612" "$head_claudemd"
+assert_not_contains "T25: generated block NOT committed over the dirty file" ">>>aitasks" "$head_claudemd"
+assert_contains_ci "T25: excluded CLAUDE.md reported to the user" "left alone" "$output"
+status_25=$(git -C "$TMPDIR_25" status --porcelain -- CLAUDE.md 2>/dev/null || true)
+assert_contains "T25: CLAUDE.md still dirty in the worktree" "CLAUDE.md" "$status_25"
+
+AIT_SETUP_BASELINE_ARMED=0
+rm -rf "$TMPDIR_25"
+
+# --- Test 26: structural ordering — main() wires the new call site correctly ---
+echo "--- Test 26: main() orders setup_code_agents between data-branch and commit ---"
+
+# Every behavioral test above drives setup_code_agents DIRECTLY, so they all stay
+# green if main() stopped calling it or called it after commit_framework_files —
+# which would break the real `ait setup` lifecycle and the commit guarantee.
+main_body="$(declare -f main)"
+assert_contains "T26: main() calls setup_code_agents" "setup_code_agents" "$main_body"
+assert_contains "T26: main() calls commit_framework_files" "commit_framework_files" "$main_body"
+data_line=$(printf '%s\n' "$main_body" | grep -n "setup_data_branch" | head -1 | cut -d: -f1)
+agents_line=$(printf '%s\n' "$main_body" | grep -n "setup_code_agents" | head -1 | cut -d: -f1)
+commit_line=$(printf '%s\n' "$main_body" | grep -n "commit_framework_files" | head -1 | cut -d: -f1)
+# setup_data_branch first: it creates the aitasks/ symlink and populates the seed
+# metadata that assemble_aitasks_instructions resolves. Without it the resolver
+# falls back to seed/, which exists in a dev checkout but is deleted by install.sh
+# in a real installation — so the ordering is load-bearing only off this box.
+data_before_agents="no"
+if [[ -n "$data_line" && -n "$agents_line" && "$data_line" -lt "$agents_line" ]]; then
+    data_before_agents="yes"
+fi
+assert_eq "T26: setup_data_branch precedes setup_code_agents in main()" "yes" "$data_before_agents"
+# setup_code_agents before commit_framework_files: it writes CLAUDE.md but commits
+# nothing, so the reverse order would never commit the generated block.
+agents_before_commit="no"
+if [[ -n "$agents_line" && -n "$commit_line" && "$agents_line" -lt "$commit_line" ]]; then
+    agents_before_commit="yes"
+fi
+assert_eq "T26: setup_code_agents precedes commit_framework_files in main()" "yes" "$agents_before_commit"
+
 # --- Summary ---
 echo ""
 echo "==============================="
