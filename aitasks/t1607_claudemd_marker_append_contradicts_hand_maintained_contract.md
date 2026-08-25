@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 16:40
-updated_at: 2026-08-25 16:48
+updated_at: 2026-08-25 18:08
 ---
 
 ## Origin
@@ -78,3 +79,8 @@ Whichever way it goes, consider extending the t1601 drift guard
 surfaces match the generator. A fourth assertion pinning `CLAUDE.md`'s intended state
 — markers present and matching, or markers absent — would keep this decision from
 drifting back.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T15:08:36Z status=pass attempt=1 type=human
