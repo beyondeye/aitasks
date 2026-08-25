@@ -3,14 +3,15 @@ priority: medium
 effort: low
 depends: [t1599_1]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, robustness, task_metadata, concurrency]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-25 17:32
-updated_at: 2026-08-25 18:41
+updated_at: 2026-08-25 22:04
+completed_at: 2026-08-25 22:04
 ---
 
 ## Defect
