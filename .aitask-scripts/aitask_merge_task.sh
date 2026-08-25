@@ -88,7 +88,9 @@ _head_branch()        { git symbolic-ref --short HEAD 2>/dev/null || true; }
 # actually attempted.
 # _release_and_verdict <lock_dir> <verdict> — release, then report.
 #
-# If the release FAILS (typically a leaked .gc guard, which is never auto-
+# If the release FAILS (typically a leaked .gc guard; the merge lock deliberately
+# opts out of markerless guard reclaim, since this file runs `git reset --hard`
+# under the guard, so a recordless one here is never auto-
 # stolen), the reservation is still held. Reporting the ordinary refusal
 # verdict would tell the caller the lock is NOT held, so it would call neither
 # finish nor abort and the lock would wedge with no machine-readable state.
@@ -100,7 +102,7 @@ _release_and_verdict() {
         verdict "$@"
     else
         warn "merge lock '$d' could not be released - the reservation is STILL HELD"
-        warn "recovery: aitask_merge_task.sh status, then force-release (rmdir '${d}.gc' first if a guard leaked)"
+        warn "recovery: aitask_merge_task.sh status, then force-release (rmdir '${d}.gc'/h.* '${d}.gc' first if a guard leaked)"
         verdict "RETAINED:$*"
     fi
     exit 0
@@ -339,7 +341,7 @@ cmd_status() {
     else
         verdict "HELD:$holder|$pid|$live|$(merge_lock_read "$dir" output_branch)|$(merge_lock_read "$dir" acquired_at)"
     fi
-    [[ -e "${dir}.gc" ]] && progress "guard present: ${dir}.gc (remove with rmdir if no reclaim is running)"
+    [[ -e "${dir}.gc" ]] && progress "guard present: ${dir}.gc (if no reclaim is running: rmdir '${dir}.gc'/h.* '${dir}.gc')"
     exit 0
 }
 
@@ -469,7 +471,7 @@ cmd_force_release() {
         else
             progress "  residue  : none -> no remedy flag needed"
         fi
-        progress "  If a leaked .gc guard blocks recovery: rmdir '${dir}.gc' (never rm -rf)"
+        progress "  If a leaked .gc guard blocks recovery: rmdir '${dir}.gc'/h.* '${dir}.gc' (never rm -rf)"
         local tok remedy_hint
         tok="$(_digest "$_FR_READ1")"
         if _merge_head_present; then remedy_hint=" --abort-merge"

@@ -115,8 +115,12 @@ return to Step 9 and ask the approval question with no queued clause.
 
 The mutex is free but a `.gc` guard leaked at the named path, which will block
 the next acquisition. `terminal-release` is `none`; `continues-to` is `approval`.
-Tell the user the guard path and the cure (`rmdir '<dir>.gc'` — **never**
-`rm -rf`) before asking, so a subsequent `LOCK_UNAVAILABLE` is not a surprise.
+Tell the user the guard path and the cure (`rmdir '<dir>.gc'/h.* '<dir>.gc'` —
+**never** `rm -rf`) before asking, so a subsequent `LOCK_UNAVAILABLE` is not a
+surprise. Note the merge lock is the one lock dir that deliberately does **not**
+auto-reclaim a recordless guard: this file runs `git merge --abort` and
+`git reset --hard` under that guard, so no age window can dominate a legitimate
+hold (t1598).
 
 #### status / HELD
 
@@ -586,8 +590,12 @@ task can merge until it is cleared. Then:
    ```
 
 2. **If `FREE_GUARD_PRESENT`** — a `.gc` guard leaked and is blocking recovery.
-   Remove it with `rmdir '<dir>.gc'`. **Never** `rm -rf`: the guard is a
-   directory whose emptiness is the proof that no reclaim is running.
+   Remove it with `rmdir '<dir>.gc'/h.* '<dir>.gc'`. **Never** `rm -rf`: `rmdir`
+   is structurally incapable of destroying a lock's contents, which is exactly
+   why it is the prescribed cure. Two arguments because the guard now carries a
+   holder record (`h.<pid>.<nonce>`), so a bare `rmdir '<dir>.gc'` returns
+   ENOTEMPTY. If `status` reported a holder pid, check that process is really
+   gone first — a guard whose holder is alive is never stale.
 
 3. **Dry-run the release** to see the holder, the tree residue, the remedy flag
    the broker itself derives, and a copy-safe armed command bound to this exact

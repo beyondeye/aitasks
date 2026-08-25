@@ -182,8 +182,14 @@ merge_lock_acquire() {
         remaining=$(( deadline - now ))
         [[ "$remaining" -lt 0 ]] && remaining=0
         retries=$(( remaining * _MERGE_LOCK_ATTEMPTS_PER_SEC ))
-        [[ "$retries" -lt 2 ]] && retries=2      # always a real attempt + retry
+        [[ "$retries" -lt 3 ]] && retries=3      # attempt + up to two reclaims
 
+        # NO markerless-guard window, deliberately (t1598): aitask_merge_task.sh
+        # runs `git merge --abort` and `git reset --hard` under this lock's guard
+        # via stale_lock_guarded_section, so no age window can dominate a
+        # legitimate hold. A merge guard leaked by pre-record code stays a
+        # force-release / manual matter. Anyone adding a long guarded section to
+        # another lock dir must contradict this comment first.
         if stale_lock_acquire "$dir" "$retries" "$_MERGE_LOCK_SLEEP" "$label"; then
             return 0
         fi

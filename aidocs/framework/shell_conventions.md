@@ -83,12 +83,22 @@ portability quirks (BSD vs GNU tooling) live in
   PIDs are reclaimed, tokenless dirs only after 120s, and a wedged lock is
   named in the caller's exhaustion error rather than self-healed (t1496 —
   the hand-rolled copies in `aitask_gate.sh`/`aitask_create.sh` stole live
-  locks under contention). **A wedged `.gc` guard is the one manual-recovery
-  case**: a process killed inside the guard's few-file-op section leaves it
-  behind, and because the guard is never auto-broken every later acquire
-  reports busy with no holder in existence — remove `<lock_dir>.gc` by hand
-  once no reclaim is running. `stale_lock_describe` / `registry_lock_describe`
-  name it, and a caller whose failure is otherwise silent should surface that
+  locks under contention). **The `.gc` guard carries a holder record**
+  (`<lock_dir>.gc/h.<pid>.<nonce>`, t1598), so a process killed inside the
+  guard's few-file-op section leaves a guard naming a dead pid and the next
+  acquire frees it. Liveness decides at **any** duration — a guard held across
+  a long legitimate section (`aitask_merge_task.sh` runs `git reset --hard`
+  under one) is never displaced, which is why age alone was rejected. A guard
+  with **no** record — left by pre-t1598 code, or by a foreign holder — is
+  reclaimed only where the caller passes `stale_lock_acquire`'s 5th argument,
+  which is a decision about the **lock dir**: every call site reaching one lock
+  dir must pass the same window, and `merge_lock.sh` deliberately passes none.
+  Two cases still need a human and both are fail-safe: a recycled holder pid
+  reads as alive, and a hung holder is never displaced. The cure is still
+  `rmdir`-only but now takes two arguments, since a guard carrying a record is
+  not empty: `rmdir '<lock_dir>.gc'/h.* '<lock_dir>.gc'`.
+  `stale_lock_describe` / `registry_lock_describe` name the guard and its
+  holder, and a caller whose failure is otherwise silent should surface that
   hint.
 - **Persistent-registry mutexes: use `lib/registry_lock.sh`,** the
   API-preserving adapter over that same core (t1507 — it used to carry its own

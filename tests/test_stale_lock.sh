@@ -397,6 +397,203 @@ out="$(bash "$T/harness.sh" 2>&1)"; rc=$?
 assert_exit_zero_rc "errexit harness completes" "$rc"
 assert_contains "errexit harness reaches the end" "HARNESS_OK" "$out"
 
+# ============================================================
+echo "--- t1598: the guard carries a holder record ---"
+# ============================================================
+# The guard keeps its old lifecycle (atomic mkdir to claim, absent when free);
+# the addition is an instance-unique record DIRECTORY published inside it, so
+# every destructive step either names an instance (rmdir <gc>/h.<pid>.<nonce>)
+# or requires emptiness (rmdir <gc>). `mv` was rejected: rename resolves by
+# PATH, so a stale verdict could take a live replacement instance.
+
+L="$(ait_lock_dir gcrecord)"
+stale_lock_acquire "$L" 5 0.05 "record lock" 2>"$T/err"; rc=$?
+assert_exit_zero_rc "acquire on a free lock succeeds" "$rc"
+assert_dir_not_exists "guard is absent again once acquire returns" "$L.gc"
+stale_lock_release "$L" "$STALE_LOCK_TOKEN"
+
+# --- the record names a LIVE pid, not a transient subshell -------------------
+# Regression: building the record name in a `$(...)` command substitution
+# recorded the substitution subshell's BASHPID, which is dead the instant it
+# returns — so every guard was reclaimable on sight and the forced-interleaving
+# case in test_registry_lock.sh went red.
+L="$(ait_lock_dir gcalive)"
+STALE_LOCK_PUBLISH_FN=_probe_record_pid
+_probe_record_pid() {
+    local gc="$1.gc" entry
+    for entry in "$gc"/h.*; do
+        [[ -d "$entry" ]] || continue
+        printf '%s\n' "${entry##*/}" > "$T/record_name"
+    done
+    return 0
+}
+stale_lock_acquire "$L" 5 0.05 "alive lock" 2>/dev/null
+unset STALE_LOCK_PUBLISH_FN
+rec="$(cat "$T/record_name" 2>/dev/null)"
+rec_pid="${rec#h.}"; rec_pid="${rec_pid%%.*}"
+assert_eq "the guard record names THIS shell, not a subshell" "$$" "$rec_pid"
+stale_lock_release "$L" "$STALE_LOCK_TOKEN"
+
+# ============================================================
+echo "--- t1598: markerless guard reclaim is opt-in per lock dir ---"
+# ============================================================
+# POSITIVE (acceptance criterion): the exact wedge observed in production — a
+# dead-pid lock dir plus an ancient guard with no record — heals on its own
+# when the caller passes a window.
+L="$(ait_lock_dir gcwedged)"
+dead_gc="$(dead_pid_fixture)"
+mkdir "$L"; printf '%s\n' "$dead_gc" > "$L/pid"; printf '%s\n' "tok" > "$L/owner"
+mkdir "$L.gc"; backdate "$L"; backdate "$L.gc"
+stale_lock_acquire "$L" 5 0.05 "wedged lock" 60 2>"$T/err"; rc=$?
+err="$(cat "$T/err")"
+assert_exit_zero_rc "opted-in: an ancient recordless guard is reclaimed" "$rc"
+assert_contains "recordless reclaim warns with the age" "no holder record after" "$err"
+assert_eq "the reclaimed lock now records this shell" "$$" "$(cat "$L/pid")"
+stale_lock_release "$L" "$STALE_LOCK_TOKEN"
+assert_eq "no .reap residue is left behind" "0" \
+    "$(find "$(dirname "$L")" -maxdepth 1 -name "$(basename "$L").gc.reap.*" | wc -l)"
+
+# NEGATIVE CONTROL 1 — a FRESH recordless guard is respected even when opted in.
+L="$(ait_lock_dir gcfresh)"
+mkdir "$L"; printf '%s\n' "$dead_gc" > "$L/pid"; backdate "$L"
+mkdir "$L.gc"                              # deliberately NOT backdated
+err="$(stale_lock_acquire "$L" 3 0.05 "fresh guard lock" 60 2>&1)"; rc=$?
+assert_exit_nonzero_rc "a fresh recordless guard is never reclaimed" "$rc"
+assert_dir_exists "the fresh guard survives" "$L.gc"
+assert_not_contains "no reclaim happened on a fresh guard" "no holder record" "$err"
+rm -rf "$L.gc" "$L"
+
+# NEGATIVE CONTROL 2 — the opt-in is load-bearing: same ancient fixture, no
+# window argument, must NOT reclaim. This is what keeps the merge lock (which
+# runs `git reset --hard` under its guard) out of the markerless path.
+L="$(ait_lock_dir gcnooptin)"
+mkdir "$L"; printf '%s\n' "$dead_gc" > "$L/pid"
+mkdir "$L.gc"; backdate "$L"; backdate "$L.gc"
+err="$(stale_lock_acquire "$L" 3 0.05 "no-optin lock" 2>&1)"; rc=$?
+assert_exit_nonzero_rc "without the window, an ancient guard is left alone" "$rc"
+assert_dir_exists "the guard survives when the caller did not opt in" "$L.gc"
+rm -rf "$L.gc" "$L"
+
+# NEGATIVE CONTROL 3 — LIVENESS BEATS AGE. An ancient guard whose record names a
+# LIVE holder is never displaced, at any duration. This is the case that makes a
+# long legitimate guarded section safe without reference to any window, and it
+# is why age alone was rejected as the whole design.
+L="$(ait_lock_dir gclive)"
+sleep 120 &
+GC_HOLDER_PID=$!
+mkdir "$L"; printf '%s\n' "$dead_gc" > "$L/pid"
+mkdir "$L.gc"; mkdir "$L.gc/h.$GC_HOLDER_PID.4242"
+backdate "$L.gc"                           # AFTER the record: mkdir bumps mtime
+err="$(stale_lock_acquire "$L" 3 0.05 "live guard lock" 60 2>&1)"; rc=$?
+assert_exit_nonzero_rc "a live holder record is never displaced, however old" "$rc"
+assert_dir_exists "the live holder's record is untouched" "$L.gc/h.$GC_HOLDER_PID.4242"
+kill "$GC_HOLDER_PID" 2>/dev/null; wait "$GC_HOLDER_PID" 2>/dev/null
+rm -rf "$L.gc" "$L"
+
+# ============================================================
+echo "--- t1598: a dead record is reclaimed everywhere, by age or not ---"
+# ============================================================
+# No opt-in needed and no backdating: a record naming a provably dead pid is
+# decidable, so the guard is freed on sight.
+L="$(ait_lock_dir gcdead)"
+mkdir "$L"; printf '%s\n' "$dead_gc" > "$L/pid"
+mkdir "$L.gc"; mkdir "$L.gc/h.$dead_gc.777"    # FRESH mtime on purpose
+stale_lock_acquire "$L" 5 0.05 "dead record lock" 2>"$T/err"; rc=$?
+err="$(cat "$T/err")"
+assert_exit_zero_rc "a dead holder record frees the guard with no window" "$rc"
+assert_contains "dead-record reclaim names the holder" "holder pid $dead_gc is gone" "$err"
+stale_lock_release "$L" "$STALE_LOCK_TOKEN"
+
+# ============================================================
+echo "--- t1598: malformed guard contents fail closed BY RULE ---"
+# ============================================================
+# Not by luck. Measured: a dangling symlink named h.<pid>.<nonce> is invisible
+# to `[[ -e ]]`, so a naive glob reads the guard as empty and takes the age
+# path — stopped only by rmdir's incidental ENOTEMPTY. Only a GENUINELY EMPTY
+# guard may ever reach the age branch.
+for case_name in plainfile danglingsymlink badname tworecords foreign; do
+    L="$(ait_lock_dir "gcmal_$case_name")"
+    mkdir "$L"; printf '%s\n' "$dead_gc" > "$L/pid"; backdate "$L"
+    mkdir "$L.gc"
+    case "$case_name" in
+        plainfile)        : > "$L.gc/h.$dead_gc.1" ;;
+        danglingsymlink)  ln -s /nonexistent-target "$L.gc/h.$dead_gc.1" ;;
+        badname)          mkdir "$L.gc/h.notapid.1" ;;
+        tworecords)       mkdir "$L.gc/h.$dead_gc.1" "$L.gc/h.$dead_gc.2" ;;
+        foreign)          mkdir "$L.gc/h.$dead_gc.1"; : > "$L.gc/stray" ;;
+    esac
+    backdate "$L.gc"
+    err="$(stale_lock_acquire "$L" 3 0.05 "malformed $case_name" 60 2>&1)"; rc=$?
+    assert_exit_nonzero_rc "malformed guard ($case_name) fails closed" "$rc"
+    assert_dir_exists "malformed guard ($case_name) is left intact" "$L.gc"
+    assert_not_contains "malformed guard ($case_name) never age-reclaims" \
+        "no holder record" "$err"
+    # Assert the REASON, not just the outcome. A naive `-e`-only classifier
+    # with no directory check also fails closed here — a plain-file record
+    # makes `rmdir` return "Not a directory", and a dangling symlink makes
+    # `rmdir "$gc"` return ENOTEMPTY — so an outcome-only assertion passes
+    # under the very mutation this case exists to catch. Verified: without
+    # this line, that mutation leaves the suite fully green.
+    assert_contains "malformed guard ($case_name) is CLASSIFIED, not tripped over" \
+        "unrecognized record" "$err"
+    rm -rf "$L.gc" "$L"
+done
+
+# ============================================================
+echo "--- t1598: release and guarded_section get dead-record reclaim too ---"
+# ============================================================
+# _stale_lock_gc_take replaces the bare mkdir at THREE sites. Covering only
+# acquire would let the core protocol pass while release still exhausted its
+# 40x0.05s wait and stranded a lock this shell legitimately owns.
+L="$(ait_lock_dir gcrelease)"
+stale_lock_acquire "$L" 5 0.05 "release lock" 2>/dev/null
+rel_token="$STALE_LOCK_TOKEN"
+mkdir "$L.gc"; mkdir "$L.gc/h.$dead_gc.888"    # a wedge appears mid-flight
+err="$(stale_lock_release "$L" "$rel_token" 2>&1)"; rc=$?
+assert_exit_zero_rc "release reclaims a dead-record guard and completes" "$rc"
+assert_dir_not_exists "the owned lock was actually released" "$L"
+assert_dir_not_exists "no guard is left behind by the release" "$L.gc"
+
+L="$(ait_lock_dir gcsection)"
+mkdir "$L"; printf '%s\n' "$$" > "$L/pid"
+mkdir "$L.gc"; mkdir "$L.gc/h.$dead_gc.999"
+_gs_ran=0
+# shellcheck disable=SC2329  # invoked indirectly by stale_lock_guarded_section
+_gs_body() { _gs_ran=1; return 0; }
+stale_lock_guarded_section "$L" _gs_body 5 2>/dev/null; rc=$?
+assert_exit_zero_rc "guarded_section reclaims a dead-record guard" "$rc"
+assert_eq "guarded_section actually ran its body" "1" "$_gs_ran"
+assert_dir_not_exists "guarded_section left no guard behind" "$L.gc"
+rm -rf "$L"
+
+# ============================================================
+echo "--- t1598: rolling upgrade — old code cannot destroy a new guard ---"
+# ============================================================
+# Old code's primitives, verbatim from the shipped implementation.
+old_gc_take()    { mkdir "$1" 2>/dev/null; }
+old_gc_release() { rmdir "$1" 2>/dev/null; }
+
+L="$(ait_lock_dir gcrolling)"
+mkdir "$L.gc"; mkdir "$L.gc/h.$$.5150"          # a new-code holder
+old_gc_take "$L.gc"; rc=$?
+assert_exit_nonzero_rc "old code cannot acquire a guard we hold" "$rc"
+old_gc_release "$L.gc"; rc=$?
+assert_exit_nonzero_rc "old code's bare rmdir fails ENOTEMPTY against a record" "$rc"
+assert_dir_exists "the new-code record survives old code's release" "$L.gc/h.$$.5150"
+rm -rf "$L.gc"
+
+# And the reverse: once we take over an old markerless guard, old code's release
+# discovers the theft rather than destroying whatever is there now.
+L="$(ait_lock_dir gcrolling2)"
+old_gc_take "$L.gc"                              # old code holds it, recordless
+backdate "$L.gc"
+mkdir "$L"; printf '%s\n' "$dead_gc" > "$L/pid"
+stale_lock_acquire "$L" 5 0.05 "rolling lock" 60 2>/dev/null; rc=$?
+assert_exit_zero_rc "an ancient old-code guard is reclaimed when opted in" "$rc"
+old_gc_release "$L.gc"; rc=$?
+assert_exit_nonzero_rc "old code's later release does NOT destroy our guard" "$rc"
+stale_lock_release "$L" "$STALE_LOCK_TOKEN"
+
 echo ""
 echo "========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

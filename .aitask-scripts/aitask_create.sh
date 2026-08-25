@@ -338,7 +338,9 @@ acquire_child_lock() {
     local parent_num="$1" lock_dir
     lock_dir="$(ait_lock_dir "child_${parent_num}")" || \
         die "Failed to resolve child lock base for parent $parent_num"
-    if ! stale_lock_acquire "$lock_dir" 20 0.5 "child lock for parent $parent_num"; then
+    # Opts in to markerless guard reclaim (t1598) — see acquire_gate_lock.
+    if ! stale_lock_acquire "$lock_dir" 20 0.5 "child lock for parent $parent_num" \
+            "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
         # The prefix predates t1496 (tests pin it); the describe suffix is the
         # recovery hint.
         die "Failed to acquire child creation lock for parent $parent_num after 20 attempts$(stale_lock_describe "$lock_dir")"
@@ -1147,8 +1149,13 @@ add_email_to_file() {
     # contend on one mkdir mutex. Keep both call sites on `ait_lock_dir emails`.
     local lockdir token rc=0
     lockdir="$(ait_lock_dir emails)" || return 0
+    # Same markerless-guard window registry_lock.sh passes, and that agreement
+    # is REQUIRED, not incidental (t1598): `ait_lock_dir emails` is reached both
+    # here and through registry_lock_acquire in aitask_pick_own.sh, so if the two
+    # disagreed then whether a wedged guard self-heals would depend on which
+    # writer happened to arrive first.
     if ! stale_lock_acquire "$lockdir" "$EMAILS_LOCK_ATTEMPTS" "$EMAILS_LOCK_SLEEP" \
-            "contributor list"; then
+            "contributor list" "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
         # Best-effort, like store_email: the address is already recorded in the
         # task's own assigned_to, only the autocomplete vocabulary misses it — and
         # the task file is on disk uncommitted by now, so failing here would

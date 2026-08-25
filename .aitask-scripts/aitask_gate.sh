@@ -132,7 +132,10 @@ acquire_gate_lock() {
     local key="$1" lock_dir
     lock_dir="$(ait_lock_dir "gate_${key}")" || \
         die "Failed to resolve gate lock base for $key"
-    if ! stale_lock_acquire "$lock_dir" 20 0.3 "gate lock for $key"; then
+    # Opts in to markerless guard reclaim (t1598): a gate-ledger append is a
+    # fixed handful of file ops under the guard in every shipped version.
+    if ! stale_lock_acquire "$lock_dir" 20 0.3 "gate lock for $key" \
+            "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
         # The prefix is pinned by tests/test_gate_lock_characterization.sh
         # (Test 2a); the describe suffix is the recovery hint (t1496).
         die "Failed to acquire gate append lock for $key after 20 attempts$(stale_lock_describe "$lock_dir")"

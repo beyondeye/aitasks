@@ -49,6 +49,14 @@
 #      or guard, but every caller is `set -euo pipefail` and calls this bare,
 #      AFTER the protected mutation has already committed — propagating there
 #      would abort the script mid-flow. Retention is surfaced as a warn instead.
+#   4. MARKERLESS GUARD RECLAIM is opted in here, and that is a decision about
+#      the LOCK DIR, not this adapter: none of this adapter's callers can reach
+#      stale_lock_guarded_section, so no shipped version holds one of these
+#      guards across an unbounded operation. `ait_lock_dir emails` is reached
+#      both through here and through a direct stale_lock_acquire call in
+#      aitask_create.sh, and the two MUST pass the same window — otherwise
+#      whether a wedged guard self-heals would depend on which writer arrived
+#      first. merge_lock.sh deliberately opts out.
 #   3. TOKENLESS-AGE RECLAIM is newly reachable (stale_lock's 120s window). This
 #      lib's own locks always carry a pid file, and publication happens under the
 #      `.gc` guard, so a tokenless dir can only be a legacy/foreign lock — never
@@ -57,12 +65,17 @@
 #
 # --- Recovery ---------------------------------------------------------------
 #
-# The `.gc` guard is fail-closed and never auto-broken (stale_lock invariant 2),
-# so a process killed inside its few-file-op section wedges that one lock: every
-# later acquire reports busy with no holder in existence. The cure is manual —
-# remove `<lock_dir>.gc` once no reclaim is running. registry_lock_describe
-# names both the lock and a present guard; a caller whose failure is otherwise
-# silent (`ait projects add` runs as `… >/dev/null 2>&1 || true` on every tmux
+# Since t1598 the `.gc` guard carries a holder record, so a process killed
+# inside its few-file-op section leaves a guard naming a dead pid — and the next
+# acquire frees it automatically. This adapter also passes a markerless-guard
+# window (see delta 4), so a guard left by pre-t1598 code self-heals once it is
+# older than that window.
+#
+# Two cases still need a human, and both are fail-safe rather than fail-open:
+# a recycled holder pid reads as alive, and a genuinely hung holder is never
+# displaced. For those, registry_lock_describe names the lock, the guard, and
+# the holder pid when there is one; a caller whose failure is otherwise silent
+# (`ait projects add` runs as `… >/dev/null 2>&1 || true` on every tmux
 # bootstrap) should surface it.
 
 [[ -n "${_AIT_REGISTRY_LOCK_LOADED:-}" ]] && return 0
@@ -99,13 +112,18 @@ registry_lock_acquire() {
             remaining=0
         fi
         retries=$(( remaining * _REGISTRY_LOCK_ATTEMPTS_PER_SEC ))
-        # Floor of 2: a reclaim consumes an attempt without acquiring, so a zero
+        # Floor of 3: a reclaim consumes an attempt without acquiring, so a zero
         # or sub-second timeout must still get the follow-up mkdir that the old
-        # `continue`-after-steal loop gave it.
-        if (( retries < 2 )); then
-            retries=2
+        # `continue`-after-steal loop gave it — and since t1598 there can be TWO
+        # such reclaims before the acquiring mkdir (the guard, then the lock dir).
+        if (( retries < 3 )); then
+            retries=3
         fi
-        if stale_lock_acquire "$dir" "$retries" "$_REGISTRY_LOCK_SLEEP" "$label"; then
+        # This adapter MAY opt in to markerless guard reclaim: none of its
+        # callers can reach stale_lock_guarded_section, so no shipped version
+        # holds one of its guards across an unbounded operation. See delta 4.
+        if stale_lock_acquire "$dir" "$retries" "$_REGISTRY_LOCK_SLEEP" "$label" \
+                "${_REGISTRY_LOCK_GC_WINDOW:-$_STALE_LOCK_GC_WINDOW_DEFAULT}"; then
             _registry_lock_dir="$dir"
             _registry_lock_token="$STALE_LOCK_TOKEN"
             # shellcheck disable=SC2064  # expand $dir now, on purpose
