@@ -8,8 +8,9 @@ labels: [workflow, git]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1233
+implemented_with: claudecode/opus5
 created_at: 2026-07-28 01:06
-updated_at: 2026-08-24 23:40
+updated_at: 2026-08-25 11:34
 boardidx: 51200
 ---
 
@@ -66,3 +67,8 @@ unnoticed.
   produces `OVERLAP:<file>` when the remote changed that file.
 - The existing repo-shaped overlap test still passes.
 - A regression test covers the consumer-project directory layout.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T08:34:54Z status=pass attempt=1 type=human
