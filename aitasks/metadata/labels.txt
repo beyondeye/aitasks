@@ -116,6 +116,7 @@ task-workflow
 task_attachments
 task_metadata
 task_workflow
+task_yaml
 test
 test_marker
 testing
