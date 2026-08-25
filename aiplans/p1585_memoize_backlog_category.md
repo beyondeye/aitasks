@@ -371,3 +371,93 @@ so Step 9 skips the merge and goes straight to gate verification, archival via
 - **Files affected:** `.aitask-scripts/lib/stats_data.py`,
   `tests/test_stats_multistage.py`
 - **Re-verified:** `python3 tests/test_stats_multistage.py` → 98/98 passed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in two files.
+  `_accumulate_backlog` now returns `Optional[str]` — `None` from each of its
+  seven exclusion guards (made explicit), the resolved `category` after the
+  flows are booked. `_book_backlog` forwards it. The archive loop binds it to a
+  per-iteration local `booked_category`, and the csv-row producer consumes that
+  value, falling back to a direct `resolve_category` call only on a memo miss,
+  with the whole branch gated inside `with_backlog` so the off path's
+  zero-classification contract is untouched. Producer and consumer each carry a
+  comment naming the other end of the coupling. Added
+  `_check_category_single_pass` to `tests/test_stats_multistage.py` (+107 lines,
+  pure insertions) and registered it in `main()`.
+
+- **Measured result (real corpus, median of 5, warm, load ~1.6):**
+
+  | | before | after |
+  |---|---|---|
+  | `resolve_category` calls | 4178 | **2316** |
+  | files classified twice | 1865 | **0** (max 1/file) |
+  | `collect_stats(with_backlog=True)` | 328.5 ms | **267.5 ms** (−61.0 ms, −18.6%) |
+  | `collect_stats(with_backlog=False)` | 169.3 ms | 176.0 ms (unchanged; no code change on that path, difference is noise) |
+  | `with_backlog=False` classification calls | 0 | **0** |
+
+  The −61 ms lands on the ~62 ms second pass the task targeted. Absolute numbers
+  are box- and corpus-specific: this box measured a 328.5 ms baseline where
+  t1544_4 measured 248 ms, so the *delta* is the comparable figure, not the
+  totals. The distinct-file count rose 2313 → 2316 during the session because
+  the corpus grew (this task's own commits).
+
+- **Deviations from plan:** None in approach. One addition: the `collect_stats`
+  docstring's `~77 ms / 171→248 ms` figure described a quantity this change
+  alters, so it was updated rather than left stale.
+
+- **Issues encountered:**
+  - The negative control behaved exactly as predicted and was worth the step —
+    it failed on unmodified source with `t500_normal.md` classified twice, and
+    *only* the two pin assertions failed. Everything else stayed green in both
+    states, confirming those are guards rather than accidental pins.
+  - Three rounds of plan review caught fixture defects of one kind: a fixture
+    table that omitted `created_at`. Because `_accumulate_backlog` returns at
+    its `no_created_at` guard *before* classifying, the omission would have
+    routed the fixture past the memo entirely — and for `t500_normal.md` it
+    would have made the whole new check pass against the *unfixed* code. Measured
+    both ways before fixing.
+  - A fourth review round caught an over-broad docstring claim ("classified
+    exactly once per collection"); corrected to "at most once, under
+    `with_backlog=True`", with both zero-classification cases named. See
+    Post-Review Changes.
+
+- **Key decisions:**
+  - **Fallback on a memo miss, not hoisting the resolution above the guards.**
+    Hoisting would classify `no_frontmatter` / `no_created_at` files that are
+    never classified today — adding work in the name of removing it.
+  - **A per-iteration local, not a dict memo.** Producer and consumer are in one
+    iteration of one loop; a dict would add unbounded growth and a key-identity
+    question for nothing.
+  - **A dedicated fixture tree, not an addition to `_seed_backlog_tree`.**
+    Adding the folded-with-stamp task there would have shifted `_check_backlog`'s
+    `folded` tally *and* broken its `identity 2: departures == total_tasks + live
+    departed` assertion, whose third term is 0 only because no such task exists
+    in that fixture. Both pre-existing checks are therefore untouched — the test
+    diff is 107 insertions and 0 deletions, which is also the proof that
+    `_check_with_backlog_off` passes unedited.
+  - **`booked_category is not None` rather than truthiness.** `resolve_category`
+    never returns `""`, and testing identity keeps that true by construction.
+  - **Distinct category per fixture file** (`type:refactor` / `type:bug` /
+    `type:chore`) so a value landing on the wrong row is caught by identity, not
+    by non-emptiness.
+
+- **Upstream defects identified:** None.
+
+  (Two suite failures were observed but are **not** defects found by this task:
+  `test_shadow_phase_restamp.py::BothAppsWireItTest::test_each_app_calls_the_helper`
+  and
+  `test_collection_structure.py::NoInheritedTestDuplicationTests::test_no_class_inherits_tests_from_a_same_module_base`
+  both fail on *uncommitted working-tree changes* belonging to another in-flight
+  task in this shared checkout — `.aitask-scripts/monitor/minimonitor_app.py`
+  and `tests/test_minimonitor_auto_close_guard.py`, which at HEAD has a single
+  plain `DiscoverWindowPanesContractTests(unittest.TestCase)` rather than the
+  base-plus-two-subclasses that trips the duplication scan. They are that task's
+  to resolve, not a pre-existing defect this task uncovered. Full suite
+  otherwise: 5257 passed, 2 skipped.)
+
+- **Build verification:** `bash tests/run_all_python_tests.sh --test-dir tests`
+  → `PYTHON SUITE: FAILED (runner=pytest, exit=1)` with the two unrelated
+  failures described above; `python3 tests/test_stats_multistage.py` → 98/98.
+  `ait stats --csv` → 12 columns, 1867 rows, 0 malformed rows, 0 empty
+  `category` cells (parsed with `csv.reader`).
