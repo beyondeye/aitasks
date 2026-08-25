@@ -345,3 +345,29 @@ both failure modes of the coupling.
 Current-branch mode (profile `fast`, `create_worktree: false`) — no task branch,
 so Step 9 skips the merge and goes straight to gate verification, archival via
 `./.aitask-scripts/aitask_archive.sh 1585`, and push.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-25 18:20)
+- **Requested by user:** The new `collect_stats` docstring sentence "Each file is
+  classified **exactly once** per collection" is false. `with_backlog=False`
+  performs zero classifications, and an archived file that is excluded from the
+  flows *and* has no csv row performs zero as well. Reword to: under
+  `with_backlog=True`, each file requiring a category is classified **at most
+  once**.
+- **Verified:** confirmed on both counts — the off path is pinned at 0 calls by
+  `_check_with_backlog_off`, and the legacy `no_frontmatter` archived files
+  return at the first guard and are dropped by the `completed is None`
+  short-circuit before any row is built, so they are never classified.
+- **Changes made:** reworded the `collect_stats` docstring to claim "at most
+  once" under `with_backlog=True`, naming both zero-classification cases
+  explicitly and stating that what the change rules out is classifying the same
+  file *twice*. Swept the same loose "classified once" phrasing at the two other
+  sites introduced by this task — the `_accumulate_backlog` return-value
+  paragraph and the PRODUCER comment in the archive loop — plus the new test's
+  docstring, which now reads "No file is classified TWICE under
+  `with_backlog=True`" to match the property its central assertion actually
+  checks. No behavioural change; assertions untouched.
+- **Files affected:** `.aitask-scripts/lib/stats_data.py`,
+  `tests/test_stats_multistage.py`
+- **Re-verified:** `python3 tests/test_stats_multistage.py` → 98/98 passed.

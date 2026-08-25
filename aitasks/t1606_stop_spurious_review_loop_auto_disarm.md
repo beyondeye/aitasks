@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 implemented_with: claudecode/opus5
 created_at: 2026-08-25 16:33
-updated_at: 2026-08-25 17:49
+updated_at: 2026-08-25 17:50
 ---
 
 The minimonitor auto-recheck loop (`L`, t1159_2) **auto-disarms almost immediately
