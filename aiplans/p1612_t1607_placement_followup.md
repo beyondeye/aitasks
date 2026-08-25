@@ -494,8 +494,7 @@ and the surrounding prose intact.
   delivered for cases 1-3 only. · severity: low (residual — the exception is now
   named in the shipped doc and the underlying resolver defect is tracked as its
   own task; neither mitigation makes case 4 work in this task) ·
-  → mitigation: inline post-phase document_case4_gap, and
-  seed_resolution_fallback_for_installed_projects
+  → mitigation: inline post-phase document_case4_gap, and t1620
 - **The task's stated verification asks for a "legacy mode (data branch
   declined)" test that the harness cannot express**: the decline branch needs
   `[[ -t 0 ]]` true and `tests/` has no pty/expect harness. Covered instead by a
@@ -508,7 +507,7 @@ and the surrounding prose intact.
 ### Planned mitigations
 - timing: post-phase | name: announce_claudemd_append_on_upgrade | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: setup now appends a managed block to a project-owned CLAUDE.md it previously never touched, indistinguishably from a routine refresh | desc: update_claudemd_git_section announces the append-to-a-pre-existing-file case separately from create/refresh, naming what was added and how to keep the file hand-maintained; T41 asserts the wording
 - timing: post-phase | name: document_case4_gap | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: the "regenerated on every ait setup" claim is untrue for the failed-worktree-add path on installed projects | desc: one sentence in the aitasks_extension_points.md CLAUDE.md bullet naming the exception and why (install.sh:1335 deletes the seed/ fallback)
-- timing: after | name: seed_resolution_fallback_for_installed_projects | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: assemble_aitasks_instructions has no reachable seed when aitasks/ is a dangling symlink and seed/ was deleted at install, so no instruction surface can be generated | desc: give the resolver a third fallback (e.g. a packaged copy under .aitask-scripts/) so CLAUDE.md, AGENTS.md, .codex/ and .opencode/ all still generate; spawned rather than inlined because it reshapes a resolver shared by four surfaces
+- timing: after | name: seed_resolution_fallback_for_installed_projects | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: assemble_aitasks_instructions has no reachable seed when aitasks/ is a dangling symlink and seed/ was deleted at install, so no instruction surface can be generated | desc: give the resolver a third fallback (e.g. a packaged copy under .aitask-scripts/) so CLAUDE.md, AGENTS.md, .codex/ and .opencode/ all still generate; spawned rather than inlined because it reshapes a resolver shared by four surfaces | created: t1620
 
 ## Post-Implementation
 
