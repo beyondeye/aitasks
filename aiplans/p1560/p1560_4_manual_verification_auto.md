@@ -195,3 +195,35 @@ job, and itself a small confirmation of the anchor precondition.
 - `hugo server` on port 1319 — stopped.
 - scratch repo, worktree and lock base under the session scratchpad — removed.
 - No file outside `aitasks/` (the checklist) and this plan was mutated.
+
+## Final Implementation Notes
+
+Nothing in the t1560 implementation needed changing — all twelve checklist items
+reached a terminal state with no failures and no follow-up tasks spawned.
+
+What this run adds beyond the automated suites, and is worth knowing for future
+work on the merge broker:
+
+- **The mutex was exercised through real tmux panes on the `ait` socket**, i.e.
+  through the production anchor path (`ait_tmux_self_pane_pid`), not through the
+  `AIT_AGENT_PID` seam the unit tests use. Conflict retention, hold-out,
+  pane-death reclaim and the live-holder refusal all behave as documented under
+  that path.
+- **The `ait`-socket detail is load-bearing and easy to get wrong.** A fixture
+  built on tmux's `default` socket makes every `begin` return
+  `NO_SESSION_ANCHOR`, because `ait_tmux_self_pane_pid` compares `$TMUX`'s socket
+  against the queried server's. Anyone reproducing this must create the fixture
+  session with `tmux -L ait`.
+- **No test seam was used.** `.ait_merge_test_seams` was never created in the
+  fixture lock base, so every verdict above came from the shipped code path.
+- **The `cleanup` completion guard discriminates**: refused without
+  `--task-complete` (`CLEANUP_REQUIRES_COMPLETION`, nothing changed) and torn the
+  branch + worktree down with it (`CLEANED`) — checked in the same fixture, so
+  the refusal is not vacuous.
+- **`force-release` is genuinely two-sided**: it refuses a provably live holder
+  (`REFUSED_LIVE_HOLDER`) and refuses a stale `--expect` token
+  (`HOLDER_CHANGED`), while recovering a dead-anchored wedge cleanly.
+- Three items were skipped rather than passed, each with its reason recorded on
+  the checklist: item 1 (already pinned by `test_merge_lock_concurrency.sh`),
+  item 6 (this session's permission mode makes the observation unverifiable) and
+  item 11 (no browser connected). None represents a defect or a deferred fix.
