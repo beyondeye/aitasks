@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-16 11:26
-updated_at: 2026-08-25 12:30
+updated_at: 2026-08-25 16:14
 ---
 
 Three surfaces independently resolve a task's `depends` field, with three
@@ -110,3 +111,8 @@ cross-repo half already sets; it does not invent a policy.
   generalizes. `t386_7` mixed both notations in one list
   (`[t386_6, t386_10, 1, 2, 3, 4, 5, 6]`, repeating 6 after t386_6), which is
   what confirmed the bare numbers were always meant as siblings.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T13:14:48Z status=pass attempt=1 type=human
