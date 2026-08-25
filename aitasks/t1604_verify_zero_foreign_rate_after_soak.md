@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1599_1]
 issue_type: manual_verification
 status: Ready
 labels: [git, robustness, test]
