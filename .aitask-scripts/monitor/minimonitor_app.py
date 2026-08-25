@@ -1015,7 +1015,9 @@ class MiniMonitorApp(
         # incapable of interleaving with another session's append. Suppressed
         # rather than reported: a housekeeping failure must not delay a boot.
         with contextlib.suppress(Exception):
-            review_loop_log.prune()
+            # reserve=1 holds a slot for THIS session's file, which does not
+            # exist yet — without it the store settles at MAX_SESSION_FILES+1.
+            review_loop_log.prune(reserve=1)
 
         # Detect own window ID, index, and name for auto-close, auto-selection,
         # and the "switch to full monitor" handoff.
@@ -3601,6 +3603,21 @@ class MiniMonitorApp(
         # hold when it recurred.
         self._loop_shadow_settle_until = None
         self._loop_hold_reason = None
+        # Nor the previous lifecycle's IDENTITIES. `_note_loop_identity` only
+        # overwrites non-empty values — deliberately, so a tick that cannot
+        # re-resolve the shadow does not erase what the last one knew — but
+        # that same stickiness would carry a stale pair ACROSS an `L`-`L`
+        # cycle onto a different followed/shadow pair. An immediate absence or
+        # a failed re-resolution would then record the new agent beside the
+        # old shadow, i.e. an event naming a pair that never existed.
+        #
+        # Cleared and re-seeded here rather than merely cleared: this branch
+        # has already resolved and validated all three, so a first-tick
+        # teardown still names the right pair instead of nothing.
+        self._loop_identity = {}
+        self._note_loop_identity(agent=snap.agent_key,
+                                 shadow_agent=shadow_key,
+                                 shadow_pane=shadow_pane)
         self._loop_last_service_at = None
         self._set_loop_banner("⟳ auto-recheck ARMED")
         self.notify("Auto-recheck loop armed — press 'L' again to disarm")

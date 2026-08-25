@@ -238,17 +238,25 @@ def _is_deletable(pid: int, path: Path, now: float) -> bool:
 
 
 def prune(directory: Path | None = None, *, keep: int = MAX_SESSION_FILES,
-          now: float | None = None) -> list[Path]:
-    """Delete oldest-first down to ``keep`` files. Returns what was removed.
+          reserve: int = 0, now: float | None = None) -> list[Path]:
+    """Delete oldest-first down to ``keep - reserve`` files. Returns removals.
 
     Runs at startup only, and only over files **no live process owns** — which
     is what makes it incapable of interleaving with an append. Never raises.
+
+    ``reserve`` exists because this runs **before** the calling session has
+    written anything, so its own file is not yet on disk and cannot be counted.
+    Pruning to ``keep`` and then creating one more would settle the store at
+    ``keep + 1``, not ``keep``. The startup call therefore passes
+    ``reserve=1``, holding a slot for the session about to start, so
+    ``MAX_SESSION_FILES`` is a true cap on the steady state rather than a cap
+    on everything-but-the-current-session.
     """
     directory = directory or log_dir()
     now = time.time() if now is None else now
     files = _session_files(directory)
     removed: list[Path] = []
-    excess = len(files) - keep
+    excess = len(files) - max(0, keep - reserve)
     if excess <= 0:
         return removed
     for _stamp, pid, path in files:  # oldest first

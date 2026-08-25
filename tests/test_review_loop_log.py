@@ -221,6 +221,38 @@ class RetentionTests(StoreTempDirMixin, unittest.TestCase):
     def test_a_missing_directory_is_not_an_error(self):
         self.assertEqual(rll.prune(self.dir / "nope", keep=1), [])
 
+    def test_the_cap_holds_once_the_new_session_writes(self):
+        """`MAX_SESSION_FILES` is a cap on the STEADY STATE, not on
+        everything-but-the-current-session.
+
+        Retention runs at startup, before this process has written anything,
+        so its own file is not on disk to be counted. Pruning to `keep` and
+        then creating one more settles the store at `keep + 1`. `reserve=1` —
+        what `on_mount` passes — holds the slot.
+        """
+        for index in range(rll.MAX_SESSION_FILES + 4):
+            self._old(_write_session(
+                self.dir, f"20260101T0000{index:02d}Z", self.dead_pid,
+                [_event_line(rl.DISARM_AGENT_GONE)]))
+        rll.prune(self.dir, reserve=1)
+        self.assertEqual(len(list(self.dir.glob("*.jsonl"))),
+                         rll.MAX_SESSION_FILES - 1)
+        # Now the incoming session writes its first event.
+        rll.record_event(rll.KIND_DISARM, rl.DISARM_AGENT_GONE)
+        self.assertEqual(len(list(self.dir.glob("*.jsonl"))),
+                         rll.MAX_SESSION_FILES)
+
+    def test_without_the_reserve_the_store_overshoots_by_one(self):
+        """The control: shows the reserve is what fixes it, not the cap."""
+        for index in range(rll.MAX_SESSION_FILES + 4):
+            self._old(_write_session(
+                self.dir, f"20260101T0000{index:02d}Z", self.dead_pid,
+                [_event_line(rl.DISARM_AGENT_GONE)]))
+        rll.prune(self.dir)                      # reserve defaults to 0
+        rll.record_event(rll.KIND_DISARM, rl.DISARM_AGENT_GONE)
+        self.assertEqual(len(list(self.dir.glob("*.jsonl"))),
+                         rll.MAX_SESSION_FILES + 1)
+
 
 class RetentionNeverRacesAnAppendTests(StoreTempDirMixin, unittest.TestCase):
     """`review_loop_log_concurrency_proof` — the risk-mitigation post-phase.

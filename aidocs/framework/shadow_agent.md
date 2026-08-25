@@ -815,7 +815,9 @@ script, so it would mean a subprocess on the Textual event loop per disarm.
 
 Retention therefore runs **at startup only, over files no live process owns**,
 keeping `MAX_SESSION_FILES` and deleting oldest-first, so it cannot interleave
-with an append at all. Two independent guards, because deleting a live
+with an append at all. It reserves one slot for the session about to start —
+that file does not exist yet at prune time, so without the reserve the store
+would settle one over the cap. Two independent guards, because deleting a live
 session's file is the one unrecoverable mistake here: liveness via
 `lib/monitor_marker.py` (only a *provable* absence licenses a delete; an
 unverifiable read counts as present), plus an age floor that refuses any
@@ -828,7 +830,10 @@ Each event carries the followed/shadow pair it happened to — `agent`,
 identities say *which* agent, and a user typically runs several pairs at once.
 They are **last-observed**, not re-queried at teardown: a fresh tmux lookup on
 that path could fail — or be the very thing that failed — and would replace the
-record with nothing.
+record with nothing. That stickiness is scoped to one lifecycle: arming clears
+the cache and re-seeds it from the pair `action_toggle_review_loop` has just
+validated, so an `L`-`L` cycle onto a different pair can never record the new
+agent beside the old shadow.
 
 Recording never raises: an unwritable store returns `False` and the disarm
 **or hold** toast gains a `(not recorded)` suffix, so a silently broken log

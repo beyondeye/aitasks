@@ -3824,6 +3824,42 @@ class DisarmIsRecordedTests(_LoopEventStoreMixin, unittest.TestCase):
         self.assertEqual(app._loop_identity.get("shadow_agent"), "claude")
         self.assertEqual(app._loop_identity.get("shadow_pane"), "%5")
 
+    def test_a_rearm_onto_a_different_pair_never_records_a_mixed_one(self):
+        """Identities must not survive an `L`-`L` cycle (t1606 review).
+
+        `_note_loop_identity` only overwrites non-empty values — deliberately,
+        so a tick that cannot re-resolve the shadow keeps what the last one
+        knew. But that stickiness would carry a stale pair ACROSS lifecycles:
+        re-arm onto a different followed/shadow pair, hit an immediate absence
+        or a failed re-resolution, and the record would name the NEW agent
+        beside the OLD shadow — a pair that never existed.
+
+        Arming therefore clears and re-seeds from the identities
+        `action_toggle_review_loop` has already validated, so even a
+        first-tick teardown names the right pair rather than nothing.
+        """
+        app, mon, _ = self._armed()
+        _tick(app, 1)                                  # learn pair A
+        self.assertEqual(app._loop_identity.get("shadow_pane"), "%5")
+
+        app._review_loop.disarm()
+        # A different shadow pane, bound to the same followed agent.
+        mon._async_list = "%77\t%1\tcodex\t4242\n%6\t\tzsh\t7\n"
+        asyncio.run(app.action_toggle_review_loop())    # re-arm onto pair B
+        self.assertTrue(app._review_loop.armed, app.spy_notify)
+        self.assertEqual(app._loop_identity.get("shadow_pane"), "%77")
+        self.assertEqual(app._loop_identity.get("shadow_agent"), "codex")
+
+        # An immediate verified absence, before any successful re-resolution.
+        mon._async_list = _SHADOW_LIST_NONE
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        record = self.recorded()[0]
+        self.assertEqual(record["shadow_pane"], "%77",
+                         "recorded the PREVIOUS lifecycle's shadow pane")
+        self.assertEqual(record["shadow_agent"], "codex",
+                         "recorded the PREVIOUS lifecycle's shadow agent")
+
     def test_exactly_one_record_per_disarm(self):
         app, mon, _ = self._armed()
         mon._async_list = _SHADOW_LIST_NONE
