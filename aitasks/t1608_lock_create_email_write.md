@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1599_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, robustness, task_metadata, concurrency]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-08-25 17:32
-updated_at: 2026-08-25 17:53
+updated_at: 2026-08-25 17:56
 ---
 
 ## Defect
