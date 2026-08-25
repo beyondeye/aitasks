@@ -287,3 +287,80 @@ the advice the message gives is not merely plausible:
 See `task-workflow` **Step 9** for cleanup, archival, and merge. Current-branch
 mode (profile `fast`): nothing to merge; Step 9 archives `t1607` and this plan.
 Step 8d creates the `t1607_placement_followup` "after" mitigation.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in three files.
+  `.aitask-scripts/aitask_setup.sh` (+20): added the
+  `CLAUDEMD_HAND_MAINTAINED_SENTINEL` constant above
+  `update_claudemd_git_section` and a marker-first guard inside it that returns
+  early — with three `info` lines — for a markerless `CLAUDE.md` already
+  carrying the sentinel. `tests/test_agent_instructions.sh` (+109): T12b/T12c/T12d
+  in the existing `update_claudemd_git_section` section, and T38/T39 in a new
+  "CLAUDE.md hand-maintained contract" section after T37.
+  `aidocs/framework/aitasks_extension_points.md` (+34/-2): rewrote the
+  `CLAUDE.md` bullet.
+- **Deviations from plan:** None.
+- **Issues encountered:**
+  - **Two plan-review concerns raised by the user before approval, both valid and
+    both folded into the plan before implementation.** (1) The first-draft skip
+    message told users to "wrap" their existing block in markers — but
+    `insert_aitasks_instructions`' awk replace branch discards every line between
+    the markers, so that advice would have destroyed the very hand-maintained
+    prose this task protects. Corrected to an **empty marker pair** plus an
+    explicit generated-and-replaceable warning. (2) The first-draft T12b asserted
+    only byte-identity and marker absence, which a guard degraded to a bare
+    `return 0` would pass. Corrected to also assert the three messages on
+    captured stdout (`info()` writes to stdout, `aitask_setup.sh:137`).
+  - **Mutation testing confirmed both fixes were load-bearing** (harness in the
+    session scratchpad, run against copies — no tracked file mutated).
+    Mutant A (guard degraded to a silent `return 0`): caught **only** by the
+    three message assertions — 8/11 otherwise green. Mutant B (guard removed =
+    the reported bug): caught by T12b's byte-identity and marker assertions.
+    Mutant C (marker check replaced by `true`, i.e. inverted precedence): caught
+    **only** by T12d — T12/T12b/T12c all stayed green, confirming T12d is the
+    discriminating test and not redundant with T12.
+  - T38/T39 negative controls checked on copies: deleting the
+    `## Git Operations on Task/Plan Files` heading from `CLAUDE.md` fails T38's
+    sentinel half; renaming it in the seed fails T39.
+  - Manual end-to-end on a copy of this repo's own `CLAUDE.md`: untouched,
+    0 markers, all three messages printed. Positive control 1 (strip the
+    sentinel): the block **is** appended. Positive control 2 (perform the exact
+    opt-in the message documents): the generated block lands between the markers,
+    prose above and below survives, two consecutive runs are idempotent, markers
+    stay 1/1 — so the printed instruction actually works.
+  - Full suite: `test_agent_instructions.sh` 122/122; all 22 shell suites that
+    exercise `aitask_setup.sh` pass; `shellcheck` reports no new findings (every
+    reported line is pre-existing and outside the edited region).
+  - The working tree carried substantial unrelated dirty state from concurrent
+    sessions, so both commits were path-scoped (`git commit -o -- <paths>`)
+    rather than staging the index.
+- **Key decisions:**
+  - **Which contract is real** — user chose the documented hand-maintained
+    contract. Tracing settled that this is a *regression*, not a design
+    disagreement: t221_3 (`52837495f`) shipped a content-based skip guard on the
+    exact same heading, and t130_2 (`3b7de3531`) dropped it while generalizing
+    the function to the `>>>aitasks` marker system. The guard restores that
+    behavior in a named, tested form.
+  - **Guard scoped to `update_claudemd_git_section`, not
+    `insert_aitasks_instructions`.** `CLAUDE.md` is the only project-owned
+    *mixed-content* surface; the other three are framework-owned files whose
+    entire body is the block, where appending is correct bootstrap.
+  - **Marker check evaluated before the sentinel check.** A marker-managed block
+    necessarily contains the sentinel, so the reverse order would freeze every
+    legitimate refresh. T12d exists solely to pin this.
+  - **Named constant + drift guard rather than a derived/fuzzy sentinel.** A
+    heading-set overlap heuristic needed an arbitrary threshold; one named string
+    pinned to the live seed by T39 is reviewable and fails loudly on drift.
+  - The guard also generically fixes projects set up **between t221_3 and
+    t130_2**, which carry a markerless `## Git Operations on Task/Plan Files`
+    section that today's code would append a duplicate marked block on top of.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1661 — update_claudemd_git_section is called
+    only from setup_data_branch Step 8, which early-returns when
+    .aitask-data/.git already exists (:1395-1398) and when the user declines the
+    data branch (:1438), so CLAUDE.md's block is never refreshed on re-runs and
+    never written at all in legacy mode — unlike AGENTS.md, which update_agentsmd
+    regenerates unconditionally from setup_code_agents (:2535). Raised during
+    planning; the user scoped it out of t1607 and asked for a follow-up, which
+    Step 8d creates as t1607_placement_followup.`
