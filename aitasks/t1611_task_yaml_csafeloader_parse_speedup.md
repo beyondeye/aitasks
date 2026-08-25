@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [1527]
 issue_type: performance
 status: Ready
 labels: [performance, task_yaml, board, aitask_ls]
