@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [t1599_1]
 issue_type: bug
 status: Ready
 labels: [bash_scripts, robustness, task_metadata, concurrency]

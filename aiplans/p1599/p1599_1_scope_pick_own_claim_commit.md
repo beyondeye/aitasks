@@ -5,7 +5,7 @@ Sibling Tasks: aitasks/t1599/t1599_2_scope_fold_mark_commit_and_guard_amend.md, 
 Base branch: main
 Output branch: main
 plan_verified:
-  - claudecode/opus5 @ 2026-08-25 16:56
+  - claudecode/opus5 @ 2026-08-25 17:33
 ---
 
 # p1599_1 — Scope the claim commit in `aitask_pick_own.sh`
@@ -421,9 +421,25 @@ Run the same control for the `emails.txt` cases: pre-fix, the foreign address
 - Scoping the commit by **file existence** rather than **authorship** re-creates the defect on `aitasks/metadata/emails.txt`: `store_email` writes at `:421` before the lock is acquired at `:427`, so a refused claim (`exit 1` at `:448`/`:454`) leaves a foreign address uncommitted for the next claim — even a claim with no email — to sweep under its own task message. · severity: high · → mitigation: `EMAIL_STORED` authorship flag (Step 0) + the refused-claim regression case, driven through the real `LOCK_FAILED` path
 - Deeper: `emails.txt` is a **shared global** file with no task owner, and two claims of *different* tasks pass *different* task locks — so both can append before either commits and path-scoping still misattributes. Authorship of an append is not ownership of the snapshot; `EMAIL_STORED` alone does not close this. · severity: high · → mitigation: Step 2a gives the list its own task-agnostic commit, so no `Start work on t<N>` commit can ever contain it; pinned by the interleaved and mutex-boundary cases
 - `store_email`'s `echo >> ; sort -u -o` is an unserialized read-modify-write: sort snapshots the file and its `-o` rename erases a concurrent session's newer append, so an address can be **silently lost** — and the losing session still sets `EMAIL_STORED` and commits a list without its own address. Pre-existing, but Step 0 rewrites this function and Step 2a persists its output. · severity: high · → mitigation: serialize on the canonical `lib/registry_lock.sh` mutex at a per-repo `ait_lock_dir emails` path, re-check membership under the lock, and skip the write entirely (never write unlocked) when the mutex is busy; pinned by the mutex-boundary case
+- The new mutex covers only ONE of the file's two writers: `aitask_create.sh:1128-1135` still writes `emails.txt` unlocked, so a concurrent `ait create` can still clobber an address a claim just added. A mutex excludes only writers that honour it. · severity: high · → mitigation: **deferred to t1608** (`depends: [t1599_1]`) — pre-existing, and `aitask_create.sh` is outside this child's exclusive ownership; the writer sweep confirms t1608 is the only remaining call site
 - Adding a mutex to the claim path introduces busy / stale / unavailable states on a hot path. · severity: medium · → mitigation: the lock guards only the email-list write, never the task lock, the status write or the commits; a busy mutex degrades to "email not recorded" with a warning and the claim still returns `OWNED:` — asserted directly in the boundary case
 - Splitting into two commits changes the claim's commit shape (a new-contributor claim now produces two commits) and adds a `_commit_scoped` helper. · severity: low · → mitigation: HEAD remains the claim commit (ordering is explicit), the extra commit only fires when a genuinely new address is added, and the `git log -1` contract is asserted in the positive-direction case
 - Blast radius is now three functions and one call site in one script; no shared helper changes. `store_email`'s early-return-on-known-address means it no longer rewrites the file, but the resulting content is identical either way. · severity: low · → mitigation: covered by the positive-direction emails.txt case
+
+**Accepted residual — what this does not buy (3): the mutex has a second,
+unlocked writer.** `aitask_create.sh:1128-1135` (`add_email_to_file`) writes the
+same `emails.txt` with an unlocked `echo >> ; sort -u -o`. A mutex only excludes
+writers that honour it, so `store_email` holding the lock buys **no** mutual
+exclusion against a concurrent `ait create` — whichever `sort -o` finishes second
+erases the other's just-appended address. Swept for completeness: those are the
+only two writers (`aitask_lock.sh:625`, `board/aitask_board.py:197` and
+`lib/profile_editor.py` are readers), so one call site closes the protocol.
+
+Pre-existing (both writers were unlocked before this change) and outside this
+child's exclusive ownership of `aitask_pick_own.sh`. **Disposition: follow-up —
+t1608** (`depends: [t1599_1]`), which must also *verify* that
+`registry_lock_acquire` and `stale_lock_acquire` actually exclude each other on
+one lock dir rather than assuming the adapter pair interoperates.
 
 **Accepted residual — what this does not buy (2).** `git log -- emails.txt`
 still cannot attribute an individual address to a session, because a single
