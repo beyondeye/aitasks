@@ -150,16 +150,22 @@ test_config_value_forms() {
     assert_eq "forms: quoted scalar resolves and passes" "0" "$RC"
     assert_contains "forms: quoted scalar ledger pass" "status=pass" "$(cat "$d/aitasks/t14_x.md")"
 
-    # block list
+    # block list. The items are deliberately MULTI-WORD (t1609): a single-word
+    # quoted item such as `- "true"` is rescued by bash's own quote removal at
+    # expansion time, so a block-list fixture built only from those is
+    # structurally incapable of detecting an unstripped quote. This one is --
+    # before t1609 it reached `bash -c '"touch RAN_MULTIWORD"'` and died 127.
     d="$(new_fixture)"; write_task "$d" 15
     cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
 verify_build:
   - "true"
-  - "true"
+  - "touch RAN_MULTIWORD"
 EOF
     run_verifier "$d" "$BUILD" 15 1 "rblock"
     assert_eq "forms: block list resolves and passes" "0" "$RC"
     assert_contains "forms: block list ledger pass" "status=pass" "$(cat "$d/aitasks/t15_x.md")"
+    assert_eq "forms: block-list multi-word quoted command actually ran" \
+        "ran" "$([[ -f "$d/RAN_MULTIWORD" ]] && echo ran || echo missing)"
 }
 
 # ============================================================
@@ -179,6 +185,128 @@ EOF
     assert_contains "list: ledger fail" "status=fail" "$(cat "$d/aitasks/t20_x.md")"
     local ran; ran="$([[ -f "$d/SHOULD_NOT_RUN" ]] && echo ran || echo stopped)"
     assert_eq "list: third command did NOT run" "stopped" "$ran"
+}
+
+# ============================================================
+# Test 2b: quoted block-list commands reach bash unquoted (t1609)
+# ============================================================
+# The end-to-end shape the bug actually broke: seed/project_config.yaml
+# documents `verify_build:` / `- "cmake -B build"`, which used to reach
+# `bash -c '"cmake -B build"'` and exit 127 -- a red gate for a correct config.
+#
+# The unquoted RAN_BARE item is a POSITIVE CONTROL, not decoration: without it
+# a cwd/TASK_DIR plumbing slip yields "no verify_build configured" -> exit 2,
+# and the quoted assertion would fail for a reason unrelated to quoting.
+test_block_list_quoted_commands() {
+    echo "=== Test 2b: quoted block-list commands (t1609) ==="
+    local d; d="$(new_fixture)"; write_task "$d" 21
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - touch RAN_BARE
+  - "touch RAN_QUOTED"
+  - '[ -f RAN_QUOTED ] && touch RAN_PYYAML'
+EOF
+    run_verifier "$d" "$BUILD" 21 1 "rquoted"
+    assert_eq "quoted block: exit 0" "0" "$RC"
+    assert_contains "quoted block: ledger pass" "status=pass" "$(cat "$d/aitasks/t21_x.md")"
+    assert_eq "quoted block: unquoted positive control ran" \
+        "ran" "$([[ -f "$d/RAN_BARE" ]] && echo ran || echo missing)"
+    assert_eq "quoted block: double-quoted multi-word command ran" \
+        "ran" "$([[ -f "$d/RAN_QUOTED" ]] && echo ran || echo missing)"
+    # PyYAML single-quotes any scalar starting `[` when the settings TUI saves
+    # project_config.yaml, so this is the shape a TUI round-trip produces.
+    assert_eq "quoted block: PyYAML-single-quoted command ran" \
+        "ran" "$([[ -f "$d/RAN_PYYAML" ]] && echo ran || echo missing)"
+    # Pin the NORMALIZED string, not just the outcome: the sidecar's `$ <cmd>`
+    # line is the actual unit under test, and an exit code alone can be right
+    # for the wrong reason.
+    assert_contains "quoted block: sidecar logs the unquoted command" \
+        '$ touch RAN_QUOTED' "$(cat "$d/.aitask-gates/21/build_verified_rquoted.log")"
+    assert_not_contains "quoted block: sidecar does NOT log it still quoted" \
+        '$ "touch RAN_QUOTED"' "$(cat "$d/.aitask-gates/21/build_verified_rquoted.log")"
+}
+
+# ============================================================
+# Test 2c: an unparseable command is a FAIL, never a skip (t1609)
+# ============================================================
+# GATE_COMMAND_SKIP_EXIT means "the command ran and reported it did not do the
+# work". A command that cannot even be PARSED never ran, yet bash exits 2 on a
+# syntax error -- so under an opted-in gate_command_exit_contract it used to be
+# recorded as a skip, which can release a blocks_dependents edge for work that
+# never happened. run_command_gate now pre-validates with `bash -n`.
+test_malformed_command_is_fail() {
+    echo "=== Test 2c: unparseable command -> fail, not skip (t1609) ==="
+    local d
+
+    # (a) the t1609-reachable shape: an inline flow item containing a comma is
+    # split, leaving unbalanced-quote fragments that cannot parse.
+    d="$(new_fixture)"; write_task "$d" 22
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build: ["pytest -k 'slow,net'"]
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 22 1 "rmalformed"
+    assert_eq "malformed: comma-split flow item -> exit 1 (fail), not 2 (skip)" \
+        "1" "$RC"
+    assert_contains "malformed: ledger fail" "status=fail" "$(cat "$d/aitasks/t22_x.md")"
+    assert_contains "malformed: result names it as unparseable" \
+        "malformed verify_build command" "$(cat "$d/aitasks/t22_x.md")"
+    assert_not_contains "malformed: NOT recorded as a skip" \
+        "status=skip" "$(cat "$d/aitasks/t22_x.md")"
+
+    # (b) the same hole predates t1609 -- a scalar that simply does not parse.
+    d="$(new_fixture)"; write_task "$d" 23
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build: "for x in"
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 23 1 "rforloop"
+    assert_eq "malformed: pre-existing unparseable scalar -> exit 1" "1" "$RC"
+    assert_contains "malformed: pre-existing case ledger fail" \
+        "status=fail" "$(cat "$d/aitasks/t23_x.md")"
+
+    # (c) NEGATIVE CONTROL -- a genuine skip must still be a skip. Without this
+    # the two rows above are satisfiable by simply disabling skip entirely.
+    d="$(new_fixture)"; write_task "$d" 24
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build: "exit 2"
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 24 1 "rrealskip"
+    assert_eq "malformed: a real exit-2 skip is still a skip" "2" "$RC"
+    assert_contains "malformed: real skip ledger" "status=skip" "$(cat "$d/aitasks/t24_x.md")"
+
+    # (d) NEGATIVE CONTROL -- a command that parses but fails at runtime must
+    # stay an ordinary fail, not get relabelled "malformed".
+    d="$(new_fixture)"; write_task "$d" 25
+    printf 'verify_build: "exit 7"\n' > "$d/aitasks/metadata/project_config.yaml"
+    run_verifier "$d" "$BUILD" 25 1 "rruntime"
+    assert_eq "malformed: a parseable command failing at runtime -> exit 1" "1" "$RC"
+    assert_contains "malformed: runtime failure keeps the ordinary wording" \
+        "command failed (exit 7)" "$(cat "$d/aitasks/t25_x.md")"
+}
+
+# ============================================================
+# Test 2d: an all-empty/null command list skips (t1609, approved)
+# ============================================================
+# After the reader unquotes, `- "null"` is the string `null` and
+# _gate_config_values drops it, so the list resolves EMPTY and the gate skips
+# with "no verify_build configured". Before t1609 the item survived quoted,
+# reached bash and died 127 -> fail. The flip is deliberate: it makes the list
+# form agree with the scalar forms `verify_build: null` / `verify_build:`,
+# which already skip.
+test_null_item_list_skips() {
+    echo "=== Test 2d: all-null command list -> skip (t1609) ==="
+    local d; d="$(new_fixture)"; write_task "$d" 26
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - "null"
+EOF
+    run_verifier "$d" "$BUILD" 26 1 "rnullitem"
+    assert_eq "null item: sole quoted-null entry -> exit 2 (skip)" "2" "$RC"
+    assert_contains "null item: ledger skip" "status=skip" "$(cat "$d/aitasks/t26_x.md")"
+    assert_contains "null item: reported as unconfigured, matching the scalar form" \
+        "no verify_build configured" "$(cat "$d/aitasks/t26_x.md")"
 }
 
 # ============================================================
@@ -351,11 +479,11 @@ test_command_exit_contract() {
 # ============================================================
 # any fail -> fail (short-circuits); else any skip -> skip; else pass.
 #
-# NOTE on the fixtures: a BLOCK list's items keep their surrounding quotes
-# (read_yaml_list strips them only on the inline [a, b] form), so a
-# multi-word command is written unquoted here -- `- "exit 2"` would reach
-# bash as the single word `exit 2` and die with 127. Single-word items such
-# as `- "false"` are unaffected. See t1605's Final Implementation Notes.
+# The fixtures below are written QUOTED on purpose (t1609): a block list's
+# items now go through the same single-pair strip as the inline form, so
+# `- "exit 2"` resolves to `exit 2` and runs. Before t1609 it reached bash as
+# the single word `exit 2` and died with 127, which is why these were written
+# unquoted and why t1605's Final Implementation Notes recorded the asymmetry.
 test_exit_contract_aggregation() {
     echo "=== Test 8: skip/fail aggregation over a command list ==="
     local d ran
@@ -365,8 +493,8 @@ test_exit_contract_aggregation() {
     cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
 verify_build:
   - "true"
-  - exit 2
-  - touch RAN_THIRD
+  - "exit 2"
+  - "touch RAN_THIRD"
 gate_command_exit_contract: [verify_build]
 EOF
     run_verifier "$d" "$BUILD" 80 1 "ragg1"
@@ -379,7 +507,7 @@ EOF
     d="$(new_fixture)"; write_task "$d" 81
     cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
 verify_build:
-  - exit 2
+  - "exit 2"
   - "false"
 gate_command_exit_contract: [verify_build]
 EOF
@@ -410,7 +538,9 @@ EOF
     assert_not_contains "i: not the command-driven wording" \
         "command reported skip" "$(cat "$d/aitasks/t83_x.md")"
 
-    # (j) BLOCK-list opt-in form (items keep their quotes -> normalization)
+    # (j) BLOCK-list opt-in form. Pre-t1609 the items arrived still quoted and
+    # run_command_gate re-stripped them itself; the reader does it now, so this
+    # case is what keeps that removal honest.
     d="$(new_fixture)"; write_task "$d" 84
     cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
 verify_build: "exit 2"
@@ -566,6 +696,9 @@ test_status_exitcode_agreement() {
 test_each_verifier
 test_config_value_forms
 test_command_list
+test_block_list_quoted_commands
+test_malformed_command_is_fail
+test_null_item_list_skips
 test_sidecar_capture
 test_orchestrator_integration
 test_seam_primitive

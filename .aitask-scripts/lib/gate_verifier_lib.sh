@@ -45,7 +45,10 @@ _gate_config_values() {
     if [[ ${#raw[@]} -eq 0 ]]; then
         local scalar
         scalar="$(read_yaml_field "$config" "$key" 2>/dev/null || true)"
-        # strip one layer of surrounding single/double quotes
+        # Strip one layer of surrounding single/double quotes. This is NOT the
+        # dead twin of the list-side strip t1609 removed below: read_yaml_field
+        # only trims whitespace, it never unquotes, so the scalar path still
+        # needs its own. A cleanup pass must not delete both.
         if [[ "$scalar" == \"*\" || "$scalar" == \'*\' ]]; then
             scalar="${scalar:1:${#scalar}-2}"
         fi
@@ -124,9 +127,11 @@ run_command_gate() {
     # verifier's own key -- so any of the three verifiers reports a typo.
     local exit_contract=0 k unknown_keys=""
     while IFS= read -r k; do
-        # block-list items keep their quotes (read_yaml_list strips them only on
-        # the inline [a, b] form), so normalize before comparing
-        if [[ "$k" == \"*\" || "$k" == \'*\' ]]; then k="${k:1:${#k}-2}"; fi
+        # No re-stripping here: read_yaml_list unquotes both list forms itself
+        # since t1609 (_yaml_norm_list_item), and the scalar fallback in
+        # _gate_config_values above unquotes its own value. Test (j) in
+        # tests/test_gate_verifiers.sh drives the quoted BLOCK form and is what
+        # keeps that true.
         if [[ " $GATE_COMMAND_KEYS " != *" $k "* ]]; then
             unknown_keys="${unknown_keys:+$unknown_keys,}$k"
             continue
@@ -150,6 +155,23 @@ run_command_gate() {
         local c rc skipped_cmd=""
         for c in "${cmds[@]}"; do
             printf '$ %s\n' "$c" >> "$log"
+            # A command that cannot be PARSED never ran, so it must never be
+            # able to satisfy this gate (t1609). bash exits 2 on a syntax
+            # error, and 2 is GATE_COMMAND_SKIP_EXIT -- so under an opted-in
+            # gate_command_exit_contract an unparseable command used to be
+            # recorded as a skip, which can release a blocks_dependents edge
+            # for work that never happened. `bash -n` separates the two: it
+            # rejects `echo "a` and `for x in`, and accepts everything that
+            # merely fails at runtime (`pytest -k` -> 127, `[ -f x ] && make`
+            # -> 1), which stay ordinary fails.
+            #
+            # SKIP_EXIT keeps its real meaning here: "the command ran and
+            # reported it did not do the work", never "it would not parse".
+            if ! bash -n -c "$c" 2>>"$log"; then
+                status=fail; code=1
+                result="malformed ${config_key} command (cannot parse): ${c}"
+                break
+            fi
             rc=0
             bash -c "$c" >> "$log" 2>&1 || rc=$?
             if [[ $rc -eq 0 ]]; then

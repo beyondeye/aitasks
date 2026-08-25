@@ -75,6 +75,11 @@ codeagent_coauthor_domain: aitasks.io
 #   - Single string: one command
 #   - List of strings: run each sequentially, stop on first failure
 #
+# An INLINE-LIST ITEM containing a comma must use the block ("- ...") form
+# instead: the inline [a, b] form splits on every comma, including one inside
+# quotes. A single scalar command is unaffected -- "pytest -k 'a,b'" is read
+# whole.
+#
 # If the build fails due to this task's changes, the agent automatically
 # goes back to fix and re-runs. Pre-existing failures are logged and skipped.
 #
@@ -116,6 +121,11 @@ verify_build:
 # Accepts a single command string or a YAML list of commands.
 # Leave blank to let aitask-qa auto-detect tests from project structure.
 #
+# An INLINE-LIST ITEM containing a comma must use the block ("- ...") form
+# instead: the inline [a, b] form splits on every comma, including one inside
+# quotes. A single scalar command is unaffected -- "pytest -k 'a,b'" is read
+# whole.
+#
 # Examples by project type:
 #
 #   # Python:
@@ -147,6 +157,11 @@ test_command:
 # Used by /aitask-qa skill to run linting on changed files.
 # Accepts a single command string or a YAML list of commands.
 # Leave blank to skip linting or let aitask-qa auto-detect.
+#
+# An INLINE-LIST ITEM containing a comma must use the block ("- ...") form
+# instead: the inline [a, b] form splits on every comma, including one inside
+# quotes. A single scalar command is unaffected -- "pytest -k 'a,b'" is read
+# whole.
 #
 # Examples by project type:
 #
@@ -188,6 +203,12 @@ lint_command:
 #                       releases dependents, stays distinct from pass in the
 #                       ledger history)
 #     anything else -> fail
+#
+# One exception, and it is not an opt-out: a command that cannot be PARSED
+# never ran, so it is always recorded as a FAIL, never a skip — even with the
+# key listed here. bash exits 2 on a syntax error, and letting that count as
+# "evaluated, not applicable" would release dependents for work that never
+# happened. exit 2 means the command RAN and reported it did not do the work.
 #
 # Only the documented skip code is a skip: an unexpected status can never be
 # laundered into one.

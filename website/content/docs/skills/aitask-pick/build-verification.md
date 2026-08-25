@@ -21,6 +21,11 @@ verify_build:
   - "npm test"
 ```
 
+An **inline-list item** containing a comma must use the block (`- …`) form
+instead: the inline `[a, b]` form splits on every comma, including one inside
+quotes. A single scalar command is unaffected —
+`test_command: "pytest -k 'a,b'"` is read whole.
+
 If `verify_build` is not set (or the file doesn't exist), the step is skipped entirely.
 
 ## How It Works
@@ -63,6 +68,11 @@ test_command:
   - "pytest tests/"
   - "npm test"
 ```
+
+An **inline-list item** containing a comma must use the block (`- …`) form
+instead: the inline `[a, b]` form splits on every comma, including one inside
+quotes. A single scalar command is unaffected —
+`test_command: "pytest -k 'a,b'"` is read whole.
 
 These are distinct from `verify_build`:
 - **`verify_build`** runs automatically after implementation (Step 9 of `/aitask-pick`) to catch build regressions

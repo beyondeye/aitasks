@@ -232,6 +232,11 @@ assert_eq "field-scoping: artifacts records carry no attachment keys" "0" "$art_
 # regex capture the loop already computes. Both must accept the same line set
 # and produce byte-identical values, including the terminator case (`-a` is not
 # a list item, so it ends the list).
+#
+# t1609 repointed ONE value here on purpose: `  - d  ` now yields `d`, because
+# the shared _yaml_norm_list_item trims trailing whitespace (the inline branch
+# always did, so this is what puts the two forms in parity). Everything else --
+# multi-space, the two empty items, the tab, and `- - nested` -- is unchanged.
 
 printf '%s\n' \
     '---' \
@@ -247,9 +252,14 @@ printf '%s\n' \
     '---' > "$TMP/block_shapes.md"
 
 blk_out="$(read_yaml_list "$TMP/block_shapes.md" blk)"
-expected_blk="$(printf 'a\nb\n\n\nd  \ne\n- nested')"
-assert_eq "block shapes: multi-space, empty, trailing-ws, tab and nested items" \
+expected_blk="$(printf 'a\nb\n\n\nd\ne\n- nested')"   # t1609: `d  ` -> `d`
+assert_eq "block shapes: multi-space, empty, trimmed-ws, tab and nested items" \
     "$expected_blk" "$blk_out"
+# Item COUNT, asserted separately: the two empty items are the easiest thing to
+# drop by accident when touching the block branch, and a reflowed
+# expected-string compare would hide it inside the assertion above.
+assert_eq "block shapes: all 7 items are emitted (the 2 empty ones included)" \
+    "7" "$(read_yaml_list "$TMP/block_shapes.md" blk | wc -l | tr -d '[:space:]')"
 
 printf '%s\n' '---' 'blk:' '  - a' '  -notanitem' '  - c' '---' \
     > "$TMP/block_terminator.md"
@@ -261,6 +271,12 @@ assert_eq "block shapes: '-a' (no space) is not a list item and ends the list" \
 #   echo | tr -d "[]'\"" | tr ',' '\n' | sed | sed | grep -v '^$'
 # is replaced by a pure-bash loop. Each of these inputs must round-trip
 # identically through the replacement.
+#
+# t1609 partially retires that "round-trip identically" claim: the pipeline's
+# GLOBAL quote/bracket delete was itself the bug, so the two rows it affected
+# (inner brackets, apostrophe) are repointed below and flagged inline. The
+# other 14 rows still pin the t1444 rewrite exactly as written -- in particular
+# the quoted-item rows are the positive control for t1609's single-pair rule.
 
 inline_case() {
     # $1 = description, $2 = raw inline value, $3 = expected newline-joined
@@ -280,10 +296,202 @@ inline_case "trailing comma"           '[a, b,]'                  "$(printf 'a\n
 inline_case "leading comma"            '[,a]'                     "a"
 inline_case "task ids, ragged spacing" '[t900_1, t900_2,   t900_3]' "$(printf 't900_1\nt900_2\nt900_3')"
 inline_case "items containing spaces"  '[foo bar, baz qux]'       "$(printf 'foo bar\nbaz qux')"
-inline_case "inner brackets stripped"  '[a[1], b]'                "$(printf 'a1\nb')"
-inline_case "apostrophe in item"       "[it's, fine]"             "$(printf 'its\nfine')"
+# t1609 repointed these two: the inline branch no longer deletes every bracket
+# and quote in the value, only the wrapping `[`/`]` plus one surrounding quote
+# pair per item. `a[1]` and `it's` are now byte-identical -- which is both the
+# t1609 rejection probe's contract and what puts the inline form in parity with
+# the block form.
+inline_case "inner brackets preserved (paired-quote strip only)" \
+                                       '[a[1], b]'                "$(printf 'a[1]\nb')"
+inline_case "apostrophe preserved"     "[it's, fine]"             "$(printf 'it'"'"'s\nfine')"
 inline_case "heavily padded items"     '[  spaced  ,  out  ]'     "$(printf 'spaced\nout')"
 inline_case "single item"              '[single]'                 "single"
+
+# --- t1609: one quoting rule, shared by both list forms ---------------------
+# The two branches used to disagree: the inline form deleted EVERY [ ] ' " in
+# the whole value, the block form emitted its item verbatim. So the block form
+# documented in seed/project_config.yaml -- `verify_build:` / `- "cmake -B
+# build"` -- reached `bash -c` still quoted and died with 127, while the same
+# list written inline worked. Both now route through _yaml_norm_list_item:
+# trim, then strip ONE surrounding matching quote pair.
+#
+# These rows pin THIS PARSER, not PyYAML conformance. `it's` and `a[1]` come
+# back byte-identical on purpose -- do not "fix" them toward YAML semantics.
+#
+# Every row is a TRIPLE: inline == EXPECTED *and* block == EXPECTED. Asserting
+# only `inline == block` would be vacuous -- making the block branch delete
+# quotes globally too satisfies parity while mangling `a[1]` into `a1`.
+
+# --- t1609 direct unit layer -------------------------------------------------
+# Exercised BEFORE the file-level rows below on purpose: a file-level row
+# conflates three layers (the value-capture loop, the `^\[.*\]$` guard, and the
+# normalizer), so when one goes red you cannot tell which moved. These call the
+# normalizer directly.
+
+# norm_case <desc> <raw-item> <expected>
+norm_case() {
+    local _yaml_item=""
+    _yaml_norm_list_item "$2"
+    assert_eq "norm: $1" "$3" "$_yaml_item"
+}
+
+assert_eq "norm: _yaml_norm_list_item is defined" \
+    "0" "$(declare -F _yaml_norm_list_item >/dev/null; echo $?)"
+
+norm_case "bare value untouched"            'risk_evaluated'  'risk_evaluated'
+norm_case "double-quoted pair stripped"     '"cmake -B build"' 'cmake -B build'
+norm_case "single-quoted pair stripped"     "'cmake -B build'" 'cmake -B build'
+norm_case "outer whitespace trimmed"        '   padded   '     'padded'
+norm_case "trim runs BEFORE unquote"        '  "quoted"  '     'quoted'
+norm_case "quotes preserve inner whitespace" '"  keep  "'      '  keep  '
+norm_case "inner unpaired quote survives"   'echo "hi"'        'echo "hi"'
+norm_case "apostrophe survives"             "it's"             "it's"
+norm_case "inner brackets survive"          'a[1]'             'a[1]'
+norm_case "ONE pair only, never a loop"     '""""'             '""'
+norm_case "lone double quote survives"      '"'                '"'
+norm_case "lone single quote survives"      "'"                "'"
+norm_case "empty pair becomes empty"        '""'               ''
+norm_case "mismatched pair untouched"       "\"a'"             "\"a'"
+norm_case "empty input stays empty"         ''                 ''
+norm_case "CR is trimmed before unquoting"  "$(printf '"cmd"\r')" 'cmd'
+norm_case "a nested-list item is not a quote pair" '- nested'   '- nested'
+
+# The helper must ALWAYS return 0 — the caller's `_yaml_emit … || break`
+# depends on it, and a trailing `case` with no matching arm would not.
+_yaml_norm_list_item 'no-quotes-here'; norm_rc=$?
+assert_eq "norm: returns 0 on the no-match path (keeps '|| break' meaningful)" \
+    "0" "$norm_rc"
+
+# The bracket peel is `${value#\[}` + `${value%\]}`, NOT a global delete: an
+# inner bracket must survive the peel and reach the normalizer intact.
+peel_case() {   # peel_case <desc> <raw-flow-value> <expected-joined>
+    printf '%s\n' '---' "il: $2" '---' > "$TMP/peel.md"
+    assert_eq "peel: $1" "$3" "$(read_yaml_list "$TMP/peel.md" il | paste -sd'|' -)"
+}
+peel_case "wrapping brackets removed"    '[a, b]'      'a|b'
+peel_case "inner brackets survive"       '[a[1], b]'   'a[1]|b'
+peel_case "empty list yields nothing"    '[]'          ''
+peel_case "whitespace-only list is empty" '[ ]'        ''
+
+# parity_case <desc> <raw-item> <expected>
+parity_case() {
+    local desc="$1" item="$2" want="$3"
+    printf '%s\n' '---' "il: [$item]" 'status: Ready' '---' > "$TMP/par_inline.md"
+    printf '%s\n' '---' 'blk:' "  - $item" 'status: Ready' '---' > "$TMP/par_block.md"
+    local got_i got_b
+    got_i="$(read_yaml_list "$TMP/par_inline.md" il)"
+    got_b="$(read_yaml_list "$TMP/par_block.md" blk)"
+    assert_eq "parity/inline: $desc" "$want" "$got_i"
+    assert_eq "parity/block:  $desc" "$want" "$got_b"
+}
+
+parity_case "bare identifier"          'risk_evaluated'      'risk_evaluated'
+parity_case "multi-word unquoted"      'cmake -B build'      'cmake -B build'
+parity_case "double-quoted multi-word" '"cmake -B build"'    'cmake -B build'
+parity_case "single-quoted multi-word" "'cmake -B build'"    'cmake -B build'
+parity_case "PyYAML-quoted command"    "'[ -f Makefile ] && make'" '[ -f Makefile ] && make'
+parity_case "inner unpaired quote"     'echo "hi"'           'echo "hi"'
+parity_case "apostrophe"               "it's"                "it's"
+parity_case "inner brackets"           'a[1]'                'a[1]'
+parity_case "leading/trailing space"   '   padded   '        'padded'
+parity_case "quoted, padded outside"   '  "cmake -B build"  ' 'cmake -B build'
+parity_case "quotes preserve inner ws" '"  keep me  "'       '  keep me  '
+parity_case "four quotes, one layer"   '""""'                '""'
+parity_case "lone double quote"        '"'                   '"'
+parity_case "lone single quote"        "'"                   "'"
+parity_case "empty quoted pair"        '""'                  ''
+parity_case "empty single pair"        "''"                  ''
+
+# CRLF: a Windows-authored config. [[:space:]] includes \r, and the trim runs
+# BEFORE the unquote -- reverse that order and this row silently breaks.
+printf 'il: ["cmd"]\r\nstatus: Ready\r\n' > "$TMP/crlf_inline.md"
+printf 'blk:\r\n  - "cmd"\r\nstatus: Ready\r\n' > "$TMP/crlf_block.md"
+assert_eq "parity/inline: CRLF-authored quoted item" \
+    "cmd" "$(read_yaml_list "$TMP/crlf_inline.md" il)"
+assert_eq "parity/block:  CRLF-authored quoted item" \
+    "cmd" "$(read_yaml_list "$TMP/crlf_block.md" blk)"
+
+# --- t1609 rejection probe: over-eager stripping -----------------------------
+# NOTE: this probe PASSES against the pre-t1609 block branch -- it is a guard
+# against the WRONG FIX, not a reproducer of the bug. A .strip("'\"")-style
+# implementation (one that peels any run of quote chars off either end, as the
+# Python twin gate_ledger._read_frontmatter_list_from_text does) turns
+# `echo "hi"` into `echo "hi` -- an unbalanced command that dies with a bash
+# syntax error. Keep it byte-identical.
+printf '%s\n' '---' 'blk:' '  - echo "hi"' '  - a[1]' "  - it's" '---' \
+    > "$TMP/reject_probe.md"
+assert_eq "rejection probe: unpaired/inner quotes and brackets are NOT stripped" \
+    "$(printf 'echo "hi"\na[1]\nit'"'"'s')" \
+    "$(read_yaml_list "$TMP/reject_probe.md" blk)"
+
+# --- t1609 guard: trailing whitespace on an inline flow line ----------------
+# `il: [a, b]   ` failed the ^\[.*\]$ guard, fell through to the block branch,
+# matched no `- ` items and returned NOTHING. The Python twin's regex ends
+# `\]\s*$` and tolerates it, so this was a silent bash-vs-Python divergence on
+# the active_gates_digest path.
+printf '%s\n' '---' 'il: [a, b]   ' 'status: Ready' '---' > "$TMP/trailing_ws.md"
+assert_eq "inline guard: trailing whitespace after ] still yields both items" \
+    "$(printf 'a\nb')" "$(read_yaml_list "$TMP/trailing_ws.md" il)"
+
+# --- t1609 accepted residuals (pinned, not silently left) -------------------
+# Each of these is a known limit. They are pinned so that a later "improvement"
+# has to change a test on purpose rather than drift.
+res_block() {   # res_block <desc> <raw-item> <expected>
+    printf '%s\n' '---' 'blk:' "  - $2" '---' > "$TMP/res.md"
+    assert_eq "residual: $1" "$3" "$(read_yaml_list "$TMP/res.md" blk)"
+}
+res_block "escaped inner quotes are not unescaped" '"say \"hi\""' 'say \"hi\"'
+res_block "YAML single-quote doubling is not undone" "'it''s'" "it''s"
+res_block "two adjacent quoted words (invalid YAML) are not repaired" \
+          '"a" "b"' 'a" "b'
+res_block "an inline # is NOT treated as a comment (keeps both forms in parity)" \
+          'make  # build' 'make  # build'
+
+# The inline flow form splits on EVERY comma, including one inside quotes --
+# documented in seed/project_config.yaml as "use the block form instead".
+# Quote-aware splitting would need a per-character bash loop on the framework's
+# hottest reader; t1444 removed exactly those forks.
+printf '%s\n' '---' 'il: ["pytest -k a,b"]' '---' > "$TMP/res_comma_inline.md"
+assert_eq "residual: inline flow form splits inside quotes" \
+    "$(printf '"pytest -k a\nb"')" "$(read_yaml_list "$TMP/res_comma_inline.md" il)"
+printf '%s\n' '---' 'blk:' '  - "pytest -k a,b"' '---' > "$TMP/res_comma_block.md"
+assert_eq "residual: the block form has no such limit (the documented answer)" \
+    'pytest -k a,b' "$(read_yaml_list "$TMP/res_comma_block.md" blk)"
+
+# Inline drops empty items, block emits them. Real YAML yields a null for both;
+# that is null-handling, not quoting, and is out of scope here.
+printf '%s\n' '---' 'il: [a,,b]' '---' > "$TMP/res_empty_inline.md"
+assert_eq "residual: inline drops empty items" \
+    "$(printf 'a\nb')" "$(read_yaml_list "$TMP/res_empty_inline.md" il)"
+printf '%s\n' '---' 'blk:' '  - a' '  - ' '  - b' '---' > "$TMP/res_empty_block.md"
+assert_eq "residual: block emits empty items" \
+    "$(printf 'a\n\nb')" "$(read_yaml_list "$TMP/res_empty_block.md" blk)"
+
+# --- t1609 cross-language pin ------------------------------------------------
+# aitask_gate.sh's _yaml_list_csv feeds active_gates_digest, whose halves must
+# match gate_ledger._read_frontmatter_list_from_text byte-for-byte. Pin the
+# agreement on the identifier-shaped values those fields actually hold, in BOTH
+# list forms and quoted as well as bare.
+if command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' '---' 'gates: ["risk_evaluated", '"'"'docs_updated'"'"']' '---' \
+        > "$TMP/xlang_inline.md"
+    printf '%s\n' '---' 'gates:' '  - "risk_evaluated"' "  - 'docs_updated'" '---' \
+        > "$TMP/xlang_block.md"
+    for shape in inline block; do
+        bash_out="$(read_yaml_list "$TMP/xlang_$shape.md" gates | paste -sd, -)"
+        py_out="$(python3 -c '
+import sys
+sys.path.insert(0, ".aitask-scripts/lib")
+from gate_ledger import _read_frontmatter_list_from_text as f
+print(",".join(f(open(sys.argv[1], encoding="utf-8").read(), "gates")))
+' "$TMP/xlang_$shape.md" 2>/dev/null)"
+        assert_eq "cross-language: bash == python for a quoted $shape gate list" \
+            "risk_evaluated,docs_updated" "$bash_out"
+        assert_eq "cross-language: python agrees ($shape)" "$bash_out" "$py_out"
+    done
+else
+    echo "SKIP: python3 absent - cross-language digest pin not exercised"
+fi
 
 # --- t1444 SIGPIPE harness --------------------------------------------------
 # Skips (never fails) when python3 is absent: it is the only way to hand a child

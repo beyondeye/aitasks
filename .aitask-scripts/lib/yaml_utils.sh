@@ -239,9 +239,55 @@ read_yaml_list() {
     _read_yaml_list_impl "$@"
 }
 
+# _yaml_norm_list_item <raw-item>   ->   sets _yaml_item
+# The single definition of "what one list item resolves to", shared by BOTH
+# branches of _read_yaml_list_impl so the inline and block forms cannot
+# disagree again (t1609). Trims surrounding whitespace, THEN strips ONE
+# surrounding matching quote pair.
+#
+# The trim-before-unquote order is load-bearing: a CRLF-authored
+# `- "cmd"<CR>` only unquotes because [[:space:]] eats the CR first. (NBSP is
+# not [[:space:]]; only ASCII blanks/CR/LF/TAB trim.)
+#
+# Inner and unpaired quotes survive by design -- `echo "hi"`, `it's` and
+# `a[1]` come back byte-identical. ONE pair only, never a loop: `""""` -> `""`.
+# A loop here would reproduce the over-eager stripping this function exists to
+# remove, and would mangle `echo "hi"` into `echo "hi` the way the Python twin
+# gate_ledger._read_frontmatter_list_from_text still does.
+#
+# Does NOT undo YAML escaping inside quotes: `"say \"hi\""` -> `say \"hi\"`,
+# `'it''s'` -> `it''s` -- the same out-of-scope limit _yaml_scalar_value
+# documents below.
+#
+# The `-ge 2` guard is redundant against the globs as written (each needs two
+# literal quote chars, so a lone `"` never matches and is returned intact) and
+# is kept deliberately: a lone quote IS reachable -- `[",", x]` peels to the
+# items `"`, `"`, `x` -- and the obvious refactor of this `case` into
+# `[[ "$v" == \"* && "$v" == *\" ]]` DOES match one, whereupon
+# `${v:1:${#v}-2}` aborts the reader with `substring expression < 0`.
+#
+# Returns through a variable rather than stdout: a `$(...)` call site would
+# fork once per list item, re-introducing exactly the per-item forks t1444
+# removed from this path (closed-pipe write contract at the top of this file).
+# Always returns 0 -- the last statement is an assignment, never the `case` --
+# so the `|| break` on the caller's following _yaml_emit stays meaningful.
+_yaml_norm_list_item() {
+    local v="$1"
+    v="${v#"${v%%[![:space:]]*}"}"   # leading whitespace
+    v="${v%"${v##*[![:space:]]}"}"   # trailing whitespace
+    case "$v" in
+        '"'*'"') [[ ${#v} -ge 2 ]] && v="${v:1:${#v}-2}" ;;
+        "'"*"'") [[ ${#v} -ge 2 ]] && v="${v:1:${#v}-2}" ;;
+    esac
+    _yaml_item="$v"
+}
+
 _read_yaml_list_impl() {
     local file="$1"
     local field="$2"
+    # Function-scope, NOT inside the inline `if` below: the block branch
+    # assigns it too, and a declaration in the `if` would leak a global.
+    local _yaml_item=""
 
     # Capture the field's value, joining a flow list wrapped across multiple
     # physical lines (PyYAML wraps past ~80 columns) onto a single line.
@@ -262,8 +308,14 @@ _read_yaml_list_impl() {
     done < "$file"
     [[ "$capturing" == false ]] && return 0
 
-    # Strip leading whitespace left by the "${field}:" prefix removal.
+    # Strip whitespace left by the "${field}:" prefix removal, and by the
+    # line itself. Trailing matters (t1609): the flow-list guard below anchors
+    # on `\]$`, so `field: [a, b]   ` used to fail it, fall through to the
+    # block branch, match no `- ` items and return NOTHING. The Python twin's
+    # regex ends `\]\s*$` and tolerates it, which made that a silent
+    # bash-vs-Python divergence on the active_gates_digest path.
     value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
 
     # Inline format: [a, b, c]
     if [[ "$value" =~ ^\[.*\]$ ]]; then
@@ -274,14 +326,25 @@ _read_yaml_list_impl() {
         # was no single site to guard — the closed-pipe stop (see the write
         # contract at the top of this file) is only expressible without the
         # forks. Also saves five forks on the most common list-read path.
-        local _clean="${value//[\[\]\'\"]/}" _item
+        #
+        # Peel the WRAPPING brackets only (t1609). The former
+        # `${value//[\[\]\'\"]/}` deleted every bracket and quote anywhere in
+        # the value, which mangled `a[1]` into `a1` and `it's` into `its` and
+        # made this branch disagree with the block branch below. Per-item quote
+        # handling now lives in _yaml_norm_list_item, shared by both.
+        #
+        # Deliberately `#\[` / `%\]` rather than `${value:1:${#value}-2}`: the
+        # arithmetic form is silently coupled to the guard's exact anchoring
+        # and would eat a space instead of the `]` if that guard is ever
+        # relaxed, mangling the last item rather than erroring.
+        local _clean="${value#\[}" _item
+        _clean="${_clean%\]}"
         while [[ -n "$_clean" ]]; do
             _item="${_clean%%,*}"
             if [[ "$_item" == "$_clean" ]]; then _clean=""; else _clean="${_clean#*,}"; fi
-            _item="${_item#"${_item%%[![:space:]]*}"}"   # was sed 's/^[[:space:]]*//'
-            _item="${_item%"${_item##*[![:space:]]}"}"   # was sed 's/[[:space:]]*$//'
-            [[ -n "$_item" ]] || continue                # was grep -v '^$'
-            _yaml_emit "$_item" || return 0
+            _yaml_norm_list_item "$_item"                # trim + one quote pair
+            [[ -n "$_yaml_item" ]] || continue           # was grep -v '^$'
+            _yaml_emit "$_yaml_item" || return 0
         done
         return 0
     fi
@@ -301,7 +364,15 @@ _read_yaml_list_impl() {
                 # "couldn't flush stdout" error could not be suppressed from
                 # inside this loop. Closed-pipe stop: see the write contract at
                 # the top of this file. Also saves a fork per list item.
-                _yaml_emit "${BASH_REMATCH[1]}" || break
+                #
+                # The capture used to be emitted VERBATIM, so `- "make -j4"`
+                # reached `bash -c` still quoted and died with 127 while the
+                # same list written inline worked (t1609). It now goes through
+                # the same normalizer as the inline branch. BASH_REMATCH is
+                # expanded here, at the call, and never re-read afterwards —
+                # the result comes back in _yaml_item.
+                _yaml_norm_list_item "${BASH_REMATCH[1]}"
+                _yaml_emit "$_yaml_item" || break
             else
                 break
             fi

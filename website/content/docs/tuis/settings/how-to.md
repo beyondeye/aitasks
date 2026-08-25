@@ -69,7 +69,12 @@ The Models tab is read-only. To update model definitions, edit the `aitasks/meta
 3. Press **Enter** to open the editor
 4. Enter the new value:
    - For `codeagent_coauthor_domain`, enter a domain such as `aitasks.io`
-   - For `verify_build`, enter either a single command or YAML in flow style such as `["npm run build", "npm test"]`
+   - For `verify_build`, enter either a single command, a flow-style list such
+     as `["npm run build", "npm test"]`, or a block list (`- …` on its own
+     lines) — both list forms behave identically. An **inline-list item**
+     containing a comma must use the block form instead: the inline `[a, b]`
+     form splits on every comma, including one inside quotes. A single scalar
+     command is unaffected — `"pytest -k 'a,b'"` is read whole.
 5. Click **Save Project Config** to persist the YAML file
 
 > **Note:** Project config values are shared and git-tracked. Changing them affects the whole team.
