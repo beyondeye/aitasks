@@ -750,3 +750,77 @@ before reading a worktree suite run as a regression.
 
 - **Verification:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; both fixes
   carry negative controls that fail exactly their named tests.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three deliverables landed, plus the four inline
+  risk mitigations, across five commits on
+  `aitask/t1606_stop_spurious_review_loop_auto_disarm` (9 files, +2324/-52).
+  - *Deliverable 1* — 12 `DISARM_*`/`HOLD_*` reason codes in `review_loop.py`
+    with `LOOP_REASON_MESSAGES` as the single source of prose;
+    `last_disarm_reason` on the controller; a durable per-session JSONL store
+    (`monitor/review_loop_log.py`) at `~/.config/aitasks/review_loop_events/`
+    with a line-tolerant reader exposed as `ait minimonitor --loop-log`.
+  - *Deliverable 2* — the ambiguous pre-Enter verdicts (`DIALOG`, `UNKNOWN`)
+    and a superseded delivery now abort to a **visible** hold instead of
+    disarming; `READY`/`WORKING` stay fatal.
+  - *Deliverable 3* — the leftover-text message is confined to the two
+    conditions where it is true.
+  - The three auto-disarm teardowns became one.
+
+- **Deviations from plan:**
+  - **The third teardown was dead code and was deleted, not consolidated**
+    (user-approved mid-implementation). `can_consume` forces both presence
+    arguments `True` into the replay `tick()`, while its only
+    `ACTION_AUTO_DISARM` producer needs one `False`. Consequently the planned
+    "four tick-originated combinations" is **two**, and the missing
+    settle-latch clear was a divergence in one branch, not two.
+  - The reader (`Phase 1e`) shipped in the Phase 1–3 commit, with the
+    post-phase commit carrying its proof — as the revised plan specifies.
+
+- **Issues encountered:**
+  - **The concurrency proof was vacuous on first writing.** It wrote its
+    records as fast as it could, finished in ~20 ms, and the pruner never
+    overlapped it — so it passed without a race occurring. Rebuilt to spread
+    the appends over ~1.2 s with two non-vacuity controls, then its
+    discriminating power was *measured* rather than asserted: against a
+    faithful shared-ring implementation the same workload loses **119 of 120
+    records**, versus 0 for the shipped design.
+  - **That test's own instrumentation then raced**, reporting the pruner's
+    pass count via `write_text` (which truncates), so the test's read could
+    catch it empty and die on `int('')`. Only reproducible under CPU load.
+    Now an atomic append.
+  - Two review rounds surfaced four further defects — see *Post-Review
+    Changes* — including one blocking (`_loop_hold` discarding
+    `record_event`'s failure) and one contract violation (identities leaking
+    across an `L`-`L` cycle).
+  - Test fixtures in three places construct `MiniMonitorApp` via `__new__` and
+    hand-install loop state, so each new attribute had to be added to all of
+    them.
+
+- **Key decisions:**
+  - Reason codes live in `review_loop.py` because they are pure data, which
+    preserves that module's no-I/O contract and keeps the vocabulary
+    unit-testable.
+  - `arm()` is the **single** clearing point for `last_disarm_reason`;
+    `disarm()` must not clear it, because the teardown path calls `disarm()`
+    twice before anything records the code.
+  - Storage is per-session and append-only with **no rewrite of the active
+    file**, so the append/trim loss race is removed by construction rather
+    than mitigated. Locking was rejected: every mutex in this framework is a
+    shell script, so it would mean a subprocess on the Textual event loop per
+    disarm.
+  - Only the *ambiguous* verdicts abort. `READY` collapses to ready-`True` and
+    `abort_fire` stamps no cooldown, so aborting there would re-permit on the
+    next tick and re-write the prompt — an unbounded key-injection spin.
+
+- **Upstream defects identified:**
+  - `.gitignore:1 — aiwork/ is not ignored, although the framework creates
+    task worktrees there (task-workflow Step 7) and the sibling AgentCrew
+    worktree dir .aitask-crews/ IS ignored; every task worktree therefore
+    shows as untracked and is exposed to a broad 'git add -A'`
+  - `.aitask-scripts/aitask_init_data.sh:1 — the aitasks/ and aiplans/ data
+    symlinks are created only for the primary checkout, so a task worktree
+    created by Step 7 has none; four unrelated suite modules then fail there
+    with FileNotFoundError on aitasks/metadata/*.json, which reads as a
+    regression rather than a missing-fixture problem`
