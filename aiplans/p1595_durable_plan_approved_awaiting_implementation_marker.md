@@ -338,6 +338,45 @@ complete.
 - timing: post-phase | name: pin_writer_call_site_fanout | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: positional-35 fan-out across `write_task_file` call sites | desc: round-trip case driving the parent child-completion write path, asserting the parent's marker survives a child `--status Done` update
 - timing: post-phase | name: pin_marker_lifecycle_contract | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: prose drift across the four lifecycle sites / stale-marker risk | desc: executable contract test asserting each lifecycle site still carries its `--plan-approved-at` command in the rendered procedure surfaces, and that the consumption boundary holds in both directions (present in the implementation body and the cross-repo demotion, absent from the risk-mitigation "before" stop)
 
+## Post-Review Changes
+
+Round 1 — two blocking review findings, both CONFIRMED against the rendered
+surfaces, plus one further defect the second fix exposed:
+
+1. **`plan-approved-stop.md` had no mechanical branch.** It rendered both
+   commands labelled only by `# stop_reason=…` comments, so a drift-stop agent
+   could run the `deferred` command and refresh the marker on the very path that
+   established re-verification is required. Rewritten as two explicit
+   "If `stop_reason` is X, run **only** this" bullets plus a "never both" rule
+   and a stated no-third-case. Pinned by a **positional** assertion in
+   `tests/test_plan_approved_marker_contract.sh`: each reason's conditional
+   header must precede its own command and precede the other reason's header
+   (`deferred → now → drift → clear`), so rendering both commands without a
+   selecting conditional fails.
+
+2. **`planning.md`'s prompt never spelled out the recommended labels.** It said
+   "mark it as recommended" while the concrete option list still read
+   `"Use current plan"`, and the force-verify path named no label at all. The
+   prompt is now a three-row table keyed on `force_verify` / marker presence,
+   naming the exact literals `"Use current plan (Recommended)"` and
+   `"Verify plan (Recommended)"`, with explicit "only one option may carry the
+   suffix" and "force_verify outranks the marker" rules. Both literals and both
+   rules are pinned in the contract test.
+
+3. **Exposed while compressing (2): the "Clearing on replan" block lived inside
+   the interactive-only Jinja branch.** Under `fast` / `remote` the profile-driven
+   `create_new` bullet referenced a section that never rendered, and those
+   profiles carried no clear command at all. Re-homed into the profile-invariant
+   §6.0-marker section. The contract test now asserts the clear command renders
+   in **all three** profile surfaces, not just `default` — the assertion that
+   would have caught it.
+
+The compression in (2) was required rather than optional: `test_skill_render_task_workflow.sh`
+asserts the lean (`default`) render stays strictly smaller than the risk (`fast`)
+render of both `SKILL.md` and `planning.md`, and the first, verbose three-variant
+draft inverted it. The guard was preserved, not relaxed; fixing (3) moved eight
+lines out of the interactive-only branch and restored the original 15-line margin.
+
 ## Step 9 (Post-Implementation)
 
 Standard closure: cleanup, `## Final Implementation Notes`, gate run
