@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -13,7 +15,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-16 11:26
-updated_at: 2026-08-25 16:14
+updated_at: 2026-08-25 16:15
 ---
 
 Three surfaces independently resolve a task's `depends` field, with three

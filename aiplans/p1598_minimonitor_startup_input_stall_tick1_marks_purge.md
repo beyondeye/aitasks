@@ -696,3 +696,22 @@ live `sleep 120 &` holder is the sound shape.
 4. Bounded guard wait in `stale_lock_acquire`, with the adapters'
    attempts-per-second constants re-derived in the same change.
 
+
+## Final Implementation Notes
+
+### Pre-phase 1 — `characterize_lock_baseline` (captured 2026-08-25, before any edit)
+
+Verbatim summary lines from the five lock suites, on `main` at `6e91f5d28`,
+**before** `stale_lock.sh` was touched:
+
+| suite | result | exit |
+|---|---|---|
+| `tests/test_stale_lock.sh` | `Results: 79/79 passed, 0 failed` / `All tests PASSED` | 0 |
+| `tests/test_registry_lock.sh` | `Tests: 51  Passed: 51  Failed: 0` | 0 |
+| `tests/test_merge_lock_broker.sh` | `Results: 95/95 passed, 0 failed` / `All tests PASSED` | 0 |
+| `tests/test_merge_lock_concurrency.sh` | `Results: 30/30 passed, 0 failed` / `All tests PASSED` | 0 |
+| `tests/test_agent_marks_concurrency.sh` | `Results: 21/21 passed, 0 failed` / `All tests PASSED` | 0 |
+
+All green. Protocol G predicts every one of these stays green — the existing
+leaked-guard assertions use markerless, non-opted-in fixtures. Any red below is
+therefore a real signal, not an expected inversion.
