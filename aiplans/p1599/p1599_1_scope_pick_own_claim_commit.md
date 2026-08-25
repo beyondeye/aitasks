@@ -465,3 +465,105 @@ under a claim message.
 
 ### Planned mitigations
 - timing: pre-phase | name: partial_commit_worktree_semantics | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: partial commit takes worktree content, not the index entry | desc: Characterization test pinning which version of a staged-then-modified path a path-scoped commit captures. | disposition: inline (Step 1 of this plan)
+
+## Final Implementation Notes
+
+- **Actual work done:** All four plan steps landed in
+  `.aitask-scripts/aitask_pick_own.sh` (commit `e24b53170`).
+  - **Step 0** — `store_email()` now early-returns on an already-known address,
+    serializes its `echo >> ; sort -u -o` read-modify-write on
+    `ait_lock_dir emails` via `registry_lock_acquire`, re-checks membership under
+    the lock, releases on every path, and sets `EMAIL_STORED` only when it
+    actually appended. Busy mutex ⇒ skip the write and warn; the claim still
+    returns `OWNED:`. `EMAILS_LOCK_TIMEOUT` was added as a named constant
+    (default 10, matching the other `registry_lock` callers) so the busy path is
+    testable without waiting out the full budget — the `aitask_agent_marks.sh`
+    `TOGGLE_LOCK_TIMEOUT` precedent.
+  - **Step 2** — new `_commit_scoped <msg> <path>...` helper (0 = committed,
+    2 = verified nothing to commit, 1 = failed), mirroring `_attach_commit`.
+  - **Step 2a** — `commit_and_push` gives `emails.txt` its own task-agnostic
+    `ait: Record contributor email` commit and never lets it ride in a claim
+    commit; the claim commit is committed **last** so `HEAD` stays the claim.
+  - **Step 3** — the call site threads only the task file, guarded with `-f`.
+  - New `tests/test_pick_own_scoped_commit.sh`: 41 assertions, 10 cases.
+
+- **Deviations from plan:** Two, both additive.
+  1. `tests/lib/test_scaffold.sh` + the baseline list in
+     `aidocs/framework/shell_conventions.md` gained `registry_lock.sh`. Not in
+     the plan and outside this child's nominal single-file ownership, but
+     mandatory: sourcing a new lib at startup breaks every scaffolded fixture,
+     which is exactly what `shell_conventions.md` requires be fixed in the same
+     change. Without it 78 assertions across 5 existing suites fail.
+  2. `EMAILS_LOCK_TIMEOUT` as a named constant (above) — not specified.
+
+- **Issues encountered:**
+  - The startup `source lib/registry_lock.sh` broke `test_lock_force`,
+    `test_crash_recovery_pid_anchor`, `test_lock_live_holder_gate`,
+    `test_lock_reclaim`, `test_task_push` and `test_change_surface` with
+    `No such file or directory`. Fixed via the scaffold, per the documented rule.
+    All 73 scaffold-using shell suites were then run: green.
+  - Two of my own assertions used `assert_not_contains <desc> "" "$v"` to mean
+    "non-empty". An empty needle is contained in every string, so that can never
+    pass; replaced with a local `assert_non_empty` helper.
+
+- **Key decisions:**
+  - **`-o` on the commit.** Verified empirically: `git commit -o -m msg --` with
+    an empty pathspec is fatal (exit 128), whereas plain `git commit -m msg --`
+    silently commits the **whole index**. So `-o` converts the catastrophic
+    empty-array case from silent to loud, behind the explicit guard.
+  - **Partial-commit semantics (pre-phase mitigation, answered):**
+    `git commit -m <msg> -- <paths>` commits the **worktree** content of those
+    paths and **ignores their staged index entry** — a path staged as v2 then
+    modified on disk to v3 lands as v3. Afterwards that path is clean and every
+    other staged/dirty path is untouched. Recorded in the test header; the other
+    three t1599 children inherit this.
+  - **`emails.txt` is never task-attributable.** Authorship of an append is not
+    ownership of the file's snapshot: two claims of *different* tasks hold
+    *different* task locks, so both can append before either commits.
+    Path-scoping cannot fix that — only a message that stays true regardless of
+    who appended can. Hence the separate commit. Serializing the *commit* was
+    rejected (a cross-process lock across git ops on every claim buys nothing the
+    message already delivers); serializing the *write* was not optional.
+  - **No background/`wait` concurrency test.** Two real claims contend on the
+    same `.git/index.lock`, so requiring both to print `OWNED:` is flaky rather
+    than scheduling-independent. The interleaved *state* is reproduced
+    deterministically instead, plus a mutex-boundary case pinning both sides.
+  - **Executable negative control.** `install_prefix_commit_and_push` rebuilds
+    the fixture's copy of the script with the pre-fix body ahead of its single
+    trailing `main "$@"`, and the control asserts the defect **positively**.
+    Proven to discriminate: with the injection disabled, all four Test 9
+    assertions fail.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_create.sh:1128-1135` — `add_email_to_file()` writes
+    `aitasks/metadata/emails.txt` with an unlocked `echo >> ; sort -u -o`. A
+    mutex excludes only writers that honour it, so the `store_email` lock added
+    here gives **no** mutual exclusion against a concurrent `ait create`:
+    whichever `sort -o` finishes second erases the other's just-appended
+    address. Pre-existing (both writers were unlocked before this change).
+    A full sweep confirms these are the file's only two writers —
+    `aitask_lock.sh:625`, `board/aitask_board.py:197` and `lib/profile_editor.py`
+    are readers — so one call site closes the protocol. **Spawned as t1608**
+    (`depends: [t1599_1]`), which must also verify that `registry_lock_acquire`
+    and `stale_lock_acquire` actually exclude each other on one lock dir rather
+    than assuming the adapter pair interoperates.
+
+- **Notes for sibling tasks (t1599_2 / t1599_3 / t1599_4):**
+  - **Reuse `_commit_scoped`'s shape, including the two non-obvious parts:**
+    the empty-pathspec guard (`git commit --` with no paths commits the whole
+    index) and capturing the `git status` exit separately (a failing status with
+    empty stdout must read as *unverified*, never as *clean*).
+  - **`-f`, not `-n`, when guarding a `resolve_task_file` result** — it also
+    searches archived dirs and `old.tar.zst` bundles, so it can return a path
+    that is not on disk.
+  - **Ask "who owns this file?" before path-scoping it.** Scoping fixes
+    misattribution only for **task-owned** paths. A shared global
+    (`aitasks/metadata/*`) needs a task-agnostic commit instead, and if it is
+    read-modify-written it needs a mutex that **all** its writers honour.
+  - **Adding a startup `source` obliges you to update
+    `setup_fake_aitask_repo()` and the baseline list in
+    `shell_conventions.md`** in the same commit.
+  - **Production evidence the approach works:** while this task was in flight a
+    concurrent session claimed t1609 and t1610 using the fixed script, with a
+    foreign dirty `aiplans/p1527_*.md` in the tree. Both claim commits contain
+    exactly one file — their own task. Pre-fix both would have swallowed it.
