@@ -860,3 +860,43 @@ its 10s deadline. Negative controls: a *fresh* recordless guard is still
 respected; an *ancient* guard whose record names a *live* holder is never
 displaced, which is the `git reset --hard` case; and without the opt-in argument
 an ancient guard is left alone.
+
+### Review round 3 — the publish window (blocking, CONFIRMED)
+
+`41a469342` — `bug: Close the .gc publish window that allowed two guard holders (t1598)`
+
+**The concern was valid and I reproduced it before fixing.** `mkdir "$gc"` alone
+is not the whole claim: the guard is observably EMPTY between that call and the
+record write. A process paused there past the markerless window has its guard
+reclaimed, and on resume its `mkdir "$gc/$mark"` lands inside the reclaimer's
+instance — two processes, both holding, both entering the protected mutation.
+Measured: two records in one guard, both `_stale_lock_gc_take` calls returning 0.
+
+**This is the same error the design was built to avoid**, one level down. Age
+reclaim was rejected as probabilistic; the publish window was then argued safe
+because it is "sub-millisecond" — itself a probabilistic assumption, and one a
+`SIGSTOP` defeats outright. `_stale_lock_gc_probe`'s own comment made exactly
+that argument. A rejection rationale has to bind the fallback it creates; this
+one did not, for the second time in this task.
+
+**Fix — sole-record read-back**, mirroring the pid/owner read-back the lock dir
+already performs. After writing its record a contender must find it ALONE; a
+loser removes only its own record (instance-keyed) and the trailing
+`rmdir "$gc"` succeeds only on an empty guard.
+
+The window is *closed*, not narrowed, and the argument is not probabilistic:
+every contender creates before reading, so `mkdir < read` for both. If A's read
+saw only its own record then B's mkdir came after A's read; if B's read saw only
+its own then A's mkdir came after B's read — together
+`A.mkdir > B.read > B.mkdir > A.read > A.mkdir`, a contradiction. At most one
+contender can ever see itself alone, under any interleaving.
+
+**Forced-interleaving test**, as the concern required: a `mkdir` PATH shim parks
+a contender exactly between guard creation and record publication. A
+free-running test cannot pin this — nothing makes the pause land there.
+Negative control (read-back removed): 4 assertions fail, naming the double-hold.
+`test_stale_lock.sh` 126 → **134**.
+
+**What this still does not buy** (unchanged): PID reuse and a hung holder leave a
+guard unreclaimable, both fail-safe. A third party observing the brief two-record
+state classifies it unrecognized and fails closed — availability, not corruption.
