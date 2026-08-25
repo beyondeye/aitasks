@@ -275,3 +275,16 @@ It only inspects the project layer of *this* repo. It cannot see a redundant pin
 - **Upstream defects identified:**
   - `aitasks/t1590_unpin_frozen_backlog_footnote_stat.md:26 — the task's own "Upstream defect" bullet states two premises that are false against source: (a) that stats/panes/backlog.py mirrors the clock footnote verbatim — it does not, its _diagnostic_lines() (backlog.py:65-82) emits only the exclusion and clamp lines and no prose footnote; and (b) that t1544_5's CLI-parity test pins the pair — test_diagnostics_match_the_cli_exclusion_footnote (test_stats_backlog_panes.py:496) compares the exclusion footnote, a different sentence. The recorded line number (:471) was also stale after t1586. No code defect; a defect in the recorded diagnosis that would have misled a fresh context into a 3-site edit.`
   - `.aitask-scripts/stats/panes/backlog.py:65-82 — the stats TUI backlog pane renders none of the CLI's three prose footnotes (Postponed/Folded, bug-net-of-upstream-defect, and the two-clocks note). The two surfaces are asserted at parity only on the exclusion line, so a TUI user never sees that the backlog sections use a different completion clock than the rest of the report. Possibly worth a separate task: decide whether the pane should carry the clock footnote too, or whether the omission is deliberate given pane height budgets.`
+
+### Commit provenance note (concurrent session)
+
+`aitasks/metadata/stats_config.json` is **not** in a `(t1590)`-tagged commit. A
+concurrent session claimed t1595 mid-implementation; its `aitask_pick_own.sh`
+ran a broad `add aitasks/` and swept this task's two data-branch files into
+`442c65179 "ait: Start work on t1595: set status to Implementing"`. The content
+committed there is correct (`{}`, verified by `git show`), and the code half
+landed normally in `6e91f5d28 (t1590)`. History was left unrewritten on purpose
+— the data branch is shared and that session is live.
+
+Consequence: `aitask_issue_update.sh`, which finds commits by the `(tNN)` tag,
+will not associate the `stats_config.json` change with t1590.
