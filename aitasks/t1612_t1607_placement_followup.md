@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 18:30
-updated_at: 2026-08-25 18:35
+updated_at: 2026-08-25 23:08
 ---
 
 ## Origin
@@ -74,3 +75,8 @@ in `setup_code_agents`, so `CLAUDE.md` is regenerated on every `ait setup` — t
   - the t1607 hand-maintained guard still fires on both paths (T12b's assertions must stay green).
 - `bash tests/test_agent_instructions.sh` and `bash tests/test_data_branch_setup.sh`.
 - `shellcheck .aitask-scripts/aitask_setup.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T20:09:05Z status=pass attempt=1 type=human
