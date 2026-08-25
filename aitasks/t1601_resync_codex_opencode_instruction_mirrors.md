@@ -54,3 +54,8 @@ block is identical across `seed/aitasks_agent_instructions.seed.md`,
 `AGENTS.md`, `.codex/instructions.md` and `.opencode/instructions.md` would turn
 this silent, install-dependent drift into a failing test — the same
 single-source-plus-guard shape used elsewhere in the framework.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T13:21:27Z status=pass attempt=1 type=human
