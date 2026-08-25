@@ -358,3 +358,90 @@ Then Step 9 (Post-Implementation): cleanup, archival and merge per the workflow.
 
 **Reassessment after inlining:** both inline phases only add tests and reorder the
 landing sequence — no new production code — so both dimensions stay **low**.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in the planned order.
+  - `lib/gate_verifier_lib.sh`: extracted `_gate_config_values` (the pre-phase
+    mitigation, landed and proven alone first); added `GATE_COMMAND_EXIT_CONTRACT_KEY`,
+    `GATE_COMMAND_SKIP_EXIT` and `GATE_COMMAND_KEYS`; per-key opt-in resolution with
+    quote normalization for block-list items; rewrote the command loop to capture each
+    command's real exit code (skip remembered, does not short-circuit; fail still does);
+    rewrote the docblock with the verifier-vs-command exit-code split, the command-exit
+    table, the aggregation rule and the accepted opt-in key set.
+  - Three wrapper headers now read `2=skip` plus a line naming both sources of a skip
+    and stating the codes are the verifier's, not the command's.
+  - `tests/test_gate_verifiers.sh`: +6 groups (Test 1b, 7–12), 47 new assertions
+    (124 total, was 51 after the pre-phase, 47 before this task).
+  - Docs: `seed/project_config.yaml` (commented block), `gates_reference.yaml` +
+    `aitasks/metadata/gates.yaml` (per-gate comments **and** the schema block's
+    "SKIP when that command is unset" paragraph, which was equally incomplete),
+    `aidocs/gates/aitask-gate-framework.md`, the website build-verification page, and
+    one row in `task-workflow/SKILL.md`'s Project Configuration table + the 3 procedure
+    goldens and the 3 tracked `-remote-` rendered variants.
+
+- **Deviations from plan:** Two additions, no removals.
+  1. The plan named only the three per-gate `skips (exit 2) when unset` comments in the
+     registry. The registry's **schema block** (the `verifier:` description) carried the
+     same now-incomplete claim, so it was updated too — in both copies, keeping them
+     byte-identical per the reference's edit protocol.
+  2. The website section was first inserted before `### Auto-detection Fallback`, which
+     re-parented those `###` subsections under it. Moved to the end of the file instead.
+
+- **Issues encountered:**
+  - Three aggregation fixtures failed on first run with exit 127. Root cause was the
+    fixture, not the code: a **block** YAML list's items keep their surrounding quotes
+    (`read_yaml_list` strips them only on the inline `[a, b]` form), so `- "exit 2"`
+    reaches `bash -c` as the single word `exit 2`. Rewrote those items unquoted and
+    documented the reason in the test file. See the upstream-defect bullet below — the
+    same shape bites real configs.
+  - The plan's "confirm the new rows fail against the current code" check could not be
+    run before the fix (the fix was already in), so it was discharged as a **mutation
+    test** instead: four mutants — opt-in never applies, any-non-zero-is-a-skip, note
+    dropped, skip short-circuits — failed 21 / 47 / 2 / 4 assertions respectively, and
+    the restored file returned to 124/124. The new assertions are therefore not vacuous.
+
+- **Key decisions:**
+  - **Opt-in, per config key** (user-confirmed). Universal reservation of exit 2 is
+    unsafe: GNU `make` exits 2 on a build error, `pytest` on interrupt, `grep`/`diff` on
+    trouble — `verify_build: "make"` would silently produce a green `blocks_dependents`
+    gate. Per-key rather than global because a project can want it on for `test_command`
+    and off for `verify_build`.
+  - **The verifier's own exit code is unchanged.** A command-driven skip returns 2 just
+    like the "no command configured" skip; the two are distinguished only in `result=`.
+    `gate_orchestrator.map_exit` and its status↔exit-code match check needed no change.
+  - **Anything other than exit 2 is a `fail`, never an `error`.** The verifier ran fine;
+    the command failed. Mapping 3 to `error` would also have changed behavior for
+    projects that never opted in.
+  - **An unrecognized opt-in entry is ignored but reported** (`note=` on the gate-run
+    block, plus stderr and the sidecar log), validated against `GATE_COMMAND_KEYS` by
+    *every* verifier rather than against each one's own key. A typo would otherwise be
+    indistinguishable from "not opted in" — the hardest state to diagnose under
+    contention, which is exactly when this feature is in use. `GATE_COMMAND_KEYS` is
+    guarded against drift by deriving the same set from the wrappers in Test 10.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/yaml_utils.sh:304` — `read_yaml_list`'s BLOCK-list branch
+    emits items with their surrounding quotes intact, while its inline `[a, b]` branch
+    (line 278) strips them. A project writing `verify_build:` / `  - "make -j4"` gets
+    `bash -c '"make -j4"'` → exit 127 "command not found", recorded as a gate FAIL.
+    Single-word items (`- "true"`) survive by accident because bash strips the quotes,
+    which is why `tests/test_gate_verifiers.sh` Test 2 never caught it: its multi-word
+    item sits after a short-circuiting failure and never runs. Out of scope here —
+    `read_yaml_list` has many callers, and fixing it inside `_gate_config_values` alone
+    would have changed the command resolution this task's pre-phase mitigation
+    deliberately pinned as unchanged.
+
+- **Notes for sibling tasks:** n/a (not a child task).
+
+### Deferred mitigations (created at Step 8d)
+
+- `thinking_app_opt_in` — cross-repo (`thinking_app`): add
+  `gate_command_exit_contract: [test_command]` to its `project_config.yaml` and verify a
+  real heavy-lock refusal records `skip` end-to-end. Until then the motivating project is
+  not fixed by this change.
+- `legacy_verify_build_exit_contract` — teach the legacy Step-9 `verify_build` prose path
+  (`task-workflow/SKILL.md`, `aitask-pickrem`, `aitask-pickweb` + goldens) the same
+  opt-in contract, or document the divergence deliberately.
