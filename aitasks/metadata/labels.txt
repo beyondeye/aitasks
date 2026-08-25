@@ -118,6 +118,7 @@ task_metadata
 task_workflow
 task_yaml
 test
+test_infrastructure
 test_marker
 testing
 tests
