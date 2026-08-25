@@ -514,3 +514,110 @@ and the surrounding prose intact.
 
 See `task-workflow` **Step 9** for cleanup, archival, and merge. Current-branch
 mode (profile `fast`): nothing to merge; Step 9 archives `t1612` and this plan.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in five files.
+  - `.aitask-scripts/aitask_setup.sh` (+50/-6): removed Step 8's
+    `update_claudemd_git_section` call and dropped `CLAUDE.md` from Step 9's
+    `files_to_add` (both replaced by comments recording why, so the calls are not
+    re-added); added the call to `setup_code_agents` beside `update_agentsmd`;
+    added the `pre_state` absent/unmanaged/managed classification and the
+    three-way announcement (post-phase `announce_claudemd_append_on_upgrade`).
+  - `tests/test_agent_instructions.sh` (+170): `run_setup_code_agents` drive
+    helper, T40-T43, and the rewritten T38 comment block.
+  - `tests/test_data_branch_setup.sh` (+83): drive helper, Test 1 flipped +
+    positive control + already-configured re-run, new Test 8b (Step 9 baseline
+    bypass).
+  - `tests/test_setup_git.sh` (+117): drive helper, Tests 24/25/26.
+  - `aidocs/framework/aitasks_extension_points.md` (+40/-10): the `CLAUDE.md`
+    bullet's "what runs when", the commit-ownership sentence extended to
+    `CLAUDE.md` with the baseline caveat, the T40-T43 / T24-T26 pointer, and the
+    post-phase `document_case4_gap` paragraph.
+- **Deviations from plan:** None in substance. Test numbering in
+  `test_setup_git.sh` became 24/25/26 (the file was already at Test 23), not the
+  plan's placeholder A/B/C.
+- **Issues encountered:**
+  - **Three plan-review concerns raised by the user before approval, all valid
+    and all folded in before implementation.** (1) The first-draft
+    `run_setup_code_agents` merged stderr with `2>&1` and swallowed the exit
+    status with `|| true` — so T41/T42's message assertions were undefined and a
+    dead drive would have been indistinguishable from a passing one. Corrected to
+    unmerged stdout, real exit status, and an `out="$(…)" || rc=$?` idiom at every
+    call site with `rc` asserted. (2) Every behavioral test drove
+    `setup_code_agents` directly, so `main()` could stop calling it — or call it
+    after `commit_framework_files` — with everything still green; added Test 26.
+    (3) The planned Step-9 test stopped before `commit_framework_files` and never
+    armed the baseline, proving only the removal and not the replacement
+    guarantee; added Tests 24 and 25. Concerns (2) and (3) are literally the
+    task's own Scope notes ("verify rather than assume" / "committed exactly
+    once"), which the first draft under-covered.
+  - **Mutation testing confirmed every new test is load-bearing** (harness in the
+    session scratchpad: a symlink farm mirroring the repo with one real, mutable
+    copy of `aitask_setup.sh` — no tracked file was ever mutated; verified
+    byte-identical afterwards). All eight mutants were caught by exactly the
+    predicted tests: double-write (Step 8 kept) → **only** T43's
+    `setup_data_branch` half and Test 1's flipped assertion, confirming a double
+    write is otherwise functionally invisible because
+    `insert_aitasks_instructions`' marker replacement makes the second write
+    byte-identical; call deleted → T40/T41/T42 + Test 1 control + T24; call moved
+    inside the codex gate → T40/T41/T42 + T24; `files_to_add` restored → **only**
+    Test 8b; t1607 guard degraded to a bare `return 0` → T12b + T42 messages;
+    announcement collapsed to one line → **only** T41's append assertion;
+    `setup_code_agents` moved after `commit_framework_files` → **only** T26;
+    `CLAUDE.md` dropped from `_ait_framework_paths` → T24 + T25.
+  - **Manual end-to-end on a copy of this repo's own `CLAUDE.md`**, which
+    `ait setup` could not reach before this task: untouched, 0 markers, guard
+    message printed, `AGENTS.md` written as the positive control. Positive
+    control 1 (strip the sentinel): the block **is** appended and announced as an
+    append; run 2 announces a refresh and stays at 1/1 markers with prose intact.
+    **The printed opt-out advice was then executed verbatim** — delete the marker
+    pair, keep a `## Git Operations on Task/Plan Files` section — and setup does
+    leave the file alone afterwards. (t1607's lesson: advice that does not work is
+    worse than no advice.)
+  - **I lost this file's edits once and had to redo them.** Mid-verification I ran
+    `git stash push -q --keep-index --include-untracked -- .aitask-scripts/aitask_setup.sh`
+    to get a lint baseline; it reverted the file to HEAD and left **no** stash
+    entry (`git stash list`, `git reflog stash` and `git fsck --unreachable` all
+    came up empty). The edits were re-applied verbatim from this plan and all
+    suites re-verified green. The baseline it was fetching was already available
+    from the `git show HEAD:<path>` diff in the very same command, so the stash
+    was unnecessary as well as destructive. Recorded as a durable lesson;
+    `git stash` must not be used in this shared checkout.
+  - Only `aitask_setup.sh` was affected — the four other edited files were
+    untouched, having been excluded by the pathspec.
+- **Key decisions:**
+  - **Dropping `CLAUDE.md` from Step 9's `files_to_add` was treated as part of the
+    move, not optional tidy-up.** Step 9's commit is unscoped, so once nothing
+    above it writes `CLAUDE.md` the clause could only sweep a user's unrelated
+    edits into `ait: Configure task data branch…`, bypassing the
+    `snapshot_pre_setup_dirty` baseline. Test 8b is the only assertion in the
+    suite that can see this, and it fails on today's pre-task code.
+  - **The legacy-mode ("data branch declined") test the task asked for was
+    substituted, with the user's explicit approval.** That branch needs
+    `[[ -t 0 ]]` true and `tests/` has no pty/expect harness; the alternatives
+    (add one, or add an env override to the prompt) were offered and declined in
+    favour of a legacy-layout fixture plus T43's structural `declare -f` guard,
+    which generalizes to *all four* `setup_data_branch` early returns rather than
+    just the declined one.
+  - **Early-return case 4 is deliberately not fixed and is documented as an
+    exception.** On an *installed* project `install.sh` deletes `seed/`, so after a
+    failed `git worktree add` the `aitasks` symlink dangles and
+    `assemble_aitasks_instructions` can resolve no seed at all — skipping every
+    instruction surface, `AGENTS.md` included. That is a seed-resolution defect,
+    not a `CLAUDE.md` placement one; recorded in the doc (post-phase
+    `document_case4_gap`) and spawned as an "after" mitigation at Step 8d.
+  - **Two duplicate tests were dropped from the plan during review** rather than
+    written: a marker-refresh test (T12d already pins it) and a separate
+    legacy-layout test (`setup_tmpdir` already *is* a legacy layout, and nothing
+    in `setup_code_agents`' call graph can distinguish the two).
+  - `_is_agent_installed` is the only stub in the drive helper, and it is
+    load-bearing rather than cosmetic: both `codex` and `opencode` are on PATH on
+    this machine, so without it the fixtures would really run
+    `setup_codex_cli`/`setup_opencode` and behave differently on CI.
+- **Upstream defects identified:**
+  - `assemble_aitasks_instructions` (`.aitask-scripts/aitask_setup.sh`) has no
+    reachable seed when `aitasks/` is a dangling symlink and `seed/` was deleted
+    at install, so **no** instruction surface can be generated — `CLAUDE.md`,
+    `AGENTS.md`, `.codex/instructions.md` and `.opencode/instructions.md` alike.
+    Spawned at Step 8d as `seed_resolution_fallback_for_installed_projects`.
