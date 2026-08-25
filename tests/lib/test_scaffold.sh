@@ -54,6 +54,10 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # aitask_gate.sh (t1496 — the shared child/gate mutex); a stdlib-only
         # leaf with no deps beyond terminal_compat.sh (already copied above).
         cp "$PROJECT_DIR/.aitask-scripts/lib/stale_lock.sh"        "$repo_dir/.aitask-scripts/lib/"
+        # registry_lock.sh is the adapter over that core, sourced at startup by
+        # aitask_pick_own.sh (t1599_1 — the contributor-list mutex). It sources
+        # stale_lock.sh from its own directory, so both must be present.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/registry_lock.sh"     "$repo_dir/.aitask-scripts/lib/"
     }
 
     # --- Python module closure ---------------------------------------------

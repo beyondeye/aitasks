@@ -59,6 +59,8 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/pid_anchor.sh
 source "$SCRIPT_DIR/lib/pid_anchor.sh"
+# shellcheck source=lib/registry_lock.sh
+source "$SCRIPT_DIR/lib/registry_lock.sh"
 
 # --- Configuration ---
 TASK_ID=""
@@ -66,6 +68,17 @@ EMAIL=""
 SYNC_ONLY=false
 FORCE=false
 EMAILS_FILE="aitasks/metadata/emails.txt"
+
+# Set by store_email() when THIS invocation added a new address — the only
+# condition under which the contributor list is this claim's to persist. A claim
+# refused at the task lock still leaves its append on disk, so a later claim must
+# not commit that foreign line under its own task message.
+EMAIL_STORED=false
+
+# Seconds to wait for the contributor-list mutex before giving up on recording
+# the email. Overridable so tests can exercise the busy path without waiting out
+# the full budget; the default matches the other registry_lock callers.
+EMAILS_LOCK_TIMEOUT="${EMAILS_LOCK_TIMEOUT:-10}"
 
 # --- Help ---
 show_help() {
@@ -223,18 +236,48 @@ _lock_cleanup_warn() {
     warn "${what} — locks abandoned by finished sessions may persist, and a later pick can report LOCK_FAILED for a task nobody is working on; inspect with './ait lock --list'"
 }
 
-# --- Store email (idempotent, deduplicated) ---
+# --- Store email (idempotent, deduplicated, serialized) ---
+# Sets EMAIL_STORED=true only when this call actually adds a new address.
+# Membership is the real predicate: re-adding a known address changes no content,
+# so it must not make the contributor list look like this claim's to commit.
 store_email() {
     local email="$1"
     if [[ -z "$email" ]]; then
-        return
+        return 0
     fi
     local dir
     dir=$(dirname "$EMAILS_FILE")
     mkdir -p "$dir"
     touch "$EMAILS_FILE"
-    echo "$email" >> "$EMAILS_FILE"
-    sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+    grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null && return 0   # already known
+
+    # `echo >> ; sort -u -o` is a read-modify-write: sort SNAPSHOTS the file and
+    # renames its output over the target, so a concurrent session's append made
+    # after that snapshot is erased. Atomicity is not serialization (see the
+    # lib/atomic_write.sh header) — hold the shared mutex, or do not write.
+    #
+    # INCOMPLETE until t1608: aitask_create.sh's add_email_to_file() still
+    # writes this file unlocked, and a mutex excludes only writers that honour
+    # it — so this currently serializes claims against each other, not against
+    # a concurrent `ait create`. Keep both call sites on `ait_lock_dir emails`.
+    local lockdir
+    lockdir="$(ait_lock_dir emails)" || return 0
+    if ! registry_lock_acquire "$lockdir" "$EMAILS_LOCK_TIMEOUT" store_email; then
+        warn "contributor list busy — email not recorded$(registry_lock_describe "$lockdir")"
+        return 0    # best-effort: a busy email list must never fail a claim
+    fi
+    local rc=0
+    {
+        # Re-check under the lock: a holder we waited on may have added it.
+        if ! grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+            printf '%s\n' "$email" >> "$EMAILS_FILE"
+            sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+            EMAIL_STORED=true
+        fi
+    } || rc=$?
+    registry_lock_release "$lockdir"
+    [[ $rc -eq 0 ]] || warn "store_email: failed to record ${email} (rc=$rc)"
+    return 0
 }
 
 # --- Acquire lock ---
@@ -357,17 +400,64 @@ update_task_status() {
 }
 
 # --- Commit and push ---
-commit_and_push() {
-    local task_id="$1"
 
-    task_git add aitasks/
+# _commit_scoped <msg> <path>... — stage and commit ONLY these paths.
+# Returns 0 = committed, 2 = verified nothing to commit, 1 = commit failed.
+#
+# `git commit -- <paths>` is a PARTIAL commit: it takes those paths' WORKTREE
+# content and ignores their index entry (verified: a staged-then-modified path
+# commits the on-disk version). That is deliberate here — the claim's own
+# aitask_update.sh write is on disk — but it is a real change from the
+# index-wide commit this replaces, so it is stated rather than assumed.
+_commit_scoped() {
+    local msg="$1"; shift
+    # Load-bearing: `git commit --` with no pathspec commits the WHOLE index,
+    # silently re-creating the cross-session swallow this exists to stop.
+    # `-o` below makes that case fatal rather than silent; this guard means it
+    # is never reached.
+    (( $# )) || return 2
 
-    # Only commit if there are staged changes (idempotent re-run safety)
-    if task_git diff --cached --quiet; then
-        info "No changes to commit (task may already be in Implementing status)"
-    else
-        task_git commit -m "ait: Start work on t${task_id}: set status to Implementing" --quiet
+    # `add` is needed ONLY so an untracked path can be named by the pathspec;
+    # a pathspec cannot match a file git does not know about.
+    task_git add -- "$@" >/dev/null 2>&1 || true
+
+    # Capture the status exit separately: a failing status with empty stdout
+    # must read as "unverified", never as "clean" (same shape as the guard in
+    # aitask_gate.sh's materialize-active).
+    local st st_rc=0
+    st="$(task_git status --porcelain -- "$@" 2>/dev/null)" || st_rc=$?
+    if [[ $st_rc -eq 0 && -z "$st" ]]; then
+        return 2
     fi
+    [[ $st_rc -ne 0 ]] && warn "git status failed for $* — committing anyway"
+
+    task_git commit -o -m "$msg" --quiet -- "$@" || return 1
+}
+
+commit_and_push() {
+    local task_id="$1"; shift
+    local paths=( "$@" )
+    local rc
+
+    # The contributor list is a SHARED global file with no task owner: two
+    # claims of different tasks hold different task locks, so both can append
+    # before either commits. Path-scoping cannot give it per-claim provenance —
+    # only a message that stays true regardless of who appended can. So it gets
+    # its own commit, and never rides inside a claim commit.
+    if [[ "$EMAIL_STORED" == true ]]; then
+        rc=0; _commit_scoped "ait: Record contributor email" "$EMAILS_FILE" || rc=$?
+        [[ $rc -eq 1 ]] && warn "could not commit ${EMAILS_FILE}"
+    fi
+
+    # The claim commit — task-owned paths only. Committed LAST so HEAD is the
+    # claim, which the workflow and its tests read.
+    rc=0
+    _commit_scoped "ait: Start work on t${task_id}: set status to Implementing" \
+        ${paths[@]+"${paths[@]}"} || rc=$?
+    case $rc in
+        2) info "No changes to commit (task may already be in Implementing status)" ;;
+        1) warn "could not commit the t${task_id} claim" ;;
+    esac
 
     # Push is best-effort — network failure should not block the workflow
     task_push
@@ -471,8 +561,17 @@ main() {
     # Step 4: Update task metadata
     update_task_status "$TASK_ID" "$EMAIL"
 
-    # Step 5: Commit and push
-    commit_and_push "$TASK_ID"
+    # Step 5: Commit and push — ONLY the paths this claim owns. The task file is
+    # the sole task-owned path a claim writes: lock artifacts are blobs on the
+    # orphan aitask-locks branch, .aitask-gates/ is gitignored and written after
+    # this, and active_gates is committed separately by aitask_gate.sh
+    # materialize-active. emails.txt is handled inside commit_and_push, in its
+    # own commit, because it is shared rather than task-owned.
+    # -f, not -n: resolve_task_file also searches archived dirs and tar bundles,
+    # so it can return a path that is not on disk (same guard as Steps 1b/1c).
+    local commit_paths=( )
+    [[ -f "$task_file" ]] && commit_paths+=( "$task_file" )
+    commit_and_push "$TASK_ID" ${commit_paths[@]+"${commit_paths[@]}"}
 
     # Output success
     echo "OWNED:$TASK_ID"

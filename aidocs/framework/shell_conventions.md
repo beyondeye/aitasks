@@ -68,7 +68,7 @@ portability quirks (BSD vs GNU tooling) live in
   from the fake repo. Current baseline: `aitask_path.sh`, `terminal_compat.sh`,
   `tmux_exec.sh`, `python_resolve.sh`, `yaml_utils.sh`, `atomic_write.sh`,
   `atomic_write.py`, `cross_repo_reexec.sh`, `followup_kinds_sh.sh`,
-  `followup_kinds.py`, `stale_lock.sh`. A lib with a runtime sibling in another language (the
+  `followup_kinds.py`, `stale_lock.sh`, `registry_lock.sh`. A lib with a runtime sibling in another language (the
   bridge pattern — `followup_kinds_sh.sh` shells out to `followup_kinds.py`)
   must have **both** copied, or it fails closed inside every scaffolded test.
 - **Ephemeral cross-process mutexes: use `lib/stale_lock.sh`, never a
