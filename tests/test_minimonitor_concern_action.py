@@ -3550,5 +3550,110 @@ class PayloadOverrideForwardTests(unittest.TestCase):
         self.assertEqual(app.spy_clipboard, [])
 
 
+class TeardownPathCharacterizationTests(unittest.TestCase):
+    """Risk-mitigation pre-phase `characterize_teardown_paths` (t1606).
+
+    Before t1606 consolidates them, pin what each auto-disarm teardown does
+    **today**, so the consolidation shows up as a flipped assertion rather
+    than as a silent behaviour change nobody reviewed.
+
+    There are two reachable teardowns, not the three the task description
+    assumed (the third — the latched-False replay's `ACTION_AUTO_DISARM`
+    block — is provably unreachable; that is pinned in
+    `test_review_loop.ReplayDisarmUnreachabilityTests`, and t1606 deletes the
+    dead block):
+
+    1. :meth:`MiniMonitorApp._loop_auto_disarm` — the helper. Clears the
+       settle deadline.
+    2. The inline `action == ACTION_AUTO_DISARM` branch in
+       `_service_review_loop`. Open-codes the same five mutations but
+       **omits** `_loop_shadow_settle_until = None`.
+
+    That omission is the live divergence. The two assertions marked
+    CHARACTERIZATION below record it as-is; Phase 1c flips them to
+    `assertIsNone` when the branch starts routing through the helper. They are
+    **characterization, not contract** — do not "restore" them if a later
+    change makes them fail, that failure is the fix landing.
+    """
+
+    _SENTINEL_DEADLINE = 12345.0
+
+    def _armed_with_standing_deadline(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        # Arming clears the deadline (t1509), so seed it afterwards. Set
+        # directly rather than via the latch: what is under test is what the
+        # teardown does to a standing deadline, not how one comes to stand.
+        app._loop_shadow_settle_until = self._SENTINEL_DEADLINE
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        app._loop_shadow_hash = 999
+        app._loop_shadow_hash_streak = 4
+        app._set_loop_banner("⟳ auto-recheck ARMED")
+        return app, mon, snap
+
+    # ---- teardown 1: the helper -------------------------------------------
+
+    def test_helper_clears_every_piece_of_loop_state(self):
+        """CONTRACT — the helper is the reference behaviour."""
+        app, _mon, _snap = self._armed_with_standing_deadline()
+        app._loop_auto_disarm("characterization probe")
+        self.assertFalse(app._review_loop.armed)
+        self.assertIsNone(app._loop_baseline)
+        self.assertIsNone(app._loop_shadow_hash)
+        self.assertEqual(app._loop_shadow_hash_streak, 0)
+        self.assertEqual(app._loop_banner_text, "")
+        self.assertIsNone(app._loop_shadow_settle_until)
+        self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
+
+    # ---- teardown 2: the inline ctrl.tick branch --------------------------
+
+    def test_inline_tick_branch_disarms_on_verified_shadow_absence(self):
+        """CONTRACT — the parts the inline branch does get right."""
+        app, mon, _ = self._armed_with_standing_deadline()
+        mon._async_list = _SHADOW_LIST_NONE   # verified: no shadow bound
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        self.assertIsNone(app._loop_baseline)
+        self.assertIsNone(app._loop_shadow_hash)
+        self.assertEqual(app._loop_shadow_hash_streak, 0)
+        self.assertEqual(app._loop_banner_text, "")
+        self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
+
+    def test_inline_tick_branch_leaves_the_settle_deadline_standing(self):
+        """CHARACTERIZATION — the divergence t1606 Phase 1c removes.
+
+        The helper clears `_loop_shadow_settle_until`; this branch does not.
+        When Phase 1c routes it through the helper this assertion flips to
+        `assertIsNone`. A failure here is the fix landing, NOT a regression to
+        undo.
+        """
+        app, mon, _ = self._armed_with_standing_deadline()
+        mon._async_list = _SHADOW_LIST_NONE
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed, "precondition: it disarmed")
+        self.assertEqual(app._loop_shadow_settle_until,
+                         self._SENTINEL_DEADLINE,
+                         "CHARACTERIZATION: the inline branch does not clear "
+                         "the settle deadline (t1606 Phase 1c flips this)")
+
+    def test_the_two_teardowns_disagree_about_the_settle_deadline(self):
+        """The divergence stated as one assertion, so it cannot be read as
+        two unrelated facts. This is the test whose *inversion* is the whole
+        point of the consolidation."""
+        helper_app, _m, _s = self._armed_with_standing_deadline()
+        helper_app._loop_auto_disarm("characterization probe")
+
+        inline_app, inline_mon, _ = self._armed_with_standing_deadline()
+        inline_mon._async_list = _SHADOW_LIST_NONE
+        _tick(inline_app, 1)
+
+        self.assertIsNone(helper_app._loop_shadow_settle_until)
+        self.assertIsNotNone(
+            inline_app._loop_shadow_settle_until,
+            "CHARACTERIZATION: today the two teardowns disagree; after t1606 "
+            "Phase 1c they must agree and this assertion flips")
+
+
 if __name__ == "__main__":
     unittest.main()

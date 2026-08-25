@@ -2289,5 +2289,170 @@ class ComposeRecheckPromptTests(unittest.TestCase):
         self.assertNotIn("impl-challenge", generic)
 
 
+class AmbiguousVerdictsHoldTests(unittest.TestCase):
+    """Risk-mitigation pre-phase `pin_ambiguous_verdicts_hold` (t1606).
+
+    t1606 reroutes an AMBIGUOUS pre-Enter verdict (`SHADOW_DIALOG` /
+    `SHADOW_UNKNOWN`) from auto-disarm to :meth:`abort_fire` — the loop stays
+    armed and merely holds. That is only safe because of a premise which was,
+    until this class, inferred rather than executable:
+
+    ``abort_fire`` returns the controller to WAITING with the streak preserved
+    and **no cooldown stamped**, so the very next tick re-permits a fire. The
+    only thing preventing an immediate re-fire is that the verdict which
+    caused the abort *itself* collapses to a not-``True`` readiness, so the
+    trigger short-circuits into ``holding_for_shadow``.
+
+    That holds for DIALOG/UNKNOWN/WORKING/BUSY and NOT for READY — which is
+    precisely why t1606 keeps the READY/WORKING pre-Enter verdicts fatal
+    instead of aborting on them. A re-fire there would re-write the prompt on
+    every cycle, an unbounded key-injection spin.
+
+    So this class pins BOTH halves. If a future detector or settle-latch
+    change ever makes DIALOG read ready-``True``, the hold silently becomes
+    that spin; the mapping test below fails first.
+    """
+
+    def test_verdicts_collapse_to_the_expected_readiness_tristate(self):
+        """The load-bearing mapping, one case per verdict.
+
+        ``assertIs`` rather than ``assertEqual`` on purpose: ``None`` and
+        ``False`` are the pause/negative distinction the whole loop is built
+        on, and ``None == False`` is False but ``assertEqual(None, False)``
+        failing is not the same guarantee as pinning the identity.
+        """
+        self.assertIs(rl._ready_from_state(rl.SHADOW_DIALOG), False)
+        self.assertIs(rl._ready_from_state(rl.SHADOW_UNKNOWN), None)
+        self.assertIs(rl._ready_from_state(rl.SHADOW_WORKING), False)
+        self.assertIs(rl._ready_from_state(rl.SHADOW_BUSY), False)
+        self.assertIs(rl._ready_from_state(rl.SHADOW_READY), True)
+
+    def test_a_full_streak_holds_for_every_not_true_verdict(self):
+        """Every verdict t1606 may abort on must make the trigger hold."""
+        for verdict in (rl.SHADOW_DIALOG, rl.SHADOW_UNKNOWN,
+                        rl.SHADOW_WORKING, rl.SHADOW_BUSY):
+            with self.subTest(verdict=verdict):
+                ready = rl._ready_from_state(verdict)
+                ctrl = rl.ReviewLoopController()
+                ctrl.arm(pending_work=True)
+                action = drive_to_fire(ctrl, shadow_ready=ready)
+                self.assertEqual(action, rl.ACTION_NONE)
+                self.assertTrue(ctrl.holding_for_shadow)
+                self.assertEqual(ctrl.state, rl.WAITING)
+                self.assertTrue(ctrl.armed)
+                # And it keeps holding — not a one-tick pause.
+                for i in range(5):
+                    self.assertEqual(
+                        ctrl.tick(**make_ready_kwargs(
+                            now=1010 + i, shadow_ready=ready)),
+                        rl.ACTION_NONE)
+
+    def test_only_ready_authorises_the_fire(self):
+        """The control: without it, a detector returning nothing but False
+        would pass the test above vacuously."""
+        ctrl = rl.ReviewLoopController()
+        ctrl.arm(pending_work=True)
+        self.assertEqual(
+            drive_to_fire(ctrl,
+                          shadow_ready=rl._ready_from_state(rl.SHADOW_READY)),
+            rl.ACTION_FIRE)
+
+    def test_abort_fire_preserves_the_streak_and_stamps_no_cooldown(self):
+        """The mechanism — and the reason READY must stay fatal.
+
+        This is the half that makes the hold cheap (no re-debounce) and the
+        half that makes an abort-on-READY dangerous. Pinned together because
+        they are the same property seen from two sides.
+        """
+        ctrl = rl.ReviewLoopController()
+        ctrl.arm(pending_work=True)
+        self.assertEqual(drive_to_fire(ctrl), rl.ACTION_FIRE)
+        token = ctrl.delivery_token
+        self.assertTrue(ctrl.abort_fire(token))
+        self.assertEqual(ctrl.state, rl.WAITING)
+        self.assertIsNone(ctrl.fired_at, "abort must not stamp a cooldown")
+        self.assertTrue(ctrl.work_seen, "abort must not close the work latch")
+        # ONE tick re-permits: the streak was preserved, so a READY verdict
+        # re-fires immediately rather than re-debouncing.
+        self.assertEqual(ctrl.tick(**make_ready_kwargs(now=1003)),
+                         rl.ACTION_FIRE)
+
+    def test_after_an_abort_an_ambiguous_verdict_holds_instead_of_refiring(self):
+        """The end-to-end statement of the t1606 abort scope's safety."""
+        for verdict in (rl.SHADOW_DIALOG, rl.SHADOW_UNKNOWN):
+            with self.subTest(verdict=verdict):
+                ready = rl._ready_from_state(verdict)
+                ctrl = rl.ReviewLoopController()
+                ctrl.arm(pending_work=True)
+                self.assertEqual(drive_to_fire(ctrl), rl.ACTION_FIRE)
+                self.assertTrue(ctrl.abort_fire(ctrl.delivery_token))
+                for i in range(5):
+                    self.assertEqual(
+                        ctrl.tick(**make_ready_kwargs(
+                            now=1003 + i, shadow_ready=ready)),
+                        rl.ACTION_NONE, verdict)
+                self.assertTrue(ctrl.armed)
+                self.assertTrue(ctrl.holding_for_shadow)
+
+
+class ReplayDisarmUnreachabilityTests(unittest.TestCase):
+    """`_service_review_loop`'s latched-False replay CANNOT auto-disarm.
+
+    Discovered while implementing t1606, and pinned here rather than in the
+    app tests because it is a property of :meth:`ReviewLoopController.tick`'s
+    inputs, not of the Textual layer.
+
+    The replay block in ``minimonitor_app._service_review_loop`` runs only
+    when::
+
+        can_consume = (agent_presence is True
+                       and bool(shadow_ok and shadow_pane))
+
+    and it then passes ``agent_present=agent_presence`` and
+    ``shadow_present=(None if not shadow_ok else bool(shadow_pane))`` into
+    ``tick``. The guard therefore forces BOTH to ``True``, while ``tick``'s
+    only ``ACTION_AUTO_DISARM`` producer requires one of them to be ``False``.
+
+    t1606 deleted the dead ``if replay == ACTION_AUTO_DISARM:`` block that sat
+    beneath it. This test is what makes that deletion safe: if ``can_consume``
+    is ever widened so the replay can observe an absence, the branch stops
+    being unreachable and must be reinstated — and this test fails, saying so.
+    """
+
+    def test_no_reachable_replay_input_can_auto_disarm(self):
+        reachable = []
+        for agent_presence in (True, False, None):
+            for shadow_ok in (True, False):
+                for shadow_pane in ("%5", None, ""):
+                    # Verbatim from _service_review_loop.
+                    can_consume = (agent_presence is True
+                                   and bool(shadow_ok and shadow_pane))
+                    if not can_consume:
+                        continue
+                    ctrl = rl.ReviewLoopController()
+                    ctrl.arm(pending_work=True)
+                    replay = ctrl.tick(
+                        agent_present=agent_presence,
+                        shadow_present=(None if not shadow_ok
+                                        else bool(shadow_pane)),
+                        awaiting_input=None,
+                        stale=False,
+                        work_signal=rl.UNKNOWN,
+                        shadow_ready=None,
+                        modal_open=False,
+                        now=1000.0,
+                    )
+                    reachable.append(
+                        (agent_presence, shadow_ok, shadow_pane, replay))
+                    self.assertNotEqual(
+                        replay, rl.ACTION_AUTO_DISARM,
+                        "the replay branch became reachable — reinstate the "
+                        "disarm block deleted by t1606")
+        # Not vacuous: the guard admits at least one input, so the loop above
+        # actually ran. Without this an over-tight `can_consume` would make
+        # the test pass by examining nothing.
+        self.assertTrue(reachable, "no replay input was exercised at all")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
