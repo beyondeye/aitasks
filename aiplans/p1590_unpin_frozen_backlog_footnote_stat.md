@@ -217,3 +217,61 @@ exposure.)*
 ### Planned mitigations
 - timing: pre-phase | name: characterize_effective_presets | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — JSON emptying could silently change the effective preset config | desc: Capture stats_config.load()["presets"] before Step 2 and assert byte-identical after.
 - timing: post-phase | name: root_anchor_preset_drift_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — drift guard's cwd-relative path sensitivity | desc: Resolve the project stats_config.json from the repo root so the guard cannot pass vacuously under a chdir.
+
+---
+
+## Implementation record
+
+All steps completed as planned; no deviations.
+
+| step | outcome |
+|---|---|
+| Pre-phase `characterize_effective_presets` | **PASS** — effective presets byte-identical before/after (all 7 keys, same order). |
+| Step 1 — footnote | `aitask_stats.py:390-393` string replaced; `test_aitask_stats_py.py:622` golden updated. |
+| Step 2 — preset pins | `aitasks/metadata/stats_config.json` reduced to `{}`. |
+| Step 3 — drift guard | `test_no_shipped_json_pin_duplicates_a_code_default` added to `TestPresetPrecedence`. |
+| Post-phase `root_anchor_preset_drift_guard` | Guard anchors on the **pre-existing** `PROJECT_DIR` constant (`test_stats_backlog_panes.py:25`) rather than a new `_REPO_ROOT` — same root-anchoring, one fewer constant. |
+
+### Negative controls (both executed)
+
+1. **Golden** — with only the `aitask_stats.py` edit applied, `test_aitask_stats_py.py::TestBacklogSections::test_backlog_sections_render_byte_for_byte` FAILED, and the diff named exactly the footnote sentence. The golden did pin the footnote.
+2. **Drift guard** — re-pinning `pipeline` identically to its code default made the new guard FAIL, naming `['pipeline']`. Restoring a *genuine* override (`["pipeline.timing"]`) made it PASS. The guard discriminates on redundancy, not on the mere presence of a pin.
+
+### What the guard does NOT buy
+
+It only inspects the project layer of *this* repo. It cannot see a redundant pin in a downstream project's own `stats_config.json`, and it says nothing about the list-replacement semantics themselves (still pinned separately by `test_a_json_preset_list_replaces_the_code_list`). Deleting the JSON entirely would make it skip, not fail.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan — both inline mitigations, both
+  defects, both negative controls. Four files: `aitask_stats.py` (footnote string),
+  `test_aitask_stats_py.py` (golden), `stats_config.json` (→ `{}`),
+  `test_stats_backlog_panes.py` (new drift guard).
+- **Deviations from plan:** One, and it reduced scope. The post-phase mitigation
+  `root_anchor_preset_drift_guard` planned a new `_REPO_ROOT` constant; the file
+  already had a root-anchored `PROJECT_DIR` (`test_stats_backlog_panes.py:25`),
+  so the guard reuses it. Same root-anchoring, one fewer constant.
+- **Issues encountered:** None during implementation. Before it, the working tree
+  held t1586's uncommitted refactor of the same two stats files; since
+  `git commit -o -- <paths>` commits whole file contents, a t1590 commit would
+  have swallowed it. Surfaced to the user, who landed t1586 first (`6a80b7bc5`);
+  this work then ran on a clean tree.
+- **Key decisions:**
+  - **Drop the percentage rather than compute it** (user-approved). Computing is
+    viable — `resolve_completion_date` is already called one line after backlog
+    booking (`stats_data.py:1329-1330`), and `merge_stats_data` merges Counter
+    fields additively — but the docs had already settled the question by stating
+    the invariant without a number, and a new metric surface exceeds this task.
+    Measured at implementation time: 6 of 1859 archived tasks (0.32%) differ by
+    week bucket; 27 (1.45%) differ by a day.
+  - **Empty the JSON rather than delete it.** All five pins were byte-identical
+    to `DEFAULT_PRESETS`, so none was a genuine override. Emptying keeps the path
+    documented at `website/content/docs/tuis/stats/_index.md:103` and keeps
+    `config_utils.DEFAULT_EXPORT_PATTERNS` (`*_config.json`) sweeping a real file.
+  - **Added a drift guard**, since removing the duplication without one invites
+    its return. It asserts no pinned preset equals its code default — the inverse
+    of the prohibition in `TestPresetPrecedence`'s docstring, which bans pinning
+    the JSON *equal* to `DEFAULT_PRESETS`.
+- **Upstream defects identified:**
+  - `aitasks/t1590_unpin_frozen_backlog_footnote_stat.md:26 — the task's own "Upstream defect" bullet states two premises that are false against source: (a) that stats/panes/backlog.py mirrors the clock footnote verbatim — it does not, its _diagnostic_lines() (backlog.py:65-82) emits only the exclusion and clamp lines and no prose footnote; and (b) that t1544_5's CLI-parity test pins the pair — test_diagnostics_match_the_cli_exclusion_footnote (test_stats_backlog_panes.py:496) compares the exclusion footnote, a different sentence. The recorded line number (:471) was also stale after t1586. No code defect; a defect in the recorded diagnosis that would have misled a fresh context into a 3-site edit.`
+  - `.aitask-scripts/stats/panes/backlog.py:65-82 — the stats TUI backlog pane renders none of the CLI's three prose footnotes (Postponed/Folded, bug-net-of-upstream-defect, and the two-clocks note). The two surfaces are asserted at parity only on the exclusion line, so a TUI user never sees that the backlog sections use a different completion clock than the rest of the report. Possibly worth a separate task: decide whether the pane should carry the clock footnote too, or whether the omission is deliberate given pane height budgets.`
