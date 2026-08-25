@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1544_1, t1544_2, t1544_3, t1544_4, t1544_5, t1544_6, t1544_7]
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [reporting, metrics, backlog]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 created_at: 2026-08-17 22:09
-updated_at: 2026-08-17 22:09
+updated_at: 2026-08-25 11:05
 ---
 
 ## Context
