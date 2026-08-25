@@ -1139,7 +1139,7 @@ def _accumulate_backlog(
     scope_arrivals: Counter,
     scope_departures: Counter,
     excluded: Counter,
-) -> None:
+) -> Optional[str]:
     """Book one task's arrival and departure into the backlog flows (t1544_3).
 
     **One event clock, one population rule.** A task has departed iff
@@ -1158,10 +1158,19 @@ def _accumulate_backlog(
     **Exclusions skip entirely on BOTH axes and are always tallied.** Keeping an
     arrival whose departure was dropped leaves the task open forever, so every
     guard below returns before either flow is touched.
+
+    **Returns the category it resolved, or ``None`` on every exclusion**
+    (t1585). This is what keeps any one archived file from being classified
+    *twice*: the caller carries this value down to the file's csv row instead
+    of calling ``resolve_category`` a second time.
+    ``None`` means "not classified *here*", **not** "no category" —
+    a task can be excluded from the flows and still have a row (a ``folded``
+    task whose ``merge_approved`` stamp dates it), so the caller must fall back
+    to a direct call rather than emit an empty cell.
     """
     if not frontmatter:
         excluded["no_frontmatter"] += 1
-        return
+        return None
 
     # Folded tasks never get a completed_at, and the file is DELETED when the
     # primary archives — counting them would make the historical series
@@ -1169,7 +1178,7 @@ def _accumulate_backlog(
     # same past week). Either signal alone is sufficient.
     if frontmatter.get("status") == "Folded" or "folded_into" in frontmatter:
         excluded["folded"] += 1
-        return
+        return None
 
     # A present-but-unrecognised followup_kind must EXCLUDE, not merely count:
     # resolve_category tallies it and then falls through to a real category, so
@@ -1177,12 +1186,12 @@ def _accumulate_backlog(
     # as excluded. Hence the check here, and tally=None below.
     if has_invalid_followup_kind(frontmatter):
         excluded["invalid_followup_kind"] += 1
-        return
+        return None
 
     created = _parse_frontmatter_date(frontmatter.get("created_at", ""))
     if created is None:
         excluded["no_created_at"] += 1
-        return
+        return None
 
     # Compare RAW DATES against today, never week_offset_for(...) < 0:
     # week_offset_for compares week *starts*, so a date later than today inside
@@ -1191,17 +1200,17 @@ def _accumulate_backlog(
     # the invariant the renderers rely on.
     if created > today:
         excluded["future_created_at"] += 1
-        return
+        return None
 
     departed = parse_completed_date(frontmatter)
     if archived and departed is None:
         # An archived task with no departure date would stay open forever. None
         # exist today; if this ever fires it is a genuine data-quality signal.
         excluded["archived_no_completed_at"] += 1
-        return
+        return None
     if departed is not None and departed > today:
         excluded["future_completed_at"] += 1
-        return
+        return None
 
     category = resolve_category(frontmatter, body, filename, tally=None)
     scope = "child" if is_child_task(filename) else "parent"
@@ -1214,6 +1223,8 @@ def _accumulate_backlog(
         departure_offset = week_offset_for(departed, today, week_start_dow)
         departures[(category, departure_offset)] += 1
         scope_departures[(scope, departure_offset)] += 1
+
+    return category
 
 
 def collect_inflight(
@@ -1267,10 +1278,22 @@ def collect_stats(
     ``with_backlog=False`` skips the backlog level / net-flow collection
     (t1544_3). It is **purely subtractive**: every pre-existing field is
     identical either way. What it saves is the per-file category classification
-    and bookkeeping over the whole corpus — measured **~77 ms** on a ~2280-task
-    corpus (171 ms -> 248 ms, +45%; median of 5). It does **not** save a
-    live-tree walk: ``collect_inflight`` runs regardless and the arrival scan
-    rides along on it via ``on_file``.
+    and bookkeeping over the whole corpus — order **~90 ms** on a ~2300-task
+    corpus (176 ms -> 268 ms; median of 5, one box, indicative only). It does
+    **not** save a live-tree walk: ``collect_inflight`` runs regardless and the
+    arrival scan rides along on it via ``on_file``.
+
+    Under ``with_backlog=True`` a file that needs a category is classified **at
+    most once** (t1585): ``_accumulate_backlog`` hands its resolved category
+    back and the csv-row producer consumes it, falling back to a direct
+    ``resolve_category`` call only for a file the booking excluded before
+    classifying. "At most", not "exactly": ``with_backlog=False`` classifies
+    nothing at all, and a file that is both excluded from the flows and absent
+    from ``csv_rows`` (an archived file with no resolvable completion date) is
+    never classified either. What is ruled out is classifying the same file
+    **twice** — which is what used to happen: on this corpus 4178 calls over
+    2316 files, of which 1865 were duplicates, costing ~61 ms on every
+    ``ait stats`` and every stats-TUI load.
     """
     daily_counts: Counter = Counter()
     daily_tasks: Dict[date, List[str]] = defaultdict(list)
@@ -1307,8 +1330,8 @@ def collect_stats(
     backlog_excluded: Counter = Counter()
 
     def _book_backlog(filename: str, frontmatter: Dict[str, str], body: str,
-                      *, archived: bool) -> None:
-        _accumulate_backlog(
+                      *, archived: bool) -> Optional[str]:
+        return _accumulate_backlog(
             filename, frontmatter, body, today, week_start_dow,
             archived=archived,
             arrivals=backlog_arrivals,
@@ -1325,8 +1348,17 @@ def collect_stats(
         # archived task with no resolvable completion date is exactly the case
         # `no_frontmatter` / `archived_no_completed_at` exist to report.
         frontmatter, body = split_frontmatter(content)
+        # PRODUCER of the single-pass memo (t1585). The category resolved by
+        # this file's booking is carried down to its csv row at the end of the
+        # SAME iteration, so no file is classified twice. `None` means
+        # the booking excluded the file before classifying it — the consumer
+        # must fall back, not emit an empty cell. Keep the two ends together:
+        # a `continue` inserted between them, or a binding hoisted out of the
+        # loop, silently restores the second pass or lands one file's category
+        # on another file's row.
+        booked_category: Optional[str] = None
         if with_backlog:
-            _book_backlog(filename, frontmatter, body, archived=True)
+            booked_category = _book_backlog(filename, frontmatter, body, archived=True)
         completed = resolve_completion_date(content, frontmatter)
         if completed is None:
             continue
@@ -1385,6 +1417,21 @@ def collect_stats(
         # needs no classification, so it is unconditional and the column is
         # identical either way.
         created = _parse_frontmatter_date(frontmatter.get("created_at", ""))
+        # CONSUMER of the single-pass memo (t1585) -- see the producer comment
+        # at the top of this loop. The fallback is gated INSIDE `with_backlog`
+        # so the zero-classification contract of the off path is untouched.
+        if not with_backlog:
+            category = ""
+        elif booked_category is not None:
+            category = booked_category
+        else:
+            # Reachable: the booking EXCLUDED this file before classifying it
+            # (e.g. a `folded` task whose merge_approved stamp still dates it,
+            # so it has no arrival but does have a row). Classify it directly
+            # rather than ship an empty cell. `is not None` rather than
+            # truthiness: resolve_category never returns "", and pinning the
+            # test to identity keeps that true by construction.
+            category = resolve_category(frontmatter, body, filename)
         csv_rows.append(
             [
                 completed.isoformat(),
@@ -1398,7 +1445,7 @@ def collect_stats(
                 implementation.codeagent_key,
                 implementation.model_key,
                 created.isoformat() if created else "",
-                resolve_category(frontmatter, body, filename) if with_backlog else "",
+                category,
             ]
         )
 

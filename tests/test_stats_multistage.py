@@ -509,6 +509,111 @@ def _check_with_backlog_off(tmp: Path) -> None:
               off.phase_timings.implement_hours)
 
 
+def _check_category_single_pass(tmp: Path) -> None:
+    """No file is classified TWICE under with_backlog=True (t1585).
+
+    `_accumulate_backlog` resolves a category at the end of its guard chain and
+    hands it back; the csv-row producer consumes that value instead of calling
+    `resolve_category` a second time for the same file. A file the booking
+    EXCLUDED never reaches the classification, so it has no memoized value —
+    the row producer must fall back to a direct call rather than ship an empty
+    cell.
+
+    Every frontmatter field below is load-bearing, `created_at` above all: drop
+    it and `_accumulate_backlog` returns at its `no_created_at` guard BEFORE
+    classifying, so the file is never booked, never appears in `seen`, and its
+    row is served by the fallback. The check would then pass against the
+    unmemoized code and prove nothing. Each file also gets a DISTINCT category
+    so a value landing on the wrong row is caught by identity, not merely by
+    non-emptiness.
+    """
+    # Booked AND rowed -> the memo-hit case (classified twice before t1585).
+    _write(tmp, "archived/t500_normal.md", _task(
+        "status: Done\nissue_type: refactor\ncreated_at: 2026-06-08 09:00"
+        "\ncompleted_at: 2026-06-22 09:00"))
+    # Folded (excluded from both flows) but the merge_approved stamp still
+    # dates it, so resolve_completion_date gives it a csv row -> the memo-MISS
+    # case. 0 such tasks exist in the real corpus, so only a fixture can
+    # exercise the fallback.
+    _write(tmp, "archived/t501_folded_stamped.md", _task(
+        "status: Folded\nissue_type: bug\ncreated_at: 2026-06-08 09:00"
+        "\nfolded_into: 200",
+        _marker("merge_approved", "pass", "2026-06-22T10:00:00Z")))
+    # Live tree -> booked only, no csv row. This is the one path whose caller
+    # (_observe_live) keeps IGNORING the returned category.
+    _write(tmp, "t502_live.md", _task(
+        "status: Ready\nissue_type: chore\ncreated_at: 2026-06-22 09:00"))
+
+    # `real` is saved BEFORE instrumenting and every expected value below is
+    # computed through it AFTER restoration: a single expected-value call made
+    # while the recorder is installed would land in `seen` and fail the
+    # exactly-once assertions on correct production behaviour.
+    real = sd.resolve_category
+    seen: list[str] = []
+
+    def recording(metadata, body, filename, tally=None):
+        seen.append(filename)
+        return real(metadata, body, filename, tally)
+
+    sd.resolve_category = recording
+    try:
+        data = sd.collect_stats(_TODAY, _DOW, project_root=tmp, with_backlog=True)
+    finally:
+        sd.resolve_category = real
+
+    rows = {r[3]: r for r in data.csv_rows}
+    counts = Counter(seen)
+
+    # --- the single-pass invariant, stated as a property rather than a count so
+    # it keeps discriminating as the fixture grows.
+    assert_eq("no file is classified twice", [],
+              sorted(f for f, n in counts.items() if n > 1))
+    assert_true("the call list is non-empty (the invariant is not vacuous)",
+                len(seen) > 0)
+
+    # --- the memo hit was a HIT, and carried the CORRECT value. Booked + rowed
+    # + one call is only jointly conclusive: each alone is satisfiable by the
+    # fallback path.
+    assert_eq("memo-hit file was booked (arrival)", 1,
+              data.backlog_arrivals[("type:refactor", 3)])
+    assert_eq("memo-hit file was booked (departure)", 1,
+              data.backlog_departures[("type:refactor", 1)])
+    assert_true("memo-hit file has a csv row", "t500_normal" in rows)
+    assert_eq("memo-hit row carries the booked category", "type:refactor",
+              rows["t500_normal"][11])
+    assert_eq("memo-hit file is classified exactly once", 1,
+              counts["t500_normal.md"])
+
+    # --- the fallback fires exactly once: zero would mean an empty cell, two
+    # would mean the miss also double-classified.
+    assert_eq("memo-miss file is classified exactly once", 1,
+              counts["t501_folded_stamped.md"])
+    assert_true("memo-miss file has a csv row", "t501_folded_stamped" in rows)
+    assert_eq("memo-miss row is filled by the fallback, not left empty",
+              real(*sd.split_frontmatter(
+                  (tmp / "aitasks" / "archived" / "t501_folded_stamped.md")
+                  .read_text(encoding="utf-8")), "t501_folded_stamped.md"),
+              rows["t501_folded_stamped"][11])
+    assert_eq("memo-miss row category is the expected literal", "type:bug",
+              rows["t501_folded_stamped"][11])
+    assert_true("no row ships an empty category cell",
+                all(r[11] for r in data.csv_rows))
+
+    # --- it really WAS a miss: the booking excluded it before classifying.
+    assert_eq("memo-miss file contributed no arrival", 0,
+              sum(v for (c, _o), v in data.backlog_arrivals.items() if c == "type:bug"))
+    assert_eq("memo-miss file contributed no departure", 0,
+              sum(v for (c, _o), v in data.backlog_departures.items() if c == "type:bug"))
+    assert_eq("memo-miss file was excluded as folded", 1,
+              data.backlog_excluded["folded"])
+
+    # --- the live-tree path still books and still classifies once. Without
+    # this, nothing here exercises _observe_live.
+    assert_eq("live file is classified exactly once", 1, counts["t502_live.md"])
+    assert_eq("live file was booked", 1, data.backlog_arrivals[("type:chore", 1)])
+    assert_true("live file produces no csv row", "t502_live" not in rows)
+
+
 def _check_format_duration() -> None:
     assert_eq("minutes under 1h", "30m", sd.format_duration(0.5))
     assert_eq("hours under a day", "2.0h", sd.format_duration(2.0))
@@ -530,6 +635,8 @@ def main() -> int:
         _check_backlog_merge(Path(t))
     with tempfile.TemporaryDirectory(prefix="stats_backlog_off_") as t:
         _check_with_backlog_off(Path(t))
+    with tempfile.TemporaryDirectory(prefix="stats_category_single_pass_") as t:
+        _check_category_single_pass(Path(t))
 
     print("")
     print("==========================")
