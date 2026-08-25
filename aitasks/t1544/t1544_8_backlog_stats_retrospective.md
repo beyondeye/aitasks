@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t1544_1, t1544_2, t1544_3, t1544_4, t1544_5, t1544_6, t1544_7]
 issue_type: chore
