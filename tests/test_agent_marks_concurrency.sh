@@ -145,6 +145,41 @@ assert_eq "corrupt store left byte-identical (no clobber)" \
     "$corrupt_before" "$(cat "$AITASKS_AGENT_MARKS_FILE")"
 assert_dir_not_exists "lock dir released after corrupt-store abort" "$LOCK_DIR"
 
+echo
+echo "=== Test 6: the read-only \`list\` verb takes no lock (t1598) ==="
+# `list` is a pure read and every write lands via os.replace, so a reader always
+# sees one whole generation. It used to take the WRITE lock at
+# PURGE_LOCK_TIMEOUT, which made a read stall 10s and exit 3 against a wedged
+# mutex — measured at 10.267s on the reporting machine.
+# Test 5 leaves the store deliberately corrupt; start from a clean one.
+rm -f "$AITASKS_AGENT_MARKS_FILE"
+"$MARKS_SH" toggle "$ROOT" "agent-listable" >/dev/null 2>&1
+# Hold the lock with a LIVE pid so it is never stolen (the same fixture shape
+# Test 3 uses); a dead holder would be reclaimed and prove nothing.
+mkdir -p "$LOCK_DIR"
+sleep 30 &
+list_holder=$!
+echo "$list_holder" > "$LOCK_DIR/pid"
+echo "held-by-test" > "$LOCK_DIR/owner"
+
+start=$SECONDS
+out="$("$MARKS_SH" list 2>&1)"; rc=$?
+elapsed=$(( SECONDS - start ))
+
+kill "$list_holder" 2>/dev/null || true
+wait "$list_holder" 2>/dev/null || true
+rm -rf "$LOCK_DIR"
+
+assert_eq "list under a held lock -> exit 0 (not LOCK_BUSY)" "0" "$rc"
+assert_contains "list under a held lock -> the entry is returned" \
+    "MARK:" "$out"
+assert_not_contains "list under a held lock -> never reports LOCK_BUSY" \
+    "LOCK_BUSY" "$out"
+# The regression this pins: PURGE_LOCK_TIMEOUT is 10s, so the old code spent it.
+[[ "$elapsed" -lt 5 ]] \
+    && assert_eq "list under a held lock returns promptly (${elapsed}s)" "1" "1" \
+    || assert_eq "list under a held lock returns promptly (${elapsed}s)" "1" "0"
+
 echo ""
 echo "========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

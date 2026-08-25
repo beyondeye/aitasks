@@ -57,6 +57,7 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     compute_block_age_staleness,
     combine_staleness,
     refresh_shadow_phase_stamp,
+    refresh_shadow_phase_stamp_async,
     # Shadow spawn seam (t1216_4) — the monitor is a second spawn surface, so
     # placement, the stamp and the cleanup-hook wiring live in one body.
     find_shadow_pane_status,

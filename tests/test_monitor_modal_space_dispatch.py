@@ -93,6 +93,7 @@ class _FakeMonitor:
     # (observed, panes) — this fake observes nothing, so it never looks like a
     # verified empty window to the auto-close check (t1446).
     def discover_window_panes(self, window_id): return (False, [])
+    async def discover_window_panes_async(self, window_id): return (False, [])
 
 
 def snapshot(window="agent-t1", pane_id="%1", window_index="1") -> PaneSnapshot:

@@ -42,7 +42,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     compute_shadow_staleness,
     compute_block_age_staleness,
     combine_staleness,
-    refresh_shadow_phase_stamp,
+    refresh_shadow_phase_stamp_async,
     spawn_shadow,
     _SHADOW_DEEP_RETRY_LINES,
     _SHADOW_TRUNCATED_MSG,
@@ -1160,7 +1160,26 @@ class MiniMonitorApp(
             group="tmux-control-init",
         )
 
-        self.call_later(self._refresh_data)
+        # NOT call_later / set_timer / call_after_refresh (t1598). In Textual
+        # 8.2.7 `call_later` posts an `events.Callback` to the App's OWN queue
+        # and `MessagePump.on_callback` awaits it INLINE in the App's message
+        # loop — the same serialized queue `App.on_event` dispatches key and
+        # mouse events from, so the whole first refresh ran ahead of every
+        # queued keypress. `set_timer(0, ...)` is worse: it wraps the callback
+        # in `call_next`, which drains from `_next_callbacks` inline and JUMPS
+        # the queue. `call_after_refresh` escapes the App pump only to land on
+        # the Screen pump, where keys bubble. `run_worker` is
+        # `asyncio.create_task` (textual/worker.py) — the only genuine escape.
+        # `set_interval` below is already safe: it passes the callback
+        # unwrapped, so Timer._tick runs it in the timer's own task, which is
+        # exactly why ticks 2+ never stalled input.
+        self.run_worker(
+            self._refresh_data(),
+            name="first_refresh",
+            group="refresh-init",
+            exclusive=False,
+            exit_on_error=False,
+        )
         self._refresh_timer = self.set_interval(
             self._refresh_seconds, self._refresh_data
         )
@@ -1181,92 +1200,106 @@ class MiniMonitorApp(
     # -- Data refresh ----------------------------------------------------------
 
     async def _refresh_data(self) -> None:
-        if self._monitor is None:
+        # Re-entrancy guard (t1598). The first refresh now runs in its own task
+        # rather than on the App pump, so it can overlap the first interval tick
+        # and the keypress-driven `call_later(self._refresh_data)` sites.
+        # `capture_all_async`'s generation guard covers the capture half but not
+        # the DOM rebuild, and two concurrent remove_children/mount_all passes
+        # are worse than a skipped tick (at most one refresh interval late).
+        #
+        # The reset is in a `finally` and that is load-bearing: every await here
+        # can raise, CancelledError propagates on shutdown, and the two early
+        # returns below would strand the flag on the ORDINARY path. A stranded
+        # flag makes the TUI stop refreshing permanently.
+        if self._refresh_inflight:
             return
+        self._refresh_inflight = True
+        try:
+            if self._monitor is None:
+                return
 
-        # Save focus state before rebuild
-        saved_pane_id = self._focused_pane_id
+            # Save focus state before rebuild
+            saved_pane_id = self._focused_pane_id
 
-        # capture_all_async returns None when a newer overlapping refresh
-        # superseded this one (t1111_4). Skip the stale cycle — a newer refresh
-        # owns the rebuild — rather than overwriting visible snapshots with stale
-        # pane content.
-        snaps = await self._monitor.capture_all_async()
-        if snaps is None:
-            return
-        self._snapshots = snaps
-        # Refresh per-session project-root mapping so cross-session task data
-        # resolves from the right project (free — uses TmuxMonitor's cached
-        # session list).
-        session_roots = self._monitor.get_session_to_project_mapping()
-        self._task_cache.update_session_mapping(session_roots)
-        # Prioritized marks (t1326) reuse this tick's mapping rather than
-        # re-querying per row — see AgentMarksMixin._set_session_root_map.
-        self._set_session_root_map(session_roots)
-        # Drop last cycle's gate summaries so a live-growing ledger re-derives
-        # this refresh (mirrors the board's per-refresh gate cache).
-        self._gate_cache.clear()
-        # Prioritized marks (t1326): mtime-gated, so this is one os.stat when
-        # nothing changed. Must run before the pane list renders, and is what
-        # makes a mark set in another repo appear here within one tick.
-        self._refresh_marks()
-        # Completed-pane set for THIS tick (t1322) — after the session
-        # mapping refresh (which may clear the task cache), before the bar
-        # and the pane list read it.
-        self._completed_pane_ids = self._compute_completed_panes()
+            # capture_all_async returns None when a newer overlapping refresh
+            # superseded this one (t1111_4). Skip the stale cycle — a newer refresh
+            # owns the rebuild — rather than overwriting visible snapshots with stale
+            # pane content.
+            snaps = await self._monitor.capture_all_async()
+            if snaps is None:
+                return
+            self._snapshots = snaps
+            # Refresh per-session project-root mapping so cross-session task data
+            # resolves from the right project (free — uses TmuxMonitor's cached
+            # session list).
+            session_roots = await self._monitor.get_session_to_project_mapping_async()
+            self._task_cache.update_session_mapping(session_roots)
+            # Prioritized marks (t1326) reuse this tick's mapping rather than
+            # re-querying per row — see AgentMarksMixin._set_session_root_map.
+            self._set_session_root_map(session_roots)
+            # Drop last cycle's gate summaries so a live-growing ledger re-derives
+            # this refresh (mirrors the board's per-refresh gate cache).
+            self._gate_cache.clear()
+            # Prioritized marks (t1326): mtime-gated, so this is one os.stat when
+            # nothing changed. Must run before the pane list renders, and is what
+            # makes a mark set in another repo appear here within one tick.
+            self._refresh_marks()
+            # Completed-pane set for THIS tick (t1322) — after the session
+            # mapping refresh (which may clear the task cache), before the bar
+            # and the pane list read it.
+            self._completed_pane_ids = self._compute_completed_panes()
 
-        # Keep window index fresh (handles tmux renumber-windows)
-        self._update_own_window_info()
+            # Keep window index fresh (handles tmux renumber-windows)
+            await self._update_own_window_info()
 
-        # Auto-close check (with 5-second grace period after mount)
-        if self._own_window_id and (time.monotonic() - self._mount_time) > 5.0:
-            self._check_auto_close()
+            # Auto-close check (with 5-second grace period after mount)
+            if self._own_window_id and (time.monotonic() - self._mount_time) > 5.0:
+                await self._check_auto_close()
 
-        self._rebuild_session_bar()
-        # Build the followed-agent panel once (static identity — it does not
-        # refresh with the general list), then rebuild the list (which excludes
-        # the followed agent). Await both so remove_children/mount_all complete
-        # before focus restoration — Textual's remove/mount/focus are deferred,
-        # so a direct call into _restore_focus would race the DOM updates.
-        await self._maybe_build_own_agent_panel()
-        # The one live element of that otherwise-static panel (t1383). Must run
-        # after `_set_session_root_map` and `_refresh_marks` above, which
-        # `_is_marked` reads, and after the build so there is a card to update.
-        self._refresh_own_live_state()
+            self._rebuild_session_bar()
+            # Build the followed-agent panel once (static identity — it does not
+            # refresh with the general list), then rebuild the list (which excludes
+            # the followed agent). Await both so remove_children/mount_all complete
+            # before focus restoration — Textual's remove/mount/focus are deferred,
+            # so a direct call into _restore_focus would race the DOM updates.
+            await self._maybe_build_own_agent_panel()
+            # The one live element of that otherwise-static panel (t1383). Must run
+            # after `_set_session_root_map` and `_refresh_marks` above, which
+            # `_is_marked` reads, and after the build so there is a card to update.
+            self._refresh_own_live_state()
 
-        # Scroll preservation (t1539). Capture BEFORE the rebuild — that is where
-        # `validate_scroll_y` clamps the offset to 0 — then hold the lock across
-        # it so Textual's own scrolls (the focus restore and its deferred
-        # variants) cannot land while the anchor restore is pending.
-        self._capture_list_scroll()
-        gen = self._scroll_restore_gen = self._scroll_restore_gen + 1
-        self._list_scroll_lock = True
-        # The fail-safe is armed HERE, on the acquisition line, and not inside
-        # the restore. `Screen._invoke_and_clear_callbacks` has no per-callback
-        # try, so an exception raised by an EARLIER callback in the same batch
-        # drops every remaining one — including the restore. A release scheduled
-        # from within the restore would then never run and the lock would stick,
-        # silently killing scroll-into-view for the rest of the session.
-        self._stop_scroll_lock_timer()
-        self._scroll_lock_timer = self.set_timer(
-            self._SCROLL_LOCK_TIMEOUT, lambda: self._abandon_scroll_restore(gen)
-        )
+            # Scroll preservation (t1539). Capture BEFORE the rebuild — that is where
+            # `validate_scroll_y` clamps the offset to 0 — then hold the lock across
+            # it so Textual's own scrolls (the focus restore and its deferred
+            # variants) cannot land while the anchor restore is pending.
+            self._capture_list_scroll()
+            gen = self._scroll_restore_gen = self._scroll_restore_gen + 1
+            self._list_scroll_lock = True
+            # The fail-safe is armed HERE, on the acquisition line, and not inside
+            # the restore. `Screen._invoke_and_clear_callbacks` has no per-callback
+            # try, so an exception raised by an EARLIER callback in the same batch
+            # drops every remaining one — including the restore. A release scheduled
+            # from within the restore would then never run and the lock would stick,
+            # silently killing scroll-into-view for the rest of the session.
+            self._stop_scroll_lock_timer()
+            self._scroll_lock_timer = self.set_timer(
+                self._SCROLL_LOCK_TIMEOUT, lambda: self._abandon_scroll_restore(gen)
+            )
 
-        await self._rebuild_pane_list()
+            await self._rebuild_pane_list()
 
-        self._restore_focus(saved_pane_id)
-        self.call_after_refresh(self._restore_list_scroll, gen, 0)
+            self._restore_focus(saved_pane_id)
+            self.call_after_refresh(self._restore_list_scroll, gen, 0)
 
-        # Proactive concern auto-offer (t1037_4): hint once per *new* complete
-        # concern block on the followed agent's shadow pane. Best-effort and
-        # event-loop safe — any failure silently skips this tick.
-        await self._maybe_offer_concerns()
-
-        # Materialize mark expiry / the liveness sweep at most every 10 min
-        # (t1326). Last, so a slow writer can never delay the visible refresh.
-        await self._maybe_purge_marks()
-
-    def _check_auto_close(self) -> None:
+            # Trailing maintenance — the proactive concern auto-offer (t1037_4) and
+            # the mark expiry / liveness sweep (t1326). DISPATCHED, not awaited: the
+            # purge can block for a full 20s wrapper timeout, and awaiting it here
+            # put that on the render path (t1598). See
+            # `AgentMarksMixin._dispatch_refresh_maintenance`.
+            self._dispatch_refresh_maintenance()
+        finally:
+            self._refresh_inflight = False
+    async def _check_auto_close(self) -> None:
         """Exit only on a POSITIVELY OBSERVED empty window (t1446).
 
         An observation the process could not actually make — a tmux timeout or
@@ -1283,7 +1316,9 @@ class MiniMonitorApp(
         """
         if self._monitor is None or self._own_window_id is None:
             return
-        observed, panes = self._monitor.discover_window_panes(self._own_window_id)
+        observed, panes = await self._monitor.discover_window_panes_async(
+            self._own_window_id
+        )
         own_pane = os.environ.get("TMUX_PANE")
         if not observed or not own_pane:
             # tmux failed, or the listing dropped a record (a truncated sibling
@@ -1303,13 +1338,13 @@ class MiniMonitorApp(
         if self._empty_window_streak >= AUTO_CLOSE_CONFIRMATIONS:
             self.exit()
 
-    def _update_own_window_info(self) -> None:
+    async def _update_own_window_info(self) -> None:
         """Re-query own window index/name (handles tmux renumber-windows and
         window renames)."""
         own_pane = os.environ.get("TMUX_PANE", "")
         if not own_pane or self._monitor is None:
             return
-        rc, stdout = self._monitor.tmux_run(
+        rc, stdout = await self._monitor.tmux_run_async(
             ["display-message", "-p", "-t", own_pane,
              "#{window_id}\t#{window_index}\t#{window_name}"],
             timeout=2,
@@ -1387,12 +1422,22 @@ class MiniMonitorApp(
 
     def _root_for_snap(self, snap: PaneSnapshot) -> Path:
         """Project root that owns the given pane's tmux session, falling back to
-        this minimonitor's project root. Mirrors MonitorApp._root_for_snap."""
+        this minimonitor's project root. Mirrors MonitorApp._root_for_snap.
+
+        Reads **this tick's** session→root map rather than re-querying tmux
+        (t1598). Unlike the monitor's copy, this one is reachable from the render
+        path — `_own_header_session` calls it while the own-agent panel is built
+        — so a sync `get_session_to_project_mapping()` here was a tmux round-trip
+        on the event-loop thread that the poison-pill test could not see.
+        `_set_session_root_map` is fed the *async* mapping every tick, and reusing
+        the last tick's map on a keypress is the same contract
+        `_completed_pane_ids` already documents.
+        """
         sess = snap.pane.session_name
-        if sess and self._monitor is not None:
-            mapping = self._monitor.get_session_to_project_mapping()
-            if sess in mapping:
-                return mapping[sess]
+        if sess:
+            root = self._session_root_map.get(sess)
+            if root is not None:
+                return root
         return self._project_root
 
     def _own_header_session(self, snap) -> str:
@@ -1628,10 +1673,19 @@ class MiniMonitorApp(
         awaiting_str = f" [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
         done_str = f" [{STATE_STYLE_DONE}]{done_count}d[/]" if done_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
-        try:
-            desync = _get_desync_summary(Path.cwd(), compact=True)
-        except Exception:
-            desync = ""
+        # Gated on the FLAG, not on `bar.display` — which is only set further
+        # down, after this ran (t1598). `_get_desync_summary` shells out to a
+        # fresh Python interpreter with a 2s cap and a 30s TTL cache that always
+        # misses on the first tick, and `_session_bar_enabled` defaults to
+        # False — so on a default install every tick paid for a string nobody
+        # rendered. Gated rather than early-returned: the bar's text must keep
+        # tracking state so a future runtime toggle shows current data.
+        desync = ""
+        if self._session_bar_enabled:
+            try:
+                desync = _get_desync_summary(Path.cwd(), compact=True)
+            except Exception:
+                desync = ""
         # Surface the control-channel state only when not steady-state.
         # Compact form fits the narrow minimonitor bar.
         state_badge = ""
@@ -2993,7 +3047,7 @@ class MiniMonitorApp(
             widget.display = bool(text)
         self._schedule_short_mode_refresh()
 
-    def _restamp_shadow_phase(self, shadow_pane: str, snap: PaneSnapshot) -> None:
+    async def _restamp_shadow_phase(self, shadow_pane: str, snap: PaneSnapshot) -> None:
         """Push the followed agent's current advisory phase onto its shadow.
 
         Resolves the task the same way every display site does
@@ -3008,7 +3062,7 @@ class MiniMonitorApp(
             info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
             if info is None:
                 return
-            refresh_shadow_phase_stamp(
+            await refresh_shadow_phase_stamp_async(
                 self._monitor, shadow_pane, self._phase_for_snap(snap, info))
 
     @property
@@ -4026,7 +4080,7 @@ class MiniMonitorApp(
         # throttled with the freshness check: the shadow re-reads it on every
         # refetch, and a frozen hint is the one failure mode the pane-option
         # channel exists to avoid. Best-effort inside; never raises here.
-        self._restamp_shadow_phase(shadow_pane, snap)
+        await self._restamp_shadow_phase(shadow_pane, snap)
         text = await capture_shadow_text(shadow_pane)
         # Review-loop service, main path (t1159_2): before the text-None
         # return so a failed cleaned capture still services the tick.

@@ -114,6 +114,7 @@ class _FakeMonitor:
         self._mapping = mapping
 
     def get_session_to_project_mapping(self): return self._mapping
+    async def get_session_to_project_mapping_async(self): return self._mapping
     def get_compare_mode(self, pane_id): return "stripped"
     def is_compare_mode_overridden(self, pane_id): return False
     def get_shadow_snapshot(self, pane_id): return None
@@ -556,7 +557,8 @@ class RefreshCycleWiringTests(_StoreFixture):
         app._session = SESSION
         app._own_window_index = OWN_WINDOW_INDEX
         app._own_window_id = None
-        app._update_own_window_info = lambda: None
+        async def _noop_window_info(): return None
+        app._update_own_window_info = _noop_window_info
         app._maybe_offer_concerns = _noop_async
         app._marks_view = agent_marks.MarksView(self.store)
         app._marks_purge_due_at = float("inf")

@@ -169,6 +169,15 @@ class ListLayoutPendingTests(unittest.TestCase):
 CARD_IDS = [f"%{i}" for i in range(20)]
 
 
+async def _async_empty_mapping():
+    """`get_session_to_project_mapping_async` stand-in (t1598).
+
+    The refresh path moved onto the async gateway, so the sync sibling is no
+    longer called and a `lambda: {}` here would be silently dead.
+    """
+    return {}
+
+
 class _ListHost(mm.MiniMonitorApp):
     """The REAL `MiniMonitorApp`, with only its boot sequence neutralised.
 
@@ -365,7 +374,7 @@ class _RefreshHost(_ListHost):
         self._monitor = SimpleNamespace(
             multi_session=False,
             capture_all_async=self._capture_all_async,
-            get_session_to_project_mapping=lambda: {},
+            get_session_to_project_mapping_async=_async_empty_mapping,
             get_compare_mode=lambda pid: "stripped",
             is_compare_mode_overridden=lambda pid: False,
             get_shadow_snapshot=lambda pid: None,
@@ -390,8 +399,8 @@ class _RefreshHost(_ListHost):
     # Tmux-facing no-ops (each hits the real tmux gateway in production).
     def _refresh_marks(self): return None
     def _compute_completed_panes(self): return frozenset()
-    def _update_own_window_info(self): return None
-    def _check_auto_close(self): return None
+    async def _update_own_window_info(self): return None
+    async def _check_auto_close(self): return None
     def _find_own_window_snapshot(self): return None
     async def _maybe_offer_concerns(self): return None
     async def _maybe_purge_marks(self): return None

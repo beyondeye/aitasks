@@ -33,7 +33,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     compute_shadow_staleness,
     compute_block_age_staleness,
     combine_staleness,
-    refresh_shadow_phase_stamp,
+    refresh_shadow_phase_stamp_async,
     find_shadow_pane_status,
     spawn_shadow,
     _SHADOW_DEEP_RETRY_LINES,
@@ -641,6 +641,9 @@ class MonitorApp(
         # triggering an N-stat fan-out on a keystroke.
         self._completed_pane_ids: frozenset[str] = frozenset()
         # Prioritized-agent marks (t1326): cached reader + purge scheduling.
+        #: Advisory shadow-phase stamps queued by the card renderer, flushed
+        #: after the rebuild so the render path makes no tmux call (t1598).
+        self._pending_shadow_stamps: list[tuple[str, object]] = []
         self._init_agent_marks()
 
     def compose(self) -> ComposeResult:
@@ -818,7 +821,18 @@ class MonitorApp(
             group="tmux-control-init",
         )
 
-        self.call_later(self._refresh_data)
+        # NOT call_later / set_timer / call_after_refresh (t1598) — see the
+        # matching comment in minimonitor_app._start_monitoring. `call_later`
+        # runs the first refresh INLINE on the App's message pump, ahead of
+        # every queued keypress; `run_worker` is asyncio.create_task, the only
+        # dispatch that escapes every pump.
+        self.run_worker(
+            self._refresh_data(),
+            name="first_refresh",
+            group="refresh-init",
+            exclusive=False,
+            exit_on_error=False,
+        )
         self._refresh_timer = self.set_interval(
             self._refresh_seconds, self._refresh_data
         )
@@ -953,124 +967,144 @@ class MonitorApp(
     # -- Data refresh ----------------------------------------------------------
 
     async def _refresh_data(self) -> None:
-        if self._monitor is None:
+        # Re-entrancy guard (t1598) — the first refresh now runs in its own
+        # task, so it can overlap the first interval tick and the keypress-driven
+        # `call_later(self._refresh_data)` sites. The reset is in a `finally`
+        # because every await here can raise and CancelledError propagates on
+        # shutdown; a stranded flag stops the TUI refreshing permanently.
+        if self._refresh_inflight:
             return
+        self._refresh_inflight = True
+        try:
+            if self._monitor is None:
+                return
 
-        # Save focus state before rebuild
-        saved_pane_id = self._focused_pane_id
-        saved_zone = self._active_zone
+            # Save focus state before rebuild
+            saved_pane_id = self._focused_pane_id
+            saved_zone = self._active_zone
 
-        # Two-phase capture (t1111_4): offload the strip/prompt-regex CPU work,
-        # then commit under the monitor-owned generation guard. If a newer refresh
-        # reserved a later generation while we were off-loop, discard this cycle —
-        # skip the DOM rebuild entirely (the newer cycle owns it) and never write
-        # stale content into _last_content / _snapshots.
-        gen, classified = await self._monitor.capture_all_classified_async()
-        if self._monitor.capture_generation != gen:
-            return
-        snaps = self._monitor.commit_snapshots(gen, classified)
-        if snaps is None:
-            return
-        self._snapshots = snaps
-        # Refresh the per-session project-root mapping so cross-session task
-        # data resolves from the right project. Cheap — piggybacks on the
-        # TmuxMonitor sessions cache TTL.
-        session_roots = await self._monitor.get_session_to_project_mapping_async()
-        self._task_cache.update_session_mapping(session_roots)
-        # Prioritized marks (t1326): publish the SAME mapping to the mark code
-        # (the async value — the render path must never make a sync tmux call;
-        # see test_monitor_refresh_no_sync_tmux.py), then re-read the store.
-        # The re-read is mtime-gated, so it is one os.stat when nothing changed,
-        # and it is what makes a mark set in another repo appear within a tick.
-        self._set_session_root_map(session_roots)
-        self._refresh_marks()
-        # Completed-pane set for THIS tick (t1322). Must run after
-        # update_session_mapping (which may clear the task cache) and before
-        # _maybe_auto_switch below, which filters on it.
-        self._completed_pane_ids = self._compute_completed_panes()
-        # NOTE: no per-tick gate-cache clear here — GateSummaryCache now
-        # invalidates by task-file mtime/size, so a live-growing ledger
-        # re-derives on the tick its file changes without re-reading unchanged
-        # ledgers from disk every 3s.
+            # Two-phase capture (t1111_4): offload the strip/prompt-regex CPU work,
+            # then commit under the monitor-owned generation guard. If a newer refresh
+            # reserved a later generation while we were off-loop, discard this cycle —
+            # skip the DOM rebuild entirely (the newer cycle owns it) and never write
+            # stale content into _last_content / _snapshots.
+            gen, classified = await self._monitor.capture_all_classified_async()
+            if self._monitor.capture_generation != gen:
+                return
+            snaps = self._monitor.commit_snapshots(gen, classified)
+            if snaps is None:
+                return
+            self._snapshots = snaps
+            # Refresh the per-session project-root mapping so cross-session task
+            # data resolves from the right project. Cheap — piggybacks on the
+            # TmuxMonitor sessions cache TTL.
+            session_roots = await self._monitor.get_session_to_project_mapping_async()
+            self._task_cache.update_session_mapping(session_roots)
+            # Prioritized marks (t1326): publish the SAME mapping to the mark code
+            # (the async value — the render path must never make a sync tmux call;
+            # see test_monitor_refresh_no_sync_tmux.py), then re-read the store.
+            # The re-read is mtime-gated, so it is one os.stat when nothing changed,
+            # and it is what makes a mark set in another repo appear within a tick.
+            self._set_session_root_map(session_roots)
+            self._refresh_marks()
+            # Completed-pane set for THIS tick (t1322). Must run after
+            # update_session_mapping (which may clear the task cache) and before
+            # _maybe_auto_switch below, which filters on it.
+            self._completed_pane_ids = self._compute_completed_panes()
+            # NOTE: no per-tick gate-cache clear here — GateSummaryCache now
+            # invalidates by task-file mtime/size, so a live-growing ledger
+            # re-derives on the tick its file changes without re-reading unchanged
+            # ledgers from disk every 3s.
 
-        # Drop saved scroll state for panes that no longer exist.
-        stale = [
-            pid for pid in self._preview_scroll_state
-            if pid not in self._snapshots
-        ]
-        for pid in stale:
-            del self._preview_scroll_state[pid]
-        if (
-            self._last_preview_pane_id is not None
-            and self._last_preview_pane_id not in self._snapshots
-        ):
-            self._last_preview_pane_id = None
+            # Drop saved scroll state for panes that no longer exist.
+            stale = [
+                pid for pid in self._preview_scroll_state
+                if pid not in self._snapshots
+            ]
+            for pid in stale:
+                del self._preview_scroll_state[pid]
+            if (
+                self._last_preview_pane_id is not None
+                and self._last_preview_pane_id not in self._snapshots
+            ):
+                self._last_preview_pane_id = None
 
-        # Focus request from minimonitor (via tmux session env var). Explicit
-        # requests take priority over auto-switch heuristics. If the target
-        # pane isn't yet in the snapshot (startup race), leave the env var
-        # in place so the next refresh can retry.
-        target_name = await self._consume_focus_request()
-        if target_name:
-            for pid, snap in self._snapshots.items():
-                if (
-                    snap.pane.category == PaneCategory.AGENT
-                    and snap.pane.window_name == target_name
-                ):
-                    self._focused_pane_id = pid
-                    saved_pane_id = pid
-                    saved_zone = Zone.PANE_LIST
-                    self._active_zone = Zone.PANE_LIST
-                    await self._clear_focus_request()
-                    break
+            # Focus request from minimonitor (via tmux session env var). Explicit
+            # requests take priority over auto-switch heuristics. If the target
+            # pane isn't yet in the snapshot (startup race), leave the env var
+            # in place so the next refresh can retry.
+            target_name = await self._consume_focus_request()
+            if target_name:
+                for pid, snap in self._snapshots.items():
+                    if (
+                        snap.pane.category == PaneCategory.AGENT
+                        and snap.pane.window_name == target_name
+                    ):
+                        self._focused_pane_id = pid
+                        saved_pane_id = pid
+                        saved_zone = Zone.PANE_LIST
+                        self._active_zone = Zone.PANE_LIST
+                        await self._clear_focus_request()
+                        break
 
-        # Auto-switch: if enabled and in pane list, move to most-idle agent
-        if self._auto_switch and saved_zone == Zone.PANE_LIST:
-            if self._maybe_auto_switch():
-                saved_pane_id = self._focused_pane_id
+            # Auto-switch: if enabled and in pane list, move to most-idle agent
+            if self._auto_switch and saved_zone == Zone.PANE_LIST:
+                if self._maybe_auto_switch():
+                    saved_pane_id = self._focused_pane_id
 
-        attached_session = None
-        if self._monitor.multi_session:
-            attached_session = await self._read_attached_session()
-        self._rebuild_session_bar(attached_session)
-        # Shadow reconciliation MUST run before the _restore_focus scheduling
-        # below: it can change the active zone (grace fallback / selection
-        # moved), and `saved_zone` was captured at the top of this method,
-        # before that could happen. Handing the stale value to the deferred
-        # restore would re-focus the shadow column and undo the fallback that
-        # just fired (t1216_2).
-        saved_zone = self._reconcile_shadow_state()
-        # Cheap, synchronous and I/O-free: must run BEFORE the rebuild below so
-        # the badge each card renders reflects this tick (t1216_3). The costly
-        # half (authoritative capture + toast) is dispatched as a worker at the
-        # end of this method instead, off the refresh cadence.
-        self._scan_concern_signatures()
+            attached_session = None
+            if self._monitor.multi_session:
+                attached_session = await self._read_attached_session()
+            self._rebuild_session_bar(attached_session)
+            # Shadow reconciliation MUST run before the _restore_focus scheduling
+            # below: it can change the active zone (grace fallback / selection
+            # moved), and `saved_zone` was captured at the top of this method,
+            # before that could happen. Handing the stale value to the deferred
+            # restore would re-focus the shadow column and undo the fallback that
+            # just fired (t1216_2).
+            saved_zone = self._reconcile_shadow_state()
+            # Cheap, synchronous and I/O-free: must run BEFORE the rebuild below so
+            # the badge each card renders reflects this tick (t1216_3). The costly
+            # half (authoritative capture + toast) is dispatched as a worker at the
+            # end of this method instead, off the refresh cadence.
+            self._scan_concern_signatures()
 
-        pane_list_rebuilt = self._rebuild_pane_list()
-        self._update_content_preview()
-        self._update_shadow_preview()
+            self._pending_shadow_stamps = []
+            pane_list_rebuilt = self._rebuild_pane_list()
+            # Flush the advisory phase stamps the card renderer queued
+            # (t1598). Best-effort and never fatal, exactly as when the
+            # write happened inline.
+            for _pane_id, _signal in self._pending_shadow_stamps:
+                await refresh_shadow_phase_stamp_async(
+                    self._monitor, _pane_id, _signal)
+            self._pending_shadow_stamps = []
+            self._update_content_preview()
+            self._update_shadow_preview()
 
-        # Defer focus restoration until after Textual processes the DOM changes
-        # from remove()/mount(). Immediate restore fails because removed widgets
-        # haven't been fully detached yet.
-        self.call_after_refresh(
-            self._restore_focus, saved_pane_id, saved_zone, pane_list_rebuilt
-        )
+            # Defer focus restoration until after Textual processes the DOM changes
+            # from remove()/mount(). Immediate restore fails because removed widgets
+            # haven't been fully detached yet.
+            self.call_after_refresh(
+                self._restore_focus, saved_pane_id, saved_zone, pane_list_rebuilt
+            )
 
-        # Concern verification + toast (t1216_3). A worker, so a stalled capture
-        # cannot stretch the refresh interval — Textual awaits the timer callback
-        # before scheduling the next one. Deliberately NOT exclusive=True:
-        # cancelling would orphan capture_shadow_text's subprocess, which is
-        # killed only on its own timeout. Re-entrancy is handled by _offer_busy,
-        # so a slow pass is not restarted rather than killed mid-flight.
-        self.run_worker(
-            self._offer_concerns(), group="concerns", exit_on_error=False
-        )
+            # Concern verification + toast (t1216_3). A worker, so a stalled capture
+            # cannot stretch the refresh interval — Textual awaits the timer callback
+            # before scheduling the next one. Deliberately NOT exclusive=True:
+            # cancelling would orphan capture_shadow_text's subprocess, which is
+            # killed only on its own timeout. Re-entrancy is handled by _offer_busy,
+            # so a slow pass is not restarted rather than killed mid-flight.
+            self.run_worker(
+                self._offer_concerns(), group="concerns", exit_on_error=False
+            )
 
-        # Materialize mark expiry / the liveness sweep at most every 10 min
-        # (t1326). Last, so a slow writer can never delay the visible refresh.
-        await self._maybe_purge_marks()
-
+            # Mark expiry / liveness sweep (t1326). DISPATCHED, not awaited: the
+            # purge can block for a full 20s wrapper timeout on a contended or
+            # wedged marks lock, and Timer._tick awaits this callback, so an inline
+            # await froze the refresh cadence for the duration (t1598).
+            self._dispatch_refresh_maintenance()
+        finally:
+            self._refresh_inflight = False
     async def _offer_concerns(self) -> None:
         """Toast the SELECTED agent once per verified block.
 
@@ -1637,11 +1671,21 @@ class MonitorApp(
                 # Re-stamp the bound shadow from the SAME signal. The full
                 # monitor spawns shadows too, so without this its shadows would
                 # keep their launch-time value forever (t1420). Best-effort:
-                # `refresh_shadow_phase_stamp` swallows every failure, so an
-                # advisory hint can never disturb the card render.
+                # COLLECTED here, written after the rebuild (t1598). This runs
+                # inside the SYNCHRONOUS card renderer, so the stamp's tmux
+                # round-trip was a blocking call on the render path — once per
+                # shadowed card, per tick. Making the renderer async is the wrong
+                # fix; queueing the write and flushing it from `_refresh_data`
+                # keeps the same best-effort, never-fatal semantics.
                 if shadow_snap is not None and self._monitor is not None:
-                    refresh_shadow_phase_stamp(
-                        self._monitor, shadow_snap.pane.pane_id, signal)
+                    # `__dict__.setdefault`, not a class attribute: this list
+                    # is APPENDED to, so a class-level default would be shared
+                    # by every instance. `_refresh_data` rebinds it per tick;
+                    # this keeps the `__new__`-built test path instance-scoped
+                    # too.
+                    self.__dict__.setdefault(
+                        "_pending_shadow_stamps", []
+                    ).append((shadow_snap.pane.pane_id, signal))
                 text += f"\n     [dim italic]t{task_id}: {info.title}[/]"
         return text
 

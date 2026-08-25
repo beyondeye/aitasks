@@ -380,7 +380,13 @@ class MountedHeaderTests(unittest.TestCase):
 
 
 class _SpyMonitor:
-    """Records whether the session→project mapping was consulted at all.
+    """Records whether the SYNC session→project mapping was consulted at all.
+
+    Since t1598 the answer must be "never": `_root_for_snap` reads the map
+    `_refresh_data` published for this tick, so any `consulted` count above zero
+    means a sync tmux round-trip crept back onto the render path. The counter
+    was already asserted for the pass-through case; it is now a poison pill for
+    every case.
 
     The "unambiguous name passes through" case asserts on that, not merely on
     the returned string: a resolver that looked the project up and then happened
@@ -411,6 +417,11 @@ class AmbiguousSessionTests(unittest.TestCase):
         app._project_root = project_root
         spy = _SpyMonitor(mapping or {})
         app._monitor = spy if monitor else None
+        # Publish this "tick's" session→root map the way `_refresh_data` does.
+        # Since t1598 `_root_for_snap` reads the published map rather than
+        # calling `get_session_to_project_mapping()` — that sync call was a tmux
+        # round-trip on the render path, which `_own_header_session` is on.
+        app._set_session_root_map(mapping or {})
         return app._own_header_session(_snap(session=session)), spy
 
     def test_a_distinctive_session_passes_through_untouched(self):
@@ -421,6 +432,23 @@ class AmbiguousSessionTests(unittest.TestCase):
         self.assertEqual(out, "aitasks_mobile")
         self.assertEqual(spy.consulted, 0,
                          "the project mapping was consulted needlessly")
+
+    def test_the_render_path_never_makes_the_sync_mapping_call(self):
+        """Poison pill for the t1598 async port (see `_SpyMonitor`)."""
+        for label, kwargs in (
+            ("distinctive", dict(session="aitasks_mobile",
+                                 mapping={"aitasks_mobile": Path("/repos/x")})),
+            ("ambiguous", dict(session=mm.DEFAULT_TMUX_SESSION,
+                               mapping={mm.DEFAULT_TMUX_SESSION:
+                                        Path("/repos/aitasks_mobile")})),
+        ):
+            with self.subTest(case=label):
+                _out, spy = self._resolve(**kwargs)
+                self.assertEqual(
+                    spy.consulted, 0,
+                    "a sync get_session_to_project_mapping() ran on the render "
+                    "path — that is the blocking tmux round-trip t1598 removed",
+                )
 
     def test_the_ambiguous_name_is_replaced_by_the_project_basename(self):
         out, _ = self._resolve(

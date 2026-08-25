@@ -302,6 +302,21 @@ _MARKS_SH = _SCRIPT_DIR / "aitask_agent_marks.sh"
 #: does not need to be frequent.
 _MARKS_PURGE_INTERVAL = 600.0
 
+#: Startup deferral for the FIRST purge (t1598). The seed used to be 0.0 — "the
+#: first refresh tick after mount materializes a purge" — which put a subprocess
+#: that can block for a full 10s lock timeout inside the very first
+#: `_refresh_data`, the one tick Textual dispatches on the App's own message
+#: pump, ahead of every queued keypress. The result was a minimonitor that
+#: rendered, highlighted a card, and then ignored input for ~10 seconds.
+#:
+#: Deferred, never deleted. 60s is chosen so it cannot land on a startup tick:
+#: 20 refresh ticks past mount at the 3s cadence, well past the 5s auto-close
+#: mount grace, and above :data:`_MARKS_CMD_TIMEOUT` so even a maximally-stalled
+#: first attempt fits inside the window rather than straddling it. It is 10% of
+#: :data:`_MARKS_PURGE_INTERVAL`, so the store's growth bound is materially
+#: unchanged and a short-lived companion still gets a purge in its first minute.
+_MARKS_PURGE_STARTUP_GRACE = 60.0
+
 #: Hard ceiling on a single wrapper invocation. Above the wrapper's own lock
 #: timeouts (2s toggle / 10s purge) so a contended-but-healthy writer reports
 #: LOCK_BUSY itself rather than being killed mid-write.
@@ -346,12 +361,83 @@ class AgentMarksMixin:
     holds the ``registry_lock.sh`` mutex.
     """
 
+    #: Class-level floor for the per-tick session→root map, for the same reason
+    #: `MiniMonitorApp._session_bar_enabled` is a class attribute: several test
+    #: modules build the app with `__new__` and hand-set only what they touch,
+    #: so an `__init__`-only default would AttributeError the moment a render
+    #: helper read it. Safe to share — `_set_session_root_map` **rebinds** this
+    #: name every tick and never mutates the dict in place (t1598).
+    _session_root_map: dict = {}
+
+    #: Class-level floors, same `__new__`-built-test rationale as
+    #: `_session_root_map` above.
+    _maintenance_inflight: bool = False
+    _refresh_inflight: bool = False
+
+    async def _maybe_offer_concerns(self) -> None:
+        """Host hook run with the purge by `_dispatch_refresh_maintenance`.
+
+        No-op by default. Only minimonitor follows a single agent whose shadow
+        pane can carry an unread concern block, and it overrides this. The full
+        monitor dispatches its own `_offer_concerns` worker from `_refresh_data`
+        instead, so it inherits the no-op — a real default rather than a
+        `getattr` probe, so the contract is visible on the mixin.
+        """
+        return None
+
+    def _dispatch_refresh_maintenance(self) -> None:
+        """Start the trailing maintenance for this tick — never await it.
+
+        `_maybe_purge_marks` can block for a full `_MARKS_CMD_TIMEOUT` (20s) on a
+        contended or wedged marks lock, and Textual's `Timer._tick` **awaits**
+        its callback — so awaiting maintenance inside `_refresh_data` freezes the
+        whole refresh cadence for the duration, and on the very first tick (which
+        Textual dispatches on the App's own message pump) it also freezes input
+        dispatch. Dispatching instead keeps the render path bounded (t1598).
+
+        A single named **sync** seam on purpose: tests stub *this* method and
+        assert the work was requested, rather than letting a real worker outlive
+        an `App.run_test` block — see `aidocs/framework/testing_conventions.md`,
+        "A Textual `@work` worker left in flight fails the *enclosing*
+        `run_test`". `exit_on_error=False` for the same reason.
+        """
+        if self._maintenance_inflight:
+            return
+        self._maintenance_inflight = True
+
+        async def _maintenance() -> None:
+            try:
+                await self._maybe_offer_concerns()
+                await self._maybe_purge_marks()
+            finally:
+                # In a `finally` so a raising or cancelled maintenance pass
+                # cannot wedge every later tick's maintenance — the same rule
+                # `_maybe_purge_marks` states for `_marks_purge_inflight`.
+                self._maintenance_inflight = False
+
+        self.run_worker(
+            _maintenance(),
+            name="refresh_maintenance",
+            group="refresh-maintenance",
+            exclusive=False,
+            exit_on_error=False,
+        )
+
     def _init_agent_marks(self) -> None:
         """Call from ``__init__``."""
         self._marks_view = agent_marks.MarksView()
-        # 0.0 ⇒ the first refresh tick after mount materializes a purge.
-        self._marks_purge_due_at: float = 0.0
+        # Deferred, not skipped: the first purge lands one grace period after
+        # construction, then every _MARKS_PURGE_INTERVAL. Seeding 0.0 here put
+        # a blocking subprocess on the mount tick — see the constant (t1598).
+        self._marks_purge_due_at: float = (
+            time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
+        )
         self._marks_purge_inflight: bool = False
+        # Guards the whole trailing-maintenance worker (concerns + purge), which
+        # `_refresh_data` dispatches rather than awaits (t1598). Distinct from
+        # `_marks_purge_inflight`: that one only covers the purge, and
+        # `_maybe_offer_concerns` has no flag of its own.
+        self._maintenance_inflight: bool = False
         # Per-tick session→root map, refreshed once per tick by the host app
         # (see `_set_session_root_map`). Starts empty so a keypress-driven
         # rebuild that runs outside `_refresh_data` reuses the last tick's map

@@ -94,7 +94,25 @@ TESTS_DIR = REPO_ROOT / "tests"
 # The normal answer to a hit is a STRUCTURAL REFACTOR, not an entry here: make
 # the base test-free and move its tests into a concrete subclass. Waive an edge
 # only when it is genuinely collected AND genuinely harmless, and say why.
-INHERITED_TEST_DUP_ALLOWLIST: frozenset[str] = frozenset()
+INHERITED_TEST_DUP_ALLOWLIST: frozenset[str] = frozenset({
+    # t1598 — the ONE shape this guard's structural refactor does not fit:
+    # deliberate parameterization of a single contract across two
+    # implementations. `_DiscoverWindowPanesContract` holds the
+    # `(observed, panes)` assertions, and both `TmuxMonitor.discover_window_panes`
+    # and its async sibling must satisfy them identically — `observed=False`
+    # means UNVERIFIABLE, never EMPTY, and collapsing that in the async port
+    # would re-open the 2026-08-06 mass-quit through a path the sync suite
+    # cannot see. Running the base's tests twice IS the mechanism, not a
+    # side effect, so "move the tests into one concrete subclass" would delete
+    # the coverage this exists to provide.
+    #
+    # Genuinely collected: both subclasses run. Genuinely harmless: 7 mock-only
+    # assertions, no app boot, ~0.2s for the pair.
+    "test_minimonitor_auto_close_guard: "
+    "DiscoverWindowPanesContractTests(_DiscoverWindowPanesContract)",
+    "test_minimonitor_auto_close_guard: "
+    "DiscoverWindowPanesAsyncContractTests(_DiscoverWindowPanesContract)",
+})
 
 
 class _ScanResult(NamedTuple):

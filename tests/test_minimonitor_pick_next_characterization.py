@@ -120,6 +120,10 @@ def _mk_app(info: TaskInfo | None, log: list[str], monitor: bool = True):
     app._project_root = Path("/proj/fallback")
     app._focused_pane_id = "%sentinel"
     app._monitor = _FakeMonitor(log) if monitor else None
+    # See test_minimonitor_pick_by_number._mk_app — publish the tick's map
+    # the way `_refresh_data` does (t1598).
+    if monitor:
+        app._set_session_root_map(app._monitor.get_session_to_project_mapping())
     app.spy_notify = []
     app.spy_pushed = []
     app.spy_later = []

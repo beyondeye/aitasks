@@ -169,10 +169,21 @@ class SpawnTimeStampTest(unittest.TestCase):
 class BothAppsWireItTest(unittest.TestCase):
     """Structural: the helper is *reached* from each app's per-tick shadow path."""
 
+    # The per-tick function that actually writes the stamp. Since t1598 the
+    # monitor's write moved OUT of `_format_agent_card_text`: that renderer is
+    # synchronous, so the stamp's tmux round-trip was a blocking call on the
+    # render path, once per shadowed card per tick. It now queues
+    # `(pane_id, signal)` and `_refresh_data` flushes the queue after the
+    # rebuild — same best-effort semantics, no tmux on the renderer.
     APPS = {
-        "monitor_app.py": "_format_agent_card_text",
+        "monitor_app.py": "_refresh_data",
         "minimonitor_app.py": "_restamp_shadow_phase",
     }
+
+    #: Either sibling satisfies the wiring — minimonitor and the monitor's flush
+    #: both await the async one; the sync name is still used by non-refresh
+    #: callers.
+    _HELPERS = {"refresh_shadow_phase_stamp", "refresh_shadow_phase_stamp_async"}
 
     def _calls_within(self, path: Path, func_name: str) -> bool:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -181,7 +192,7 @@ class BothAppsWireItTest(unittest.TestCase):
                     and node.name == func_name:
                 for sub in ast.walk(node):
                     if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) \
-                            and sub.func.id == "refresh_shadow_phase_stamp":
+                            and sub.func.id in self._HELPERS:
                         return True
         return False
 
@@ -190,7 +201,29 @@ class BothAppsWireItTest(unittest.TestCase):
             path = SCRIPTS / "monitor" / filename
             self.assertTrue(self._calls_within(path, func),
                             f"{filename}:{func} does not call "
-                            f"refresh_shadow_phase_stamp")
+                            f"refresh_shadow_phase_stamp[_async]")
+
+    def test_the_monitor_renderer_still_feeds_the_flush(self):
+        """The flush is only as good as what the renderer queues (t1598).
+
+        `_refresh_data` calling the helper is not enough on its own: if
+        `_format_agent_card_text` stopped appending, the flush would iterate an
+        empty list every tick and the stamp would silently freeze — exactly the
+        failure `test_minimonitor_restamp_is_reached_per_tick` guards against on
+        the other app.
+        """
+        src = (SCRIPTS / "monitor" / "monitor_app.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        queued = False
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                    and node.name == "_format_agent_card_text":
+                queued = "_pending_shadow_stamps" in ast.dump(node)
+        self.assertTrue(
+            queued,
+            "monitor_app._format_agent_card_text no longer queues a shadow "
+            "phase stamp — the per-tick flush has nothing to write",
+        )
 
     def test_minimonitor_restamp_is_reached_per_tick(self):
         """The helper existing is not enough — `_restamp_shadow_phase` must be

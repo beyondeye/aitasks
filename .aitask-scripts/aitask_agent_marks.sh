@@ -27,11 +27,14 @@
 #                            DROPPED:<root>|<window>|<reason> line per removed
 #                            entry, then PURGED:<n>.
 #   list                   - Print MARK:<root>|<window>|<marked_at> per entry.
+#                            Takes NO lock: it is a pure read, and the atomic
+#                            rename is enough (t1598).
 #
 # Exit codes:
 #   0  success
 #   2  usage error
-#   3  LOCK_BUSY   - another process holds the mutex; NOTHING was written
+#   3  LOCK_BUSY   - another process holds the mutex; NOTHING was written.
+#                  Unreachable for `list`, which takes no lock.
 #   4  ERROR       - the store is corrupt or unreadable; NOTHING was written
 
 set -euo pipefail
@@ -117,7 +120,16 @@ cmd_purge() {
 }
 
 cmd_list() {
-    marks_lock_or_busy "$PURGE_LOCK_TIMEOUT"
+    # NO LOCK (t1598). `list` is a pure read — `_cli_list` in lib/agent_marks.py
+    # is load() + print, with no read-modify-write to serialize — and every write
+    # lands via `os.replace`, so a reader always observes one whole generation.
+    # That is the same rule the header states above and the same one
+    # aitask_shadow_rejected.sh's `list` follows.
+    #
+    # Taking the WRITE lock here (at PURGE_LOCK_TIMEOUT, a constant whose own
+    # comment says "background maintenance can afford to wait") made a read
+    # stall 10s and exit 3 against a wedged mutex — measured at 10.267s on the
+    # reporting machine. A read must never be the thing a leaked guard wedges.
     run_marks_py list
 }
 

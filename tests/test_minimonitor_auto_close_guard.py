@@ -12,7 +12,11 @@ Three layers, deliberately separated so each negative control breaks exactly one
 1. **Contract** — the real `TmuxMonitor.discover_window_panes` with only
    `tmux_run` faked. `observed` is `True` only when tmux answered AND every
    non-blank record parsed; a dropped record matters because a truncated sibling
-   row leaves a listing that looks exactly like solitude.
+   row leaves a listing that looks exactly like solitude. Since t1598 this layer
+   runs **twice** — once per sibling — because `_check_auto_close` moved onto
+   `discover_window_panes_async`. Both siblings share one extracted
+   `_parse_window_panes`, and the doubled suite is what keeps them from
+   diverging.
 2. **Decision** — the real `MiniMonitorApp._check_auto_close` against a real
    `TmuxMonitor` whose `tmux_run` is scripted, so the whole `rc` → exit chain is
    under test rather than a replica. `exit` is recorded, never really called.
@@ -31,6 +35,8 @@ is wrong):
 | `discover_window_panes` back to `if rc != 0: return []` (+ caller back to `if not other_panes: self.exit()`) | `test_transport_failure_is_not_an_empty_window`, `test_repeated_transport_failure_never_exits`, `test_stalled_tmux_tick_does_not_close_the_app` |
 | restore the bare `continue`s (drop the completeness flag) | `test_truncated_sibling_row_makes_the_listing_unverifiable`, `test_dropped_sibling_row_never_exits` |
 | `AUTO_CLOSE_CONFIRMATIONS = 1` | `test_exit_requires_two_consecutive_verified_empty` |
+| give `discover_window_panes_async` its own copy of the parser that collapses `rc != 0` into `(True, [])` | every `DiscoverWindowPanesAsyncContractTests` failure case (the sync suite stays green — that asymmetry is the point) |
+| revert any refresh-path call to its sync sibling | layer 3, via `_TickMonitor`'s poison pills |
 
 Mock-based apart from layer 3's mounted app; no live tmux, no real subprocess.
 
@@ -120,17 +126,34 @@ def monitor_replying(*replies: tuple[int, str]) -> TmuxMonitor:
     def fake_tmux_run(args, timeout=5.0):
         return queue.pop(0) if len(queue) > 1 else queue[0]
 
+    async def fake_tmux_run_async(args, timeout=5.0):
+        return fake_tmux_run(args, timeout=timeout)
+
     mon.tmux_run = fake_tmux_run
+    mon.tmux_run_async = fake_tmux_run_async
     return mon
 
 
 # ---------------------------------------------------------------------------
 # Layer 1 — the contract: what counts as an observation
 # ---------------------------------------------------------------------------
+#
+# The assertions live in a mixin and are run TWICE — once against the sync
+# `discover_window_panes`, once against the async sibling (t1598). Both siblings
+# are expressed through one extracted parser, and this is what stops the two
+# from ever diverging: `observed=False` means UNVERIFIABLE, never EMPTY, and an
+# async port that quietly collapsed `rc != 0` into `[]` would reintroduce the
+# 2026-08-06 mass-quit through a path the sync suite cannot see.
 
-class DiscoverWindowPanesContractTests(unittest.TestCase):
+class _DiscoverWindowPanesContract:
+    """Contract assertions, shared by both sibling suites below.
+
+    Subclasses implement `observe(rc, stdout)`; everything else is identical on
+    purpose — a per-sibling assertion would defeat the point of running twice.
+    """
+
     def observe(self, rc: int, stdout: str):
-        return monitor_replying((rc, stdout)).discover_window_panes(OWN_WINDOW_ID)
+        raise NotImplementedError
 
     def test_transport_failure_is_not_an_empty_window(self):
         """rc == -1 (timeout / OSError) — the t1446 trigger."""
@@ -182,6 +205,31 @@ class DiscoverWindowPanesContractTests(unittest.TestCase):
         self.assertEqual(len(panes), 2)
 
 
+class DiscoverWindowPanesContractTests(
+    _DiscoverWindowPanesContract, unittest.TestCase
+):
+    """The sync sibling — `TmuxMonitor.discover_window_panes`."""
+
+    def observe(self, rc: int, stdout: str):
+        return monitor_replying((rc, stdout)).discover_window_panes(OWN_WINDOW_ID)
+
+
+class DiscoverWindowPanesAsyncContractTests(
+    _DiscoverWindowPanesContract, unittest.TestCase
+):
+    """The async sibling — `TmuxMonitor.discover_window_panes_async` (t1598).
+
+    minimonitor's `_check_auto_close` runs on the refresh path and the sync
+    round-trip blocked the event loop at the default 5 s timeout. The port must
+    not be a second copy of the parser: both siblings route through the same
+    extracted `_parse_window_panes`, and this suite is what proves it.
+    """
+
+    def observe(self, rc: int, stdout: str):
+        mon = monitor_replying((rc, stdout))
+        return asyncio.run(mon.discover_window_panes_async(OWN_WINDOW_ID))
+
+
 # ---------------------------------------------------------------------------
 # Layer 2 — the decision: real _check_auto_close, real rc plumbing
 # ---------------------------------------------------------------------------
@@ -211,7 +259,7 @@ class AutoCloseDecisionTests(unittest.TestCase):
         """The incident: every tick times out, for as long as the stall lasts."""
         app, exits = self.app((-1, ""))
         for _ in range(5):
-            app._check_auto_close()
+            asyncio.run(app._check_auto_close())
         self.assertEqual(
             exits, [],
             "the companion quit on an observation it could not make — t1446",
@@ -221,14 +269,14 @@ class AutoCloseDecisionTests(unittest.TestCase):
     def test_repeated_tmux_error_never_exits(self):
         app, exits = self.app((1, ""))
         for _ in range(5):
-            app._check_auto_close()
+            asyncio.run(app._check_auto_close())
         self.assertEqual(exits, [])
 
     def test_dropped_sibling_row_never_exits(self):
         """A self-sighting rule alone would wave this through: our row is there."""
         app, exits = self.app((0, OWN_PLUS_TRUNCATED_SIBLING))
         for _ in range(5):
-            app._check_auto_close()
+            asyncio.run(app._check_auto_close())
         self.assertEqual(
             exits, [],
             "a truncated sibling row was treated as a verified empty window",
@@ -236,45 +284,45 @@ class AutoCloseDecisionTests(unittest.TestCase):
 
     def test_exit_requires_two_consecutive_verified_empty(self):
         app, exits = self.app((0, ALONE))
-        app._check_auto_close()
+        asyncio.run(app._check_auto_close())
         self.assertEqual(exits, [], "exited on a single verified-empty observation")
         self.assertEqual(app._empty_window_streak, 1)
-        app._check_auto_close()
+        asyncio.run(app._check_auto_close())
         self.assertEqual(len(exits), 1)
 
     def test_an_unverifiable_tick_resets_the_streak(self):
         app, exits = self.app(
             (0, ALONE), (-1, ""), (0, ALONE), (0, ALONE),
         )
-        app._check_auto_close()          # streak 1
-        app._check_auto_close()          # tmux stalled -> streak 0
+        asyncio.run(app._check_auto_close())          # streak 1
+        asyncio.run(app._check_auto_close())          # tmux stalled -> streak 0
         self.assertEqual(app._empty_window_streak, 0)
-        app._check_auto_close()          # streak 1 again
+        asyncio.run(app._check_auto_close())          # streak 1 again
         self.assertEqual(
             exits, [],
             "the streak survived a failed observation — two verified-empty "
             "sightings must be CONSECUTIVE",
         )
-        app._check_auto_close()          # streak 2
+        asyncio.run(app._check_auto_close())          # streak 2
         self.assertEqual(len(exits), 1)
 
     def test_a_live_sibling_resets_the_streak(self):
         app, exits = self.app((0, ALONE), (0, WITH_SIBLING), (0, ALONE))
         for _ in range(3):
-            app._check_auto_close()
+            asyncio.run(app._check_auto_close())
         self.assertEqual(exits, [])
         self.assertEqual(app._empty_window_streak, 1)
 
     def test_a_sibling_pane_never_exits(self):
         app, exits = self.app((0, WITH_SIBLING))
         for _ in range(5):
-            app._check_auto_close()
+            asyncio.run(app._check_auto_close())
         self.assertEqual(exits, [])
 
     def test_a_listing_without_our_own_pane_never_exits(self):
         app, exits = self.app((0, WITHOUT_OWN))
         for _ in range(5):
-            app._check_auto_close()
+            asyncio.run(app._check_auto_close())
         self.assertEqual(
             exits, [],
             "a listing that does not mention us is not a self-sighting",
@@ -285,16 +333,16 @@ class AutoCloseDecisionTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("TMUX_PANE", None)
             for _ in range(5):
-                app._check_auto_close()
+                asyncio.run(app._check_auto_close())
         self.assertEqual(exits, [])
 
     def test_the_confirmation_count_is_the_module_constant(self):
         """Pin the wiring, so bumping the constant cannot silently no-op."""
         app, exits = self.app((0, ALONE))
         for _ in range(AUTO_CLOSE_CONFIRMATIONS - 1):
-            app._check_auto_close()
+            asyncio.run(app._check_auto_close())
         self.assertEqual(exits, [])
-        app._check_auto_close()
+        asyncio.run(app._check_auto_close())
         self.assertEqual(len(exits), 1)
 
 
@@ -332,17 +380,29 @@ class _TickMonitor:
             _pane_snapshot("agent-elsewhere", "%9", "2"),
         ]
 
-    def discover_window_panes(self, window_id):
-        return self._real.discover_window_panes(window_id)
+    async def discover_window_panes_async(self, window_id):
+        return await self._real.discover_window_panes_async(window_id)
 
     # `_update_own_window_info` runs for real; a failed query makes it keep the
     # window id it already has, which is what happens during a stall.
-    def tmux_run(self, args, timeout=5.0): return (1, "")
+    async def tmux_run_async(self, args, timeout=5.0): return (1, "")
+
+    # Poison pills (t1598): the refresh path moved onto the async gateway, so a
+    # sync round-trip reappearing here must fail loudly rather than silently
+    # blocking the event loop again.
+    def discover_window_panes(self, window_id):
+        raise AssertionError("sync discover_window_panes called during refresh")
+
+    def tmux_run(self, args, timeout=5.0):
+        raise AssertionError(f"sync tmux_run called during refresh: {args}")
+
+    def get_session_to_project_mapping(self):
+        raise AssertionError("sync session mapping called during refresh")
 
     async def capture_all_async(self):
         return {s.pane.pane_id: s for s in self.snaps}
 
-    def get_session_to_project_mapping(self): return self._mapping
+    async def get_session_to_project_mapping_async(self): return self._mapping
     def get_compare_mode(self, pane_id): return "stripped"
     def is_compare_mode_overridden(self, pane_id): return False
     def get_shadow_snapshot(self, pane_id): return None

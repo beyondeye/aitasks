@@ -1533,6 +1533,10 @@ class TmuxMonitor:
         self._sessions_cache: tuple[float, list[AitasksSession]] | None = None
         self._compare_mode_overrides: dict[str, str] = {}
         self._backend: TmuxControlBackend | None = None
+        #: Bumped by every `close_control_client`, so a `start_control_client`
+        #: suspended in its `to_thread` hop can tell that the app tore down
+        #: underneath it and must not install what it just built (t1598).
+        self._backend_gen: int = 0
         # Gateway owns the exec strategy (control-client-vs-subprocess dispatch)
         # and the socket flag; tmux_run / _tmux_async delegate to it (t952_3).
         self._tmux = TmuxClient()
@@ -1540,22 +1544,41 @@ class TmuxMonitor:
     async def start_control_client(self) -> bool:
         """Start the persistent `tmux -C` backend on a dedicated bg thread.
 
-        Kept `async` so existing call sites (`await monitor.start_control_client()`)
-        do not need to change. The body is synchronous — the bg thread does
-        the actual asyncio work — so awaiting it just yields once.
+        The body is genuinely off-loop since t1598. `TmuxControlBackend.start()`
+        blocks on threading primitives for up to ~14s worst case
+        (`_BACKEND_READY_TIMEOUT` 2s + `_BACKEND_START_TIMEOUT` 5s, plus a failed
+        start's `stop()`: 1s + `_BACKEND_STOP_TIMEOUT` 3s +
+        `_BACKEND_THREAD_JOIN_TIMEOUT` 3s). On an async path that is the event
+        loop's own thread, which freezes painting as well as input — so it is
+        hopped to a worker thread here rather than at the five call sites, one of
+        which (`on_unmount`) is not a worker at all.
+
+        The hop creates an interleaving point that did not exist while the body
+        was synchronous: a teardown can now land between the `await` and the
+        install below. `_backend_gen` closes it — see `close_control_client`.
         """
+        gen = self._backend_gen
         backend = TmuxControlBackend(session=self.session)
-        if backend.start():
-            self._backend = backend
-            return True
-        backend.stop()
-        return False
+        if not await asyncio.to_thread(backend.start):
+            await asyncio.to_thread(backend.stop)
+            return False
+        if gen != self._backend_gen:
+            # Torn down while we were starting. Installing now would leave a live
+            # `tmux -C attach` and its thread attached to a closed app.
+            await asyncio.to_thread(backend.stop)
+            return False
+        self._backend = backend
+        return True
 
     async def close_control_client(self) -> None:
-        if self._backend is not None:
+        # Bump FIRST, and unconditionally: this must invalidate an in-flight
+        # `start_control_client` even when nothing is installed yet, which is
+        # exactly the window a `self._backend is not None` check misses (t1598).
+        self._backend_gen += 1
+        backend, self._backend = self._backend, None
+        if backend is not None:
             with contextlib.suppress(Exception):
-                self._backend.stop()
-            self._backend = None
+                await asyncio.to_thread(backend.stop)
 
     def has_control_client(self) -> bool:
         return self._backend is not None and self._backend.is_alive
@@ -2076,39 +2099,30 @@ class TmuxMonitor:
             enum_sink.append(ok_sessions)
         return panes, shadows
 
-    def discover_window_panes(
-        self, window_id: str
+    #: The 8 fields both `discover_window_panes` siblings request. One
+    #: constant, because `_parse_window_panes` hard-codes the arity that
+    #: matches it — a format edited on only one side would silently flag every
+    #: record incomplete.
+    _WINDOW_PANES_FORMAT = "\t".join([
+        "#{window_index}", "#{window_name}", "#{pane_index}",
+        "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
+        "#{pane_width}", "#{pane_height}",
+    ])
+
+    def _parse_window_panes(
+        self, rc: int, stdout: str
     ) -> tuple[bool, list[TmuxPaneInfo]]:
-        """Discover panes in a specific window (not session-wide).
+        """The shared ``(observed, panes)`` decision for both siblings.
 
-        Uses 'tmux list-panes -t window_id' (no -s flag).
-        Does not filter by exclude_pane or update _pane_cache.
-
-        Returns ``(observed, panes)``. ``observed`` is ``True`` only when tmux
-        answered (``rc == 0``) **and** every non-blank record parsed. It is
-        ``False`` on a transport failure / timeout (``rc == -1``), on a tmux
-        command error (``rc == 1``), and on a listing with any unparseable
-        record — in which case the panes that *did* parse are still returned,
-        so a caller wanting a best-effort list can use them.
-
-        ``observed=False`` means **unverifiable**, never **empty** (t1446).
-        Collapsing the two is what let a 5-second tmux stall read as "no panes
-        left in my window" and quit every minimonitor companion at once; the
-        pair exists so no caller can make that mistake by omission. A dropped
-        record matters for the same reason: a truncated sibling row leaves a
-        listing that looks exactly like solitude.
+        Extracted rather than duplicated precisely because ``observed=False``
+        means **unverifiable**, never **empty** (t1446). One copy of that rule,
+        so the async port cannot silently collapse it back into ``[]``.
         """
-        fmt = "\t".join([
-            "#{window_index}", "#{window_name}", "#{pane_index}",
-            "#{pane_id}", "#{pane_pid}", "#{pane_current_command}",
-            "#{pane_width}", "#{pane_height}",
-        ])
-        rc, stdout = self.tmux_run(["list-panes", "-t", window_id, "-F", fmt])
         if rc != 0:
             return (False, [])
 
-        # Cleared by any dropped record — see the docstring. Blank lines are
-        # not records and never clear it.
+        # Cleared by any dropped record — see `discover_window_panes`. Blank
+        # lines are not records and never clear it.
         complete = True
         panes: list[TmuxPaneInfo] = []
         for line in stdout.strip().splitlines():
@@ -2140,6 +2154,50 @@ class TmuxMonitor:
             )
             panes.append(pane)
         return (complete, panes)
+
+    def discover_window_panes(
+        self, window_id: str
+    ) -> tuple[bool, list[TmuxPaneInfo]]:
+        """Discover panes in a specific window (not session-wide).
+
+        Uses 'tmux list-panes -t window_id' (no -s flag).
+        Does not filter by exclude_pane or update _pane_cache.
+
+        Returns ``(observed, panes)``. ``observed`` is ``True`` only when tmux
+        answered (``rc == 0``) **and** every non-blank record parsed. It is
+        ``False`` on a transport failure / timeout (``rc == -1``), on a tmux
+        command error (``rc == 1``), and on a listing with any unparseable
+        record — in which case the panes that *did* parse are still returned,
+        so a caller wanting a best-effort list can use them.
+
+        ``observed=False`` means **unverifiable**, never **empty** (t1446).
+        Collapsing the two is what let a 5-second tmux stall read as "no panes
+        left in my window" and quit every minimonitor companion at once; the
+        pair exists so no caller can make that mistake by omission. A dropped
+        record matters for the same reason: a truncated sibling row leaves a
+        listing that looks exactly like solitude.
+
+        See :meth:`discover_window_panes_async` for the refresh-path sibling.
+        """
+        rc, stdout = self.tmux_run(
+            ["list-panes", "-t", window_id, "-F", self._WINDOW_PANES_FORMAT]
+        )
+        return self._parse_window_panes(rc, stdout)
+
+    async def discover_window_panes_async(
+        self, window_id: str
+    ) -> tuple[bool, list[TmuxPaneInfo]]:
+        """Async sibling of :meth:`discover_window_panes` for refresh-loop use.
+
+        Identical contract, including ``observed=False`` meaning unverifiable
+        and never empty — both share :meth:`_parse_window_panes`. Added for
+        minimonitor's `_check_auto_close`, which ran the sync round-trip at the
+        default 5s timeout on the event-loop thread (t1598).
+        """
+        rc, stdout = await self.tmux_run_async(
+            ["list-panes", "-t", window_id, "-F", self._WINDOW_PANES_FORMAT]
+        )
+        return self._parse_window_panes(rc, stdout)
 
     def get_compare_mode(self, pane_id: str) -> str:
         """Effective idle-detection compare mode for a pane.
@@ -3178,12 +3236,37 @@ def refresh_shadow_phase_stamp(monitor, shadow_pane: str, signal) -> bool:
     # exactly that once: a missing SHADOW_PHASE_OPTION became a swallowed
     # NameError and the stamp never wrote, with every test still green.)
     line = workflow_phase.format_signal(signal)
-    args = ["set-option", "-p", "-t", shadow_pane, SHADOW_PHASE_OPTION, line]
+    args = _shadow_phase_stamp_args(shadow_pane, line)
     try:
         rc, _ = monitor.tmux_run(args)
     except Exception:
         # Only the transport is tolerated: tmux may be gone, the pane may have
         # died between resolution and write, or a duck-typed monitor may raise.
+        return False
+    return rc == 0
+
+
+def _shadow_phase_stamp_args(shadow_pane: str, line: str) -> list[str]:
+    """The one place the stamp's argv is built, shared by both siblings."""
+    return ["set-option", "-p", "-t", shadow_pane, SHADOW_PHASE_OPTION, line]
+
+
+async def refresh_shadow_phase_stamp_async(monitor, shadow_pane: str, signal) -> bool:
+    """Async sibling of :func:`refresh_shadow_phase_stamp` (t1598).
+
+    Same best-effort, never-fatal contract. minimonitor reaches this from
+    ``_maybe_offer_concerns`` on the refresh path, where the sync ``tmux_run``
+    was a round-trip on the event-loop thread. ``format_signal`` is called
+    OUTSIDE the ``try`` for the same reason as the sync sibling: it is total, and
+    a broad ``except`` around it would turn a real defect into a silent no-op.
+    """
+    if not shadow_pane or signal is None:
+        return False
+    line = workflow_phase.format_signal(signal)
+    args = _shadow_phase_stamp_args(shadow_pane, line)
+    try:
+        rc, _ = await monitor.tmux_run_async(args)
+    except Exception:
         return False
     return rc == 0
 
