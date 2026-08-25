@@ -594,3 +594,71 @@ isolated worktree `aiwork/t1606_stop_spurious_review_loop_auto_disarm` cut from
 `main`, so the two never share a working tree. The pending hunks do not overlap
 the review-loop region, but t1598 may yet reach it; conflicts surface at the
 Step 9 merge, which is where they belong.
+
+---
+
+## Implementation notes (2026-08-25)
+
+All phases landed. Three commits on `aitask/t1606_stop_spurious_review_loop_auto_disarm`:
+pre-phase mitigations, Phases 1–3, post-phase mitigations.
+
+### Deviations from the approved plan
+
+1. **The third teardown was dead code, and was deleted rather than
+   consolidated** (user-approved mid-implementation). `_service_review_loop`
+   only enters the latched-False replay block when `can_consume` is true, which
+   forces `agent_present=True` *and* `shadow_present=True` into the replay
+   `tick()` — while `tick()`'s only `ACTION_AUTO_DISARM` producer requires one
+   of them to be `False`. Enumerated exhaustively: exactly one input
+   combination reaches that call, and it returns `ACTION_NONE`.
+
+   Consequences for the approved test list: there are **two** reachable
+   teardowns, not three, so test 2's "four tick-originated combinations" is
+   **two** ({`agent_gone`, `shadow_gone`} × the live branch), and the
+   "missing settle-latch clear" was a live divergence in one branch. The
+   deletion is guarded by `ReplayDisarmUnreachabilityTests`, which fails if
+   `can_consume` is ever widened so the branch must come back.
+
+2. **The concurrency proof was initially vacuous and had to be rebuilt.** The
+   first version wrote its records as fast as it could, finished in ~20 ms, and
+   the pruner never overlapped it — it passed because no race occurred. It now
+   spreads the appends over ~1.2 s and carries two non-vacuity controls (the
+   pruner's pass count, and seeded prunable files it must actually have
+   removed). Its discriminating power was then **measured** rather than
+   asserted, by building the rejected shared-ring shape and running the same
+   workload through it: **119 of 120 records lost**, versus 0 for the shipped
+   design. That number is recorded in the test docstring and in
+   `shadow_agent.md`.
+
+3. **`review_loop_log.py` and the reader shipped in the Phase 1–3 commit**, with
+   the post-phase commit carrying their proof (`tests/test_review_loop_log.py`).
+   This matches the revised plan, where Phase 1d/1e own the build and the
+   post-phases own the evidence.
+
+### Other notes
+
+- `tests/test_minimonitor_concern_action.py`'s `_mk_app` bypasses `__init__` and
+  hand-installs the loop attributes, so `_loop_hold_reason` had to be added
+  there too — the fixture's existing documented convention.
+- The reader's `read_events` needed an arrival-order tiebreak: `ts` is
+  second-resolution, and a stable sort on `ts` alone returned same-second
+  events **oldest**-first, the opposite of the promised order.
+
+### Verification performed
+
+- `bash tests/run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- `shellcheck .aitask-scripts/aitask_minimonitor.sh` → only pre-existing SC1091
+  informational notices on the four `source` lines.
+- `ait minimonitor --loop-log` exercised end-to-end from a window that already
+  hosts a minimonitor, proving the early dispatch clears the single-instance
+  guard.
+- All three planned negative controls run, each failing **exactly** the named
+  tests and no others: removing the hold edge-trigger, routing the ambiguous
+  verdicts back to a disarm, and dropping the settle-deadline clear.
+
+**Worktree environment note.** A task worktree has no `aitasks/` / `aiplans/`
+symlinks (task data lives on the `aitask-data` branch), which made four
+unrelated suite modules fail with `FileNotFoundError` on
+`aitasks/metadata/*.json`. Restoring the two symlinks — they are gitignored —
+made all four pass and produced the clean suite verdict above. Worth knowing
+before reading a worktree suite run as a regression.
