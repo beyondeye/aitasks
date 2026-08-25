@@ -239,6 +239,9 @@ class ConcernCaptureSmokeTests(unittest.TestCase):
         app._loop_shadow_settle_until = None
         app._loop_now = lambda: 1000.0
         app._loop_stale_false_pending = False
+        # Visible-hold + durable-event state (t1606).
+        app._loop_hold_reason = None
+        app._loop_identity = {}
         app._session = "s"
         app._own_window_name = "agent-x"
         app.spy_notify: list = []
@@ -826,6 +829,9 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         app._loop_shadow_hash_streak = 0
         app._loop_last_service_at = None
         app._loop_stale_false_pending = False
+        # Visible-hold + durable-event state (t1606).
+        app._loop_hold_reason = None
+        app._loop_identity = {}
         app._loop_baseline = None
         app._refresh_seconds = 2
         app._loop_now = time.monotonic

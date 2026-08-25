@@ -968,6 +968,9 @@ class MiniMonitorApp(
         # stops one vetoed delivery from toasting and recording on every one
         # of them. Cleared on recovery, on any disarm, and at arm.
         self._loop_hold_reason: str | None = None
+        # Last-observed followed/shadow identities, attached to every durable
+        # loop event (t1606). See `_note_loop_identity`.
+        self._loop_identity: dict[str, str] = {}
         # Prioritized-agent marks (t1326): cached reader + purge scheduling.
         self._init_agent_marks()
 
@@ -3316,9 +3319,32 @@ class MiniMonitorApp(
             "session": self._session,
             "window": self._own_window_name,
         }
+        # The followed/shadow pair this event happened to (t1606). Without it
+        # a reason says WHAT went wrong but not to WHICH agent — and a user
+        # runs several followed/shadow pairs at once, so correlating a recorded
+        # disarm back to a pane is most of the diagnostic value. Carried as
+        # last-observed identity rather than re-queried: this runs on a
+        # teardown path, where a fresh tmux lookup could fail (or be the very
+        # thing that failed) and would replace the record with nothing.
+        context.update(self._loop_identity)
         with contextlib.suppress(Exception):
             context["project_root"] = str(self._project_root)
         return context
+
+    def _note_loop_identity(self, *, agent=None, shadow_agent=None,
+                            shadow_pane=None) -> None:
+        """Record best-known identities for the next durable loop event.
+
+        Updated incrementally as `_service_review_loop` learns them, so an
+        early-returning teardown still carries whatever was known by then
+        instead of nothing. Only non-empty values overwrite: a tick that could
+        not resolve the shadow's agent must not erase the answer the previous
+        tick had.
+        """
+        for key, value in (("agent", agent), ("shadow_agent", shadow_agent),
+                           ("shadow_pane", shadow_pane)):
+            if value:
+                self._loop_identity[key] = value
 
     def _loop_auto_disarm(self, reason_code: str | None = None, *,
                           subject: str = "") -> None:
@@ -3381,10 +3407,24 @@ class MiniMonitorApp(
             return
         self._loop_hold_reason = reason_code
 
-        review_loop_log.record_event(
+        recorded = review_loop_log.record_event(
             review_loop_log.KIND_HOLD, reason_code, **self._loop_event_context())
 
         banner = review_loop.loop_hold_banner(reason_code)
+        message = review_loop.loop_reason_message(reason_code)
+        if not recorded:
+            # Same rule as `_loop_auto_disarm`, and it matters MORE here: the
+            # ambiguous pre-Enter reads t1606 rerouted are holds, so an
+            # unwritable store would leave the next occurrence with no durable
+            # trace at all — the exact gap this task exists to close — while
+            # the banner and toast fade. A failed record is a fault in its own
+            # right, so it is surfaced even for a hold that otherwise stays
+            # quiet; a hold is edge-triggered, so this cannot repeat per tick.
+            if banner:
+                self._set_loop_banner(banner)
+            self.notify(f"Auto-recheck loop holding: {message} (not recorded)",
+                        severity="warning")
+            return
         if not banner:
             # A hold with no banner is a normal lifecycle event, not a fault —
             # a user pressing `L` mid-delivery supersedes it, and scolding them
@@ -3392,10 +3432,8 @@ class MiniMonitorApp(
             # Deliverable 3 removes. Recorded, not surfaced.
             return
         self._set_loop_banner(banner)
-        self.notify(
-            f"Auto-recheck loop holding: "
-            f"{review_loop.loop_reason_message(reason_code)}",
-            severity="warning")
+        self.notify(f"Auto-recheck loop holding: {message}",
+                    severity="warning")
 
     def _clear_loop_hold(self) -> None:
         """Recovery: the loop is no longer holding for a vetoed delivery."""
@@ -3601,6 +3639,11 @@ class MiniMonitorApp(
         self._loop_last_service_at = now_mono
 
         agent_presence = self._derive_agent_presence(snap)
+        # Learned as early as possible so even an early-returning
+        # teardown carries them (t1606).
+        self._note_loop_identity(
+            agent=(snap.agent_key if snap is not None else None),
+            shadow_pane=(shadow_pane if shadow_ok else None))
 
         # Baseline maintenance + work classification (hardenings 6/8/9).
         # Only here, on a committed evidence tick — arm() seeds the baseline,
@@ -3649,6 +3692,7 @@ class MiniMonitorApp(
                 # for a transient tmux failure. Disarming here would destroy
                 # the user's armed state over a process-table race.
                 return
+            self._note_loop_identity(shadow_agent=shadow_key)
             if shadow_key not in review_loop.SHADOW_READY_DETECTORS:
                 self._loop_auto_disarm(
                     review_loop.DISARM_NO_DETECTOR,

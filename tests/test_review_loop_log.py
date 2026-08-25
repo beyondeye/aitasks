@@ -282,15 +282,24 @@ import review_loop_log as rll
 from pathlib import Path
 passes = 0
 deadline = time.time() + %(seconds)r
-# Progress is written to a FILE after every pass, not to stderr at exit: the
-# test terminates this process as soon as the writers finish, so an exit-time
-# report would never be produced and the "did retention actually run?" control
-# would be unfalsifiable.
+# Progress is APPENDED after every pass, one byte-line each, and is read by
+# counting lines. Two reasons, both learned the hard way:
+#   * not stderr-at-exit -- the test terminates this process as soon as the
+#     writers finish, so an exit-time report would never be produced and the
+#     "did retention actually run?" control would be unfalsifiable;
+#   * not write_text() -- that truncates before writing, so the test's own
+#     read could catch it empty and blow up on int(''). An append under
+#     PIPE_BUF is atomic, which is the same property the module under test
+#     relies on. Do not "simplify" this back to a rewrite.
+# One character per pass, no newline -- the count is the file's length. A
+# newline escape here would be consumed by THIS template literal before the
+# subprocess ever saw it, producing a syntax error in the child.
 counter = Path(%(counter)r)
 while time.time() < deadline:
     rll.prune(Path(%(dir)r), keep=1)
     passes += 1
-    counter.write_text(str(passes))
+    with open(counter, "a") as fh:
+        fh.write("x")
 """
 
     def _spawn(self, source: str, **kwargs):
@@ -343,7 +352,8 @@ while time.time() < deadline:
 
         # --- the race actually happened -----------------------------------
         self.assertTrue(counter.exists(), "the pruner never ran a single pass")
-        self.assertGreater(int(counter.read_text()), 10,
+        passes = len(counter.read_text().strip())
+        self.assertGreater(passes, 10,
                            "retention barely ran -- the window was not open")
         self.assertFalse([p for p in seeded if p.exists()],
                          "retention never removed its legitimate targets, so "

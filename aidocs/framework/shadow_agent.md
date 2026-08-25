@@ -822,9 +822,22 @@ unverifiable read counts as present), plus an age floor that refuses any
 recently-modified file whatever liveness says — which covers the pid reuse
 liveness cannot.
 
+Each event carries the followed/shadow pair it happened to — `agent`,
+`shadow_agent`, `shadow_pane` alongside `session`, `window`, `state`,
+`rounds_fired` and `project_root`. A reason says *what* went wrong; the
+identities say *which* agent, and a user typically runs several pairs at once.
+They are **last-observed**, not re-queried at teardown: a fresh tmux lookup on
+that path could fail — or be the very thing that failed — and would replace the
+record with nothing.
+
 Recording never raises: an unwritable store returns `False` and the disarm
-toast gains a `(not recorded)` suffix, so a silently broken log cannot
-masquerade as "it never happened". The reader is tolerant **by line** — a torn
+**or hold** toast gains a `(not recorded)` suffix, so a silently broken log
+cannot masquerade as "it never happened". That matters most for holds — the
+ambiguous pre-Enter reads are holds, so an unwritable store would otherwise
+leave the next occurrence with no durable trace at all, which is the gap this
+log exists to close. A hold that normally stays quiet (supersession) still
+reports a *failed* record, because a broken diagnostic subsystem is a fault in
+its own right. The reader is tolerant **by line** — a torn
 or non-event line is skipped with a count on stderr, stdout stays a clean
 event stream, and the exit status stays 0, because a diagnostic tool that dies
 on a damaged file fails exactly when it is needed.

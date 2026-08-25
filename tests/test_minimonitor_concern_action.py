@@ -192,8 +192,9 @@ def _mk_app(monitor=None, task_id="1427_2", rejected_rc=0, rejected_out=""):
     app._loop_now = lambda: app._loop_clock[0]
     app._loop_last_service_at = None
     app._loop_stale_false_pending = False
-    # Visible-hold edge-trigger state (t1606).
+    # Visible-hold edge-trigger state + durable-event identities (t1606).
     app._loop_hold_reason = None
+    app._loop_identity = {}
     app._session = "s"
     app._own_window_name = "agent-x"
     app.spy_notify: list = []
@@ -3784,6 +3785,45 @@ class DisarmIsRecordedTests(_LoopEventStoreMixin, unittest.TestCase):
         self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM),
                          [_rl.DISARM_SUBMIT_UNCONFIRMED])
 
+    def test_a_record_names_the_followed_shadow_pair(self):
+        """A reason says WHAT went wrong; the identities say to WHICH agent.
+
+        A user runs several followed/shadow pairs at once, so without these an
+        event cannot be correlated back to a pane — most of the diagnostic
+        value. Pinned on an EMITTED record, not on `_loop_event_context` in
+        isolation, so the fields have to survive the whole teardown path.
+        """
+        app, mon, _ = self._armed()
+        _tick(app, 1)                       # a healthy tick learns the pair
+        mon._async_list = _SHADOW_LIST_NONE  # then the shadow verifiably goes
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        events = self.recorded()
+        self.assertEqual(len(events), 1, events)
+        record = events[0]
+        self.assertEqual(record["reason"], _rl.DISARM_SHADOW_GONE)
+        self.assertEqual(record["agent"], "claude")
+        self.assertEqual(record["shadow_agent"], "claude")
+        self.assertEqual(record["shadow_pane"], "%5")
+        self.assertEqual(record["session"], "s")
+        self.assertEqual(record["window"], "agent-x")
+
+    def test_identities_survive_a_tick_that_cannot_re_resolve_them(self):
+        """Last-observed, not re-queried.
+
+        The teardown path is exactly where a fresh tmux lookup may fail — or
+        be the very thing that failed — so a tick that cannot resolve the
+        shadow must not ERASE what the previous tick knew and leave the record
+        anonymous.
+        """
+        app, mon, _ = self._armed()
+        _tick(app, 1)
+        self.assertEqual(app._loop_identity.get("shadow_agent"), "claude")
+        mon.list_rc = 1                     # the shadow lookup now fails
+        _tick(app, 1)
+        self.assertEqual(app._loop_identity.get("shadow_agent"), "claude")
+        self.assertEqual(app._loop_identity.get("shadow_pane"), "%5")
+
     def test_exactly_one_record_per_disarm(self):
         app, mon, _ = self._armed()
         mon._async_list = _SHADOW_LIST_NONE
@@ -3917,6 +3957,46 @@ class HoldLifecycleTests(_LoopEventStoreMixin, unittest.TestCase):
         self.assertFalse([m for m, _s in app.spy_notify if "holding" in m])
         self.assertFalse([m for m, _s in app.spy_notify
                           if "left in the shadow composer" in m])
+
+    def test_an_unrecordable_store_tells_the_user_the_hold_was_not_recorded(self):
+        """A hold's durable record is the one t1606 most depends on.
+
+        The ambiguous pre-Enter reads this task rerouted are HOLDS, so an
+        unwritable store leaves the next occurrence with no trace at all —
+        exactly the gap Deliverable 1 exists to close — while the banner and
+        toast fade. `_loop_hold` must surface that the same way
+        `_loop_auto_disarm` does; an earlier revision discarded the return
+        value and said nothing.
+        """
+        blocker = Path(self._events_tmp.name) / "blocked"
+        blocker.write_text("not a directory", encoding="utf-8")
+        os.environ[mm.review_loop_log.LOG_DIR_ENV] = str(blocker / "events")
+        mm.review_loop_log.reset_session_for_tests()
+        app, mon, _ = self._armed()
+        mon.typed_tail = _rlfx.CLAUDE_DIALOG_RAW      # an ambiguous read
+        _tick(app, 3)
+        self.assertTrue(app._review_loop.armed)
+        self.assertTrue(any("(not recorded)" in m for m, _s in app.spy_notify),
+                        app.spy_notify)
+        # Still visible as a hold, not silently downgraded.
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_PRE_ENTER_DIALOG))
+
+    def test_an_unrecordable_quiet_hold_still_reports_the_failure(self):
+        """A hold that normally stays quiet must still say the LOG broke.
+
+        Supersession is a normal lifecycle event and is deliberately silent —
+        but a failed record is a fault in its own right, and staying silent
+        about both would leave the diagnostic subsystem broken invisibly.
+        """
+        blocker = Path(self._events_tmp.name) / "blocked2"
+        blocker.write_text("not a directory", encoding="utf-8")
+        os.environ[mm.review_loop_log.LOG_DIR_ENV] = str(blocker / "events")
+        mm.review_loop_log.reset_session_for_tests()
+        app, _mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_DELIVERY_SUPERSEDED)
+        self.assertTrue(any("(not recorded)" in m for m, _s in app.spy_notify),
+                        app.spy_notify)
 
     def test_hold_banners_fit_the_chrome_budget(self):
         """`_LOOP_STATUS_ROWS` is 2; wording that outgrows it costs the pane
