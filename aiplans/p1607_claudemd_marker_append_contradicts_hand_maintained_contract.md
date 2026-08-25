@@ -264,7 +264,7 @@ the advice the message gives is not merely plausible:
   `ait setup`, and the underlying lifecycle defect (CLAUDE.md never refreshed on
   re-runs, never written at all in legacy mode — unlike `AGENTS.md`, regenerated
   unconditionally by `update_agentsmd` from `setup_code_agents`) survives this
-  task. · severity: medium · → mitigation: t1607_placement_followup
+  task. · severity: medium · → mitigation: t1612
 - The task's alternative resolution (marker-manage `CLAUDE.md` everywhere) is
   foreclosed by this change. · severity: low · → mitigation: none — the user
   chose the hand-maintained contract explicitly, and the doc records why.
@@ -272,7 +272,7 @@ the advice the message gives is not merely plausible:
 ### Planned mitigations
 - timing: post-phase | name: announce_skip_with_opt_in | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: silent-skip on an unrelated heading match, and opt-in guidance that would destroy user prose | desc: the skip prints the reason plus a safe opt-in (add an EMPTY marker pair) and warns the marked region is overwritten every setup; T12b asserts all three fragments on captured stdout
 - timing: post-phase | name: pin_sentinel_to_seed | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: hardcoded sentinel drifting from the shared seed | desc: T39 asserts CLAUDEMD_HAND_MAINTAINED_SENTINEL appears in the seed resolved by resolved_shared_seed
-- timing: after | name: t1607_placement_followup | type: bug | priority: medium | effort: low | inline_risk: medium | added_complexity: medium | addresses: guard unreachable on already-configured and legacy-mode projects | desc: move update_claudemd_git_section out of setup_data_branch Step 8 to beside update_agentsmd in setup_code_agents so CLAUDE.md is regenerated on every setup, with coverage for re-runs and legacy mode
+- timing: after | name: t1607_placement_followup | type: bug | priority: medium | effort: low | inline_risk: medium | added_complexity: medium | addresses: guard unreachable on already-configured and legacy-mode projects | desc: move update_claudemd_git_section out of setup_data_branch Step 8 to beside update_agentsmd in setup_code_agents so CLAUDE.md is regenerated on every setup, with coverage for re-runs and legacy mode | created: t1612
 
 ### Post-phase (risk mitigations)
 
