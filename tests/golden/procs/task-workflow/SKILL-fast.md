@@ -992,6 +992,7 @@ Project-level settings are stored in `aitasks/metadata/project_config.yaml` (git
 | `verify_build` | string or list | (none — skip) | Shell command(s) to verify the build after implementation | Step 9; `build_verified` gate |
 | `test_command` | string or list | (none — auto-detect) | Shell command(s) for running project tests | aitask-qa Step 4; `tests_pass` gate |
 | `lint_command` | string or list | (none — skip) | Shell command(s) for linting project code | aitask-qa Step 4; `lint` gate |
+| `gate_command_exit_contract` | list of command keys | (none) | Command keys whose command(s) speak the gate exit contract: `0`=pass, `1`=fail, `2`=did not run → gate `skip` (satisfies the gate, releases dependents); any other non-zero is a failure. Opt-in per key because `make`/`pytest` use exit 2 for real failures. Accepts `verify_build` / `test_command` / `lint_command`; any other entry is ignored and reported via `note=` on the gate-run block | `build_verified` / `tests_pass` / `lint` gate verifiers |
 | `attachments_gc_grace` | duration (`30d`/`24h`/`90m`/`120s`/int seconds) | `30d` | Grace window before a **fully-orphaned** attachment (no active *or archived* task references it) is reclaimed by `ait attach gc`. Archiving never decrefs, so an archived task's attachments are kept indefinitely; this knob only governs blobs left unreferenced by `ait attach rm` or task deletion. | `ait attach gc` |
 
 If the file does not exist or a field is absent, the corresponding feature is skipped.

@@ -90,3 +90,49 @@ Explicit configuration is recommended for reliable results — auto-detection ma
 | Node.js | `"npm test"` | `"npm run lint"` |
 | Rust | `"cargo test"` | `"cargo clippy"` |
 | Go | `"go test ./..."` | `"golangci-lint run"` |
+
+## Reporting "did not run" from a command
+
+When these commands are run as **gates** — `build_verified` (`verify_build`),
+`tests_pass` (`test_command`), `lint` (`lint_command`) — every non-zero exit is a
+gate failure by default. That is wrong for a command that deliberately reports
+*"I did not run"*: a test runner serialized behind a host-global lock, for
+example, exits without running anything when another agent holds the lock.
+Recorded as a failure it also holds back every task that depends on this one,
+because `tests_pass` blocks dependents.
+
+`gate_command_exit_contract` lists the command keys whose commands speak the
+gate exit contract, so their exit `2` is recorded as a **skip** instead:
+
+```yaml
+test_command: "tools/run-tests.sh"
+
+# test_command's exit 2 now means "did not run", not "failed"
+gate_command_exit_contract: [test_command]
+```
+
+| Command exit | Key listed | Key not listed |
+|---|---|---|
+| `0` | pass | pass |
+| `1` | fail | fail |
+| `2` | **skip** — "evaluated, not applicable" | fail |
+| anything else | fail | fail |
+
+A `skip` satisfies the gate and releases dependents, while staying distinct from
+`pass` in the ledger history. Only the documented code `2` qualifies — any other
+non-zero exit is a failure, so an unexpected status can never become a skip.
+
+**Why it is opt-in, and per key.** Exit `2` is not free to reserve: GNU `make`
+exits 2 on a build error and `pytest` exits 2 on interrupt. Reserving it for
+every project would turn `verify_build: "make"` failures into green gates. A
+project may also want the contract on for `test_command` and off for
+`verify_build`, so each key opts in separately.
+
+**Accepted entries** are `verify_build`, `test_command` and `lint_command`.
+Anything else is a typo: it is ignored — it never changes a gate result — and
+reported on the gate-run block's `Note:` line, so a misspelling does not look
+identical to "not opted in".
+
+**With a list of commands**, a failure stops the list and a skip does not: any
+failure makes the gate fail, otherwise any skip makes it a skip, otherwise it
+passes.

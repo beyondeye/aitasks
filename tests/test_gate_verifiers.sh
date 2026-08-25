@@ -32,6 +32,7 @@ ORCH="$PROJECT_DIR/.aitask-scripts/lib/gate_orchestrator.py"
 BUILD="$PROJECT_DIR/.aitask-scripts/aitask_gate_build.sh"
 TESTS="$PROJECT_DIR/.aitask-scripts/aitask_gate_tests_pass.sh"
 LINT="$PROJECT_DIR/.aitask-scripts/aitask_gate_lint.sh"
+GATE_SH="$PROJECT_DIR/.aitask-scripts/aitask_gate.sh"
 PY="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" 2>/dev/null; resolve_python 2>/dev/null || echo python3)"
 
 # --- fixture helpers -------------------------------------------------------
@@ -71,6 +72,11 @@ orch() {  # <dir> <id> [flags...]
     local dir="$1" id="$2"; shift 2
     ( cd "$dir" && TASK_DIR="$dir/aitasks" "$PY" "$ORCH" run "$dir/aitasks/t${id}_x.md" \
         --task-id "$id" --registry "$dir/aitasks/metadata/gates.yaml" "$@" 2>&1 )
+}
+
+gate_sh() {  # <dir> <verb> <task-id>
+    local dir="$1"; shift
+    ( cd "$dir" && TASK_DIR="$dir/aitasks" "$GATE_SH" "$@" 2>/dev/null )
 }
 
 count_status() {  # <dir> <id> <status-token>
@@ -124,6 +130,36 @@ test_each_verifier() {
         assert_eq "$label skip(null): exit 2" "2" "$RC"
         assert_contains "$label skip(null): ledger skip" "status=skip" "$(cat "$d/aitasks/t13_x.md")"
     done
+}
+
+# ============================================================
+# Test 1b: config-value FORMS survive the shared resolver
+# ============================================================
+# _gate_config_values is the one reader on the code path of all three gates
+# (t1605 pre-phase mitigation `pin_command_resolution`). Test 1 above only
+# exercises the bare-scalar form, so the two forms an extraction could silently
+# drop -- a QUOTED scalar and a BLOCK list -- are pinned here.
+test_config_value_forms() {
+    echo "=== Test 1b: quoted-scalar and block-list command forms ==="
+    local d
+
+    # quoted scalar
+    d="$(new_fixture)"; write_task "$d" 14
+    printf 'verify_build: "true"\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 14 1 "rquoted"
+    assert_eq "forms: quoted scalar resolves and passes" "0" "$RC"
+    assert_contains "forms: quoted scalar ledger pass" "status=pass" "$(cat "$d/aitasks/t14_x.md")"
+
+    # block list
+    d="$(new_fixture)"; write_task "$d" 15
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - "true"
+  - "true"
+EOF
+    run_verifier "$d" "$BUILD" 15 1 "rblock"
+    assert_eq "forms: block list resolves and passes" "0" "$RC"
+    assert_contains "forms: block list ledger pass" "status=pass" "$(cat "$d/aitasks/t15_x.md")"
 }
 
 # ============================================================
@@ -248,13 +284,298 @@ test_workflow_wiring_text() {
         "No gates declared; nothing to do." "$body"
 }
 
+# ============================================================
+# Test 7: gate_command_exit_contract - a command's exit 2 means "did not run"
+# ============================================================
+# t1605. Opt-in PER CONFIG KEY: exit 2 is a skip only for a key listed in
+# project_config.yaml's gate_command_exit_contract. Rows a-e run per verifier
+# with that verifier's OWN key, because each wrapper passes its own <config_key>
+# into run_command_gate and the opt-in match is against that argument -- a
+# wrapper-specific key or invocation slip would otherwise leave test_command
+# recording `fail` while the shared build path passes.
+test_command_exit_contract() {
+    echo "=== Test 7: exit-2 skip contract (per verifier) ==="
+    # rows: <label> <verifier> <own-key> <gate-name> <a-different-valid-key>
+    local rows=(
+        "build|$BUILD|verify_build|build_verified|test_command"
+        "tests|$TESTS|test_command|tests_pass|lint_command"
+        "lint|$LINT|lint_command|lint|verify_build"
+    )
+    local row label v key gate other d
+    for row in "${rows[@]}"; do
+        IFS='|' read -r label v key gate other <<<"$row"
+
+        # (a) exit 2 with NO opt-in -> fail (today's behaviour preserved)
+        d="$(new_fixture)"; write_task "$d" 70
+        printf '%s: "exit 2"\n' "$key" | write_config "$d"
+        run_verifier "$d" "$v" 70 1 "rnoopt"
+        assert_eq "$label a: exit 2 without opt-in -> exit 1" "1" "$RC"
+        assert_contains "$label a: ledger fail" "status=fail" "$(cat "$d/aitasks/t70_x.md")"
+
+        # (b) exit 2 WITH opt-in -> skip
+        d="$(new_fixture)"; write_task "$d" 71
+        printf '%s: "exit 2"\ngate_command_exit_contract: [%s]\n' "$key" "$key" | write_config "$d"
+        run_verifier "$d" "$v" 71 1 "ropt"
+        assert_eq "$label b: exit 2 with opt-in -> exit 2" "2" "$RC"
+        assert_contains "$label b: ledger skip" "status=skip" "$(cat "$d/aitasks/t71_x.md")"
+        assert_contains "$label b: result names the exit code" "exit 2" "$(cat "$d/aitasks/t71_x.md")"
+        assert_contains "$label b: result is command-driven, not 'no command'" \
+            "command reported skip" "$(cat "$d/aitasks/t71_x.md")"
+
+        # (c) opt-in lists a DIFFERENT valid key -> no opt-in for this one
+        d="$(new_fixture)"; write_task "$d" 72
+        printf '%s: "exit 2"\ngate_command_exit_contract: [%s]\n' "$key" "$other" | write_config "$d"
+        run_verifier "$d" "$v" 72 1 "rother"
+        assert_eq "$label c: opt-in is per key -> exit 1" "1" "$RC"
+        assert_contains "$label c: ledger fail" "status=fail" "$(cat "$d/aitasks/t72_x.md")"
+
+        # (d) exit 1 under opt-in still fails (reachable rejection probe)
+        d="$(new_fixture)"; write_task "$d" 73
+        printf '%s: "exit 1"\ngate_command_exit_contract: [%s]\n' "$key" "$key" | write_config "$d"
+        run_verifier "$d" "$v" 73 1 "rone"
+        assert_eq "$label d: exit 1 under opt-in -> exit 1" "1" "$RC"
+        assert_contains "$label d: ledger fail" "status=fail" "$(cat "$d/aitasks/t73_x.md")"
+
+        # (e) an unexpected non-zero is NOT laundered into a skip
+        d="$(new_fixture)"; write_task "$d" 74
+        printf '%s: "exit 3"\ngate_command_exit_contract: [%s]\n' "$key" "$key" | write_config "$d"
+        run_verifier "$d" "$v" 74 1 "rthree"
+        assert_eq "$label e: exit 3 under opt-in -> exit 1" "1" "$RC"
+        assert_contains "$label e: ledger fail" "status=fail" "$(cat "$d/aitasks/t74_x.md")"
+        assert_eq "$label e: no skip recorded" "0" "$(count_status "$d" 74 skip)"
+    done
+}
+
+# ============================================================
+# Test 8: multi-command aggregation under the exit contract
+# ============================================================
+# any fail -> fail (short-circuits); else any skip -> skip; else pass.
+#
+# NOTE on the fixtures: a BLOCK list's items keep their surrounding quotes
+# (read_yaml_list strips them only on the inline [a, b] form), so a
+# multi-word command is written unquoted here -- `- "exit 2"` would reach
+# bash as the single word `exit 2` and die with 127. Single-word items such
+# as `- "false"` are unaffected. See t1605's Final Implementation Notes.
+test_exit_contract_aggregation() {
+    echo "=== Test 8: skip/fail aggregation over a command list ==="
+    local d ran
+
+    # (f) skip among passes -> skip, and it does NOT short-circuit
+    d="$(new_fixture)"; write_task "$d" 80
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - "true"
+  - exit 2
+  - touch RAN_THIRD
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 80 1 "ragg1"
+    assert_eq "f: skip among passes -> exit 2" "2" "$RC"
+    assert_contains "f: ledger skip" "status=skip" "$(cat "$d/aitasks/t80_x.md")"
+    ran="$([[ -f "$d/RAN_THIRD" ]] && echo ran || echo stopped)"
+    assert_eq "f: a skip does NOT short-circuit the list" "ran" "$ran"
+
+    # (g) a fail AFTER a skip still wins
+    d="$(new_fixture)"; write_task "$d" 81
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - exit 2
+  - "false"
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 81 1 "ragg2"
+    assert_eq "g: fail beside a skip -> exit 1" "1" "$RC"
+    assert_contains "g: ledger fail" "status=fail" "$(cat "$d/aitasks/t81_x.md")"
+    assert_eq "g: no skip recorded" "0" "$(count_status "$d" 81 skip)"
+
+    # (h) a fail still short-circuits
+    d="$(new_fixture)"; write_task "$d" 82
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build:
+  - "false"
+  - touch RAN_SECOND
+gate_command_exit_contract: [verify_build]
+EOF
+    run_verifier "$d" "$BUILD" 82 1 "ragg3"
+    assert_eq "h: fail first -> exit 1" "1" "$RC"
+    ran="$([[ -f "$d/RAN_SECOND" ]] && echo ran || echo stopped)"
+    assert_eq "h: a fail still short-circuits" "stopped" "$ran"
+
+    # (i) the two skips stay distinguishable in result=
+    d="$(new_fixture)"; write_task "$d" 83
+    run_verifier "$d" "$BUILD" 83 1 "rnone"
+    assert_eq "i: no command configured -> exit 2" "2" "$RC"
+    assert_contains "i: result says 'no verify_build configured'" \
+        "no verify_build configured" "$(cat "$d/aitasks/t83_x.md")"
+    assert_not_contains "i: not the command-driven wording" \
+        "command reported skip" "$(cat "$d/aitasks/t83_x.md")"
+
+    # (j) BLOCK-list opt-in form (items keep their quotes -> normalization)
+    d="$(new_fixture)"; write_task "$d" 84
+    cat > "$d/aitasks/metadata/project_config.yaml" <<'EOF'
+verify_build: "exit 2"
+gate_command_exit_contract:
+  - "verify_build"
+EOF
+    run_verifier "$d" "$BUILD" 84 1 "rblockopt"
+    assert_eq "j: block-list opt-in -> exit 2" "2" "$RC"
+    assert_contains "j: ledger skip" "status=skip" "$(cat "$d/aitasks/t84_x.md")"
+}
+
+# ============================================================
+# Test 9: an unrecognized opt-in key is ignored BUT reported
+# ============================================================
+# A typo such as `tests_command` must not look identical to "not opted in":
+# under contention that is the hardest state to diagnose. It never changes a
+# verdict, and it is surfaced as a `Note:` on the appended gate-run block.
+test_exit_contract_unknown_key() {
+    echo "=== Test 9: unrecognized gate_command_exit_contract key ==="
+    local d note="unrecognized key(s): tests_command"
+
+    # (k) one typo alongside a valid entry: the valid one still works
+    d="$(new_fixture)"; write_task "$d" 90
+    printf 'verify_build: "exit 2"\ngate_command_exit_contract: [tests_command, verify_build]\n' \
+        | write_config "$d"
+    run_verifier "$d" "$BUILD" 90 1 "runk1"
+    assert_eq "k: valid entry still opts in -> exit 2" "2" "$RC"
+    assert_contains "k: ledger skip" "status=skip" "$(cat "$d/aitasks/t90_x.md")"
+    assert_contains "k: typo reported on the block" "$note" "$(cat "$d/aitasks/t90_x.md")"
+
+    # (l) ONLY a typo: no opt-in (fail), and the diagnostic is present -- this is
+    #     precisely the state otherwise indistinguishable from "not opted in"
+    d="$(new_fixture)"; write_task "$d" 91
+    printf 'verify_build: "exit 2"\ngate_command_exit_contract: [tests_command]\n' \
+        | write_config "$d"
+    run_verifier "$d" "$BUILD" 91 1 "runk2"
+    assert_eq "l: typo does not opt in -> exit 1" "1" "$RC"
+    assert_contains "l: ledger fail" "status=fail" "$(cat "$d/aitasks/t91_x.md")"
+    assert_contains "l: typo reported on the block" "$note" "$(cat "$d/aitasks/t91_x.md")"
+
+    # (m) a VALID key another verifier owns is NOT reported as unknown
+    d="$(new_fixture)"; write_task "$d" 92
+    printf 'test_command: "exit 2"\ngate_command_exit_contract: [verify_build]\n' \
+        | write_config "$d"
+    run_verifier "$d" "$TESTS" 92 1 "runk3"
+    assert_eq "m: other verifier's key -> no opt-in here, exit 1" "1" "$RC"
+    assert_not_contains "m: no unknown-key note" "unrecognized key" \
+        "$(cat "$d/aitasks/t92_x.md")"
+}
+
+# ============================================================
+# Test 10: GATE_COMMAND_KEYS must not drift from the wrappers
+# ============================================================
+# The constant is what decides whether an opt-in entry is a typo. A fourth
+# verifier added without extending it would silently REJECT a legitimate opt-in,
+# so derive the truth from the wrappers and compare.
+test_gate_command_keys_no_drift() {
+    echo "=== Test 10: GATE_COMMAND_KEYS matches the wrappers ==="
+    local constant declared
+    constant="$(
+        SCRIPT_DIR="$PROJECT_DIR/.aitask-scripts"
+        # shellcheck disable=SC1090
+        . "$PROJECT_DIR/.aitask-scripts/lib/gate_verifier_lib.sh"
+        printf '%s\n' $GATE_COMMAND_KEYS | sort | tr '\n' ' '
+    )"
+    declared="$(grep -h '^run_command_gate ' "$PROJECT_DIR"/.aitask-scripts/aitask_gate_*.sh \
+                | awk '{print $3}' | sort -u | tr '\n' ' ')"
+    assert_eq "drift: constant equals the wrappers' config keys" "$declared" "$constant"
+}
+
+# ============================================================
+# Test 11: a command-driven skip unblocks dependents (end-to-end)
+# ============================================================
+# Through the REAL entry point (the orchestrator) on `tests_pass` -- the gate
+# this is actually about (blocks_dependents: true, max_retries: 1). `skip` is in
+# gate_ledger.SATISFIED_STATUSES, so dependents unblock and archival is not held.
+test_exit_contract_unblocks_dependents() {
+    echo "=== Test 11: exit-2 skip unblocks dependents (tests_pass) ==="
+    local d out
+    _mk() {  # <id> <test_command-value> [opt-in-line]
+        d="$(new_fixture)"
+        cat > "$d/aitasks/metadata/gates.yaml" <<'EOF'
+gates:
+  tests_pass:
+    type: machine
+    verifier: aitask-gate-tests-pass
+    blocks_dependents: true
+    max_retries: 1
+EOF
+        write_task "$d" "$1" "tests_pass"
+        { printf 'test_command: "%s"\n' "$2"; [[ -n "${3:-}" ]] && printf '%s\n' "$3"; } \
+            > "$d/aitasks/metadata/project_config.yaml"
+    }
+
+    # command declares "did not run" -> skip, no retry, dependents released
+    _mk 110 "exit 2" "gate_command_exit_contract: [test_command]"
+    out="$(orch "$d" 110)"
+    assert_contains "e2e skip: orchestrator reports skip" "tests_pass: skip" "$out"
+    assert_eq "e2e skip: exactly one terminal skip" "1" "$(count_status "$d" 110 skip)"
+    assert_eq "e2e skip: never retried into a fail" "0" "$(count_status "$d" 110 fail)"
+    assert_eq "e2e skip: dependents released" "SATISFIED" "$(gate_sh "$d" deps-unblock 110)"
+    assert_eq "e2e skip: archival not held" "ALL_PASS" "$(gate_sh "$d" archive-ready 110)"
+
+    # NEGATIVE CONTROL: a real failure still blocks both
+    _mk 111 "exit 1" "gate_command_exit_contract: [test_command]"
+    orch "$d" 111 >/dev/null
+    assert_eq "e2e fail: no skip recorded" "0" "$(count_status "$d" 111 skip)"
+    assert_eq "e2e fail: dependents blocked" "BLOCKED:tests_pass" "$(gate_sh "$d" deps-unblock 111)"
+    assert_eq "e2e fail: archival blocked" "BLOCKED:tests_pass" "$(gate_sh "$d" archive-ready 111)"
+}
+
+# ============================================================
+# Test 12: recorded status and returned exit code always agree
+# ============================================================
+# t1605 post-phase mitigation `pin_status_exitcode_agreement`. The orchestrator
+# treats the exit code as authoritative and appends an `error` correction when a
+# verifier's own appended status disagrees with it. Drive the check from the
+# RECORDED PAIR so a future edit that records `skip` while returning 1 fails
+# here rather than silently tripping that path on a blocks_dependents gate.
+test_status_exitcode_agreement() {
+    echo "=== Test 12: appended status agrees with returned exit code ==="
+    # rows: <label> <config-body> ; each exercises one of the four outcomes
+    local d recorded expected
+    _agree() {  # <label> <id> <expected-status>
+        recorded="$(grep -o 'status=[a-z]*' "$d/aitasks/t${2}_x.md" | tail -1)"
+        recorded="${recorded#status=}"
+        case "$RC" in
+            0) expected=pass ;;
+            1) expected=fail ;;
+            2) expected=skip ;;
+            *) expected="<unmapped:$RC>" ;;
+        esac
+        assert_eq "$1: map_exit($RC) == recorded status" "$expected" "$recorded"
+    }
+
+    d="$(new_fixture)"; write_task "$d" 120
+    printf 'verify_build: "true"\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 120 1 "ra1"; _agree "agree pass" 120
+
+    d="$(new_fixture)"; write_task "$d" 121
+    printf 'verify_build: "false"\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 121 1 "ra2"; _agree "agree fail" 121
+
+    d="$(new_fixture)"; write_task "$d" 122
+    run_verifier "$d" "$BUILD" 122 1 "ra3"; _agree "agree skip(no command)" 122
+
+    d="$(new_fixture)"; write_task "$d" 123
+    printf 'verify_build: "exit 2"\ngate_command_exit_contract: [verify_build]\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 123 1 "ra4"; _agree "agree skip(command-driven)" 123
+}
+
 # --- Run ---
 test_each_verifier
+test_config_value_forms
 test_command_list
 test_sidecar_capture
 test_orchestrator_integration
 test_seam_primitive
 test_workflow_wiring_text
+test_command_exit_contract
+test_exit_contract_aggregation
+test_exit_contract_unknown_key
+test_gate_command_keys_no_drift
+test_exit_contract_unblocks_dependents
+test_status_exitcode_agreement
 
 for dir in "${CLEANUP_DIRS[@]}"; do rm -rf "$dir"; done
 

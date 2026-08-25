@@ -169,6 +169,57 @@ test_command:
 lint_command:
 
 # ──────────────────────────────────────────────────────────────────────
+# gate_command_exit_contract — Which of the command keys above speak the
+# gate exit contract, so an exit of 2 means "I did not run" (a gate SKIP)
+# instead of "I ran and failed".
+#
+# The three machine gates that run project commands — build_verified
+# (verify_build), tests_pass (test_command) and lint (lint_command) — treat
+# EVERY non-zero exit as a failure by default, 2 included. A command that
+# deliberately reports "did not run" is therefore recorded as a red gate; on
+# tests_pass (blocks_dependents: true) that also holds back every task that
+# depends on this one, for a run that never executed.
+#
+# List a key here and that key's command(s) are read as:
+#
+#     exit 0  -> pass
+#     exit 1  -> fail
+#     exit 2  -> skip  ("evaluated, not applicable" — satisfies the gate,
+#                       releases dependents, stays distinct from pass in the
+#                       ledger history)
+#     anything else -> fail
+#
+# Only the documented skip code is a skip: an unexpected status can never be
+# laundered into one.
+#
+# WHY OPT-IN, and why per key: exit 2 is NOT free to reserve. GNU make exits 2
+# on a build error and pytest exits 2 on interrupt, so `verify_build: "make"`
+# would silently turn real build failures into satisfied gates. A project may
+# legitimately want the contract on for test_command and off for verify_build.
+#
+# Accepted entries: verify_build, test_command, lint_command. Anything else is
+# a typo — it is ignored (it never changes a gate result), and reported on the
+# gate-run block's `Note:` line so a misspelling does not look identical to
+# "not opted in".
+#
+# COMMAND LISTS: a failure short-circuits the list; a skip does not. Any fail
+# wins, else any skip makes the gate a skip, else it passes.
+#
+# Examples:
+#
+#   # A test command serialised behind a host-global lock: it exits 2 when
+#   # another worktree holds the lock, so nothing was run and nothing failed.
+#   gate_command_exit_contract: [test_command]
+#
+#   # Block form:
+#   gate_command_exit_contract:
+#     - test_command
+#     - lint_command
+# ──────────────────────────────────────────────────────────────────────
+
+gate_command_exit_contract:
+
+# ──────────────────────────────────────────────────────────────────────
 # attachments_gc_grace — Grace window before `ait attach gc` reclaims a
 # FULLY-orphaned attachment blob (one no active OR archived task references).
 #

@@ -350,6 +350,13 @@ Every gate is implemented by a **`aitask-gate-<name>`** skill, following a stand
 4. **Append** a terminal marker-first blockquote to `## Gate Runs` with final status (`pass`, `fail`, `skip`, or `error`), via the `ait gate append` helper — not direct markdown editing.
 5. Return an exit code: `0` = pass, `1` = fail, `2` = skip (gate does not apply to this task), `3` = error (verifier itself failed; distinct from fail).
 
+**These are the VERIFIER's exit codes, not the codes of any command it runs.** The distinction matters for the three project-command gates — `build_verified` (`verify_build`), `tests_pass` (`test_command`) and `lint` (`lint_command`), all sharing `lib/gate_verifier_lib.sh`. There, a `2` can come from either of two facts:
+
+- **no command is configured** for the key — "not applicable to this project"; or
+- **the command itself exited 2** to say *"I did not run"* — e.g. a test runner serialized behind a host-global lock that another agent holds.
+
+The second is **opt-in per config key**: it applies only when the key is listed in `project_config.yaml`'s `gate_command_exit_contract`. Exit 2 is not free to reserve — GNU `make` exits 2 on a build error and `pytest` exits 2 on interrupt — so without the declaration every non-zero exit stays a fail, and a real failure can never be laundered into a satisfied `blocks_dependents` gate. Any exit other than the documented `2` is a fail whether or not the key opted in. The two kinds of skip stay distinguishable in the appended `result=` line, never by the exit code. Over a list of commands a fail short-circuits and a skip does not, so a fail after a skip still wins. An unrecognized `gate_command_exit_contract` entry is ignored (it never changes a verdict) and reported on the gate-run block's `note=` field, so a typo cannot masquerade as "not opted in".
+
 **Must not:**
 - Modify task frontmatter.
 - Modify any other gate's Gate Runs entries.

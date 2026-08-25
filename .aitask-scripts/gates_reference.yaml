@@ -62,7 +62,11 @@
 #                     command-driven verifiers (build/tests/lint) read their command
 #                     from project_config.yaml and SKIP (exit 2, terminal-satisfied)
 #                     when that command is unset, so a gate that does not apply to a
-#                     project never blocks it. The risk verifier has NO skip path: a
+#                     project never blocks it. Since t1605 they also skip when the
+#                     COMMAND ITSELF exits 2 and its config key is listed in
+#                     project_config.yaml `gate_command_exit_contract` — an opt-in,
+#                     per-key contract for a command that reports "I did not run";
+#                     any other non-zero exit is still a fail. The risk verifier has NO skip path: a
 #                     task that declares it has opted into risk evaluation, so the
 #                     `## Risk` section + the two levels must exist (else fail).
 #   kind            - dispatch model (t635_19). ABSENT or `command` = a normal
@@ -150,7 +154,10 @@ gates:
     type: machine
     description: "Project build/verify command(s) pass after implementation"
     blocks_dependents: true
-    # Runs project_config.yaml `verify_build`; skips (exit 2) when unset (t635_12).
+    # Runs project_config.yaml `verify_build`; skips (exit 2) when unset (t635_12), and
+    # also when the command itself exits 2 AND `verify_build` is listed in
+    # project_config.yaml `gate_command_exit_contract` (t1605). Any other
+    # non-zero exit stays a fail.
     verifier: aitask-gate-build
     max_retries: 1
     timeout_seconds: 600
@@ -158,7 +165,10 @@ gates:
     type: machine
     description: "Project test suite passes after implementation"
     blocks_dependents: true
-    # Runs project_config.yaml `test_command`; skips (exit 2) when unset (t635_12).
+    # Runs project_config.yaml `test_command`; skips (exit 2) when unset (t635_12), and
+    # also when the command itself exits 2 AND `test_command` is listed in
+    # project_config.yaml `gate_command_exit_contract` (t1605). Any other
+    # non-zero exit stays a fail.
     verifier: aitask-gate-tests-pass
     max_retries: 1
     timeout_seconds: 600
@@ -167,7 +177,10 @@ gates:
     description: "Project linter reports no errors"
     # Style check — does not gate dependents (a lint nit shouldn't block downstream).
     blocks_dependents: false
-    # Runs project_config.yaml `lint_command`; skips (exit 2) when unset (t635_12).
+    # Runs project_config.yaml `lint_command`; skips (exit 2) when unset (t635_12), and
+    # also when the command itself exits 2 AND `lint_command` is listed in
+    # project_config.yaml `gate_command_exit_contract` (t1605). Any other
+    # non-zero exit stays a fail.
     verifier: aitask-gate-lint
     max_retries: 0
   docs_updated:
