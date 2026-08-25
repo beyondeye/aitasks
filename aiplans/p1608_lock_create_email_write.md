@@ -231,3 +231,154 @@ contributor-list mutex, and the fix is invisible at the CLI surface.
 
 Step 9 (Post-Implementation) applies as usual: commit as
 `bug: <description> (t1608)`, then archive the task and plan.
+
+---
+
+## Implementation record
+
+All three steps landed as planned; no deviation from the approach.
+
+**Deviation in the test design (tightening, after review of the plan):**
+
+- Test 4's negative control no longer polls for `bob@test.com` with a grace
+  window. It **waits for `ait create` to finish completely** while the holder
+  still holds the mutex, then asserts the address is present. The unlocked
+  writer's whole `echo >> ; sort -u -o` is therefore done before the holder's
+  write-back, so there is no timing window at all: a surviving address could
+  only mean the write was serialized. (The pre-fix body never blocks; if the
+  injection had failed, create would block, warn and still exit, so the wait
+  terminates either way.)
+- Test 3's fixed-path branch keeps the mirrored observation: bounded wait for the
+  created task file (proof create reached the email step), then a bounded assert
+  that the address **stays absent** while the lock is held.
+- Test 5 was added for the failure path, injected through a narrow `sort` PATH
+  shim, asserting the warning fires, creation still exits 0, the lock dir is
+  gone, and the same lock path is **reacquirable**.
+
+**Discrimination verified, not assumed.** Run against the pre-fix
+`aitask_create.sh` (restored from `HEAD`), the suite reports
+`21 passed, 7 failed`, including:
+
+- `Test 2: the skip is reported` / `emails.txt unchanged — never written unlocked`
+- `Test 3: the address was written while the mutex was held`
+- `Test 3: ait create's address survives` (the lost update)
+- `Test 5: creation still succeeds (exit 0)` — the un-fixed body has **no**
+  failure handling at all, so a failed `sort` aborts the whole `ait create` under
+  `set -e`. The fix makes that path best-effort as well.
+
+Test 4 (the control) passes in both directions, as designed.
+
+**Result:** `28 passed, 0 failed` on the fixed code. `test_pick_own_scoped_commit.sh`
+(41), `test_create_silent_stdout.sh`, `test_parallel_child_create.sh` (24),
+`test_create_manual_verification.sh`, `test_create_manual_verification_gates.sh`,
+`test_anchor_create.sh`, `test_aitask_create_xdeprepo_alone.sh`,
+`test_create_project_flag.sh` and `test_shadow_spinoff_create_contract.sh` all pass.
+`shellcheck -S warning` is clean on both scripts and the new test.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-25 18:05)
+
+- **Requested by user:** In the mutation block, `printf` and `sort` were separate
+  statements inside a group whose status is tested by `|| rc=$?`. Bash suppresses
+  errexit in that context, so a **failed append followed by a succeeding sort**
+  leaves the group's status at 0 — the function reports success for an address it
+  never wrote, and the warning never fires. Test 5 cannot see this branch because
+  it fails `sort`, not the append. CONFIRMED.
+
+- **Changes made:**
+  1. `add_email_to_file` now chains the two with `&&`, so the append's failure
+     becomes the group's status and a sort that would only rewrite an unchanged
+     file is skipped. The warn-and-release behaviour is unchanged.
+  2. New **Test 6** pins exactly that branch. The append is made to fail — and
+     nothing else — by shadowing the `printf` builtin with a function guarded on
+     `${FUNCNAME[1]} == add_email_to_file`. A PATH shim cannot reach a builtin,
+     and permissions cannot discriminate: a mode that blocks the append blocks
+     `sort -o` on the same file too, so both would fail and the branch would never
+     be isolated. It asserts the warning fires, `emails.txt` is byte-unchanged,
+     the address is absent, creation still exits 0, and the lock is released and
+     reacquirable.
+  3. The old syntax test is renumbered to Test 7.
+
+- **Files affected:** `.aitask-scripts/aitask_create.sh`,
+  `tests/test_create_email_lock.sh`
+
+- **Discrimination verified:** with the `&&` reverted to two statements, the suite
+  reports `34 passed, 1 failed` — `Test 6: the failed append is reported` — and
+  nothing else changes. Suite total is now `35 passed, 0 failed`.
+
+## Final Implementation Notes
+
+- **Actual work done:** `add_email_to_file()` in `.aitask-scripts/aitask_create.sh`
+  now acquires `ait_lock_dir emails` via `stale_lock_acquire`, re-checks membership
+  under the lock, chains the append and sort, and releases on every exit path;
+  busy and failed paths warn and continue rather than failing task creation. The
+  now-false `INCOMPLETE until t1608` comment in `store_email()`
+  (`.aitask-scripts/aitask_pick_own.sh`) was replaced. `tests/test_create_email_lock.sh`
+  is new: 35 assertions across 7 tests.
+
+- **Deviations from plan:** Test 4's negative control was tightened after plan
+  review — it now waits for `ait create` to finish **completely** under the held
+  mutex before the holder's write-back, removing the poll-plus-grace timing window
+  entirely. Test 6 was added during Step 8 review (see Change Request 1).
+
+- **Issues encountered:** The interop question the task raised ("verify rather than
+  assume") resolved by construction: `registry_lock_acquire` delegates to
+  `stale_lock_acquire` on the caller's dir, so the two adapters contend on one
+  mkdir mutex. Test 1 pins it in both directions anyway. `registry_lock` was
+  rejected for the create side because it installs an EXIT trap that would
+  silently disarm `_child_lock_exit_trap` if the call ever moved into the
+  child-creation branch.
+
+- **Key decisions:** (a) `stale_lock` directly, not `registry_lock` — already
+  sourced, already the file's protocol, no trap. (b) Busy and failure paths warn
+  and continue: the address is already in the task's own `assigned_to`, and the
+  task file is on disk uncommitted, so failing would strand it to fix a strictly
+  smaller problem. (c) Every wait in the test suite is a bounded poll on an
+  observed condition whose timeout is a hard FAIL — `stale_lock_acquire` emits
+  nothing while waiting, so file content is the only real observable.
+
+- **Upstream defects identified:**
+  - **Tracked as t1614** (`aitasks/t1614_store_email_failed_append_masked.md`,
+    `followup_kind: upstream_defect`, `anchor: 1599`, `depends: [1608]`).
+    `.aitask-scripts/aitask_pick_own.sh:270-277` — `store_email()` has the same
+    swallowed-append defect this task's Change Request 1 fixed, and one further
+    consequence. Its `printf '%s\n' "$email" >> "$EMAILS_FILE"` and
+    `sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"` are separate statements inside a
+    `{ … } || rc=$?` group, so a failed append followed by a succeeding sort
+    leaves `rc` at 0 — and it additionally sets `EMAIL_STORED=true` on that path,
+    which makes the claim commit an unchanged `emails.txt` under
+    `ait: Record contributor email` and report success for an address that was
+    never written. Pre-existing (t1599_1), in a different script, and out of scope
+    here; the fix is the same one-line `&&` chain plus moving `EMAIL_STORED=true`
+    behind it.
+
+### Change Request 2 (2026-08-25 19:02)
+
+- **Requested by user:** The `store_email()` twin of the defect fixed in Change
+  Request 1 was recorded only as a plan bullet, which is documentation rather than
+  tracking. Create a dedicated follow-up task for it. CONFIRMED — and the
+  consequence is worse on that side than on this one: `store_email` sets
+  `EMAIL_STORED=true` inside the same masked branch, and that flag is what makes
+  the claim commit `emails.txt`, so a failed append also produces an
+  `ait: Record contributor email` commit with no content change.
+
+- **Changes made:** Created **t1614**
+  (`aitasks/t1614_store_email_failed_append_masked.md`) via the Step 8b Batch Task
+  Creation route — `issue_type: bug`, `followup_kind: upstream_defect`,
+  `followup_of 1608` (anchors it to topic root 1599), `gates: [risk_evaluated]`.
+  Its body carries the offending block verbatim, the errexit-suppression
+  explanation, both consequences, the suggested `&&` chain with `EMAIL_STORED=true`
+  moved behind it, and a verification section specifying the discriminating test
+  shape (shadow the `printf` builtin guarded on `${FUNCNAME[1]} == store_email`;
+  assert the warning fires, `emails.txt` is byte-unchanged, **no**
+  contributor-email commit was made, and the claim still returns `OWNED:`; plus a
+  positive-assertion negative control).
+
+  `depends: [1608]` was set explicitly: t1614's verification section instructs
+  mirroring Test 6 of `tests/test_create_email_lock.sh`, which only exists once
+  this task lands.
+
+- **Files affected:** `aitasks/t1614_store_email_failed_append_masked.md` (new),
+  `aiplans/p1608_lock_create_email_write.md`. No code change — the defect is out
+  of scope for t1608 and belongs to the task that now owns it.
