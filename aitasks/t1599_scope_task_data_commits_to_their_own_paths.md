@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -11,7 +13,7 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-25 11:09
-updated_at: 2026-08-25 11:11
+updated_at: 2026-08-25 12:47
 ---
 
 ## Origin
@@ -107,3 +109,8 @@ The remedy differs per site — do not apply one blanket patch:
 
 Rewriting the existing mis-attributed history. The data branch is shared and
 frequently has live sessions on it; the 107 historical commits stay as they are.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T09:47:21Z status=pass attempt=1 type=human
