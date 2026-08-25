@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: []
+depends: [t1599_1, t1599_2, t1599_3]
 issue_type: refactor
 status: Ready
 labels: [git, bash_scripts, robustness, test]
