@@ -438,3 +438,73 @@ covers the no-libyaml fallback explicitly, and re-measures `ait ls`.
   because it must be measured against this scan.
 - Bundle extraction for dep resolution (decision 2).
 - `ait ls`'s xdeps path, which is already fail-closed and correct.
+
+## Final Implementation Notes
+
+- **Actual work done:** all three surfaces now consume one core,
+  `lib/dep_resolution.py` (`LocalDepResolver`, `DepVerdict`, `read_depends`,
+  `may_have_depends`, `classify_facts`). `gate_ledger.py` gained the public
+  `DependentsEvaluator` seam and `dependents_status_batch` was refactored onto
+  it. `aitask_gate.sh` gained `deps-blocking-scan` (+ `delegate_python_deps`);
+  `aitask_ls.sh` lost `build_dep_satisfied_set` / `is_task_uncompleted` and its
+  whole local-dep loop; `TaskInfoCache.blocking_dependencies` returns
+  `DepVerdict`s and `find_ready_siblings` lost its private status map; the board
+  gained `local_dep_verdicts` and lost `dependency_released_by_gates` (no
+  remaining callers). `tests/test_local_dep_parity.py` is 32 tests over 8
+  sections; every guard was probed by deliberate mutation and observed to fail.
+
+- **Deviations from plan:**
+  - The plan's bash lookup ("fork-free substring scan over one variable")
+    measured **15 s for 451 lookups** — bash's `${var#*"$key"}` retries the glob
+    from every position over a 6 KB blob. Replaced with two parallel INDEXED
+    arrays and a linear scan: **0.094 s**, still bash-3.2 safe (no `declare -A`).
+  - `_dep_resolver` is a CLASS-level attribute on `TaskManager`, not an
+    `__init__` assignment: three test harnesses build a `TaskManager` via
+    `__new__` and populate only what they need, and "not built yet" is the
+    honest default for all of them.
+  - The characterization step used `-v -s all --all-levels 9999`; the plan's
+    `--all` is not a flag.
+  - Four review rounds changed the design after the plan was approved — the
+    malformed-`depends:` reader, the exact-terminal-`SCAN_OK` rule, the
+    block-list pre-filter correction, and the performance amendment. Each is
+    written into the sections above rather than only here.
+
+- **Issues encountered:**
+  - `may_have_depends()`'s first version treated a bare `depends:` key as
+    dep-free. That is a YAML block-list head, so `ait ls` skipped tasks the
+    board and minimonitor blocked — the three-surface disagreement this task
+    removes, reintroduced by its own optimisation. `aitask_ls.sh`'s lookup guard
+    had the same bug independently (it keyed off its inline-only parsed value);
+    both halves are now pinned by `BlockListDependsTests`.
+  - The instrumented fan-out test counted **0** registry parses in the full
+    suite while passing in isolation: the suite holds **two distinct
+    `gate_ledger` module objects loaded from the same file path**, so patching
+    this module's own import intercepted nothing and the `<= 1` assertion passed
+    vacuously. It now patches `dep_resolution.gate_ledger` and asserts `== 1`.
+  - `depends: 999` made `monitor_core._resolve` raise `TypeError` and
+    `depends: "999"` made it invent `['9','9','9']` — both pre-existing, both
+    now routed through `read_depends`.
+  - **Concurrent sessions.** At least two other agents edited this working tree
+    throughout. `monitor_core.py` / `monitor_shared.py` carried their hunks and
+    mine, so the commit stages only my hunks (filtered patch → `git apply
+    --cached`), verified by materialising the index tree and running the suite
+    from it. `tests/test_shadow_phase_restamp.py` and
+    `tests/test_collection_structure.py` fail in the working tree from their
+    in-flight minimonitor work and PASS in the isolated staged tree.
+
+- **Key decisions:** fail-closed tri-state; loose files only (bundles never
+  extracted, pinned with a REAL bundle the scan must ignore); the evaluator's
+  lifetime is one cycle, bound to the line that already renews
+  `gate_digest_cache`; `ait ls` lists only the deps that actually block.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:3800 — _resolve iterated the raw
+    depends field, so a scalar `depends: 999` raised TypeError and killed the
+    whole task lookup, and `depends: "999"` yielded three per-character
+    dependencies. Pre-existing; fixed here because the shared reader had to
+    exist anyway.` (fixed in this task, recorded for traceability)
+  - `tests/lib/board_fixture.py — the suite loads .aitask-scripts/lib modules
+    under more than one module object (measured: two distinct `gate_ledger`
+    objects from one path). Any test that patches a lib module by its own import
+    can silently intercept nothing. Not fixed here; a suite-wide guard asserting
+    single-instance lib imports would catch a whole class of vacuous tests.`
