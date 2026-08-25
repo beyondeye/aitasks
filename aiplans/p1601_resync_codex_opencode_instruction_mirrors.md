@@ -147,8 +147,13 @@ Positive assertions (T25–T27), one per surface:
 Each asserts `MATCH`; a wrapper dumps `diff <(expected) <(actual)` on failure so
 the message names the drifted lines instead of dumping two 100-line blobs.
 
-Negative controls (T28–T34) — **one per advertised sentinel**, so every outcome
-the helper's contract names is executable and none is advertised-but-unproven.
+Negative controls (T28–T37) — every outcome the helper's contract names is
+executable and none is advertised-but-unproven, **plus** targeted regression
+fixtures for the two fail-opens found in Step 8 review. The mapping is
+deliberately **not** one-to-one: `MISMATCH` is asserted three times (T28/T29/T35)
+and `MULTIPLE_BLOCKS` twice (T34/T37), because T35 and T36 pin specific bugs
+rather than merely a verdict — deleting either as "redundant by verdict" restores
+the bug it covers.
 All run against throwaway copies under `mktemp -d`; the tracked files are never
 mutated:
 
