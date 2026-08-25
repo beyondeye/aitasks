@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [reporting, metrics, backlog]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: risk_mitigation
 created_at: 2026-08-24 16:18
-updated_at: 2026-08-24 16:18
+updated_at: 2026-08-25 16:47
 ---
 
 ## Origin
