@@ -94,11 +94,18 @@ One non-asserting predicate, asserted in both directions:
 ```bash
 # block_status <project_dir> <file> <workdir> [agent]
 #   -> MATCH | MISMATCH | ASSEMBLE_FAILED | NO_SUCH_FILE
-#      NO_START_MARKER | NO_END_MARKER | MULTIPLE_BLOCKS
+#      NO_START_MARKER | NO_END_MARKER | MULTIPLE_BLOCKS | MARKERS_OUT_OF_ORDER
 ```
 
-- structural checks first, each with its own sentinel: missing file, missing
-  start marker, missing end marker, more than one pair;
+- structural verdict first, resolved by a **single `awk` pass** that both extracts
+  the body and classifies the file (`_extract_marked_block`). Counting markers
+  with `grep -c` and extracting with a *separate* pass cannot express **order**:
+  a file whose `<<<aitasks` precedes its `>>>aitasks` counts 1 and 1, and a
+  start-to-EOF extraction then yields the whole tail, so an unterminated block
+  compares equal and returns `MATCH` (confirmed live during Step 8 review). One
+  state machine has no second pass to disagree with. Sentinels: missing file,
+  missing start marker, missing end marker, more than one pair, markers out of
+  order;
 - then **byte-preserving comparison via files — never `$( )`**. Both sides are
   produced by redirection into `$workdir/expected` and `$workdir/actual` and
   compared with `cmp -s`:
@@ -155,10 +162,18 @@ mutated:
 | T33 | a path that does not exist | `NO_SUCH_FILE` |
 | T34 | copy with the marked block duplicated (two marker pairs) | `MULTIPLE_BLOCKS` |
 | T35 | copy with a blank line inserted immediately before `<<<aitasks` | `MISMATCH` |
+| T36 | `<<<aitasks` first, then `>>>aitasks` + the real content, nothing closing it | `MARKERS_OUT_OF_ORDER` |
+| T37 | a stray `<<<aitasks` prepended to a well-formed block | `MULTIPLE_BLOCKS` |
 
 T34 is not hypothetical: a duplicated block is the exact t1028 failure mode that
 T22/T23 exist to catch, and `block_status` must report it as its own state rather
 than silently extracting the first block and comparing it as `MATCH`.
+
+**T36 pins the marker-ordering gap.** Its fixture has marker counts of exactly
+1 and 1, so it passes every count-based check while having no closing marker at
+all — it is the fixture that fails the moment anyone reintroduces
+count-plus-separate-extraction. T37 pins the *precedence* between the structural
+verdicts so it is asserted rather than incidental.
 
 **T35 pins the trailing-newline gap specifically** — it is the one fixture that
 distinguishes the file-based comparison from a `$( )` one, so it fails if anyone
