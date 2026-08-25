@@ -51,15 +51,48 @@ cross-PC sync) silently drops or mangles it:
      which described them as markerless hand-maintained files; they were
      converted to markers and the instruction was never updated.
      **⚠ Both regenerations are gated on the agent CLI being installed
-     locally** (`_is_agent_installed`). On a machine without Codex CLI /
-     OpenCode, `ait setup` prints "No … staging files found — skipping" and
-     leaves those two tracked files untouched, so a field added to the seed
-     lands in `AGENTS.md` only and the mirrors drift **silently**. After running
-     `ait setup`, always `grep` the new field in all three; if a mirror was
-     skipped, copy the generated block out of `AGENTS.md` verbatim rather than
-     re-typing it. Also note `ait setup` **commits `AGENTS.md` itself** (`ait:
-     Add aitask framework`), so that mirror arrives in its own commit rather
-     than the task's.
+     locally** (`_is_agent_installed`), and additionally skip when the
+     `aitasks/metadata/{codex,opencode}_skills` staging dir is absent or the
+     user declines the prompt. On a machine without Codex CLI / OpenCode,
+     `ait setup` prints "No … staging files found — skipping" and leaves those
+     two tracked files untouched, so a field added to the seed lands in
+     `AGENTS.md` only and the mirrors drift **silently**. `update_agentsmd` has
+     no such guard, which is why `AGENTS.md` stays current while the two mirrors
+     rot.
+
+     **Recovery — drive the generator, do not copy from `AGENTS.md`.** The old
+     advice here ("copy the generated block out of `AGENTS.md` verbatim") is
+     wrong for the two mirrors: `AGENTS.md` carries the **shared layer only**, so
+     a verbatim copy destroys each mirror's per-agent `## Agent Identification`
+     tail. Run the same two functions `ait setup` calls instead (t1601):
+
+     ```bash
+     source .aitask-scripts/aitask_setup.sh --source-only
+     for agent in codex opencode; do
+       case "$agent" in
+         codex)    target=.codex/instructions.md ;;
+         opencode) target=.opencode/instructions.md ;;
+       esac
+       content="$(assemble_aitasks_instructions . "$agent")"
+       insert_aitasks_instructions "$target" "$content"
+     done
+     ```
+
+     **Detection is automated — do not rely on a manual `grep`.**
+     `tests/test_agent_instructions.sh` T25–T27 compare all three tracked
+     surfaces byte-for-byte against what the live generator produces from the
+     live seeds, so seed-vs-mirror drift is a failing test rather than something
+     found by accident. Run it after any seed edit. T28–T37 are its negative
+     controls: they cover every failure state the guard can report, plus
+     targeted regression fixtures for two fail-opens found in review — a
+     trailing blank line before `<<<aitasks` (invisible to a `$( )` comparison,
+     T35) and an inverted marker pair whose counts still read 1 and 1 (T36).
+     Several controls therefore share a verdict on purpose; the mapping is not
+     one-to-one.
+
+     Also note `ait setup` **commits `AGENTS.md` itself** (`ait: Add aitask
+     framework`), so that mirror arrives in its own commit rather than the
+     task's.
    - `CLAUDE.md` "### Task File Format" YAML block (hand-maintained — it has no
      `>>>aitasks` markers; edit directly).
    - `website/content/docs/development/task-format.md` "### Frontmatter Fields"

@@ -533,6 +533,234 @@ assert_contains "T24: opencode mirror has agent-specific content" "## Agent Iden
 cleanup_tmpdir
 
 # ============================================================
+# Seed -> mirror content drift guard (t1601)
+# ============================================================
+# T22/T23 above prove the committed mirrors still carry their markers. They never
+# look at what is BETWEEN the markers, so the block can rot silently:
+# setup_codex_cli / setup_opencode are skipped whenever the agent CLI is not
+# installed (_is_agent_installed), the aitasks/metadata/<agent>_skills staging
+# dir is absent, or the user declines the prompt -- while update_agentsmd is
+# ungated. That asymmetry is exactly how the gates:/active_gates* lines went
+# missing from both mirrors while AGENTS.md stayed current (t1601).
+#
+# DERIVED, NOT DUPLICATED: nothing below hardcodes expected text. Each surface is
+# compared against what the LIVE generator produces from the LIVE seeds -- the
+# same assemble_aitasks_instructions() that `ait setup` calls.
+
+echo "--- seed -> mirror content drift (t1601) ---"
+
+# resolved_shared_seed <project_dir> -- the shared seed assemble_aitasks_instructions
+# will actually read, mirroring its precedence (aitask_setup.sh assemble_*).
+# Diagnostic only: a red guard can mean "the mirror drifted" OR "this checkout's
+# aitasks/metadata seed copy drifted", and the diff alone cannot tell them apart.
+resolved_shared_seed() {
+    local pdir="$1"
+    if [[ -f "$pdir/aitasks/metadata/aitasks_agent_instructions.seed.md" ]]; then
+        echo "$pdir/aitasks/metadata/aitasks_agent_instructions.seed.md"
+    elif [[ -f "$pdir/seed/aitasks_agent_instructions.seed.md" ]]; then
+        echo "$pdir/seed/aitasks_agent_instructions.seed.md"
+    else
+        echo "(none)"
+    fi
+}
+
+# _extract_marked_block <file> <outfile> -- writes the block body to <outfile>
+# and echoes exactly one structural verdict:
+#   OK | NO_START_MARKER | NO_END_MARKER | MULTIPLE_BLOCKS | MARKERS_OUT_OF_ORDER
+#
+# ONE pass does both the extraction and the structural verdict, deliberately.
+# Counting the markers with grep and extracting with a separate awk cannot
+# express ORDER: a file whose <<<aitasks precedes its >>>aitasks counts 1 and 1,
+# and a start-to-EOF extraction then yields the whole tail -- so an unterminated
+# block compared equal and returned MATCH (t1601 review). A single state machine
+# has no second pass to disagree with.
+_extract_marked_block() {
+    : > "$2"
+    awk -v out="$2" '
+        /^>>>aitasks$/ {
+            starts++
+            if (ends > 0) { order_bad = 1 }   # an end marker preceded this start
+            state = 1
+            next
+        }
+        /^<<<aitasks$/ {
+            ends++
+            if (state == 1) { state = 2 }     # closes the open start
+            else { order_bad = 1 }            # end with no open start before it
+            next
+        }
+        state == 1 { print > out }
+        END {
+            if (starts == 0)            { print "NO_START_MARKER";      exit }
+            if (ends == 0)              { print "NO_END_MARKER";        exit }
+            if (starts > 1 || ends > 1) { print "MULTIPLE_BLOCKS";      exit }
+            if (order_bad || state != 2){ print "MARKERS_OUT_OF_ORDER"; exit }
+            print "OK"
+        }
+    ' "$1"
+}
+
+# block_status <project_dir> <file> <workdir> [agent] -- echoes exactly one of:
+#   MATCH | MISMATCH | ASSEMBLE_FAILED | NO_SUCH_FILE
+#   NO_START_MARKER | NO_END_MARKER | MULTIPLE_BLOCKS | MARKERS_OUT_OF_ORDER
+# Leaves $workdir/expected and $workdir/actual behind for the failure dump.
+#
+# The comparison goes through FILES, never "$(...)": bash strips ALL trailing
+# newlines from a command substitution, on BOTH sides, so a blank line added just
+# before <<<aitasks would compare equal and the guard would fail open. T35 pins
+# that exact case. The structural verdict is resolved BEFORE the comparison, so a
+# malformed block can never reach cmp and read as MATCH (T30/T31/T34/T36).
+block_status() {
+    local pdir="$1" file="$2" work="$3" agent="${4:-}"
+    local rc=0 struct
+    local -a args=("$pdir")
+    if [[ -n "$agent" ]]; then
+        args+=("$agent")
+    fi
+
+    if [[ ! -f "$file" ]]; then
+        echo "NO_SUCH_FILE"; return 0
+    fi
+
+    struct="$(_extract_marked_block "$file" "$work/actual")"
+    if [[ "$struct" != "OK" ]]; then
+        echo "$struct"; return 0
+    fi
+
+    assemble_aitasks_instructions "${args[@]}" > "$work/expected" 2>"$work/assemble.err" || rc=$?
+    if [[ "$rc" -ne 0 || ! -s "$work/expected" ]]; then
+        echo "ASSEMBLE_FAILED"; return 0
+    fi
+
+    if cmp -s "$work/expected" "$work/actual"; then
+        echo "MATCH"
+    else
+        echo "MISMATCH"
+    fi
+}
+
+# check_surface <label> <file> [agent] -- assert one tracked surface matches the
+# generator, dumping an actionable diff (and the resolved seed) on failure.
+check_surface() {
+    local label="$1" file="$2" agent="${3:-}"
+    local work status
+    work="$(mktemp -d)"
+    status="$(block_status "$PROJECT_DIR" "$file" "$work" "$agent")"
+    assert_eq "$label: block matches the generated instructions" "MATCH" "$status"
+    if [[ "$status" != "MATCH" ]]; then
+        echo "  resolved shared seed: $(resolved_shared_seed "$PROJECT_DIR")"
+        echo "  fix: source .aitask-scripts/aitask_setup.sh --source-only && \\"
+        echo "       insert_aitasks_instructions <file> \"\$(assemble_aitasks_instructions . [agent])\""
+        if [[ -s "$work/expected" && -s "$work/actual" ]]; then
+            echo "  --- diff (expected = generator, actual = file) ---"
+            diff -u "$work/expected" "$work/actual" 2>/dev/null | head -40 || true
+        fi
+        if [[ -s "$work/assemble.err" ]]; then
+            echo "  assemble stderr: $(head -3 "$work/assemble.err")"
+        fi
+    fi
+    rm -rf "$work"
+}
+
+# Test 25: committed AGENTS.md matches the shared layer
+check_surface "T25: committed AGENTS.md" "$PROJECT_DIR/AGENTS.md"
+
+# Test 26: committed .codex/instructions.md matches shared + codex layer
+check_surface "T26: committed .codex/instructions.md" "$PROJECT_DIR/.codex/instructions.md" "codex"
+
+# Test 27: committed .opencode/instructions.md matches shared + opencode layer
+check_surface "T27: committed .opencode/instructions.md" "$PROJECT_DIR/.opencode/instructions.md" "opencode"
+
+# --- negative controls (T28-T37) --------------------------------------------
+# Every outcome block_status's contract names is exercised here, so none is
+# advertised-but-unproven. The mapping is NOT one-to-one and must not be
+# "tidied" into one: MISMATCH is asserted three times (T28/T29/T35) and
+# MULTIPLE_BLOCKS twice (T34/T37) because T35 and T36 exist to pin two specific
+# fail-opens found in review -- a trailing blank line before <<<aitasks, which a
+# "$(...)" comparison cannot see, and an inverted marker pair whose counts still
+# read 1 and 1. Deleting either as "redundant by verdict" restores its bug.
+# All operate on throwaway COPIES under a temp dir -- no tracked file is ever
+# mutated, so an interrupted run cannot leave the working tree corrupt and no
+# restore step has to survive a signal.
+NEG_DIR="$(mktemp -d)"
+
+neg_status() {   # neg_status <fixture-file> [agent]
+    local f="$1" agent="${2:-}" work status
+    work="$(mktemp -d "$NEG_DIR/work.XXXXXX")"
+    status="$(block_status "$PROJECT_DIR" "$f" "$work" "$agent")"
+    rm -rf "$work"
+    echo "$status"
+}
+
+# Test 28: the EXACT t1601 drift on a copy -- deleting the gates: line must be
+# caught. This is the proof that this guard would have caught the bug it was
+# written for, with the tracked mirror never leaving a good state.
+grep -v '^gates: \[risk_evaluated\]' "$PROJECT_DIR/.codex/instructions.md" > "$NEG_DIR/deleted.md"
+assert_eq "T28: deleted seed line detected" "MISMATCH" "$(neg_status "$NEG_DIR/deleted.md" codex)"
+
+# Test 29: an ADDED line is caught too -- drift is not one-directional
+awk '/^issue: https/{print "bogus_field: 1"} {print}' "$PROJECT_DIR/.codex/instructions.md" > "$NEG_DIR/added.md"
+assert_eq "T29: inserted line detected" "MISMATCH" "$(neg_status "$NEG_DIR/added.md" codex)"
+
+# Test 30: a missing end marker is its own state, never a silent pass
+grep -v '^<<<aitasks$' "$PROJECT_DIR/.codex/instructions.md" > "$NEG_DIR/noend.md"
+assert_eq "T30: missing end marker reported" "NO_END_MARKER" "$(neg_status "$NEG_DIR/noend.md" codex)"
+
+# Test 31: no markers at all
+grep -v -e '^>>>aitasks$' -e '^<<<aitasks$' "$PROJECT_DIR/.codex/instructions.md" > "$NEG_DIR/nomarkers.md"
+assert_eq "T31: missing start marker reported" "NO_START_MARKER" "$(neg_status "$NEG_DIR/nomarkers.md" codex)"
+
+# Test 32: a project dir resolving NO seed must fail closed. "Cannot verify" is
+# its own state -- it must never degrade into an empty expected block that
+# compares equal to an empty actual one.
+mkdir -p "$NEG_DIR/emptyproj"
+work32="$(mktemp -d "$NEG_DIR/work.XXXXXX")"
+assert_eq "T32: unresolvable seed fails closed" "ASSEMBLE_FAILED" \
+    "$(block_status "$NEG_DIR/emptyproj" "$PROJECT_DIR/.codex/instructions.md" "$work32" codex)"
+rm -rf "$work32"
+
+# Test 33: a path that does not exist
+assert_eq "T33: missing file reported" "NO_SUCH_FILE" "$(neg_status "$NEG_DIR/does_not_exist.md" codex)"
+
+# Test 34: a DUPLICATED block -- the t1028 failure mode -- is reported as its own
+# state, not silently reduced to the first block and compared as MATCH.
+cat "$PROJECT_DIR/.codex/instructions.md" "$PROJECT_DIR/.codex/instructions.md" > "$NEG_DIR/dup.md"
+assert_eq "T34: duplicated block reported" "MULTIPLE_BLOCKS" "$(neg_status "$NEG_DIR/dup.md" codex)"
+
+# Test 35: a blank line added immediately before <<<aitasks. This is the fixture
+# that distinguishes the file-based comparison from a "$(...)" one: bash strips
+# trailing newlines from command substitutions, so this exact drift reads as
+# MATCH the moment anyone "simplifies" block_status back to string capture.
+awk '/^<<<aitasks$/{print ""} {print}' "$PROJECT_DIR/.codex/instructions.md" > "$NEG_DIR/trailing.md"
+assert_eq "T35: trailing blank line before end marker detected" "MISMATCH" \
+    "$(neg_status "$NEG_DIR/trailing.md" codex)"
+
+# Test 36: an INVERTED pair -- <<<aitasks first, then >>>aitasks followed by the
+# real generated content, with nothing closing the block. Marker COUNTS are 1 and
+# 1, so any count-plus-separate-extraction scheme reports MATCH on a block that
+# is never terminated (the t1601 review defect). Order is structural state, not
+# something a count can carry, so the single-pass extractor must reject it.
+{
+    echo '<<<aitasks'
+    echo '>>>aitasks'
+    awk '/^>>>aitasks$/{f=1;next} /^<<<aitasks$/{f=0} f' "$PROJECT_DIR/.codex/instructions.md"
+} > "$NEG_DIR/inverted.md"
+assert_eq "T36: inverted marker order reported" "MARKERS_OUT_OF_ORDER" \
+    "$(neg_status "$NEG_DIR/inverted.md" codex)"
+
+# Test 37: a stray <<<aitasks BEFORE a well-formed block. Counts are 2 ends /
+# 1 start, so this exits via MULTIPLE_BLOCKS -- asserted explicitly so the
+# precedence between the structural verdicts is pinned, not incidental.
+{
+    echo '<<<aitasks'
+    cat "$PROJECT_DIR/.codex/instructions.md"
+} > "$NEG_DIR/stray_end.md"
+assert_eq "T37: stray leading end marker reported" "MULTIPLE_BLOCKS" \
+    "$(neg_status "$NEG_DIR/stray_end.md" codex)"
+
+rm -rf "$NEG_DIR"
+
+# ============================================================
 # Summary
 # ============================================================
 

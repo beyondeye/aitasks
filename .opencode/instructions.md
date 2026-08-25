@@ -32,8 +32,18 @@ plan_approved_at: 2026-02-01 14:30   # plan approved, implementation deliberatel
                                  # such plan. Set/cleared by the workflow only —
                                  # visible via `ait ls -v` / --plan-approved.
 issue: https://...        # linked issue tracker URL
+gates: [risk_evaluated]   # declared gate set (intent; [] = opt-out)
+active_gates: [risk_evaluated]      # framework-derived enforced set — never hand-edit
+active_gates_filtered: []           # framework-derived (profile-removed gates)
+active_gates_profile: fast          # framework-derived provenance stamp
+active_gates_digest: a.b.c          # framework-derived integrity digest
 ---
 ```
+
+The four `active_gates*` fields are a derived tuple written atomically by the
+framework at pick/claim time (`aitask_gate.sh materialize-active`) — do not
+edit or partially copy them; a mismatched digest makes enforcement fall back
+to the raw `gates:` field until the next pick.
 
 ## Task Hierarchy
 
