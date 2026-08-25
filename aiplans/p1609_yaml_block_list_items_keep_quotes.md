@@ -490,3 +490,87 @@ shared task workflow.
 semantics for pre-existing configurations, which is a new medium-severity
 change of its own. Net: medium, for a different and better-understood reason
 than before. Goal-achievement stays **low**.
+
+---
+
+## Implementation record
+
+All four sections landed as planned; no deviations from the approved design.
+
+**Pre-phase `baseline_capture` (done).** Captured before any edit:
+- the three t1444 pin outputs (`cat -A`, so whitespace is visible);
+- `active_gates_digest` for **171** task files (active + archived) plus each
+  one's `active-gates-status` verdict — all `FRESH`.
+
+**§1 `yaml_utils.sh`.** Added `_yaml_norm_list_item` (trim → one surrounding
+matching quote pair, `-ge 2` guarded), declared `_yaml_item` at function scope,
+added the trailing-whitespace trim to the value capture, replaced the inline
+branch's global `${value//[\[\]\'\"]/}` with a `#\[` / `%\]` peel, and routed
+the block branch's `${BASH_REMATCH[1]}` through the normalizer.
+
+**§2 `gate_verifier_lib.sh`.** `bash -n -c "$c"` pre-validation: an unparseable
+command records `status=fail`, `result=malformed <key> command (cannot parse)`,
+and breaks — never a skip.
+
+**§3 `gate_verifier_lib.sh`.** Removed the dead `gate_command_exit_contract`
+re-strip at the former `:127-129`; kept and re-documented the scalar strip.
+
+**§4 Docs.** Comma caveat (scoped to *inline-list items*, with the verified
+scalar carve-out) added to `seed/project_config.yaml` ×3,
+`website/…/build-verification.md` ×2, and `website/…/settings/how-to.md`
+(which also lost its now-false "flow style" constraint). The
+malformed-command → fail rule added to `seed/project_config.yaml`'s
+exit-contract block and `aidocs/gates/aitask-gate-framework.md:358`.
+
+### Observed-failing-first evidence
+
+| stage | result |
+|---|---|
+| new `test_yaml_utils.sh` rows, **before** §1 | **27 failed** (97/124) |
+| after §1 | 121/124 — exactly the 3 predicted characterization flips left |
+| after repointing those 3 pins | 125/125 |
+| after adding the direct unit layer | **148/148** |
+| new `test_gate_verifiers.sh` rows, **before** §2 | **6 failed** (139/145) — both malformed cases recorded `skip` |
+| after §2 + §3 | **145/145** |
+
+The rejection probe (`- echo "hi"`, `- a[1]`) passed both before and after, as
+designed: it guards against the wrong fix, it is not the reproducer.
+
+### Post-phase `digest_and_pin_diff_check` (done)
+
+- Pin diff is **exactly three lines**: `d  `→`d`, `a1`→`a[1]`, `its`→`it's`.
+  No fourth difference — nothing unintended was absorbed into a repointed pin.
+- Stored `active_gates_digest` across all 171 tasks: **byte-identical**
+  (`diff` empty). All 171 still `FRESH`; none newly fails `_digest_halves_ok`.
+
+### Post-phase `pin_verdict_softening` (done)
+
+Test 2c pins the stronger outcome (comma-split flow item → fail; the
+pre-existing `for x in` → fail) with **two negative controls** — a genuine
+`exit 2` still skips, and a parseable runtime failure keeps the ordinary
+`command failed (exit 7)` wording — so §2 cannot be satisfied by disabling skip
+altogether. Test 2d pins the approved `- "null"` → skip.
+
+### Verification run
+
+`test_yaml_utils` 148/148 · `test_gate_verifiers` 145/145 ·
+`test_update_multiline_yaml` 23/23 · `test_attach_meta` rc=0 ·
+`test_gate_active_gates` 114/114 · `test_gate_guarded_archival` 31/31 ·
+`test_gate_stale_witness_parity` 29/29 · `test_risk_mitigation_landed` rc=0 ·
+`test_archive_folded` 8/8 · `test_crew_status` rc=0 · shellcheck clean.
+
+Python suite: **5257 passed, 2 failed** — `test_shadow_phase_restamp.py` and
+`test_collection_structure.py`. **Neither is this task's.** Both are caused by a
+concurrent session's uncommitted edits to `monitor/minimonitor_app.py` and
+`tests/test_minimonitor_auto_close_guard.py`; reverting only those two files
+makes both tests pass, and restoring them reproduces the failures. This task
+touches no Python.
+
+### Notes for review
+
+- `main` advanced during the session (`468d997f8` → `9cda5eb66`, four commits);
+  none touched any file this task changes.
+- The shared worktree carries unrelated in-flight changes from other sessions,
+  so the commit is path-scoped (`git commit -o -- <paths>`).
+- A pre-existing `stash@{0}` from 2026-07-19 (different base, unrelated files)
+  was left untouched.
