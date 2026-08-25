@@ -377,6 +377,67 @@ render of both `SKILL.md` and `planning.md`, and the first, verbose three-varian
 draft inverted it. The guard was preserved, not relaxed; fixing (3) moved eight
 lines out of the interactive-only branch and restored the original 15-line margin.
 
+## Final Implementation Notes
+
+- **Actual work done:** `plan_approved_at` shipped exactly as planned — write path
+  in `aitask_update.sh` (positional 35, `now` / `<ts>` / `""`, fail-closed
+  validation, threaded through all three `write_task_file` call sites); the
+  lifecycle across five task-workflow procedure sources; `ait ls -v` display plus
+  `--plan-approved` / `--no-plan-approved`; the §6.0 prompt variants; the
+  deletion-aware base-aware merge rule; the fold no-op comment; and the doc set
+  (five task-format mirrors, two website pages, two aidocs). Rendered to all three
+  profiles × three agents, goldens regenerated and reviewed.
+- **Deviations from plan:** three, all additive.
+  1. `get_timestamp` lives in `aitask_update.sh`, not `lib/task_utils.sh` as the
+     plan assumed; the `now` resolution went there instead. Same single-home
+     property.
+  2. The commands in `plan-approved-stop.md` / `task-abort.md` /
+     `cross-repo-child-assignment.md` are written on ONE line rather than
+     backslash-wrapped: several existing suites pin `--status Ready --assigned-to ""`
+     as a contiguous substring, and wrapping silently voided those guards.
+     Unwrapping keeps every one of them meaningful and unmodified.
+  3. Added `website/content/docs/workflows/parallel-planning.md` — a
+     "Deferring a single task's implementation" section. Not in the plan's doc
+     list, but it is the user-facing workflow this marker exists to enable; the
+     field tables alone documented the mechanism and not the use.
+- **Issues encountered:**
+  - The first three-variant prompt draft inverted
+    `test_skill_render_task_workflow.sh`'s leanness invariant (the `default`
+    render must stay smaller than the `fast` one). The variants were compressed
+    into a table rather than relaxing the guard.
+  - That compression exposed a real defect: the "Clearing on replan" block sat
+    inside the interactive-only Jinja branch, so `fast` / `remote` rendered a
+    dangling "see Clearing on replan" reference with no command behind it.
+    Re-homed to the profile-invariant §6.0-marker section; the contract test now
+    asserts the clear renders in all three profile surfaces.
+  - A concurrent session is working in this checkout (it committed t1590 mid-task
+    and has t1275 in flight). The commit names paths explicitly and excludes
+    `.aitask-scripts/aitask_remote_drift_check.sh`,
+    `tests/test_remote_drift_check.sh` and
+    `aidocs/framework/plan_path_reference_extraction_findings.md`.
+    `tests/test_plan_approved_marker_drift.sh` is independent of that in-flight
+    change: its fixture path (`.aitask-scripts/aitask_archive.sh`) satisfies both
+    the old root allowlist and the new unfiltered extraction.
+- **Key decisions:**
+  - **The consumption boundary is the implementation body, not the top of Step 7.**
+    Two Step-7 gates revert to `Ready` before any code is written and need
+    opposite treatment — a cross-repo demotion clears the marker (no single-task
+    plan remains), the risk-mitigation "before" stop keeps it (approved and
+    awaiting, merely blocked). The boundary is pinned in BOTH directions, because
+    a presence-only test passes on a build that clears everywhere.
+  - **`ait ls` display is verbose-only; the filter is the non-verbose affordance.**
+    No metadata has ever appeared in the plain listing and every script consumer
+    parses it as a bare filename list. Both directions are pinned.
+  - **The drift stop clears rather than refreshes** (the user's call at planning),
+    and the branch is now mechanically explicit rather than comment-labelled.
+  - **Upstream defects identified:** `.codex/instructions.md` and
+    `.opencode/instructions.md` — the `>>>aitasks` task-format block in both
+    mirrors is missing the `gates:` / `active_gates*` lines that
+    `seed/aitasks_agent_instructions.seed.md` and `AGENTS.md` carry. Pre-existing
+    drift from the `_is_agent_installed` gating that
+    `aidocs/framework/aitasks_extension_points.md` warns about; untouched here
+    beyond keeping the new field consistent across all four.
+
 ## Step 9 (Post-Implementation)
 
 Standard closure: cleanup, `## Final Implementation Notes`, gate run
