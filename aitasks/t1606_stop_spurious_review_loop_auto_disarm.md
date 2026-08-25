@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 16:33
-updated_at: 2026-08-25 16:42
+updated_at: 2026-08-25 17:49
 ---
 
 The minimonitor auto-recheck loop (`L`, t1159_2) **auto-disarms almost immediately
@@ -159,3 +160,8 @@ contract and must be preserved; only the disarm changes):
   complementary. Whichever lands second should re-check the other's assumptions.
 - **t1503** non-convergence, **t1524** never-settled shadow, **t1542** boundary
   anchor rot — all cover over-*holding*, the opposite failure.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T14:49:55Z status=pass attempt=1 type=human
