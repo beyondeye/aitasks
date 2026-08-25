@@ -97,6 +97,8 @@ BATCH_FOLLOWUP_KIND=""
 BATCH_FOLLOWUP_KIND_SET=false
 BATCH_VERIFICATION_BASELINE=""
 BATCH_VERIFICATION_BASELINE_SET=false
+BATCH_PLAN_APPROVED_AT=""
+BATCH_PLAN_APPROVED_AT_SET=false
 BATCH_BOARDCOL=""
 BATCH_BOARDCOL_SET=false
 BATCH_BOARDIDX=""
@@ -155,6 +157,7 @@ CURRENT_FOLDED_INTO=""
 CURRENT_IMPLEMENTED_WITH=""
 CURRENT_FILE_REFERENCES=""
 CURRENT_VERIFICATION_BASELINE=""
+CURRENT_PLAN_APPROVED_AT=""
 
 # --- Helper Functions ---
 
@@ -204,6 +207,17 @@ Verifies options (batch mode, for manual-verification tasks):
                          match, as "<sha> @ <YYYY-MM-DD HH:MM>" (use "" to
                          clear). Read by aitask_verification_stale.sh to decide
                          whether the checklist may have gone stale.
+
+Deferred-plan marker (batch mode):
+  --plan-approved-at TS  Marks the task as "plan approved, implementation
+                         deliberately deferred", as "<YYYY-MM-DD HH:MM>". Pass
+                         the literal "now" to stamp the current time, or "" to
+                         clear (the marker is invalidated whenever the approved
+                         plan stops being implementation-ready). Written by the
+                         task-workflow Approved-Plan Stop Sequence; read by
+                         `ait ls -v` / --plan-approved and by the planning
+                         step's existing-plan prompt. Display and prompting
+                         only -- it never routes the workflow.
 
 Label options (batch mode):
   --labels, -l LABELS    Labels (comma-separated, replaces all existing labels).
@@ -375,6 +389,7 @@ parse_args() {
             --anchor) BATCH_ANCHOR="$2"; BATCH_ANCHOR_SET=true; shift 2 ;;
             --followup-kind) BATCH_FOLLOWUP_KIND="$2"; BATCH_FOLLOWUP_KIND_SET=true; shift 2 ;;
             --verification-baseline) BATCH_VERIFICATION_BASELINE="$2"; BATCH_VERIFICATION_BASELINE_SET=true; shift 2 ;;
+            --plan-approved-at) BATCH_PLAN_APPROVED_AT="$2"; BATCH_PLAN_APPROVED_AT_SET=true; shift 2 ;;
             --boardcol) BATCH_BOARDCOL="$2"; BATCH_BOARDCOL_SET=true; shift 2 ;;
             --boardidx) BATCH_BOARDIDX="$2"; BATCH_BOARDIDX_SET=true; shift 2 ;;
             --boardgroup) BATCH_BOARDGROUP="$2"; BATCH_BOARDGROUP_SET=true; shift 2 ;;
@@ -491,6 +506,7 @@ parse_yaml_frontmatter() {
     CURRENT_IMPLEMENTED_WITH=""
     CURRENT_FILE_REFERENCES=""
     CURRENT_VERIFICATION_BASELINE=""
+    CURRENT_PLAN_APPROVED_AT=""
 
     # Read entire file content
     local file_content
@@ -601,6 +617,7 @@ parse_yaml_frontmatter() {
                     CURRENT_FILE_REFERENCES=$(parse_yaml_list "$value")
                     ;;
                 verification_baseline) CURRENT_VERIFICATION_BASELINE="$value" ;;
+                plan_approved_at) CURRENT_PLAN_APPROVED_AT="$value" ;;
             esac
         fi
     done < <(printf '%s\n' "$yaml_content" | join_yaml_flow_lists)
@@ -695,6 +712,10 @@ write_task_file() {
     # Appended for the same reason (t1555_1). Same no-tombstone shape as
     # followup_kind: `--verification-baseline ""` removes the key.
     local verification_baseline="${34:-}"
+    # Appended for the same reason (t1595). Same no-tombstone shape again:
+    # `--plan-approved-at ""` removes the key, and an absent key is exactly
+    # "no deferred approved plan".
+    local plan_approved_at="${35:-}"
 
     # Preserve the `attachments:` (t1030) and `artifacts:` (t1076_2) blocks
     # verbatim: write_task_file rebuilds frontmatter from a fixed field set and
@@ -793,6 +814,12 @@ write_task_file() {
         # Omit-by-default, no tombstone: clearing removes the key.
         if [[ -n "$verification_baseline" ]]; then
             echo "verification_baseline: $verification_baseline"
+        fi
+        # Only write plan_approved_at if present (t1595). The moment an approved
+        # plan was deliberately deferred; absent means there is no such plan.
+        # Omit-by-default, no tombstone: clearing removes the key.
+        if [[ -n "$plan_approved_at" ]]; then
+            echo "plan_approved_at: $plan_approved_at"
         fi
         # Only write risk_mitigation_tasks if present (list; omitted by default,
         # dropped on fold by aitask_fold_mark.sh)
@@ -1191,6 +1218,7 @@ handle_child_task_completion() {
     local saved_folded_into="$CURRENT_FOLDED_INTO"
     local saved_implemented_with="$CURRENT_IMPLEMENTED_WITH"
     local saved_verification_baseline="$CURRENT_VERIFICATION_BASELINE"
+    local saved_plan_approved_at="$CURRENT_PLAN_APPROVED_AT"
 
     parse_yaml_frontmatter "$parent_file"
 
@@ -1210,7 +1238,8 @@ handle_child_task_completion() {
         "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
         "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
         "$CURRENT_FOLLOWUP_KIND" \
-        "$CURRENT_VERIFICATION_BASELINE"
+        "$CURRENT_VERIFICATION_BASELINE" \
+        "$CURRENT_PLAN_APPROVED_AT"
 
     if [[ -z "$new_children" ]]; then
         success "All children of t$parent_num are complete! Parent can now be completed."
@@ -1251,6 +1280,7 @@ handle_child_task_completion() {
     CURRENT_FOLDED_INTO="$saved_folded_into"
     CURRENT_IMPLEMENTED_WITH="$saved_implemented_with"
     CURRENT_VERIFICATION_BASELINE="$saved_verification_baseline"
+    CURRENT_PLAN_APPROVED_AT="$saved_plan_approved_at"
 }
 
 # Validate that parent cannot be completed with pending children
@@ -1738,7 +1768,8 @@ run_interactive_mode() {
         "$CURRENT_GATES" "$CURRENT_ALSO_BLOCKS_DEPENDENTS" "$CURRENT_ANCHOR" \
         "$CURRENT_BOARDGROUP" "$CURRENT_BOARDGROUP_PRESENT" \
         "$CURRENT_FOLLOWUP_KIND" \
-        "$CURRENT_VERIFICATION_BASELINE"
+        "$CURRENT_VERIFICATION_BASELINE" \
+        "$CURRENT_PLAN_APPROVED_AT"
 
     # Handle child task completion
     if [[ "$new_status" == "Done" ]]; then
@@ -1849,6 +1880,7 @@ run_batch_mode() {
     [[ "$BATCH_ANCHOR_SET" == true ]] && has_update=true
     [[ "$BATCH_FOLLOWUP_KIND_SET" == true ]] && has_update=true
     [[ "$BATCH_VERIFICATION_BASELINE_SET" == true ]] && has_update=true
+    [[ "$BATCH_PLAN_APPROVED_AT_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDCOL_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDIDX_SET" == true ]] && has_update=true
     [[ "$BATCH_BOARDGROUP_SET" == true ]] && has_update=true
@@ -2094,6 +2126,27 @@ run_batch_mode() {
         new_verification_baseline="$BATCH_VERIFICATION_BASELINE"
     fi
 
+    # Process plan_approved_at (the deferred-approved-plan marker, t1595). Like
+    # followup_kind, clearing is key removal -- `--plan-approved-at ""` yields an
+    # empty value and the emit omits the line. The literal "now" is resolved here
+    # rather than by the caller so the timestamp format has exactly one home
+    # (get_timestamp, which also stamps created_at/updated_at); any other value
+    # must already be in that format, and is rejected rather than coerced -- a
+    # malformed marker would be displayed verbatim by `ait ls -v` and parsed by
+    # future consumers.
+    local new_plan_approved_at="$CURRENT_PLAN_APPROVED_AT"
+    if [[ "$BATCH_PLAN_APPROVED_AT_SET" == true ]]; then
+        if [[ "$BATCH_PLAN_APPROVED_AT" == "now" ]]; then
+            new_plan_approved_at=$(get_timestamp)
+        elif [[ -z "$BATCH_PLAN_APPROVED_AT" ]]; then
+            new_plan_approved_at=""
+        elif [[ "$BATCH_PLAN_APPROVED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}$ ]]; then
+            new_plan_approved_at="$BATCH_PLAN_APPROVED_AT"
+        else
+            die "Invalid --plan-approved-at value: '$BATCH_PLAN_APPROVED_AT' (expected \"now\", \"\" to clear, or \"YYYY-MM-DD HH:MM\")"
+        fi
+    fi
+
     # Cross-field invariant on the RESULTING pair (t1468_1). It MUST be checked
     # here rather than beside the flag validation in main(): new_type is not
     # computed until this function runs, so a check up there cannot see the
@@ -2197,7 +2250,8 @@ run_batch_mode() {
         "$new_gates" "$new_abd" "$new_anchor" \
         "$new_boardgroup" "$new_boardgroup_present" \
         "$new_followup_kind" \
-        "$new_verification_baseline"
+        "$new_verification_baseline" \
+        "$new_plan_approved_at"
 
     # Handle child task completion (update parent if needed)
     if [[ "$new_status" == "Done" ]]; then

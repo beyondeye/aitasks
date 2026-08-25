@@ -44,11 +44,37 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
 - **Release the task lock** via the **Lock Release Procedure** (see
   `lock-release.md`).
 
-- **Revert the task status to `Ready` and clear `assigned_to`:**
+- **Revert the task status to `Ready`, clear `assigned_to`, and settle the
+  deferred-plan marker — one call, selected by `stop_reason`.**
 
-  ```bash
-  ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
-  ```
+  `plan_approved_at` records "this plan was approved and implementation was
+  **deliberately deferred**". Only the `deferred` stop means that. A `drift` stop
+  means the opposite — the flow stopped *because* the plan must be re-verified —
+  so it **clears** the marker rather than refreshing it; leaving (or renewing) it
+  there would advertise a plan as implementation-ready on exactly the path that
+  just established it is not. The marker is folded into the revert call rather
+  than added as a separate bullet so no branch can perform one without the other.
+
+  **Run exactly ONE of the two commands below — the one this call site's
+  `stop_reason` selects. Never both, and never the other one:**
+
+  - **If `stop_reason` is `deferred`** (the Checkpoint's "Approve and stop here"),
+    run **only** this:
+
+    ```bash
+    ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to "" --plan-approved-at now
+    ```
+
+  - **If `stop_reason` is `drift`** (the drift check's "Stop and re-verify plan"),
+    run **only** this:
+
+    ```bash
+    ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to "" --plan-approved-at ""
+    ```
+
+  There is no third case: `stop_reason` is documented in the Input context table
+  as exactly `deferred` or `drift`. If it is anything else, stop and report it
+  rather than guessing a marker disposition.
 
 - **Commit the status revert and push:**
 
@@ -72,6 +98,14 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
   "before" stop, the worktree **does** exist and is intentionally left in place —
   the next pick reuses it via the reuse check at the fork site. Only the **Task
   Abort Procedure** removes a worktree.
+- **The marker is a display/prompt signal, never a routing one.** `ait ls -v`
+  shows it (and `ait ls --plan-approved` filters on it), and `planning.md` §6.0
+  names it in the existing-plan prompt — but nothing routes on it. The re-pick
+  still goes through §6.0's plan preference and therefore through the Checkpoint
+  and its Remote Drift Check, exactly as `aidocs/gates/ledger-driven-reentry.md`
+  requires. It is consumed at the top of `SKILL.md` Step 7's implementation body,
+  and cleared by a replan (§6.0), an abort (`task-abort.md`) and a cross-repo
+  demotion (`cross-repo-child-assignment.md`).
 - The revert to `Ready` is what makes the re-pick land in the planning path
   rather than Re-entry Routing — which is what stops a "stop → pull → re-pick"
   loop from re-triggering the very check that sent the user away.

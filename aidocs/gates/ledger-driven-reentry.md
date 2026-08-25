@@ -191,6 +191,35 @@ The second is the better path for an approved-and-stopped task, not a
 consolation prize: it reaches the Checkpoint, so it re-runs the Remote Drift
 Check — which is precisely what a task that stopped *because of* drift needs.
 
+### The state is visible, and visibility is not routing (t1595)
+
+The ledger entry is no longer the only trace of an approved-and-stopped task. The
+stop sequence also stamps a task-frontmatter marker, `plan_approved_at:
+<YYYY-MM-DD HH:MM>`, so the state is legible on surfaces that never read the
+ledger — `ait ls -v` renders `Plan: approved <ts>`, `ait ls --plan-approved`
+filters on it, and `planning.md` §6.0 names it in the existing-plan prompt and
+recommends "Use current plan". Being frontmatter rather than ledger, it also works
+under profiles without `record_gates`, where the ledger is always empty.
+
+It changes **nothing** about routing, and that is deliberate — it is the *visible*
+form of this section's claim, not a repeal of the rejected alternative below. A
+`Ready` task carrying it still resumes through §6.0's plan preference, still
+reaches the Checkpoint, and still gets the Remote Drift Check. §6.0a's
+force-reverify outranks the marker's recommendation.
+
+Its lifecycle is what keeps it honest — it means "approved **and deliberately
+deferred**, not since invalidated", so it is written **only** by the `deferred`
+stop and cleared everywhere that stops being true:
+
+| Event | Marker |
+|---|---|
+| "Approve and stop here" (`stop_reason=deferred`) | set |
+| "Stop and re-verify plan" (`stop_reason=drift`) | **cleared**, never refreshed — the flow stopped *because* re-verification is required |
+| Step 7 implementation body entered | cleared (consumed) |
+| Cross-repo demotion to parent-of-children | cleared (no single-task plan any more) |
+| Risk-mitigation "before" stop | **retained** — approved and awaiting implementation, merely blocked |
+| Replan (§6.0 "create from scratch") / abort | cleared |
+
 Both branches share one implementation, `plan-approved-stop.md`. That extraction
 is the structural fix for the original defect: the sequence lived inline in
 `planning.md` with the gate recording *above* its numbered list, and

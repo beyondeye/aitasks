@@ -211,12 +211,26 @@ def _normalize_opaque_scalar(raw) -> str:
 #     edit win a field it never touched.
 # `deletion_aware=True` for the tombstone-less reason spelled out above.
 #
+# `plan_approved_at` (t1595) is the same shape once more: the marker meaning "an
+# approved plan whose implementation was deliberately deferred", cleared by key
+# removal the moment that stops being true (implementation starts, the plan is
+# replanned or aborted, a drift stop demands re-verification).
+#   * Base comparison, not presence: the one-sided branch would let a stale
+#     checkout still carrying the marker beat a checkout that cleared it, so a
+#     consumed or invalidated marker would resurrect on sync -- and every
+#     surface would then advertise an approved plan that is not awaiting
+#     implementation, which is worse than showing nothing.
+#   * Base comparison, not `updated_at`: the marker moves on approve-and-stop
+#     and on consumption, while `updated_at` moves on every unrelated edit.
+# `deletion_aware=True`: clearing removes the key, as above.
+#
 # field -> (comparison normalizer, deletion_aware). Membership (`key in
 # _BASE_AWARE_FIELDS`) and iteration both still yield the field names.
 _BASE_AWARE_FIELDS = {
     "boardgroup": (normalize_group_slug, False),
     "followup_kind": (normalize_followup_kind, True),
     "verification_baseline": (_normalize_opaque_scalar, True),
+    "plan_approved_at": (_normalize_opaque_scalar, True),
 }
 
 

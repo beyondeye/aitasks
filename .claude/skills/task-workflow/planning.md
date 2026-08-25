@@ -26,6 +26,30 @@ Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
 **If a plan file exists**, read it.
 
+### Step 6.0-marker: Read the deferred-plan marker
+
+Read `plan_approved_at` from the task file's frontmatter and bind it as
+`plan_approved_marker` (empty when the key is absent). A value means this plan was
+approved and its implementation **deliberately deferred** — by "Approve and stop
+here" — and has not been invalidated since.
+
+It is a **display and prompting** signal only. It does not skip, weaken or reorder
+anything: §6.0a below still runs first, the plan preference still applies, and the
+Checkpoint still runs the Remote Drift Check before implementation. (This is the
+visibility-not-routing constraint recorded in
+`aidocs/gates/ledger-driven-reentry.md`.)
+
+Whenever the marker is non-empty, display one line before applying the preference:
+"Approved plan from \<plan_approved_marker\> awaiting implementation."
+
+**Clearing on replan.** Every "create plan from scratch" branch below — the profile-driven `create_new` value, the `ASK_STALE` option, and the interactive option — discards the approved plan, so the marker must not outlive it. Before entering §6.1 on any of them, run:
+
+```bash
+./.aitask-scripts/aitask_update.sh --batch <task_num> --plan-approved-at "" --silent
+```
+
+This runs **before** `EnterPlanMode`, so it is a legal write (§6.1 onward is read-only). It is a no-op when the task carries no marker.
+
 ### Step 6.0a: Force-reverify when a risk mitigation landed
 
 Before applying any plan preference, check whether a "before" risk-mitigation
@@ -68,7 +92,7 @@ The effective plan preference is `{{ profile.plan_preference }}`. Act on it as f
 
 - If the effective value is `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '{{ profile.name }}': using existing plan".
 - If the effective value is `"verify"`: Run the **Verify Decision** sub-procedure below, then branch on its result. Display: "Profile '{{ profile.name }}': checking verification status".
-- If the effective value is `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile '{{ profile.name }}': creating plan from scratch".
+- If the effective value is `"create_new"`: **Clear the deferred-plan marker first** (see "Clearing on replan" in §6.0-marker above), then proceed with step 6.1 as normal. Display: "Profile '{{ profile.name }}': creating plan from scratch".
 
 When the profile resolves the preference, skip the interactive AskUserQuestion below.
 
@@ -99,14 +123,14 @@ When the profile resolves the preference, skip the interactive AskUserQuestion b
        - "Create plan from scratch" (description: "Discard the existing plan and start fresh")
      - "Verify now" → enter verification mode (step 6.1 via the verify path).
      - "Skip verification" → jump to the **Checkpoint** (same as `use_current`).
-     - "Create plan from scratch" → proceed with step 6.1 as normal, ignoring the existing plan.
+     - "Create plan from scratch" → **clear the deferred-plan marker first** (see "Clearing on replan" in §6.0-marker above), then proceed with step 6.1 as normal, ignoring the existing plan.
    - **`VERIFY`** → enter verification mode directly (step 6.1 via the verify path). Display: "Profile '{{ profile.name }}': no fresh verifications — entering verify mode."
 
 {% else %}{# plan_preference / plan_preference_child: both keys absent #}
 **Profile check:** If the active profile has `plan_preference` set (or `plan_preference_child` for child tasks — `plan_preference_child` takes priority when the current task is a child task):
 - If `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile '\<name\>': using existing plan"
 - If `"verify"`: Run the **Verify Decision** sub-procedure below, then branch on its result. Display: "Profile '\<name\>': checking verification status"
-- If `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile '\<name\>': creating plan from scratch"
+- If `"create_new"`: **Clear the deferred-plan marker first** (see "Clearing on replan" in §6.0-marker above), then proceed with step 6.1 as normal. Display: "Profile '\<name\>': creating plan from scratch"
 - Skip the AskUserQuestion below
 
 **Verify Decision sub-procedure** (profile-driven verify path only):
@@ -136,22 +160,30 @@ When the profile resolves the preference, skip the interactive AskUserQuestion b
        - "Create plan from scratch" (description: "Discard the existing plan and start fresh")
      - "Verify now" → enter verification mode (step 6.1 via the verify path).
      - "Skip verification" → jump to the **Checkpoint** (same as `use_current`).
-     - "Create plan from scratch" → proceed with step 6.1 as normal, ignoring the existing plan.
+     - "Create plan from scratch" → **clear the deferred-plan marker first** (see "Clearing on replan" in §6.0-marker above), then proceed with step 6.1 as normal, ignoring the existing plan.
    - **`VERIFY`** → enter verification mode directly (step 6.1 via the verify path). Display: "Profile '\<name\>': no fresh verifications — entering verify mode."
 
 The interactive (no-profile) path below is unchanged — the `decide` helper is only invoked when `plan_preference` resolves to `"verify"` via a profile.
 
-Otherwise, use `AskUserQuestion`:
-- Question: "An existing implementation plan was found at `<plan_path>`. How would you like to proceed?"
-- Header: "Plan"
-- Options:
-  - "Use current plan" (description: "Skip planning and proceed with the existing plan as-is")
-  - "Verify plan" (description: "Check if code has changed, verify the plan is still sound or if there are better alternatives")
-  - "Create plan from scratch" (description: "Discard existing plan and start fresh")
+Otherwise, use `AskUserQuestion` with header "Plan" and these three options, in this order:
+
+- "Use current plan" (description: "Skip planning and proceed with the existing plan as-is")
+- "Verify plan" (description: "Check if code has changed, verify the plan is still sound or if there are better alternatives")
+- "Create plan from scratch" (description: "Discard existing plan and start fresh")
+
+The question text and **which label carries a literal `(Recommended)` suffix** are conditional — the label is the only text a user is guaranteed to read. Exactly one row applies; evaluate them top-down:
+
+| When | Question | Label suffixed `(Recommended)` |
+|---|---|---|
+| `force_verify` set by §6.0a (outranks the marker — it records an *approval*, not freshness) | "Risk-mitigation task(s) landed since this plan was last verified, so it must be re-verified\<if `plan_approved_marker` is non-empty: ` — it was approved on <plan_approved_marker> and deferred`\>. Plan: `<plan_path>`. How would you like to proceed?" | "Verify plan (Recommended)" |
+| no `force_verify`, `plan_approved_marker` non-empty | "An implementation plan approved on `<plan_approved_marker>` is awaiting implementation (`<plan_path>`). How would you like to proceed?" | "Use current plan (Recommended)" |
+| neither | "An existing implementation plan was found at `<plan_path>`. How would you like to proceed?" | none — emit all three labels plain |
+
+Move the recommended option to the front of the list. Never suffix `(Recommended)` on more than one option, and never recommend "Use current plan" when `force_verify` is set.
 
 **If "Use current plan":** Skip to the **Checkpoint** at the end of Step 6.
 **If "Verify plan":** Enter plan mode (step 6.1), but start by reading the existing plan and verifying it against the current codebase. Update the plan if needed.
-**If "Create plan from scratch":** Proceed with step 6.1 as normal, ignoring the existing plan.
+**If "Create plan from scratch":** **Clear the deferred-plan marker first** (see "Clearing on replan" in §6.0-marker above), then proceed with step 6.1 as normal, ignoring the existing plan.
 {% endif %}{# ---------- end plan_preference / plan_preference_child ---------- #}
 
 **If no plan file exists**, proceed with step 6.1 as normal.
@@ -486,9 +518,9 @@ Do NOT return to the beginning of Step 6 — that re-triggers the 6.0 existing-p
 
 If "Approve and stop here":
 
-Execute the **Approved-Plan Stop Sequence** (see `plan-approved-stop.md`) with `task_id`, `task_num`, `plan_file`, `stop_reason=deferred`, `revert_commit_message="ait: Revert t<task_num> to Ready after plan approval"`, and `closing_message="Plan approved and committed. Task t<task_num> reverted to Ready — pick it up later with /aitask-pick <task_num> in a fresh context."`
+Execute the **Approved-Plan Stop Sequence** (see `plan-approved-stop.md`) with `task_id`, `task_num`, `plan_file`, `stop_reason=deferred`, `revert_commit_message="ait: Revert t<task_num> to Ready after plan approval"`, and `closing_message="Plan approved and committed. Task t<task_num> reverted to Ready and marked as having a deferred approved plan (visible in \`ait ls -v\`, listable with \`ait ls --plan-approved\`) — pick it up later with /aitask-pick <task_num> in a fresh context."`
 
-That procedure records the approval (audit only — it is **not** a resume signal; the task becomes `Ready`, so §6.0's existing-plan preference is what resumes it, not Step 3 Check 5), commits the plan, releases the lock, reverts the status, and ends the workflow. Do **NOT** proceed to Step 7. The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
+That procedure records the approval (audit only — it is **not** a resume signal; the task becomes `Ready`, so §6.0's existing-plan preference is what resumes it, not Step 3 Check 5), commits the plan, releases the lock, reverts the status, **stamps the `plan_approved_at` marker** so the deferred state is visible on every surface, and ends the workflow. Do **NOT** proceed to Step 7. The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
 
 If "Abort": Execute the **Task Abort Procedure** (see `task-abort.md`).
 

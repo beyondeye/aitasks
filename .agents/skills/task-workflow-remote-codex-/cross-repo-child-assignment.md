@@ -112,9 +112,14 @@ The local task is now a parent whose children carry the work — only the
 children get implemented. Mirror the single-repo decomposition cleanup:
 
 ```bash
-./.aitask-scripts/aitask_update.sh --batch <current_task_id> --status Ready --assigned-to ""
+./.aitask-scripts/aitask_update.sh --batch <current_task_id> --status Ready --assigned-to "" --plan-approved-at ""
 ./.aitask-scripts/aitask_lock.sh --unlock <current_task_id> 2>/dev/null || true
 ```
+
+`--plan-approved-at ""` clears any deferred-plan marker: this task's single-task
+plan has become a paired decomposition, so it no longer describes implementable
+work and must not be advertised as an approved plan awaiting implementation.
+(A no-op when the task never carried one.)
 
 `aitask_ls.sh` then shows it as "Has children". Do not set it to "Blocked".
 

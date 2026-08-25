@@ -160,6 +160,38 @@ decisions**:
   all three serializers, `anchor`-style) and `aitask_update.sh` (positional 33,
   appended); fold = no-op comment; docs = layer 5.
 
+**Worked example — `plan_approved_at` (t1595):** a semantic scalar marking "plan
+approved, implementation deliberately deferred". Shape-identical to
+`verification_baseline` — update-only, no tombstone, `_BASE_AWARE_FIELDS` with
+`deletion_aware=True` — so the interesting part is elsewhere: it is the case where
+**the write path is prose, and the prose needs its own guard**.
+
+- **No `aitask_create.sh` flag.** A field a workflow stamps at a specific moment
+  has no meaningful value at creation time; `--plan-approved-at` lives in
+  `aitask_update.sh` only (positional 35), mirroring `--boardidx` / `--boardgroup`.
+- **The value is validated, not accepted.** `now` resolves via `get_timestamp` so
+  the timestamp format keeps one home; `""` clears; anything else must match
+  `YYYY-MM-DD HH:MM` or the update dies. A malformed marker would be rendered
+  verbatim by `ait ls -v` and parsed by later consumers.
+- **The lifecycle lives in skill prose across five procedure files** (set/clear in
+  `plan-approved-stop.md`, clear in `SKILL.md`'s implementation body, in
+  `cross-repo-child-assignment.md`, in `planning.md` §6.0's replan branches, and in
+  `task-abort.md`) — so it ships with an executable contract test
+  (`tests/test_plan_approved_marker_contract.sh`) that pins each site by hit count
+  **and pins where the clear must NOT appear**. A presence-only test passes on a
+  version that clears the marker everywhere, which is the exact mistake the
+  consumption boundary exists to prevent.
+- **Read surfaces pick their own visibility contract.** `ait ls` shows the marker
+  under `-v` only — the plain listing has never carried metadata and every script
+  consumer parses it as a bare filename list — and offers `--plan-approved` /
+  `--no-plan-approved` as the non-verbose affordance. Decide this explicitly for a
+  new field and pin **both** directions in the test.
+- Write path = `--plan-approved-at` in `aitask_update.sh` only; fold = no-op
+  comment; merge = `_BASE_AWARE_FIELDS` (deletion-aware); docs = layer 5 plus
+  `aidocs/gates/ledger-driven-reentry.md`, whose "approved and stopped" section
+  would otherwise still claim the ledger entry is the only trace. (Board layer 3
+  ships separately.)
+
 ## Adding a new helper script
 
 Any new script under `.aitask-scripts/` invoked by a skill must be allowlisted

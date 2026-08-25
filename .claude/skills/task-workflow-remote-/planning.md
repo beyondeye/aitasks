@@ -26,6 +26,30 @@ Parse the output: `PLAN_FILE:<path>` means found, `NOT_FOUND` means not found.
 
 **If a plan file exists**, read it.
 
+### Step 6.0-marker: Read the deferred-plan marker
+
+Read `plan_approved_at` from the task file's frontmatter and bind it as
+`plan_approved_marker` (empty when the key is absent). A value means this plan was
+approved and its implementation **deliberately deferred** — by "Approve and stop
+here" — and has not been invalidated since.
+
+It is a **display and prompting** signal only. It does not skip, weaken or reorder
+anything: §6.0a below still runs first, the plan preference still applies, and the
+Checkpoint still runs the Remote Drift Check before implementation. (This is the
+visibility-not-routing constraint recorded in
+`aidocs/gates/ledger-driven-reentry.md`.)
+
+Whenever the marker is non-empty, display one line before applying the preference:
+"Approved plan from \<plan_approved_marker\> awaiting implementation."
+
+**Clearing on replan.** Every "create plan from scratch" branch below — the profile-driven `create_new` value, the `ASK_STALE` option, and the interactive option — discards the approved plan, so the marker must not outlive it. Before entering §6.1 on any of them, run:
+
+```bash
+./.aitask-scripts/aitask_update.sh --batch <task_num> --plan-approved-at "" --silent
+```
+
+This runs **before** `EnterPlanMode`, so it is a legal write (§6.1 onward is read-only). It is a no-op when the task carries no marker.
+
 ### Step 6.0a: Force-reverify when a risk mitigation landed
 
 Before applying any plan preference, check whether a "before" risk-mitigation
@@ -64,7 +88,7 @@ The effective plan preference is `use_current`. Act on it as follows:
 
 - If the effective value is `"use_current"`: Skip to the **Checkpoint** at the end of Step 6. Display: "Profile 'remote': using existing plan".
 - If the effective value is `"verify"`: Run the **Verify Decision** sub-procedure below, then branch on its result. Display: "Profile 'remote': checking verification status".
-- If the effective value is `"create_new"`: Proceed with step 6.1 as normal. Display: "Profile 'remote': creating plan from scratch".
+- If the effective value is `"create_new"`: **Clear the deferred-plan marker first** (see "Clearing on replan" in §6.0-marker above), then proceed with step 6.1 as normal. Display: "Profile 'remote': creating plan from scratch".
 
 When the profile resolves the preference, skip the interactive AskUserQuestion below.
 
@@ -95,7 +119,7 @@ When the profile resolves the preference, skip the interactive AskUserQuestion b
        - "Create plan from scratch" (description: "Discard the existing plan and start fresh")
      - "Verify now" → enter verification mode (step 6.1 via the verify path).
      - "Skip verification" → jump to the **Checkpoint** (same as `use_current`).
-     - "Create plan from scratch" → proceed with step 6.1 as normal, ignoring the existing plan.
+     - "Create plan from scratch" → **clear the deferred-plan marker first** (see "Clearing on replan" in §6.0-marker above), then proceed with step 6.1 as normal, ignoring the existing plan.
    - **`VERIFY`** → enter verification mode directly (step 6.1 via the verify path). Display: "Profile 'remote': no fresh verifications — entering verify mode."
 
 
@@ -406,9 +430,9 @@ Do NOT return to the beginning of Step 6 — that re-triggers the 6.0 existing-p
 
 If "Approve and stop here":
 
-Execute the **Approved-Plan Stop Sequence** (see `plan-approved-stop.md`) with `task_id`, `task_num`, `plan_file`, `stop_reason=deferred`, `revert_commit_message="ait: Revert t<task_num> to Ready after plan approval"`, and `closing_message="Plan approved and committed. Task t<task_num> reverted to Ready — pick it up later with /aitask-pick <task_num> in a fresh context."`
+Execute the **Approved-Plan Stop Sequence** (see `plan-approved-stop.md`) with `task_id`, `task_num`, `plan_file`, `stop_reason=deferred`, `revert_commit_message="ait: Revert t<task_num> to Ready after plan approval"`, and `closing_message="Plan approved and committed. Task t<task_num> reverted to Ready and marked as having a deferred approved plan (visible in \`ait ls -v\`, listable with \`ait ls --plan-approved\`) — pick it up later with /aitask-pick <task_num> in a fresh context."`
 
-That procedure records the approval (audit only — it is **not** a resume signal; the task becomes `Ready`, so §6.0's existing-plan preference is what resumes it, not Step 3 Check 5), commits the plan, releases the lock, reverts the status, and ends the workflow. Do **NOT** proceed to Step 7. The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
+That procedure records the approval (audit only — it is **not** a resume signal; the task becomes `Ready`, so §6.0's existing-plan preference is what resumes it, not Step 3 Check 5), commits the plan, releases the lock, reverts the status, **stamps the `plan_approved_at` marker** so the deferred state is visible on every surface, and ends the workflow. Do **NOT** proceed to Step 7. The "Approve and stop here" option is always available (not profile-gated); it replaces the infeasible context-usage auto-detection by letting the user make the call based on their own HUD.
 
 If "Abort": Execute the **Task Abort Procedure** (see `task-abort.md`).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test_ls_display_and_filters.sh - Cover aitask_ls.sh's verbose display line and
-# ALL of its metadata filters: -l/--labels, --type, --followup-kind and
-# --no-followup-kind (t1468_4).
+# ALL of its metadata filters: -l/--labels, --type, --followup-kind,
+# --no-followup-kind (t1468_4), --plan-approved and --no-plan-approved (t1595).
 #
 # This is the first coverage the `-v` display line and the `-l` filter have ever
 # had, so the fixture pins the whole bracket (field order included), not just a
@@ -47,10 +47,12 @@ printf '%s\n' bug chore documentation enhancement feature manual_verification \
 # Fixture tasks.
 #   t10  bug,         labels [ui],          no kind
 #   t11  feature,     labels [backend],     followup_kind risk_mitigation
-#   t12  test,        labels [ui, backend], followup_kind qa_test_gap
+#   t12  test,        labels [ui, backend], followup_kind qa_test_gap,
+#                      plan_approved_at (both optional segments at once)
 #   t13  feature parent with children_to_implement
 #   t13_1 enhancement, followup_kind upstream_defect
 #   t13_2 chore,       no kind
+#   t14  refactor,     labels [backend], plan_approved_at, no kind
 cat > "$REPO/aitasks/t10_plain_bug.md" <<'EOF'
 ---
 priority: high
@@ -82,8 +84,21 @@ status: Ready
 issue_type: test
 labels: [ui, backend]
 followup_kind: qa_test_gap
+plan_approved_at: 2026-08-20 09:15
 ---
 qa test gap follow-up
+EOF
+
+cat > "$REPO/aitasks/t14_deferred_plan.md" <<'EOF'
+---
+priority: medium
+effort: low
+status: Ready
+issue_type: refactor
+labels: [backend]
+plan_approved_at: 2026-08-21 16:45
+---
+plan approved, implementation deferred
 EOF
 
 cat > "$REPO/aitasks/t13_parent.md" <<'EOF'
@@ -169,6 +184,25 @@ assert_eq "t10 full display line (no Follow-up segment)" \
     "t10_plain_bug.md [Status: Ready, Priority: High, Effort: Low, Type: bug]" \
     "$t10_line"
 
+# The deferred-plan marker (t1595) is the second optional segment; pin the
+# combined shape so the order Type -> Follow-up -> Plan is fixed, and the
+# marker-only shape so `Plan:` does not depend on a follow-up being present.
+t12_line=$(line_for "t12_qa_gap.md" "$all_v")
+assert_eq "t12 full display line (both optional segments, order pinned)" \
+    "t12_qa_gap.md [Status: Ready, Priority: Low, Effort: High, Type: test, Follow-up: qa_test_gap, Plan: approved 2026-08-20 09:15]" \
+    "$t12_line"
+
+t14_line=$(line_for "t14_deferred_plan.md" "$all_v")
+assert_eq "t14 full display line (Plan segment, no Follow-up)" \
+    "t14_deferred_plan.md [Status: Ready, Priority: Medium, Effort: Low, Type: refactor, Plan: approved 2026-08-21 16:45]" \
+    "$t14_line"
+
+# Negative control: a task with no marker must carry no Plan segment at all —
+# never an empty or placeholder one.
+assert_not_contains "t10 (no marker) shows no Plan segment" "Plan:" "$t10_line"
+assert_not_contains "t11 (follow-up, no marker) shows no Plan segment" \
+    "Plan:" "$t11_line"
+
 # --- Test 2: Positive filters, asserted by hit count ---------------------
 
 out=$(run_ls -v --followup-kind risk_mitigation 99)
@@ -184,10 +218,11 @@ assert_contains "--type bug returns t10" "t10_plain_bug.md" "$out"
 # --- Test 3: --no-followup-kind (genuine new work) ----------------------
 
 out=$(run_ls -v --no-followup-kind 99)
-assert_eq_trim "--no-followup-kind returns exactly 2 parent tasks" \
-    "2" "$(count_lines "$out")"
+assert_eq_trim "--no-followup-kind returns exactly 3 parent tasks" \
+    "3" "$(count_lines "$out")"
 assert_contains "--no-followup-kind includes t10" "t10_plain_bug.md" "$out"
 assert_contains "--no-followup-kind includes t13" "t13_parent.md" "$out"
+assert_contains "--no-followup-kind includes t14" "t14_deferred_plan.md" "$out"
 assert_not_contains "--no-followup-kind excludes t11" "t11_mitigation.md" "$out"
 assert_not_contains "--no-followup-kind excludes t12" "t12_qa_gap.md" "$out"
 
@@ -239,6 +274,76 @@ assert_eq_trim "-l ui returns exactly 2 tasks" "2" "$(count_lines "$out")"
 assert_contains "-l ui includes t10" "t10_plain_bug.md" "$out"
 assert_contains "-l ui includes t12" "t12_qa_gap.md" "$out"
 assert_not_contains "-l ui excludes t11 (backend only)" "t11_mitigation.md" "$out"
+
+# --- Test 7: Deferred-plan marker filters + visibility contract (t1595) --
+#
+# The DECIDED contract is: the marker is displayed under -v only, and
+# --plan-approved is the non-verbose affordance. Both halves are pinned here —
+# a display-only test would pass on a build that leaked the segment into the
+# plain listing, and a filter-only test would pass on one that never displays it.
+
+plain_all=$(run_ls --all-levels 99)
+assert_contains "plain listing still lists the marked task" \
+    "t14_deferred_plan.md" "$plain_all"
+assert_not_contains "plain listing carries NO marker metadata (verbose-only contract)" \
+    "Plan: approved" "$plain_all"
+
+out=$(run_ls -v --all-levels --plan-approved 99)
+assert_eq_trim "--plan-approved returns exactly 2 tasks across all levels" \
+    "2" "$(count_lines "$out")"
+assert_contains "--plan-approved returns t12" "t12_qa_gap.md" "$out"
+assert_contains "--plan-approved returns t14" "t14_deferred_plan.md" "$out"
+assert_not_contains "--plan-approved excludes the unmarked t10" \
+    "t10_plain_bug.md" "$out"
+
+# The non-verbose affordance: the state is reachable with no -v at all.
+# (Both marked tasks are parent-level files, so parents-only mode sees both.)
+out=$(run_ls --plan-approved 99)
+assert_eq_trim "--plan-approved narrows the PLAIN listing to exactly 2 parents" \
+    "2" "$(count_lines "$out")"
+assert_contains "--plan-approved plain listing includes t14" \
+    "t14_deferred_plan.md" "$out"
+assert_contains "--plan-approved plain listing includes t12" \
+    "t12_qa_gap.md" "$out"
+assert_not_contains "--plan-approved plain output is bare filenames (no bracket)" \
+    "[Status:" "$out"
+
+# 7 fixture tasks across all levels, 2 of them marked.
+out=$(run_ls -v --all-levels --no-plan-approved 99)
+assert_eq_trim "--no-plan-approved returns exactly 5 tasks across all levels" \
+    "5" "$(count_lines "$out")"
+assert_contains "--no-plan-approved includes t10" "t10_plain_bug.md" "$out"
+assert_not_contains "--no-plan-approved excludes t12" "t12_qa_gap.md" "$out"
+assert_not_contains "--no-plan-approved excludes t14" "t14_deferred_plan.md" "$out"
+
+# Every listing mode, like the follow-up filters above.
+for mode_args in "--tree" "--all-levels"; do
+    # shellcheck disable=SC2086
+    out=$(run_ls -v $mode_args --plan-approved 99)
+    assert_eq_trim "--plan-approved in '$mode_args' returns exactly 2" \
+        "2" "$(count_lines "$out")"
+done
+out=$(run_ls -v --children 13 --plan-approved 99)
+assert_eq_trim "--plan-approved in '--children 13' returns 0 (no marked child)" \
+    "0" "$(count_lines "$out")"
+
+# Composition with the follow-up filters: the two axes are independent.
+out=$(run_ls -v --all-levels --plan-approved --followup-kind qa_test_gap 99)
+assert_eq_trim "--plan-approved + --followup-kind qa_test_gap returns exactly 1" \
+    "1" "$(count_lines "$out")"
+assert_contains "--plan-approved + --followup-kind qa_test_gap returns t12" \
+    "t12_qa_gap.md" "$out"
+
+out=$(run_ls -v --all-levels --plan-approved --no-followup-kind 99)
+assert_eq_trim "--plan-approved + --no-followup-kind returns exactly 1" \
+    "1" "$(count_lines "$out")"
+assert_contains "--plan-approved + --no-followup-kind returns t14" \
+    "t14_deferred_plan.md" "$out"
+
+run_ls_rc -v --plan-approved --no-plan-approved 99
+assert_exit_nonzero_rc "--plan-approved with --no-plan-approved exits non-zero" "$LS_RC"
+assert_contains "--plan-approved with --no-plan-approved says they are exclusive" \
+    "mutually exclusive" "$LS_OUT"
 
 # --- Test 6: Rejection ---------------------------------------------------
 

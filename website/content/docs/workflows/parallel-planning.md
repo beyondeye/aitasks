@@ -42,4 +42,28 @@ After the planning session, you have:
 
 The children can then be implemented one at a time or [in parallel using worktrees](../parallel-development/).
 
+## Deferring a single task's implementation
+
+The same front-loading works for a task that needs no decomposition. Pick it, let
+the agent plan it, and at the checkpoint choose **"Approve and stop here"**: the
+plan is committed, the lock released, and the task returns to `Ready` with no code
+written. Planning is cheap on context, so several tasks can be planned this way
+back to back and implemented later.
+
+Such a task carries a marker recording that its plan was approved and its
+implementation deliberately deferred, so it is not confused with one nobody has
+looked at yet:
+
+```bash
+ait ls --plan-approved 20      # tasks with an approved plan awaiting implementation
+ait ls -v 20                   # shows "Plan: approved <YYYY-MM-DD HH:MM>" on each
+```
+
+Re-pick it with `/aitask-pick <N>` whenever you are ready. The agent tells you an
+approved plan is waiting and offers to use it as-is, so the planning phase is
+skipped. The plan is still checked against the current state of the repository
+first — if the branch you are building on has moved, you are told before any code
+is written, and the marker is dropped so the task stops advertising a plan that
+needs re-verifying.
+
 When the work spans two registered projects, [Cross-Project Dependencies]({{< relref "/docs/workflows/cross_project_dependencies#planning-paired-work-across-two-repos" >}}) extends this decomposition into a paired plan — one parent per repo, joined by cross-repo dependency edges.

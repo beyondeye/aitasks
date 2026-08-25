@@ -328,6 +328,13 @@ fi
 # origin to a task it merely absorbed — and the primary keeps its own. The
 # folded file is deleted at archival anyway.
 
+# plan_approved_at (t1595) is a scalar recording that THIS task's own plan was
+# approved and deliberately deferred, so it follows the same rule: NOT
+# unioned/merged on fold. Adopting a folded task's marker would claim the
+# primary's plan is implementation-ready on the strength of a different task's
+# approval; the primary keeps its own, and the folded file is deleted at
+# archival anyway.
+
 "$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \

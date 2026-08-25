@@ -50,6 +50,11 @@ OPTIONS:
   --followup-kind KIND  Filter to auto-spawned follow-ups of one kind.
   --no-followup-kind    Only tasks that are NOT auto-spawned follow-ups
                 (genuine new work). Mutually exclusive with --followup-kind.
+  --plan-approved       Only tasks carrying plan_approved_at -- an approved
+                plan whose implementation was deliberately deferred.
+  --no-plan-approved    Only tasks WITHOUT that marker. Mutually exclusive
+                with --plan-approved. Both filters work with or without -v;
+                the marker itself is shown only in the -v line.
   -c, --children PARENT  List only children of specified parent task number.
   --all-levels  Show all tasks including children (flat list).
   --tree        Show hierarchical tree view with children indented.
@@ -73,6 +78,8 @@ METADATA FORMAT:
                 review_finding|risk_mitigation|upstream_defect|verification_failure
                 (absent = genuine new work, not an auto-spawned follow-up)
     status: Editing|Implementing|Postponed|Ready|Done|Folded
+    plan_approved_at: 2026-02-01 14:30
+                (absent = no approved-but-deferred plan)
     labels: [ui, backend]
     assigned_to: email@example.com
     created_at: 2026-02-01 14:30
@@ -95,6 +102,8 @@ LABELS_FILTER=""
 TYPE_FILTER=""
 FOLLOWUP_KIND_FILTER=""
 NO_FOLLOWUP_KIND=false
+PLAN_APPROVED_FILTER=false
+NO_PLAN_APPROVED=false
 CHILDREN_OF=""
 ALL_LEVELS=false
 TREE_VIEW=false
@@ -121,6 +130,14 @@ while [[ $# -gt 0 ]]; do
         --followup-kind)
             FOLLOWUP_KIND_FILTER="$2"
             shift 2
+            ;;
+        --plan-approved)
+            PLAN_APPROVED_FILTER=true
+            shift
+            ;;
+        --no-plan-approved)
+            NO_PLAN_APPROVED=true
+            shift
             ;;
         --no-followup-kind)
             NO_FOLLOWUP_KIND=true
@@ -167,6 +184,10 @@ done
 # error shape from the `show_help; exit 1` above, which rejects a bad flag NAME.)
 if [[ -n "$FOLLOWUP_KIND_FILTER" && "$NO_FOLLOWUP_KIND" == true ]]; then
     die "--followup-kind and --no-followup-kind are mutually exclusive."
+fi
+
+if [[ "$PLAN_APPROVED_FILTER" == true && "$NO_PLAN_APPROVED" == true ]]; then
+    die "--plan-approved and --no-plan-approved are mutually exclusive."
 fi
 
 if [[ -n "$FOLLOWUP_KIND_FILTER" ]]; then
@@ -303,6 +324,8 @@ d_text="None"
 issue_type_text="feature"
 # Absent = "not an auto-spawned follow-up" (t1468_1's no-tombstone contract).
 followup_kind_text=""
+# Absent = "no approved-but-deferred plan" (t1595's no-tombstone contract).
+plan_approved_at_text=""
 status_text="Ready"
 labels_text=""
 children_to_implement_text=""
@@ -382,6 +405,9 @@ parse_yaml_frontmatter() {
                     ;;
                 followup_kind)
                     followup_kind_text="$value"
+                    ;;
+                plan_approved_at)
+                    plan_approved_at_text="$value"
                     ;;
                 status)
                     status_text="$value"
@@ -476,6 +502,7 @@ parse_task_metadata() {
     blocked=0; d_text="None"
     issue_type_text="feature"
     followup_kind_text=""
+    plan_approved_at_text=""
     status_text="Ready"
     labels_text=""
     children_to_implement_text=""
@@ -552,6 +579,17 @@ process_task_file() {
         return
     fi
 
+    # Apply deferred-approved-plan filters (t1595; mutually exclusive, checked
+    # at parse time). These are the NON-VERBOSE affordance for the marker: the
+    # plain listing stays filename-only by contract, so narrowing the list is
+    # how the state is reached without -v.
+    if [[ "$PLAN_APPROVED_FILTER" == true && -z "$plan_approved_at_text" ]]; then
+        return
+    fi
+    if [[ "$NO_PLAN_APPROVED" == true && -n "$plan_approved_at_text" ]]; then
+        return
+    fi
+
     # Determine display status string
     local display_status
     if [ "$blocked" -eq 1 ]; then
@@ -602,7 +640,15 @@ process_task_file() {
         if [[ -n "$followup_kind_text" ]]; then
             followup_info=", Follow-up: $followup_kind_text"
         fi
-        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text${risk_info}, Effort: $e_text${type_info}${followup_info}${assigned_info}${issue_info}${pr_info}${contributor_info}]"
+        # An approved plan whose implementation was deliberately deferred
+        # (t1595). Verbose-only by contract: no metadata has ever appeared in
+        # the plain listing, which every script consumer parses as a bare
+        # filename list -- --plan-approved is the non-verbose affordance.
+        local plan_info=""
+        if [[ -n "$plan_approved_at_text" ]]; then
+            plan_info=", Plan: approved $plan_approved_at_text"
+        fi
+        display="${indent_prefix}$filename [Status: $display_status, Priority: $p_text${risk_info}, Effort: $e_text${type_info}${followup_info}${plan_info}${assigned_info}${issue_info}${pr_info}${contributor_info}]"
     else
         display="${indent_prefix}$filename"
     fi

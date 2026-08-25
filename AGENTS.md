@@ -27,6 +27,10 @@ followup_kind: risk_mitigation   # auto-spawned follow-up provenance; absent ⇒
                                  # risk_mitigation, upstream_defect,
                                  # verification_failure, carry_over, qa_test_gap,
                                  # review_finding, docs_gap. Orthogonal to issue_type.
+plan_approved_at: 2026-02-01 14:30   # plan approved, implementation deliberately
+                                 # deferred ("Approve and stop here"); absent ⇒ no
+                                 # such plan. Set/cleared by the workflow only —
+                                 # visible via `ait ls -v` / --plan-approved.
 issue: https://...        # linked issue tracker URL
 gates: [risk_evaluated]   # declared gate set (intent; [] = opt-out)
 active_gates: [risk_evaluated]      # framework-derived enforced set — never hand-edit

@@ -968,5 +968,117 @@ class TestMergeVerificationBaseline(unittest.TestCase):
         self.assertEqual(norm(" a @ b "), " a @ b ")
 
 
+class TestMergePlanApprovedAt(unittest.TestCase):
+    """`plan_approved_at` (t1595) resolves base-aware, like verification_baseline.
+
+    The field marks a task whose plan was approved and whose implementation was
+    deliberately deferred, and it is CLEARED (key removed) the moment that stops
+    being true -- implementation starts, the plan is replanned or aborted, a
+    remote-drift stop demands re-verification. Both generic rules are wrong for
+    it, which is what these cases pin:
+
+      * one-sided presence resolves first and unconditionally, so a stale
+        checkout still carrying the marker would beat a checkout that cleared
+        it -- a consumed or invalidated marker would resurrect on sync, and
+        every surface would then advertise an approved plan that is NOT awaiting
+        implementation, which is worse than showing nothing;
+      * `updated_at` is task-wide and minute-resolution, so an unrelated
+        `--status` edit on a stale checkout would win a field it never touched.
+    """
+
+    V1 = "2026-08-20 09:15"
+    V2 = "2026-08-21 16:45"
+
+    def _merge(self, local, remote, base=None):
+        return merge_frontmatter(local, remote, batch=True, base_meta=base)
+
+    # --- the clear-versus-stale-carrier pair, both ways round ------------
+    def test_local_clear_beats_stale_remote_carrier(self):
+        merged, unresolved = self._merge(
+            {}, {"plan_approved_at": self.V1},
+            base={"plan_approved_at": self.V1})
+        # Remote is unchanged from base, local consumed/cleared it -> the clear
+        # wins, and the key must be ABSENT rather than present-as-None:
+        # serialize_frontmatter gates on key membership, so a None would be
+        # written as a literal `plan_approved_at: null`.
+        self.assertNotIn("plan_approved_at", merged)
+        self.assertNotIn("plan_approved_at", unresolved)
+
+    def test_remote_clear_beats_stale_local_carrier(self):
+        """The mirror direction: an implementation reading presence instead of
+        the base passes one direction and fails this one."""
+        merged, unresolved = self._merge(
+            {"plan_approved_at": self.V1}, {},
+            base={"plan_approved_at": self.V1})
+        self.assertNotIn("plan_approved_at", merged)
+        self.assertNotIn("plan_approved_at", unresolved)
+
+    # --- re-approval versus unchanged ------------------------------------
+    def test_reapproval_beats_unchanged_side(self):
+        merged, unresolved = self._merge(
+            {"plan_approved_at": self.V2}, {"plan_approved_at": self.V1},
+            base={"plan_approved_at": self.V1})
+        self.assertEqual(merged["plan_approved_at"], self.V2)
+        self.assertNotIn("plan_approved_at", unresolved)
+
+    def test_stale_unrelated_edit_does_not_win(self):
+        """The case a newer-`updated_at`-wins rule would get wrong.
+
+        Local did not touch the marker but carries a NEWER task-wide timestamp
+        (an unrelated `--status` edit); remote re-approved and stamped it.
+        """
+        merged, unresolved = self._merge(
+            {"plan_approved_at": self.V1, "updated_at": "2026-08-22 09:00"},
+            {"plan_approved_at": self.V2, "updated_at": "2026-08-21 16:45"},
+            base={"plan_approved_at": self.V1})
+        self.assertEqual(merged["plan_approved_at"], self.V2)
+        self.assertNotIn("plan_approved_at", unresolved)
+
+    def test_stale_carrier_does_not_beat_a_consumption(self):
+        """The scenario that actually happens: one PC implements the task
+        (consuming the marker) while another only edits status."""
+        merged, unresolved = self._merge(
+            {"plan_approved_at": self.V1, "status": "Editing"},
+            {"status": "Implementing"},
+            base={"plan_approved_at": self.V1, "status": "Ready"})
+        self.assertNotIn("plan_approved_at", merged)
+        self.assertNotIn("plan_approved_at", unresolved)
+
+    # --- fail-closed ------------------------------------------------------
+    def test_both_stamped_differently_is_unresolved(self):
+        merged, unresolved = self._merge(
+            {"plan_approved_at": self.V2},
+            {"plan_approved_at": "2026-08-22 08:00"},
+            base={"plan_approved_at": self.V1})
+        self.assertIn("plan_approved_at", unresolved)
+
+    def test_no_base_available_is_unresolved(self):
+        """An add/add conflict has no stage-1 base -> fail closed to PARTIAL."""
+        merged, unresolved = self._merge(
+            {"plan_approved_at": self.V1},
+            {"plan_approved_at": self.V2},
+            base=None)
+        self.assertIn("plan_approved_at", unresolved)
+
+    def test_identical_sides_are_not_a_conflict(self):
+        merged, unresolved = self._merge(
+            {"plan_approved_at": self.V1}, {"plan_approved_at": self.V1},
+            base={"plan_approved_at": self.V1})
+        self.assertEqual(merged["plan_approved_at"], self.V1)
+        self.assertNotIn("plan_approved_at", unresolved)
+
+    # --- guards -----------------------------------------------------------
+    def test_plan_approved_at_is_base_aware_and_deletion_aware(self):
+        import aitask_merge
+        self.assertIn("plan_approved_at", aitask_merge._BASE_AWARE_FIELDS)
+        _normalize, deletion_aware = \
+            aitask_merge._BASE_AWARE_FIELDS["plan_approved_at"]
+        self.assertTrue(deletion_aware,
+                        "a tombstone-less field must be deletion_aware, or a "
+                        "clear serializes as `plan_approved_at: null`")
+        self.assertNotIn("plan_approved_at", aitask_merge._KEEP_LOCAL_FIELDS)
+        self.assertNotIn("plan_approved_at", aitask_merge._LIST_UNION_FIELDS)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -145,6 +145,9 @@ anchor: 130               # topic-group key = root task id (absent ⇒ task is i
 followup_kind: risk_mitigation   # auto-spawned follow-up provenance; absent ⇒ genuine
                                  # new work. Orthogonal to issue_type — vocabulary in
                                  # .aitask-scripts/lib/followup_kinds.py
+plan_approved_at: 2026-02-01 14:30   # plan approved, implementation deliberately
+                                 # deferred; absent ⇒ no such plan. Workflow-written
+                                 # only; display/prompt signal, never routing.
 issue: https://...        # linked issue tracker URL
 gates: [risk_evaluated]   # declared gate set (intent; [] = opt-out)
 active_gates: [risk_evaluated]   # + _filtered/_profile/_digest: framework-derived

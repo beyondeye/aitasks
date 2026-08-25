@@ -49,10 +49,14 @@ When abort is selected at any checkpoint after Step 4, execute these steps:
 
   **Why this is not wrapped in the `record_gates` guard.** A task recorded under a profile that sets `record_gates` (e.g. `fast`) can be aborted under one that does not (e.g. `default`), and a Jinja guard would render the demotion away in exactly the case where the stale entry exists. Gating on **ledger content** instead makes it a no-op wherever no approval was ever recorded — so behaviour under `record_gates: false` is unchanged. (This mirrors the reasoning in `aidocs/gates/ledger-driven-reentry.md` for why the re-entry prose itself is profile-invariant.) Without this step the safety would rest entirely on Step 3 Check 5's `Implementing` status gate — an accident of the status revert below, not an invariant.
 
-- **Revert task status and clear assignment:**
+- **Revert task status, clear assignment, and clear the deferred-plan marker:**
   ```bash
-  ./.aitask-scripts/aitask_update.sh --batch <task_num> --status <selected_status> --assigned-to ""
+  ./.aitask-scripts/aitask_update.sh --batch <task_num> --status <selected_status> --assigned-to "" --plan-approved-at ""
   ```
+  An abort rejects the plan, so `plan_approved_at` — "plan approved, implementation
+  deliberately deferred" — must not survive it; otherwise every surface would keep
+  advertising an approved plan the user just discarded. Like the ledger demotion
+  above, it is unconditional and a no-op when no marker exists.
 
 - **Commit the revert:**
   ```bash

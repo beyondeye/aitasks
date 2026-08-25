@@ -536,6 +536,7 @@ If it returns `risk_before_blocking: true`, the original is blocked by ≥1 unfi
    ```bash
    ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to ""
    ```
+   **Deliberately no `--plan-approved-at ""` here.** This stop leaves an approved plan intact and awaiting implementation — it is blocked, not invalidated — which is precisely what the marker means, so it must survive. (§6.0a force-reverifies the plan on re-pick anyway, because a mitigation landed.) Do not "fix" this by mirroring the clear from the implementation body below.
 3. Commit and push the status revert:
    ```bash
    ./ait git add aitasks/
@@ -546,6 +547,24 @@ If it returns `risk_before_blocking: true`, the original is blocked by ≥1 unfi
 
 If it returns `risk_before_blocking: false` (no "before" mitigations, or all of them already landed), continue to implementation normally.
 {%- endif %}
+
+**Consume the deferred-plan marker:** Reaching this line means implementation is
+actually starting, so `plan_approved_at` — "plan approved, implementation
+deliberately deferred" — stops being true. Clear it (a no-op when the task never
+carried one):
+
+```bash
+./.aitask-scripts/aitask_update.sh --batch <task_num> --plan-approved-at "" --silent
+```
+
+**The boundary is here, not at the top of Step 7.** Two gates above this line
+revert the task to `Ready` and end the session before any code is written, and
+they need opposite treatment: a cross-repo demotion clears the marker in its own
+procedure (the local task is now a parent-of-children, so its single-task plan no
+longer describes implementable work), while the risk-mitigation "before" stop
+**keeps** it (the plan is approved and still awaiting implementation, merely
+blocked). This is also the line Re-entry Routing's `IMPLEMENT` route resumes at,
+so a resumed session consumes the marker with no extra wiring.
 
 Follow the approved plan, working in the directory specified in the plan metadata.
 
