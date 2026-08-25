@@ -1348,6 +1348,11 @@ insert_aitasks_instructions() {
     fi
 }
 
+# Sentinel proving a markerless CLAUDE.md already documents the aitasks
+# conventions by hand. The shared seed's most aitasks-specific heading; pinned
+# to the live seed by tests/test_agent_instructions.sh T39.
+CLAUDEMD_HAND_MAINTAINED_SENTINEL="## Git Operations on Task/Plan Files"
+
 # --- CLAUDE.md auto-update for aitasks instructions ---
 update_claudemd_git_section() {
     local project_dir="$1"
@@ -1356,6 +1361,21 @@ update_claudemd_git_section() {
     local content
     # Best-effort: skip (don't abort setup) if instructions can't be assembled.
     content="$(assemble_aitasks_instructions "$project_dir" "claude")" || return 0
+
+    # CLAUDE.md is the one project-OWNED instruction surface (AGENTS.md and the
+    # two mirrors are framework-owned files whose whole body is the block). A
+    # markerless CLAUDE.md that already documents the aitasks conventions is
+    # hand-maintained -- this repo's own, and every project set up before the
+    # markers existed -- so appending would duplicate prose the project owns.
+    # Markers win: a marker-managed block contains the sentinel and must refresh.
+    if [[ -f "$claudemd" ]] \
+        && ! grep -qF ">>>aitasks" "$claudemd" \
+        && grep -qF "$CLAUDEMD_HAND_MAINTAINED_SENTINEL" "$claudemd"; then
+        info "  CLAUDE.md documents the aitasks conventions and has no >>>aitasks markers — leaving it hand-maintained."
+        info "  To let 'ait setup' manage a block here, add an EMPTY '>>>aitasks' / '<<<aitasks' line pair where you want it."
+        info "  Everything between those markers is overwritten on every setup — never wrap prose you wrote yourself."
+        return 0
+    fi
 
     insert_aitasks_instructions "$claudemd" "$content"
 

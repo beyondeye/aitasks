@@ -276,6 +276,84 @@ assert_not_contains "T12: old content replaced" "OLD INSTRUCTIONS HERE" "$result
 assert_contains "T12: new content present" "## Git Operations" "$result"
 cleanup_tmpdir
 
+# --- hand-maintained CLAUDE.md guard (t1607) --------------------------------
+# CLAUDE.md is the only project-OWNED instruction surface: AGENTS.md and the two
+# mirrors are framework-owned files whose whole body IS the marked block, but
+# CLAUDE.md can carry the aitasks conventions as hand-written prose (this repo's
+# own does, as does every project set up before the markers existed). t130_2
+# dropped t221_3's content-based skip guard when it generalized the function to
+# the marker system, so setup would append a duplicate block on top of that
+# prose. T12b-T12d pin the restored guard from all three sides.
+
+# Test 12b: a markerless CLAUDE.md that already documents the conventions is left
+# alone -- AND says so. The byte-identity assertions alone cannot tell the
+# intended guard from a bare `return 0`: a regression to a silent no-op passes
+# every one of them while destroying both the discoverability of the skip and the
+# warning that keeps the opt-in from eating the user's prose. So the messages are
+# asserted too, on captured stdout (info() writes to stdout, aitask_setup.sh:137).
+setup_tmpdir
+cat > "$TMPDIR_TEST/CLAUDE.md" <<'EOF'
+# My Project
+
+## Git Operations on Task/Plan Files
+
+Use `./ait git` for task files. My own wording, hand-maintained.
+
+## House rules
+
+Never reformat the config.
+EOF
+before_hm="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+hm_out="$(update_claudemd_git_section "$TMPDIR_TEST")"
+after_hm="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+assert_eq "T12b: hand-maintained CLAUDE.md untouched" "$before_hm" "$after_hm"
+assert_not_contains "T12b: no markers appended" ">>>aitasks" "$after_hm"
+assert_contains "T12b: skip reason announced" "leaving it hand-maintained" "$hm_out"
+assert_contains "T12b: opt-in path announced" "'>>>aitasks' / '<<<aitasks' line pair" "$hm_out"
+assert_contains "T12b: overwrite warning announced" "overwritten on every setup" "$hm_out"
+cleanup_tmpdir
+
+# Test 12c: negative control -- the guard is NOT a blanket skip. A markerless
+# CLAUDE.md with no aitasks prose still gets the block. T11 walks the same path
+# but not this dimension; without T12c a widened sentinel could silently disable
+# bootstrap for every project with a pre-existing CLAUDE.md and stay green.
+setup_tmpdir
+cat > "$TMPDIR_TEST/CLAUDE.md" <<'EOF'
+# My Project
+
+## Build
+
+Run make.
+EOF
+update_claudemd_git_section "$TMPDIR_TEST" >/dev/null
+result="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+assert_contains "T12c: no-sentinel file still gets markers" ">>>aitasks" "$result"
+assert_contains "T12c: no-sentinel file still gets content" "## Git Operations" "$result"
+assert_contains "T12c: original content preserved" "Run make." "$result"
+cleanup_tmpdir
+
+# Test 12d: marker precedence. A marker-MANAGED block necessarily contains the
+# sentinel, so the marker check must be evaluated first; an inverted condition
+# order would freeze every legitimate refresh. T12 cannot catch that -- its
+# fixture body is "OLD INSTRUCTIONS HERE", which carries no sentinel.
+setup_tmpdir
+cat > "$TMPDIR_TEST/CLAUDE.md" <<'EOF'
+# My Project
+
+>>>aitasks
+## Git Operations on Task/Plan Files
+
+STALE GENERATED BLOCK
+<<<aitasks
+EOF
+update_claudemd_git_section "$TMPDIR_TEST" >/dev/null
+result="$(cat "$TMPDIR_TEST/CLAUDE.md")"
+assert_not_contains "T12d: managed block refreshed despite sentinel" "STALE GENERATED BLOCK" "$result"
+assert_contains "T12d: regenerated content present" "Use \`./ait git\` instead of plain \`git\`." "$result"
+marker_count_12d=$(grep -c '^>>>aitasks$' "$TMPDIR_TEST/CLAUDE.md" || true)
+assert_eq "T12d: still exactly one start marker" "1" "${marker_count_12d:-0}"
+cleanup_tmpdir
+
 # ============================================================
 # Tests for setup_codex_cli() (integration-level)
 # ============================================================
@@ -759,6 +837,37 @@ assert_eq "T37: stray leading end marker reported" "MULTIPLE_BLOCKS" \
     "$(neg_status "$NEG_DIR/stray_end.md" codex)"
 
 rm -rf "$NEG_DIR"
+
+# ============================================================
+# CLAUDE.md: the fourth surface, pinned to the OPPOSITE state (t1607)
+# ============================================================
+# T22-T27 pin three surfaces as marker-managed and matching the generator.
+# CLAUDE.md is deliberately NOT one of them -- it is project-owned mixed content
+# that this repo maintains by hand (aidocs/framework/aitasks_extension_points.md).
+# That contract was true only by accident until t1607: setup_data_branch Step 8
+# early-returns here because .aitask-data/.git exists, so the append branch was
+# never reached. These two tests make it true by construction instead.
+
+echo "--- CLAUDE.md hand-maintained contract (t1607) ---"
+
+# Test 38: committed CLAUDE.md is markerless AND self-documenting. Both halves
+# are load-bearing. Markers-absent alone would still pass if someone deleted the
+# "## Git Operations on Task/Plan Files" section -- which is exactly what would
+# make the file append-eligible again, silently reopening the bug.
+claudemd_starts=$(grep -c '^>>>aitasks$' "$PROJECT_DIR/CLAUDE.md" 2>/dev/null || true)
+claudemd_ends=$(grep -c '^<<<aitasks$' "$PROJECT_DIR/CLAUDE.md" 2>/dev/null || true)
+assert_eq "T38: committed CLAUDE.md has no start marker" "0" "${claudemd_starts:-0}"
+assert_eq "T38: committed CLAUDE.md has no end marker" "0" "${claudemd_ends:-0}"
+assert_file_contains "T38: committed CLAUDE.md carries the guard sentinel" \
+    "$CLAUDEMD_HAND_MAINTAINED_SENTINEL" "$PROJECT_DIR/CLAUDE.md"
+
+# Test 39: the sentinel is a single named constant in aitask_setup.sh, so it can
+# drift from the seed it is supposed to identify. Pin it to the seed the live
+# generator actually resolves (same helper T25-T27's failure dump uses), so a
+# heading rename in the seed fails here instead of quietly turning the guard off.
+CLAUDEMD_SEED="$(resolved_shared_seed "$PROJECT_DIR")"
+assert_file_contains "T39: sentinel still present in the resolved shared seed" \
+    "$CLAUDEMD_HAND_MAINTAINED_SENTINEL" "$CLAUDEMD_SEED"
 
 # ============================================================
 # Summary

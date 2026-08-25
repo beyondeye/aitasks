@@ -93,8 +93,38 @@ cross-PC sync) silently drops or mangles it:
      Also note `ait setup` **commits `AGENTS.md` itself** (`ait: Add aitask
      framework`), so that mirror arrives in its own commit rather than the
      task's.
-   - `CLAUDE.md` "### Task File Format" YAML block (hand-maintained — it has no
-     `>>>aitasks` markers; edit directly).
+   - `CLAUDE.md` "### Task File Format" YAML block — **hand-maintained; edit
+     directly.** Unlike the three surfaces above, `CLAUDE.md` is *project-owned
+     mixed content*: `AGENTS.md`, `.codex/instructions.md` and
+     `.opencode/instructions.md` are framework-owned files whose entire body is
+     the marked block, whereas `CLAUDE.md` carries prose a human wrote. So
+     `ait setup` deliberately leaves it alone —
+     `update_claudemd_git_section` skips any markerless `CLAUDE.md` that already
+     documents the aitasks conventions, detected via the
+     `CLAUDEMD_HAND_MAINTAINED_SENTINEL` constant in `aitask_setup.sh` (the
+     shared seed's `## Git Operations on Task/Plan Files` heading). A project
+     with **no** aitasks prose in `CLAUDE.md` still gets the block appended on
+     first setup — the guard is a hand-maintenance escape hatch, not a blanket
+     opt-out.
+
+     **Opting a project in — add an *empty* marker pair, never wrap existing
+     prose.** `insert_aitasks_instructions` **discards every line between
+     `>>>aitasks` and `<<<aitasks`** on each run and reprints the generated
+     block, so the marked region is generated-and-replaceable. Marking
+     hand-authored content therefore destroys it at the next `ait setup`. The
+     safe opt-in is an empty `>>>aitasks` / `<<<aitasks` line pair at the
+     position where the generated block should live; setup fills it in place and
+     leaves everything around it untouched. (The same overwrite rule applies to
+     the three surfaces above, where it is harmless — their whole body *is* the
+     block. It is called out here because `CLAUDE.md` is the only surface where
+     a human's own prose sits next to the markers.)
+
+     `tests/test_agent_instructions.sh` pins both halves of this contract:
+     T12b–T12d cover the guard's behavior (skip + announce, non-blanket, marker
+     precedence), **T38** pins this repo's `CLAUDE.md` state (markers absent,
+     sentinel present) and **T39** pins the sentinel against the live seed, so a
+     heading rename fails a test instead of silently disarming the guard
+     (t1607).
    - `website/content/docs/development/task-format.md` "### Frontmatter Fields"
      table.
    - The canonical creation contract
