@@ -300,3 +300,90 @@ grep -c '## Agent Identification' .codex/instructions.md .opencode/instructions.
 ```
 
 Step 9 (Post-Implementation) handles cleanup, archival, and the merge.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-25 13:45)
+- **Requested by user:** `block_status` counted markers globally with `grep -c` and
+  extracted with a *separate* `awk` pass from the start marker to EOF, so it never
+  proved the end marker follows the start. An inverted pair (`<<<aitasks` first,
+  then `>>>aitasks` + content, nothing closing the block) counts 1 and 1 and
+  returned `MATCH`. Track marker order and add an inverted-order control.
+- **Verified:** CONFIRMED — reproduced live before changing anything; the fixture
+  returned `MATCH` on a block with no closing marker.
+- **Changes made:** Replaced the two-pass scheme with a single `awk` state machine
+  (`_extract_marked_block`) that extracts the body **and** returns the structural
+  verdict, so there is no second pass to disagree with. New sentinel
+  `MARKERS_OUT_OF_ORDER`. Added T36 (the exact inverted fixture) and T37 (stray
+  leading end marker → `MULTIPLE_BLOCKS`, pinning verdict precedence).
+- **Files affected:** `tests/test_agent_instructions.sh`, plan file.
+
+### Change Request 2 (2026-08-25 13:55)
+- **Requested by user:** The extension-points doc still named T28–T35 as the
+  negative controls and called them "one per failure state", which became untrue
+  once T36/T37 added deliberate overlap on `MISMATCH` and `MULTIPLE_BLOCKS`.
+- **Verified:** CONFIRMED — and the same stale claim existed in a second,
+  unflagged place: the test file's own `ONE PER ADVERTISED SENTINEL` section
+  header.
+- **Changes made:** Corrected all three surfaces (doc, test-file comment, plan) to
+  T28–T37 and to "every failure state plus targeted regression fixtures", stating
+  explicitly that the mapping is deliberately not one-to-one and that deleting
+  T35 or T36 as "redundant by verdict" restores the bug each covers.
+- **Files affected:** `aidocs/framework/aitasks_extension_points.md`,
+  `tests/test_agent_instructions.sh`, plan file.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three parts landed as planned.
+  - **Part A** — regenerated `.codex/instructions.md` and `.opencode/instructions.md`
+    by driving the canonical seam (`assemble_aitasks_instructions` +
+    `insert_aitasks_instructions`, sourced via `--source-only`), restoring the 10
+    drifted lines (`gates:` + four `active_gates*` lines, and the 4-line derived-tuple
+    paragraph plus its blank line) in each. Diff was exactly +10/+10, nothing else.
+  - **Part B** — added a seed→mirror content drift guard to
+    `tests/test_agent_instructions.sh`: T25–T27 (one per tracked surface, compared
+    byte-for-byte against the live generator) and T28–T37 (negative controls).
+    Suite went 94 → 107 assertions.
+  - **Part C** — corrected `aidocs/framework/aitasks_extension_points.md` layer 5.
+  - **Post-phase mitigation** `report_resolved_seed_source` implemented as planned
+    (`resolved_shared_seed()` + failure dump naming the resolved seed and the fix
+    command); verified firing by inverting the `cmp` verdict on a scratch copy.
+- **Deviations from plan:** One deliberate deviation from the *task file's*
+  "Suggested fix", flagged at planning: it said to copy the generated block out of
+  `AGENTS.md` verbatim, which would have destroyed each mirror's per-agent
+  `## Agent Identification` tail (`AGENTS.md` carries the shared layer only). Drove
+  the generator instead. The extension-points doc prescribed that same wrong
+  recovery, so Part C now corrects it there too.
+  The guard was also placed **in** `tests/test_agent_instructions.sh` rather than a
+  new file — that file already sources `aitask_setup.sh --source-only` and already
+  asserts real repo artifacts (T22/T23, the t1028 marker guard), so the new tests
+  extend the existing guard instead of duplicating its harness.
+- **Issues encountered:**
+  - Two fail-opens in the guard, both found in review and both reproduced live
+    before fixing (see Post-Review Changes): trailing-newline blindness from `$( )`
+    capture, and marker-ordering blindness from count-plus-separate-extraction.
+    Each is now pinned by a dedicated control (T35, T36).
+  - A falsifiability run of my own was initially invalid: sabotage copies placed in
+    the scratchpad died on a bad `source` path (the test derives `PROJECT_DIR` from
+    its own location) and never reached an assertion, while still exiting 1. Re-ran
+    them from inside `tests/` to get a real result. "Exit 1" is not evidence a test
+    failed for the reason you intended.
+- **Key decisions:**
+  - Comparison goes through **files + `cmp -s`**, never `$( )`, because bash strips
+    all trailing newlines on both sides of a command substitution.
+  - Structure is decided by **one `awk` pass** that both extracts and classifies —
+    a structural fix rather than layering an ordering invariant on top of counts.
+  - Guard is **derived, not duplicated**: nothing hardcodes expected text; each
+    surface is compared to what the live generator produces from the live seeds.
+  - Falsifiability proven by three sabotages, each hitting exactly its own control:
+    always-MATCH → T28/T29/T35; `$( )` comparison → only T35; drop ordering check →
+    only T36.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1661 — update_claudemd_git_section is called
+    unconditionally from setup_data_branch Step 8, and insert_aitasks_instructions
+    takes its APPEND branch on a markerless file. This repo's CLAUDE.md has no
+    >>>aitasks markers (0 occurrences), and aitasks_extension_points.md:96-97
+    documents it as hand-maintained with no markers — so a real `ait setup` reaching
+    setup_data_branch would append a full marked block to CLAUDE.md, duplicating its
+    "### Task File Format" YAML block and contradicting the documented contract.
+    Out of scope for t1601 (different code path; t1601 covers the two mirrors).`
