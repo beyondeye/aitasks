@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 implemented_with: claudecode/opus5
 created_at: 2026-08-25 12:48
-updated_at: 2026-08-25 16:57
+updated_at: 2026-08-25 17:05
 ---
 
 ## Context
