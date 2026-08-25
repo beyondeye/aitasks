@@ -1116,6 +1116,12 @@ select_xdeprepo() {
 # whose `|| true` would silently stop committing the vocabulary.
 LABELS_FILE="${TASK_DIR}/metadata/labels.txt"
 EMAILS_FILE="aitasks/metadata/emails.txt"
+# Budget for the contributor-list mutex, in the attempts x sleep form
+# stale_lock_acquire takes (~10s, matching acquire_child_lock above and
+# EMAILS_LOCK_TIMEOUT in aitask_pick_own.sh). Overridable so tests can drive both
+# the busy path and a long wait without waiting out the default.
+EMAILS_LOCK_ATTEMPTS="${EMAILS_LOCK_ATTEMPTS:-20}"
+EMAILS_LOCK_SLEEP="${EMAILS_LOCK_SLEEP:-0.5}"
 TASK_TYPES_FILE="aitasks/metadata/task_types.txt"
 
 ensure_emails_file() {
@@ -1127,11 +1133,47 @@ ensure_emails_file() {
 
 add_email_to_file() {
     local email="$1"
+    [[ -n "$email" ]] || return 0
     ensure_emails_file
-    if [[ -n "$email" ]] && ! grep -qFx "$email" "$EMAILS_FILE" 2>/dev/null; then
-        echo "$email" >> "$EMAILS_FILE"
-        sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+    grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null && return 0   # fast path only
+
+    # `echo >> ; sort -u -o` is a read-modify-write, and `sort -o` renames a
+    # SNAPSHOT over the target — so a concurrent session's append made after that
+    # snapshot is erased. Atomicity is not serialization: hold the shared mutex,
+    # or do not write. This is the SAME lock path store_email() takes in
+    # aitask_pick_own.sh (t1608). The two reach it through different adapters —
+    # this one calls lib/stale_lock.sh directly, that one via lib/registry_lock.sh
+    # — but registry_lock delegates to stale_lock on the caller's dir, so both
+    # contend on one mkdir mutex. Keep both call sites on `ait_lock_dir emails`.
+    local lockdir token rc=0
+    lockdir="$(ait_lock_dir emails)" || return 0
+    if ! stale_lock_acquire "$lockdir" "$EMAILS_LOCK_ATTEMPTS" "$EMAILS_LOCK_SLEEP" \
+            "contributor list"; then
+        # Best-effort, like store_email: the address is already recorded in the
+        # task's own assigned_to, only the autocomplete vocabulary misses it — and
+        # the task file is on disk uncommitted by now, so failing here would
+        # strand it to fix a strictly smaller problem.
+        warn "contributor list busy — email not recorded$(stale_lock_describe "$lockdir")"
+        return 0
     fi
+    token="$STALE_LOCK_TOKEN"
+    {
+        # Re-check under the lock: a holder we waited on may have added it.
+        if ! grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+            # CHAINED ON PURPOSE. errexit is suppressed inside a group tested by
+            # `|| rc=$?`, so as two statements a failed append followed by a
+            # successful sort would leave the group's status at 0 — reporting
+            # success for an address that was never written. `&&` makes the
+            # append's failure the group's status, and skips a sort that would
+            # only rewrite the unchanged file.
+            printf '%s\n' "$email" >> "$EMAILS_FILE" &&
+                sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+        fi
+    } || rc=$?
+    stale_lock_release "$lockdir" "$token" \
+        || warn "add_email_to_file: contributor-list lock not fully released"
+    [[ $rc -eq 0 ]] || warn "add_email_to_file: failed to record ${email} (rc=$rc)"
+    return 0
 }
 
 # sanitize_label / ensure_labels_file / get_existing_labels / add_label_to_file

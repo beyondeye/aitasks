@@ -256,10 +256,12 @@ store_email() {
     # after that snapshot is erased. Atomicity is not serialization (see the
     # lib/atomic_write.sh header) — hold the shared mutex, or do not write.
     #
-    # INCOMPLETE until t1608: aitask_create.sh's add_email_to_file() still
-    # writes this file unlocked, and a mutex excludes only writers that honour
-    # it — so this currently serializes claims against each other, not against
-    # a concurrent `ait create`. Keep both call sites on `ait_lock_dir emails`.
+    # Both writers of this file hold this mutex (t1608): here, and
+    # add_email_to_file() in aitask_create.sh. They reach it through different
+    # adapters — registry_lock.sh here, stale_lock.sh directly there — but the
+    # former delegates to the latter on the caller's dir, so both contend on one
+    # mkdir mutex. A mutex excludes only writers that honour it: keep both call
+    # sites on `ait_lock_dir emails`.
     local lockdir
     lockdir="$(ait_lock_dir emails)" || return 0
     if ! registry_lock_acquire "$lockdir" "$EMAILS_LOCK_TIMEOUT" store_email; then
