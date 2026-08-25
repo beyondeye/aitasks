@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 12:48
-updated_at: 2026-08-25 13:52
+updated_at: 2026-08-25 16:57
 ---
 
 ## Context
@@ -183,3 +184,8 @@ order is `assert_contains <desc> <needle> <haystack>`. The
 level, so the `assert_counters_init` subshell opt-in is NOT needed.
 
 Also run `shellcheck .aitask-scripts/aitask_pick_own.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T13:57:28Z status=pass attempt=1 type=human
