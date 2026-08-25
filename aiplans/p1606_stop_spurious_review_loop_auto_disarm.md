@@ -713,3 +713,40 @@ before reading a worktree suite run as a regression.
 - **Verification:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; the
   concurrency proof re-checked under sustained CPU load (3/3) and still fails
   against a shared-ring implementation.
+
+### Change Request 2 (2026-08-25 19:0x)
+
+- **Requested by user:** two further Step-8 review findings, both verified.
+  1. `_loop_identity` was never cleared when a new lifecycle armed. Because
+     `_note_loop_identity` only overwrites non-empty values — deliberately, so
+     a tick that cannot re-resolve the shadow keeps the last known answer —
+     that stickiness carried a stale pair **across** an `L`-`L` cycle. A
+     re-arm onto a different followed/shadow pair followed by an immediate
+     absence or a failed re-resolution would record the new agent beside the
+     old shadow: a pair that never existed, contradicting the documented
+     claim that each event names the pair it happened to.
+  2. `prune()` kept `MAX_SESSION_FILES` files **that existed at startup**, and
+     the starting session then created its own — so the store settled at 21,
+     not the documented 20. Bounded and lossless, but the documented limit was
+     wrong.
+
+- **Changes made:**
+  1. Arming now **clears and re-seeds** `_loop_identity` from the identities
+     `action_toggle_review_loop` has already resolved and validated. Re-seeding
+     rather than merely clearing matters: a first-tick teardown then still
+     names the right pair instead of nothing. Cross-lifecycle test added,
+     driving a real re-arm onto a different shadow pane and asserting the
+     recorded event carries the **new** pair.
+  2. `prune()` gained `reserve`, and `on_mount` passes `reserve=1` to hold a
+     slot for the session about to start (its file does not exist at prune
+     time, so it cannot be counted). `MAX_SESSION_FILES` is now a true cap on
+     the steady state. Two tests: the cap holds once the new session writes,
+     plus a control showing the store overshoots by one without the reserve.
+
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `.aitask-scripts/monitor/review_loop_log.py`,
+  `aidocs/framework/shadow_agent.md`,
+  `tests/test_minimonitor_concern_action.py`, `tests/test_review_loop_log.py`.
+
+- **Verification:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; both fixes
+  carry negative controls that fail exactly their named tests.
