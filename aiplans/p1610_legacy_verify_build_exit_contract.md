@@ -427,3 +427,125 @@ Post-implementation (cleanup, archival, merge) follows task-workflow Step 9.
 ### Planned mitigations
 - timing: pre-phase | name: pin_gate_ledger_result_strings | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — extraction could silently reword the appended `result=` text | desc: Pin `run_command_gate`'s ledger `result=` string for all four outcomes in tests/test_gate_verifiers.sh before extracting the runner
 - timing: post-phase | name: assert_qa_exit_contract_prose | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the aitask-qa edit has no golden and no render assertion | desc: Assert in tests/test_skill_render_aitask_qa.sh one pin per amended surface of test-execution.md (4b helper call, 4c SKIP row, 4d no did-not-run zero, 4e unverified claim)
+
+---
+
+## Final Implementation Notes
+
+**Landed as planned**, with the pre-phase and post-phase mitigations both executed.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `.aitask-scripts/lib/gate_verifier_lib.sh` | Extracted `run_project_command_key()` — the canonical exit-contract implementation — out of `run_command_gate()`, which is now a thin ledger-appending wrapper around it. Header docblock names both consumers. |
+| `.aitask-scripts/aitask_run_project_command.sh` | **New.** CLI over that function; `KEY:value` stdout, exit `0/1/2/3`, no ledger. |
+| `.claude/skills/task-workflow/build-verification.md` | **New.** The one prose statement of the legacy run-and-branch rules, incl. the copy-safe invocation block. |
+| `task-workflow/SKILL.md`, `aitask-pickrem/SKILL.md.j2`, `aitask-pickweb/SKILL.md.j2` | Restated rules replaced by a reference; Step 9's `build_verified` recording is now verdict-driven (`status=<build_verdict>`, nothing recorded for `none`). |
+| `aitask-qa/test-execution.md` | Four surfaces amended (4b run, 4c present, 4d score, 4e verification gate). |
+| `aidocs/gates/aitask-gate-framework.md`, `website/.../build-verification.md`, `seed/project_config.yaml` | State that the contract governs both paths, and what a skip means on each. |
+| 5 policy files | Helper whitelisted (one entry each). |
+
+### Deviations from the plan
+
+1. **A fifth `REASON` value, `command_malformed`.** The plan's contract listed
+   four. During extraction the suite caught that my rewrite had dropped t1609's
+   `bash -n` unparseable-command guard — a hazard landed *between* my first read
+   of the lib and my edit, so the whole-file rewrite was built on a stale
+   snapshot. Restored from HEAD and given its own reason value (it is a `fail`,
+   never a skip: bash exits 2 on a syntax error, which collides with the skip
+   code). Pinned by a new row in `tests/test_run_project_command.sh` (G2).
+2. **`run_project_command_key` can return 3.** The plan had it always return a
+   verdict. It now returns 3 when `yaml_utils.sh` was not sourced — without that,
+   a missing reader resolves every key to zero commands and reports a confident,
+   wrong `skip`. The check lives inside the function, not at file scope: sourcing
+   the lib only to read `GATE_COMMAND_KEYS` is legitimate (`test_gate_verifiers.sh`
+   Test 10 does exactly that), and a file-scope `exit` would kill the sourcing
+   shell. `run_command_gate` propagates it as verifier `error` and appends nothing.
+
+### Fixed during Step-8 review
+
+Two defects the user caught in review; both reproduced before changing anything.
+
+3. **A log the helper cannot write produced a confident WRONG verdict** (`aitask_run_project_command.sh`).
+   The `--log` branch swallowed a failed `mkdir -p` with `|| true` and never
+   checked writability, so `--log /proc/nope/out.log` returned a verdict with a
+   `LOG:` path holding nothing. Worse than the missing diagnostics: the runner's
+   parse check is `bash -n -c "$c" 2>>"$log"`, so an unwritable log makes bash
+   fail on the **redirection** before parsing, and a perfectly valid command came
+   back as `REASON:command_malformed` — reproduced verbatim. Every log branch now
+   funnels through one `: > "$log_path"` writability proof and a log-setup
+   failure is an infrastructure error (exit 3, **no** verdict line), never a
+   verdict. The script also now uses the repo-standard `set -euo pipefail`,
+   matching the gate wrappers that source the same lib. Pinned by rows M
+   (uncreatable parent), M2 (unwritable file) and M3 — a positive control proving
+   the same command grades `command_failed` against a writable log, so M/M2
+   cannot pass merely because the helper stopped working.
+
+4. **The qa `N/A` rule could redistribute a real failure out of the score**
+   (`test-execution.md`). Marking the whole Tests component N/A whenever the
+   configured `test_command` reported `skip` ignored that 4b *also* runs
+   individual changed-source tests directly: a skipped runner beside a failing
+   direct test displayed the failure in 4c and then dropped it from the score.
+   N/A is now conditional on there being **no other executed evidence** — the
+   score is computed over every test that actually ran, a direct failure always
+   counts, and 4e's fresh re-run no longer scopes its "unverified" row wider than
+   the claim the skipped runner actually backed. Pinned by four new render
+   assertions (one per corrected surface).
+
+### Upstream defects identified
+
+- `.claude/skills/task-workflow/SKILL.md:806` — the Step-9 gate dispatch uses
+  `gates_out="$(./ait gates run <task_id> 2>&1)"; gates_rc=$?`, which under
+  `set -e` terminates the shell at the assignment before `gates_rc` is captured.
+  Same class as the helper defect fixed in this task (and verified there by a
+  live probe), pre-existing and in a different block.
+- `.claude/skills/aitask-pickrem/SKILL.md.j2:368` — the same capture shape, same
+  defect, in pickrem's gate dispatch.
+
+### Adjacent issue found, deliberately not fixed
+
+Step 9's pre-existing `gates_out="$(./ait gates run …)"; gates_rc=$?` carries the
+same errexit hazard this task documents for the new helper: under `set -e` the
+shell dies at the assignment before `gates_rc` is captured. It is far less
+harmful there (every nonzero status from that call *is* an abort-worthy
+infrastructure failure the branch would stop on anyway), and rewriting it would
+churn the Step 9 goldens for a case this task does not own. Left as-is.
+
+### Verification performed
+
+- `tests/test_gate_verifiers.sh` — **149/149**. The four new `Result:` pins were
+  confirmed passing against the *un-refactored* code first (the pre-phase
+  mitigation's baseline requirement), then again after the extraction.
+- `tests/test_run_project_command.sh` — **84/84** (new). Exit table incl. the
+  exit-1-under-opt-in rejection probe, list aggregation, NOTE/usage/log,
+  cross-path parity against `aitask_gate_build.sh`, and the end-to-end flow
+  driven through the documented invocation inside `set -euo pipefail`.
+- **Reachability probed, not assumed:** breaking the documented-invocation pin
+  produced 5 failures; rewriting the negative-control driver to use the safe
+  capture form made the "rejected shape dies" assertion fail. Both assertions
+  discriminate.
+- `test_skill_render_task_workflow.sh` 200/200 · `test_skill_render_aitask_qa.sh`
+  219/219 · `test_skill_verify.sh` 29/29 · `test_skill_render.sh` 28/28 ·
+  `test_seed_manifest_drift.sh` 44/44 · `test_setup_agent_config_seeds.sh` 22/22 ·
+  `test_agent_instructions.sh` 122/122.
+- `./.aitask-scripts/aitask_skill_verify.sh` — OK (13 templates × 3 agents,
+  wrapper parity clean). `shellcheck` clean on both shell files (only the
+  codebase-wide SC1091 baseline the existing gate wrappers also emit).
+- Goldens regenerated and the diff reviewed: the Step-9 block shrinking to a
+  reference, the verdict-driven recording line, one new Procedures entry, and the
+  four qa surfaces. No unrelated churn.
+- `aitask_skill_rerender.sh remote` refreshed all three tracked remote closures;
+  per-agent reference rewrites verified (codex →
+  `.agents/skills/task-workflow-remote-codex-/build-verification.md`, opencode →
+  `.opencode/skills/task-workflow-remote-/build-verification.md`).
+- End-to-end manual check: opted-in `exit 2` → `VERDICT:skip` /
+  `REASON:command_skipped` (rc 2); flipped to `exit 1` → `VERDICT:fail` /
+  `REASON:command_failed` (rc 1).
+
+### Not covered by tests
+
+Whether the agent *obeys* the branch it reads — i.e. actually declines to "fix
+the build" on `VERDICT:skip` — is agent behavior and not shell-testable. The
+mechanical half (the documented invocation really yields these verdicts) is
+pinned; the behavioral half is offered as a manual-verification follow-up.
