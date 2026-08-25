@@ -169,3 +169,5 @@ contract and must be preserved; only the disarm changes):
 > **✅ gate:plan_approved** run=2026-08-25T14:49:55Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-25T19:13:51Z status=pass attempt=1 type=human
+
+> **✅ gate:merge_approved** run=2026-08-25T19:36:08Z status=pass attempt=1 type=human
