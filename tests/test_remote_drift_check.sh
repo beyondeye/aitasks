@@ -129,6 +129,30 @@ will reference the new behavior.
 PLAN
 }
 
+# A plan shaped like a CONSUMER project's: its paths live under top-level
+# directories this repository does not have. Before t1275 the helper filtered
+# plan paths through a hardcoded allowlist of THIS repo's roots, so none of
+# these survived and the overlap signal was unreachable in every installed-into
+# project.
+#
+# `src/app/unreferenced.py` must NOT appear anywhere in this body -- not even in
+# a negative sentence ("we do not touch ..."), which would still yield it as a
+# token and make the 13c control non-discriminating.
+write_consumer_plan_file() {
+    local target="$1"
+    cat > "$target" <<'PLAN'
+---
+Task: t999_consumer.md
+Base branch: main
+---
+
+## Plan
+
+We will modify `src/app/service.py` in the service layer, and update the
+framework note at `aidocs/framework/notes.md` to match.
+PLAN
+}
+
 cleanup_dirs=()
 register_cleanup() { cleanup_dirs+=("$1"); }
 # shellcheck disable=SC2154  # d is the loop variable in the trap body
@@ -470,6 +494,60 @@ fi
 assert_exit_nonzero_rc "12d: --ff-only refuses to move a diverged branch" "$diverge_rc"
 after_sha=$(cd "$dlocal" && git rev-parse dev)
 assert_eq "12d: dev is left exactly where it was" "$before_sha" "$after_sha"
+
+# ============================================================
+# Test 13: consumer-project directory layout (t1275)
+# ============================================================
+#
+# The defect: plan paths were filtered through a hardcoded allowlist of this
+# repository's own top-level directories, so in a project rooted at src/ (or
+# anything else) the intersection was always empty and the helper emitted
+# NO_OVERLAP on every run. Since AHEAD+OVERLAP is the *strong* half of the
+# signal -- the only half a `remote_drift_check: strong-only` profile acts on --
+# the check silently degraded to a no-op rather than failing visibly.
+#
+# 13b covers the same defect INSIDE this repo: aidocs/ was never in the
+# allowlist, so plans referencing aidocs/framework/*.md never overlapped either.
+#
+# Negative controls (see the plan's mutation table): restoring the allowlist
+# grep must break 13a, 13b AND 13d -- with it in place this plan yields an empty
+# plan_paths, so the helper short-circuits to NO_OVERLAP. 13c is NOT
+# discriminated by that mutation; it is guarded by the exact intersection, and
+# breaks only if the intersection itself is removed.
+
+echo "--- Test 13: consumer-project layout produces OVERLAP ---"
+pair=$(make_branch_mode_pair)
+root="${pair%|*}"
+default_branch="${pair##*|}"
+register_cleanup "$root"
+
+git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
+(
+    cd "$root/other"
+    git config user.email "other@example.com"
+    git config user.name  "Other"
+    mkdir -p src/app aidocs/framework
+    echo "patched"  > src/app/service.py
+    echo "patched"  > aidocs/framework/notes.md
+    echo "unrelated" > src/app/unreferenced.py
+    git add src aidocs
+    git commit --quiet -m "consumer-shaped remote change"
+    git push --quiet origin "$default_branch"
+)
+
+mark_branch_mode "$root/local"
+plan_path="$root/local/plan.md"
+write_consumer_plan_file "$plan_path"
+
+result=$(cd "$root/local" && "$HELPER" "$default_branch" "$plan_path" 2>&1)
+assert_contains "13: remote ahead emits AHEAD" "AHEAD:1" "$result"
+assert_contains "13a: overlap on a non-framework root (src/)" \
+    "OVERLAP:src/app/service.py" "$result"
+assert_contains "13b: overlap on aidocs/, absent from the old allowlist" \
+    "OVERLAP:aidocs/framework/notes.md" "$result"
+assert_not_contains "13c: a remote change the plan never mentions is not reported" \
+    "OVERLAP:src/app/unreferenced.py" "$result"
+assert_not_contains "13d: no NO_OVERLAP when there is overlap" "NO_OVERLAP" "$result"
 
 # ============================================================
 # Test 7: missing-arg behavior

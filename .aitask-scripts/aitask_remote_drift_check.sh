@@ -209,12 +209,22 @@ fi
 
 # --- Plan-referenced paths ---
 # Step 1: pull every token shaped like a relative path with a known extension.
-# Step 2: keep only those rooted in one of our project subdirectories.
-# Step 3: strip leading './' and dedupe.
+# Step 2: strip leading './' and dedupe.
+#
+# There is deliberately NO allowlist of directory roots. OVERLAP is produced by
+# an exact full-line intersection with the remote-changed file list below, so a
+# token that is not a real remote-changed path is discarded there anyway: a root
+# filter can only remove TRUE positives, never false ones. The list removed here
+# was this repository's own top-level directories, which made the overlap signal
+# -- the strong half of the drift check -- unreachable in every consumer project,
+# and missed aidocs/ even here (t1275).
+#
+# The extension list below is a KNOWN remaining narrowing, deliberately left in
+# place: a plan referencing internal/pkg/server.go still yields zero tokens. See
+# aidocs/framework/plan_path_reference_extraction_findings.md.
 plan_paths=""
 if [[ -r "$PLAN_FILE" ]]; then
     plan_paths=$(grep -oE '[A-Za-z0-9_./-]+\.(sh|py|md|yaml|yml|json|toml)' "$PLAN_FILE" 2>/dev/null \
-        | grep -E '^(\.?/)?\.?(aitask-scripts|aitasks|aiplans|claude/skills|opencode/skills|gemini/skills|agents/skills|website|seed|tests)/' \
         | sed 's|^\./||' \
         | sort -u || true)
 fi
