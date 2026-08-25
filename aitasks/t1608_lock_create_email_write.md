@@ -6,8 +6,9 @@ issue_type: bug
 status: Ready
 labels: [bash_scripts, robustness, task_metadata, concurrency]
 anchor: 1599
+followup_kind: upstream_defect
 created_at: 2026-08-25 17:32
-updated_at: 2026-08-25 17:32
+updated_at: 2026-08-25 17:53
 ---
 
 ## Defect
