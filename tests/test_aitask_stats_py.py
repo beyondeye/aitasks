@@ -619,7 +619,7 @@ _LEVEL_SECTION_GOLDEN = """
 _Excluded from the backlog series: 1 task(s) (no_created_at: 1)._
 _Postponed tasks count as open; Folded tasks are excluded._
 _`bug` here is net of `upstream defect` follow-ups; `### By Task Type` counts it gross._
-_Backlog uses `completed_at` (falling back to `updated_at` for Done); the other sections prefer gate-ledger stamps -- the same set of completed tasks, a different week for ~0.3%._
+_Backlog uses `completed_at` (falling back to `updated_at` for Done); the other sections prefer gate-ledger stamps -- the same set of completed tasks, a small number bucketed one week apart._
 """
 
 _FLOW_SECTION_GOLDEN = """

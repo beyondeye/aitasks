@@ -150,6 +150,40 @@ class TestPresetPrecedence(unittest.TestCase):
             ["backlog.level", "backlog.netflow"],
         )
 
+    def test_no_shipped_json_pin_duplicates_a_code_default(self):
+        """Every preset pinned in the project JSON must be a GENUINE override (t1590).
+
+        The inverse of the prohibition in this class's docstring: that one bans
+        asserting the JSON *equals* `DEFAULT_PRESETS` (which would pin the
+        duplication in place); this one bans the duplication itself. A pin that
+        merely restates the code default contributes nothing to the effective
+        config, yet `deep_merge` REPLACES lists wholesale -- so it silently masks
+        any pane later added to that code preset.
+
+        Reads the project layer DIRECTLY rather than via `stats_config.load()`:
+        the whole point is to inspect what is pinned before it is merged away.
+        The path is anchored at `PROJECT_DIR`, not the process cwd -- ~39 modules
+        in this suite chdir, and a cwd-relative read would let the guard pass
+        vacuously against a file it never found.
+        """
+        path = PROJECT_DIR / "aitasks" / "metadata" / "stats_config.json"
+        if not path.exists():
+            self.skipTest(f"no project stats config at {path}")
+        pinned = json.loads(path.read_text(encoding="utf-8")).get("presets", {})
+
+        redundant = [
+            name
+            for name, panes in pinned.items()
+            if panes == stats_config.DEFAULT_PRESETS.get(name)
+        ]
+        self.assertEqual(
+            redundant,
+            [],
+            f"{path} pins preset(s) identical to DEFAULT_PRESETS: {redundant}. "
+            "Delete them -- the JSON is an override layer, and an identical pin "
+            "only masks panes later added to the code preset.",
+        )
+
     def test_a_json_preset_list_replaces_the_code_list(self):
         """`deep_merge` merges dicts per key but REPLACES lists.
 

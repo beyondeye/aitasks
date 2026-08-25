@@ -389,7 +389,8 @@ def render_backlog_level(axis: BacklogAxis, data: StatsData, out: io.StringIO, t
     )
     print(
         "_Backlog uses `completed_at` (falling back to `updated_at` for Done); the other sections "
-        "prefer gate-ledger stamps -- the same set of completed tasks, a different week for ~0.3%._",
+        "prefer gate-ledger stamps -- the same set of completed tasks, a small number bucketed "
+        "one week apart._",
         file=out,
     )
     print(file=out)
