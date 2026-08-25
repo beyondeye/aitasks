@@ -49,6 +49,7 @@ codeagent
 codebrowser
 codex
 codexcli
+concurrency
 crash_recovery
 custom_shortcuts
 dependencies
