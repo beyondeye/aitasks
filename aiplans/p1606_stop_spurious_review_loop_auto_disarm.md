@@ -662,3 +662,54 @@ unrelated suite modules fail with `FileNotFoundError` on
 `aitasks/metadata/*.json`. Restoring the two symlinks — they are gitignored —
 made all four pass and produced the clean suite verdict above. Worth knowing
 before reading a worktree suite run as a regression.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-25 18:5x)
+
+- **Requested by user:** two Step-8 review findings, both verified as valid.
+  1. *(blocking)* `_loop_hold` discarded `record_event`'s `False` result while
+     `_loop_auto_disarm` surfaced `(not recorded)`. Since the DIALOG/UNKNOWN
+     paths this task rerouted are **holds**, an unwritable store would leave
+     the next occurrence with no durable diagnostic and no notice once the
+     banner and toast faded.
+  2. *(follow-up)* `_loop_event_context` emitted only
+     `state`/`rounds_fired`/`session`/`window`/`project_root`, dropping
+     `agent`, `shadow_agent` and `shadow_pane` from the schema approved in
+     Phase 1d — and the implementation notes did not record the narrowing.
+
+- **Changes made:**
+  1. `_loop_hold` now captures the result and appends `(not recorded)` the way
+     `_loop_auto_disarm` does. A hold that normally stays quiet (supersession)
+     still reports a **failed** record — a broken diagnostic subsystem is a
+     fault in its own right — and holds are edge-triggered, so it cannot
+     repeat per tick. Two tests: an ambiguous read against an unwritable
+     store, and a quiet hold against one.
+  2. New `_note_loop_identity` / `_loop_identity` thread the followed/shadow
+     pair through as **last-observed** values, updated incrementally as
+     `_service_review_loop` learns them. Deliberately not re-queried at
+     teardown: a fresh tmux lookup there could fail — or be the very thing
+     that failed — and would replace the record with nothing. Pinned on an
+     **emitted** record, plus a test that a tick which cannot re-resolve the
+     shadow does not erase what the previous tick knew.
+
+  Both carry negative controls that fail exactly their named tests.
+
+- **Two test defects found while verifying, and fixed:**
+  - The concurrency proof's **own instrumentation raced**: it reported the
+    pruner's pass count via `write_text`, which truncates, so the test's read
+    could catch the file empty and die on `int('')`. Reproduced under CPU
+    load; now an atomic append — the same property the module under test
+    relies on. Its newline escape also had to go, since the template literal
+    consumed it before the child process saw it.
+  - `tests/test_minimonitor_concern_smoke.py`'s two app fixtures construct via
+    `__new__` and hand-install loop state, so they needed the new attributes.
+
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `aidocs/framework/shadow_agent.md`,
+  `tests/test_minimonitor_concern_action.py`,
+  `tests/test_minimonitor_concern_smoke.py`, `tests/test_review_loop_log.py`.
+
+- **Verification:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; the
+  concurrency proof re-checked under sustained CPU load (3/3) and still fails
+  against a shared-ring implementation.
