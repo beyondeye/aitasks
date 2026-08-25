@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, review_loop]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 created_at: 2026-08-25 16:33
-updated_at: 2026-08-25 16:33
+updated_at: 2026-08-25 16:41
 ---
 
 The minimonitor auto-recheck loop (`L`, t1159_2) **auto-disarms almost immediately
