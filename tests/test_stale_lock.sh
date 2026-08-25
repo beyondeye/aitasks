@@ -594,6 +594,70 @@ old_gc_release "$L.gc"; rc=$?
 assert_exit_nonzero_rc "old code's later release does NOT destroy our guard" "$rc"
 stale_lock_release "$L" "$STALE_LOCK_TOKEN"
 
+# ============================================================
+echo "--- t1598: the publish window cannot produce two guard holders ---"
+# ============================================================
+# `mkdir "$gc"` alone is NOT the whole claim: the guard is observably EMPTY
+# between that call and the record write. A process paused there (SIGSTOP, a
+# suspended VM, a pathologically loaded box) past the markerless window has its
+# guard reclaimed, and on resume its `mkdir "$gc/$mark"` lands inside the
+# RECLAIMER's instance — two processes each believing they hold the mutex. That
+# is a correctness failure, not an availability one, and it was REPRODUCED
+# before the sole-record read-back existed.
+#
+# The interleaving is forced with a `mkdir` PATH shim that parks exactly between
+# guard creation and record publication — the one instant that matters. A
+# free-running test cannot pin this: nothing makes the pause happen there.
+L="$(ait_lock_dir gcpublishrace)"
+GC="$L.gc"
+REAL_MKDIR="$(command -v mkdir)"
+mkdir -p "$T/binm"
+parked_pub="$T/parked_pub"; hold_pub="$T/hold_pub"; : > "$hold_pub"
+cat > "$T/binm/mkdir" <<SHIM
+#!/bin/sh
+case "\$*" in
+  *"$GC/h."*)
+      : > "$parked_pub"
+      while [ -e "$hold_pub" ]; do sleep 0.01; done ;;
+esac
+exec "$REAL_MKDIR" "\$@"
+SHIM
+chmod +x "$T/binm/mkdir"
+
+(
+    PATH="$T/binm:$PATH"
+    _stale_lock_gc_take "$GC" "" 2>/dev/null
+    printf '%s:%s\n' "$?" "$_STALE_LOCK_GC_MARK" > "$T/a_pub.result"
+) &
+apub=$!
+for _ in $(seq 1 500); do [[ -e "$parked_pub" ]] && break; sleep 0.01; done
+assert_file_exists "contender A parked between guard creation and its record" \
+    "$parked_pub"
+
+backdate "$GC"                              # A paused past the markerless window
+_stale_lock_gc_take "$GC" 60 2>/dev/null; rc=$?
+assert_eq "B's first take reclaims the abandoned-looking guard" "2" "$rc"
+_stale_lock_gc_take "$GC" 60 2>/dev/null; rc=$?
+assert_exit_zero_rc "B's second take claims the guard" "$rc"
+b_pub_mark="$_STALE_LOCK_GC_MARK"
+
+rm -f "$hold_pub"
+wait "$apub" 2>/dev/null
+a_pub_rc="$(cut -d: -f1 "$T/a_pub.result")"
+a_pub_mark="$(cut -d: -f2 "$T/a_pub.result")"
+
+# The load-bearing assertions. Without the read-back, A returns 0 with a mark
+# and BOTH records sit in the guard — verified by removing the read-back.
+assert_exit_nonzero_rc "A's resumed publish fails closed inside B's instance" \
+    "$a_pub_rc"
+assert_eq "A reports no guard record when it loses the race" "" "$a_pub_mark"
+assert_eq "exactly ONE record remains in the guard" "1" \
+    "$(find "$GC" -mindepth 1 -maxdepth 1 | wc -l)"
+assert_dir_exists "and the survivor is B's record" "$GC/$b_pub_mark"
+_stale_lock_gc_release "$GC" "$b_pub_mark"
+assert_dir_not_exists "B releases cleanly afterwards" "$GC"
+rm -rf "$T/binm"
+
 echo ""
 echo "========================="
 echo "Results: $PASS/$TOTAL passed, $FAIL failed"

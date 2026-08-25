@@ -15,9 +15,17 @@
 #      by the `.gc` guard dir (<lock_dir>.gc, a mkdir mutex). Only the
 #      protected application operation runs outside it. A staleness verdict is
 #      therefore always acted on in the same guard section it was formed in.
-#   2. `.gc` is never stolen from a LIVE holder. It carries a holder record
-#      published under the same `mkdir` that grants it (<gc>/h.<pid>.<nonce>),
-#      and a guard whose record names a provably dead pid is reclaimed by an
+#   2. `.gc` is never stolen from a LIVE holder, and never has two holders.
+#      The claim is TWO steps and both are load-bearing: the single-winner
+#      `mkdir "$gc"`, then a holder record (<gc>/h.<pid>.<nonce>) whose
+#      read-back must find it ALONE. The read-back is what closes the window in
+#      which the guard is observably empty — a creator paused there past the
+#      markerless window has its guard reclaimed, and would otherwise publish
+#      into the reclaimer's instance and hold alongside it. At most one
+#      contender can ever see itself alone (see _stale_lock_gc_sole_record), so
+#      a lost race costs an attempt, never correctness.
+#
+#      A guard whose record names a provably dead pid is reclaimed by an
 #      instance-keyed disarm — so a staleness verdict can only ever destroy the
 #      exact instance it was formed against, never a live replacement. Liveness
 #      decides at ANY duration; age never enters the decision for a guard that
@@ -270,6 +278,37 @@ _stale_lock_gc_holder() {
     return 0
 }
 
+# _stale_lock_gc_sole_record <gc_dir> <mark> — read-back: is <mark> the ONLY
+# entry in the guard? Returns 0 iff it is.
+#
+# THIS IS WHAT MAKES THE CLAIM SINGLE-WINNER, and it is not optional. `mkdir
+# "$gc"` alone is not enough, because the guard is observably EMPTY between that
+# call and the record write: a process paused there (SIGSTOP, a suspended VM, a
+# pathologically loaded box) past the markerless window has its guard reclaimed,
+# and when it resumes its `mkdir "$gc/$mark"` lands inside the RECLAIMER's
+# instance — leaving two processes each believing they hold the mutex.
+# Reproduced before this check existed.
+#
+# Why the read-back closes it, rather than merely narrowing it. Each contender
+# creates its record before reading, so `mkdir < read` for both. If A's read saw
+# only its own record then B's mkdir came after A's read; if B's read saw only
+# its own then A's mkdir came after B's read. Together those give
+# A.mkdir > B.read > B.mkdir > A.read > A.mkdir — a contradiction. At most one
+# contender can ever see itself alone, whatever the interleaving.
+#
+# The loser removes only its own record, so a lost race costs an attempt, never
+# correctness. A third party observing the brief two-record state classifies it
+# as unrecognized and fails closed — availability, not corruption.
+_stale_lock_gc_sole_record() {
+    local gc="$1" mark="$2" entry base
+    for entry in "$gc"/* "$gc"/.[!.]*; do
+        [[ -e "$entry" || -L "$entry" ]] || continue
+        base="${entry##*/}"
+        [[ "$base" == "$mark" ]] || return 1
+    done
+    [[ -d "$gc/$mark" ]]
+}
+
 # _stale_lock_gc_probe <gc_dir> <markerless_window> — reclaim decision.
 # Returns 0 iff the guard slot CHANGED (caller should retry mkdir at once).
 # A live holder is never displaced, at any duration — which is what makes a long
@@ -324,13 +363,18 @@ _stale_lock_gc_take() {
         # inline too. No `date` fork either: this runs on every acquire
         # iteration.
         mark="$_STALE_LOCK_GC_MARK_PREFIX${BASHPID:-$$}.${RANDOM}${RANDOM}"
-        if mkdir "$gc/$mark" 2>/dev/null && [[ -d "$gc/$mark" ]]; then
+        if mkdir "$gc/$mark" 2>/dev/null && _stale_lock_gc_sole_record "$gc" "$mark"; then
             _STALE_LOCK_GC_MARK="$mark"
             return 0
         fi
-        # Partial publish: unwind so we never hold an unidentifiable guard.
+        # Either the record could not be written, or the read-back found company
+        # — see _stale_lock_gc_sole_record. Unwind our own record (instance-keyed,
+        # so it can never touch anyone else's) and fail closed. The trailing
+        # `rmdir` succeeds only if the guard is now empty, i.e. only if nobody
+        # else is in it: emptiness is what makes it safe to remove.
         warn "stale_lock: could not record the guard holder in '$gc'"
-        rmdir "$gc" 2>/dev/null || warn "stale_lock: guard '$gc' left unidentified"
+        rmdir "$gc/$mark" 2>/dev/null || true
+        rmdir "$gc" 2>/dev/null || true
         return 1
     fi
     if _stale_lock_gc_probe "$gc" "$window"; then return 2; fi
