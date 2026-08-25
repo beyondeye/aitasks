@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [task-workflow, planning, gates]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-25 10:16
-updated_at: 2026-08-25 11:39
+updated_at: 2026-08-25 12:34
+completed_at: 2026-08-25 12:34
 ---
 
 # Durable, surface-visible "plan approved, awaiting implementation" marker
@@ -86,3 +87,14 @@ is introduced must leave the §6.0 → Checkpoint → drift-check path intact.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-25T08:39:29Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-25T09:34:26Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1425c213be4149b3
+
+> **✅ gate:risk_evaluated** run=2026-08-25T09:34:26Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1595/risk_evaluated_2026-08-25T09:34:26Z-risk_evaluated-a1.log`
