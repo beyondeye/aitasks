@@ -39,8 +39,23 @@ def _manager(ab):
     mgr.gate_state_cache = {}
     mgr.gate_registry_cache = None
     mgr.gate_registry_error = ""
+    # Local-dependency decision core (t1527), built lazily by dep_resolver().
+    mgr._dep_resolver = None
+    mgr.gate_digest_cache = ab._DIGEST_UNSET
     mgr.settings = {}
     return mgr
+
+
+def _tree_task(ab, tasks_dir: Path, name: str, body: str, cleanup):
+    """Write a task INTO the fixture tree, so on-disk resolution can find it.
+
+    Registers its removal, because `FixtureBoardTestBase` builds one tree per
+    class and a leaked task file would change the next test's starting state.
+    """
+    path = tasks_dir / name
+    path.write_text(body, encoding="utf-8")
+    cleanup(path.unlink, missing_ok=True)
+    return ab.Task.from_text(path, body)
 
 
 def _task(ab, tmp: Path, name: str, body: str):
@@ -120,24 +135,42 @@ class InFlightModelTests(bf.FixtureBoardTestBase, unittest.TestCase):
             self.assertEqual(item.human_gates, ["review_approved"])
 
     def test_gate_satisfied_dependency_does_not_block(self):
-        with tempfile.TemporaryDirectory() as td:
-            mgr = _manager(self.ab)
-            upstream = _task(
-                self.ab,
-                Path(td),
-                "t10_upstream.md",
-                _body("Implementing", "gates: [review_approved]\n", LEDGER_REVIEW_PASS),
-            )
-            dependent = _task(
-                self.ab,
-                Path(td),
-                "t11_dependent.md",
-                _body("Ready", "depends: [10]\n"),
-            )
-            mgr.task_datas[upstream.filename] = upstream
-            mgr.task_datas[dependent.filename] = dependent
+        """t635_3 through the shared core: an active upstream whose required
+        gates all pass releases its dependents before archival.
 
-            self.assertEqual(mgr.unresolved_local_deps(dependent), [])
+        Written into the FIXTURE TREE, not a detached tempdir: since t1527 the
+        board resolves a dep id against `TASKS_DIR` on disk rather than against
+        the in-memory `task_datas` map, so a task that exists only in that map is
+        (correctly) UNRESOLVED. Production never has one — every entry in
+        `task_datas` was loaded from that tree — and a fixture that stages one
+        would be asserting against a state the board cannot reach.
+        """
+        upstream = _tree_task(
+            self.ab, self.tasks_dir, "t10_upstream.md",
+            _body("Implementing", "gates: [review_approved]\n", LEDGER_REVIEW_PASS),
+            self.addCleanup,
+        )
+        dependent = _tree_task(
+            self.ab, self.tasks_dir, "t11_dependent.md",
+            _body("Ready", "depends: [10]\n"), self.addCleanup,
+        )
+        mgr = _manager(self.ab)
+        mgr.task_datas[upstream.filename] = upstream
+        mgr.task_datas[dependent.filename] = dependent
+
+        self.assertEqual(mgr.unresolved_local_deps(dependent), [])
+
+        # Negative control: without the passing gate the same upstream DOES
+        # block, so the assertion above is not vacuously satisfied by the
+        # dependent simply having no deps.
+        ungated = _tree_task(
+            self.ab, self.tasks_dir, "t10_upstream.md",
+            _body("Implementing"), self.addCleanup,
+        )
+        mgr2 = _manager(self.ab)
+        mgr2.task_datas[ungated.filename] = ungated
+        mgr2.task_datas[dependent.filename] = dependent
+        self.assertEqual(mgr2.unresolved_local_deps(dependent), ["t10"])
 
     def test_gate_parse_failure_fails_closed(self):
         with tempfile.TemporaryDirectory() as td:

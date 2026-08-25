@@ -54,6 +54,7 @@ from agent_launch_utils import (  # noqa: E402
 from followup_kinds import normalize_followup_kind  # noqa: E402
 from task_yaml import parse_frontmatter  # noqa: E402
 import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
+import dep_resolution  # noqa: E402  (shared local-`depends:` decision core, t1527)
 import workflow_phase  # noqa: E402  (advisory phase seam, t1420 — never a gate)
 
 try:
@@ -3233,7 +3234,19 @@ class TaskInfo:
     # :meth:`TaskInfoCache.blocking_dependencies`, which the minimonitor's
     # pick-by-number dialog uses to warn about an unpickable target (t1310).
     # Defaulted for the same reason as ``task_file_abs``.
+    #
+    # **Read through ``dep_resolution.read_depends``, never by iterating the raw
+    # field** (t1527). A hand-edited `depends: 999` is an int, and iterating it
+    # raised ``TypeError`` inside ``_resolve`` — killing the lookup entirely;
+    # `depends: "999"` is a string, and iterating it yielded ``['9','9','9']``,
+    # three dependencies nobody wrote. Both now leave this list EMPTY and set
+    # the companion flag below, which is what makes the field fail closed
+    # instead of reading as "no dependencies".
     depends: list[str] = field(default_factory=list)
+    # ``True`` when `depends:` was present but not a list. Always carried
+    # alongside ``depends`` — a caller that reads one without the other turns an
+    # unreadable field back into "no dependencies".
+    depends_malformed: bool = False
     # File identity ``(st_mtime_ns, st_size)`` of ``task_file_abs``, sampled
     # BEFORE the content read in ``_resolve`` — never after (t1322). The archive
     # script's rewrites are rename-based (``sed -i``, ``awk > tmp && mv`` in
@@ -3436,6 +3449,11 @@ class TaskInfoCache:
         # Pane-keyed task-id cache (t986). Keyed by pane_id so panes sharing a
         # window are never conflated; see get_task_id_for_pane.
         self._pane_to_task_id: dict[str, str | None] = {}
+        # Local-dependency resolvers, one per project root (t1527). The verdict
+        # is decided by lib/dep_resolution.py — the SAME core `ait ls` and the
+        # board consume — so the three surfaces cannot disagree about whether a
+        # dep is satisfied, blocking, or unresolvable.
+        self._dep_resolvers: dict[Path, "dep_resolution.LocalDepResolver"] = {}
 
     def update_session_mapping(self, mapping: dict[str, Path]) -> None:
         """Replace the session→project_root mapping (idempotent).
@@ -3566,49 +3584,74 @@ class TaskInfoCache:
             return None
         return task_id.split("_", 1)[0]
 
+    def dep_resolver(self, session_name: str = "") -> "dep_resolution.LocalDepResolver":
+        """The local-dependency resolver for this session's project root.
+
+        One per root, kept across calls so its two file-identity caches survive;
+        each :meth:`blocking_dependencies` call with ``refresh=True`` starts a
+        new *cycle* on it (see that method).
+        """
+        root = self._root_for_session(session_name)
+        resolver = self._dep_resolvers.get(root)
+        if resolver is None:
+            tasks_dir = root / "aitasks"
+            registry = tasks_dir / "metadata" / "gates.yaml"
+            resolver = dep_resolution.LocalDepResolver(
+                str(tasks_dir), str(registry) if registry.exists() else None)
+            self._dep_resolvers[root] = resolver
+        return resolver
+
     def blocking_dependencies(
         self,
         info: "TaskInfo",
         session_name: str = "",
         *,
         refresh: bool = True,
-    ) -> list[str]:
-        """Unsatisfied ``depends`` entries of an already-resolved task (t1310).
+    ) -> list["dep_resolution.DepVerdict"]:
+        """Non-satisfied ``depends`` entries of an already-resolved task (t1310).
 
         Takes the resolved :class:`TaskInfo` rather than an id so the caller —
         which has just invalidated and re-read the target for display — reads
         each task file exactly once.
 
-        A dependency counts as blocking unless it resolves with status
-        ``Done``. An entry that does not resolve at all is reported as blocking
-        too (fail-closed): a dangling id must be visible, never silently
-        treated as satisfied. Archived dependencies resolve normally —
-        :meth:`_resolve` searches ``aitasks/archived/`` — and carry
-        ``status: Done``, so completed work does not show up as a blocker.
+        **The verdict is not decided here.** Since t1527 it comes from
+        ``lib/dep_resolution``, the one decision core ``ait ls`` and the board
+        also consume, so the three surfaces cannot disagree. Two consequences
+        for this method specifically:
 
-        **Freshness.** ``refresh=True`` invalidates each dependency before
-        resolving it. Since t1322 the cache is identity-keyed, so a dependency
-        flipping ``Ready`` → ``Done`` while a long-lived minimonitor is open is
-        already picked up by ``get_task_info`` on its own — ``refresh=True`` is
-        no longer what prevents a stale "still blocking" verdict. It is retained
-        because it still does two things the identity gate cannot: it forces an
-        immediate retry of a *negative* entry whose backoff is not yet due, and
-        it re-decides ``_resolve``'s active-beats-archived precedence. This
-        matches :meth:`find_ready_siblings`, which recomputes its
-        ``blocking_ids`` by reading every sibling file from disk on each call.
+        * a dependency that is *active* but whose required gates all pass is now
+          **satisfied** — the t635_3 gate-release rule, which this surface alone
+          used to ignore, so it reported a blocker the other two did not;
+        * the return is a list of :class:`~dep_resolution.DepVerdict`, not of
+          ids, because an id that resolves to no task file is a third outcome
+          (``UNRESOLVABLE``) the caller must render differently — collapsing it
+          into "blocking" would hide a data error as ordinary upstream work.
 
-        ``refresh=False`` therefore no longer serves stale content; it only
-        skips the forced invalidation. Tests assert that distinction by counting
-        ``_resolve`` calls over an *unchanged* file, not by rewriting one.
+        Fail-closed is unchanged and now shared: an entry that does not resolve
+        still blocks. Archived dependencies still resolve (the core searches
+        ``aitasks/archived/``) and carry ``status: Done``, so completed work is
+        not a blocker.
+
+        **Freshness.** ``refresh=True`` starts a new resolver cycle: it drops
+        every cached answer and installs a fresh gate evaluator. That is the same
+        role the old per-dep ``invalidate`` loop played — a forced immediate
+        retry of a negative, and a re-decision of active-beats-archived
+        precedence — plus the one the old loop could not play: the registry and
+        code-digest memos behind the gate-release rule are re-validation inputs,
+        and a cycle that outlived a refresh would freeze them (the t1416 hazard;
+        see ``dep_resolution.LocalDepResolver`` and
+        ``gate_ledger.DependentsEvaluator``).
+
+        ``refresh=False`` reuses the current cycle — it only skips the forced
+        invalidation, exactly as before.
         """
-        blocking: list[str] = []
-        for dep in info.depends:
-            if refresh:
-                self.invalidate(dep, session_name)
-            dep_info = self.get_task_info(dep, session_name)
-            if dep_info is None or dep_info.status != "Done":
-                blocking.append(dep)
-        return blocking
+        resolver = self.dep_resolver(session_name)
+        if refresh:
+            resolver.invalidate_all()
+        # Both halves of the read, always together: dropping ``depends_malformed``
+        # would silently turn an unreadable field back into "no dependencies".
+        return [v for v in resolver.classify_tokens(
+            info.depends, malformed=info.depends_malformed) if v.blocking]
 
     def find_next_sibling(
         self, task_id: str, session_name: str = ""
@@ -3706,9 +3749,11 @@ class TaskInfoCache:
         if not search_dir.is_dir():
             return []
 
-        # First pass: collect every sibling's status + parsed metadata so
-        # the second pass can compute "blocked by sibling" without re-reading.
-        sib_status: dict[str, str] = {}
+        # First pass: collect the Ready siblings' rows. The per-sibling STATUS
+        # map this used to build alongside them is gone (t1527) — the second pass
+        # asks the shared decision core instead, which knows about gate release
+        # and about archived siblings, neither of which a status map built from
+        # the active child dir can answer.
         parsed_rows: list[tuple[int, str, str, list[str], str]] = []
         child_re = re.compile(rf'^t{re.escape(parent)}_(\d+)_')
         for path in sorted(search_dir.glob(f"t{parent}_*_*.md")):
@@ -3726,7 +3771,6 @@ class TaskInfoCache:
                 continue
             metadata, body, _ = parsed
             status = str(metadata.get("status", "")).strip()
-            sib_status[sib_id] = status
             if status != "Ready":
                 continue
             if exclude_id is not None and sib_id == exclude_id:
@@ -3740,9 +3784,14 @@ class TaskInfoCache:
             if not title:
                 parts = path.stem.split("_", 2)
                 title = parts[2].replace("_", " ") if len(parts) > 2 else path.stem
-            depends_raw = metadata.get("depends", []) or []
+            # Shared reader (t1527): a non-list field yields no tokens rather
+            # than a TypeError or a per-character explosion. A malformed field
+            # names no SIBLING, so it contributes nothing to this hint — which
+            # is the sibling-only scope, not a fail-open: `blocking_dependencies`
+            # is the surface that reports it, on the same task.
+            _tokens, _ = dep_resolution.read_depends(metadata.get("depends"))
             # Normalize "t42" / "42" / 42 to bare numeric strings.
-            depends_norm = [str(d).lstrip("t") for d in depends_raw]
+            depends_norm = [str(d).lstrip("t") for d in _tokens]
             parsed_rows.append((
                 int(sib_child), sib_id, title, depends_norm,
                 normalize_followup_kind(metadata.get("followup_kind")),
@@ -3751,20 +3800,26 @@ class TaskInfoCache:
         if not parsed_rows:
             return []
 
-        # Second pass: a blocker is a depends entry whose normalized form
-        # matches "<parent>_<n>" of another sibling whose status is not Done.
+        # Second pass: a blocker is a sibling dep the shared decision core does
+        # not call satisfied.
+        #
+        # The core (t1527) replaced a local `sib_status.get(dep) != "Done"` test,
+        # which ignored the t635_3 gate-release rule and so claimed a sibling at
+        # `Implementing` with every required gate passing was still holding the
+        # next task — the same defect `blocking_dependencies` carried. It also
+        # only ever saw the ACTIVE child dir, so an archived (Done) sibling read
+        # as a blocker; the core searches `aitasks/archived/` too.
+        #
+        # The sibling SCOPING is deliberately unchanged: a cross-parent dep is
+        # still not surfaced here. This is a "blocked by sibling" hint next to a
+        # pickable row, not a gate — widening it is not a fix.
+        resolver = self.dep_resolver(session_name)
+        resolver.invalidate_all()   # one cycle per call; see blocking_dependencies
         rows: list[tuple[str, str, list[str], str]] = []
         for (_child_num, sib_id, title, depends_norm,
                 followup_kind) in sorted(parsed_rows, key=lambda r: r[0]):
-            blocking: list[str] = []
-            for dep in depends_norm:
-                # Only sibling deps shaped as "<parent>_<n>" are relevant
-                # here; cross-parent deps are not surfaced (the "blocked by
-                # sibling" hint is intentionally scoped to siblings).
-                if not dep.startswith(f"{parent}_"):
-                    continue
-                if sib_status.get(dep, "") != "Done":
-                    blocking.append(dep)
+            sibling_deps = [d for d in depends_norm if d.startswith(f"{parent}_")]
+            blocking = [v.raw for v in resolver.classify(sibling_deps) if v.blocking]
             rows.append((sib_id, title, blocking, followup_kind))
         return rows
 
@@ -3869,6 +3924,9 @@ class TaskInfoCache:
                 pass
             break
 
+        _depends_tokens, _depends_malformed = dep_resolution.read_depends(
+            metadata.get("depends"))
+
         return TaskInfo(
             task_id=task_id,
             task_file=str(task_path.relative_to(root)),
@@ -3881,9 +3939,9 @@ class TaskInfoCache:
             plan_content=plan_content,
             task_file_abs=str(task_path),
             # Same normalization as find_ready_siblings: "t42" / "42" / 42 all
-            # become the bare "42".
-            depends=[
-                str(d).lstrip("t") for d in (metadata.get("depends", []) or [])
-            ],
+            # become the bare "42". The shared reader also classifies a non-list
+            # field as malformed rather than iterating it — see the field docs.
+            depends=[str(d).lstrip("t") for d in _depends_tokens],
+            depends_malformed=_depends_malformed,
             file_identity=identity,
         )

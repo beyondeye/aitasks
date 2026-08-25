@@ -45,6 +45,7 @@ from cross_repo_notation import parse_ref as parse_cross_repo_ref
 from task_levels import LEVELS_ASCENDING
 from archive_iter import find_archived_markdown_by_id, iter_archived_frontmatter
 import gate_ledger
+import dep_resolution
 import trail_schema
 from atomic_write import atomic_write_text
 from task_yaml import (
@@ -1681,6 +1682,16 @@ class TaskManager:
         self.gate_state_cache.clear()
         self.gate_registry_cache = None
         self.gate_registry_error = ""
+        # The local-dependency resolver starts a new CYCLE here rather than being
+        # dropped (t1527): its id->path and parsed-facts caches are file-identity
+        # keyed and self-invalidating, but the gate evaluator behind them memoizes
+        # the registry and the code digest — the same two values the digest cache
+        # below is cleared for, and for the same reason. A resolver cycle that
+        # outlived a refresh would keep a gate-released dependency SATISFIED after
+        # the code changed or gates.yaml was edited. Renew both here or neither.
+        if self._dep_resolver is not None:
+            self._dep_resolver.begin_cycle(
+                digest_provider=self.code_digest_for_refresh)
         # MUST stay in this method (t1416). The digest is repo-global rather than
         # per-task, so a lifetime longer than one refresh cycle is not a cache
         # miss — it silently freezes every signature verdict until the process
@@ -1744,21 +1755,48 @@ class TaskManager:
         self.gate_state_cache[key] = result
         return result
 
-    def dependency_released_by_gates(self, task: Task) -> bool:
-        """Whether an active upstream dependency is satisfied for dependents."""
-        result = self.gate_state_for(task)
-        return bool(result.state and result.state.dependents_decision == "SATISFIED")
+    #: Local-dependency decision core (t1527), built lazily by dep_resolver().
+    #: Declared at CLASS level rather than assigned in __init__ so "not built
+    #: yet" is the default for any instance — including the several test
+    #: harnesses that construct a TaskManager via __new__ and populate only the
+    #: fields they need. `dep_resolver()` shadows it with an instance attribute
+    #: on first use; nothing ever mutates it at class level.
+    _dep_resolver: dep_resolution.LocalDepResolver | None = None
+
+    def dep_resolver(self) -> dep_resolution.LocalDepResolver:
+        """The local-dependency resolver, built once and kept.
+
+        Its two caches are file-identity keyed and therefore self-invalidating;
+        what is NOT safe to keep is the gate evaluator behind them, so
+        :meth:`clear_gate_cache` starts a new cycle on it every refresh — see
+        the note there.
+        """
+        if self._dep_resolver is None:
+            self._dep_resolver = dep_resolution.LocalDepResolver(
+                str(TASKS_DIR), str(GATES_REGISTRY_FILE))
+            self._dep_resolver.begin_cycle(
+                digest_provider=self.code_digest_for_refresh)
+        return self._dep_resolver
+
+    def local_dep_verdicts(self, task: Task) -> list[dep_resolution.DepVerdict]:
+        """Every non-satisfied local dep of ``task``, verdict included (t1527).
+
+        The decision is `lib/dep_resolution`'s, shared verbatim with `ait ls` and
+        the minimonitor picker. Two things change versus the old inline test:
+
+        * resolution reaches `aitasks/archived/` as well as the loaded active
+          tasks, so an archived (Done) dep is satisfied *because it resolves to a
+          Done task* rather than by accident of `find_task_by_id` returning None;
+        * an id that resolves to NOTHING now BLOCKS and is rendered
+          `(UNRESOLVED)`, instead of being silently treated as satisfied by the
+          old `if dep_task and ...` fail-open.
+        """
+        return [v for v in self.dep_resolver().classify(
+            task.metadata.get('depends', []) or []) if v.blocking]
 
     def unresolved_local_deps(self, task: Task) -> list[str]:
-        unresolved = []
-        for d in task.metadata.get('depends', []) or []:
-            d_str = str(d)
-            dep_id = d_str if d_str.startswith('t') else f"t{d_str}"
-            dep_task = self.find_task_by_id(dep_id)
-            if dep_task and dep_task.metadata.get('status') != 'Done' \
-                    and not self.dependency_released_by_gates(dep_task):
-                unresolved.append(dep_id)
-        return unresolved
+        """Display strings for :meth:`local_dep_verdicts` — `t42`, `t2 (UNRESOLVED)`."""
+        return [v.display(prefix='t') for v in self.local_dep_verdicts(task)]
 
     def cross_repo_dep_display(self, task: Task) -> tuple[list[str], bool]:
         xdep_display = []

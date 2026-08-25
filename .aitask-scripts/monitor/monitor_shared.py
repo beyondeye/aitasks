@@ -76,6 +76,7 @@ from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 if TYPE_CHECKING:  # annotations only (PEP 563 via `from __future__`); no runtime cost
     from monitor.concern_parser import BlockMeta, Concern
+    from dep_resolution import DepVerdict
 
 
 # Dark background for terminal preview — hard-coded because we're rendering
@@ -1606,7 +1607,7 @@ class TaskPickConfirmDialog(TaskDetailDialog):
         *,
         kill_target_label: str | None = None,
         already_running: str | None = None,
-        blocking: list[str] | None = None,
+        blocking: list["DepVerdict"] | None = None,
         narrow: bool = False,
     ) -> None:
         super().__init__(info)
@@ -1657,7 +1658,14 @@ class TaskPickConfirmDialog(TaskDetailDialog):
             status = self._info.status or "(no status)"
             lines.append(f"⚠ t{self._info.task_id} is {status} — not Ready to pick")
         if self._blocking:
-            blockers = " ".join(f"t{b}" for b in self._blocking)
+            # `.display(prefix="t")` renders an UNRESOLVABLE dep as
+            # `t2 (UNRESOLVED)` — a dep id that matches no task file is a data
+            # error, and must not read as ordinary upstream work. The marker
+            # string itself lives in lib/dep_resolution, so this pane, the board
+            # and `ait ls` cannot spell the same state three ways (t1527).
+            # This Static wraps, so the marker survives the ~40-column narrow
+            # variant instead of being clipped.
+            blockers = " ".join(b.display(prefix="t") for b in self._blocking)
             lines.append(f"⛔ blocked by {blockers}")
         return lines
 

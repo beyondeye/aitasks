@@ -55,6 +55,17 @@ from monitor.monitor_core import (  # noqa: E402
     PaneCategory, TaskInfo, TaskInfoCache,
 )
 from monitor import monitor_shared as ms  # noqa: E402
+import dep_resolution  # noqa: E402
+
+
+def _blk(*ids, verdict=dep_resolution.BLOCKING):
+    """DepVerdicts shaped exactly as `blocking_dependencies` really returns them.
+
+    The dialog renders through `DepVerdict.display()`, so a fixture that passed
+    bare id strings would exercise a shape production never produces (t1527).
+    """
+    return [dep_resolution.DepVerdict(raw=str(i), canonical=str(i),
+                                      verdict=verdict) for i in ids]
 from monitor.monitor_shared import (  # noqa: E402
     TaskNumberInputModal, TaskPickConfirmDialog, ColumnPickerModal, _ColumnRow,
     NewColumnTitleModal, _NewColumnRow,
@@ -102,7 +113,7 @@ class _FakeTaskCache:
         self._pane_to_task = pane_to_task or {}
         self.lookups: list[str] = []
         self.invalidated: list[str] = []
-        self.blocking: list[str] = []
+        self.blocking: list = []   # DepVerdicts, per blocking_dependencies
 
     def get_task_id_for_pane(self, pane):
         return self._pane_to_task.get(pane.pane_id)
@@ -139,6 +150,11 @@ def _mk_app(infos, snapshots=(), pane_to_task=None, monitor=True):
     app._project_root = Path("/proj/fallback")
     app._focused_pane_id = None
     app._monitor = _FakeMonitor() if monitor else None
+    # Publish this 'tick's' session→root map the way `_refresh_data` does
+    # (t1598): `_root_for_snap` reads the published map instead of making a
+    # sync tmux round-trip from the render path.
+    if monitor:
+        app._set_session_root_map(app._monitor.get_session_to_project_mapping())
     app.spy_notify = []
     app.spy_pushed = []
     app.spy_launch = []
@@ -308,12 +324,12 @@ class EligibilityTests(unittest.TestCase):
         self.assertIn("not Ready to pick", dialog._eligibility_lines()[0])
 
     def test_blocked_dependencies_warn(self):
-        dialog = self._dialog(blocking=["1200", "900"])
+        dialog = self._dialog(blocking=_blk("1200", "900"))
         self.assertTrue(dialog.has_eligibility_warning)
         self.assertIn("⛔ blocked by t1200 t900", dialog._eligibility_lines())
 
     def test_both_conditions_produce_both_lines(self):
-        dialog = self._dialog(status="Postponed", blocking=["1200"])
+        dialog = self._dialog(status="Postponed", blocking=_blk("1200"))
         self.assertEqual(len(dialog._eligibility_lines()), 2)
 
 
@@ -333,6 +349,17 @@ def _write_task(tasks_dir: Path, task_id: str, status: str, depends=()) -> None:
         f"---\nstatus: {status}\ndepends: {dep_line}\n---\n\n# task {task_id}\n",
         encoding="utf-8",
     )
+
+
+def _ids(verdicts) -> list[str]:
+    """Blocking dep ids from the DepVerdict list `blocking_dependencies` returns.
+
+    The return became which-items rather than which-ids in t1527, because
+    UNRESOLVABLE is a third outcome the pick dialog must render differently.
+    Tests that only care about *which deps* block reduce through here; the ones
+    that care about the verdict assert on it directly.
+    """
+    return [v.raw for v in verdicts]
 
 
 class BlockingDependenciesTests(unittest.TestCase):
@@ -355,28 +382,36 @@ class BlockingDependenciesTests(unittest.TestCase):
 
     def test_no_dependencies(self):
         _write_task(self.tasks, "1310", "Ready")
-        self.assertEqual(self.cache.blocking_dependencies(self._info("1310")), [])
+        self.assertEqual(_ids(self.cache.blocking_dependencies(self._info("1310"))), [])
 
     def test_done_dependency_is_not_blocking(self):
         _write_task(self.tasks, "1200", "Done")
         _write_task(self.tasks, "1310", "Ready", depends=[1200])
-        self.assertEqual(self.cache.blocking_dependencies(self._info("1310")), [])
+        self.assertEqual(_ids(self.cache.blocking_dependencies(self._info("1310"))), [])
 
     def test_ready_dependency_is_blocking(self):
         _write_task(self.tasks, "1200", "Ready")
         _write_task(self.tasks, "1310", "Ready", depends=[1200])
-        self.assertEqual(self.cache.blocking_dependencies(self._info("1310")), ["1200"])
+        [v] = self.cache.blocking_dependencies(self._info("1310"))
+        self.assertEqual((v.raw, v.verdict), ("1200", dep_resolution.BLOCKING))
 
     def test_unresolvable_dependency_is_blocking(self):
-        """Fail-closed: a dangling id must be visible, not silently satisfied."""
+        """Fail-closed: a dangling id must be visible, not silently satisfied.
+
+        And *distinguishably* so (t1527): the verdict is UNRESOLVABLE, not plain
+        BLOCKING, so the dialog can render it as the data error it is instead of
+        as ordinary upstream work.
+        """
         _write_task(self.tasks, "1310", "Ready", depends=[4242])
-        self.assertEqual(self.cache.blocking_dependencies(self._info("1310")), ["4242"])
+        [v] = self.cache.blocking_dependencies(self._info("1310"))
+        self.assertEqual((v.raw, v.verdict), ("4242", dep_resolution.UNRESOLVABLE))
+        self.assertEqual(v.display(prefix="t"), "t4242 (UNRESOLVED)")
 
     def test_depends_normalized_from_t_prefixed_entries(self):
         _write_task(self.tasks, "1200", "Done")
         _write_task(self.tasks, "1310", "Ready", depends=["t1200"])
         self.assertEqual(self._info("1310").depends, ["1200"])
-        self.assertEqual(self.cache.blocking_dependencies(self._info("1310")), [])
+        self.assertEqual(_ids(self.cache.blocking_dependencies(self._info("1310"))), [])
 
     def test_stale_cached_dependency_is_refreshed(self):
         """The regression: this cache is process-lifetime in the minimonitor, so
@@ -385,53 +420,56 @@ class BlockingDependenciesTests(unittest.TestCase):
         _write_task(self.tasks, "1200", "Ready")
         _write_task(self.tasks, "1310", "Ready", depends=[1200])
         info = self._info("1310")
-        self.assertEqual(self.cache.blocking_dependencies(info), ["1200"])
+        self.assertEqual(_ids(self.cache.blocking_dependencies(info)), ["1200"])
 
         _write_task(self.tasks, "1200", "Done")  # sibling agent finished
-        self.assertEqual(self.cache.blocking_dependencies(info), [])
+        self.assertEqual(_ids(self.cache.blocking_dependencies(info)), [])
 
     def test_negative_control_refresh_forces_reresolve(self):
         """Proves the test above actually exercises the cache.
 
-        Rewritten for t1322: the cache is now identity-keyed, so a dependency
-        rewritten on disk is picked up even with ``refresh=False`` — the old
-        mechanism (rewrite the file, assert the stale answer persists) no longer
-        discriminates and would just re-assert the new freshness behaviour.
+        Rewritten twice. For t1322: the cache became identity-keyed, so a
+        dependency rewritten on disk is picked up even with ``refresh=False`` —
+        the old mechanism (rewrite the file, assert the stale answer persists) no
+        longer discriminates. For t1527: the dependency verdict no longer goes
+        through ``TaskInfoCache._resolve`` at all, so counting *that* would now
+        count zero either way and pass vacuously. The instrument is the shared
+        resolver's own file read.
 
-        The distinction ``refresh`` still makes is whether the entry is
-        force-invalidated, so measure that directly over an **unchanged** file:
-        ``refresh=False`` serves the cached entry (no extra ``_resolve``),
-        ``refresh=True`` re-resolves. A run where both counts were equal would
-        mean the cache was never populated.
+        The distinction ``refresh`` still makes is whether the cached answers are
+        force-dropped and a new gate-evaluator cycle begins, so measure that over
+        an **unchanged** file: ``refresh=False`` reuses the cycle (no re-read),
+        ``refresh=True`` re-reads. Equal counts would mean nothing was cached.
         """
         _write_task(self.tasks, "1200", "Ready")
         _write_task(self.tasks, "1310", "Ready", depends=[1200])
         info = self._info("1310")
 
-        resolves = {"n": 0}
-        orig = TaskInfoCache._resolve
+        reads = {"n": 0}
+        orig = dep_resolution.LocalDepResolver._read_facts
 
         def counting(inner_self, *a, **k):
-            resolves["n"] += 1
+            reads["n"] += 1
             return orig(inner_self, *a, **k)
 
-        TaskInfoCache._resolve = counting
-        self.addCleanup(setattr, TaskInfoCache, "_resolve", orig)
+        dep_resolution.LocalDepResolver._read_facts = counting
+        self.addCleanup(setattr, dep_resolution.LocalDepResolver,
+                        "_read_facts", orig)
 
         # Populate the dependency's entry.
-        self.assertEqual(self.cache.blocking_dependencies(info), ["1200"])
-        after_first = resolves["n"]
-        self.assertGreater(after_first, 0, "cache was never populated")
+        self.assertEqual(_ids(self.cache.blocking_dependencies(info)), ["1200"])
+        after_first = reads["n"]
+        self.assertGreater(after_first, 0, "resolver was never exercised")
 
-        # Unchanged file + refresh=False => served from cache, no re-resolve.
+        # Unchanged file + refresh=False => served from cache, no re-read.
         self.assertEqual(
-            self.cache.blocking_dependencies(info, refresh=False), ["1200"]
+            _ids(self.cache.blocking_dependencies(info, refresh=False)), ["1200"]
         )
-        self.assertEqual(resolves["n"], after_first)
+        self.assertEqual(reads["n"], after_first)
 
-        # refresh=True => forced invalidation, so a re-resolve happens.
-        self.assertEqual(self.cache.blocking_dependencies(info), ["1200"])
-        self.assertGreater(resolves["n"], after_first)
+        # refresh=True => cycle restarts, so a re-read happens.
+        self.assertEqual(_ids(self.cache.blocking_dependencies(info)), ["1200"])
+        self.assertGreater(reads["n"], after_first)
 
 
 class TaskInfoDefaultTests(unittest.TestCase):
@@ -634,12 +672,13 @@ def _flat(app: App) -> str:
 
 class _ConfirmHost(App):
     def __init__(self, narrow: bool, status: str = "Done",
-                 blocking=("1200",), already_running: str | None = None,
+                 blocking=None, already_running: str | None = None,
                  plan_content: str | None = None) -> None:
         super().__init__()
         self._narrow = narrow
         self._status = status
-        self._blocking = list(blocking)
+        # `None` means the default one-blocker fixture; `()` means none.
+        self._blocking = _blk("1200") if blocking is None else list(blocking)
         self._already_running = already_running
         # Defaults to None so every pre-existing test renders the short footer
         # unchanged; the t1563 guard is the only caller that sets it.
@@ -798,7 +837,7 @@ class NarrowRenderTests(unittest.TestCase):
         nothing about the others."""
         async def runner():
             app = _ConfirmHost(
-                narrow=True, status="Done", blocking=("1200",),
+                narrow=True, status="Done", blocking=_blk("1200"),
                 already_running="⚠ t1310 is already running in this session, "
                                 "window 3:agent-pick-1310",
             )

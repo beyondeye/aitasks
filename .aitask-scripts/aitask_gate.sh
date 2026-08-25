@@ -23,6 +23,10 @@
 #   deps-unblock-batch < paths                   Same decision for a whole list of
 #                                                task FILE PATHS on stdin, in one
 #                                                process (t1472; python-only)
+#   deps-blocking-scan                           Consumer-side twin: which deps
+#                                                still block each task, whole tree
+#                                                in one process, SCAN_OK-trailed
+#                                                (t1527; python-only)
 #   archive-ready <task-id>                      Decide if this task may archive
 #                                                (t635_4; python-only)
 #   resume-point <task-id>                       Derive task-workflow re-entry
@@ -50,8 +54,8 @@
 # documented fallback (drop-in, identical output): used when AIT_GATES_BACKEND=python
 # or when the awk scan fails. Keep the two output formats byte-identical.
 # EXCEPTIONS — python-only verbs (no bash path exists): deps-unblock,
-# deps-unblock-batch, archive-ready, resume-point, workflow-phase,
-# effective-gates, procedure-gates, sync-registry.
+# deps-unblock-batch, deps-blocking-scan, archive-ready, resume-point,
+# workflow-phase, effective-gates, procedure-gates, sync-registry.
 #
 # append keys: run, status, attempt, duration, type (marker line);
 #              verifier, result, log, note (body lines). Others are ignored.
@@ -75,6 +79,7 @@ source "$SCRIPT_DIR/lib/stale_lock.sh"
 TASK_DIR="${TASK_DIR:-aitasks}"
 GATE_LEDGER_PY="$SCRIPT_DIR/lib/gate_ledger.py"
 WORKFLOW_PHASE_PY="$SCRIPT_DIR/lib/workflow_phase.py"
+DEP_RESOLUTION_PY="$SCRIPT_DIR/lib/dep_resolution.py"
 REGISTRY="${TASK_DIR}/metadata/gates.yaml"
 # Canonical gate registry shipped with the framework. Overridable so tests can
 # exercise sync-registry against a doctored reference: the test fixtures symlink
@@ -181,6 +186,17 @@ delegate_python_phase() {
     py="$(resolve_python 2>/dev/null || true)"
     [[ -z "$py" ]] && return 1
     "$py" "$WORKFLOW_PHASE_PY" "$@"
+}
+
+# Third delegator, same reason as the second: the local-dependency decision core
+# is its own module (t1527). It consults the gate ledger (that is why the verb
+# lives on this script, next to its producer-side twin `deps-unblock`) but it is
+# not gate-ledger code.
+delegate_python_deps() {
+    local py
+    py="$(resolve_python 2>/dev/null || true)"
+    [[ -z "$py" ]] && return 1
+    "$py" "$DEP_RESOLUTION_PY" "$@"
 }
 
 # Return 0 iff the LAST marker carrying run=<run-id> has status=running — i.e. no
@@ -636,6 +652,28 @@ cmd_deps_unblock() {
 #   printf '%s\n' aitasks/t123_x.md | ./.aitask-scripts/aitask_gate.sh deps-unblock-batch
 cmd_deps_unblock_batch() {
     delegate_python deps-unblock-batch "$REGISTRY"
+}
+
+# deps-blocking-scan: the CONSUMER-side twin of deps-unblock (t1527). Where
+# deps-unblock asks "does this task release its dependents?", this asks "which of
+# each task's own `depends:` entries are still holding it?" — the question
+# `ait ls`, the minimonitor picker and the board each used to answer with their
+# own policy. It scans the whole active tree in ONE process (one registry parse,
+# at most one code_digest(), the t1472 amortization preserved) and prints, for
+# every task with >=1 non-satisfied dep:
+#
+#   <path>\t<display-csv>          e.g.  aitasks/t20_x.md<TAB>10, 2 (UNRESOLVED)
+#
+# followed by a terminal `SCAN_OK` line. The trailer is LOAD-BEARING: without it,
+# "no task is blocked" and "the scan never ran" are the same empty output, and a
+# consumer that guessed the former would fail OPEN — which is the defect class
+# t1527 removes. Callers MUST require the trailer; see aitask_ls.sh.
+#
+# Unlike deps-unblock-batch there is no `|| echo` fallback and stderr is NOT
+# discarded by the caller: a scan that cannot run is its own state, not a
+# conservative default.
+cmd_deps_blocking_scan() {
+    delegate_python_deps scan "$TASK_DIR" "$REGISTRY"
 }
 
 # archive-ready: decide whether this task may archive (t635_4). Python-only
@@ -1294,6 +1332,21 @@ Commands:
         setup failed, so EVERY row is a conservative NO_GATES (one diagnostic,
         not one per row); the rows are still printed before the nonzero exit.
 
+  deps-blocking-scan
+        CONSUMER-side twin of deps-unblock (t1527): which of each task's own
+        `depends:` entries still hold it? Scans the whole active tree in ONE
+        process and prints, for every task with >=1 non-satisfied dep,
+        `<path><TAB><display-csv>` — then a terminal SCAN_OK line. Tasks with no
+        blocking dep produce no row. A dep is satisfied when it resolves to a
+        `Done` task OR to one the gate ledger has released (the same deps-unblock
+        rule); one that resolves to no loose task file at all BLOCKS and renders
+        `<id> (UNRESOLVED)` — fail-closed, matching the cross-repo
+        `(UNREACHABLE)` treatment. Numbered archive bundles are never extracted,
+        so an id that lives only in one is unresolvable by design.
+        REQUIRE the SCAN_OK trailer: empty output alone cannot distinguish
+        "nothing is blocked" from "the scan never ran", and treating the latter
+        as the former fails OPEN.
+
   archive-ready <task-id>
         Decide whether this task may archive (t635_4). Prints ALL_PASS (every
         declared gate passed), BLOCKED:<csv> (declared gates not all pass), or
@@ -1455,6 +1508,7 @@ main() {
         list)   shift; cmd_list "$@" ;;
         deps-unblock) shift; cmd_deps_unblock "$@" ;;
         deps-unblock-batch) shift; cmd_deps_unblock_batch "$@" ;;
+        deps-blocking-scan) shift; cmd_deps_blocking_scan "$@" ;;
         archive-ready) shift; cmd_archive_ready "$@" ;;
         resume-point) shift; cmd_resume_point "$@" ;;
         workflow-phase) shift; cmd_workflow_phase "$@" ;;

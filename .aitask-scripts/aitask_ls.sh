@@ -232,80 +232,77 @@ if [[ -n "$duplicate_parent_ids" ]]; then
     echo -e "\033[1;33mRun 'ait setup' to initialize the atomic task ID counter.\033[0m" >&2
 fi
 
-# Gate-aware dependency unblock (t635_3). An *active* task that declares gates
-# unblocks its dependents once its required-to-unblock gates all pass — before
-# archival, which gate-deferred archival (t635_4) would otherwise delay. This
-# precomputes the set of active task IDs that are "satisfied for dependency
-# purposes" so is_task_uncompleted() can treat them as completed.
+# Local dependency verdicts, decided ONCE for the whole tree (t1527).
 #
-# IDs are stored in the same normalized form as existing_ids_file: bare number
-# for parents, t<p>_<c> for children. In the common (no-gates) case the grep
-# guard matches nothing and the whole path is skipped — zero overhead.
-dep_satisfied_file=$(mktemp)
-build_dep_satisfied_set() {
-    local gate_script="$SCRIPT_DIR/aitask_gate.sh"
-    [[ -x "$gate_script" ]] || return 0
+# `ait ls`, the minimonitor picker and the board used to resolve `depends:` with
+# three different policies, so they could disagree about the same task. The one
+# decision core is `lib/dep_resolution.py`, reached here through
+# `aitask_gate.sh deps-blocking-scan`: it resolves each dep against the active
+# and loose-archived trees, applies the t635_3 gate-release rule, and returns the
+# ids that still BLOCK — already rendered, `(UNRESOLVED)` marker and all. Nothing
+# in this script decides any of that any more.
+#
+# ONE subprocess for the whole run (the t1472 amortization, preserved and
+# tightened): the scan does one registry parse and at most one code_digest() for
+# the entire tree, and this script no longer forks `grep` twice per dep edge.
+#
+# Lookup is fork-free and bash-3.2 safe — a substring scan over one variable, not
+# an associative array (macOS system bash is 3.2; see sed_macos_issues.md).
+dep_scan_keys=()
+dep_scan_vals=()
+dep_scan_state="unverified"
+build_dep_blocking_map() {
+    local gate_script="$SCRIPT_DIR/aitask_gate.sh" out rc=0 k v
+    [[ -x "$gate_script" ]] || { dep_scan_state="failed"; return 0; }
+    out=$(TASK_DIR="$TASK_DIR" "$gate_script" deps-blocking-scan) || rc=$?
 
-    local candidates
-    # active_gates included (t635_33): a profile-default gate task carries only
-    # the materialized tuple (no `gates:` field), and must still be evaluated.
-    candidates=$(grep -lE '^(gates|active_gates|also_blocks_dependents):' \
-        "$TASK_DIR"/t[0-9]*_*.md "$TASK_DIR"/t[0-9]*/t[0-9]*_[0-9]*_*.md 2>/dev/null || true)
-    [[ -z "$candidates" ]] && return 0
-
-    # ONE subprocess for the whole candidate list (t1472). This used to be one
-    # `aitask_gate.sh deps-unblock` process per candidate — 190 of them, ~46ms
-    # each, 9.7s of an 18.9s `ait ls` in the framework repo. Decisions come back
-    # as `<decision><TAB><path>`, one per input line in input order; the PATH
-    # round-trips so the normalization below stays the single place a task file
-    # maps to a dep-set key (no id-canonicalization agreement across languages).
+    # The SCAN_OK trailer is what separates "nothing is blocked" from "the scan
+    # never ran". Empty output alone cannot: treating a dead scan as an empty
+    # result would silently list every dependent as Ready — fail-OPEN, and the
+    # exact defect class t1527 removes. So the trailer is REQUIRED, and its
+    # absence is its own state, never a conservative default.
     #
-    # `2>/dev/null || true`: the verb's diagnostics are not for `ait ls`, and both
-    # of its failure shapes (per-file isolation, registry setup failure) already
-    # yield conservative NO_GATES rows. A total failure yields no rows at all,
-    # which is equivalent to N x NO_GATES here. See cmd_deps_unblock_batch for how
-    # to diagnose a systematic failure, which is invisible in this output.
-    #
-    # basename(1) is deliberately NOT used: it forked once per candidate. `${f##*/}`
-    # is exact for these paths, and now runs only for SATISFIED rows.
-    local decision f base norm
-    while IFS=$'\t' read -r decision f; do
-        [[ "$decision" == "SATISFIED" ]] || continue
-        [[ -n "$f" ]] || continue
-        base="${f##*/}"
-        if [[ "$base" =~ ^t([0-9]+)_([0-9]+)_ ]]; then
-            norm="t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"
-        elif [[ "$base" =~ ^t([0-9]+)_ ]]; then
-            norm="${BASH_REMATCH[1]}"
-        else
-            continue
-        fi
-        printf '%s\n' "$norm" >> "$dep_satisfied_file"
-    done < <(printf '%s\n' "$candidates" \
-        | TASK_DIR="$TASK_DIR" "$gate_script" deps-unblock-batch 2>/dev/null || true)
+    # Require it as the EXACT FINAL LINE, not merely present somewhere in the
+    # output. A `*"SCAN_OK"*` substring test also accepts `SCAN_OK: diagnostic`
+    # from a damaged scanner, or a marker printed mid-stream before the scan
+    # died partway — both exit 0, both then contribute no rows for the tasks
+    # they never reached, and dependents silently read as Ready. The whole point
+    # of a terminal marker is that it can only be written after the last row.
+    local last_line="${out##*$'\n'}"
+    if [[ "$rc" -ne 0 || "$last_line" != "SCAN_OK" ]]; then
+        dep_scan_state="failed"
+        warn "dependency scan failed (aitask_gate.sh deps-blocking-scan, exit $rc)"
+        warn "  -> dependency state could not be verified; tasks with depends: are shown as Blocked [unverified]"
+        return 0
+    fi
+    dep_scan_state="ok"
+    while IFS=$'\t' read -r k v; do
+        [[ -n "$k" && "$k" != "SCAN_OK" ]] || continue
+        dep_scan_keys+=("$k")
+        dep_scan_vals+=("$v")
+    done <<< "$out"
 }
-build_dep_satisfied_set
+build_dep_blocking_map
 
-is_task_uncompleted() {
-    local task_id="$1"
-    local norm_id
-
-    # Normalize to the form stored in existing_ids_file / dep_satisfied_file.
-    if [[ "$task_id" =~ ^t?([0-9]+)_([0-9]+)$ ]]; then
-        norm_id="t${BASH_REMATCH[1]}_${BASH_REMATCH[2]}"   # child: t<p>_<c>
-    else
-        norm_id="${task_id#t}"                              # parent: bare number
-    fi
-
-    # Not in the active set (archived) -> completed.
-    grep -qFx "$norm_id" "$existing_ids_file" || return 1
-
-    # Active, but a gated task whose required gates all passed is "completed for
-    # dependency purposes" (t635_3) -> dependents unblock before archival.
-    if [[ -s "$dep_satisfied_file" ]] && grep -qFx "$norm_id" "$dep_satisfied_file"; then
-        return 1
-    fi
-    return 0
+# Blocking ids for one task file, or non-zero when it has none.
+#
+# Two parallel INDEXED arrays with a linear scan — deliberately not an
+# associative array (`declare -A` is bash 4+; macOS system bash is 3.2, see
+# sed_macos_issues.md), and deliberately not a substring scan over one variable.
+# That last shape looks cheapest and is a trap: bash's `${var#*"$key"}` over a
+# 6 KB rows blob measured **15 s** for 451 lookups on this repo, because the glob
+# matcher retries from every position. The array scan measures 0.094 s for the
+# same work. Cost is O(tasks x BLOCKED tasks) — the arrays hold only the blocked
+# ones, which is a small fraction of a real backlog.
+lookup_dep_blocking() {
+    local i
+    for i in "${!dep_scan_keys[@]}"; do
+        if [[ "${dep_scan_keys[i]}" == "$1" ]]; then
+            printf '%s' "${dep_scan_vals[i]}"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # 2. Parsing Functions
@@ -314,6 +311,15 @@ is_task_uncompleted() {
 p_score=2
 e_score=2
 blocked=0
+# Set alongside `blocked` when the dependency scan could not run: the task has
+# deps whose state is UNKNOWN, which is neither "blocked by X" nor "ready".
+blocked_unverified=0
+# Whether the task file carries a `depends:` key AT ALL — independent of whether
+# this script's inline-only parser could read a value from it.
+depends_key_present=0
+# The task file currently being parsed — the key calculate_blocked_status uses
+# to look up its pre-decided local-dependency verdict (t1527).
+current_task_file=""
 p_text="Medium"
 # risk is display-only — NOT a sort dimension (no r_score). Empty = unset.
 # Two independent dimensions: code-health and goal-achievement.
@@ -397,6 +403,14 @@ parse_yaml_frontmatter() {
                     esac
                     ;;
                 depends)
+                    # Presence is tracked separately from the parsed value: this
+                    # parser reads INLINE lists only, so a YAML block list
+                    #   depends:
+                    #     - 999
+                    # leaves d_text empty while the field really does declare a
+                    # dependency. The scan (a real YAML parse) is what decides;
+                    # this flag only says "do not skip asking it".
+                    depends_key_present=1
                     d_text=$(parse_yaml_list "$value")
                     d_text=$(normalize_task_ids "$d_text")
                     ;;
@@ -445,18 +459,41 @@ parse_yaml_frontmatter() {
 
 calculate_blocked_status() {
     blocked=0
+    blocked_unverified=0
     local blocking_info=""
 
-    # Check explicit dependencies
-    if [[ "$d_text" != "None" && -n "$d_text" ]]; then
-        IFS=',' read -ra ADDR <<< "$d_text"
-        for dep_id in "${ADDR[@]}"; do
-            if is_task_uncompleted "$dep_id"; then
-                blocked=1
-                blocking_info="$d_text"
-                break
-            fi
-        done
+    # Local dependencies: the scan already decided them (t1527). Only the ids
+    # that actually BLOCK are listed — the pre-t1527 form printed every dep of a
+    # blocked task, including satisfied ones, which read as "these are holding
+    # you up" when they were not. The `(UNRESOLVED)` marker on an id that
+    # resolves to no task file is rendered by the core, so this surface and the
+    # two TUIs cannot spell the same state three ways.
+    if [[ "$dep_scan_state" == "ok" ]]; then
+        local scan_hit
+        # Only a task that declares a `depends:` KEY can appear in the scan
+        # output, so skip the lookup for the ~75% that declare none. Key
+        # presence, never the parsed value: gating on d_text skipped every
+        # block-list task, because this script's parser reads inline lists only
+        # — and the cross-surface parity test caught exactly that.
+        if [[ "$depends_key_present" -eq 1 ]] \
+                && scan_hit=$(lookup_dep_blocking "$current_task_file"); then
+            blocked=1
+            blocking_info="$scan_hit"
+        fi
+    elif [[ "$depends_key_present" -eq 1 ]]; then
+        # The scan could not run, so nothing is known about these deps. That is
+        # its OWN state, not "nothing is blocked": listing a dependent as Ready
+        # here would fail OPEN. Show it as blocked and say the verdict is
+        # unverified (the stderr warning names the failing verb).
+        blocked=1
+        blocked_unverified=1
+        # d_text can be empty here even though the key is present (block-list
+        # syntax), so name the field rather than printing an empty list.
+        if [[ "$d_text" != "None" && -n "$d_text" ]]; then
+            blocking_info="$d_text"
+        else
+            blocking_info="depends:"
+        fi
     fi
 
     # Check cross-repo dependencies (xdeps + xdeprepo)
@@ -493,8 +530,15 @@ calculate_blocked_status() {
 
 parse_task_metadata() {
     local file_path="$1"
+    # Squeeze `//`: the child loops glob `"$TASK_DIR"/t*/` (trailing slash) and
+    # then append `/t*_*_*.md`, so a child path arrives as `aitasks//t9/t9_1.md`.
+    # The scan emits os.path.join'd paths with single separators, and the lookup
+    # is an exact substring match — an unsqueezed key silently never matches, and
+    # every child would list as Ready.
+    current_task_file="${file_path//\/\///}"
 
     # Reset to defaults
+    depends_key_present=0
     p_score=2; p_text="Medium"
     risk_code_health_text=""
     risk_goal_achievement_text=""
@@ -594,6 +638,10 @@ process_task_file() {
     local display_status
     if [ "$blocked" -eq 1 ]; then
         display_status="Blocked (by $d_text)"
+        # "could not check" is a third state, never folded into either verdict.
+        if [[ "$blocked_unverified" -eq 1 ]]; then
+            display_status="$display_status [unverified]"
+        fi
     elif [ "$has_children" -eq 1 ]; then
         display_status="Has children"
     elif [[ "$status_text" != "Ready" ]]; then
@@ -730,4 +778,4 @@ else
     }
 fi
 
-rm -f "$existing_ids_file" "$output_file" "$dep_satisfied_file"
+rm -f "$existing_ids_file" "$output_file"

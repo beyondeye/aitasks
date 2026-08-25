@@ -1457,6 +1457,80 @@ def _dependents_status_for_text(text: str, registry: dict[str, dict],
                                          effective)
 
 
+class DependentsEvaluator:
+    """The dependents-unblock decision with its two per-call costs hoisted out.
+
+    :func:`dependents_status` re-reads and re-parses the registry on **every**
+    call and passes the ``_COMPUTE_DIGEST`` sentinel, so
+    :func:`stale_signed_gates` resolves a ~5 ms ``code_digest()`` subprocess for
+    every task carrying a stamped witness. Any caller that loops over
+    dependencies — the batched ``ait ls`` scan, a board refresh, a minimonitor
+    dialog — pays that per edge. This class is the shape that removes it:
+    **one registry parse and at most one ``code_digest()`` for the whole
+    evaluator**, exactly what :func:`dependents_status_batch` needs and what
+    ``lib/dep_resolution.py`` rides for the local-dependency verdict (t1527).
+
+    **An instance is scoped to ONE scan / refresh cycle — never to the lifetime
+    of a long-running process.** Both memoized values are re-validation inputs:
+    a frozen registry hides an edited ``gates.yaml``, and a frozen digest hides
+    the code change that should re-pend a signed human approval — the fail-open
+    t1416 closed. This is the same rule
+    ``aitask_board.TaskManager.clear_gate_cache`` states for
+    ``gate_digest_cache``: "a lifetime longer than one refresh cycle is not a
+    cache miss — it silently freezes every signature verdict until the process
+    restarts". Construct a new evaluator per cycle; do not reuse one across
+    refreshes.
+
+    ``setup_error`` is the registry failure that forced an all-``NO_GATES``
+    answer, or ``None``. It is resolved **eagerly in __init__**, outside every
+    per-file guard, because it is the one failure that would otherwise abort a
+    caller before a single row (see :func:`dependents_status_batch`).
+    """
+
+    __slots__ = ("registry", "setup_error", "_memo")
+
+    def __init__(self, registry_file: str | None = None,
+                 current_digest=_COMPUTE_DIGEST) -> None:
+        try:
+            self.registry = read_registry(registry_file) if registry_file else {}
+            self.setup_error: Exception | None = None
+        except Exception as exc:        # noqa: BLE001 — totality boundary
+            sys.stderr.write(
+                f"dependents-evaluator: registry unavailable ({registry_file}):"
+                f" {exc} — every task falls back to NO_GATES\n")
+            self.registry = {}
+            self.setup_error = exc
+        self._memo = _DigestMemo(current_digest)
+
+    def __call__(self, text: str, task_id: str) -> tuple[str, list[str]]:
+        """``(decision, pending)`` for one task's already-read text.
+
+        Falls back to ``("NO_GATES", [])`` when registry setup failed — the
+        conservative whole answer (the caller falls back to file existence, so a
+        dependent stays blocked until archival), never a partial ``registry={}``
+        decision that would honor ``also_blocks_dependents`` while silently
+        dropping registry-flagged gates.
+        """
+        if self.setup_error is not None:
+            return "NO_GATES", []
+        return _dependents_status_for_text(text, self.registry, task_id,
+                                           self._memo)
+
+    def for_file(self, path: str) -> tuple[str, list[str]]:
+        """``__call__`` over a path, isolating a per-file read/decide failure.
+
+        Same per-file totality boundary :func:`dependents_status_batch`
+        documents: one unreadable task file must not cost every other decision.
+        """
+        try:
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            return self(text, task_id_from_file(path))
+        except Exception as exc:        # noqa: BLE001 — totality boundary
+            sys.stderr.write(f"dependents-evaluator: {path}: {exc}\n")
+            return "NO_GATES", []
+
+
 def dependents_status_batch(task_files: list[str], registry_file: str | None,
                             current_digest=_COMPUTE_DIGEST
                             ) -> tuple[list[tuple[str, str, list[str]]],
@@ -1502,28 +1576,14 @@ def dependents_status_batch(task_files: list[str], registry_file: str | None,
     registry-flagged ones silently would not — an inconsistent half-decision.
     All-``NO_GATES`` is the conservative whole answer (the caller falls back to
     file-existence, so a dependent stays blocked until archival); not fail-open.
-    """
-    try:
-        registry = read_registry(registry_file) if registry_file else {}
-    except Exception as exc:            # noqa: BLE001 — totality boundary, see above
-        sys.stderr.write(
-            f"deps-unblock-batch: registry unavailable ({registry_file}): {exc}"
-            f" — every task falls back to NO_GATES\n")
-        return [(p, "NO_GATES", []) for p in task_files], exc
 
-    memo = _DigestMemo(current_digest)
-    rows: list[tuple[str, str, list[str]]] = []
-    for path in task_files:
-        try:
-            with open(path, encoding="utf-8") as fh:
-                text = fh.read()
-            decision, pending = _dependents_status_for_text(
-                text, registry, task_id_from_file(path), memo)
-        except Exception as exc:        # noqa: BLE001 — totality boundary, see above
-            sys.stderr.write(f"deps-unblock-batch: {path}: {exc}\n")
-            decision, pending = "NO_GATES", []
-        rows.append((path, decision, pending))
-    return rows, None
+    Both boundaries live in :class:`DependentsEvaluator` since t1527, so this
+    function and ``lib/dep_resolution.py`` share ONE hoisting implementation
+    rather than two that could drift.
+    """
+    ev = DependentsEvaluator(registry_file, current_digest)
+    rows = [(path, *ev.for_file(path)) for path in task_files]
+    return rows, ev.setup_error
 
 
 # --- Code-state digest + human-gate signal witness (t635_15, t1409) -------
