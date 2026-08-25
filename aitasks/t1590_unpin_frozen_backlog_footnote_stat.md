@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [reporting, tui, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: upstream_defect
 created_at: 2026-08-24 22:51
-updated_at: 2026-08-24 22:51
+updated_at: 2026-08-25 09:51
 ---
 
 ## Origin
