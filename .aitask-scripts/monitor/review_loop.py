@@ -87,6 +87,114 @@ SELECTION_ONLY = "selection_only"
 NO_CHANGE = "none"
 UNKNOWN = "unknown"
 
+# --- Loop-outcome reason codes (t1606) --------------------------------------
+#
+# Machine-readable identity for *why* the loop died or held. Before t1606 the
+# four auto-disarm sites collapsed onto three prose messages, two of which were
+# ambiguous across five distinct conditions -- so a live failure recorded
+# nothing that could tell them apart, and every hypothesis about the spurious
+# disarm was unfalsifiable in production.
+#
+# These are plain strings, matching the ACTION_* / SHADOW_* style above rather
+# than an Enum (this module ships none), and they live HERE rather than in
+# minimonitor_app because they are pure data: the module's no-I/O contract is
+# what keeps the whole vocabulary unit-testable.
+#
+# DISARM_* is fatal -- the user's armed state is destroyed. HOLD_* is not: the
+# delivery is aborted via ReviewLoopController.abort_fire and the loop stays
+# armed. Which conditions earn which is argued in
+# aidocs/framework/shadow_agent.md safety-contract items 6 and 9.
+
+# Fatal: the loop is disarmed.
+DISARM_AGENT_GONE = "agent_gone"
+DISARM_SHADOW_GONE = "shadow_gone"
+DISARM_NO_DETECTOR = "shadow_has_no_detector"
+DISARM_NO_MONITOR = "no_tmux_monitor"
+DISARM_PROMPT_WRITE_FAILED = "prompt_write_failed"
+DISARM_ENTER_SEND_FAILED = "enter_send_failed"
+DISARM_SUBMIT_UNCONFIRMED = "submit_unconfirmed"
+DISARM_TEXT_NOT_IN_COMPOSER = "text_not_in_composer"
+
+# Non-fatal: the delivery is aborted, the loop stays armed.
+HOLD_PRE_ENTER_DIALOG = "pre_enter_dialog"
+HOLD_PRE_ENTER_UNREADABLE = "pre_enter_unreadable"
+HOLD_DELIVERY_SUPERSEDED = "delivery_superseded"
+HOLD_SHADOW_NOT_SETTLED = "shadow_not_settled"
+
+#: The single source of user-facing prose for every reason code.
+#:
+#: Each message must be TRUE of its own condition and of no other -- that is
+#: the whole of t1606 Deliverable 3. The pre-t1606 code told a user whose shadow
+#: pane merely could not be READ that "recheck text left in the shadow composer
+#: -- submit or clear it there manually", while the composer was empty; the two
+#: entries that still carry that wording are the only two where the text
+#: demonstrably IS still sitting there (a write that succeeded, followed by an
+#: Enter that provably did not land).
+#:
+#: `{subject}` is substituted by :func:`loop_reason_message`. Only
+#: DISARM_NO_DETECTOR uses it.
+LOOP_REASON_MESSAGES: dict[str, str] = {
+    DISARM_AGENT_GONE:
+        "the followed agent's pane is gone",
+    DISARM_SHADOW_GONE:
+        "the shadow pane is gone",
+    DISARM_NO_DETECTOR:
+        "shadow agent '{subject}' has no readiness detection",
+    DISARM_NO_MONITOR:
+        "no tmux monitor",
+    DISARM_PROMPT_WRITE_FAILED:
+        "could not write the recheck prompt to the shadow pane",
+    DISARM_ENTER_SEND_FAILED:
+        "recheck text left in the shadow composer — submit or clear it "
+        "there manually",
+    DISARM_SUBMIT_UNCONFIRMED:
+        "recheck text left in the shadow composer — submit or clear it "
+        "there manually",
+    DISARM_TEXT_NOT_IN_COMPOSER:
+        "the recheck prompt is not in the shadow composer — nothing was "
+        "submitted",
+    HOLD_PRE_ENTER_DIALOG:
+        "shadow showed a dialog before the Enter — nothing sent",
+    HOLD_PRE_ENTER_UNREADABLE:
+        "could not read the shadow pane before the Enter — nothing sent",
+    HOLD_DELIVERY_SUPERSEDED:
+        "delivery superseded",
+    HOLD_SHADOW_NOT_SETTLED:
+        "shadow not settled at delivery time",
+}
+
+#: Short banner wording for the two holds that get a visible banner, budgeted
+#: against `_LOOP_STATUS_ROWS` (2 rows at 38 usable columns => 76 cells).
+#: A hold with no entry here records but paints nothing -- see
+#: `minimonitor_app._loop_hold`.
+LOOP_HOLD_BANNERS: dict[str, str] = {
+    HOLD_PRE_ENTER_DIALOG: "⟳ holding: shadow showed a dialog — will retry",
+    HOLD_PRE_ENTER_UNREADABLE: "⟳ holding: shadow pane unreadable — will retry",
+}
+
+
+def loop_reason_message(code: str, *, subject: str = "") -> str:
+    """User-facing prose for a ``DISARM_*`` / ``HOLD_*`` code.
+
+    The ONLY place loop-outcome prose is produced, so a message can never
+    drift from the condition it describes -- the pre-t1606 strings were local
+    variables inside ``_submit_shadow_prompt`` and were reused across
+    conditions they were not true of.
+
+    Total over garbage, like :func:`compose_recheck_prompt`: an unknown code
+    yields a message naming the code rather than raising. A diagnostic path
+    must not be the thing that crashes the TUI.
+    """
+    template = LOOP_REASON_MESSAGES.get(code)
+    if template is None:
+        return f"unrecognized loop reason '{code}'"
+    return template.replace("{subject}", subject or "unknown")
+
+
+def loop_hold_banner(code: str) -> str:
+    """Banner line for a hold code, or ``""`` when it paints nothing."""
+    return LOOP_HOLD_BANNERS.get(code, "")
+
 
 class ReviewLoopController:
     """Decides fire/hold/disarm for the shadow auto-recheck.
@@ -120,6 +228,18 @@ class ReviewLoopController:
         # staleness cache can lag a same-tick work observation, and consuming
         # on every False would eat work the verdict predates.
         self._prev_stale: bool | None = None
+        # Why the last tick-originated auto-disarm happened (t1606). Written
+        # by tick(), read by the caller AFTER it observes ACTION_AUTO_DISARM.
+        #
+        # CLEARED BY arm() ONLY -- never by disarm(). That asymmetry is
+        # load-bearing, not style. The disarm sequence is
+        #   tick() -> self.disarm() -> return ACTION_AUTO_DISARM
+        #     -> minimonitor_app._loop_auto_disarm -> ctrl.disarm() AGAIN
+        # so a clear inside disarm() would wipe the code TWICE before anything
+        # recorded it, and the ambiguity t1606 exists to remove would survive
+        # the fix. arm() is the single clearing point, which also means every
+        # lifecycle starts clean and no teardown can erase a reason in flight.
+        self.last_disarm_reason: str | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -138,6 +258,8 @@ class ReviewLoopController:
         self.rounds_fired = 0
         self.work_seen = bool(pending_work)
         self.holding_for_shadow = False
+        # The single clearing point for the disarm reason -- see __init__.
+        self.last_disarm_reason = None
         # Seed the edge state from the ARM-TIME observation, not from the
         # previous lifecycle (review rounds 3+4): ``pending_work=True`` IS a
         # positive "stale was True at arm" observation, so a manual shadow
@@ -192,6 +314,14 @@ class ReviewLoopController:
         # pauses — no advance, no reset, no disarm.
         if agent_present is False or shadow_present is False:
             self.disarm()
+            # AFTER disarm(), never before: disarm() deliberately does not
+            # clear this (see __init__), but writing it second means the order
+            # is correct even if that ever changes. Two different failures --
+            # the followed agent went away, or the shadow did -- which this
+            # branch reported with one message before t1606.
+            self.last_disarm_reason = (
+                DISARM_AGENT_GONE if agent_present is False
+                else DISARM_SHADOW_GONE)
             return ACTION_AUTO_DISARM
         if agent_present is None or shadow_present is None:
             return ACTION_NONE

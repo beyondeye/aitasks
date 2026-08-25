@@ -2395,6 +2395,149 @@ class AmbiguousVerdictsHoldTests(unittest.TestCase):
                 self.assertTrue(ctrl.holding_for_shadow)
 
 
+class LoopReasonVocabularyTests(unittest.TestCase):
+    """The reason codes and their prose are ONE set (t1606).
+
+    Drift guard: a code without a message renders as "unrecognized loop
+    reason 'x'" in a toast, and a message without a code is prose nothing can
+    ever produce. Both are silent failures of a diagnostic surface, which is
+    exactly the class of failure t1606 exists to remove.
+    """
+
+    def _declared_codes(self):
+        return {
+            value for name, value in vars(rl).items()
+            if (name.startswith("DISARM_") or name.startswith("HOLD_"))
+            and isinstance(value, str)
+        }
+
+    def test_every_declared_code_has_a_message(self):
+        codes = self._declared_codes()
+        self.assertTrue(codes, "no reason codes found — the scan is wrong")
+        for code in sorted(codes):
+            self.assertIn(code, rl.LOOP_REASON_MESSAGES, code)
+
+    def test_every_message_belongs_to_a_declared_code(self):
+        for code in sorted(rl.LOOP_REASON_MESSAGES):
+            self.assertIn(code, self._declared_codes(), code)
+
+    def test_disarm_and_hold_codes_are_disjoint(self):
+        """A code decides whether the user's armed state is destroyed. One
+        value in both families would make that decision ambiguous."""
+        disarm = {v for n, v in vars(rl).items()
+                  if n.startswith("DISARM_") and isinstance(v, str)}
+        hold = {v for n, v in vars(rl).items()
+                if n.startswith("HOLD_") and isinstance(v, str)}
+        self.assertEqual(disarm & hold, set())
+
+    def test_the_leftover_message_is_used_only_where_text_is_left(self):
+        """t1606 Deliverable 3, stated as an assertion.
+
+        The pre-t1606 code told a user whose shadow pane merely could not be
+        READ that recheck text was left in the composer. Exactly two
+        conditions may say that now, and both are a successful write followed
+        by an Enter that provably did not land.
+        """
+        leftover = [code for code, msg in rl.LOOP_REASON_MESSAGES.items()
+                    if "left in the shadow composer" in msg]
+        self.assertEqual(sorted(leftover),
+                         sorted([rl.DISARM_ENTER_SEND_FAILED,
+                                 rl.DISARM_SUBMIT_UNCONFIRMED]))
+
+    def test_messages_are_single_line_and_non_empty(self):
+        for code, message in rl.LOOP_REASON_MESSAGES.items():
+            self.assertTrue(message.strip(), code)
+            self.assertNotIn("\n", message, code)
+
+    def test_subject_substitution_and_totality(self):
+        self.assertIn("codex", rl.loop_reason_message(
+            rl.DISARM_NO_DETECTOR, subject="codex"))
+        # A missing subject must not leave a raw placeholder in a user message.
+        self.assertNotIn("{subject}",
+                         rl.loop_reason_message(rl.DISARM_NO_DETECTOR))
+        # Total over garbage: a diagnostic path must never be the crash.
+        self.assertIn("nonsense", rl.loop_reason_message("nonsense"))
+
+    def test_hold_banners_are_declared_only_for_hold_codes(self):
+        hold = {v for n, v in vars(rl).items()
+                if n.startswith("HOLD_") and isinstance(v, str)}
+        for code in rl.LOOP_HOLD_BANNERS:
+            self.assertIn(code, hold, code)
+        self.assertEqual(rl.loop_hold_banner("no-such-code"), "")
+
+    def test_hold_banners_fit_the_minimonitor_budget(self):
+        """`_LOOP_STATUS_ROWS` is 2 rows at 38 usable columns, and it feeds
+        `_MAX_CHROME_ROWS`. Wording that outgrows it silently costs the pane
+        list a row, so the budget is asserted here where the wording lives."""
+        for code, banner in rl.LOOP_HOLD_BANNERS.items():
+            self.assertLessEqual(len(banner), 76, f"{code}: {banner!r}")
+            self.assertNotIn("\n", banner, code)
+
+
+class DisarmReasonLifetimeTests(unittest.TestCase):
+    """`last_disarm_reason` must survive long enough to be recorded (t1606).
+
+    The disarm sequence is::
+
+        tick() -> self.disarm() -> return ACTION_AUTO_DISARM
+          -> minimonitor_app._loop_auto_disarm -> ctrl.disarm() AGAIN
+
+    so a clear inside ``disarm()`` would wipe the code TWICE before anything
+    recorded it, and the ambiguity t1606 removes would survive the fix.
+    ``arm()`` is therefore the single clearing point.
+    """
+
+    def _disarm_via_absence(self, **overrides):
+        ctrl = rl.ReviewLoopController()
+        ctrl.arm(pending_work=True)
+        action = ctrl.tick(**make_ready_kwargs(**overrides))
+        self.assertEqual(action, rl.ACTION_AUTO_DISARM)
+        return ctrl
+
+    def test_tick_distinguishes_agent_gone_from_shadow_gone(self):
+        """One message for two different failures, before t1606."""
+        agent = self._disarm_via_absence(agent_present=False)
+        self.assertEqual(agent.last_disarm_reason, rl.DISARM_AGENT_GONE)
+        shadow = self._disarm_via_absence(shadow_present=False)
+        self.assertEqual(shadow.last_disarm_reason, rl.DISARM_SHADOW_GONE)
+        self.assertNotEqual(agent.last_disarm_reason,
+                            shadow.last_disarm_reason)
+
+    def test_disarm_preserves_the_reason(self):
+        """THE assertion that stops a refactor re-adding a clear to disarm().
+
+        Without it, `_loop_auto_disarm`'s own `ctrl.disarm()` would erase the
+        code before recording it, and every absence disarm would go back to
+        being indistinguishable.
+        """
+        ctrl = self._disarm_via_absence(shadow_present=False)
+        ctrl.disarm()          # the second disarm, as _loop_auto_disarm makes
+        self.assertEqual(ctrl.last_disarm_reason, rl.DISARM_SHADOW_GONE)
+        ctrl.disarm()          # and it is not eroded by repetition either
+        self.assertEqual(ctrl.last_disarm_reason, rl.DISARM_SHADOW_GONE)
+
+    def test_arm_clears_the_reason(self):
+        """The single clearing point: a new lifecycle starts clean, so a
+        stale code can never be reported against it."""
+        ctrl = self._disarm_via_absence(agent_present=False)
+        self.assertIsNotNone(ctrl.last_disarm_reason)
+        ctrl.arm(pending_work=False)
+        self.assertIsNone(ctrl.last_disarm_reason)
+
+    def test_a_fresh_controller_carries_no_reason(self):
+        self.assertIsNone(rl.ReviewLoopController().last_disarm_reason)
+
+    def test_an_indeterminate_presence_sets_no_reason(self):
+        """Control: only a VERIFIED absence writes a code. A paused loop that
+        left one behind would later be reported with a reason it never had."""
+        for overrides in (dict(agent_present=None), dict(shadow_present=None)):
+            ctrl = rl.ReviewLoopController()
+            ctrl.arm(pending_work=True)
+            self.assertEqual(ctrl.tick(**make_ready_kwargs(**overrides)),
+                             rl.ACTION_NONE)
+            self.assertIsNone(ctrl.last_disarm_reason, overrides)
+
+
 class ReplayDisarmUnreachabilityTests(unittest.TestCase):
     """`_service_review_loop`'s latched-False replay CANNOT auto-disarm.
 
