@@ -96,6 +96,28 @@ class LocalDepResolver:
 - **Verdict rule** (the whole policy, in one function):
   `facts is None → UNRESOLVABLE`; `status == "Done" → SATISFIED`;
   `gate_released → SATISFIED`; else `BLOCKING`.
+- **The scan's pre-filter may only skip a CERTAINTY** (tightened during review).
+  `may_have_depends()` first treated any `depends:` line with no same-line value
+  as dep-free — but a bare key is the head of a valid YAML **block list**
+  (`depends:` / `  - 999`), which really does declare dependencies. `ait ls`
+  skipped those tasks while the board and minimonitor parsed and blocked them:
+  the three-surface disagreement this module exists to remove, reintroduced by
+  its own optimisation. Only an explicit **inline empty list** (`[]` / `[ ]`) or
+  an absent key is now certain; a bare or comment-only key is parsed. The same
+  correction applies to `aitask_ls.sh`'s lookup guard, which keyed off its
+  inline-only parsed value and had to move to *key presence*.
+- **A malformed `depends:` field is itself UNRESOLVABLE** (added during review).
+  `task_yaml._normalize_task_ids` deliberately passes a non-list value through
+  untouched so consumers can detect it — and before this change no consumer did.
+  `read_depends(raw) -> (tokens, malformed)` is the one reader: a scalar
+  (`depends: 999`, `depends: "999"`) or a mapping yields
+  `([], True)` and one `UNRESOLVABLE` verdict rendered as
+  `<malformed depends> (UNRESOLVED)`; an absent / `None` / `[]` / blank field is
+  genuinely no-dependencies and is **not** malformed. The field must never be
+  *iterated*: measured, `depends: 999` raised `TypeError` inside
+  `monitor_core._resolve` (killing the lookup outright) and `depends: "999"`
+  yielded `['9','9','9']` — three dependencies nobody wrote. `TaskInfo` now
+  carries `depends_malformed` beside `depends`, and every read takes both.
 - **`gate_released` goes through a new *bulk* seam, never the per-task API.**
   `gate_ledger.dependents_status()` re-reads and re-parses `gates.yaml` on
   **every** call (`gate_ledger.py:1430-1435`) and passes the `_COMPUTE_DIGEST`
@@ -187,7 +209,12 @@ class LocalDepResolver:
 2. `[scan_failure_is_its_own_state]` **Before wiring `ait ls` to the new verb**,
    fix its failure contract: `deps-blocking-scan` ends its output with a
    terminal `SCAN_OK` line, and the bash consumer treats a non-zero exit **or a
-   missing trailer** as a third state — not as "nothing is blocked". In that
+   trailer that is not the exact final line** as a third state. *Presence is not
+   enough* (tightened during review): a `*"SCAN_OK"*` substring test also accepts
+   `SCAN_OK: nothing to do` from a damaged scanner and a marker printed before
+   the scan died partway — both exit 0, both then contribute no rows for the
+   tasks never reached, and those dependents silently read as Ready. The whole
+   point of a terminal marker is that it can only be written after the last row — not as "nothing is blocked". In that
    state `ait ls` warns on stderr (naming the verb and its exit status) and
    marks every task carrying a non-empty `depends:` as
    `Blocked (by <deps>) [unverified]`. Ship it with a forced-failure test that
@@ -337,55 +364,77 @@ updated to the `DepVerdict` shape), `tests/test_board_inflight_view.py`,
 `bash tests/run_all_python_tests.sh`.
 
 Manual: `./ait ls -v 15` before/after must be byte-identical on the live tree
-(baseline above says nothing should re-verdict), and `time ./ait ls -v 15` must
-not regress against the 4.5 s baseline measured on this checkout.
+(baseline above says nothing should re-verdict).
 
-## Risk
+## Performance: measured outcome, and the amendment it needs
 
-### Code-health risk: medium
-- The new `deps-blocking-scan` subprocess is a process boundary in the
-  most-used command, and its *total* failure degrades to "no blocking info at
-  all" — i.e. every task lists as Ready. That is fail-**open**, the exact defect
-  class this task removes. · severity: medium · → mitigation: inline pre-phase scan_failure_is_its_own_state
-- Three dep implementations are replaced at once, including `ait ls`'s hottest
-  loop (`calculate_blocked_status` + `is_task_uncompleted`, both deleted). A
-  subtle bash regression there silently re-verdicts every listing, and nothing
-  in the current suite compares whole-listing output before vs after.
-  · severity: medium · → mitigation: inline pre-phase characterize_ls_listing_baseline
-- `dependents_status_batch` is refactored onto the new `DependentsEvaluator`
-  seam, so this task edits the t1472 perf-critical path it also has to preserve.
-  · severity: low · → mitigation: covered — `tests/test_deps_unblock_batch.sh`
-  pins its existing contract and Verification §5 pins the hoisting it exists for
-- The evaluator hoisting that satisfies rule 3 is the same mechanism that, held
-  too long, freezes signature verdicts (t1416). Perf and freshness pull in
-  opposite directions here and the cycle boundary is the only thing separating
-  them. · severity: medium · → mitigation: covered — the boundary is placed on
-  the existing `clear_gate_cache()` line so it cannot drift, and Verification §7
-  pins both directions (a new cycle re-decides; within a cycle it does not)
-- Accepted residual (decision 2): a dep swept into a numbered bundle later flips
-  to `(UNRESOLVED)` and blocks its dependent, requiring a data cleanup. Deliberate
-  — the honest rendering rule 1 asks for. · severity: low · → mitigation: none (accepted)
+**Correctness verdicts: unchanged.** The characterization golden differs on
+exactly 10 lines, every one a decision-4 display narrowing whose dropped ids
+were each verified to be archived `Done` tasks. Zero re-verdicts.
 
-### Goal-achievement risk: low
-- The parity assertion could pass vacuously if the three surfaces are reduced
-  through one lossy helper (e.g. `ait ls` display parsing that drops the
-  `(UNRESOLVED)` marker), making all three agree on a tuple that hides a real
-  difference. · severity: low · → mitigation: covered by the two negative
-  controls already in Verification §2
+**Timing: a measured regression remains.** Interleaved 11-run A/B on this
+checkout, HEAD's `aitask_ls.sh` vs the new one, alternating in one session:
 
-### Planned mitigations
-- timing: pre-phase | name: scan_failure_is_its_own_state | type: bug | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 1 (scan subprocess degrades fail-open) | desc: Define and test the deps-blocking-scan failure contract before wiring ait ls to it, so "cannot verify" is its own state rather than "nothing is blocked".
-- timing: pre-phase | name: characterize_ls_listing_baseline | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 2 (silent re-verdict of every listing) | desc: Golden the live-tree ait ls output before touching aitask_ls.sh and diff it after, so any re-verdict is deliberate.
+| | median | min |
+|---|---|---|
+| before | 4.802 s | 4.617 s |
+| after  | 5.126 s | 4.946 s |
 
-**Reassessment after inlining both mitigations:** code-health stays **medium** —
-the two named risks are now covered, but the blast radius (6 load-bearing files,
-including the most-used command and both main TUIs) is unchanged and is what the
-level describes. Goal-achievement stays **low**.
+**+0.324 s median (+6.7 %)**, min-to-min +0.329 s — the two agree, so this is a
+real cost and not load noise. (An earlier figure of +0.139 s reported during
+review was measured with too few samples on a loaded box and was optimistic;
+this table supersedes it. The plan's original "4.5 s baseline" was taken on an
+idle box and is not comparable — only the same-session A/B above is.)
+
+**Where it goes, measured — not estimated:**
+
+| phase | cost |
+|---|---|
+| `deps-blocking-scan` subprocess | 0.360 s |
+| bash row lookups (331 parents x 92 rows) | 0.104 s |
+| *removed:* old `grep -lE` + `deps-unblock-batch` | −0.065 s |
+| *removed:* ~250 per-dep `grep` forks | ~−0.080 s |
+| **net** | **≈ +0.32 s** |
+
+`cProfile` attributes **91 % of the scan to `task_yaml.parse_frontmatter`** —
+566 PyYAML parses (209 dependents that pass the pre-filter + 357 dependency
+targets). The old path did **zero** YAML parses: `gate_ledger` is `re`-only by
+design, and dependency resolution was inferred from filename existence, which is
+exactly the fail-open this task removes. **The regression is the price of
+actually reading the tasks.**
+
+What was already recovered (0.43 s → 0.36 s of scan): a conservative
+`may_have_depends()` pre-filter, and priming the facts cache from text the scan
+has already read (~250 fewer re-parses). The pre-filter skips **54 %** of files
+(244 of 453) — an earlier "~78 %" claim in this plan counted only the Ready
+listing and was wrong.
+
+**Rule 3 as the task states it is met** — the batched call is preserved, still
+exactly one subprocess, nothing regressed into per-dep subprocesses. The plan's
+stricter "must not regress" wording is **not** met, and this section is the
+explicit amendment.
+
+**The one remaining lever, and why it is not taken here.** Routing
+`task_yaml.parse_frontmatter` through libyaml's `CSafeLoader` is a ~5x parse win
+that would take the scan to ~0.1 s and put `ait ls` back at or below its old
+cost. Verified during this task that `CSafeLoader` honours `_TaskSafeLoader`'s
+custom implicit resolver exactly — `[423_6, 12, t9_1]` parses identically under
+both loaders. It is declined **in this task** because `task_yaml` is the
+base-layer module the board, minimonitor, merge tool, codebrowser, diffviewer
+and the report/trail gatherers all depend on, libyaml is not guaranteed present
+(a fallback is required), and a silent resolver regression there would mis-parse
+every child task id repo-wide. It is tracked as **t1611**
+(`task_yaml_csafeloader_parse_speedup`, `depends: [1527]`), whose verification
+parses every task file in the repo under both loaders and asserts equality,
+covers the no-libyaml fallback explicitly, and re-measures `ait ls`.
 
 ## Out of scope
 
 - **t1528** (write-time `depends` validation) is the producer side. This task
   settles the canonical accepted forms — `<N>`, `t<N>`, `<N>_<M>`, `t<N>_<M>` —
   and t1528 enforces exactly those.
+- **t1611** — `task_yaml` + libyaml `CSafeLoader`, created by this task to repay
+  the +0.324 s regression measured above. Gated on this task (`depends: [1527]`)
+  because it must be measured against this scan.
 - Bundle extraction for dep resolution (decision 2).
 - `ait ls`'s xdeps path, which is already fail-closed and correct.

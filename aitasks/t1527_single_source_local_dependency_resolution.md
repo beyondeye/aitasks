@@ -109,6 +109,10 @@ cross-repo half already sets; it does not invent a policy.
   malformed id cannot be written in the first place. That task is the producer
   side of the same problem; this one is the consumer side. Settle the canonical
   accepted forms here, and let the validator enforce exactly those.
+- **t1611** — `task_yaml` + libyaml `CSafeLoader`. Spawned by this task to repay
+  the +0.324 s (+6.7 %) `ait ls` regression it introduces: resolving deps through
+  one core means actually parsing the task files, and `cProfile` attributes 91 %
+  of the new scan to PyYAML. Gated on this task.
 - `6f78a3e05` — the data fix for `t1159_4` and `t386_7` that this task
   generalizes. `t386_7` mixed both notations in one list
   (`[t386_6, t386_10, 1, 2, 3, 4, 5, 6]`, repeating 6 after t386_6), which is
