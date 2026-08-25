@@ -574,3 +574,76 @@ touches no Python.
   so the commit is path-scoped (`git commit -o -- <paths>`).
 - A pre-existing `stash@{0}` from 2026-07-19 (different base, unrelated files)
   was left untouched.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved four sections. `_yaml_norm_list_item`
+  in `yaml_utils.sh` is now the single definition of "what one list item
+  resolves to", called by both the inline and block branches; the inline branch
+  peels only the wrapping brackets; the value capture also trims trailing
+  whitespace. `gate_verifier_lib.sh` gained a `bash -n` pre-validation that makes
+  an unparseable command a fail rather than a skip, and lost the dead
+  `gate_command_exit_contract` quote-strip. Four docs carry the comma caveat and
+  the malformed-command rule. Tests: +371 lines across two files (direct unit
+  layer, 16-row triple parity table, guard row, rejection probe, residual pins,
+  cross-language pin, hardened e2e, four verdict tests with two negative
+  controls), plus three repointed t1444 characterizations.
+
+- **Deviations from plan:** None.
+
+- **Issues encountered:**
+  - The baseline digest scan initially found 0 tasks because `aitasks/` is a
+    symlink to the data-branch worktree and `find` does not follow symlinks by
+    default. Re-run with a `grep -r` enumeration — 171 tasks, all `FRESH`.
+  - The first `active-gates-status` pass derived child ids wrongly
+    (`t1149_5_…` → `1149`), reporting `ABSENT`. Fixed by deriving the id from
+    the containing `t<parent>/` directory.
+  - Two Python tests fail in the shared worktree
+    (`test_shadow_phase_restamp.py`, `test_collection_structure.py`). Proven
+    **not** this task's: reverting only a concurrent session's uncommitted
+    `monitor/minimonitor_app.py` and `tests/test_minimonitor_auto_close_guard.py`
+    makes both pass, and restoring them reproduces the failures. This task
+    touches no Python.
+
+- **Key decisions:**
+  - **Both branches, not just the block one.** Fixing only the block branch
+    would have satisfied the literal bug report but left the inline branch the
+    over-eager side (`[echo "hi"]` → `echo hi`), so true parity — the task's own
+    stated test oracle — was unreachable. Cost: three deliberate characterization
+    flips, each repointed with its description rewritten and tagged `# t1609`.
+  - **Variable-return, not `$(...)`.** A command-substitution call site would
+    fork once per list item on the framework's hottest reader, re-introducing the
+    forks t1444 removed for the closed-pipe write contract.
+  - **`#\[`/`%\]` peel, not `${value:1:${#value}-2}`.** The arithmetic form is
+    coupled to the guard's exact anchoring and would eat a space instead of the
+    `]` if that guard were ever relaxed.
+  - **`-ge 2` guard kept though redundant.** The `case` globs already need two
+    quote chars, but lone quotes *are* reachable (`[",", x]` peels to `"`,`"`,`x`)
+    and the obvious `[[ ]]` refactor of that `case` matches one and aborts the
+    reader with `substring expression < 0`. Pinned by four lone-quote rows.
+  - **Trim before unquote.** Load-bearing for CRLF-authored configs; reversing
+    the order silently breaks them. Pinned.
+  - **Malformed command → fail, never skip.** Pinning the softening would only
+    have documented it. `bash -n` separates "could not parse" from "ran and
+    reported it did not run", and also closes the pre-existing hole where
+    `verify_build: "for x in"` was recorded as a skip.
+  - **Declined:** quote-aware comma splitting (needs a per-character bash loop on
+    the hottest reader); aligning the Python twin's `.strip("'\"")` — bash is the
+    YAML-correct side there, so the divergence is documented, not "fixed".
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/gate_ledger.py:531,535-537` — `_read_frontmatter_list_from_text`
+    strips a *run* of quote chars off either end via `.strip("'\"")`, so a block
+    item `- echo "hi"` becomes `echo "hi` (trailing quote eaten). Deliberately
+    not changed here: this reader feeds only identifier-shaped gate fields, and
+    bash is now the YAML-correct side. Reachable only if a command-shaped value
+    is ever read through it.
+  - `.aitask-scripts/lib/yaml_utils.sh:250-262` — the value-capture loop counts
+    `[`/`]` without quote awareness, so `verify_build: ["ls ["]` leaves the depth
+    counter at 1 and swallows subsequent config lines until a `]` appears.
+    Pre-existing; untouched by this task.
+  - `.aitask-scripts/lib/config_utils.py:326-345` — the settings TUI saves
+    `verify_build` through `yaml.safe_dump(default_flow_style=False)`, which
+    single-quotes any scalar starting `[`, `*`, `#` or containing `: `. Harmless
+    now that the reader unquotes, but it means the TUI silently changes the
+    on-disk quoting of a command the user typed unquoted.
