@@ -195,6 +195,14 @@ lint_command:
 # tests_pass (blocks_dependents: true) that also holds back every task that
 # depends on this one, for a run that never executed.
 #
+# The contract is NOT gate-only. The same three keys are also run as the
+# post-implementation build-verification step (/aitask-pick, /aitask-pickrem,
+# /aitask-pickweb) and by /aitask-qa; opting a key in here covers every one of
+# them, so a command cannot mean one thing to a gate and another to the
+# build step. What each does with a skip differs: a gate is satisfied and
+# releases dependents, the build step proceeds without sending the agent back
+# to fix a build that never ran, and qa scores the component N/A rather than 0.
+#
 # List a key here and that key's command(s) are read as:
 #
 #     exit 0  -> pass

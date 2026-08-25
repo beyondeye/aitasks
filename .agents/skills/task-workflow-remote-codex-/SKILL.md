@@ -721,15 +721,9 @@ authorizing the merge in chat before the prompt fires.
 
   - **Else if `gates_out` contains the line `No gates declared; nothing to do.`** —
     the task has not opted into the gate system (the common case today). Run the
-    legacy inline build verification:
-    - Read `aitasks/metadata/project_config.yaml` and check the `verify_build` field
-    - **If `verify_build` is absent, null, or empty (or file doesn't exist):** Display "No verify_build configured — skipping build verification." and skip this step.
-    - **If `verify_build` is a single command string:** Run it.
-    - **If `verify_build` is a list of commands:** Run each sequentially (stop on first failure).
-    - **If the build fails:**
-      1. Analyze the error output and compare against the changes introduced by this task (`git diff` against the base)
-      2. **If the failure is caused by this task's changes:** Go back to the implementation to fix the build errors. After fixing, re-run the build command(s). Repeat until the build passes.
-      3. **If the failure is NOT related to this task's changes** (pre-existing issue, environment problem, etc.): Log the build failure details in the plan file's "Final Implementation Notes" section under a "Build verification" entry and proceed with the workflow. Do not attempt to fix pre-existing issues.
+    legacy build verification:
+    - Execute the **Build Verification Procedure** (see `build-verification.md`) with `config_key=verify_build` and `task_id`. It runs the configured command(s) through `aitask_run_project_command.sh` — the same exit contract the `build_verified` gate verifier applies, so the two paths cannot disagree about what an exit code means — and returns `build_verdict` (`pass` | `fail` | `skip` | `none`) and `build_log`.
+    - Do **not** re-derive the run-and-branch rules here. In particular, an opted-in command's did-not-run exit is a `skip`, not a build failure, and the procedure owns that decision.
 
   - **Otherwise** — the orchestrator ran the task's declared gates and **recorded
     each run itself**. Read its per-gate report lines (`  <gate>: <status> …`) and
@@ -907,6 +901,7 @@ The following procedures are in individual files — read on demand when referen
 - **Auto-Verification Procedure** (`auto-verification.md`) — Automated verification for `manual_verification` tasks. Supports two strategies: autonomous (execute inline, document at end) and pre-built (design plan, optionally approve, then execute). Persists to `aiplans/p<id>_manual_verification_auto.md`. Referenced from `manual-verification.md` Step 1.5 (whole checklist) and Step 2 (per-item `auto` verb).
 - **Manual Verification Follow-up Procedure** (`manual-verification-followup.md`) — Post-implementation prompt offering to create a standalone manual-verification task, with multi-source candidate discovery. Referenced from Step 8c.
 - **Upstream Defect Follow-up Procedure** (`upstream-followup.md`) — Post-implementation prompt offering to spawn a standalone bug aitask for an upstream defect surfaced during diagnosis. Reads the plan file's "Upstream defects identified" subsection. Referenced from Step 8b.
+- **Build Verification Procedure** (`build-verification.md`) — Run a `project_config.yaml` command key (default `verify_build`) through `aitask_run_project_command.sh` and branch on its verdict. The single canonical statement of the legacy (non-gate) build-verification rules, shared with `aitask-pickrem` and `aitask-pickweb`; the exit contract itself lives in `run_project_command_key()`'s docblock. Referenced from Step 9's no-gates-declared branch.
 - **Remote Drift Check Procedure** (`remote-drift-check.md`) — Warn before implementation if `origin/<base-branch>` is ahead of local, with strong emphasis on files the plan touches. Referenced from planning.md Checkpoint and from **Re-entry Routing**'s `IMPLEMENT` route.
 - **Approved-Plan Stop Sequence** (`plan-approved-stop.md`) — The one release-and-revert sequence for a session that ends on an approved-but-not-implemented plan: record the approval (once, `record_gates`-gated), commit the plan, release the lock, revert to `Ready`, push. Referenced from planning.md's "Approve and stop here" and remote-drift-check.md's "Stop and re-verify plan" — a shared reference so neither branch can drop a step by partial copy.
 - **Merge-Target Sync Pre-flight Procedure** (`merge-target-sync.md`) — Refresh the merge target before a resumed task reaches Step 9, which never fetches. Fast-forward-only recovery; never reverts the task. Referenced from **Re-entry Routing**'s `POSTIMPL` route.

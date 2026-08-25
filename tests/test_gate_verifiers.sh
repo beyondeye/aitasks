@@ -475,6 +475,48 @@ test_command_exit_contract() {
 }
 
 # ============================================================
+# Test 7b: the appended ledger `Result:` text is pinned verbatim
+# ============================================================
+# The tests above assert `status=` and the verifier exit code, but nothing
+# asserted the human-readable `result=` field that run_command_gate appends --
+# so a refactor could silently reword the orchestrator's recorded history and
+# every existing assertion would still pass. t1610 extracts the command runner
+# out of run_command_gate for reuse by the legacy build-verification helper;
+# these pins are the characterization baseline for that extraction and must hold
+# byte-for-byte across it. One row per outcome the runner can produce.
+test_ledger_result_strings() {
+    echo "=== Test 7b: appended Result: text (characterization) ==="
+    local d
+
+    # pass: every command exited 0
+    d="$(new_fixture)"; write_task "$d" 90
+    printf 'verify_build: "true"\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 90 1 "rres1"
+    assert_contains "result(pass): all <key> command(s) passed" \
+        "Result: all verify_build command(s) passed" "$(cat "$d/aitasks/t90_x.md")"
+
+    # fail: the exit code and the offending command are both named
+    d="$(new_fixture)"; write_task "$d" 91
+    printf 'verify_build: "exit 7"\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 91 1 "rres2"
+    assert_contains "result(fail): names exit code and command" \
+        "Result: command failed (exit 7): exit 7" "$(cat "$d/aitasks/t91_x.md")"
+
+    # skip (command-driven): the documented skip code and the command
+    d="$(new_fixture)"; write_task "$d" 92
+    printf 'verify_build: "exit 2"\ngate_command_exit_contract: [verify_build]\n' | write_config "$d"
+    run_verifier "$d" "$BUILD" 92 1 "rres3"
+    assert_contains "result(skip/command): names the skip exit and command" \
+        "Result: command reported skip (exit 2): exit 2" "$(cat "$d/aitasks/t92_x.md")"
+
+    # skip (nothing configured): distinguished from the above by this text alone
+    d="$(new_fixture)"; write_task "$d" 93
+    run_verifier "$d" "$BUILD" 93 1 "rres4"
+    assert_contains "result(skip/unconfigured): no <key> configured" \
+        "Result: no verify_build configured" "$(cat "$d/aitasks/t93_x.md")"
+}
+
+# ============================================================
 # Test 8: multi-command aggregation under the exit contract
 # ============================================================
 # any fail -> fail (short-circuits); else any skip -> skip; else pass.
@@ -704,6 +746,7 @@ test_orchestrator_integration
 test_seam_primitive
 test_workflow_wiring_text
 test_command_exit_contract
+test_ledger_result_strings
 test_exit_contract_aggregation
 test_exit_contract_unknown_key
 test_gate_command_keys_no_drift

@@ -122,6 +122,7 @@
       "Bash(./.aitask-scripts/aitask_fold_mark.sh:*)",
       "Bash(./.aitask-scripts/aitask_fold_validate.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate.sh:*)",
+      "Bash(./.aitask-scripts/aitask_run_project_command.sh:*)",
       "Bash(./ait git:*)",
       "Bash(./.aitask-scripts/aitask_init_data.sh:*)",
       "Bash(./.aitask-scripts/aitask_artifact.sh:*)",

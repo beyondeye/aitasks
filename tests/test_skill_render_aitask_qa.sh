@@ -146,6 +146,35 @@ for profile in "${PROFILES[@]}"; do
     assert_not_contains "$profile: qa_run_tests block empty" \
         "test execution disabled" "$texec"
 
+    # t1610: the gate exit contract reaches qa's command execution. This file has
+    # no golden, so these pins are the ONLY thing that fails if the edit is
+    # dropped or rendered wrong -- and it amended FOUR surfaces, so a single
+    # "mentions the helper" check would pass with three of them reverted. One
+    # short, single-line pin per surface (a pin that wraps guards nothing).
+    assert_contains "$profile: 4b routes configured commands through the helper" \
+        "aitask_run_project_command.sh test_command" "$texec"
+    assert_contains "$profile: 4c has a did-not-run row form" \
+        "SKIP (did not run" "$texec"
+    assert_contains "$profile: 4d scores a did-not-run as N/A, not 0" \
+        "mark the component **N/A**" "$texec"
+    assert_not_contains "$profile: 4d no longer scores a did-not-run 0" \
+        "If no tests found or run, score 0" "$texec"
+    # N/A must be conditional on there being no OTHER executed evidence: 4b still
+    # runs individual changed-source tests directly, so a skipped configured
+    # runner beside a failing direct test must not redistribute that failure away.
+    assert_contains "$profile: 4d scores every test that actually executed" \
+        "over **every test that actually executed**" "$texec"
+    assert_contains "$profile: 4d keeps a direct failure in the score" \
+        "still fails and still counts" "$texec"
+    assert_contains "$profile: 4d N/A requires no other executed result" \
+        "**Nothing else executed**" "$texec"
+    assert_contains "$profile: 4e does not blank the other evidence" \
+        "does not blank the other evidence" "$texec"
+    assert_contains "$profile: 4e re-runs through the same helper" \
+        "**through the same helper**" "$texec"
+    assert_contains "$profile: 4e reports a skipped claim as unverified" \
+        "**unverified, not false**" "$texec"
+
     tsel="$($RENDER ".claude/skills/aitask-qa/task-selection.md" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
     if [[ "$profile" == "default" ]]; then
         assert_contains "$profile: skip_task_confirmation else arm (AskUserQuestion)" \

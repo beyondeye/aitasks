@@ -91,6 +91,7 @@
       "Bash(./.aitask-scripts/aitask_gate_pass.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate_risk.sh:*)",
       "Bash(./.aitask-scripts/aitask_gate_tests_pass.sh:*)",
+      "Bash(./.aitask-scripts/aitask_run_project_command.sh:*)",
       "Bash(./.aitask-scripts/aitask_run_gates.sh:*)",
       "Bash(./.aitask-scripts/aitask_usage_update.sh:*)",
       "Bash(./.aitask-scripts/aitask_pr_close.sh:*)",

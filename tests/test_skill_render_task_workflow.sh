@@ -78,6 +78,11 @@ WRAPPED_FILES_INVARIANT=(
     "risk-evaluation.md"
     "risk-mitigation-followup.md"
     "gate-recording.md"
+    # The legacy (non-gate) build-verification decision flow (t1610). Shared by
+    # task-workflow Step 9, aitask-pickrem and aitask-pickweb, so it carries no
+    # profile conditionals of its own -- the record_gates guard stayed in
+    # SKILL.md, where the recording lives.
+    "build-verification.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
@@ -501,6 +506,16 @@ assert_contains "record_gates true: SKILL.md emits review_approved recording" \
     'gate_name=review_approved' "$REC_SKILL"
 assert_contains "record_gates true: SKILL.md emits build_verified recording" \
     'gate_name=build_verified' "$REC_SKILL"
+# t1610: the recording is verdict-driven, not hardcoded to pass. A legacy
+# build-verification `skip` (an opted-in command that declared it did not run)
+# must reach the ledger as `skip`, exactly as the gate path records it -- so the
+# status must be threaded through, and the unconfigured case must record nothing.
+assert_contains "record_gates true: build_verified status is the returned verdict" \
+    'status=<build_verdict>' "$REC_SKILL"
+assert_contains "record_gates true: nothing is recorded when nothing is configured" \
+    'When `build_verdict` is **not** `none`' "$REC_SKILL"
+assert_not_contains "record_gates true: build_verified is not hardcoded to pass" \
+    'gate_name=build_verified`, `status=pass' "$REC_SKILL"
 assert_contains "record_gates true: SKILL.md emits merge_approved recording" \
     'gate_name=merge_approved' "$REC_SKILL"
 assert_contains "record_gates true: SKILL.md lists the Gate Recording Procedure" \

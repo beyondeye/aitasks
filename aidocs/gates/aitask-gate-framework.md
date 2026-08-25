@@ -357,6 +357,18 @@ Every gate is implemented by a **`aitask-gate-<name>`** skill, following a stand
 
 The second is **opt-in per config key**: it applies only when the key is listed in `project_config.yaml`'s `gate_command_exit_contract`. Exit 2 is not free to reserve — GNU `make` exits 2 on a build error and `pytest` exits 2 on interrupt — so without the declaration every non-zero exit stays a fail, and a real failure can never be laundered into a satisfied `blocks_dependents` gate. Any exit other than the documented `2` is a fail whether or not the key opted in. The two kinds of skip stay distinguishable in the appended `result=` line, never by the exit code. A third source of `2` is deliberately **excluded** from the contract: a command that cannot be parsed at all (`bash -n` rejects it) never ran, so it is always a **fail** — `result=malformed <key> command (cannot parse): …` — even when the key opted in. Treating a syntax error as "evaluated, not applicable" would release dependents for work that never happened, so exit 2 means the command RAN and reported it did not do the work. Over a list of commands a fail short-circuits and a skip does not, so a fail after a skip still wins. An unrecognized `gate_command_exit_contract` entry is ignored (it never changes a verdict) and reported on the gate-run block's `note=` field, so a typo cannot masquerade as "not opted in".
 
+**The same contract governs the legacy prose path (t1610).** These three commands are also run a second way — as agent instructions, in `task-workflow` Step 9's no-gates-declared branch, in `aitask-pickrem` / `aitask-pickweb`, and in `aitask-qa`'s test execution. That path does **not** go through a verifier, so it used to answer the same question differently: an opted-in command's exit 2 was a gate `skip` here and a build failure there. It now calls `.aitask-scripts/aitask_run_project_command.sh`, which executes the identical `run_project_command_key()` in `lib/gate_verifier_lib.sh` and reports `VERDICT:pass|fail|skip` without touching any ledger. Both paths therefore read a command's exit code by one rule, held in one place.
+
+What differs is only what each path *does* with a skip, because they have different vocabularies for it:
+
+| | opted-in command exits 2 |
+|---|---|
+| `build_verified` / `tests_pass` / `lint` verifier | ledger `skip` — gate satisfied, dependents released |
+| legacy Step-9 prose | agent proceeds (it is **not** sent back to fix a build); under a `record_gates` profile the workflow records `build_verified` with status `skip` — the same ledger vocabulary |
+| `aitask-qa` | the component is **N/A** in the health score (weight redistributed), and its "all tests pass" claim is reported *unverified*, neither pass nor failure |
+
+The branch rules for the prose path are written down once, in `.claude/skills/task-workflow/build-verification.md`; the exit table itself is written down once, in `run_project_command_key()`'s docblock. Neither is restated in a consuming SKILL.md.
+
 **Must not:**
 - Modify task frontmatter.
 - Modify any other gate's Gate Runs entries.
