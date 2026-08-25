@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 10:54
-updated_at: 2026-08-25 11:02
+updated_at: 2026-08-25 16:24
 ---
 
 ## Problem
@@ -260,3 +261,8 @@ Ordered by what actually removes the symptom:
   `aidocs/framework/tmux_gateway.md` before touching these paths.
 - `aidocs/framework/testing_conventions.md` covers the `App.run_test` /
   `@work`-worker interaction that a boot test here will run into.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T13:24:26Z status=pass attempt=1 type=human
