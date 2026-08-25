@@ -790,3 +790,73 @@ none.
 
 Suite state: **984 monitor/minimonitor tests green**, plus 25/25 agent-marks and
 the five lock suites unchanged.
+
+### Steps 1-5 + 7 committed
+
+`1ad9560b8` — `bug: Take the first monitor refresh off the App message pump (t1598)`,
+16 files, +1134/-280. Full Python suite green
+(`PYTHON SUITE: PASSED (runner=pytest, exit=0)`), lock suites at baseline,
+`test_no_raw_tmux.sh` 5/5, shellcheck clean.
+
+Two repo guards were tripped by the change and fixed properly rather than
+worked around:
+
+- `tests/test_collection_structure.py` forbids a test class inheriting `test_*`
+  methods from a same-module base. The parity suite does that **deliberately** —
+  running one contract against two implementations is the mechanism, not a side
+  effect — so this is the guard's documented allowlist case, added with the
+  written justification it requires.
+- `tests/test_shadow_phase_restamp.py` asserted both apps call
+  `refresh_shadow_phase_stamp` from their per-tick path. The monitor's reach is
+  now two-stage (renderer queues → `_refresh_data` flushes), so the detector was
+  updated to the new shape **and** gained a case asserting the renderer still
+  queues — otherwise the flush could iterate an empty list forever and the stamp
+  would silently freeze.
+
+### Step 6 + docs + post-phase committed
+
+`9197fdf6b` — `bug: Give the .gc guard a holder record so a wedged lock
+self-heals (t1598)`, 14 files, +766/-73.
+
+**Correction to this plan.** It said the manual cure is published in "nine
+rendered copies". On disk there are nine, but only **four** `merge-broker.md`
+files are tracked — the source plus the three `remote-` variants. The
+`default-` / `fast-` rendered dirs are untracked local build artifacts. The
+design counted files, not tracked files.
+
+**A second defect found by a control, not by reading.** The first Protocol G
+implementation built the guard record name in a `$(...)` command substitution, so
+`${BASHPID:-$$}` recorded the *substitution subshell's* pid — dead the instant it
+returned. Every guard record therefore named a dead process and was reclaimable
+on sight. It surfaced as `test_registry_lock.sh` case 10 going red (B acquired
+while A held the guard) and `test_merge_lock_concurrency.sh` hanging. The name is
+now built inline, with a comment tying it to the same hazard the file header
+already documents for `STALE_LOCK_TOKEN`.
+
+**Negative controls, run rather than described:**
+
+| mutation | result |
+|---|---|
+| markerless path ignores the opt-in window | 8 assertions fail, including the pre-existing leaked-guard block and the new no-opt-in control |
+| naive classifier (`-e` only, no directory check) | **passed at first** — the malformed cases asserted the OUTCOME, which the naive version preserves by accident (`rmdir` returns "Not a directory" / `ENOTEMPTY`). Fixed by asserting the *reason* — the classification warn. Now fails exactly the two mishandled cases |
+| a bare-rmdir cure planted in a scanned root | doc-drift guard flags it; scoped residual language and "never `rm -rf`" are not flagged |
+
+The doc-drift guard's cure check is **paragraph-folded, not line-matched**: the
+explanatory sentence wraps, so `ENOTEMPTY` lands on the next line and the
+line-oriented first version flagged all 11 copies of a correct sentence.
+
+**Final state:** `test_stale_lock.sh` 126/126 (was 79), and all of
+`test_registry_lock` 51, `test_merge_lock_broker` 95, `test_merge_lock_concurrency`
+30, `test_agent_marks_concurrency` 25, `test_gate_lock_single_winner` 17,
+`test_registry_lock_single_winner` 15, `test_create_email_lock` 35,
+`test_gate_lock_characterization` 47, `test_parallel_child_create` 24,
+`test_shadow_rejected` 130, `test_guard_contract_doc_drift` 16,
+`test_skill_render_task_workflow` 200, `test_no_raw_tmux` 5 — green.
+`PYTHON SUITE: PASSED (runner=pytest, exit=0)`. `aitask_skill_verify.sh` OK.
+
+**Acceptance criteria, measured on the exact production fixture** (dead-pid lock
+dir + ancient recordless guard): acquire succeeds in **0s** instead of spinning to
+its 10s deadline. Negative controls: a *fresh* recordless guard is still
+respected; an *ancient* guard whose record names a *live* holder is never
+displaced, which is the `git reset --hard` case; and without the opt-in argument
+an ancient guard is left alone.
