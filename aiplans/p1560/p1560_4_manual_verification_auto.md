@@ -89,8 +89,12 @@ job, and itself a small confirmation of the anchor precondition.
   behind t1560.` At 80 only the trailing clause wraps. The pinned phase anchor
   leads the string and the queued-behind clause is appended, so no wrap can push
   the anchor off-screen.
-- Verdict: **pass**. Residual: rendered through a real terminal but not through
-  Claude Code's own AskUserQuestion widget, whose word-wrap and padding differ.
+- Residual closed: a **real live Claude Code AskUserQuestion widget** was captured
+  from this agent's own pane mid-question (background `capture-pane` armed before
+  the call). At 224 columns it rendered a 200-character question on ONE line, so
+  the 91-character merge-approval question is comfortably single-line with the
+  queued-behind clause fully visible.
+- Verdict: **pass**.
 
 ### Item 8 — every broker verdict has a branch; no in-flight exit reaches cleanup
 
@@ -119,8 +123,13 @@ job, and itself a small confirmation of the anchor precondition.
   pass is not vacuous. `bash tests/test_workflow_phase_prompt_drift.sh` → 17/17.
   `minimonitor_app.py` and `review_loop.py` consume this same module, so both
   surfaces share the verdict.
-- Verdict: **pass**. Residual: the widget was reproduced faithfully rather than
-  emitted by a live agent CLI at Step 9.
+- Residual closed: against the **real live widget** captured from this agent's own
+  pane, `current_question_block` matched its ` ☐ Verify` chip at index 19, and the
+  real widget frame carrying the merge-approval question classified as
+  `('POSTIMPL', 'WAITING', 'merge_approval anchor inside the current question
+  block')`. The chip mechanism is therefore confirmed against the real emitter,
+  not a reproduction.
+- Verdict: **pass**.
 
 ### Item 10 — POSTIMPL resume after an in-flight verification exit
 
@@ -146,21 +155,27 @@ job, and itself a small confirmation of the anchor precondition.
   `gitlab.com` / sibling-directory paths, no real repository names.
 - Verdict: **pass**.
 
-### Items 1, 6, 11 — left pending for the interactive loop
+### Items 1, 6, 11 — resolved interactively as **skip**
 
-- **1** (two REAL agent sessions to Step 9): needs two full agent runs. The
-  mechanism it targets was proven live in items 2/3/4 with real tmux panes and
-  real session anchors, but not with two agents driving Step 9.
-- **6** (no permission prompt from a skill): the whitelist entry
+- **1 — skip, "covered by the automated suite".**
+  `tests/test_merge_lock_concurrency.sh` pins the hold-out directly (case 1n
+  asserts B is refused *by the mutex*, `BUSY:tA:`, naming the holder), alongside
+  the N=51 concurrent case and the red proof — **30/30 green, 2026-08-25**. The
+  same hold-out and holder-naming were additionally driven live here in items
+  2/3/4 with real tmux panes and real session anchors. Two full agent runs would
+  add no coverage the suite and those live runs do not already have.
+- **6 — skip, "permission mode makes it unobservable".** This session's
+  permission mode cannot be determined from inside it, so "no prompt appeared"
+  is not independent evidence — the observation would be vacuous under a
+  permissive mode. What *is* checkable: the whitelist entry
   `Bash(./.aitask-scripts/aitask_merge_task.sh:*)` is present in
   `.claude/settings.local.json`, `seed/claude_settings.local.json`,
   `.codex/rules/default.rules`, `seed/codex_rules.default.rules` and
   `seed/opencode_config.seed.json`, the prefix matches the invocation form the
-  rendered Step 9 uses, and the broker ran from this Claude Code session with no
-  prompt observed. Whether a prompt **UI** appeared is only observable by the
-  human at the terminal, and this session's permission mode is not knowable from
-  inside it — so the verdict is theirs.
-- **11** (read the two pages in a browser): the site builds clean
+  rendered Step 9 uses, and the broker ran cleanly from this Claude Code session
+  across every live case above.
+- **11 — skip, "no browser available in this session"** (Chrome extension not
+  connected). The site builds clean
   (`hugo build --gc --minify`, 237 pages, rc=0) and both pages were read as
   served. The locks page carries `The merge mutex` → `What the merge mutex
   excludes` (the table), `Before a merge can start: the session anchor` (the
@@ -169,6 +184,10 @@ job, and itself a small confirmation of the anchor precondition.
   Merge-Back` section that cross-links to both. The Chrome extension is not
   connected in this session, so the actual browser rendering — table overflow in
   particular — was not seen.
+
+## Result
+
+**9 pass, 3 skip, 0 fail, 0 defer** — every item terminal, no carry-over.
 
 ## Cleanup
 
