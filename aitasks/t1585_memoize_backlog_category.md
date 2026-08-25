@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-08-24 16:18
-updated_at: 2026-08-25 16:47
+updated_at: 2026-08-25 18:04
 ---
 
 ## Origin
@@ -68,3 +69,8 @@ than inlined:
   pass, not the ~89 ms the backlog collection itself costs.
 - `ait stats --csv <f>` still emits 12 columns with a non-empty `category` on
   every row.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-25T15:04:19Z status=pass attempt=1 type=human
