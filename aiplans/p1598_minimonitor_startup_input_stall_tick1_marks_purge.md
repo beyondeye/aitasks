@@ -688,13 +688,13 @@ live `sleep 120 &` holder is the sound shape.
   reported case, not universally, and the plan says so rather than implying
   otherwise. · severity: medium · → mitigation: none (documented residual)
 - T2 proves the *pump* property with a synthetic stall; it does not prove a real
-  boot is fast. · severity: low · → mitigation: live_boot_input_latency_test
+  boot is fast. · severity: low · → mitigation: t1623
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_lock_baseline | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the `.gc` steal protocol in a load-bearing global mutex | desc: Record a verbatim PASS/FAIL baseline of the five lock suites before editing stale_lock.sh, so each deliberately-inverted assertion in T7/T8/T9 is provably intentional.
 - timing: pre-phase | name: autoclose_parity_test_first | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — making the pane-killing `_check_auto_close` async | desc: Write the sync+async (observed, panes) parity suite and confirm the async half fails BEFORE writing discover_window_panes_async, so the port is developed against a red test.
 - timing: post-phase | name: guard_contract_doc_sweep | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — nine rendered skill copies plus a golden publish the old guard contract | desc: Add an executable drift guard over scripts, all skill trees, aidocs and goldens that fails on the superseded UNIVERSAL claims only (never auto-broken / always empty / no heuristics / rmdir prescribed as the cure), explicitly permitting scoped R1+R4 manual-recovery language; assert the hit count and ship a positive control.
-- timing: after | name: live_boot_input_latency_test | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — T2 proves the pump property, not that a real boot is fast | desc: Live minimonitor boot in an isolated tmux pane against an isolated wedged AITASKS_AGENT_MARKS_FILE, asserting a key takes effect under budget; needs the coordinated SERIAL_CARVE_OUT + CLAUDE.md edit enforced by test_serial_carveout_doc_drift.sh.
+- timing: after | name: live_boot_input_latency_test | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — T2 proves the pump property, not that a real boot is fast | desc: Live minimonitor boot in an isolated tmux pane against an isolated wedged AITASKS_AGENT_MARKS_FILE, asserting a key takes effect under budget; needs the coordinated SERIAL_CARVE_OUT + CLAUDE.md edit enforced by test_serial_carveout_doc_drift.sh. | created: t1623
 
 ## Deferred follow-ups (record on the task, do not silently drop)
 
