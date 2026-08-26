@@ -92,11 +92,38 @@ project. Verified live in this repo:
 
 **Primary-root resolution is its own helper**, because three call sites need it
 and `dirname` is wrong at all three. Add `ait_main_worktree_root <dir>` (sets
-`AIT_WT_MAIN_ROOT`; 0 ok, 1 not a repository, 2 unresolvable) taking the first
-entry of `git -C <dir> worktree list --porcelain`, which is by definition the
-main worktree — authoritative for submodules and `--separate-git-dir` alike,
-where `dirname` is not. Confirmed: queried from inside `.aitask-data`, it
-returns `/home/ddt/Work/aitasks`. It keeps the property the existing
+`AIT_WT_MAIN_ROOT`; 0 ok, 1 not a repository, 2 unresolvable).
+
+> **Deviation from the approved plan, found during implementation.** The plan
+> said the first entry of `git worktree list --porcelain` is authoritative for
+> submodules. It is not, on two counts measured against real fixtures:
+>
+> 1. git reports a submodule's main worktree as `<super>/.git/modules/<name>` —
+>    it derives that entry the same broken way `dirname(git-common-dir)` does;
+> 2. it emits paths **raw and unquoted**, so splitting the listing truncates any
+>    path containing a newline (its `-z` form needs git 2.36 *and* cannot
+>    survive `$(...)`, which strips NUL).
+>
+> The shipped resolution is therefore **parse-free** and goes through the
+> git-common-dir: `rev-parse --show-toplevel` run *from* it (which `core.worktree`
+> answers for a submodule), else `dirname` (git's own definition for an ordinary
+> repo), then a validation that the winner is a working tree that is its own
+> toplevel. It must be `-C <common>`, never `--git-dir=<common>` — the latter
+> treats the *caller's* cwd as the work tree and returns the caller's own repo
+> root. `--show-superproject-working-tree` is unusable: empty from a linked
+> worktree *of* a submodule, exactly the case that needs it.
+>
+> **Accepted layout boundary:** `git init --separate-git-dir` answers state 2.
+> Its linkage is one-way (no `core.worktree` in the gitdir), so nothing — git
+> included — can name the checkout from it. Refusing beats the `dirname` form's
+> silent wrong answer (the gitdir's unrelated parent). Pinned by Test 21.
+>
+> Verified across eleven topologies: primary, primary subdir, linked worktree,
+> superproject, submodule primary, linked worktree of a submodule,
+> `--separate-git-dir`, newline-named main worktree, worktree of a
+> newline-named main, newline-named linked worktree, and non-repo.
+
+It keeps the property the existing
 `--link-worktree` comment relies on ("derive the main root FROM the supplied
 dir, so the same-repo check is free and no ambient cwd can pick a different
 repository"). `ait_linked_worktree_roots` is then just the predicate above plus
@@ -333,3 +360,74 @@ cd aiwork/<some_task_worktree> && ./ait setup   # expect the refusal + --link-wo
 - timing: post-phase | name: guard_placement_positive_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — new early return may intercept the primary checkout | desc: assert ait_linked_worktree_roots returns 1 for the primary root and a plain subdirectory of it, and re-confirm Test 1's full primary configuration still passes
 - timing: post-phase | name: linked_submodule_remedy_e2e | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — --link-worktree main_root fix makes three guards reachable and moves the LEGACY_MODE/NOT_INITIALIZED probes | desc: run the exact remedy command Check 3b prints on a linked worktree of a submodule and assert LINKED plus the three symlinks actually exist
 - timing: post-phase | name: submodule_classification_fixture | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — extraction changes t1624's Check 3b predicate and indeterminate handling | desc: real superproject+submodule fixture pinning that a submodule primary checkout classifies as not-linked and configures fully, in both test_data_branch_setup.sh and test_init_data.sh
+
+## Final Implementation Notes
+
+- **Actual work done:** All four plan sections landed. `lib/data_symlinks.sh`
+  gained `ait_main_worktree_root` and the three-state `ait_linked_worktree_roots`;
+  `aitask_init_data.sh` routes both Check 3b and `--link-worktree` through them
+  and documents a new `WORKTREE_INDETERMINATE` token; `aitask_setup.sh` gained
+  the pre-Step-1 refusal, reports git's stderr at Step 2 with the legacy-mode
+  consequence, and carries git's error in both push warns. Tests: 89 → 136 in
+  `test_data_branch_setup.sh`, 118 → 140 in `test_init_data.sh`.
+
+- **Deviations from plan:** One, in §1's primary-root resolution — see the
+  boxed note in §1. The plan's `git worktree list --porcelain` first-entry
+  approach was wrong twice over (it reports a submodule's main worktree as the
+  *gitdir*, and it emits paths raw and unquoted so any line split truncates a
+  newline-containing path). Shipped a parse-free resolution through the
+  git-common-dir instead, with `--separate-git-dir` as a documented,
+  test-pinned refusal. Nothing else deviated.
+
+- **Issues encountered:**
+  - `git worktree list --porcelain` is not authoritative for submodules — git
+    derives that entry the same broken way `dirname(git-common-dir)` does.
+    Found by building a real superproject+submodule fixture rather than trusting
+    the API's description.
+  - `--git-dir=<common> rev-parse --show-toplevel` is actively dangerous as a
+    resolver: with no `--work-tree` git treats the *caller's* cwd as the work
+    tree and returns the caller's own repository root. Only `-C <common>` is
+    safe. Caught because the probe returned this repo's path for an unrelated
+    fixture.
+  - `--porcelain -z` would be newline-safe but needs git 2.36 *and* cannot
+    survive `$(...)`, which strips NUL — so it was not a usable escape hatch.
+  - A first draft piped `worktree list` into `head -n1`; under the `set -o
+    pipefail` every sourcing script sets, `head` closing the pipe early can
+    SIGPIPE git and turn a good answer into a failure. Removed the pipe.
+
+- **Key decisions:**
+  - **`return`, not `die`, at the Step 2 failure** — recorded as a code comment.
+    The task file's premise that control continues into Step 3 is wrong: the
+    `return` exits the function, skipping Steps 3–9 in one jump, so nothing is
+    populated into a non-worktree `.aitask-data/`. The step is optional
+    (answering `n` reaches the identical state) and dying would abort ~20
+    unrelated setup steps.
+  - **The predicate is `git-dir != git-common-dir`**, not a comparison of roots.
+    They are equal exactly when a checkout owns its repository — ordinary
+    primary, submodule primary, `--separate-git-dir` — and differ only for a
+    linked worktree.
+  - **`--path-format=absolute` (git 2.31+) deliberately avoided.** With callers
+    refusing on the indeterminate state, depending on it would have turned every
+    older git into a hard refusal.
+  - **Indeterminate refuses at both call sites.** The fall-through it replaces
+    reached the exact route that succeeds *wrongly* against an uninitialized
+    primary.
+  - **No linked-worktree hint at the Step 2 failure** — the pre-check owns that
+    cause, and Step 2 can still fail for unrelated reasons.
+  - Every new assertion was negative-controlled against unfixed source, and the
+    two load-bearing ones were mutation-tested in isolation (predicate swapped
+    back → only Test 17 fails; line parser restored → only Test 20 fails).
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1496 — `git fetch origin aitask-data
+    2>/dev/null || true` sets `branch_exists=true` unconditionally afterwards,
+    so a failed fetch is recorded as "branch found" and Step 2 then dies on an
+    invalid reference. Left out of scope deliberately: it is a probe rather than
+    a warn/return path, and there is no deterministic way to make only the fetch
+    fail in a fixture. Its symptom is now at least legible, since Step 2 reports
+    git's real error.
+  - `.aitask-scripts/aitask_setup.sh:1524-1526 — `cp -a … 2>/dev/null || true`
+    in the migration branch of Step 3 silently swallows a failed copy of the
+    user's existing `aitasks/`/`aiplans/` data, then proceeds to Step 5, which
+    `git rm -r`s the originals from main. A partial copy is therefore
+    indistinguishable from a complete one at the point the source is deleted.
