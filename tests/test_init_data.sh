@@ -769,6 +769,126 @@ assert_eq_trim "24h: reports INITIALIZED" "INITIALIZED" "$BARE_OUT"
 assert_contains "24h: the trace DID record the worktree add" "worktree add" "$TRACE"
 rm -rf "$TMPDIR_24H"
 
+# --- Test 25: a git submodule primary is not a linked worktree (t1627) ---
+# Check 3b used to derive the primary root as dirname(git-common-dir). Inside a
+# submodule that is <super>/.git/modules — an existing directory, never equal to
+# the submodule's own toplevel — so the submodule's PRIMARY checkout was refused
+# as if it were a task worktree. The predicate is now git-dir != git-common-dir,
+# which they share for a submodule primary.
+echo "--- Test 25: submodule primary is not refused ---"
+
+TMPDIR_25="$(mktemp -d)"
+git init -q --initial-branch=main "$TMPDIR_25/child"
+(cd "$TMPDIR_25/child" && git config user.email t@t && git config user.name T \
+    && echo hi > a.txt && git add . && git commit -qm init)
+git init -q --initial-branch=main "$TMPDIR_25/super"
+(cd "$TMPDIR_25/super" && git config user.email t@t && git config user.name T \
+    && echo s > s.txt && git add . && git commit -qm init \
+    && git -c protocol.file.allow=always submodule add -q ../child sub \
+    && git commit -qm "add sub")
+
+SUB_25="$TMPDIR_25/super/sub"
+install_script "$SUB_25"
+create_data_branch_setup "$SUB_25"
+
+# Cheap sanity check first — but note it does NOT discriminate: Check 1 sees an
+# existing .aitask-data and short-circuits before Check 3b is ever consulted.
+rc_25=0
+out_25="$(cd "$SUB_25" && bash "$SUB_25/.aitask-scripts/aitask_init_data.sh" 2>/dev/null)" || rc_25=$?
+assert_eq_trim "25: submodule primary reports ALREADY_INIT" "ALREADY_INIT" "$out_25"
+assert_eq "25: exits 0" "0" "$rc_25"
+
+# The discriminating case: branch present, worktree gone, so control actually
+# REACHES Check 3b. With the old dirname(git-common-dir) root this submodule
+# primary was refused as a linked worktree "whose primary is
+# <super>/.git/modules"; it must initialize instead.
+git -C "$SUB_25" worktree remove --force .aitask-data
+git -C "$SUB_25" worktree prune
+rm -f "$SUB_25/aitasks" "$SUB_25/aiplans"
+
+rc_25b=0
+err_25_file="$(mktemp)"
+out_25b="$(cd "$SUB_25" && bash "$SUB_25/.aitask-scripts/aitask_init_data.sh" 2>"$err_25_file")" || rc_25b=$?
+err_25="$(cat "$err_25_file")"; rm -f "$err_25_file"
+assert_eq_trim "25: submodule primary reaching Check 3b still INITIALIZES" \
+    "INITIALIZED" "$out_25b"
+assert_eq "25: exits 0" "0" "$rc_25b"
+assert_not_contains "25: was not refused as a linked worktree" \
+    "is a linked git worktree" "$err_25"
+assert_symlink "25: the layout was actually created" "$SUB_25/aitasks"
+
+# --- Test 26: the offered remedy completes on a linked submodule worktree ---
+# A correct refusal is worthless if the remedy it prints silently no-ops.
+# --link-worktree resolved main_root the same broken way, so on a worktree of a
+# submodule it probed <super>/.git/modules and answered NOT_INITIALIZED for a
+# submodule that was in fact fully initialized.
+echo "--- Test 26: linked submodule worktree remedy completes ---"
+
+printf '{"marker":"submodule"}\n' > "$SUB_25/.aitask-data/$FIXTURE_REL"
+git -C "$SUB_25" worktree add -q -b aitask/tS "$SUB_25/aiwork/tS" HEAD
+SUBWT_25="$SUB_25/aiwork/tS"
+
+# The bare run must refuse and print the remedy...
+rc_26=0
+err_26_file="$(mktemp)"
+out_26="$(cd "$SUBWT_25" && bash "$SUB_25/.aitask-scripts/aitask_init_data.sh" 2>"$err_26_file")" || rc_26=$?
+err_26="$(cat "$err_26_file")"; rm -f "$err_26_file"
+assert_eq_trim "26: worktree of a submodule reports WORKTREE_UNLINKED" \
+    "WORKTREE_UNLINKED" "$out_26"
+assert_eq "26: exits 3" "3" "$rc_26"
+assert_contains "26: names the submodule checkout as the primary, not .git/modules" \
+    "$SUB_25'" "$err_26"
+
+# ...and running that exact remedy must actually work.
+remedy_26="$(strip_ansi "$err_26" | sed -n 's/.*Run: //p')"
+rc_26b=0
+out_26b="$(eval "$remedy_26" 2>/dev/null)" || rc_26b=$?
+assert_eq_trim "26: the printed remedy reports LINKED" "LINKED" "$out_26b"
+assert_eq "26: the remedy exits 0" "0" "$rc_26b"
+# Not just the token — the layout must really exist.
+assert_symlink "26: remedy created .aitask-data" "$SUBWT_25/.aitask-data"
+assert_symlink "26: remedy created aitasks" "$SUBWT_25/aitasks"
+assert_symlink "26: remedy created aiplans" "$SUBWT_25/aiplans"
+assert_file_exists "26: the primary's task data is readable through it" \
+    "$SUBWT_25/$FIXTURE_REL"
+
+rm -rf "$TMPDIR_25"
+
+# --- Test 27: an unresolvable topology is refused, not fallen through (t1627) ---
+# "Cannot classify" is its own state. The fall-through this replaces reached
+# Step 4 — precisely the route that succeeds wrongly against an uninitialized
+# primary. Forced by a git shim that fails only `rev-parse --git-common-dir`,
+# leaving every other probe (including the branch discovery Check 3 needs) real.
+echo "--- Test 27: indeterminate topology refuses ---"
+
+lw_repo primary
+shim_27="$(mktemp -d)"
+real_git_27="$(command -v git)"
+cat > "$shim_27/git" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+    [[ "\$a" == "--git-common-dir" ]] && exit 128
+done
+exec "$real_git_27" "\$@"
+EOF
+chmod +x "$shim_27/git"
+
+rc_27=0
+err_27_file="$(mktemp)"
+out_27="$(cd "$LW_WT" && PATH="$shim_27:$PATH" \
+    bash "$LW_MAIN/.aitask-scripts/aitask_init_data.sh" 2>"$err_27_file")" || rc_27=$?
+err_27="$(cat "$err_27_file")"; rm -f "$err_27_file"
+rm -rf "$shim_27"
+
+assert_eq_trim "27: reports WORKTREE_INDETERMINATE" "WORKTREE_INDETERMINATE" "$out_27"
+assert_eq "27: exits 3" "3" "$rc_27"
+assert_contains "27: says the topology could not be resolved" \
+    "could not be resolved" "$err_27"
+assert_contains "27: still points at the --link-worktree remedy" "--link-worktree" "$err_27"
+# It refused instead of initializing: no data worktree was created here.
+assert_no_layout "27: nothing was created in the worktree" "$LW_WT"
+rm -rf "$LW_TMP"
+
 # --- Summary ---
 echo ""
 echo "==============================="

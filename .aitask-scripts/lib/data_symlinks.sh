@@ -54,6 +54,104 @@ ait_canon_path() {
     ( cd "$1" 2>/dev/null && pwd -P ) || return 1
 }
 
+# ait_main_worktree_root <dir>
+#   Sets AIT_WT_MAIN_ROOT to the canonical root of <dir>'s repository MAIN
+#   worktree. Returns 0 on success, 1 when <dir> is not inside a git repository,
+#   2 when it is but the root could not be resolved.
+#
+#   Resolution goes through the git-common-dir, and is deliberately
+#   PARSE-FREE: every value flows through a variable, so a repository path
+#   containing a newline (or any other separator) resolves like any other.
+#   `git worktree list --porcelain` cannot be used for this -- it emits such a
+#   path raw and unquoted, so splitting its first record truncates it, and its
+#   `-z` form needs git 2.36 AND cannot survive `$(...)`, which strips NUL.
+#
+#   Two candidates, in order, because neither alone covers every layout:
+#
+#     1. `rev-parse --show-toplevel` run FROM the common dir. A submodule's
+#        gitdir (<super>/.git/modules/<name>) carries core.worktree, so this
+#        maps it onto the real checkout. It must be `-C <common>`, never
+#        `--git-dir=<common>`: the latter makes git treat the CALLER's cwd as
+#        the work tree and cheerfully returns the caller's own repository root.
+#     2. Otherwise `dirname <common>` -- git's own definition of the main
+#        worktree for an ordinary repository, where the gitdir has no
+#        core.worktree and candidate 1 exits non-zero.
+#
+#   The winner is then VALIDATED: it must be a working tree that is its own
+#   toplevel. Without that, a deinitialized submodule would fall through to
+#   candidate 2 and yield <super>/.git/modules -- an existing directory, which
+#   is exactly the silent-wrong-answer class this helper exists to remove. A
+#   failed validation is state 2, never a guess.
+#
+#   KNOWN LAYOUT BOUNDARY -- `git init --separate-git-dir` answers state 2.
+#   That linkage is one-way: the checkout's .git FILE points at the gitdir, but
+#   the gitdir gets no core.worktree, so nothing in it names the checkout. Git
+#   itself cannot resolve it either -- `git worktree list` reports that repo's
+#   main worktree as the gitdir. Refusing is deliberate and is an improvement on
+#   the dirname() form, which returned the gitdir's PARENT and let every probe
+#   run against an unrelated directory.
+#
+#   Derives everything FROM <dir>, so no ambient cwd can select a different
+#   repository and the same-repo property every caller relies on is free.
+ait_main_worktree_root() {
+    local dir="${1:-.}" common root verify canon
+    common="$(cd "$dir" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null)" || return 1
+    [[ -n "$common" ]] || return 1
+    common="$(cd "$dir" 2>/dev/null && ait_canon_path "$common")" || return 2
+    root="$(git -C "$common" rev-parse --show-toplevel 2>/dev/null)" || root=""
+    [[ -n "$root" ]] || root="$(dirname "$common")"
+    canon="$(ait_canon_path "$root")" || return 2
+    verify="$(git -C "$canon" rev-parse --show-toplevel 2>/dev/null)" || return 2
+    verify="$(ait_canon_path "$verify")" || return 2
+    [[ "$verify" == "$canon" ]] || return 2
+    AIT_WT_MAIN_ROOT="$canon"
+    return 0
+}
+
+# ait_linked_worktree_roots <dir>
+#   Classifies <dir> against its repository's worktree topology. On success sets
+#   BOTH AIT_WT_TOPLEVEL (this checkout's root) and AIT_WT_MAIN_ROOT (the
+#   primary's). Three states, because "cannot classify" is its own answer and
+#   must never be read as a negative:
+#
+#     0  <dir> is inside a LINKED worktree            -> act on it
+#     1  definitively NOT linked: the primary checkout (a submodule's included),
+#        a plain subdirectory of one, or not a repository at all
+#     2  indeterminate: inside a repository, but the topology did not resolve
+#        -> callers must refuse conservatively, never fall through
+#
+#   The predicate is `--git-dir != --git-common-dir`. They are equal exactly
+#   when the checkout owns its repository -- an ordinary primary, a submodule's
+#   primary (whose pair is <super>/.git/modules/<name> on both sides), and a
+#   `--separate-git-dir` checkout -- and differ only for a linked worktree,
+#   whose git-dir is <common>/worktrees/<name>. Comparing roots instead (the
+#   toplevel against dirname(git-common-dir)) misreads every submodule primary
+#   as linked.
+#
+#   Deliberately NOT using `--path-format=absolute` (git 2.31+): it would make
+#   every older git indeterminate, and callers refuse on indeterminate. Both
+#   options used here predate that by years, and each side is canonicalized
+#   against <dir> so a relative answer resolves correctly.
+ait_linked_worktree_roots() {
+    local dir="${1:-.}" gitdir common toplevel
+    gitdir="$(cd "$dir" 2>/dev/null && git rev-parse --git-dir 2>/dev/null)" || return 1
+    [[ -n "$gitdir" ]] || return 1
+    common="$(cd "$dir" 2>/dev/null && git rev-parse --git-common-dir 2>/dev/null)" || return 2
+    [[ -n "$common" ]] || return 2
+    gitdir="$(cd "$dir" 2>/dev/null && ait_canon_path "$gitdir")" || return 2
+    common="$(cd "$dir" 2>/dev/null && ait_canon_path "$common")" || return 2
+    # Equal => this checkout owns its repository: not a linked worktree.
+    [[ "$gitdir" != "$common" ]] || return 1
+    toplevel="$(ait_canon_path \
+        "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)" || return 2
+    [[ -n "$toplevel" ]] || return 2
+    ait_main_worktree_root "$dir" || return 2
+    [[ "$toplevel" != "$AIT_WT_MAIN_ROOT" ]] || return 2
+    # shellcheck disable=SC2034  # out-param: read by callers alongside AIT_WT_MAIN_ROOT
+    AIT_WT_TOPLEVEL="$toplevel"
+    return 0
+}
+
 # ait_ensure_data_symlinks <root>
 #   Create the two data symlinks under <root> if absent; drop a dangling link
 #   first. An existing, resolving link is left alone whatever its target — see

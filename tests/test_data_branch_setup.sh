@@ -791,6 +791,268 @@ assert_eq_trim "13b: pre-existing '.aitask-crews/' not duplicated" "1" \
 
 rm -rf "$TMPDIR_13B"
 
+# --- Test 14: worktree-add failure surfaces git's own error (t1627) ---
+# The old message named `git worktree add .aitask-data aitask-data` as the
+# remedy -- the command that had just failed -- and 2>/dev/null discarded git's
+# explanation. Fixture: a leftover non-empty .aitask-data/ directory with no
+# .git, which is production-reachable (a pruned worktree, a botched migration)
+# and does NOT trip the already-configured early return.
+echo "--- Test 14: worktree-add failure surfaces git's error ---"
+
+TMPDIR_14="$(setup_local_repo)"
+SCRIPT_DIR="$TMPDIR_14/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+mkdir -p "$TMPDIR_14/.aitask-data"
+echo "leftover" > "$TMPDIR_14/.aitask-data/stale.txt"
+
+rc_14=0
+out_14="$(cd "$TMPDIR_14" && setup_data_branch </dev/null 2>&1)" || rc_14=$?
+
+assert_eq_trim "14: setup_data_branch still returns 0 (setup continues)" "0" "$rc_14"
+assert_contains "14: git's own error is surfaced" "already exists" "$out_14"
+assert_contains "14: the message says git said it" "git said:" "$out_14"
+# Negative control: the impossible remedy must be gone.
+assert_not_contains "14: no longer advises the command that just failed" \
+    "You may need to run: git worktree add" "$out_14"
+assert_contains "14: names the legacy-layout consequence" \
+    "stay on the current branch (legacy layout)" "$out_14"
+# `return` skips Steps 3-9 in one jump: nothing is populated, nothing linked.
+assert_file_not_exists "14: no worktree was created" "$TMPDIR_14/.aitask-data/.git"
+assert_dir_not_exists "14: Step 3 did not populate the leftover directory" \
+    "$TMPDIR_14/.aitask-data/aitasks"
+assert_not_symlink "14: Step 6 did not create the aitasks symlink" "$TMPDIR_14/aitasks"
+assert_not_symlink "14: Step 6 did not create the aiplans symlink" "$TMPDIR_14/aiplans"
+
+rm -rf "$TMPDIR_14"
+
+# --- Test 15: linked worktree, primary already initialized (t1627) ---
+echo "--- Test 15: linked worktree refused, primary initialized ---"
+
+TMPDIR_15="$(setup_local_repo)"
+SCRIPT_DIR="$TMPDIR_15/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
+(cd "$TMPDIR_15" && setup_data_branch </dev/null >/dev/null 2>&1)
+git -C "$TMPDIR_15" worktree add --quiet "$TMPDIR_15/aiwork/t1" -b aitask/t1 2>/dev/null
+
+# ait setup run from inside the worktree resolves project_dir to the worktree.
+SCRIPT_DIR="$TMPDIR_15/aiwork/t1/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+rc_15=0
+out_15="$(cd "$TMPDIR_15/aiwork/t1" && setup_data_branch </dev/null 2>&1)" || rc_15=$?
+
+assert_eq_trim "15: returns 0 (rest of setup continues)" "0" "$rc_15"
+assert_contains "15: says it is a linked worktree" "is a linked git worktree" "$out_15"
+assert_contains "15: names the primary checkout" "$TMPDIR_15" "$out_15"
+assert_contains "15: offers the --link-worktree remedy" "--link-worktree" "$out_15"
+assert_file_not_exists "15: no second data worktree in the task worktree" \
+    "$TMPDIR_15/aiwork/t1/.aitask-data/.git"
+
+rm -rf "$TMPDIR_15"
+
+# --- Test 16: linked worktree, primary NOT initialized (t1627) ---
+# The case the guard exists for. Without it Step 1 creates AND pushes the
+# aitask-data branch, and Step 2 then succeeds, putting the repo's only task
+# data inside a throwaway worktree. Assert there are no side effects at all.
+echo "--- Test 16: linked worktree refused, primary uninitialized ---"
+
+TMPDIR_16="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_16/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+git -C "$TMPDIR_16/local" worktree add --quiet "$TMPDIR_16/local/aiwork/t1" -b aitask/t1 2>/dev/null
+
+SCRIPT_DIR="$TMPDIR_16/local/aiwork/t1/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+rc_16=0
+out_16="$(cd "$TMPDIR_16/local/aiwork/t1" && setup_data_branch </dev/null 2>&1)" || rc_16=$?
+
+assert_eq_trim "16: returns 0 (rest of setup continues)" "0" "$rc_16"
+assert_contains "16: says it is a linked worktree" "is a linked git worktree" "$out_16"
+assert_contains "16: tells the user to run setup at the primary first" \
+    "Run 'ait setup' in" "$out_16"
+assert_contains "16: still offers --link-worktree for afterwards" "--link-worktree" "$out_16"
+
+# Step 1 never ran: no branch locally and none pushed.
+rc_branch_16=0
+git -C "$TMPDIR_16/local" show-ref --verify --quiet refs/heads/aitask-data || rc_branch_16=$?
+assert_exit_nonzero_rc "16: no local aitask-data branch was created" "$rc_branch_16"
+assert_eq_trim "16: no aitask-data branch was pushed to the remote" "" \
+    "$(git -C "$TMPDIR_16/local" ls-remote --heads origin aitask-data 2>/dev/null)"
+
+# Step 2 never ran: no data checkout anywhere.
+assert_file_not_exists "16: no .aitask-data in the worktree" \
+    "$TMPDIR_16/local/aiwork/t1/.aitask-data/.git"
+assert_file_not_exists "16: no .aitask-data at the primary either" \
+    "$TMPDIR_16/local/.aitask-data/.git"
+
+rm -rf "$TMPDIR_16"
+
+# --- Test 17: a git submodule primary is NOT a linked worktree (t1627) ---
+# The discriminating case for the `git-dir != git-common-dir` predicate. A
+# submodule's common dir is <super>/.git/modules/<name>, so the older
+# dirname(git-common-dir) comparison calls its own primary checkout a linked
+# worktree -- which under the new early return would silently disable
+# data-branch setup for every submodule-hosted project.
+echo "--- Test 17: submodule primary classifies as not-linked ---"
+
+TMPDIR_17="$(mktemp -d)"
+git init -q --initial-branch=main "$TMPDIR_17/child"
+(cd "$TMPDIR_17/child" && git config user.email t@t && git config user.name T \
+    && echo hi > a.txt && git add . && git commit -qm init)
+git init -q --initial-branch=main "$TMPDIR_17/super"
+(cd "$TMPDIR_17/super" && git config user.email t@t && git config user.name T \
+    && echo s > s.txt && git add . && git commit -qm init \
+    && git -c protocol.file.allow=always submodule add -q ../child sub \
+    && git commit -qm "add sub")
+
+rc_17=0
+ait_linked_worktree_roots "$TMPDIR_17/super/sub" || rc_17=$?
+assert_eq_trim "17: submodule primary is classified not-linked (rc 1)" "1" "$rc_17"
+
+# And it configures fully rather than being refused.
+SCRIPT_DIR="$TMPDIR_17/super/sub/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
+(cd "$TMPDIR_17/super/sub" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_file_exists "17: submodule got its data worktree" \
+    "$TMPDIR_17/super/sub/.aitask-data/.git"
+assert_symlink "17: submodule got the aitasks symlink" "$TMPDIR_17/super/sub/aitasks"
+
+# A linked worktree OF that submodule must still resolve to the submodule
+# CHECKOUT, not to <super>/.git/modules/sub -- git's own `worktree list` reports
+# the latter, so the resolution needs the extra --show-toplevel hop.
+git -C "$TMPDIR_17/super/sub" worktree add --quiet "$TMPDIR_17/subwt" -b wt1 2>/dev/null
+AIT_WT_TOPLEVEL=""; AIT_WT_MAIN_ROOT=""
+rc_17b=0
+ait_linked_worktree_roots "$TMPDIR_17/subwt" || rc_17b=$?
+assert_eq_trim "17: linked worktree of a submodule is classified linked (rc 0)" "0" "$rc_17b"
+assert_eq_trim "17: its primary root is the submodule checkout, not .git/modules" \
+    "$(cd "$TMPDIR_17/super/sub" && pwd -P)" "$AIT_WT_MAIN_ROOT"
+
+rm -rf "$TMPDIR_17"
+
+# --- Test 18: guard placement positive control (t1627) ---
+# The new early return sits on the path EVERY primary checkout takes. Pin both
+# halves: the classifier says "not linked" for the primary and for a plain
+# subdirectory of it, and a primary still configures end to end.
+echo "--- Test 18: guard placement positive control ---"
+
+TMPDIR_18="$(setup_local_repo)"
+SCRIPT_DIR="$TMPDIR_18/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR" "$TMPDIR_18/src/nested"
+cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
+
+rc_18a=0
+ait_linked_worktree_roots "$TMPDIR_18" || rc_18a=$?
+assert_eq_trim "18: primary checkout is not-linked (rc 1)" "1" "$rc_18a"
+rc_18b=0
+ait_linked_worktree_roots "$TMPDIR_18/src/nested" || rc_18b=$?
+assert_eq_trim "18: plain subdirectory of the primary is not-linked (rc 1)" "1" "$rc_18b"
+
+(cd "$TMPDIR_18" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_file_exists "18: primary still gets its data worktree" "$TMPDIR_18/.aitask-data/.git"
+assert_symlink "18: primary still gets the aitasks symlink" "$TMPDIR_18/aitasks"
+assert_symlink "18: primary still gets the aiplans symlink" "$TMPDIR_18/aiplans"
+assert_file_contains "18: primary still gets the .gitignore block" \
+    "$TMPDIR_18/.gitignore" ".aitask-data/"
+
+rm -rf "$TMPDIR_18"
+
+# --- Test 19: push failures report git's error (t1627) ---
+# Both `warn`s in setup_data_branch discarded stderr. Fixture: an origin that
+# points at nothing, so both the branch push (Step 1) and the data push (Step 4)
+# fail while the worktree itself is still created.
+echo "--- Test 19: push warns carry git's error ---"
+
+TMPDIR_19="$(setup_local_repo)"
+SCRIPT_DIR="$TMPDIR_19/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+cp "$PROJECT_DIR/.aitask-scripts/gates_reference.yaml" "$SCRIPT_DIR/"
+git -C "$TMPDIR_19" remote add origin "$TMPDIR_19/does-not-exist.git"
+
+out_19="$(cd "$TMPDIR_19" && setup_data_branch </dev/null 2>&1)" || true
+
+assert_contains "19: branch-push warn fired" "Could not push aitask-data branch" "$out_19"
+assert_contains "19: data-push warn fired" "Could not push data branch" "$out_19"
+assert_contains "19: git's error is included" "does-not-exist.git" "$out_19"
+# The pushes are non-fatal: the worktree and symlinks still land.
+assert_file_exists "19: worktree still created despite push failures" \
+    "$TMPDIR_19/.aitask-data/.git"
+assert_symlink "19: symlinks still created" "$TMPDIR_19/aitasks"
+
+rm -rf "$TMPDIR_19"
+
+# --- Test 20: path handling is separator-free (t1627) ---
+# git emits worktree paths raw and unquoted, so any resolution that parses a
+# line-oriented listing truncates a path containing a newline. Every value here
+# flows through a variable instead. Both halves matter: a newline in the MAIN
+# worktree's own path is what a listing parser breaks on, and a newline in a
+# LINKED worktree's path must not perturb the primary's resolution either.
+echo "--- Test 20: newline-containing paths resolve ---"
+
+TMPDIR_20="$(mktemp -d)"
+NL_MAIN="$TMPDIR_20/nl"$'\n'"main"
+git init -q --initial-branch=main "$NL_MAIN"
+(cd "$NL_MAIN" && git config user.email t@t && git config user.name T \
+    && echo x > a && git add . && git commit -qm init)
+
+AIT_WT_MAIN_ROOT=""
+rc_20a=0
+ait_main_worktree_root "$NL_MAIN" || rc_20a=$?
+assert_eq_trim "20: newline-named main worktree resolves" "0" "$rc_20a"
+assert_eq_trim "20: and resolves to the full path, not a truncation" \
+    "$(cd "$NL_MAIN" && pwd -P)" "$AIT_WT_MAIN_ROOT"
+
+# A linked worktree of it: classified linked, primary still the full path.
+git -C "$NL_MAIN" worktree add --quiet "$TMPDIR_20/nlwt" -b w1 2>/dev/null
+AIT_WT_MAIN_ROOT=""; AIT_WT_TOPLEVEL=""
+rc_20b=0
+ait_linked_worktree_roots "$TMPDIR_20/nlwt" || rc_20b=$?
+assert_eq_trim "20: worktree of a newline-named primary is linked (rc 0)" "0" "$rc_20b"
+assert_eq_trim "20: its primary root is the untruncated path" \
+    "$(cd "$NL_MAIN" && pwd -P)" "$AIT_WT_MAIN_ROOT"
+
+# A newline in a LINKED worktree's path must not disturb the primary either.
+NL_WT="$TMPDIR_20/nl"$'\n'"wt"
+git init -q --initial-branch=main "$TMPDIR_20/plain"
+(cd "$TMPDIR_20/plain" && git config user.email t@t && git config user.name T \
+    && echo x > a && git add . && git commit -qm init)
+git -C "$TMPDIR_20/plain" worktree add --quiet "$NL_WT" -b w2 2>/dev/null
+AIT_WT_MAIN_ROOT=""
+rc_20c=0
+ait_linked_worktree_roots "$NL_WT" || rc_20c=$?
+assert_eq_trim "20: newline-named linked worktree is classified linked" "0" "$rc_20c"
+assert_eq_trim "20: and its primary resolves normally" \
+    "$(cd "$TMPDIR_20/plain" && pwd -P)" "$AIT_WT_MAIN_ROOT"
+
+rm -rf "$TMPDIR_20"
+
+# --- Test 21: --separate-git-dir is the accepted layout boundary (t1627) ---
+# That linkage is one-way — the gitdir carries no core.worktree — so nothing,
+# git included, can name the checkout from it (`git worktree list` reports the
+# gitdir). The helper answers state 2 and callers refuse, rather than the old
+# dirname() behaviour of silently returning the gitdir's unrelated PARENT.
+echo "--- Test 21: --separate-git-dir refuses rather than guessing ---"
+
+TMPDIR_21="$(mktemp -d)"
+git init -q --initial-branch=main --separate-git-dir="$TMPDIR_21/sgd.git" "$TMPDIR_21/sgd"
+(cd "$TMPDIR_21/sgd" && git config user.email t@t && git config user.name T \
+    && echo x > a && git add . && git commit -qm init)
+
+AIT_WT_MAIN_ROOT=""
+rc_21=0
+ait_main_worktree_root "$TMPDIR_21/sgd" || rc_21=$?
+assert_eq_trim "21: reports indeterminate (state 2), not a wrong root" "2" "$rc_21"
+assert_eq_trim "21: and never publishes the gitdir's parent as the root" "" "$AIT_WT_MAIN_ROOT"
+
+# Its PRIMARY checkout is still classified not-linked, so setup is unaffected:
+# the git-dir/common-dir predicate settles it before any root is needed.
+rc_21b=0
+ait_linked_worktree_roots "$TMPDIR_21/sgd" || rc_21b=$?
+assert_eq_trim "21: the primary checkout still classifies not-linked (rc 1)" "1" "$rc_21b"
+
+rm -rf "$TMPDIR_21"
+
 # --- Summary ---
 echo ""
 echo "==============================="

@@ -1445,6 +1445,49 @@ setup_data_branch() {
         return
     fi
 
+    # --- Refuse inside a linked worktree ---
+    # $project_dir is "$SCRIPT_DIR/.." — the checkout `ait` was invoked from, not
+    # a caller-chosen directory. Task worktrees carry .aitask-scripts/ (tracked
+    # on main), so `./ait setup` inside an UNLINKED aiwork/<task> lands here with
+    # $project_dir set to that worktree. Step 1 below would then create and push
+    # the aitask-data orphan branch, and Step 2 would either fail (the primary
+    # holds the branch) or — with an uninitialized primary — SUCCEED, putting the
+    # repo's only task data inside a throwaway worktree that is removed when the
+    # task lands. Same hazard aitask_init_data.sh Check 3b guards; same
+    # classifier, so the two cannot drift (t1627).
+    #
+    # Placement is load-bearing on both sides: AFTER the already-configured
+    # return (a linked worktree given the layout by --link-worktree has a
+    # .aitask-data symlink and must keep short-circuiting there), and BEFORE
+    # Step 1 (which creates and pushes a branch).
+    local wt_class_rc=0
+    ait_linked_worktree_roots "$project_dir" || wt_class_rc=$?
+    if [[ "$wt_class_rc" -eq 0 || "$wt_class_rc" -eq 2 ]]; then
+        local init_data_self="$SCRIPT_DIR/aitask_init_data.sh"
+        if [[ "$wt_class_rc" -eq 2 ]]; then
+            # Inside a repository, but the topology did not resolve. Refuse
+            # rather than fall through: falling through leaves the unsafe
+            # branch-and-worktree route reachable in exactly the situation where
+            # we cannot tell whether it is safe.
+            warn "Cannot determine whether '$project_dir' is a linked git worktree — its worktree topology did not resolve."
+            warn "Skipping task data branch setup rather than guessing: initializing from a linked worktree can put the repo's only task data inside it."
+            info "  Run 'ait setup' from the primary checkout, or give an existing worktree the layout with:"
+            info "      \"$init_data_self\" --link-worktree <dir>"
+            return
+        fi
+        warn "'$AIT_WT_TOPLEVEL' is a linked git worktree of '$AIT_WT_MAIN_ROOT' — the aitask-data branch belongs to the primary checkout, not here."
+        warn "Skipping task data branch setup. The rest of 'ait setup' continues normally."
+        if [[ -d "$AIT_WT_MAIN_ROOT/$AIT_DATA_DIR_NAME/.git" \
+              || -f "$AIT_WT_MAIN_ROOT/$AIT_DATA_DIR_NAME/.git" ]]; then
+            info "  To give this worktree the task-data layout, run:"
+            info "      \"$init_data_self\" --link-worktree \"$AIT_WT_TOPLEVEL\""
+        else
+            info "  The primary has no $AIT_DATA_DIR_NAME worktree yet. Run 'ait setup' in '$AIT_WT_MAIN_ROOT' first, then:"
+            info "      \"$init_data_self\" --link-worktree \"$AIT_WT_TOPLEVEL\""
+        fi
+        return
+    fi
+
     # Detect migration scenario: aitasks/ exists as a real directory (not symlink)
     local needs_migration=false
     if [[ -d "$project_dir/aitasks" && ! -L "$project_dir/aitasks" ]]; then
@@ -1512,16 +1555,39 @@ setup_data_branch() {
         git -C "$project_dir" update-ref refs/heads/aitask-data "$commit_hash"
 
         if [[ "$has_remote" == true ]]; then
-            git -C "$project_dir" push -u origin aitask-data 2>/dev/null || warn "Could not push aitask-data branch to remote"
+            # Report git's own error rather than discarding it (t1627).
+            local push_err=""
+            if ! push_err="$(git -C "$project_dir" push -u origin aitask-data 2>&1 >/dev/null)"; then
+                warn "Could not push aitask-data branch to remote. git said: ${push_err:-<no output>}"
+            fi
         fi
     fi
 
     # --- Step 2: Create worktree ---
     info "Creating .aitask-data/ worktree..."
-    (cd "$project_dir" && git worktree add .aitask-data aitask-data 2>/dev/null) || {
-        warn "Failed to create worktree. You may need to run: git worktree add .aitask-data aitask-data"
+    # Surface git's own error. The old text named `git worktree add .aitask-data
+    # aitask-data` as the remedy — the command that had just failed — and
+    # `2>/dev/null` threw away the only explanation of why (t1627, mirroring the
+    # same fix in aitask_init_data.sh at t1624).
+    local wt_add_err=""
+    if ! wt_add_err="$(cd "$project_dir" && git worktree add .aitask-data aitask-data 2>&1 >/dev/null)"; then
+        warn "Failed to create the .aitask-data worktree in '$project_dir'. git said: ${wt_add_err:-<no output>}"
+        # `return`, not `die`. This whole step is optional — answering 'n' at the
+        # prompt above reaches the identical state — and dying here would abort
+        # the ~20 remaining setup steps (venv, shims, code agents) over a feature
+        # the user can live without. The return also skips Steps 3-9 in one jump,
+        # so nothing is ever populated into a `.aitask-data/` that is not a
+        # worktree; setup simply continues in the legacy on-main layout (which
+        # commit_framework_data_files already early-returns on), and a later
+        # `ait setup` retries this step from scratch.
+        warn "Continuing without a separate task data branch: task and plan files stay on the current branch (legacy layout). Re-run 'ait setup' once the problem above is fixed."
+        # branch_exists is never set true by the creation block above, so it is
+        # still false exactly when this run created the branch itself.
+        if [[ "$branch_exists" == false ]]; then
+            info "  The 'aitask-data' branch was created and is left in place for that retry."
+        fi
         return
-    }
+    fi
 
     # --- Step 3: Populate data ---
     if [[ "$needs_migration" == true ]]; then
@@ -1609,7 +1675,11 @@ setup_data_branch() {
                 git commit -m "ait: Initialize task data structure"
             fi
             if [[ "$has_remote" == true ]]; then
-                git push 2>/dev/null || warn "Could not push data branch to remote"
+                # Report git's own error rather than discarding it (t1627).
+                data_push_err=""
+                if ! data_push_err="$(git push 2>&1 >/dev/null)"; then
+                    warn "Could not push data branch to remote. git said: ${data_push_err:-<no output>}"
+                fi
             fi
         fi
     )

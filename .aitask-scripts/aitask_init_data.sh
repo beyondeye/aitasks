@@ -22,6 +22,12 @@
 #                     (exit 3) — run 'ait setup' at the primary first. Same
 #                     state as the --link-worktree token of that name, which
 #                     exits 0 because its no-op is harmless.
+#   WORKTREE_INDETERMINATE
+#                     Inside a repository whose worktree topology could not be
+#                     resolved, so a linked worktree cannot be ruled out
+#                     (exit 3) — refused rather than guessed, because
+#                     initializing from a linked worktree can put the repo's
+#                     only task data inside it.
 #
 # Output for --link-worktree:
 #   LINKED            Data layout created or repaired in the worktree
@@ -66,6 +72,9 @@ Output (stdout):
                     (exit 3) — run 'ait setup' at the primary first. Same
                     state as the --link-worktree token of that name, which
                     exits 0 because its no-op is harmless.
+  WORKTREE_INDETERMINATE
+                    Worktree topology unresolvable, so a linked worktree
+                    cannot be ruled out (exit 3) — refused, not guessed.
 
 --link-worktree <dir>
   Give a linked git worktree (e.g. a task worktree at aiwork/<task_name>)
@@ -93,12 +102,20 @@ EOF
         [[ -d "$target_dir" ]] || die "--link-worktree: '$target_dir' is not a directory"
 
         # Derive the main root FROM the supplied dir, so the same-repo check is
-        # free and no ambient cwd can pick a different repository.
-        git_common="$(git -C "$target_dir" rev-parse --path-format=absolute \
-            --git-common-dir 2>/dev/null)" \
-            || die "--link-worktree: '$target_dir' is not inside a git repository"
-        main_root="$(ait_canon_path "$(dirname "$git_common")")" \
-            || die "--link-worktree: could not resolve the main worktree root"
+        # free and no ambient cwd can pick a different repository. The
+        # resolution lives in ait_main_worktree_root() (lib/data_symlinks.sh):
+        # the dirname(git-common-dir) form this used to inline resolves to
+        # <super>/.git/modules for a worktree of a git SUBMODULE -- an existing
+        # directory, so every probe below silently ran against the wrong root
+        # and this command answered NOT_INITIALIZED for a submodule that was in
+        # fact initialized (t1627).
+        main_root_rc=0
+        ait_main_worktree_root "$target_dir" || main_root_rc=$?
+        case "$main_root_rc" in
+            0) main_root="$AIT_WT_MAIN_ROOT" ;;
+            1) die "--link-worktree: '$target_dir' is not inside a git repository" ;;
+            *) die "--link-worktree: could not resolve the main worktree root" ;;
+        esac
 
         target_canon="$(ait_canon_path "$target_dir")" \
             || die "--link-worktree: could not resolve '$target_dir'"
@@ -204,32 +221,41 @@ fi
 # Keyed on the worktree ROOT, not on $PWD: an ordinary subdirectory of the
 # primary shares the primary's toplevel and must NOT be called a worktree, and a
 # nested subdirectory of a task worktree must still resolve to that worktree.
-# Both resolutions must be non-empty before refusing — anything unresolvable
-# (not a repository, an unusual GIT_DIR) falls through to Step 4 as before.
-wt_git_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-if [[ -n "$wt_git_common" ]]; then
-    wt_main_root="$(ait_canon_path "$(dirname "$wt_git_common")" 2>/dev/null || true)"
-    wt_toplevel="$(ait_canon_path "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)"
-    if [[ -n "$wt_main_root" && -n "$wt_toplevel" && "$wt_toplevel" != "$wt_main_root" ]]; then
-        # SCRIPT_DIR is absolute, so the printed command is copy-safe from ANY
-        # cwd — including a nested subdirectory of the worktree, where a
-        # ./.aitask-scripts/... spelling does not resolve.
-        self="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
-        if [[ -d "$wt_main_root/$AIT_DATA_DIR_NAME/.git" \
-              || -f "$wt_main_root/$AIT_DATA_DIR_NAME/.git" ]]; then
-            # The primary holds the aitask-data branch, so a second worktree of
-            # it cannot be created here. --link-worktree is the operation that
-            # applies, and it accepts this worktree from any cwd.
-            echo "WORKTREE_UNLINKED"
-            die_code 3 "'$wt_toplevel' is a linked git worktree with no task-data layout, and the primary checkout at '$wt_main_root' already has the aitask-data branch checked out — a second worktree of it cannot be created here. Run: \"$self\" --link-worktree \"$wt_toplevel\""
-        fi
-        # The branch exists (Check 3 passed) but the primary has no data
-        # worktree. Step 4 would SUCCEED here and put the repo's only task-data
-        # checkout inside a throwaway task worktree, which is removed when the
-        # task lands. Same state --link-worktree already calls NOT_INITIALIZED.
-        echo "NOT_INITIALIZED"
-        die_code 3 "'$wt_toplevel' is a linked git worktree, and the primary checkout at '$wt_main_root' has no $AIT_DATA_DIR_NAME worktree. Initializing from here would put the repo's only task data inside this worktree. Run 'ait setup' in '$wt_main_root' first, then: \"$self\" --link-worktree \"$wt_toplevel\""
+# The classification itself lives in ait_linked_worktree_roots()
+# (lib/data_symlinks.sh) so setup_data_branch can ask the same question and the
+# two halves cannot drift (t1627).
+#
+# Its state 2 — inside a repository, but the topology did not resolve — is
+# refused rather than fallen through. The fall-through this replaces reached
+# Step 4, which is precisely the route that SUCCEEDS wrongly against an
+# uninitialized primary; "cannot classify" must not be read as "not a worktree".
+wt_class_rc=0
+ait_linked_worktree_roots "$PWD" || wt_class_rc=$?
+# SCRIPT_DIR is absolute, so a printed command is copy-safe from ANY cwd —
+# including a nested subdirectory of the worktree, where a ./.aitask-scripts/...
+# spelling does not resolve.
+self="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
+if [[ "$wt_class_rc" -eq 2 ]]; then
+    echo "WORKTREE_INDETERMINATE"
+    die_code 3 "'$PWD' is inside a git repository whose worktree topology could not be resolved, so it cannot be told apart from a linked task worktree. Refusing to create a data worktree here rather than guessing: initializing from a linked worktree can put the repo's only task data inside it. Run this from the primary checkout, or give an existing worktree the layout with: \"$self\" --link-worktree <dir>"
+fi
+if [[ "$wt_class_rc" -eq 0 ]]; then
+    wt_toplevel="$AIT_WT_TOPLEVEL"
+    wt_main_root="$AIT_WT_MAIN_ROOT"
+    if [[ -d "$wt_main_root/$AIT_DATA_DIR_NAME/.git" \
+          || -f "$wt_main_root/$AIT_DATA_DIR_NAME/.git" ]]; then
+        # The primary holds the aitask-data branch, so a second worktree of
+        # it cannot be created here. --link-worktree is the operation that
+        # applies, and it accepts this worktree from any cwd.
+        echo "WORKTREE_UNLINKED"
+        die_code 3 "'$wt_toplevel' is a linked git worktree with no task-data layout, and the primary checkout at '$wt_main_root' already has the aitask-data branch checked out — a second worktree of it cannot be created here. Run: \"$self\" --link-worktree \"$wt_toplevel\""
     fi
+    # The branch exists (Check 3 passed) but the primary has no data
+    # worktree. Step 4 would SUCCEED here and put the repo's only task-data
+    # checkout inside a throwaway task worktree, which is removed when the
+    # task lands. Same state --link-worktree already calls NOT_INITIALIZED.
+    echo "NOT_INITIALIZED"
+    die_code 3 "'$wt_toplevel' is a linked git worktree, and the primary checkout at '$wt_main_root' has no $AIT_DATA_DIR_NAME worktree. Initializing from here would put the repo's only task data inside this worktree. Run 'ait setup' in '$wt_main_root' first, then: \"$self\" --link-worktree \"$wt_toplevel\""
 fi
 
 # --- Step 4: Create worktree ---
