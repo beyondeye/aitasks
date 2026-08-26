@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [worktree, git]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
@@ -13,7 +13,8 @@ anchor: 1159
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-26 14:38
-updated_at: 2026-08-26 17:19
+updated_at: 2026-08-26 17:36
+completed_at: 2026-08-26 17:36
 ---
 
 ## Origin
@@ -75,3 +76,14 @@ Add a case to `tests/test_init_data.sh` alongside the existing
 > **✅ gate:plan_approved** run=2026-08-26T14:19:43Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-26T14:29:03Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-26T14:36:56Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1461ec0c2f879c8a
+
+> **✅ gate:risk_evaluated** run=2026-08-26T14:36:56Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1624/risk_evaluated_2026-08-26T14:36:56Z-risk_evaluated-a1.log`
