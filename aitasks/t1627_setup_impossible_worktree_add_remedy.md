@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-26 17:34
-updated_at: 2026-08-26 17:43
+updated_at: 2026-08-26 18:47
 ---
 
 ## Origin
@@ -71,3 +74,8 @@ a worktree, this should probably `die` or skip the populate step.
 
 Check the neighbouring `warn`/`return` paths in the same function for the same
 discard-stderr pattern while there.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T15:47:23Z status=pass attempt=1 type=human
