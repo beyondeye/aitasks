@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -9,8 +11,9 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1605
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-26 00:07
-updated_at: 2026-08-26 08:00
+updated_at: 2026-08-26 10:50
 ---
 
 ## Origin
@@ -98,3 +101,8 @@ abort-worthy-only capture is cosmetic.
   `.claude/skills/task-workflow/build-verification.md` documents the working
   form, and `tests/test_run_project_command.sh` (`flow(negative control)`) pins
   that the rejected form fails.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T08:04:37Z status=pass attempt=1 type=human
