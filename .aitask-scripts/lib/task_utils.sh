@@ -42,15 +42,28 @@ _ait_detect_data_worktree() {
 }
 
 # Resolve the data worktree's git-dir. Empty when in legacy mode or when the
-# expected worktree git-dir is missing.
+# git-dir cannot be resolved.
+#
+# ALWAYS returns 0: every caller does `gitdir="$(_ait_data_gitdir)"` under
+# `set -e`, so a non-zero status here aborts the caller with no message. An
+# unresolvable git-dir is an empty answer, not a failure (t1616).
 _ait_data_gitdir() {
     _ait_detect_data_worktree
     if [[ "$_AIT_DATA_WORKTREE" == "." ]]; then
         printf ''
-        return
+        return 0
     fi
+    # Fast path: the relative admin dir, correct from the primary checkout.
     local gd=".git/worktrees/-aitask-data"
-    [[ -d "$gd" ]] && printf '%s' "$gd"
+    if [[ -d "$gd" ]]; then
+        printf '%s' "$gd"
+        return 0
+    fi
+    # From a linked worktree `.git` is a FILE, so the path above does not exist
+    # even though the data worktree is perfectly reachable through the
+    # .aitask-data symlink. Ask git, which resolves it from anywhere.
+    git -C "$_AIT_DATA_WORKTREE" rev-parse --absolute-git-dir 2>/dev/null || printf ''
+    return 0
 }
 
 # Internal: run git against the task-data worktree (branch mode) or the current

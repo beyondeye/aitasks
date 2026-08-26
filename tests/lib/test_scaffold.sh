@@ -58,6 +58,12 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # aitask_pick_own.sh (t1599_1 — the contributor-list mutex). It sources
         # stale_lock.sh from its own directory, so both must be present.
         cp "$PROJECT_DIR/.aitask-scripts/lib/registry_lock.sh"     "$repo_dir/.aitask-scripts/lib/"
+        # data_symlinks.sh is sourced at startup by aitask_init_data.sh and
+        # aitask_setup.sh (t1616 — the canonical aitasks/aiplans symlink
+        # creator). Not in ./ait's own source chain, but several tests copy
+        # those two scripts into a scaffolded repo and they fail closed without
+        # it. Depends only on terminal_compat.sh (already copied above).
+        cp "$PROJECT_DIR/.aitask-scripts/lib/data_symlinks.sh"     "$repo_dir/.aitask-scripts/lib/"
     }
 
     # --- Python module closure ---------------------------------------------

@@ -476,6 +476,20 @@ This is the fork **Step 5** resolved but did not perform. Reaching here means th
 
   Bind the base to a shell variable rather than substituting the literal — the same injection rule Step 5 and Step 9 state for user-authored branch names.
 
+- **Give the worktree its data layout — on the reuse path too.** A linked worktree checks out the code branch only, and `aitasks/` / `aiplans/` are gitignored symlinks that live in the primary checkout, so a fresh worktree has neither. `./ait` run from inside it then resolves `aitasks/` locally and finds nothing, `./ait git` silently degrades to legacy mode and misroutes its commits, and every suite module that reads `aitasks/metadata/*.json` fails with `FileNotFoundError` — four of them do — which read as regressions of *your* change rather than a missing fixture. Run this from the repo root (you are still there), before you start working in the worktree. It is idempotent and also repairs a worktree that was reused, so run it on **both** the `USABLE` reuse path and the fresh cut:
+
+  ```bash
+  ./.aitask-scripts/aitask_init_data.sh --link-worktree "$worktree_path"
+  ```
+
+  On the reuse path pass the classifier's `"$wt_path"` instead — that is the directory you are about to work in, and a moved worktree makes the conventional path wrong.
+
+  Parse the single stdout line:
+  - `LINKED` / `ALREADY_LINKED` → continue.
+  - `LEGACY_MODE` → this project keeps task data on the code branch, so the worktree checkout already carries it. Continue.
+  - `NOT_INITIALIZED` → the **primary** checkout has no `.aitask-data` worktree. Warn, say that `ait setup` repairs it, and continue — the task's own work is unaffected, but `./ait` will not work from inside the worktree.
+  - **A non-zero exit is a refusal**, and the path is not linked: `<dir>` is not a linked worktree root (an ordinary subdirectory, the main checkout, or the `.aitask-data` worktree), or one of the three names already exists as a real file or directory. **Stop and report the message verbatim.** Do not implement in a tree whose data layout is unknown, and do not "fix" it by deleting whatever the helper refused to touch — that refusal is the only thing standing between a mistyped path and someone's directory.
+
 - Work in the reused or newly cut directory for the implementation below.
 
 **Record implementing agent:** Execute the **Agent Attribution Procedure** (see `agent-attribution.md`) to record which code agent and model is implementing this task.

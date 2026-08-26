@@ -724,6 +724,73 @@ assert_eq_trim ".gitignore committed by migration (not left dirty)" "" "$gitigno
 
 rm -rf "$TMPDIR_12"
 
+# --- Test 13: setup_worktree_dirs_gitignore (t1616) ---
+#
+# The framework creates two worktree trees inside the project — aiwork/<task>
+# (task-workflow Step 7) and .aitask-crews/crew-<id> — and `ait setup` seeded
+# neither, so every downstream project left both exposed to a broad `git add -A`
+# in a concurrent session. The real function is driven here (not a replica): it
+# reads SCRIPT_DIR/.. for the project dir, exactly as its siblings do.
+echo "--- Test 13: setup_worktree_dirs_gitignore ---"
+
+TMPDIR_13="$(setup_local_repo)"
+mkdir -p "$TMPDIR_13/.aitask-scripts"
+SCRIPT_DIR="$TMPDIR_13/.aitask-scripts"
+rm -f "$TMPDIR_13/.gitignore"
+
+(cd "$TMPDIR_13" && setup_worktree_dirs_gitignore >/dev/null 2>&1)
+
+# Positive: both worktree trees are ignored.
+for p in "aiwork/t1_x/" ".aitask-crews/crew-1/"; do
+    TOTAL=$((TOTAL + 1))
+    if git -C "$TMPDIR_13" check-ignore -q "$p"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: worktree dir not ignored: $p"
+    fi
+done
+
+# Negative control: neither rule may over-match a sibling path.
+for p in "aiwork.md" "aidocs/x.md"; do
+    TOTAL=$((TOTAL + 1))
+    if git -C "$TMPDIR_13" check-ignore -q "$p"; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: over-matched a sibling path: $p"
+    else
+        PASS=$((PASS + 1))
+    fi
+done
+
+# Idempotent: a second run must not duplicate either line.
+(cd "$TMPDIR_13" && setup_worktree_dirs_gitignore >/dev/null 2>&1)
+assert_eq_trim "No duplicate 'aiwork/' line" "1" \
+    "$(grep -c '^aiwork/$' "$TMPDIR_13/.gitignore")"
+assert_eq_trim "No duplicate '.aitask-crews/' line" "1" \
+    "$(grep -c '^\.aitask-crews/$' "$TMPDIR_13/.gitignore")"
+
+rm -rf "$TMPDIR_13"
+
+# --- Test 13b: the two rules are guarded independently ---
+# A project that already carries one (this repo carried .aitask-crews/ by hand
+# for a long time) must gain only the other — not a duplicate of both.
+echo "--- Test 13b: partial pre-existing state ---"
+
+TMPDIR_13B="$(setup_local_repo)"
+mkdir -p "$TMPDIR_13B/.aitask-scripts"
+SCRIPT_DIR="$TMPDIR_13B/.aitask-scripts"
+printf '# AgentCrew worktrees (local, per-crew branches)\n.aitask-crews/\n' \
+    > "$TMPDIR_13B/.gitignore"
+
+(cd "$TMPDIR_13B" && setup_worktree_dirs_gitignore >/dev/null 2>&1)
+
+assert_eq_trim "13b: 'aiwork/' added" "1" \
+    "$(grep -c '^aiwork/$' "$TMPDIR_13B/.gitignore")"
+assert_eq_trim "13b: pre-existing '.aitask-crews/' not duplicated" "1" \
+    "$(grep -c '^\.aitask-crews/$' "$TMPDIR_13B/.gitignore")"
+
+rm -rf "$TMPDIR_13B"
+
 # --- Summary ---
 echo ""
 echo "==============================="

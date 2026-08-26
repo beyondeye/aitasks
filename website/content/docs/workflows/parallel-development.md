@@ -19,6 +19,8 @@ The aitasks framework supports multiple developers (or multiple AI agent instanc
 
 When working on multiple tasks in parallel, use the git worktree option in [`/aitask-pick`](../../skills/aitask-pick/). The worktree is an isolated working directory at `aiwork/<task_name>/` on a separate branch, so each task's changes don't interfere with each other. It is created once the plan is approved and the remote drift check has passed — not when the branch is chosen — so the branch is cut from an up-to-date base. After implementation, the branch is merged back into the profile's `output_branch`, which defaults to the base branch the worktree was cut from, and the worktree is cleaned up.
 
+`aiwork/` is gitignored, so a worktree never shows up as untracked state in the main checkout — which matters when a broad `git add` runs in another session. On projects that keep task data on a separate branch, the worktree is also given the same `aitasks/` and `aiplans/` links as the main checkout, so `ait` commands and the test suite behave identically inside it.
+
 ## Serialized Merge-Back
 
 Worktrees keep concurrent tasks out of each other's files, but the merge back is different: it runs in the shared repository root, not in the worktree, so every task reaching it drives the same HEAD, index and working tree. That step is therefore **serialized** — one task merges at a time.

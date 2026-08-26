@@ -349,6 +349,12 @@ ensure_data_root() {
     # Only the exact form setup_data_branch() writes is recognized. Anything
     # else (absolute, ../…, custom) is user state we do not own — never touched,
     # so no unvalidated readlink target can reach an `mkdir` or an `rm`.
+    #
+    # That form is emitted by ait_data_link_target() in
+    # .aitask-scripts/lib/data_symlinks.sh — the canonical writer. This check is
+    # its only out-of-tree reader, and install.sh runs before that lib is usable,
+    # so the literal below is duplicated on purpose. Change both together;
+    # tests/test_init_data.sh Test 22 pins the emitted target (t1616).
     local target
     target="$(readlink "$root")"
     if [[ "$target" != ".aitask-data/$name" ]]; then

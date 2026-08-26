@@ -301,6 +301,73 @@ if command -v shellcheck &>/dev/null; then
     fi
 fi
 
+# --- Test 12: _ait_data_gitdir resolves from inside a linked worktree (t1616) ---
+#
+# A task worktree is given the primary's data layout (.aitask-data symlink plus
+# the aitasks/aiplans links), so _ait_detect_data_worktree() correctly selects
+# BRANCH mode there. But `.git` is a FILE in a linked worktree, so the relative
+# admin path `.git/worktrees/-aitask-data` does not exist — and the old
+# trailing `[[ -d "$gd" ]] && printf ...` then returned 1. Every caller does
+# `gitdir="$(_ait_data_gitdir)"` under `set -e`, so that aborted the caller with
+# no output at all: `ait git-health` exited 1 silently from inside a worktree.
+#
+# Two properties are pinned: the function must ALWAYS exit 0, and it must
+# resolve the real git-dir rather than giving up (which would leave
+# assert_data_worktree_clean fail-open inside every worktree).
+echo "--- Test 12: _ait_data_gitdir inside a linked worktree ---"
+
+TMPDIR_12="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_12/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+(cd "$TMPDIR_12/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+# Positive control: it resolves in the primary checkout.
+_AIT_DATA_WORKTREE=""
+pushd "$TMPDIR_12/local" >/dev/null
+primary_rc=0
+primary_gitdir="$(_ait_data_gitdir)" || primary_rc=$?
+popd >/dev/null
+assert_eq_trim "12: exits 0 in the primary checkout" "0" "$primary_rc"
+TOTAL=$((TOTAL + 1))
+if [[ -n "$primary_gitdir" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 12: no git-dir resolved in the primary checkout"
+fi
+
+# Now the linked worktree, given the same data layout.
+git -C "$TMPDIR_12/local" worktree add -q -b aitask/tG \
+    "$TMPDIR_12/local/aiwork/tG" HEAD
+bash "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" \
+    --link-worktree "$TMPDIR_12/local/aiwork/tG" >/dev/null 2>&1
+
+_AIT_DATA_WORKTREE=""
+pushd "$TMPDIR_12/local/aiwork/tG" >/dev/null
+# Precondition: .git really is a file here, so the relative admin path is absent.
+assert_eq_trim "12: .git is a file in the linked worktree" "file" \
+    "$([[ -f .git ]] && echo file || echo notfile)"
+assert_eq_trim "12: relative admin path is absent" "absent" \
+    "$([[ -d .git/worktrees/-aitask-data ]] && echo present || echo absent)"
+# Branch mode must be selected — that is what makes the old bug reachable.
+_ait_detect_data_worktree
+assert_eq_trim "12: branch mode detected in the worktree" ".aitask-data" "$_AIT_DATA_WORKTREE"
+
+wt_rc=0
+wt_gitdir="$(_ait_data_gitdir)" || wt_rc=$?
+popd >/dev/null
+
+assert_eq_trim "12: exits 0 inside the worktree (never aborts a set -e caller)" "0" "$wt_rc"
+TOTAL=$((TOTAL + 1))
+if [[ -n "$wt_gitdir" && -d "$wt_gitdir" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 12: git-dir not resolved inside the worktree (got '$wt_gitdir')"
+fi
+
+rm -rf "$TMPDIR_12"
+
 # --- Summary ---
 echo ""
 echo "==============================="

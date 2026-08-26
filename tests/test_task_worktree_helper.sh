@@ -308,6 +308,86 @@ assert_eq "21: unknown option exits 2" "2" "$RC"
 assert_eq "21: unknown option prints no stdout" "" "$OUT"
 assert_contains "21: usage goes to stderr" "Usage:" "$ERR"
 
+echo "=== Case 22: teardown of a LINKED worktree never reaches the primary's data (t1616) ==="
+#
+# t1616 gives a task worktree the primary's data layout, including a
+# .aitask-data symlink INTO the primary's data-branch worktree. That is new
+# topology on a destructive path: if either removal route descended the symlink
+# instead of unlinking it, removing a task worktree would destroy the shared
+# data branch and every task and plan file in it.
+#
+# Both routes are exercised — `git worktree remove --force` and this helper's
+# forced `rm -rf "$target"` fallback — and the assertion is on the fixture's
+# CONTENT, not the directory's existence: a descend-and-delete leaves the
+# directory and empties it.
+#
+# Positive control: the fixture is asserted readable BEFORE each teardown, so a
+# pass caused by "nothing was ever there" is impossible.
+
+# lw_fixture <primary_root> -> a branch-mode data worktree with a fixture file.
+lw_fixture() {
+    local root="$1"
+    git -C "$root" checkout -q --orphan aitask-data
+    git -C "$root" rm -q -rf . >/dev/null 2>&1 || true
+    mkdir -p "$root/aitasks/metadata"
+    echo 'FIXTURE-CONTENT' > "$root/aitasks/metadata/fx.json"
+    git -C "$root" add -A >/dev/null 2>&1
+    git -C "$root" commit -qm data >/dev/null 2>&1
+    git -C "$root" checkout -q "$PRIMARY"
+    git -C "$root" worktree add -q "$root/.aitask-data" aitask-data
+    ln -s .aitask-data/aitasks "$root/aitasks"
+    ln -s .aitask-data/aiplans "$root/aiplans"
+}
+
+# assert_primary_data_intact <label>
+assert_primary_data_intact() {
+    local label="$1"
+    assert_eq "22: $label — primary data worktree still present" "present" \
+        "$([[ -d "$REPO/.aitask-data/aitasks" ]] && echo present || echo gone)"
+    assert_eq "22: $label — fixture CONTENT survives" "FIXTURE-CONTENT" \
+        "$(cat "$REPO/.aitask-data/aitasks/metadata/fx.json" 2>/dev/null)"
+}
+
+for route in git-worktree-remove helper-force-rm; do
+    fresh_repo
+    lw_fixture "$REPO"
+    git worktree add -q -b aitask/tA aiwork/tA "$PRIMARY"
+    "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" --link-worktree aiwork/tA >/dev/null 2>&1
+
+    # Positive control: the link really reaches the fixture before we tear down.
+    # Without this, a pass caused by "nothing was ever linked" is indistinguishable
+    # from a pass caused by a correct teardown.
+    assert_eq "22: $route — fixture reachable THROUGH the worktree before teardown" \
+        "FIXTURE-CONTENT" "$(cat aiwork/tA/aitasks/metadata/fx.json 2>/dev/null)"
+    assert_eq "22: $route — .aitask-data really is a symlink before teardown" "link" \
+        "$([[ -L aiwork/tA/.aitask-data ]] && echo link || echo notlink)"
+
+    case "$route" in
+        git-worktree-remove)
+            git worktree remove aiwork/tA --force >/dev/null 2>&1 || true
+            ;;
+        helper-force-rm)
+            # Reach the helper's forced `rm -rf "$target"` fallback — the branch
+            # that would actually descend. `git worktree remove --force` succeeds
+            # on a healthy record and short-circuits before it, so unregister the
+            # worktree first: the directory then survives as an unregistered
+            # leftover at the conventional path (Case 15's shape), which is the
+            # one candidate the helper deletes itself.
+            rm -rf "$REPO/.git/worktrees/tA"
+            rm -f aiwork/tA/.git
+            run_helper resolve tA
+            assert_eq "22: $route — precondition: unregistered leftover" "NONE" "$OUT"
+            run_helper remove tA --force
+            assert_contains "22: $route — helper reports it removed the leftover" \
+                "WORKTREE_REMOVED" "$OUT"
+            ;;
+    esac
+
+    assert_eq "22: $route — worktree directory is gone" "gone" \
+        "$([[ -d aiwork/tA ]] && echo present || echo gone)"
+    assert_primary_data_intact "$route"
+done
+
 echo
 echo "=== Results ==="
 echo "Total:  $TOTAL"

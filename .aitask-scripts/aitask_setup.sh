@@ -18,6 +18,10 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 # shellcheck source=lib/github_release.sh
 source "$SCRIPT_DIR/lib/github_release.sh"
 
+# Canonical creator of the aitasks/aiplans data symlinks (Step 6 below).
+# shellcheck source=lib/data_symlinks.sh
+source "$SCRIPT_DIR/lib/data_symlinks.sh"
+
 # Preferred is the version we install when no modern python is found.
 AIT_VENV_PYTHON_PREFERRED="${AIT_VENV_PYTHON_PREFERRED:-3.13}"
 
@@ -1623,15 +1627,7 @@ setup_data_branch() {
     fi
 
     # --- Step 6: Create symlinks ---
-    (
-        cd "$project_dir"
-        if [[ ! -L "aitasks" ]]; then
-            ln -sf .aitask-data/aitasks aitasks
-        fi
-        if [[ ! -L "aiplans" ]]; then
-            ln -sf .aitask-data/aiplans aiplans
-        fi
-    )
+    ait_ensure_data_symlinks "$project_dir"
 
     # --- Step 7: Update .gitignore on main ---
     local gitignore="$project_dir/.gitignore"
@@ -2033,6 +2029,52 @@ setup_gate_logs_gitignore() {
     fi
 
     success "Gate sidecar-log rule added to .gitignore"
+}
+
+# --- Worktree-directory gitignore rules (t1616) ---
+# The framework creates two worktree trees inside the project: task worktrees at
+# aiwork/<task_name> (task-workflow Step 7) and AgentCrew worktrees at
+# .aitask-crews/crew-<id> (aitask_crew_init.sh). Both are local, per-branch
+# checkouts that must never be committed — and an unignored worktree is exposed
+# to a broad `git add -A` in another concurrent session.
+#
+# The two rules are guarded independently so a project that already carries one
+# (this repo carried .aitask-crews/ by hand for a long time) gains only the other.
+setup_worktree_dirs_gitignore() {
+    local project_dir="$SCRIPT_DIR/.."
+    local gitignore="$project_dir/.gitignore"
+    local new_rules=()
+
+    if [[ ! -f "$gitignore" ]] || ! grep -qxF "aiwork/" "$gitignore"; then
+        new_rules+=("aiwork/")
+    fi
+    if [[ ! -f "$gitignore" ]] || ! grep -qxF ".aitask-crews/" "$gitignore"; then
+        new_rules+=(".aitask-crews/")
+    fi
+
+    if [[ ${#new_rules[@]} -eq 0 ]]; then
+        success "Worktree directory rules already in .gitignore"
+        return
+    fi
+
+    info "Adding ${new_rules[*]} to .gitignore (framework worktree directories)..."
+
+    if [[ -f "$gitignore" ]]; then
+        echo "" >> "$gitignore"
+        echo "# Framework worktrees (local, per-task and per-crew branches)" >> "$gitignore"
+        printf '%s\n' "${new_rules[@]}" >> "$gitignore"
+    else
+        {
+            echo "# Framework worktrees (local, per-task and per-crew branches)"
+            printf '%s\n' "${new_rules[@]}"
+        } > "$gitignore"
+    fi
+
+    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+        (cd "$project_dir" && git add .gitignore && git commit -m "ait: Add worktree directories to .gitignore" 2>/dev/null) || true
+    fi
+
+    success "Worktree directory rules added to .gitignore (${new_rules[*]})"
 }
 
 # --- Shadow rejection-store gitignore rule (t1427_1) ---
@@ -3849,6 +3891,9 @@ main() {
     echo ""
 
     setup_shadow_store_gitignore
+    echo ""
+
+    setup_worktree_dirs_gitignore
     echo ""
 
     setup_id_counter

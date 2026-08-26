@@ -281,6 +281,305 @@ echo "--- Test 9: Help flag ---"
 output=$(bash "$PROJECT_DIR/.aitask-scripts/aitask_init_data.sh" --help 2>/dev/null)
 assert_contains "Help output mentions INITIALIZED" "INITIALIZED" "$output"
 assert_contains "Help output mentions LEGACY_MODE" "LEGACY_MODE" "$output"
+assert_contains "Help output mentions --link-worktree" "--link-worktree" "$output"
+assert_contains "Help output mentions LINKED" "LINKED" "$output"
+assert_contains "Help output mentions NOT_INITIALIZED" "NOT_INITIALIZED" "$output"
+
+# ===========================================================================
+# --link-worktree (t1616)
+#
+# A `git worktree add` checkout of the code branch has no aitasks/aiplans
+# symlinks — they are gitignored and live in the primary checkout — so ./ait
+# run from inside it resolves aitasks/ locally and finds nothing, and every
+# suite module reading aitasks/metadata/*.json dies with FileNotFoundError.
+# These cases cover the happy path, the validate-and-repair contract, and
+# every refusal, each with a negative control asserting nothing was written.
+# ===========================================================================
+
+FIXTURE_REL="aitasks/metadata/lw_fixture.json"
+
+# lw_repo -> a branch-mode primary at $LW_MAIN with a task worktree at
+# $LW_MAIN/aiwork/tA, and a distinguishable fixture on the data branch.
+# Sets LW_TMP / LW_MAIN / LW_WT.
+lw_repo() {
+    local marker="${1:-primary}"
+    LW_TMP="$(setup_repo_with_remote)"
+    LW_MAIN="$LW_TMP/local"
+    install_script "$LW_MAIN"
+    create_data_branch_setup "$LW_MAIN"
+    mkdir -p "$LW_MAIN/.aitask-data/aitasks/metadata"
+    printf '{"marker":"%s"}\n' "$marker" > "$LW_MAIN/.aitask-data/$FIXTURE_REL"
+    git -C "$LW_MAIN" worktree add -q -b aitask/tA "$LW_MAIN/aiwork/tA" HEAD
+    LW_WT="$LW_MAIN/aiwork/tA"
+}
+
+# lw_run <dir> -> stdout in LW_OUT, stderr in LW_ERR, status in LW_RC.
+lw_run() {
+    local errfile
+    errfile="$(mktemp)"
+    LW_RC=0
+    LW_OUT="$(bash "$LW_MAIN/.aitask-scripts/aitask_init_data.sh" \
+        --link-worktree "$1" 2>"$errfile")" || LW_RC=$?
+    LW_ERR="$(cat "$errfile")"
+    rm -f "$errfile"
+}
+
+# assert_untouched <desc> <dir> -> none of the three names exist under <dir>.
+assert_no_layout() {
+    local desc="$1" dir="$2" name
+    for name in .aitask-data aitasks aiplans; do
+        TOTAL=$((TOTAL + 1))
+        if [[ -e "$dir/$name" || -L "$dir/$name" ]]; then
+            FAIL=$((FAIL + 1))
+            echo "FAIL: $desc ('$dir/$name' was created)"
+        else
+            PASS=$((PASS + 1))
+        fi
+    done
+}
+
+# --- Test 10: creates the layout and the data becomes readable ---
+echo "--- Test 10: --link-worktree creates the layout ---"
+
+lw_repo primary
+lw_run "$LW_WT"
+assert_eq_trim "10: reports LINKED" "LINKED" "$LW_OUT"
+assert_eq "10: exits 0" "0" "$LW_RC"
+assert_symlink "10: .aitask-data symlink" "$LW_WT/.aitask-data"
+assert_symlink "10: aitasks symlink" "$LW_WT/aitasks"
+assert_symlink "10: aiplans symlink" "$LW_WT/aiplans"
+# The defect this fixes: the fixture must be readable THROUGH the worktree.
+assert_eq "10: fixture readable from the worktree" \
+    '{"marker":"primary"}' "$(cat "$LW_WT/$FIXTURE_REL" 2>/dev/null)"
+
+# --- Test 11: branch-mode routing probe ---
+# _ait_detect_data_worktree() (lib/task_utils.sh) selects branch vs legacy mode
+# by testing `.aitask-data/.git` relative to cwd. Assert that literal probe, not
+# merely that links exist — it is what makes ./ait git route to the data branch
+# instead of silently degrading to legacy mode inside the worktree.
+echo "--- Test 11: branch-mode routing probe ---"
+
+TOTAL=$((TOTAL + 1))
+if [[ -d "$LW_WT/.aitask-data/.git" || -f "$LW_WT/.aitask-data/.git" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 11: .aitask-data/.git not visible from the worktree (ait git would use legacy mode)"
+fi
+
+# --- Test 12: idempotent ---
+echo "--- Test 12: idempotency ---"
+
+before_data="$(readlink "$LW_WT/.aitask-data")"
+before_tasks="$(readlink "$LW_WT/aitasks")"
+before_plans="$(readlink "$LW_WT/aiplans")"
+lw_run "$LW_WT"
+assert_eq_trim "12: second run reports ALREADY_LINKED" "ALREADY_LINKED" "$LW_OUT"
+assert_eq "12: .aitask-data target unchanged" "$before_data" "$(readlink "$LW_WT/.aitask-data")"
+assert_eq "12: aitasks target unchanged" "$before_tasks" "$(readlink "$LW_WT/aitasks")"
+assert_eq "12: aiplans target unchanged" "$before_plans" "$(readlink "$LW_WT/aiplans")"
+rm -rf "$LW_TMP"
+
+# --- Test 13: dangling link is repaired ---
+echo "--- Test 13: dangling link repair ---"
+
+lw_repo primary
+rm -f "$LW_WT/aitasks"
+ln -s .aitask-data/gone "$LW_WT/aitasks"
+lw_run "$LW_WT"
+assert_eq_trim "13: reports LINKED" "LINKED" "$LW_OUT"
+assert_eq "13: aitasks repaired to the canonical target" \
+    ".aitask-data/aitasks" "$(readlink "$LW_WT/aitasks")"
+assert_eq "13: fixture readable again" \
+    '{"marker":"primary"}' "$(cat "$LW_WT/$FIXTURE_REL" 2>/dev/null)"
+rm -rf "$LW_TMP"
+
+# --- Test 14: stale .aitask-data pointing at ANOTHER checkout ---
+# A resolving link is not a correct link. A worktree reused across checkouts can
+# carry .aitask-data -> /other/checkout/.aitask-data, which resolves fine and
+# would silently point ./ait and the whole suite at another repo's task data.
+# The discriminating assertion is which fixture is read, not link identity.
+echo "--- Test 14: stale cross-checkout .aitask-data is repaired ---"
+
+lw_repo primary
+OTHER_TMP="$(setup_repo_with_remote)"
+install_script "$OTHER_TMP/local"
+create_data_branch_setup "$OTHER_TMP/local"
+mkdir -p "$OTHER_TMP/local/.aitask-data/aitasks/metadata"
+printf '{"marker":"%s"}\n' "wrong-checkout" > "$OTHER_TMP/local/.aitask-data/$FIXTURE_REL"
+
+rm -f "$LW_WT/.aitask-data"
+ln -s "$OTHER_TMP/local/.aitask-data" "$LW_WT/.aitask-data"
+lw_run "$LW_WT"
+assert_eq_trim "14: reports LINKED, not ALREADY_LINKED" "LINKED" "$LW_OUT"
+assert_eq "14: .aitask-data repointed at this checkout" \
+    "$(cd "$LW_MAIN/.aitask-data" && pwd -P)" \
+    "$(cd "$LW_WT/.aitask-data" && pwd -P)"
+assert_eq "14: reads THIS repo's fixture, not the other checkout's" \
+    '{"marker":"primary"}' "$(cat "$LW_WT/$FIXTURE_REL" 2>/dev/null)"
+assert_contains "14: stderr names the old target" \
+    "$OTHER_TMP/local/.aitask-data" "$LW_ERR"
+rm -rf "$LW_TMP" "$OTHER_TMP"
+
+# --- Test 15: stale aitasks target ---
+echo "--- Test 15: stale aitasks target is repaired ---"
+
+lw_repo primary
+rm -f "$LW_WT/aitasks"
+ln -s .aitask-data/aiplans "$LW_WT/aitasks"   # resolves, but is the wrong target
+lw_run "$LW_WT"
+assert_eq_trim "15: reports LINKED" "LINKED" "$LW_OUT"
+assert_eq "15: aitasks repaired" ".aitask-data/aitasks" "$(readlink "$LW_WT/aitasks")"
+assert_eq "15: aiplans left correct" ".aitask-data/aiplans" "$(readlink "$LW_WT/aiplans")"
+rm -rf "$LW_TMP"
+
+# --- Test 15b: stale aiplans target — the symmetric case ---
+# Case 15 alone does not cover this: a validate-and-repair loop that only
+# inspects the first element of AIT_DATA_LINKS passes 15 and every other case
+# while leaving aiplans pointed at another tree. Each link is probed with the
+# other held correct, so the loop's second iteration is exercised.
+echo "--- Test 15b: stale aiplans target is repaired ---"
+
+lw_repo primary
+rm -f "$LW_WT/aiplans"
+ln -s .aitask-data/aitasks "$LW_WT/aiplans"
+lw_run "$LW_WT"
+assert_eq_trim "15b: reports LINKED" "LINKED" "$LW_OUT"
+assert_eq "15b: aiplans repaired" ".aitask-data/aiplans" "$(readlink "$LW_WT/aiplans")"
+assert_eq "15b: aitasks left correct" ".aitask-data/aitasks" "$(readlink "$LW_WT/aitasks")"
+rm -rf "$LW_TMP"
+
+# --- Test 16: non-symlink entry is refused, and NOTHING else is written ---
+# The second half is what tests the read-only preflight: a sequential per-entry
+# implementation creates .aitask-data before it ever reaches the conflict.
+echo "--- Test 16: non-symlink entry refused, nothing written ---"
+
+lw_repo primary
+rm -f "$LW_WT/.aitask-data" "$LW_WT/aitasks" "$LW_WT/aiplans"
+mkdir -p "$LW_WT/aitasks"
+echo "keepme" > "$LW_WT/aitasks/user.txt"
+lw_run "$LW_WT"
+assert_exit_nonzero_rc "16: exits non-zero" "$LW_RC"
+assert_eq "16: the real directory's file is untouched" \
+    "keepme" "$(cat "$LW_WT/aitasks/user.txt" 2>/dev/null)"
+TOTAL=$((TOTAL + 1))
+if [[ ! -e "$LW_WT/.aitask-data" && ! -L "$LW_WT/.aitask-data" \
+      && ! -e "$LW_WT/aiplans" && ! -L "$LW_WT/aiplans" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 16: preflight did not run before writing (other entries were created)"
+fi
+rm -rf "$LW_TMP"
+
+# --- Test 16b: conflict on the LAST entry, earlier ones stale-but-repairable ---
+# Proves preflight ran before ANY repair, not merely before the conflicting one.
+echo "--- Test 16b: late conflict leaves earlier stale entries untouched ---"
+
+lw_repo primary
+rm -f "$LW_WT/.aitask-data" "$LW_WT/aitasks" "$LW_WT/aiplans"
+ln -s "$LW_TMP" "$LW_WT/.aitask-data"          # stale, repairable
+ln -s .aitask-data/aiplans "$LW_WT/aitasks"    # stale, repairable
+mkdir -p "$LW_WT/aiplans"                      # conflict, processed last
+echo "keepme" > "$LW_WT/aiplans/user.txt"
+lw_run "$LW_WT"
+assert_exit_nonzero_rc "16b: exits non-zero" "$LW_RC"
+assert_eq "16b: .aitask-data still carries its ORIGINAL stale target" \
+    "$LW_TMP" "$(readlink "$LW_WT/.aitask-data")"
+assert_eq "16b: aitasks still carries its ORIGINAL stale target" \
+    ".aitask-data/aiplans" "$(readlink "$LW_WT/aitasks")"
+assert_eq "16b: the real directory's file is untouched" \
+    "keepme" "$(cat "$LW_WT/aiplans/user.txt" 2>/dev/null)"
+rm -rf "$LW_TMP"
+
+# --- Test 17: an ordinary subdirectory of the primary is refused ---
+# The negative control for the worktree-root guard. Without it, a plain subdir
+# shares the primary's git-common-dir, resolves the same main root, and is
+# trivially unequal to it — so it would pass every other guard and be linked.
+echo "--- Test 17: ordinary subdirectory refused ---"
+
+lw_repo primary
+mkdir -p "$LW_MAIN/sub"
+lw_run "$LW_MAIN/sub"
+assert_exit_nonzero_rc "17: exits non-zero" "$LW_RC"
+assert_contains "17: says it is not a worktree root" "not a worktree root" "$LW_ERR"
+assert_no_layout "17: subdirectory left untouched" "$LW_MAIN/sub"
+
+# --- Test 18: the main checkout is refused ---
+echo "--- Test 18: main checkout refused ---"
+
+lw_run "$LW_MAIN"
+assert_exit_nonzero_rc "18: exits non-zero" "$LW_RC"
+assert_contains "18: says it is the main checkout" "main checkout" "$LW_ERR"
+
+# --- Test 19: the .aitask-data worktree is refused ---
+# It is ALSO a registered worktree root, so it passes the root and main-root
+# guards; linking it would nest .aitask-data inside the data branch.
+echo "--- Test 19: .aitask-data worktree refused ---"
+
+lw_run "$LW_MAIN/.aitask-data"
+assert_exit_nonzero_rc "19: exits non-zero" "$LW_RC"
+assert_contains "19: says it is the data worktree" ".aitask-data worktree" "$LW_ERR"
+TOTAL=$((TOTAL + 1))
+if [[ ! -e "$LW_MAIN/.aitask-data/.aitask-data" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 19: nested .aitask-data was created inside the data worktree"
+fi
+rm -rf "$LW_TMP"
+
+# --- Test 20: a directory outside any git repo is refused ---
+echo "--- Test 20: non-repo directory refused ---"
+
+lw_repo primary
+OUTSIDE_DIR="$(mktemp -d)"
+lw_run "$OUTSIDE_DIR"
+assert_exit_nonzero_rc "20: exits non-zero" "$LW_RC"
+assert_contains "20: says it is not inside a git repository" "not inside a git repository" "$LW_ERR"
+assert_no_layout "20: directory left untouched" "$OUTSIDE_DIR"
+rm -rf "$OUTSIDE_DIR" "$LW_TMP"
+
+# --- Test 21: legacy-mode primary is a no-op ---
+# Negative control for the no-op path: it must report, not fabricate a layout.
+echo "--- Test 21: legacy-mode primary is a no-op ---"
+
+TMPDIR_21="$(setup_local_repo)"
+install_script "$TMPDIR_21"
+mkdir -p "$TMPDIR_21/aitasks" "$TMPDIR_21/aiplans"
+touch "$TMPDIR_21/aitasks/.keep"
+git -C "$TMPDIR_21" add -A >/dev/null 2>&1
+git -C "$TMPDIR_21" commit -qm "legacy layout" >/dev/null 2>&1
+git -C "$TMPDIR_21" worktree add -q -b aitask/tL "$TMPDIR_21/aiwork/tL" HEAD
+
+LW_MAIN="$TMPDIR_21"
+lw_run "$TMPDIR_21/aiwork/tL"
+assert_eq_trim "21: reports LEGACY_MODE" "LEGACY_MODE" "$LW_OUT"
+assert_eq "21: exits 0" "0" "$LW_RC"
+TOTAL=$((TOTAL + 1))
+if [[ ! -L "$TMPDIR_21/aiwork/tL/.aitask-data" ]]; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 21: legacy-mode no-op fabricated a .aitask-data link"
+fi
+rm -rf "$TMPDIR_21"
+
+# --- Test 22: link-form pin (the install.sh:353 coupling) ---
+# install.sh's ensure_data_root() recognizes ONLY `.aitask-data/<name>` and
+# die()s on anything else. If the helper ever changes the spelling, fresh
+# installs break with no other test failing.
+echo "--- Test 22: canonical link form ---"
+
+lw_repo primary
+lw_run "$LW_WT"
+assert_eq "22: aitasks target is exactly .aitask-data/aitasks" \
+    ".aitask-data/aitasks" "$(readlink "$LW_WT/aitasks")"
+assert_eq "22: aiplans target is exactly .aitask-data/aiplans" \
+    ".aitask-data/aiplans" "$(readlink "$LW_WT/aiplans")"
+assert_eq "22: primary's aitasks target is the same form" \
+    ".aitask-data/aitasks" "$(readlink "$LW_MAIN/aitasks")"
+rm -rf "$LW_TMP"
 
 # --- Summary ---
 echo ""
