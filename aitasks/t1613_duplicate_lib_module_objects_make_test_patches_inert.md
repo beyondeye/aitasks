@@ -9,6 +9,8 @@ anchor: 1527
 followup_kind: upstream_defect
 created_at: 2026-08-25 18:46
 updated_at: 2026-08-25 18:46
+boardcol: now
+boardidx: 7238
 ---
 
 The Python test suite loads modules from `.aitask-scripts/lib/` under **more than

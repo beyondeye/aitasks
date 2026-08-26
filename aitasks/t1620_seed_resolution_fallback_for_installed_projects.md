@@ -9,6 +9,8 @@ anchor: 1595
 followup_kind: risk_mitigation
 created_at: 2026-08-26 00:02
 updated_at: 2026-08-26 00:02
+boardcol: now
+boardidx: 8262
 ---
 
 ## Origin

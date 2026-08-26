@@ -10,6 +10,8 @@ anchor: 1159
 followup_kind: manual_verification
 created_at: 2026-08-25 22:35
 updated_at: 2026-08-25 22:35
+boardcol: now
+boardidx: 10310
 ---
 
 ## Manual Verification Task

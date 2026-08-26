@@ -7,6 +7,8 @@ status: Ready
 labels: [performance, task_yaml, board, aitask_ls]
 created_at: 2026-08-25 18:24
 updated_at: 2026-08-25 18:24
+boardcol: now
+boardidx: 6214
 ---
 
 Route `task_yaml.parse_frontmatter` through libyaml's `CSafeLoader` when it is

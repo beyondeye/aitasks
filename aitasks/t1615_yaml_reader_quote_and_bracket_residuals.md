@@ -10,6 +10,8 @@ anchor: 1605
 followup_kind: upstream_defect
 created_at: 2026-08-25 22:12
 updated_at: 2026-08-25 22:12
+boardcol: now
+boardidx: 4166
 ---
 
 ## Origin
