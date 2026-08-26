@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [1608]
 issue_type: bug
@@ -95,3 +97,5 @@ is the shape that discriminates this branch:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-26T08:21:42Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-26T11:14:02Z status=pass attempt=1 type=human
