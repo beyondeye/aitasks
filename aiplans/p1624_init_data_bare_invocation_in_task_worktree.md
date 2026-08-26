@@ -325,3 +325,83 @@ End-to-end by hand against the scratchpad fixtures that reproduced each case:
 test/verification steps that touch no production code path, so the levels above
 are unchanged — code-health **low**, goal-achievement **low** — and now rest on
 executed checks rather than on construction alone.
+
+## Implementation notes
+
+Landed as planned. Deviations, all recorded here rather than silently absorbed:
+
+- **Test numbering.** The pre-phase characterization case is **Test 23**; the
+  guard cases are **24a–24h** (the plan said 23a–23h). Splitting the numbers
+  keeps the characterization case, which must be written and run *before* the
+  guard, visually separate from the cases that require it.
+- **`strip_ansi` helper added to the test file.** Not in the plan. `die_code`
+  wraps its message in `${RED}…${NC}` unconditionally — not tty-gated — so the
+  remedy extracted from stderr in 24b carried a trailing reset that broke
+  `eval`. The helper builds a literal ESC byte rather than using the GNU-only
+  `\x1b` shorthand, matching `shadow_strip_ansi` in `aitask_shadow_capture.sh`.
+- **24c establishes its own precondition.** It calls `lw_run "$LW_WT"`
+  (idempotent) instead of inheriting the linked state from 24b's remedy run, so
+  a break in 24b fails 24b alone rather than also failing this control for the
+  wrong reason.
+
+### Evidence
+
+- **Pre-phase mitigation executed as specified.** Test 23 was written and run
+  against the **unmodified** script first: 87/87 pass. It characterizes today's
+  behavior, so its post-change pass is meaningful.
+- **Forced-failure injection.** With the guard's condition neutralized
+  (`"$wt_toplevel" = "XXX_GUARD_DISABLED"`), 16 assertions failed — including
+  `24a: never attempted a worktree add` (the trace recorded the git calls) and
+  `24g: no data checkout planted in the worktree` (the directory appeared).
+  24d/24e/24f/24h kept passing, as they must. The guard was then restored from a
+  file copy and the suite re-run.
+- **Final:** `tests/test_init_data.sh` 118/118;
+  `tests/test_task_worktree_helper.sh` 102/102; `tests/test_task_git.sh` 24/24.
+  `shellcheck` reports the same code set as HEAD on both files (SC1091 info on
+  both, pre-existing SC2034 on the test file) — no new findings.
+- **Post-phase mitigation executed.** Against a real `aiwork/` worktree of this
+  repo, not the fixture: `WORKTREE_UNLINKED`, exit 3; the printed command pasted
+  verbatim returned `LINKED`, exit 0; a repeat bare invocation returned
+  `ALREADY_INIT`, exit 0. The probe worktree and its branch were removed.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added Check 3b to `.aitask-scripts/aitask_init_data.sh`,
+  placed after the branch probe and immediately before Step 4. It classifies a
+  bare invocation made from a linked worktree into two states — `WORKTREE_UNLINKED`
+  (the primary holds the `aitask-data` branch, so a second worktree of it cannot
+  be created here) and `NOT_INITIALIZED` (the primary has no `.aitask-data`
+  worktree, so initializing from here would put the repo's only task data inside
+  a throwaway task worktree) — each exiting 3 with a copy-safe absolute remedy
+  built from `SCRIPT_DIR`. Step 4's `die` now reports git's own error instead of
+  naming the command that just failed. Both output vocabularies (header comment
+  and `--help`) document the new tokens. `tests/test_init_data.sh` gained a
+  characterization case, eight guard cases, a `strip_ansi` helper and a
+  git-tracing runner (+188 lines).
+- **Deviations from plan:** Three, all detailed under "Implementation notes"
+  above — test numbering (23 + 24a-h rather than 23a-h), the unplanned
+  `strip_ansi` helper, and 24c establishing its own precondition. None changes
+  the shipped behavior of the script.
+- **Issues encountered:** (1) `die_code` colours its message unconditionally —
+  it is not tty-gated — so the remedy extracted from stderr in 24b carried a
+  trailing ANSI reset and `eval` failed. Fixed with a portable `strip_ansi`
+  helper that builds a literal ESC byte rather than using the GNU-only `\x1b`
+  shorthand. (2) Review of the first draft caught that placing the guard before
+  Check 3 would have regressed the already-correct `NO_DATA_BRANCH` answer and
+  produced a message falsely claiming the branch was checked out; the guard was
+  moved after Check 3 and gated on the primary's actual state.
+- **Key decisions:** (a) Token **plus non-zero exit** rather than exit 0 — the
+  four skill trees calling the bare form already abort on a non-zero exit, so
+  every existing caller behaves correctly with no doc changes, and a caller that
+  has never heard of the token still fails safe. Exit 3 is disjoint from the
+  script's generic `die` code of 1. (b) The guard keys on the **worktree root**
+  (`git rev-parse --show-toplevel`), not `$PWD`, so an ordinary subdirectory of
+  the primary is not miscalled a worktree and a nested subdirectory of a task
+  worktree still resolves correctly. (c) `NOT_INITIALIZED` deliberately reuses
+  the token `--link-worktree` already emits for the same state — one name per
+  state — with the exit-code difference documented in both output lists.
+  (d) The "nothing was attempted" claims are proven by a PATH-injected git
+  tracer with a positive control, because a refused `git worktree add` and a
+  never-attempted one leave identical on-disk state.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:1522 — the same impossible remedy text ("Failed to create worktree. You may need to run: git worktree add .aitask-data aitask-data") on ait setup's own worktree-creation failure path; it warns and returns rather than dying, and operates on an explicit $project_dir instead of $PWD, so it is a separate flow with its own contract.`
