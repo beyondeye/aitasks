@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -9,8 +11,9 @@ gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-26 14:38
-updated_at: 2026-08-26 14:43
+updated_at: 2026-08-26 17:19
 ---
 
 ## Origin
@@ -65,3 +68,8 @@ derivation.
 Add a case to `tests/test_init_data.sh` alongside the existing
 `--link-worktree` family (cases 10-22), asserting the new token and that no
 `git worktree add` was attempted.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T14:19:43Z status=pass attempt=1 type=human
