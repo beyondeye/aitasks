@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-26 14:40
-updated_at: 2026-08-26 14:45
+updated_at: 2026-08-26 17:21
 ---
 
 ## Origin
@@ -80,3 +83,8 @@ Likely directions, to be decided during planning:
 - A test that `ait create --assigned-to <new address>` leaves `emails.txt` clean.
 - Negative controls for both, in the executable-injection style already used by
   `install_prefix_store_email` / `install_prefix_add_email_to_file`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T14:21:43Z status=pass attempt=1 type=human
