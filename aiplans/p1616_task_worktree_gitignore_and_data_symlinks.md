@@ -448,6 +448,35 @@ Runs after the deliverables above, before the verification sweep.
    *This is deliberately not automated.* A suite run is ~4 minutes and would
    need a full repo copy; G1/G2 pin the mechanism, this pins the symptom once.
 
+   **Result (executed).** A subset run was NOT sufficient and was rejected in
+   review: proving the three originally-failing modules pass says nothing about
+   another module whose fixture or task-data assumptions still break in a
+   worktree. The full suite was therefore run in a linked worktree carrying this
+   change (the 21 working-tree files copied in, so the run tests this diff and
+   not `HEAD`):
+
+   - before linking, reproduced the reported failures verbatim —
+     `FileNotFoundError` in `test_settings_brainstorm_descriptions.py` and
+     `AssertionError: … missing profile: aitasks/metadata/profiles/default.yaml`
+     in `test_profile_editor_shadow_tier.py`;
+   - after `--link-worktree`: parallel lane `5340 passed, 2 skipped in 253.55s`
+     (`-n 4 --dist loadfile`), serial carve-out `5 passed in 15.03s`, zero
+     `FAILED`/`ERROR` lines, final banner
+     **`PYTHON SUITE: PASSED (runner=pytest, exit=0)`**, wrapper `SUITE_EXIT=0`.
+
+   The serial carve-out matters here specifically: `test_board_header_row_live.py`
+   runs against the real repo and takes `.git/index.lock`, and its rootdir
+   resolved to the worktree — so the linked layout holds for the modules that
+   touch live git and tmux, not only the ones that read `aitasks/metadata/`.
+
+   **Reproduced twice, on two independently built worktrees.** The second run
+   copied in **only** this task's files, excluding a concurrent session's
+   in-flight `aitask_pick_own.sh` / `test_pick_own_scoped_commit.sh`, so the
+   verdict is attributable to this diff alone: `5340 passed, 2 skipped in
+   253.03s`, serial `5 passed in 14.25s`, 0 `FAILED`/`ERROR`,
+   `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, `SUITE_EXIT=0`,
+   `rootdir: …/aiwork/t1616_rerun`.
+
 ## Out of scope
 
 - **AgentCrew worktrees** (`aitask_crew_init.sh:118`) need no data layout: they
@@ -456,12 +485,23 @@ Runs after the deliverables above, before the verification sweep.
   only.
 - **`install.sh`'s `ensure_data_root()`** — repair/refusal semantics, different
   contract; see §2.
-- **`_ait_data_gitdir()`** (`task_utils.sh:46-55`) still returns empty inside a
-  worktree, because it probes `.git/worktrees/-aitask-data` and `.git` is a file
-  there. Effect: `assert_data_worktree_clean()` no-ops in a worktree — a
-  documented fail-open ("No-op … when the data worktree git-dir is missing"),
-  not a new one, and not worsened by this change. Noted here so the residual is
-  recorded rather than assumed away.
+- ~~**`_ait_data_gitdir()`** … not worsened by this change.~~ **This was wrong,
+  and end-to-end verification proved it.** The function probes the *relative*
+  `.git/worktrees/-aitask-data`, which does not exist in a linked worktree
+  because `.git` is a file there. Before this task that was unreachable: with no
+  `.aitask-data` present, `_ait_detect_data_worktree()` selected **legacy** mode
+  and the function returned early with status 0. Linking the worktree selects
+  **branch** mode, which reaches the trailing `[[ -d "$gd" ]] && printf …` — and
+  that returns **1** when the directory is absent. Every caller does
+  `gitdir="$(_ait_data_gitdir)"` under `set -e`, so `ait git-health` began
+  exiting **1 with no output at all** from inside a worktree.
+
+  Fixed in scope, since this task created the reachability: the function now
+  always returns 0 and falls back to `git -C "$_AIT_DATA_WORKTREE" rev-parse
+  --absolute-git-dir`, which resolves from anywhere. That also closes the
+  fail-open — `assert_data_worktree_clean()` is now live inside a worktree
+  instead of silently skipped. Pinned by `tests/test_task_git.sh` Test 12,
+  verified to fail against the original implementation.
 
 ## Risk
 
@@ -507,6 +547,93 @@ Runs after the deliverables above, before the verification sweep.
 
 ### Planned mitigations
 - timing: post-phase | name: worktree_teardown_preserves_primary_data | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 3 (.aitask-data symlink inside a task worktree; teardown may descend it) | desc: Assert that removing a linked task worktree — via both `git worktree remove --force` and `aitask_task_worktree.sh remove --force` — leaves the primary's `.aitask-data` worktree and its task/plan file contents intact.
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven deliverables landed as planned. `.gitignore`
+  gained `aiwork/`; `aitask_setup.sh` gained `setup_worktree_dirs_gitignore()`
+  seeding `aiwork/` + `.aitask-crews/` downstream (independently guarded) and its
+  Step 6 inline symlink block was replaced by the new helper; new
+  `.aitask-scripts/lib/data_symlinks.sh` holds `ait_ensure_data_symlinks`
+  (primary path, semantics unchanged) and `ait_link_worktree_data` (worktree
+  path, two-phase preflight + validate-and-repair);
+  `aitask_init_data.sh --link-worktree <dir>` wraps it behind five fail-closed
+  guards; `task-workflow/SKILL.md` Step 7 calls it on both the fresh-cut and
+  reuse paths, with the 3 goldens and 3 tracked `-remote-` prerenders
+  regenerated; `parallel-development.md` documents the behaviour.
+  Tests: `test_init_data.sh` +13 cases (10-22), `test_data_branch_setup.sh` +2
+  (13, 13b), `test_task_git.sh` +1 (12), `test_task_worktree_helper.sh` +1
+  (22, the inline post-phase mitigation), plus `tests/lib/test_scaffold.sh`
+  copies the new lib into scaffolded repos.
+
+- **Deviations from plan:** Three, all tightening after review:
+  1. The `--link-worktree` guard set grew from 3 to 5. The planned checks did
+     not establish that `<dir>` is a worktree **root** — an ordinary
+     subdirectory of the primary shares its git-common-dir, resolves the same
+     `MAIN_ROOT`, and is trivially unequal to it, so it passed every guard and
+     would have been linked. Added a `--show-toplevel` equality check, plus a
+     refusal for `<MAIN_ROOT>/.aitask-data`, which is *also* a registered
+     worktree root and passed the first four.
+  2. `ALREADY_LINKED` was tightened from "exists and resolves" to "exactly
+     correct", with repair. A worktree reused across checkouts can carry
+     `.aitask-data -> /other/checkout/.aitask-data`, which resolves fine and
+     silently points `./ait` and the whole suite at another repo's task data.
+  3. The refusal contract was made structural: `ait_link_worktree_data`
+     preflights all three entries read-only and reports every conflict before
+     any `rm -f`/`ln -s`. A sequential loop could repair `.aitask-data`, then
+     hit a real `aitasks` directory and fail, leaving a partially rewritten
+     worktree while claiming it refused.
+
+- **Issues encountered:** End-to-end verification found a regression **this
+  change created**. Linking a worktree flips `_ait_detect_data_worktree()` to
+  branch mode, which made `_ait_data_gitdir()`'s trailing
+  `[[ -d "$gd" ]] && printf …` reachable — and that returns 1 when the relative
+  admin path is absent, which it always is in a linked worktree (`.git` is a
+  file there). Every caller does `gitdir="$(_ait_data_gitdir)"` under `set -e`,
+  so `ait git-health` began **exiting 1 with no output at all** from inside a
+  worktree. Fixed in scope (the change created the reachability): the function
+  now always returns 0 and falls back to `rev-parse --absolute-git-dir`, which
+  also closes a fail-open — `assert_data_worktree_clean()` is live inside a
+  worktree instead of silently skipped. Pinned by `test_task_git.sh` Test 12.
+
+  Separately, a concurrent session was editing `task-workflow/SKILL.md` and the
+  shared goldens mid-task. It committed as t1621 before regeneration, so no
+  surgical staging was needed, but the commit below is path-scoped to this
+  task's files and deliberately excludes that session's later in-flight
+  `aitask_pick_own.sh` / `test_pick_own_scoped_commit.sh`.
+
+- **Key decisions:**
+  - The two helper functions have **different postures on purpose**.
+    `ait_ensure_data_symlinks` is a pure extraction that leaves any resolving
+    link alone, so the install/setup path gains no new behaviour and its blast
+    radius stays zero; all validate-and-repair lives in the worktree-only
+    function, where the three names are framework-owned and gitignored.
+  - The relative target `.aitask-data/<name>` is emitted from one place
+    (`ait_data_link_target`) but is duplicated as a literal in
+    `install.sh:353`, which runs before the lib is usable. Both sides now carry
+    a comment naming the other, and Test 22 pins the emitted string.
+  - AgentCrew worktrees are deliberately out of scope: they are orphan branches
+    with an **empty tree**, carrying no source and no `ait`.
+  - Every new guard was **fault-injected** rather than assumed: removing the
+    worktree-root guard plants symlinks in a source subdir; making the loop
+    inspect only `AIT_DATA_LINKS[0]` leaves `aiplans` mispointed; validating
+    `.aitask-data` by existence makes the worktree read the wrong checkout's
+    fixture; a sequential apply partially writes before refusing; and restoring
+    the original `_ait_data_gitdir` reproduces the silent exit-1. Each fault
+    fails only its intended test. Case 22's first draft was **vacuous** — the
+    fault passed — because `git worktree remove --force` short-circuits before
+    the `rm -rf` fallback; it was rewritten to unregister the worktree first so
+    the fallback is actually reached.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_init_data.sh:60-103 — a bare (no-flag) invocation
+    inside a linked task worktree dies with "Failed to create worktree" instead
+    of reporting a usable state. Its ALREADY_INIT probe tests the relative
+    `.aitask-data/.git`, which is absent in an unlinked worktree, so control
+    falls through to `git worktree add .aitask-data aitask-data` for a branch
+    already checked out in the primary. Pre-existing and untouched by this task
+    (which adds a separate --link-worktree path); a friendlier verdict for that
+    case would be a small follow-up.`
 
 ## Post-implementation
 
