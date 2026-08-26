@@ -16,6 +16,16 @@
 #                       -> MOVED:<filename>|<col>|<idx>
 #   create         --root R [--task-dir D] --title T [--color C]
 #                       -> CREATED:<col_id>|<color>|<title>
+#   columns-of     --root R [--task-dir D]
+#                       -> COLOF:<col_id>|<task path relative to R>  (one per
+#                          task file, parents AND children), then a terminal
+#                          SCAN_OK line
+#
+# `columns-of` is the whole-tree amortization behind `ait ls --boardcol`: one
+# call resolves every task's column through board_columns.column_of, so no
+# caller re-derives that rule. Its SCAN_OK trailer is REQUIRED as the exact
+# final line — without it an empty result cannot be told from a scan that died
+# partway, and a consumer that assumed the former would fail open.
 #
 # Refusals print `ERROR:<reason>` and exit 1; a usage error exits 2. Reasons are
 # stable machine tokens (unknown_column, malformed_task_id, ambiguous_task_id,

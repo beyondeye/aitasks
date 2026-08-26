@@ -20,46 +20,15 @@ TOTAL=0
 
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
 . "$PROJECT_DIR/tests/lib/asserts.sh"
+. "$PROJECT_DIR/tests/lib/proc_fixtures.sh"   # run_bounded
 
 # main()'s first line of body — printed only once a setup step has begun.
 SETUP_BANNER="aitask framework setup"
 
-# --- Bounded run -----------------------------------------------------------
-# run_bounded <secs> <outfile> <cmd...>  → command's status, or 124 on timeout.
-#
-# `timeout` is GNU coreutils; macOS ships it only as `gtimeout` via Homebrew
-# coreutils, so a bare `timeout` here would fail the test on macOS before it
-# exercised either help path. Same guard the framework uses at
-# aitask_sync.sh:97 and aitask_remote_drift_check.sh:152.
-run_bounded() {
-    local secs="$1" out="$2"; shift 2
-    local runner=""
-    command -v timeout >/dev/null 2>&1 && runner=timeout
-    [ -z "$runner" ] && command -v gtimeout >/dev/null 2>&1 && runner=gtimeout
-    if [ -n "$runner" ]; then
-        "$runner" "$secs" "$@" >"$out" 2>&1 </dev/null
-        return $?
-    fi
-    # macOS fallback. `set -m` puts the child in its own process group so the
-    # watchdog can kill the whole tree — a regression here spawns pip/git
-    # children that a bare `kill $pid` would orphan.
-    set -m
-    "$@" >"$out" 2>&1 </dev/null &
-    local pid=$!
-    set +m
-    local i=0
-    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt "$secs" ]; do
-        sleep 1
-        i=$((i + 1))
-    done
-    if kill -0 "$pid" 2>/dev/null; then
-        kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-        wait "$pid" 2>/dev/null || true
-        return 124
-    fi
-    wait "$pid"
-    return $?
-}
+# `run_bounded` (portable `timeout`, with the macOS gtimeout/watchdog
+# fallback) now lives in tests/lib/proc_fixtures.sh, sourced above — it was
+# defined here first, and moved when a second suite needed it (t1630) so the
+# two copies could not drift.
 
 # --- Isolated framework fixture --------------------------------------------
 # ensure_git_repo() and friends resolve the project root as $SCRIPT_DIR/.. , so

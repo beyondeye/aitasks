@@ -73,7 +73,8 @@ from task_yaml import BOARD_KEYS, normalize_board_idx, parse_frontmatter
 # Only what this module actually uses is imported: the stock-column constants
 # went with the reader and have no consumer here, so re-exporting them would
 # just re-create a second name for the same thing.
-from board_columns import UNORDERED_ID, ColumnIdError, load_columns_at
+from board_columns import (
+    UNORDERED_ID, ColumnIdError, column_of, load_columns_at)
 from record_protocol import enum_field, has_record_breaking, sanitize_last_field
 
 DEFAULT_VELOCITY_WINDOW = 90
@@ -191,10 +192,11 @@ def scan_tasks() -> list[TaskRow]:
         if not metadata or set(metadata.keys()) <= set(BOARD_KEYS):
             continue  # phantom stub or unparseable — invisible on the board too
 
-        col_raw = metadata.get("boardcol", UNORDERED_ID)
-        # A non-string boardcol matches no column on the board either; "" can
-        # never equal a validated column id, so such a task stays unreportable.
-        col_id = col_raw if isinstance(col_raw, str) else ""
+        # The rule (missing -> unordered, non-string -> "") lives in
+        # board_columns.column_of and is NOT re-derived here. This used to be an
+        # inline copy carrying a manual-sync comment; `ait ls --boardcol` would
+        # have made it three copies, so it was folded back onto the seam (t1630).
+        col_id = column_of(metadata)
         status = enum_field(metadata.get("status"))
         pending, remaining = _work_counts(metadata, status, path.name)
         rows.append(

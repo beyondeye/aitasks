@@ -96,6 +96,7 @@ ait ls -v -s all --tree 99     # Tree view, all statuses
 ait ls -v --children 10 99     # List children of task t10
 ait ls -v --no-followup-kind 15 # Genuine new work only (no auto-spawned follow-ups)
 ait ls --plan-approved 15       # Tasks with an approved plan awaiting implementation
+ait ls --boardcol now 15        # Tasks in the board's "now" column
 ```
 
 | Option | Description |
@@ -105,6 +106,7 @@ ait ls --plan-approved 15       # Tasks with an approved plan awaiting implement
 | `-s, --status STATUS` | Filter by status: Ready (default), Editing, Implementing, Postponed, Done, all |
 | `-l, --labels LABELS` | Filter by labels (comma-separated, matches any) |
 | `--type TYPE` | Filter by issue type. A task with no `issue_type:` field counts as `feature` |
+| `--boardcol COL` | Filter by [board]({{< relref "/docs/tuis/board/reference" >}}) column id, exactly as the board groups tasks. Validated against the project's configured columns (plus `unordered`); an unknown id is rejected |
 | `--followup-kind KIND` | Filter to auto-spawned follow-ups of one kind (e.g. `risk_mitigation`) |
 | `--no-followup-kind` | Only tasks that are *not* auto-spawned follow-ups. Mutually exclusive with `--followup-kind` |
 | `--plan-approved` | Only tasks carrying [`plan_approved_at`]({{< relref "/docs/development/task-format" >}}) — an approved plan whose implementation was deliberately deferred, ready to be picked up without re-planning |
@@ -116,6 +118,12 @@ ait ls --plan-approved 15       # Tasks with an approved plan awaiting implement
 **Sort order** (unblocked tasks first, then): priority (high > medium > low) → effort (low > medium > high). Issue type, follow-up kind and the deferred-plan marker are shown in `-v` output but are not sort dimensions.
 
 **Deferred approved plans.** A task stopped at the planning checkpoint with "Approve and stop here" keeps its plan and returns to `Ready`, so it otherwise looks untouched. `-v` renders it as `Plan: approved <YYYY-MM-DD HH:MM>`; the plain listing stays filename-only, so `--plan-approved` is how you find these without `-v`. The marker is cleared as soon as it stops being true — implementation starts, the plan is replanned or aborted, or a remote-drift stop requires re-verification.
+
+**Board column.** `--boardcol` answers "what is in this column?" from the CLI, resolving each task's column through the same rule the board renders with — so its result matches a board lane exactly, including a project whose columns have been renamed.
+
+`--boardcol unordered` selects the *Unsorted / Inbox* lane, which is **two** on-disk states: tasks with no `boardcol` field at all, **and** tasks explicitly moved there, which `ait board` and `ait update --boardcol unordered` both record as `boardcol: unordered`. Both are one lane on the board, so both match here.
+
+An unknown column id is **rejected**, naming the configured ids. That matters because the alternative — returning zero rows — is indistinguishable from "that column is empty", which is exactly what a typo or a renamed column would produce.
 
 **Follow-up kind** marks a task as auto-spawned by the workflow rather than as new work. `-v` shows it as a `Follow-up: <kind>` field, present only when the task carries one — its absence means genuine new work. `--followup-kind` and `--type` both reject an unrecognised value rather than silently matching nothing.
 

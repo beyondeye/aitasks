@@ -377,7 +377,7 @@ Columns are stored in `aitasks/metadata/board_config.json`:
 - **settings.sync_on_refresh** — Enable automatic sync with remote on each auto-refresh interval (default false). Requires `.aitask-data` worktree (data branch mode). When enabled, the board subtitle shows "+ sync"
 - **settings.collapsed_columns** — List of column IDs that are currently collapsed (default: empty). Collapsed columns show only their title and task count in a narrow strip. Tasks in collapsed columns are not rendered, which improves performance for boards with many tasks
 
-The "Unsorted / Inbox" column is a special dynamic column (ID: `unordered`) that appears automatically when tasks exist without a `boardcol` assignment.
+The "Unsorted / Inbox" column is a special dynamic column (ID: `unordered`) that appears automatically when any task resolves to it. Two states do: a task with no `boardcol` assignment at all, and a task explicitly moved into this column — moving a card here writes `boardcol: unordered` verbatim, as does `ait update --boardcol unordered`. Both render in this one lane, and `ait ls --boardcol unordered` lists both.
 
 ### Color Palette
 
@@ -429,7 +429,7 @@ The board reads and displays the following frontmatter fields from task files:
 
 Three metadata fields are managed internally by the board:
 
-- **`boardcol`** — The column ID where the task is placed (e.g., `"now"`, `"backlog"`, `"unordered"`). Tasks without this field appear in the "Unsorted / Inbox" column.
+- **`boardcol`** — The column ID where the task is placed (e.g., `"now"`, `"backlog"`, `"unordered"`). Tasks without this field appear in the "Unsorted / Inbox" column, as do tasks carrying an explicit `"unordered"` — the two states are one lane. A **non-string** value (e.g. `boardcol: 42`, which YAML parses as an integer) matches no column at all and renders nowhere.
 - **`boardgroup`** — The group slug within the column. The slug **is** the group's identity — there is no group registry, no group ID and no stored title — so two spellings are two different groups, and `ait update --boardgroup` rejects a slug outside `[a-z0-9_]+` rather than normalizing one into the other. An explicit `""` means "deliberately ungrouped", which is not the same as the field being absent.
 - **`boardidx`** — The sort index within a column. Lower values appear higher; ties are broken by filename. Values are widely spaced rather than consecutive, and may be negative — a movement writes only the moved task's file, placing it in the gap between its new neighbours rather than renumbering the column. Only the relative order is meaningful. When repeated moves into the same position exhaust a gap, that single column is re-spaced automatically.
 

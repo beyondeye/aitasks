@@ -92,6 +92,7 @@ __all__ = [
     "tasks_dir", "board_config_path",
     "column_records", "column_records_at", "load_columns", "load_columns_at",
     "project_columns_at",
+    "column_of", "columns_of_tree",
     "column_indices", "task_column", "move_task_to_column",
     "generate_col_id", "next_palette_color", "create_column",
 ]
@@ -500,11 +501,76 @@ def _parse_task(path: Path):
     return parsed
 
 
-def _column_of(metadata) -> str:
-    """The column a task renders in. Missing `boardcol` reads as `unordered`."""
+def column_of(metadata) -> str:
+    """The column a task renders in. Missing `boardcol` reads as `unordered`.
+
+    Public because it is the single owner of this rule across three consumers —
+    this module, `work_report_gather.scan_tasks`, and the `columns-of` verb that
+    `aitask_ls.sh --boardcol` reads. It used to be private, and the price was an
+    inline re-derivation in the gatherer that had to be kept in sync by hand.
+
+    Two states map to `unordered`, and both are reachable: a task with **no**
+    `boardcol` key, and a task explicitly moved into the Unsorted / Inbox lane
+    (`move_task_to_column` writes `boardcol: unordered` verbatim, as does
+    `ait update --boardcol unordered`). Anything reading this must treat them as
+    one lane.
+    """
     raw = metadata.get("boardcol", UNORDERED_ID)
-    # A non-string boardcol matches no column on the board either.
+    # A non-string boardcol matches no column on the board either. This is not
+    # theoretical: `boardcol: no` parses as the boolean False under YAML 1.1,
+    # and `generate_col_id("No")` really does mint the column id `no`.
     return raw if isinstance(raw, str) else ""
+
+
+def columns_of_tree(root, *, task_dir: str = DEFAULT_TASK_DIR):
+    """`(relative path, column id)` for **every** task file under `root`.
+
+    The whole-tree amortization behind `ait ls --boardcol`: one call answers the
+    column of every task, so the bash side never re-derives `column_of` and
+    never forks per file.
+
+    Two deliberate departures from this module's other scanners:
+
+    * **No `_eligible()` filter.** That predicate answers "does the board draw
+      this card"; `ait ls` lists files the board would not draw (phantom stubs,
+      unparseable files), and every file it lists needs a row here. A file with
+      no row is indistinguishable from a file in no column, so the consumer
+      would silently shorten its listing.
+    * **Globs wider than the consumer.** `t*.md` plus `t*/t*.md`, against
+      `aitask_ls.sh`'s narrower `t*_*.md` / `t*_*_*.md`. Extra rows are inert
+      (lookup is by path); a *missing* row is a defect the consumer must be able
+      to treat as fatal, and only a superset makes that guarantee hold.
+
+    An unreadable or unparseable file yields `{}` metadata, hence `unordered` —
+    board parity, where `Task.load()` swallows the failure and leaves the task
+    metadata-empty.
+
+    Children are included even though the board renders parents only: the rule
+    is per-metadata, and `ait ls --children` / `--all-levels` list them.
+    """
+    tree = _require_tree(root, task_dir)
+    rows: list[tuple[str, str]] = []
+    for path in sorted(tree.glob("t*.md")) + sorted(tree.glob("t*/t*.md")):
+        if not path.is_file():
+            continue
+        metadata = {}
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError:
+            raw = None
+        if raw is not None:
+            try:
+                parsed = parse_frontmatter(raw)
+            except Exception:
+                parsed = None
+            if parsed and isinstance(parsed[0], dict):
+                metadata = parsed[0]
+        # `os.path.relpath`, not `Path.relative_to`: total for any root form
+        # (absolute, `.`, trailing slash) where the latter raises. In branch
+        # mode `aitasks/` is a symlink, and glob preserves the symlink path —
+        # which is exactly the spelling `aitask_ls.sh` keys its lookups by.
+        rows.append((os.path.relpath(str(path), str(root)), column_of(metadata)))
+    return rows
 
 
 def column_indices(root, col_id: str, exclude: str = "", *,
@@ -524,7 +590,7 @@ def column_indices(root, col_id: str, exclude: str = "", *,
         if parsed is None:
             continue
         metadata = parsed[0]
-        if _column_of(metadata) != col_id:
+        if column_of(metadata) != col_id:
             continue
         indices.append(normalize_board_idx(metadata.get("boardidx", 0)))
     return indices
@@ -574,7 +640,7 @@ def task_column(root, task_id: str, *, task_dir: str = DEFAULT_TASK_DIR):
         # Present but not a card the board draws — same class as "not found"
         # from the caller's point of view, and it must not be movable either.
         return ColumnQuery(refused=((str(task_id), "not_found"),))
-    return ColumnQuery(col_id=_column_of(parsed[0]), filename=path.name)
+    return ColumnQuery(col_id=column_of(parsed[0]), filename=path.name)
 
 
 # --- Writer ------------------------------------------------------------------
@@ -824,7 +890,7 @@ def main(argv=None) -> int:
         description="Headless board-column reader/writer (t1377_1).")
     parser.add_argument("command",
                         choices=("list-columns", "current-column", "move",
-                                 "create"))
+                                 "create", "columns-of"))
     parser.add_argument("--root", required=True,
                         help="project root that owns the task tree")
     parser.add_argument("--task-dir", default=DEFAULT_TASK_DIR,
@@ -849,6 +915,22 @@ def main(argv=None) -> int:
                 # final field can absorb one. Split on the first two separators.
                 print(f"COLUMN:{rec.id}|{sanitize_middle_field(rec.color or '')}"
                       f"|{sanitize_last_field(rec.title)}")
+            return 0
+
+        if args.command == "columns-of":
+            for rel_path, col_id in columns_of_tree(args.root,
+                                                    task_dir=args.task_dir):
+                # col_id FIRST because a validated column id can never contain
+                # `|`, so the path — which theoretically could — is safe as the
+                # last field. Same reasoning as `list-columns` keeping the title
+                # last.
+                print(f"COLOF:{col_id}|{sanitize_last_field(rel_path)}")
+            # Terminal marker, emitted only after the final row. It is what lets
+            # a consumer tell "no task is in that column" from "the scan died
+            # partway" — an empty result alone cannot, and treating a dead scan
+            # as an empty one fails OPEN. Same contract as
+            # `aitask_gate.sh deps-blocking-scan`'s SCAN_OK.
+            print("SCAN_OK")
             return 0
 
         if args.command == "current-column":

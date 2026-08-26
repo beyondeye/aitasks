@@ -47,6 +47,13 @@ OPTIONS:
                 with at least one matching label.
   --type TYPE   Filter by issue type (see aitasks/metadata/task_types.txt).
                 A task with no issue_type: field counts as 'feature'.
+  --boardcol COL  Filter by board column id, exactly as 'ait board' groups
+                tasks. Validated against this project's configured columns; an
+                unknown id is rejected rather than returning an empty list.
+                'unordered' selects the Unsorted / Inbox lane, which is BOTH
+                tasks with no boardcol: field and tasks explicitly moved there
+                (recorded as 'boardcol: unordered' by the board and by
+                'ait update --boardcol unordered').
   --followup-kind KIND  Filter to auto-spawned follow-ups of one kind.
   --no-followup-kind    Only tasks that are NOT auto-spawned follow-ups
                 (genuine new work). Mutually exclusive with --followup-kind.
@@ -81,6 +88,11 @@ METADATA FORMAT:
     plan_approved_at: 2026-02-01 14:30
                 (absent = no approved-but-deferred plan)
     labels: [ui, backend]
+    boardcol: <column-id>
+                (absent = the synthetic 'unordered' lane; an explicit
+                'unordered' means the same lane. A non-string value, e.g.
+                'boardcol: 42', matches no column at all -- the board
+                renders it nowhere either)
     assigned_to: email@example.com
     created_at: 2026-02-01 14:30
     updated_at: 2026-02-01 15:45
@@ -100,6 +112,7 @@ LIMIT=0
 STATUS_FILTER="Ready"
 LABELS_FILTER=""
 TYPE_FILTER=""
+BOARDCOL_FILTER=""
 FOLLOWUP_KIND_FILTER=""
 NO_FOLLOWUP_KIND=false
 PLAN_APPROVED_FILTER=false
@@ -107,6 +120,30 @@ NO_PLAN_APPROVED=false
 CHILDREN_OF=""
 ALL_LEVELS=false
 TREE_VIEW=false
+
+# Every value-taking flag routes its argument through this before shifting. It
+# closes two silent failures, both of which every such flag had:
+#
+#   `ait ls --type`     -- with only one argument left, `shift 2` FAILS and
+#                          shifts NOTHING, so the loop re-parses the same argv
+#                          forever. There is no `set -e` here to stop it, so the
+#                          command does not error: it spins at 100% CPU.
+#   `ait ls --type ''`  -- an empty value is skipped by every filter block
+#                          below, so the command returns the ORDINARY listing
+#                          while appearing to have filtered. That is the same
+#                          "indistinguishable from a real answer" defect the
+#                          value validation further down exists to prevent, and
+#                          it is why an empty value is refused rather than
+#                          treated as "no filter".
+#
+# Note the deliberate asymmetry with `ait update --boardcol ""`, where an empty
+# value legitimately CLEARS the field. Here the flag selects, it does not write,
+# so there is nothing for an empty value to mean. Do not "unify" the two.
+require_flag_value() {
+    local flag="$1" argc="$2" value="${3-}"
+    [[ "$argc" -ge 2 ]] || die "$flag requires a value."
+    [[ -n "$value" ]] || die "$flag requires a non-empty value."
+}
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -116,18 +153,27 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -s|--status)
+            require_flag_value "$1" "$#" "${2-}"
             STATUS_FILTER="$2"
             shift 2
             ;;
         -l|--labels)
+            require_flag_value "$1" "$#" "${2-}"
             LABELS_FILTER="$2"
             shift 2
             ;;
         --type)
+            require_flag_value "$1" "$#" "${2-}"
             TYPE_FILTER="$2"
             shift 2
             ;;
+        --boardcol)
+            require_flag_value "$1" "$#" "${2-}"
+            BOARDCOL_FILTER="$2"
+            shift 2
+            ;;
         --followup-kind)
+            require_flag_value "$1" "$#" "${2-}"
             FOLLOWUP_KIND_FILTER="$2"
             shift 2
             ;;
@@ -144,6 +190,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -c|--children)
+            require_flag_value "$1" "$#" "${2-}"
             CHILDREN_OF="$2"
             shift 2
             ;;
@@ -211,10 +258,44 @@ if [ ! -d "$TASK_DIR" ]; then
     exit 1
 fi
 
+# --boardcol's value check is the same shape as --type's above, but it lives
+# HERE rather than up there on purpose: normalize_board_column probes the
+# configured columns via `aitask_board_column.sh list-columns --root .`, which
+# reports `unsupported_layout` when the task directory is missing — a strictly
+# worse message than the "Directory '$TASK_DIR' not found" immediately above.
+#
+# Validating at all is the point (t1377_1's reasoning, applied to reading
+# instead of writing): without it, `--boardcol now` against a project whose
+# columns were renamed returns zero rows, which is indistinguishable from "that
+# column is empty". The validator is REUSED, not reimplemented — it is the same
+# one `ait update --boardcol` calls, and it accepts the synthetic `unordered`.
+if [[ -n "$BOARDCOL_FILTER" ]]; then
+    normalize_board_column "$BOARDCOL_FILTER" >/dev/null
+fi
+
 # --- Core Logic ---
 
 # 1. Map existing task IDs (including child tasks)
 existing_ids_file=$(mktemp)
+
+# Clean the scratch files up on EVERY exit, not just the fall-through one at the
+# bottom of the script. Until t1630 the explicit `rm` there was sufficient,
+# because every `die` in this script fired during argument validation — i.e.
+# BEFORE this line — so no error path could ever reach a live temp file. The
+# --boardcol work added three that can: two in build_boardcol_map (called just
+# below) and one in process_task_file, which runs after `output_file` exists
+# too. Without this trap each of those leaks one or two files per invocation.
+#
+# The trap must be installed with the FIRST mktemp — one added later would not
+# cover the deaths in between — so it necessarily names `output_file` before
+# that variable is assigned. `output_file=""` FIRST is what makes that safe:
+# bash imports exported environment variables, so without it a caller running
+# `output_file=/some/path ait ls --boardcol now` would have `rm -f` delete THAT
+# path on any death in the window (reproduced against a real sentinel). A
+# `${output_file:-}` default alone does not help — an inherited value is set,
+# so the default never applies. `rm -f ""` is a silent no-op.
+output_file=""
+trap 'rm -f "$existing_ids_file" "$output_file"' EXIT
 
 # Add parent-level task IDs
 ls "$TASK_DIR" 2>/dev/null | grep -E '^t[0-9]+_.*\.md$' | awk -F'_' '{print substr($1,2)}' > "$existing_ids_file"
@@ -283,6 +364,67 @@ build_dep_blocking_map() {
     done <<< "$out"
 }
 build_dep_blocking_map
+
+# Board column per task file, decided ONCE for the whole tree — and only when
+# --boardcol is actually in play (t1630).
+#
+# The column rule is `board_columns.column_of`, and nothing here re-derives it.
+# A bash-local read cannot: it would have to reproduce YAML scalar typing to
+# know that `boardcol: no` is the boolean False and therefore matches nothing,
+# and `generate_col_id("No")` really does mint the column id `no`. The seam is
+# also already duplicated once (work_report_gather.py), so a third copy was the
+# thing to avoid.
+#
+# The subprocess is LAZY, which is what makes it free: `ait ls` runs on every
+# /aitask-pick and takes ~5 s on this repo, while the whole-tree column scan
+# takes ~0.2 s — and only when the filter is supplied at all.
+#
+# Same two-indexed-array shape as build_dep_blocking_map above, for the same two
+# reasons documented there: `declare -A` is bash 4+ (macOS system bash is 3.2),
+# and a substring scan over one variable measured 15 s for 451 lookups.
+boardcol_keys=()
+boardcol_vals=()
+build_boardcol_map() {
+    local col_script="$SCRIPT_DIR/aitask_board_column.sh" out rc=0 line k v
+    [[ -x "$col_script" ]] \
+        || die "--boardcol needs $col_script, which is missing or not executable."
+    out=$("$col_script" columns-of --root . --task-dir "$TASK_DIR") || rc=$?
+
+    # SCAN_OK required as the EXACT FINAL LINE — see build_dep_blocking_map for
+    # why a merely-present marker is not enough. Where that scan can DEGRADE to
+    # "Blocked [unverified]", this one cannot: a filter has no honest degraded
+    # mode, because returning nothing is exactly what an empty column looks
+    # like. That ambiguity is the whole reason --boardcol validates its value,
+    # so re-introducing it on scan failure would defeat the point. Fail closed.
+    local last_line="${out##*$'\n'}"
+    if [[ "$rc" -ne 0 || "$last_line" != "SCAN_OK" ]]; then
+        die "board column scan failed (aitask_board_column.sh columns-of, exit $rc) — --boardcol cannot be resolved."
+    fi
+    while IFS= read -r line; do
+        [[ "$line" == COLOF:* ]] || continue
+        line="${line#COLOF:}"
+        v="${line%%|*}"   # col id — validated ids never contain '|'
+        k="${line#*|}"    # path — last field, so it may contain '|'
+        boardcol_keys+=("$k")
+        boardcol_vals+=("$v")
+    done <<< "$out"
+}
+[[ -n "$BOARDCOL_FILTER" ]] && build_boardcol_map
+
+# The column one task file renders in, or non-zero when the scan has no row for
+# it. A miss is NOT "no column": the scan globs a strict superset of what this
+# script lists (t*.md + t*/t*.md vs t*_*.md + t*_*_*.md), so it can only mean
+# the two glob sets have drifted apart. The caller treats that as fatal.
+lookup_boardcol() {
+    local i
+    for i in "${!boardcol_keys[@]}"; do
+        if [[ "${boardcol_keys[i]}" == "$1" ]]; then
+            printf '%s' "${boardcol_vals[i]}"
+            return 0
+        fi
+    done
+    return 1
+}
 
 # Blocking ids for one task file, or non-zero when it has none.
 #
@@ -613,6 +755,20 @@ process_task_file() {
         return
     fi
 
+    # Apply board-column filter (t1630). The value was validated against the
+    # configured columns before any scanning, and the column itself comes from
+    # the pre-built map, never from a bash re-read of `boardcol:`.
+    if [[ -n "$BOARDCOL_FILTER" ]]; then
+        local task_col
+        # A miss is fatal, not "excluded". The scan globs a superset of what
+        # this script lists, so the only way to get here is that the two glob
+        # sets drifted — and silently dropping the task would hide that behind
+        # a listing that merely looks short.
+        task_col=$(lookup_boardcol "$current_task_file") \
+            || die "no board column for '$current_task_file' in the column scan — the scan and this listing disagree about which files are tasks. Please report this."
+        [[ "$task_col" == "$BOARDCOL_FILTER" ]] || return
+    fi
+
     # Apply follow-up-kind filters (mutually exclusive; values validated at
     # parse time). An absent kind means "not a follow-up" — never compared
     # against a None/unset sentinel.
@@ -778,4 +934,5 @@ else
     }
 fi
 
-rm -f "$existing_ids_file" "$output_file"
+# Cleanup is the EXIT trap installed with the first mktemp — deliberately not
+# repeated here, so there is one cleanup site rather than two that can diverge.
