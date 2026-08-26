@@ -246,8 +246,8 @@ t1599_1 scoped every claim commit to its own paths, nothing sweeps it up either,
 and a later `store_email()` hits the same membership fast-path and returns
 early. So `ait create --assigned-to <new address>` appears to leave
 `emails.txt` dirty and the address uncommitted indefinitely — the same stranding
-shape, on the other writer. To be recorded under "Upstream defects identified",
-not fixed here.
+shape, on the other writer. Carried into the Final Implementation Notes below
+for follow-up; not fixed here.
 
 ## Risk
 
@@ -283,3 +283,46 @@ not fixed here.
   that emits the warning but leaves the flag a separate statement would pass
   Test 10. · severity: medium · → mitigation: inline — Tests 11 and 13b pin the
   flag in both directions
+
+## Final Implementation Notes
+
+- **Actual work done:** `store_email()` in `.aitask-scripts/aitask_pick_own.sh`
+  now chains `printf >> && EMAIL_STORED=true && sort -u`, so a failed append
+  becomes the `{ … } || rc=$?` group's status and the flag cannot be set for a
+  write that did not happen. The post-release warning splits into two accurate
+  messages (`failed to record` vs `recorded <email>, but normalizing the
+  contributor list failed`). `tests/test_pick_own_scoped_commit.sh` gained three
+  fixture helpers (`install_prefix_store_email`, `install_failing_append`,
+  `install_failing_sort`) and Tests 10-13; the syntax check renumbered 10 → 14.
+  Final: 69 passed / 0 failed, and the sibling `test_create_email_lock.sh` 35/0.
+
+- **Deviations from plan:** none. The plan itself deviated deliberately from the
+  task's stated Verification in two places, both documented in its Context
+  section and both driven by spiked ground truth: (1) "no contributor-email
+  commit" is vacuous as a fix-side discriminator on a clean list, because
+  `_commit_scoped()`'s empty-status guard suppresses that commit pre-fix too, so
+  the assertion moved to the dirty-list state (Tests 11 / 13b); (2) the task's
+  prescribed chain order `printf && sort && EMAIL_STORED=true` strands an
+  appended address permanently when `sort` fails, so the flag sits between the
+  append and the sort instead.
+
+- **Issues encountered:** none blocking. The discriminating check was run as
+  planned — reverting to each wrong shape in a scratch copy fails exactly the
+  intended tests: unchained → Tests 10/11/12; `printf && sort && flag` → Test 12
+  only, including `12b: emails.txt is still clean — never stranded dirty`
+  reporting ` M aitasks/metadata/emails.txt`. The scratch revert was restored
+  from a scratchpad copy and checksum-verified, never via `git checkout`, which
+  would have destroyed the uncommitted fix.
+
+- **Key decisions:** `EMAIL_STORED` answers for the **append**, not the sort.
+  The append is the write; `sort -u` is normalization. Placing the flag behind
+  the sort as well would leave a successfully-appended address uncommitted and
+  dirty forever, because the next call's membership fast-path finds it already
+  present and returns before the flag can be set again. The sort-failure warning
+  deliberately reports only what was observed (normalization failed) and what is
+  certain (the address was added) — it does not claim the file is now unsorted,
+  which a failed `sort -u` does not establish.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_pick_own.sh:536-565 — store_email() runs (Step 2) before acquire_lock() (Step 3), and a refused lock exits at line 565 before commit_and_push() at line 601, so a claim refused with LOCK_FAILED / LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER leaves its appended address uncommitted. A retry with the SAME address then hits the membership fast-path at line 253 and returns before EMAIL_STORED is set, so no later claim ever commits it — emails.txt stays dirty indefinitely. Reproduced: refused claim → OWNED on retry → 0 contributor-email commits, emails.txt still ` M`, and still dirty after a third claim. PRE-EXISTING, not a t1614 regression — reproduced identically against the t1608-era store_email body. Existing Test 4 cannot expose it because it retries with a DIFFERENT address, which legitimately sets the flag and sweeps the stranded line along incidentally. The comment at lines 562-564 ("Nothing was claimed … there is no state to roll back here") is inaccurate for the same reason: emails.txt may already have been mutated.`
+  - `.aitask-scripts/aitask_create.sh:1134-1177 — add_email_to_file() appends to emails.txt, but aitask_create.sh never commits that file (no task_git add names EMAILS_FILE), and since t1599_1 scoped every claim commit to its own paths nothing sweeps it either. A later store_email() hits the same membership fast-path, so `ait create --assigned-to <new address>` appears to leave the address uncommitted and emails.txt dirty indefinitely — the same stranding shape on the other writer.`
