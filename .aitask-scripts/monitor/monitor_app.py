@@ -58,7 +58,12 @@ from monitor.concern_parser import (  # noqa: E402
     parse_block_meta, parse_concerns,
     unrecovered_markers,
 )
-from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
+from monitor.desync_summary import (  # noqa: E402
+    # The blocking `get_desync_summary` is deliberately NOT imported here
+    # (t1622): every call site in this module is on a Textual path.
+    get_desync_summary_async as _get_desync_summary_async,
+    get_desync_summary_cached as _get_desync_summary_cached,
+)
 from rich.text import Text  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
@@ -1055,7 +1060,17 @@ class MonitorApp(
             attached_session = None
             if self._monitor.multi_session:
                 attached_session = await self._read_attached_session()
-            self._rebuild_session_bar(attached_session)
+            # Off the render path (t1622): on a cache miss the sync reader ran
+            # a fresh Python interpreter inline inside `_rebuild_session_bar`.
+            # Awaited here because `_refresh_data` is already a worker task —
+            # this suspends the tick, not the App message pump. The `except`
+            # keeps a probe failure a blank string rather than a dead tick,
+            # exactly as the replaced inline call did.
+            try:
+                desync = await _get_desync_summary_async(Path.cwd(), compact=False)
+            except Exception:
+                desync = ""
+            self._rebuild_session_bar(attached_session, desync=desync)
             # Shadow reconciliation MUST run before the _restore_focus scheduling
             # below: it can change the active zone (grace fallback / selection
             # moved), and `saved_zone` was captured at the top of this method,
@@ -1523,7 +1538,9 @@ class MonitorApp(
             return None
         return snap.pane.session_name or None
 
-    def _rebuild_session_bar(self, attached_session: str | None = None) -> None:
+    def _rebuild_session_bar(
+        self, attached_session: str | None = None, desync: str | None = None
+    ) -> None:
         total = len(self._snapshots)
         agents = [
             s for s in self._snapshots.values()
@@ -1548,10 +1565,15 @@ class MonitorApp(
         idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow]\\[AUTO][/]" if self._auto_switch else ""
-        try:
-            desync = _get_desync_summary(Path.cwd(), compact=False)
-        except Exception:
-            desync = ""
+        # Pre-fetched by `_refresh_data` (t1622). `None` means this call brought
+        # none — the keypress-driven rebuild in `action_toggle_auto_switch` — so
+        # read the cache rather than spawning: the summary costs a fresh Python
+        # interpreter and this is a synchronous handler.
+        if desync is None:
+            try:
+                desync = _get_desync_summary_cached(Path.cwd(), compact=False)
+            except Exception:
+                desync = ""
         # Surface the control-channel state only when it is *not* the
         # steady-state CONNECTED — keep the bar quiet during normal use.
         state_badge = ""

@@ -51,7 +51,7 @@ ALLOWLIST=(
   ".aitask-scripts/monitor/monitor_core.py"        # A: control-mode `tmux -C attach` client (moved here in t822_6)
   ".aitask-scripts/aitask_companion_cleanup.sh"    # A: minimal-env cleanup hook, raw by design
   ".aitask-scripts/monitor/monitor_app.py"         # B/ambient _detect probes + own-pane rename-window
-  ".aitask-scripts/monitor/minimonitor_app.py"     # B/ambient _detect probe + self display-message
+  ".aitask-scripts/monitor/minimonitor_app.py"     # B/ambient _detect probe (main(), pre-App)
   ".aitask-scripts/codebrowser/codebrowser_app.py" # B/ambient _detect probes
   ".aitask-scripts/board/aitask_board.py"          # B/ambient _detect probe; B-nav select-window (local-only)
   ".aitask-scripts/stats/stats_app.py"             # B/ambient _detect probe

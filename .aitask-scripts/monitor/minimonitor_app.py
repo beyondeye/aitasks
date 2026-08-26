@@ -70,8 +70,14 @@ from monitor.concern_parser import (  # noqa: E402
     needs_addressing,
     parse_block_meta, parse_concerns, unrecovered_markers,
 )
-from monitor.desync_summary import get_desync_summary as _get_desync_summary  # noqa: E402
+from monitor.desync_summary import (  # noqa: E402
+    # The blocking `get_desync_summary` is deliberately NOT imported here
+    # (t1622): every call site in this module is on a Textual path.
+    get_desync_summary_async as _get_desync_summary_async,
+    get_desync_summary_cached as _get_desync_summary_cached,
+)
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
+from tmux_exec import TmuxClient  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 from agent_launch_utils import (  # noqa: E402
@@ -1020,24 +1026,21 @@ class MiniMonitorApp(
             review_loop_log.prune(reserve=1)
 
         # Detect own window ID, index, and name for auto-close, auto-selection,
-        # and the "switch to full monitor" handoff.
-        own_pane = os.environ.get("TMUX_PANE", "")
-        try:
-            result = subprocess.run(
-                ["tmux", "display-message", "-p", "-t", own_pane,
-                 "#{window_id}\t#{window_index}\t#{window_name}"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                parts = result.stdout.strip().split("\t")
-                if len(parts) >= 1:
-                    self._own_window_id = parts[0]
-                if len(parts) >= 2:
-                    self._own_window_index = parts[1]
-                if len(parts) >= 3:
-                    self._own_window_name = parts[2]
-        except Exception:
-            pass
+        # and the "switch to full monitor" handoff. DISPATCHED, not awaited
+        # (t1622): this was a synchronous `subprocess.run(..., timeout=5)`, so a
+        # wedged tmux server held the whole mount — the first paint and the
+        # first input dispatch with it. `run_worker` is `asyncio.create_task`,
+        # the only dispatch that genuinely escapes the App message pump (see
+        # `_start_monitoring` below for why the alternatives do not). Dispatched
+        # BEFORE `_start_monitoring()` so the fields land as early as tmux can
+        # answer, rather than at the end of the first refresh.
+        self.run_worker(
+            self._seed_own_window_info(),
+            name="own_window_seed",
+            group="own-window-seed",
+            exclusive=False,
+            exit_on_error=False,
+        )
 
         # CRITICAL: Do NOT rename the tmux window — minimonitor runs inside
         # an agent's window, renaming would break agent classification.
@@ -1274,7 +1277,18 @@ class MiniMonitorApp(
             if self._own_window_id and (time.monotonic() - self._mount_time) > 5.0:
                 await self._check_auto_close()
 
-            self._rebuild_session_bar()
+            # Off the render path (t1622), inside the same enablement gate the
+            # bar builder uses — there is still no reason to compute a string
+            # nobody renders. Awaited here rather than in the (synchronous)
+            # builder: `_refresh_data` is already a worker task, so this
+            # suspends the tick, not the App message pump.
+            desync = ""
+            if self._session_bar_enabled:
+                try:
+                    desync = await _get_desync_summary_async(Path.cwd(), compact=True)
+                except Exception:
+                    desync = ""
+            self._rebuild_session_bar(desync=desync)
             # Build the followed-agent panel once (static identity — it does not
             # refresh with the general list), then rebuild the list (which excludes
             # the followed agent). Await both so remove_children/mount_all complete
@@ -1355,6 +1369,53 @@ class MiniMonitorApp(
         self._empty_window_streak += 1
         if self._empty_window_streak >= AUTO_CLOSE_CONFIRMATIONS:
             self.exit()
+
+    async def _seed_own_window_info(self) -> None:
+        """Populate `_own_window_{id,index,name}` off the mount path (t1622).
+
+        The mount-time sibling of `_update_own_window_info`, and deliberately
+        NOT a call into it: that one routes through `self._monitor`, which does
+        not exist yet when this is dispatched, and whose client is pinned to the
+        dedicated `-L ait` socket (t953). These three fields describe THIS pane
+        on the server we are attached to, so the query must follow ambient
+        `$TMUX` resolution — which is exactly what `TmuxClient(socket_args=[])`
+        is: the gateway with no `-L` flag, building the same argv the raw
+        `subprocess.run` this replaced did.
+
+        **`socket_args=[]` is load-bearing, not tidiness.** A bare
+        `TmuxClient()` reads `tmux_socket_args()` and pins the call to `-L ait`;
+        against a pane on any other server that returns rc != 0 and all three
+        fields stay `None` — a silent degradation (refusals from `m` / `k`,
+        auto-close permanently disabled) with no error anywhere. Pinned by
+        `test_the_seed_queries_the_ambient_server_for_its_own_pane`.
+
+        **Seeds, never overwrites.** The refresh tick re-derives all three every
+        interval and this worker can land after it (a slow tmux answer, a
+        `renumber-windows` in between). Writing only a field that is still
+        `None` makes the two writers order-independent: the tick always owns the
+        current value, and this only fills in what has not been answered yet.
+
+        Timeout 2 s, matching `_update_own_window_info`. The old 5 s was the
+        blocking call's own budget; there is no reason for a seed to wait longer
+        than the tick that supersedes it.
+        """
+        own_pane = os.environ.get("TMUX_PANE", "")
+        if not own_pane:
+            return
+        rc, stdout = await TmuxClient(socket_args=[]).run_async(
+            ["display-message", "-p", "-t", own_pane,
+             "#{window_id}\t#{window_index}\t#{window_name}"],
+            timeout=2,
+        )
+        if rc != 0 or not stdout.strip():
+            return
+        parts = stdout.strip().split("\t")
+        if len(parts) >= 1 and self._own_window_id is None:
+            self._own_window_id = parts[0]
+        if len(parts) >= 2 and self._own_window_index is None:
+            self._own_window_index = parts[1]
+        if len(parts) >= 3 and self._own_window_name is None:
+            self._own_window_name = parts[2]
 
     async def _update_own_window_info(self) -> None:
         """Re-query own window index/name (handles tmux renumber-windows and
@@ -1671,7 +1732,7 @@ class MiniMonitorApp(
         """
         self._auto_select_own_window()
 
-    def _rebuild_session_bar(self) -> None:
+    def _rebuild_session_bar(self, desync: str | None = None) -> None:
         agents = [
             s for s in self._snapshots.values()
             if s.pane.category == PaneCategory.AGENT
@@ -1691,19 +1752,27 @@ class MiniMonitorApp(
         awaiting_str = f" [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
         done_str = f" [{STATE_STYLE_DONE}]{done_count}d[/]" if done_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
-        # Gated on the FLAG, not on `bar.display` — which is only set further
-        # down, after this ran (t1598). `_get_desync_summary` shells out to a
-        # fresh Python interpreter with a 2s cap and a 30s TTL cache that always
-        # misses on the first tick, and `_session_bar_enabled` defaults to
-        # False — so on a default install every tick paid for a string nobody
-        # rendered. Gated rather than early-returned: the bar's text must keep
-        # tracking state so a future runtime toggle shows current data.
-        desync = ""
-        if self._session_bar_enabled:
-            try:
-                desync = _get_desync_summary(Path.cwd(), compact=True)
-            except Exception:
-                desync = ""
+        # Pre-fetched by `_refresh_data` (t1622), which awaits the async reader
+        # inside the same `_session_bar_enabled` gate. `None` means this call
+        # brought none — a test or any future synchronous rebuild — so read the
+        # cache rather than spawning.
+        #
+        # The gate itself is still gated on the FLAG, not on `bar.display`,
+        # which is only set further down, after this ran (t1598): the summary
+        # shells out to a fresh Python interpreter with a 30s TTL cache that
+        # always misses on the first tick, and `_session_bar_enabled` defaults
+        # to False, so on a default install every tick paid for a string nobody
+        # rendered. What the gate now saves is that WORK — it is no longer what
+        # keeps the stall off the render path (t1622 moved the fetch off it for
+        # the enabled case too). Gated rather than early-returned: the bar's
+        # text must keep tracking state so a runtime toggle shows current data.
+        if desync is None:
+            desync = ""
+            if self._session_bar_enabled:
+                try:
+                    desync = _get_desync_summary_cached(Path.cwd(), compact=True)
+                except Exception:
+                    desync = ""
         # Surface the control-channel state only when not steady-state.
         # Compact form fits the narrow minimonitor bar.
         state_badge = ""
@@ -2235,8 +2304,16 @@ class MiniMonitorApp(
         if own_snap is not None:
             return own_snap.pane.pane_id
         own_pane = os.environ.get("TMUX_PANE", "")
-        if not own_pane or not self._own_window_id or self._monitor is None:
+        if not own_pane or self._monitor is None:
             self.notify("Not inside tmux", severity="warning")
+            return None
+        if not self._own_window_id:
+            # Split out from the refusal above (t1622). The window id is seeded
+            # by a worker off the mount path, so "not detected yet" is a real,
+            # transient state — and reporting it as "not inside tmux" sends the
+            # user looking for a problem they do not have. Same wording
+            # `action_switch_to_monitor` has always used for this exact state.
+            self.notify("Own window not detected yet", severity="warning")
             return None
         rc, stdout = self._monitor.tmux_run([
             "list-panes", "-t", self._own_window_id, "-F", "#{pane_id}",

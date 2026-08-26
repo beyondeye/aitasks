@@ -41,6 +41,7 @@ sys.path.insert(
 )
 
 import minimonitor_app as mm  # noqa: E402
+from monitor.tmux_control import TmuxControlState  # noqa: E402
 import monitor_core as mc  # noqa: E402
 import monitor_shared as ms  # noqa: E402
 from textual.widgets import Static  # noqa: E402
@@ -867,6 +868,133 @@ class BannerRowBudgetTests(_ChromeFixture):
         )
         self.assertIn("recheck #12 sent", out["flat"])
         self.assertIn("waiting for shadow", out["flat"])
+
+
+class _QuietMonitor:
+    """A tick surface that answers everything immediately and records nothing."""
+
+    multi_session = False
+
+    async def capture_all_async(self): return {}
+    async def get_session_to_project_mapping_async(self): return {}
+    async def tmux_run_async(self, args, timeout=5.0): return (1, "")
+    async def discover_window_panes_async(self, window_id): return (False, [])
+    def get_compare_mode(self, pane_id): return "stripped"
+    def is_compare_mode_overridden(self, pane_id): return False
+    def get_shadow_snapshot(self, pane_id): return None
+    def get_shadow_snapshots(self): return {}
+    def control_state(self): return TmuxControlState.CONNECTED
+
+
+class SessionBarDesyncPrefetchTests(unittest.TestCase):
+    """The enabled session bar must not spawn from the render path (t1622).
+
+    `tmux.minimonitor.session_bar: true` is a supported setting. Before t1622 it
+    was the *gate* that kept the desync probe — a fresh Python interpreter with
+    a 2 s cap — off the refresh tick, which meant enabling the bar bought the
+    stall back. The gate now saves only the WORK; the fetch itself moved off the
+    render path. Both directions are pinned, because a fix that simply always
+    fetches would pass the enabled case and regress the default install.
+
+    Positive controls (run by hand; each must FAIL this class):
+
+    | mutation | must fail |
+    |---|---|
+    | `_rebuild_session_bar` fetches its own summary again | `test_the_enabled_bar_renders_the_prefetched_summary` |
+    | drop the `_session_bar_enabled` gate around the pre-fetch | `test_the_disabled_bar_never_awaits_the_probe` |
+    """
+
+    SENTINEL = " · [yellow]↓7[/]"
+
+    def setUp(self):
+        # Scrub the ambient tmux env, exactly as the sibling class does. Without
+        # it `on_mount` takes the in-tmux path, builds a REAL `TmuxMonitor` and
+        # dispatches its first refresh — which both spawns tmux from a unit test
+        # and leaves `_refresh_inflight` set, so the `_refresh_data()` below
+        # returns early and the assertions read an untouched bar.
+        self._saved_env = {
+            k: os.environ.pop(k, None) for k in ("TMUX", "TMUX_PANE")
+        }
+        self.addCleanup(self._restore_env)
+
+    def _restore_env(self):
+        for key, value in self._saved_env.items():
+            if value is not None:
+                os.environ[key] = value
+
+    def _app(self):
+        return mm.MiniMonitorApp(
+            session="probe-session", project_root=REPO_ROOT, refresh_seconds=999,
+        )
+
+    def _stub_reader(self):
+        """Replace the async reader; make the cached one a loud failure.
+
+        The cached reader is the builder's fallback for a call that brought no
+        summary — reaching it during a refresh means the pre-fetch was dropped.
+        """
+        awaited: list[bool] = []
+
+        async def fake_async(project_root, *, compact=False):
+            awaited.append(compact)
+            return self.SENTINEL
+
+        def unreachable(*a, **k):
+            raise AssertionError(
+                "the bar builder fell back to the cache during a refresh — "
+                "the pre-fetched summary was not passed in"
+            )
+
+        real_a, real_c = mm._get_desync_summary_async, mm._get_desync_summary_cached
+        mm._get_desync_summary_async = fake_async
+        mm._get_desync_summary_cached = unreachable
+        self.addCleanup(lambda: (
+            setattr(mm, "_get_desync_summary_async", real_a),
+            setattr(mm, "_get_desync_summary_cached", real_c),
+        ))
+        return awaited
+
+    def test_the_enabled_bar_renders_the_prefetched_summary(self):
+        awaited = self._stub_reader()
+
+        async def runner():
+            app = self._app()
+            async with app.run_test(size=(40, 24)):
+                app._monitor = _QuietMonitor()
+                app._session_bar_enabled = True
+                await app._refresh_data()
+                return str(app.query_one("#mini-session-bar", Static).content)
+
+        text = asyncio.run(runner())
+        self.assertIn(
+            "↓7", text,
+            "the pre-fetched summary never reached the enabled bar",
+        )
+        self.assertEqual(
+            awaited, [True],
+            "the refresh did not await the async reader exactly once for the "
+            "compact variant",
+        )
+
+    def test_the_disabled_bar_never_awaits_the_probe(self):
+        """The other direction: the default install still pays nothing."""
+        awaited = self._stub_reader()
+
+        async def runner():
+            app = self._app()
+            async with app.run_test(size=(40, 24)):
+                app._monitor = _QuietMonitor()
+                app._session_bar_enabled = False
+                await app._refresh_data()
+                return str(app.query_one("#mini-session-bar", Static).content)
+
+        text = asyncio.run(runner())
+        self.assertEqual(
+            awaited, [],
+            "the probe was awaited for a bar nobody renders — the "
+            "`_session_bar_enabled` gate was dropped",
+        )
+        self.assertNotIn("↓7", text)
 
 
 if __name__ == "__main__":

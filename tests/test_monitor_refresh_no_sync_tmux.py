@@ -2,6 +2,21 @@
 
 t1111_3 moves refresh-loop tmux round-trips onto async gateway calls so a slow
 tmux response does not block Textual's event-loop thread.
+
+t1622 extends the same rule to the one non-tmux subprocess left on that path:
+the session bar's desync summary, which spawns a fresh Python interpreter. It is
+now pre-fetched by `_refresh_data` through `get_desync_summary_async` and handed
+to `_rebuild_session_bar`; the keypress-driven rebuild reads the cache instead.
+Both tests below patch `desync_summary._fetch` / `_fetch_async` to RAISE, so a
+call site that regresses to the blocking reader fails loudly rather than merely
+running slower.
+
+Positive controls (run by hand; each must FAIL this suite):
+
+| mutation | must fail |
+|---|---|
+| `_refresh_data` back to `self._rebuild_session_bar(attached_session)` | `test_the_session_bar_desync_string_is_prefetched_asynchronously` |
+| `_rebuild_session_bar`'s `desync is None` branch back to `get_desync_summary` | `test_the_keypress_rebuild_reads_the_cache_and_never_spawns` |
 """
 
 from __future__ import annotations
@@ -9,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -26,6 +42,8 @@ os.environ.pop("TMUX_PANE", None)
 
 import monitor.monitor_core as monitor_core  # noqa: E402
 from agent_launch_utils import AitasksSession  # noqa: E402
+import monitor.monitor_app as monitor_app  # noqa: E402
+from monitor import desync_summary  # noqa: E402
 from monitor.monitor_app import MonitorApp  # noqa: E402
 from monitor.monitor_core import TmuxMonitor  # noqa: E402
 from monitor.tmux_control import TmuxControlState  # noqa: E402
@@ -236,6 +254,112 @@ class MonitorRefreshNoSyncTmuxTests(unittest.TestCase):
             )
 
         self._run(runner())
+
+
+class SessionBarDesyncTests(unittest.TestCase):
+    """The desync summary must never be computed from a render path."""
+
+    #: Distinctive enough that finding it in the bar cannot be a coincidence,
+    #: and shaped like the real markup so nothing downstream mis-parses it.
+    SENTINEL = " · [yellow]desync: sentinel-ref 7↓[/]"
+
+    def setUp(self) -> None:
+        # `_cache` is module state shared with every other suite in this process.
+        self._saved_cache = dict(desync_summary._cache)
+        self.addCleanup(self._restore_cache)
+
+        def spawned(*a, **k):
+            raise AssertionError(
+                "the blocking desync reader was called from a Textual path"
+            )
+
+        self._real_fetch = desync_summary._fetch
+        self._real_fetch_async = desync_summary._fetch_async
+        desync_summary._fetch = spawned
+        desync_summary._fetch_async = spawned
+        self.addCleanup(self._restore_fetchers)
+
+    def _restore_cache(self) -> None:
+        desync_summary._cache.clear()
+        desync_summary._cache.update(self._saved_cache)
+
+    def _restore_fetchers(self) -> None:
+        desync_summary._fetch = self._real_fetch
+        desync_summary._fetch_async = self._real_fetch_async
+
+    def test_the_session_bar_desync_string_is_prefetched_asynchronously(self):
+        """`_refresh_data` fetches; `_rebuild_session_bar` only renders."""
+        async def runner():
+            awaited: list[bool] = []
+
+            async def fake_async(project_root, *, compact=False):
+                awaited.append(compact)
+                return self.SENTINEL
+
+            real, monitor_app._get_desync_summary_async = (
+                monitor_app._get_desync_summary_async, fake_async
+            )
+            try:
+                app = MonitorApp(session="demo", project_root=REPO_ROOT)
+                async with app.run_test(size=(100, 30)):
+                    app._monitor = _FakeRefreshMonitor()
+                    await app._refresh_data()
+
+                    bar = app.query_one("#session-bar")
+                    self.assertIn(
+                        "sentinel-ref 7↓", str(bar.content),
+                        "the pre-fetched summary never reached the bar — the "
+                        "builder is still computing its own",
+                    )
+                self.assertEqual(
+                    awaited, [False],
+                    "the refresh path did not await the async reader exactly "
+                    "once for the full (non-compact) variant",
+                )
+            finally:
+                monitor_app._get_desync_summary_async = real
+
+        self._run(runner())
+
+    def test_the_keypress_rebuild_reads_the_cache_and_never_spawns(self):
+        """A synchronous handler has no business starting a subprocess.
+
+        `action_toggle_auto_switch` rebuilds the bar from a keypress with no
+        summary of its own, so it must serve whatever the last refresh stored.
+
+        **The seeded entry is deliberately TTL-EXPIRED**, and that is what makes
+        this test discriminating. A fresh entry is served by the blocking
+        `get_desync_summary` too, so the regression would pass; an expired one
+        splits them — the cached-only reader ignores the TTL by design and still
+        returns it, while the blocking reader falls through to `_fetch`, which
+        this suite has replaced with a raise.
+        """
+        async def runner():
+            desync_summary._cache[str(Path.cwd())] = (
+                time.monotonic() - desync_summary._TTL_SECONDS - 1,
+                self.SENTINEL,
+                "full",
+            )
+            app = MonitorApp(session="demo", project_root=REPO_ROOT)
+            async with app.run_test(size=(100, 30)) as pilot:
+                fake = _FakeRefreshMonitor()
+                app._monitor = fake
+                app._snapshots = fake.snapshots
+
+                app.action_toggle_auto_switch()
+                await pilot.pause()
+
+                bar = app.query_one("#session-bar")
+                self.assertIn(
+                    "sentinel-ref 7↓", str(bar.content),
+                    "the keypress rebuild dropped the cached summary — the bar "
+                    "blanks a still-true desync warning on every keypress",
+                )
+
+        self._run(runner())
+
+    def _run(self, coro):
+        return asyncio.run(coro)
 
 
 if __name__ == "__main__":
