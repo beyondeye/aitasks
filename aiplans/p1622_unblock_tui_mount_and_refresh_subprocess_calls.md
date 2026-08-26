@@ -606,3 +606,59 @@ reader.
 - **Not fixed here, deliberately:** the user's stated disposition was
   *follow-up*, and the gateway is shared by every async caller — a blast radius
   this task's review did not cover.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three parts landed as planned. **A** — `on_mount`'s
+  `subprocess.run(["tmux", …], timeout=5)` became a `run_worker`-dispatched
+  `_seed_own_window_info()` using `TmuxClient(socket_args=[])` (ambient socket,
+  2 s cap, seeds-never-overwrites), dispatched before `_start_monitoring()`.
+  **B1** — `desync_summary.py` grew to three readers over one cache
+  (`get_desync_summary_async`, `get_desync_summary_cached`, the sync one), a
+  shared `_TIMEOUT_SECONDS`, and a `_terminate` reaper called from both the
+  timeout and the `CancelledError` exit. **B2/B3** — both TUIs pre-fetch the
+  summary off the render path and fall back to the cached reader; neither
+  imports the blocking one any more. Both confirmed inline post-phase
+  mitigations applied. 27 tests added across four files (one new).
+- **Deviations from plan:** None in scope or approach. Two test *fixtures* had
+  to be strengthened after they were found non-discriminating (below), and the
+  `test_no_raw_tmux.sh` allowlist reason comment was corrected because the
+  "self display-message" half named exactly the probe A2 removes.
+- **Issues encountered:**
+  - **Two of my own tests could not fail on first draft.** The socket-contract
+    test passed under a bare `TmuxClient()` because this box's environment made
+    `tmux_socket_args()` resolve to no flag anyway; it now pops
+    `AITASKS_TMUX_SOCKET` and asserts the precondition, so a vacuous environment
+    reports itself instead of passing. The keypress-cache test seeded a *fresh*
+    cache entry, which the blocking reader serves too; the entry is now
+    deliberately TTL-expired, the only state that separates the two readers.
+  - **`test_minimonitor_top_chrome_render.py` does not scrub `TMUX` at import**
+    (unlike the other two suites, which do). The new class's first run built a
+    real `TmuxMonitor` and a live `tmux -C attach`, and left `_refresh_inflight`
+    set so the assertions read an untouched bar. Fixed with a per-class `setUp`
+    scrub; the same trap moved the env setup inside `run_test` in two
+    `MountWindowProbeTests` cases.
+  - **A false-positive leak report of my own making.** After fixing the temp-dir
+    cleanup (Change Request 1) a `head -40` scan of `/tmp` found two matching
+    directories and I nearly reported an xdist-specific leak. File mtimes
+    settled it: the fix landed at 17:19:16, the newest stranded directory at
+    17:19:04. All 35 predated the fix and were removed.
+- **Key decisions:**
+  - **Dispatch, not shorten.** The task offered "lower the timeout to 2 s" or
+    "drop the probe". Lowering leaves a 2 s mount blocker; dropping leaves the
+    three `_own_window_*` consumers unanswered until the *end* of the first
+    refresh (which does a full multi-pane capture first). A worker removes the
+    block entirely and answers sooner than a tick would.
+  - **`socket_args=[]` over a bare `TmuxClient()`.** The probe must follow
+    ambient `$TMUX`; the default client pins `-L ait` and would query the wrong
+    server, leaving all three fields `None` with no error anywhere.
+  - **Seeds, never overwrites.** The `is None` guards make the seed and the
+    per-tick `_update_own_window_info` order-independent rather than relying on
+    them not racing.
+  - **The cached reader ignores the TTL deliberately.** Expiring there would
+    blank a still-true desync warning on keypress and repaint it one tick later.
+  - **B3 was pulled into scope** (the task named only two sites) because leaving
+    minimonitor's gated call synchronous would make the stated outcome untrue
+    for `tmux.minimonitor.session_bar: true`, a supported setting.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/tmux_exec.py:218 — TmuxClient.run_async catches only asyncio.TimeoutError, so a cancelled gateway call orphans its tmux child; already tracked as t1628 (created during Step 8 review), do not re-create.`
