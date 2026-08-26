@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1598
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-26 08:01
-updated_at: 2026-08-26 08:48
+updated_at: 2026-08-26 16:56
 ---
 
 ## Origin
@@ -73,3 +74,8 @@ For `:1518`, add `get_desync_summary_async` to `monitor/desync_summary.py` using
 `asyncio.create_subprocess_exec` plus a cached-only reader, pre-fetch it in
 `_refresh_data`, and pass it into `_rebuild_session_bar` — note that method has a
 second, keypress-driven call site that should use the cached path.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T13:56:59Z status=pass attempt=1 type=human
