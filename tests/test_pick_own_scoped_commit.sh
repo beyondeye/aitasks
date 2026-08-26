@@ -159,6 +159,102 @@ LEGACY
     chmod +x "$script"
 }
 
+# Rebuild the fixture's COPY with the PRE-FIX store_email — three UNCHAINED
+# statements and the single warning (t1614). Same technique and rationale as
+# install_prefix_commit_and_push above: the control stays executable on every
+# run instead of expiring once the fix landed.
+install_prefix_store_email() {
+    local script="$1/local/.aitask-scripts/aitask_pick_own.sh"
+    local tmp="$script.new"
+    grep -v '^main "\$@"$' "$script" > "$tmp"
+    cat >> "$tmp" <<'LEGACY'
+store_email() {
+    local email="$1"
+    if [[ -z "$email" ]]; then
+        return 0
+    fi
+    local dir
+    dir=$(dirname "$EMAILS_FILE")
+    mkdir -p "$dir"
+    touch "$EMAILS_FILE"
+    grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null && return 0
+    local lockdir
+    lockdir="$(ait_lock_dir emails)" || return 0
+    if ! registry_lock_acquire "$lockdir" "$EMAILS_LOCK_TIMEOUT" store_email; then
+        warn "contributor list busy — email not recorded$(registry_lock_describe "$lockdir")"
+        return 0
+    fi
+    local rc=0
+    {
+        if ! grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+            printf '%s\n' "$email" >> "$EMAILS_FILE"
+            sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+            EMAIL_STORED=true
+        fi
+    } || rc=$?
+    registry_lock_release "$lockdir"
+    [[ $rc -eq 0 ]] || warn "store_email: failed to record ${email} (rc=$rc)"
+    return 0
+}
+LEGACY
+    printf 'main "$@"\n' >> "$tmp"
+    mv "$tmp" "$script"
+    chmod +x "$script"
+}
+
+# Make the emails APPEND — and nothing else — fail, by shadowing the printf
+# BUILTIN with a function for the duration of the fixture's script copy (t1614).
+# A PATH shim cannot reach a builtin, and permissions cannot discriminate: a mode
+# that blocks the append blocks `sort -o` on the same file too, so both would
+# fail and the branch under test would never be isolated.
+#
+# `${FUNCNAME[1]}` is what makes it exact — only the call inside store_email
+# fails; every other printf in the script (including the one inside warn) is
+# untouched.
+install_failing_append() {
+    local script="$1/local/.aitask-scripts/aitask_pick_own.sh"
+    local tmp="$script.new"
+    grep -v '^main "\$@"$' "$script" > "$tmp"
+    cat >> "$tmp" <<'INJECT'
+printf() {
+    if [[ "${FUNCNAME[1]:-}" == "store_email" ]]; then
+        return 1
+    fi
+    builtin printf "$@"
+}
+INJECT
+    printf 'main "$@"\n' >> "$tmp"
+    mv "$tmp" "$script"
+    chmod +x "$script"
+}
+
+# Make the emails SORT — and nothing else — fail, so the append succeeds and the
+# normalization does not (t1614). The complement of install_failing_append: it is
+# the only way to reach the partial-success branch, which the append-failure
+# tests cannot see. Lifted from tests/test_create_email_lock.sh Test 5.
+#
+# Echoes the shim dir; prepend it to PATH for the run under test.
+install_failing_sort() {
+    local shim="$1/shim"
+    local real_sort
+    real_sort="$(command -v sort)"     # resolved BEFORE the prepend, so no recursion
+    mkdir -p "$shim"
+    cat > "$shim/sort" <<EOF
+#!/usr/bin/env bash
+want_o=""; want_emails=""
+for a in "\$@"; do
+    case "\$a" in
+        -o)          want_o=1 ;;
+        *emails.txt) want_emails=1 ;;
+    esac
+done
+if [[ -n "\$want_o" && -n "\$want_emails" ]]; then exit 1; fi
+exec "$real_sort" "\$@"
+EOF
+    chmod +x "$shim/sort"
+    echo "$shim"
+}
+
 # Commits whose subject is a claim AND that touch <path>. Empty = the invariant
 # holds. This is the property under test, and it holds under every interleaving.
 claim_commits_touching() {
@@ -400,8 +496,167 @@ assert_eq "Test 9: pre-fix makes no separate contributor-email commit" "" "$emai
 
 rm -rf "$T9"
 
-# --- Test 10: syntax ---------------------------------------------------------
-echo "--- Test 10: syntax check ---"
+# --- Tests 10-13: store_email must not mask a failed write (t1614) -----------
+#
+# errexit is suppressed inside the `{ … } || rc=$?` group, so as three separate
+# statements a failed `printf >>` followed by a SUCCEEDING `sort -u -o` leaves
+# the group's status at 0: store_email reported success for an address it never
+# wrote, AND set EMAIL_STORED, which is what tells commit_and_push the
+# contributor list is this claim's to commit. The `&&` chain is what these pin.
+#
+# The chain's ORDER is pinned too, and separately. EMAIL_STORED sits between the
+# append and the sort, because the append is the write the flag answers for:
+# behind the sort as well, a normalization failure would leave the address
+# appended, uncommitted and dirty forever — the next call's membership fast-path
+# finds it already present and returns before the flag can be set again.
+# Test 12 is the only test that can see that; 10 and 11 fail the append, not the
+# sort.
+
+# --- Test 10: a failed APPEND is reported, on a clean list -------------------
+echo "--- Test 10: a failed append surfaces (not swallowed by the sort) ---"
+
+T10="$(setup_paired_repos)"
+install_failing_append "$T10"
+
+before10=$(cat "$T10/local/$EMAILS_PATH")
+out10=$(cd "$T10/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+
+# The discriminating assertion: unchained, the sort succeeds, the group returns
+# 0, and this warning is never emitted.
+assert_contains "Test 10: the failed append is reported" \
+    "store_email: failed to record" "$out10"
+assert_eq "Test 10: emails.txt is unchanged — nothing was appended" \
+    "$before10" "$(cat "$T10/local/$EMAILS_PATH")"
+assert_not_contains "Test 10: the address is NOT recorded" \
+    "alice@test.com" "$(cat "$T10/local/$EMAILS_PATH")"
+email10=$(git -C "$T10/local" log --format=%H --grep='^ait: Record contributor email')
+assert_eq "Test 10: no contributor-email commit was made" "" "$email10"
+# Best-effort contract: a failed contributor-list write must not fail the claim.
+assert_contains "Test 10: the claim still succeeds" "OWNED:1" "$out10"
+assert_contains "Test 10: the claim commit still landed" \
+    "aitasks/t1_test_task.md" "$(head_files "$T10")"
+
+rm -rf "$T10"
+
+# --- Test 11: a failed APPEND leaves EMAIL_STORED false, on a DIRTY list -----
+# Test 10 cannot pin the flag: on a clean list _commit_scoped's empty-status
+# guard suppresses the commit anyway, so "no email commit" holds there even with
+# the flag wrongly true. A concurrent session's uncommitted append (the Test 7
+# shape) is the state where the lie becomes observable.
+echo "--- Test 11: a failed append does not mark the dirty list as ours ---"
+
+T11="$(setup_paired_repos)"
+install_failing_append "$T11"
+(cd "$T11/local" && printf 'bob@test.com\n' >> "$EMAILS_PATH")
+
+before11=$(cat "$T11/local/$EMAILS_PATH")
+out11=$(cd "$T11/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+
+assert_contains "Test 11: the claim still succeeds" "OWNED:1" "$out11"
+# Byte-identical INCLUDING order: still append-order (seed, bob), not re-sorted.
+# That is what proves `sort -u` was skipped rather than merely idempotent.
+assert_eq "Test 11: emails.txt is byte-unchanged, order included" \
+    "$before11" "$(cat "$T11/local/$EMAILS_PATH")"
+email11=$(git -C "$T11/local" log --format=%H --grep='^ait: Record contributor email')
+assert_eq "Test 11: EMAIL_STORED stayed false — no contributor-email commit" \
+    "" "$email11"
+
+rm -rf "$T11"
+
+# --- Test 12: a failed SORT still records and commits the address ------------
+# The partial-success path: the append landed, so the address IS recorded and
+# the claim owes that file a commit. With EMAIL_STORED behind the sort instead,
+# the flag stays false, nothing is committed, and the address is stranded dirty
+# forever — the second claim below is what proves it is not.
+echo "--- Test 12: a failed sort still persists the appended address ---"
+
+T12="$(setup_paired_repos)"
+SHIM12="$(install_failing_sort "$T12")"
+
+out12=$(cd "$T12/local" && PATH="$SHIM12:$PATH" \
+    ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+
+assert_contains "Test 12: the claim still succeeds" "OWNED:1" "$out12"
+# The injection took effect, and says what it observed — the normalization
+# failed — without claiming the file is now unsorted (a failed `sort -u` does
+# not establish that; an appended address may already be in lexical order).
+assert_contains "Test 12: the failed normalization is reported" \
+    "normalizing the contributor list failed" "$out12"
+assert_not_contains "Test 12: ...and NOT as a failure to record — it was recorded" \
+    "failed to record" "$out12"
+assert_contains "Test 12: the address IS on disk" \
+    "alice@test.com" "$(cat "$T12/local/$EMAILS_PATH")"
+
+email12=$(git -C "$T12/local" log --format=%H --grep='^ait: Record contributor email' | head -1)
+assert_non_empty "Test 12: a contributor-email commit was made" "$email12"
+assert_contains "Test 12: that commit carries the address" \
+    "alice@test.com" "$(git -C "$T12/local" show "$email12:$EMAILS_PATH")"
+assert_eq "Test 12: emails.txt is clean afterwards — nothing stranded" \
+    "" "$(git -C "$T12/local" status --porcelain "$EMAILS_PATH")"
+
+# The stranding scenario itself: a LATER claim by the same address cannot rescue
+# it, because store_email's membership fast-path returns before the flag is set.
+# So the first claim had to persist it, and the tree must stay clean.
+rm -f "$SHIM12/sort"
+out12b=$(cd "$T12/local" && ./.aitask-scripts/aitask_pick_own.sh 2 --email "alice@test.com" 2>&1)
+assert_contains "Test 12b: the second claim succeeds" "OWNED:2" "$out12b"
+assert_eq "Test 12b: emails.txt is still clean — never stranded dirty" \
+    "" "$(git -C "$T12/local" status --porcelain "$EMAILS_PATH")"
+assert_contains "Test 12b: the address is committed at HEAD" \
+    "alice@test.com" "$(git -C "$T12/local" show "HEAD:$EMAILS_PATH")"
+
+rm -rf "$T12"
+
+# --- Test 13: NEGATIVE CONTROL — the pre-fix store_email masks all of it -----
+# Asserts the defect POSITIVELY in all three states, so a control whose
+# injection silently failed cannot pass.
+echo "--- Test 13: NEGATIVE CONTROL — pre-fix store_email masks the failure ---"
+
+# 13a: failed append, clean list — the warning is simply never emitted.
+T13A="$(setup_paired_repos)"
+install_prefix_store_email "$T13A"
+install_failing_append "$T13A"
+out13a=$(cd "$T13A/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+assert_contains "Test 13a: control ran to completion (not an early abort)" \
+    "OWNED:1" "$out13a"
+assert_not_contains "Test 13a: pre-fix does NOT report the failed append" \
+    "store_email: failed to record" "$out13a"
+rm -rf "$T13A"
+
+# 13b: failed append, dirty list — the false EMAIL_STORED becomes visible as a
+# contributor-email commit attributed to a write that never happened.
+T13B="$(setup_paired_repos)"
+install_prefix_store_email "$T13B"
+install_failing_append "$T13B"
+(cd "$T13B/local" && printf 'bob@test.com\n' >> "$EMAILS_PATH")
+out13b=$(cd "$T13B/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+assert_contains "Test 13b: control ran to completion" "OWNED:1" "$out13b"
+# The sort runs even though the append failed, so the file IS rewritten.
+assert_eq "Test 13b: pre-fix DOES rewrite the file (re-sorted)" \
+    "bob@test.com
+seed@test.com" "$(cat "$T13B/local/$EMAILS_PATH")"
+email13b=$(git -C "$T13B/local" log --format=%H --grep='^ait: Record contributor email' | head -1)
+assert_non_empty "Test 13b: pre-fix DOES make a contributor-email commit" "$email13b"
+assert_not_contains "Test 13b: ...for a write that failed — the address is absent" \
+    "alice@test.com" "$(git -C "$T13B/local" show "$email13b:$EMAILS_PATH")"
+rm -rf "$T13B"
+
+# 13c: failed sort — pre-fix was silent here too (rc stayed 0), so NEITHER
+# wording appears. This is what makes Test 12's warning assertion discriminating.
+T13C="$(setup_paired_repos)"
+install_prefix_store_email "$T13C"
+SHIM13C="$(install_failing_sort "$T13C")"
+out13c=$(cd "$T13C/local" && PATH="$SHIM13C:$PATH" \
+    ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
+assert_contains "Test 13c: control ran to completion" "OWNED:1" "$out13c"
+assert_not_contains "Test 13c: pre-fix reports no failure to record" \
+    "store_email: failed to record" "$out13c"
+assert_not_contains "Test 13c: pre-fix reports no failed normalization either" \
+    "normalizing the contributor list failed" "$out13c"
+rm -rf "$T13C"
+
+# --- Test 14: syntax ---------------------------------------------------------
+echo "--- Test 14: syntax check ---"
 TOTAL=$((TOTAL + 1))
 if bash -n "$PROJECT_DIR/.aitask-scripts/aitask_pick_own.sh" 2>/dev/null; then
     PASS=$((PASS + 1))

@@ -237,9 +237,10 @@ _lock_cleanup_warn() {
 }
 
 # --- Store email (idempotent, deduplicated, serialized) ---
-# Sets EMAIL_STORED=true only when this call actually adds a new address.
-# Membership is the real predicate: re-adding a known address changes no content,
-# so it must not make the contributor list look like this claim's to commit.
+# Sets EMAIL_STORED=true only when this call's APPEND actually adds a new
+# address. Membership is the real predicate: re-adding a known address changes no
+# content, so it must not make the contributor list look like this claim's to
+# commit. The append is what the flag answers for — see the chain below.
 store_email() {
     local email="$1"
     if [[ -z "$email" ]]; then
@@ -272,13 +273,37 @@ store_email() {
     {
         # Re-check under the lock: a holder we waited on may have added it.
         if ! grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null; then
-            printf '%s\n' "$email" >> "$EMAILS_FILE"
-            sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
-            EMAIL_STORED=true
+            # CHAINED ON PURPOSE (t1614, mirroring t1608's add_email_to_file).
+            # errexit is suppressed inside a group tested by `|| rc=$?`, so as
+            # three statements a failed append followed by a SUCCEEDING sort
+            # leaves the group's status at 0 — reporting success for an address
+            # that was never written.
+            #
+            # ORDER MATTERS. EMAIL_STORED sits BETWEEN the append and the sort,
+            # not after both: it is what tells commit_and_push the contributor
+            # list is this claim's to commit, and the APPEND is the write it
+            # answers for. Behind the sort as well, a normalization failure
+            # would leave this address appended, uncommitted and dirty forever
+            # — the next call's membership fast-path above finds it already
+            # present and returns before the flag is ever set again.
+            printf '%s\n' "$email" >> "$EMAILS_FILE" &&
+                EMAIL_STORED=true &&
+                sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
         fi
     } || rc=$?
     registry_lock_release "$lockdir"
-    [[ $rc -eq 0 ]] || warn "store_email: failed to record ${email} (rc=$rc)"
+    if [[ $rc -ne 0 ]]; then
+        if [[ "$EMAIL_STORED" == true ]]; then
+            # The append landed and will be committed; only the normalization
+            # was lost. Report the OBSERVED failure and the one thing that is
+            # certain — do NOT claim the file is now unsorted: a failed
+            # `sort -u` does not establish that, since an appended address may
+            # already be in lexical order.
+            warn "store_email: recorded ${email}, but normalizing the contributor list failed (rc=$rc)"
+        else
+            warn "store_email: failed to record ${email} (rc=$rc)"
+        fi
+    fi
     return 0
 }
 
