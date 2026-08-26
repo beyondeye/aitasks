@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 22:17
-updated_at: 2026-08-26 08:31
+updated_at: 2026-08-26 10:54
 ---
 
 ## Origin
@@ -75,3 +76,8 @@ and the agent has to disprove that before trusting any verdict.
   green, so this cannot regress silently.
 
 Note these are independent; either can land alone.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T07:55:02Z status=pass attempt=1 type=human
