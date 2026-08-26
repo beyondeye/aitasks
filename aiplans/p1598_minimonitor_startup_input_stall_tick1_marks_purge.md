@@ -900,3 +900,70 @@ Negative control (read-back removed): 4 assertions fail, naming the double-hold.
 **What this still does not buy** (unchanged): PID reuse and a hung holder leave a
 guard unreclaimable, both fail-safe. A third party observing the brief two-record
 state classifies it unrecognized and fails closed — availability, not corruption.
+
+## Final Implementation Notes — consolidated
+
+- **Actual work done:** All seven planned workstreams plus both risk pre-phases
+  and the post-phase, across three commits — `1ad9560b8` (startup stall),
+  `9197fdf6b` (Protocol G + doc sweep + drift guard), `41a469342` (the publish
+  window). 32 files, ~2000 insertions.
+
+- **Deviations from plan:**
+  - The plan said the manual cure lives in "nine rendered copies". Only **four**
+    `merge-broker.md` files are tracked (source + three `remote-` variants); the
+    `default-`/`fast-` dirs are untracked build artifacts. The design counted
+    files on disk, not tracked files.
+  - `aitask_skill_rerender.sh` re-renders **all** 39 skill pairs per profile, so
+    it swept a concurrent session's in-flight `.j2` edits into rendered
+    `SKILL.md` files. Only the four `merge-broker.md` paths were committed.
+  - A new `stale_lock` caller appeared mid-task (t1608's contributor-list lock),
+    which produced the **agreement rule** now documented in the plan and in
+    `registry_lock.sh`: the markerless window is a property of the *lock dir*, so
+    every call site reaching one must pass the same value.
+
+- **Issues encountered:**
+  1. **Guard record named a dead pid.** The name was built in a `$(...)`
+     command substitution, so `BASHPID` was the transient subshell's — dead on
+     return. Every guard was reclaimable on sight. Surfaced as
+     `test_registry_lock` case 10 red and `test_merge_lock_concurrency` hanging.
+     Fixed by building it inline; the file header already documented this exact
+     hazard for `STALE_LOCK_TOKEN`.
+  2. **Two guard holders through the publish window** (review round 3) — see
+     that section. Fixed with a sole-record read-back.
+  3. **A negative control that passed.** The malformed-guard cases asserted the
+     *outcome*, which a naive classifier preserves by accident. Re-pinned on the
+     *reason*.
+  4. **A regression test that hung instead of failing** — the latency test left
+     its gate closed on failure, so `run_test` teardown waited forever.
+  5. **A test that could not see its own mutation** — the first latency test
+     dispatched the worker itself, so the `call_later` control passed.
+  6. **Concurrent sessions.** Seven commits landed on `main` from other sessions
+     mid-task; one t1598 test edit was swept into t1527's commit (content intact,
+     attribution wrong). Two `git stash push -- .aitask-scripts/` calls
+     suspended another session's uncommitted work — unsafe, replaced with
+     pristine-worktree checks.
+
+- **Key decisions:** Protocol G over both shapes the task proposed (age-only
+  cannot protect `git reset --hard` under the guard; `mv`-based identity
+  resolves by path, not instance). Markerless reclaim scoped per lock dir and
+  off by default. `run_worker` over `set_timer`, verified against Textual source
+  **and** by positive control.
+
+- **Upstream defects identified:**
+  - `monitor/minimonitor_app.py:1008` — raw `subprocess.run(["tmux", …], timeout=5)`
+    on the mount path; a genuine up-to-5s startup blocker on a wedged tmux.
+    Deliberately out of scope: it is allowlisted in `test_no_raw_tmux.sh` and
+    correctly probes the *ambient* server before `self._monitor` exists, so
+    routing it through the gateway would query the wrong socket.
+  - `monitor/monitor_app.py:1518` — `_get_desync_summary` spawns a fresh Python
+    interpreter (2s cap) synchronously on the full monitor's refresh path. Not
+    wasted there (its bar is always shown), so it needs an async sibling rather
+    than the gate minimonitor got.
+  - `lib/stale_lock.sh:acquire` — no bounded guard wait, unlike
+    `stale_lock_release` and `stale_lock_guarded_section`. Deliberately not
+    fixed: it would take `aitask_create.sh`'s worst case from 10s to 50s and
+    silently rescale the adapters' seconds↔attempts conversion.
+  - `tests/test_agent_marks_concurrency.sh:~126` — hand-rolled dead-pid fixture
+    of the shape `tests/lib/proc_fixtures.sh:11-22` explicitly warns against;
+    the file does not source `proc_fixtures.sh`. Mitigated by `sleep 0`, so it
+    is a hygiene issue rather than the 60s hazard the comment describes.
