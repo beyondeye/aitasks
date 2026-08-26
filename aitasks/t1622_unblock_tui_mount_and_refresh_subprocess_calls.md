@@ -6,11 +6,15 @@ issue_type: bug
 status: Implementing
 labels: [aitask_monitormini, aitask_monitor, tui, tmux, performance]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1598
 followup_kind: upstream_defect
 created_at: 2026-08-26 08:01
-updated_at: 2026-08-26 08:47
+updated_at: 2026-08-26 08:48
 ---
 
 ## Origin
