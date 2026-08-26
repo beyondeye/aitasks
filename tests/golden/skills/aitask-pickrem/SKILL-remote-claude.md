@@ -350,8 +350,15 @@ side of the hybrid switch (D2): declared machine gates run here, and declared
 **human** gates (e.g. `review_approved` / `merge_approved`) resolve as **async**
 gates that stop cleanly at pending-human instead of being auto-approved.
 
+Use exactly this block — it is the capture form that survives `set -e`, for the
+reason `build-verification.md` records:
+
 ```bash
-gates_out="$(./ait gates run <task_id> 2>&1)"; gates_rc=$?
+if gates_out="$(./ait gates run <task_id> 2>&1)"; then
+  gates_rc=0
+else
+  gates_rc=$?
+fi
 ```
 
 - **`gates_rc` nonzero** → an *infrastructure* failure (`ait`/wrapper error, task

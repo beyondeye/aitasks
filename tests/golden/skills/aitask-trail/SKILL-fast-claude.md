@@ -456,8 +456,9 @@ this step) / "Discard" (stop; nothing was written).
        { grep -rl --include='t*.md' '^verifies:' aitasks || [ "$?" = 1 ]; } |
          { rc=0
            while IFS= read -r f; do
-             grep -q -- '<member bare id>' "$f"
-             case $? in
+             grep_rc=0
+             grep -q -- '<member bare id>' "$f" || grep_rc=$?
+             case "$grep_rc" in
                0) printf '%s\n' "$f" ;;                            # candidate
                1) ;;                                  # no match: expected, ok
                *) printf 'sweep: cannot read %s\n' "$f" >&2; rc=2 ;;
@@ -469,7 +470,7 @@ this step) / "Discard" (stop; nothing was written).
        trusting the candidate list, and never treat that run as "no
        candidates found".
 
-       Three exit-status properties, all load-bearing — do not "simplify"
+       Four exit-status properties, all load-bearing — do not "simplify"
        them back:
        - **No `xargs -r`.** BSD/macOS `xargs` has no `-r` and exits with an
          error, aborting the whole sweep and silently dropping every
@@ -485,6 +486,13 @@ this step) / "Discard" (stop; nothing was written).
          prevent. Reporting it on stderr is not enough, because the loop's
          own status would still be 0; `rc=2` plus the trailing `exit "$rc"`
          is what makes the omission visible to the caller.
+       - **The confirmation `grep`'s status is captured with `|| grep_rc=$?`,
+         never read as a bare `$?` on the next line.** No-match (exit 1) is the
+         *common* outcome here, so under `set -e` a bare `grep -q …` aborts the
+         loop before the `case` can reach its `1)` arm — the whole classifier
+         becomes unreachable and the sweep silently returns nothing. The `||`
+         suspends errexit; `build-verification.md` records the same rule for
+         command-substitution captures (t1621).
        Then open each hit and keep only those whose `verifies:` list really
        names the member. Confirming by reading is required, not optional:
        the field is spelled `[1039]`, `['1074_2']` and `[t1018_1, t1018_2]`
