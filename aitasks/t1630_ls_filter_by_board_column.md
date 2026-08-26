@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-26 17:57
-updated_at: 2026-08-26 17:59
+updated_at: 2026-08-26 18:28
 ---
 
 ## Problem
@@ -105,3 +106,8 @@ filter end to end:
   `--boardcol now -l <label>`, `--boardcol now --type bug`.
 - `--all-levels` / `--children` still behave (children carry their own
   `boardcol`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T15:29:04Z status=pass attempt=1 type=human
