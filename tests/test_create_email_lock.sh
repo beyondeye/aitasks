@@ -51,6 +51,181 @@ CLEANUP_DIRS=()
 
 EMAILS_PATH="aitasks/metadata/emails.txt"
 
+# --- t1626 helpers ----------------------------------------------------------
+
+# Rebuild the fixture's COPY with an add_email_to_file that appends but NEVER
+# COMMITS, and whose membership check is a plain `return 0`. This is the pre-fix
+# body for defect 2: aitask_create.sh named EMAILS_FILE in no `task_git add`, and
+# since t1599_1 scoped every claim commit to its own paths nothing swept it
+# either — so the address stayed dirty indefinitely.
+install_prefix_add_email_to_file_nocommit() {
+    local script=".aitask-scripts/aitask_create.sh"
+    local tmp="$script.new"
+    grep -v '^main "\$@"$' "$script" > "$tmp"
+    cat >> "$tmp" <<'LEGACY'
+add_email_to_file() {
+    local email="$1"
+    [[ -n "$email" ]] || return 0
+    ensure_emails_file
+    grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null && return 0
+    local lockdir token rc=0
+    lockdir="$(ait_lock_dir emails)" || return 0
+    if ! stale_lock_acquire "$lockdir" "$EMAILS_LOCK_ATTEMPTS" "$EMAILS_LOCK_SLEEP" \
+            "contributor list" "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
+        warn "contributor list busy — email not recorded$(stale_lock_describe "$lockdir")"
+        return 0
+    fi
+    token="$STALE_LOCK_TOKEN"
+    {
+        if ! grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+            printf '%s\n' "$email" >> "$EMAILS_FILE" &&
+                sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+        fi
+    } || rc=$?
+    stale_lock_release "$lockdir" "$token" \
+        || warn "add_email_to_file: contributor-list lock not fully released"
+    [[ $rc -eq 0 ]] || warn "add_email_to_file: failed to record ${email} (rc=$rc)"
+    return 0
+}
+LEGACY
+    printf 'main "$@"\n' >> "$tmp"
+    mv "$tmp" "$script"
+    chmod +x "$script"
+}
+
+# Rebuild the fixture's COPY with the PRE-LOCK HEAD consult present but the
+# UNDER-LOCK one absent. This is the control for the re-check test specifically:
+# without it that test could pass on the pre-lock fix alone and would prove
+# nothing about the `else` branch it exists to guard.
+install_prefix_add_email_to_file_norecheck() {
+    local script=".aitask-scripts/aitask_create.sh"
+    local tmp="$script.new"
+    grep -v '^main "\$@"$' "$script" > "$tmp"
+    cat >> "$tmp" <<'LEGACY'
+add_email_to_file() {
+    local email="$1"
+    [[ -n "$email" ]] || return 0
+    ensure_emails_file
+    local needs_email_commit=false
+    if grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+        ait_email_is_committed "$email" || needs_email_commit=true
+    else
+        local lockdir token rc=0
+        lockdir="$(ait_lock_dir emails)" || return 0
+        if ! stale_lock_acquire "$lockdir" "$EMAILS_LOCK_ATTEMPTS" "$EMAILS_LOCK_SLEEP" \
+                "contributor list" "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
+            warn "contributor list busy — email not recorded$(stale_lock_describe "$lockdir")"
+            return 0
+        fi
+        token="$STALE_LOCK_TOKEN"
+        {
+            if ! grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+                printf '%s\n' "$email" >> "$EMAILS_FILE" &&
+                    needs_email_commit=true &&
+                    sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+            fi
+        } || rc=$?
+        stale_lock_release "$lockdir" "$token" \
+            || warn "add_email_to_file: contributor-list lock not fully released"
+        [[ $rc -eq 0 ]] || warn "add_email_to_file: failed to record ${email} (rc=$rc)"
+    fi
+    if [[ "$needs_email_commit" == true ]]; then
+        local crc=0
+        task_git_commit_scoped "ait: Record contributor email" "$EMAILS_FILE" || crc=$?
+        [[ $crc -eq 1 ]] && warn "could not commit ${EMAILS_FILE}"
+    fi
+    return 0
+}
+LEGACY
+    printf 'main "$@"\n' >> "$tmp"
+    mv "$tmp" "$script"
+    chmod +x "$script"
+}
+
+# Force stale_lock_release to report failure WITHOUT actually abandoning the
+# lock, so the release-failure policy can be driven on its own. The real release
+# still runs first: a shim that skipped it would strand the lock dir and make
+# every later assertion in the run meaningless.
+install_failing_release() {
+    local script=".aitask-scripts/aitask_create.sh"
+    local tmp="$script.new"
+    grep -v '^main "\$@"$' "$script" > "$tmp"
+    cat >> "$tmp" <<'INJECT'
+eval "_orig_stale_lock_release() $(declare -f stale_lock_release | tail -n +2)"
+stale_lock_release() {
+    _orig_stale_lock_release "$@" || true
+    return 1
+}
+INJECT
+    printf 'main "$@"\n' >> "$tmp"
+    mv "$tmp" "$script"
+    chmod +x "$script"
+}
+
+# Patch the FIXTURE'S COPY of lib/stale_lock.sh so stale_lock_acquire pauses at
+# a controllable barrier before it contends for the mutex — the seam between
+# add_email_to_file's PRE-LOCK membership check and its mutex acquisition.
+#
+# Blocking there is the only way to pin the interleaving deterministically: the
+# creating process's pre-lock check must observe the address ABSENT, and the
+# other writer's append must land before its UNDER-LOCK re-check. Waiting on
+# wall-clock instead would let a scenario that never reproduced report success
+# by running slow.
+#
+# Opt-in per run (AIT_TEST_ACQ_SIGNAL / AIT_TEST_ACQ_GO), so the patched copy
+# behaves exactly like the real library everywhere else — and holder.sh, which
+# sources the PROJECT's library, is unaffected.
+install_acquire_barrier() {
+    local lib=".aitask-scripts/lib/stale_lock.sh"
+    local tmp="$lib.new"
+    awk '
+        /^stale_lock_acquire\(\) \{$/ {
+            print
+            print "    if [[ -n \"${AIT_TEST_ACQ_SIGNAL:-}\" ]]; then"
+            print "        : > \"$AIT_TEST_ACQ_SIGNAL\""
+            print "        while [[ ! -f \"${AIT_TEST_ACQ_GO:-}\" ]]; do sleep 0.05; done"
+            print "    fi"
+            next
+        }
+        { print }
+    ' "$lib" > "$tmp"
+    mv "$tmp" "$lib"
+}
+
+# --- t1626 shared assertions -------------------------------------------------
+
+# assert_contributor_commit_shape <label> <address>
+# The FOUR properties every create-side contributor test asserts. Cleanliness
+# alone is not enough: it would also hold if a TASK commit had swept emails.txt,
+# which is exactly the path-scoping violation t1599_1 removed and this must not
+# reintroduce. Run from inside the project dir.
+assert_contributor_commit_shape() {
+    local label="$1" addr="$2"
+    assert_eq "$label: emails.txt is clean" \
+        "" "$(git status --porcelain "$EMAILS_PATH")"
+    assert_contains "$label: the address is committed at HEAD" \
+        "$addr" "$(git show "HEAD:$EMAILS_PATH")"
+    local c files
+    c=$(git log --format=%H --grep='^ait: Record contributor email' | head -1)
+    assert_non_empty_c "$label: a contributor-email commit exists" "$c"
+    files=$(git show --name-only --pretty=format: "$c" | grep -v '^$')
+    assert_eq "$label: that commit touches ONLY emails.txt" "$EMAILS_PATH" "$files"
+    assert_contains "$label: HEAD is still the task commit" \
+        "ait: Add task t" "$(git log -1 --pretty=%s)"
+}
+
+# The shared helpers have no non-empty form, and assert_not_contains "" can
+# never pass (every string contains "").
+assert_non_empty_c() {
+    local desc="$1" value="$2"
+    if [[ -n "$value" ]]; then
+        assert_record_pass
+    else
+        assert_record_fail
+        echo "FAIL: $desc (expected a non-empty value, got '')"
+    fi
+}
+
 # --- Bounded condition waits -----------------------------------------------
 # Each returns 1 on timeout so the caller can FAIL with a specific message.
 
@@ -247,6 +422,40 @@ registry_lock_release "$lockdir"
 echo "HOLDER_DONE"
 HOLDER
     chmod +x "$HELPER_DIR/holder.sh"
+
+    # holder_nocommit.sh <lock_dir> <emails_file> <address>
+    #
+    # The OTHER writer in its simplest form (t1626): take the mutex through
+    # registry_lock.sh — the adapter store_email itself takes — append, release,
+    # and EXIT WITHOUT COMMITTING. That last part is the whole point: it is
+    # exactly the "appended, released, then died before its own commit" end
+    # state the under-lock re-check has to recover from.
+    #
+    # It sources the PROJECT's library, not the fixture's barrier-patched copy,
+    # so install_acquire_barrier never applies to it.
+    cat > "$HELPER_DIR/holder_nocommit.sh" <<EOF
+#!/usr/bin/env bash
+set -u
+LIB="$PROJECT_DIR/.aitask-scripts/lib"
+EOF
+    cat >> "$HELPER_DIR/holder_nocommit.sh" <<'NOCOMMIT'
+# shellcheck source=/dev/null
+source "$LIB/terminal_compat.sh"
+# shellcheck source=/dev/null
+source "$LIB/registry_lock.sh"
+
+lockdir="$1"; emails="$2"; addr="$3"
+
+if ! registry_lock_acquire "$lockdir" 30 holder; then
+    echo "HOLDER_BUSY"
+    exit 1
+fi
+printf '%s\n' "$addr" >> "$emails"
+sort -u "$emails" -o "$emails"
+registry_lock_release "$lockdir"
+echo "HOLDER_DONE"
+NOCOMMIT
+    chmod +x "$HELPER_DIR/holder_nocommit.sh"
 }
 
 # Rebuild the fixture's COPY of aitask_create.sh with the PRE-FIX
@@ -353,6 +562,11 @@ assert_contains "Test 2: the skip is reported" "contributor list busy" "$err2"
 
 after2=$(cat "$EMAILS_PATH")
 assert_eq "Test 2: emails.txt unchanged — never written unlocked" "$before2" "$after2"
+# Nothing was written under the mutex, so nothing is owed a commit either. This
+# is the direct pin for "the contributor commit never runs on the skip path"
+# (t1626) — without it the skip could still produce a spurious commit.
+assert_eq "Test 2: no contributor-email commit was made" \
+    "" "$(git log --format=%H --grep='^ait: Record contributor email')"
 
 # Other side of the boundary: release the mutex and the address now lands.
 kill "$HOLDER2" 2>/dev/null
@@ -456,6 +670,10 @@ run_lost_update_scenario() {
 
     LAST_SCENARIO_EMAILS="$(cat "$EMAILS_PATH")"
     LAST_SCENARIO_HOLDER_OUT="$(cat "$PWD/.holder_out" 2>/dev/null)"
+    # Git state has to be sampled HERE — teardown pops out of the project dir,
+    # so a caller cannot inspect it afterwards (t1626).
+    LAST_SCENARIO_STATUS="$(git status --porcelain "$EMAILS_PATH")"
+    LAST_SCENARIO_HEAD_EMAILS="$(git show "HEAD:$EMAILS_PATH" 2>/dev/null)"
     teardown
 }
 
@@ -569,6 +787,196 @@ probe6=$(AITASKS_LOCK_DIR="$LOCKBASE" bash "$HELPER_DIR/lockprobe.sh" \
     stale-acquire "$LOCKBASE/emails" 2>/dev/null)
 assert_eq "Test 6: the lock is reacquirable after a failed append" "ACQUIRED" "$probe6"
 
+teardown
+
+# --- Tests 8-13: every append is followed by a guaranteed commit (t1626) -----
+#
+# aitask_create.sh never named EMAILS_FILE in a task_git add, and since t1599_1
+# scoped every claim commit to its own paths nothing swept it either — so an
+# address recorded by `ait create --assigned-to <new>` stayed on disk,
+# uncommitted, indefinitely. The membership short-circuits are what made that
+# permanent: they return before the "owes a commit" flag can be set, so no later
+# call ever committed it. There are TWO of them (pre-lock and under-lock) and
+# each gets its own test plus its own positive negative-control.
+
+# --- Test 8: a new address is committed, in its OWN path-scoped commit -------
+echo "--- Test 8: ait create --assigned-to leaves emails.txt clean ---"
+
+setup_project
+
+AITASKS_LOCK_DIR="$LOCKBASE" ./.aitask-scripts/aitask_create.sh --batch --commit --silent \
+    --name "new_contributor" --desc "New address" --assigned-to "carol@test.com" \
+    >/dev/null 2>&1
+rc8=$?
+assert_eq "Test 8: creation succeeded (exit 0)" "0" "$rc8"
+assert_contributor_commit_shape "Test 8" "carol@test.com"
+
+teardown
+
+# --- Test 9: PRE-LOCK fast-path recovery ------------------------------------
+# An address on disk but not at HEAD — the end state of any write whose commit
+# was lost. The membership fast-path used to return before the flag could be
+# set, making that permanent; it now consults HEAD.
+echo "--- Test 9: a membership hit on an UNCOMMITTED address is recovered ---"
+
+setup_project
+
+printf 'dave@test.com\n' >> "$EMAILS_PATH"
+assert_contains "Test 9: precondition — the address is on disk and dirty" \
+    " M $EMAILS_PATH" "$(git status --porcelain "$EMAILS_PATH")"
+
+AITASKS_LOCK_DIR="$LOCKBASE" ./.aitask-scripts/aitask_create.sh --batch --commit --silent \
+    --name "recover_contributor" --desc "Stranded address" --assigned-to "dave@test.com" \
+    >/dev/null 2>&1
+assert_contributor_commit_shape "Test 9" "dave@test.com"
+
+teardown
+
+# --- Test 10: NEGATIVE CONTROL — the pre-fix body commits nothing ------------
+# Asserts the defect POSITIVELY in BOTH shapes, so a control whose injection
+# silently failed cannot pass.
+echo "--- Test 10: NEGATIVE CONTROL — pre-fix add_email_to_file never commits ---"
+
+setup_project
+install_prefix_add_email_to_file_nocommit
+
+AITASKS_LOCK_DIR="$LOCKBASE" ./.aitask-scripts/aitask_create.sh --batch --commit --silent \
+    --name "prefix_fresh" --desc "Fresh address, pre-fix" --assigned-to "heidi@test.com" \
+    >/dev/null 2>&1
+assert_contains "Test 10a: pre-fix DOES leave a fresh address dirty" \
+    " M $EMAILS_PATH" "$(git status --porcelain "$EMAILS_PATH")"
+assert_eq "Test 10a: pre-fix makes NO contributor-email commit" \
+    "" "$(git log --format=%H --grep='^ait: Record contributor email')"
+
+# ...and the already-on-disk shape: a later create with the SAME address hits
+# the membership short-circuit and cannot rescue it either.
+AITASKS_LOCK_DIR="$LOCKBASE" ./.aitask-scripts/aitask_create.sh --batch --commit --silent \
+    --name "prefix_again" --desc "Same address, pre-fix" --assigned-to "heidi@test.com" \
+    >/dev/null 2>&1
+assert_contains "Test 10b: pre-fix leaves it STILL dirty on the same-address retry" \
+    " M $EMAILS_PATH" "$(git status --porcelain "$EMAILS_PATH")"
+assert_eq "Test 10b: pre-fix still makes NO contributor-email commit" \
+    "" "$(git log --format=%H --grep='^ait: Record contributor email')"
+
+teardown
+
+# --- Test 11: a retained mutex must not silently swallow the address ---------
+# stale_lock_release reports failure exactly when OUR OWN lock dir is still in
+# place, so the commit that follows is MORE serialized then, not less — gating
+# it on that status would skip it precisely when it is safest. The policy is
+# therefore warn-and-commit, and this pins it.
+echo "--- Test 11: a failed lock release still commits the address ---"
+
+setup_project
+install_failing_release
+
+err11_file="$(mktemp)"
+AITASKS_LOCK_DIR="$LOCKBASE" ./.aitask-scripts/aitask_create.sh --batch --commit --silent \
+    --name "release_failure" --desc "Forced release failure" --assigned-to "ivan@test.com" \
+    >/dev/null 2>"$err11_file"
+rc11=$?
+err11=$(cat "$err11_file"); rm -f "$err11_file"
+
+# (a) The injection took effect — proven, not assumed.
+assert_contains "Test 11: the retained mutex is reported" \
+    "contributor-list lock not fully released" "$err11"
+# (b) The warning names the recovery, so a retained lock is not a dead end.
+assert_contains "Test 11: ...and names the reclaim that clears it" \
+    "dead-record reclaim" "$err11"
+# (c) Best-effort contract, and the address is still committed.
+assert_eq "Test 11: creation still succeeds (exit 0)" "0" "$rc11"
+assert_contributor_commit_shape "Test 11" "ivan@test.com"
+
+teardown
+
+# --- Test 12: a concurrent writer's line is never lost -----------------------
+# The commit runs OUTSIDE the mutex (matching store_email / commit_and_push),
+# so it can capture a snapshot that lags a concurrent append. `sort -o` renames
+# a temp over the target and a single short append is not torn, so nothing is
+# corrupted — and the lagged line's own writer owes it a commit. This pins that
+# no address is lost across the real interleaving.
+echo "--- Test 12: neither address is lost when the commit runs outside the mutex ---"
+
+run_lost_update_scenario fixed "Test 12"
+# Test 3 already pins that neither address is lost ON DISK. What only this test
+# can see is what the commit did with them: create appends bob AFTER the
+# holder's write-back, so the commit it makes outside the mutex must carry the
+# holder's line too, and must leave nothing behind.
+assert_eq "Test 12: emails.txt is clean — nothing stranded by the interleaving" \
+    "" "$LAST_SCENARIO_STATUS"
+assert_contains "Test 12: the holder's address reached HEAD" \
+    "alice@test.com" "$LAST_SCENARIO_HEAD_EMAILS"
+assert_contains "Test 12: ait create's address reached HEAD" \
+    "bob@test.com" "$LAST_SCENARIO_HEAD_EMAILS"
+
+# --- Test 13: UNDER-LOCK recheck recovery ------------------------------------
+# The concurrent hole the pre-lock fix alone does not close:
+#
+#   holder (registry_lock)         ait create (stale_lock, under test)
+#   ----------------------------   ------------------------------------------
+#                                  PRE-LOCK check runs — address ABSENT
+#                                  ... parked at the mutex barrier
+#   acquire; append addr; release
+#   (never commits)
+#                                  acquires; RE-CHECK finds it ⇒ must consult
+#                                  HEAD and commit it
+echo "--- Test 13: a holder's uncommitted append is recovered at the re-check ---"
+
+run_create_recheck_scenario() {   # <mode: fixed|prefix> <label>
+    local mode="$1" label="$2"
+    setup_project
+    [[ "$mode" == "prefix" ]] && install_prefix_add_email_to_file_norecheck
+    install_acquire_barrier
+
+    local sig="$PWD/.at_acquire" go="$PWD/.acquire_go"
+    rm -f "$sig" "$go"
+
+    # 1. Start the creation. It runs add_email_to_file's PRE-LOCK check now —
+    #    erin is absent, nothing has written it — then parks at the barrier.
+    AITASKS_LOCK_DIR="$LOCKBASE" AIT_TEST_ACQ_SIGNAL="$sig" AIT_TEST_ACQ_GO="$go" \
+        ./.aitask-scripts/aitask_create.sh --batch --commit --silent \
+        --name "recheck_recovery" --desc "Under-lock recheck" \
+        --assigned-to "erin@test.com" >/dev/null 2>&1 &
+    local create_pid=$!
+
+    if ! wait_for_file "$sig" 30; then
+        assert_record_fail
+        echo "FAIL: $label: create never reached the mutex barrier"
+        kill "$create_pid" 2>/dev/null; wait "$create_pid" 2>/dev/null
+        teardown
+        return 1
+    fi
+
+    # The barrier proves the ordering rather than assuming it.
+    assert_not_contains "$label: precondition — erin was ABSENT at the pre-lock check" \
+        "erin@test.com" "$(cat "$EMAILS_PATH")"
+
+    # 2. The other writer appends erin under the mutex and exits WITHOUT
+    #    committing. Synchronous: nothing is contending yet.
+    AITASKS_LOCK_DIR="$LOCKBASE" bash "$HELPER_DIR/holder_nocommit.sh" \
+        "$LOCKBASE/emails" "$PWD/$EMAILS_PATH" "erin@test.com" >/dev/null 2>&1
+
+    assert_contains "$label: precondition — the holder's address is on disk" \
+        "erin@test.com" "$(cat "$EMAILS_PATH")"
+    assert_contains "$label: precondition — and uncommitted" \
+        " M $EMAILS_PATH" "$(git status --porcelain "$EMAILS_PATH")"
+
+    # 3. Release create. Its UNDER-LOCK re-check is the only thing left that can
+    #    notice the address, and it is the branch under test.
+    : > "$go"
+    wait "$create_pid" 2>/dev/null
+}
+
+run_create_recheck_scenario fixed "Test 13"
+assert_contributor_commit_shape "Test 13" "erin@test.com"
+teardown
+
+echo "--- Test 13b: NEGATIVE CONTROL — pre-lock consult alone does not recover ---"
+run_create_recheck_scenario prefix "Test 13b"
+assert_contains "Test 13b: pre-fix DOES leave the holder's address dirty" \
+    " M $EMAILS_PATH" "$(git status --porcelain "$EMAILS_PATH")"
+assert_eq "Test 13b: pre-fix makes NO contributor-email commit" \
+    "" "$(git log --format=%H --grep='^ait: Record contributor email')"
 teardown
 
 # --- Test 7: syntax ----------------------------------------------------------

@@ -255,6 +255,172 @@ EOF
     echo "$shim"
 }
 
+# Rebuild the fixture's COPY with the PRE-FIX ORDERING: store_email called from
+# INSIDE acquire_lock, i.e. before the lock gate can refuse (t1626). Paired with
+# install_prefix_store_email, which supplies the pre-fix body whose membership
+# fast-path never consults HEAD — both halves are needed, because the fixed fast
+# path would otherwise recover the stranded address on the retry and the control
+# would not reproduce.
+#
+# The wrapper renames the real function via `declare -f` rather than restating
+# its body, so the control cannot drift from the code it is a control for.
+install_prefix_store_email_ordering() {
+    local script="$1/local/.aitask-scripts/aitask_pick_own.sh"
+    local tmp="$script.new"
+    grep -v '^main "\$@"$' "$script" > "$tmp"
+    cat >> "$tmp" <<'LEGACY'
+eval "_orig_acquire_lock() $(declare -f acquire_lock | tail -n +2)"
+acquire_lock() {
+    [[ -n "${2:-}" ]] && store_email "$2"
+    _orig_acquire_lock "$@"
+}
+LEGACY
+    printf 'main "$@"\n' >> "$tmp"
+    mv "$tmp" "$script"
+    chmod +x "$script"
+}
+
+# Rebuild the fixture's COPY with a store_email that has the PRE-LOCK HEAD
+# consult but NOT the under-lock one (t1626). This is the control for Test 4d
+# specifically: without it, 4d could pass on the pre-lock fix alone and would
+# prove nothing about the `else` branch it exists to guard.
+install_prefix_store_email_norecheck() {
+    local script="$1/local/.aitask-scripts/aitask_pick_own.sh"
+    local tmp="$script.new"
+    grep -v '^main "\$@"$' "$script" > "$tmp"
+    cat >> "$tmp" <<'LEGACY'
+store_email() {
+    local email="$1"
+    if [[ -z "$email" ]]; then
+        return 0
+    fi
+    local dir
+    dir=$(dirname "$EMAILS_FILE")
+    mkdir -p "$dir"
+    touch "$EMAILS_FILE"
+    if grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+        ait_email_is_committed "$email" || EMAIL_STORED=true
+        return 0
+    fi
+    local lockdir
+    lockdir="$(ait_lock_dir emails)" || return 0
+    if ! registry_lock_acquire "$lockdir" "$EMAILS_LOCK_TIMEOUT" store_email; then
+        warn "contributor list busy — email not recorded$(registry_lock_describe "$lockdir")"
+        return 0
+    fi
+    local rc=0
+    {
+        if ! grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+            printf '%s\n' "$email" >> "$EMAILS_FILE" &&
+                EMAIL_STORED=true &&
+                sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+        fi
+    } || rc=$?
+    registry_lock_release "$lockdir"
+    [[ $rc -eq 0 ]] || warn "store_email: failed to record ${email} (rc=$rc)"
+    return 0
+}
+LEGACY
+    printf 'main "$@"\n' >> "$tmp"
+    mv "$tmp" "$script"
+    chmod +x "$script"
+}
+
+# --- Bounded condition waits (lifted from tests/test_create_email_lock.sh) ---
+# Each returns 1 on timeout so the caller can FAIL with a specific message. A
+# scenario that did not actually reproduce must never report success by running
+# slow, so every wait below is a poll on a CONDITION, never a chosen sleep.
+
+wait_for_file() {      # <path> <timeout_s>
+    local path="$1" ticks=$(( ${2} * 10 )) i=0
+    while (( i < ticks )); do
+        [[ -e "$path" ]] && return 0
+        sleep 0.1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+wait_for_content() {   # <file> <needle> <timeout_s>
+    local file="$1" needle="$2" ticks=$(( ${3} * 10 )) i=0
+    while (( i < ticks )); do
+        grep -qF -- "$needle" "$file" 2>/dev/null && return 0
+        sleep 0.1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# install_acquire_barrier <tmpdir> — patch the FIXTURE'S COPY of
+# lib/registry_lock.sh so registry_lock_acquire pauses at a controllable barrier
+# before it contends for the mutex.
+#
+# That point is the seam between store_email's PRE-LOCK membership check and its
+# mutex acquisition, and blocking there is the only way to pin the interleaving
+# deterministically: the claim's pre-lock check must observe the address ABSENT,
+# and the other writer's append must land before the claim's UNDER-LOCK re-check.
+# Waiting on wall-clock instead would let a scenario that never reproduced
+# report success by running slow.
+#
+# The barrier is opt-in per run (AIT_TEST_ACQ_SIGNAL / AIT_TEST_ACQ_GO), so the
+# patched copy behaves exactly like the real library for every other test, and
+# the HOLDER below is unaffected — it sources the PROJECT's unpatched library.
+install_acquire_barrier() {
+    local lib="$1/local/.aitask-scripts/lib/registry_lock.sh"
+    local tmp="$lib.new"
+    awk '
+        /^registry_lock_acquire\(\) \{$/ {
+            print
+            print "    if [[ -n \"${AIT_TEST_ACQ_SIGNAL:-}\" ]]; then"
+            print "        : > \"$AIT_TEST_ACQ_SIGNAL\""
+            print "        while [[ ! -f \"${AIT_TEST_ACQ_GO:-}\" ]]; do sleep 0.05; done"
+            print "    fi"
+            next
+        }
+        { print }
+    ' "$lib" > "$tmp"
+    mv "$tmp" "$lib"
+}
+
+# write_holder <tmpdir> — emit a helper that plays the OTHER contributor-list
+# writer: take the mutex through registry_lock.sh (the adapter store_email
+# itself takes), append the address, release, and EXIT WITHOUT COMMITTING.
+# That last part is the whole point — it is exactly the "appended, released,
+# then died before its own commit" end state.
+#
+# It sources the PROJECT's library, not the fixture's patched copy, so the
+# barrier above never applies to it.
+#
+# Echoes the helper's path.
+write_holder() {
+    local dir="$1/holder"
+    mkdir -p "$dir"
+    cat > "$dir/holder.sh" <<EOF
+#!/usr/bin/env bash
+set -u
+LIB="$PROJECT_DIR/.aitask-scripts/lib"
+EOF
+    cat >> "$dir/holder.sh" <<'HOLDER'
+# shellcheck source=/dev/null
+source "$LIB/terminal_compat.sh"
+# shellcheck source=/dev/null
+source "$LIB/registry_lock.sh"
+
+lockdir="$1"; emails="$2"; addr="$3"
+
+if ! registry_lock_acquire "$lockdir" 30 holder; then
+    echo "HOLDER_BUSY"
+    exit 1
+fi
+printf '%s\n' "$addr" >> "$emails"
+sort -u "$emails" -o "$emails"
+registry_lock_release "$lockdir"
+echo "HOLDER_DONE"
+HOLDER
+    chmod +x "$dir/holder.sh"
+    echo "$dir/holder.sh"
+}
+
 # Commits whose subject is a claim AND that touch <path>. Empty = the invariant
 # holds. This is the property under test, and it holds under every interleaving.
 claim_commits_touching() {
@@ -331,21 +497,20 @@ assert_eq "Test 3: no new commit on re-claim" "$before3" "$after3"
 
 rm -rf "$T3"
 
-# --- Test 4: a refused claim's leftover email is never swept ----------------
-echo "--- Test 4: a foreign email left by a REFUSED claim is not committed ---"
+# --- Test 4: a foreign email already on the list is never swept -------------
+# The dirty state is seeded DIRECTLY. It used to be reached through the defect
+# — a refused claim appended before the lock gate could refuse — but a refused
+# claim now writes nothing at all (t1626, Test 4b), so driving it that way would
+# characterize a bug that is gone instead of the invariant this test guards.
+echo "--- Test 4: a foreign email on the list is not attributed to a claim ---"
 
 T4="$(setup_paired_repos)"
-# Reach the dirty state through the production path: a claim refused at the lock
-# has already appended its address (store_email runs before acquire_lock).
-(cd "$T4/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "bob@test.com" >/dev/null 2>&1)
-refused4=$(cd "$T4/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "mallory@test.com" 2>&1)
-assert_contains "Test 4: the foreign claim was refused" "LOCK_FAILED" "$refused4"
+(cd "$T4/local" && printf 'mallory@test.com\n' >> "$EMAILS_PATH")
 
 pre4=$(git -C "$T4/local" status --porcelain "$EMAILS_PATH")
-assert_contains "Test 4: precondition — emails.txt left dirty by the refused claim" \
+assert_contains "Test 4: precondition — emails.txt is dirty with a foreign address" \
     " M $EMAILS_PATH" "$pre4"
 
-(cd "$T4/local" && ./.aitask-scripts/aitask_lock.sh --unlock 1 >/dev/null 2>&1)
 # alice is NOT yet known, so this claim legitimately adds her; mallory's line
 # must still not be attributed to the claim.
 out4=$(cd "$T4/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "alice@test.com" 2>&1)
@@ -358,6 +523,191 @@ disk4=$(cat "$T4/local/$EMAILS_PATH")
 assert_contains "Test 4: mallory's line survives on disk" "mallory@test.com" "$disk4"
 
 rm -rf "$T4"
+
+# --- Test 4b: a REFUSED claim writes nothing; the same-address retry lands ---
+# The gap Test 4 cannot cover. Test 4 retried with a DIFFERENT address, which
+# legitimately set EMAIL_STORED and swept the stranded line along incidentally.
+# With the SAME address the old membership fast-path returned before the flag
+# could ever be set again, so no later claim committed it — emails.txt stayed
+# dirty indefinitely (t1626 defect 1).
+echo "--- Test 4b: a refused claim writes nothing, and the same-address retry commits ---"
+
+T4B="$(setup_paired_repos)"
+(cd "$T4B/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "bob@test.com" >/dev/null 2>&1)
+refused4b=$(cd "$T4B/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "mallory@test.com" 2>&1)
+assert_contains "Test 4b: the claim was refused" "LOCK_FAILED" "$refused4b"
+
+# The fix: store_email now runs BELOW every refusal exit, so nothing was written.
+assert_eq "Test 4b: the refused claim left emails.txt CLEAN" \
+    "" "$(git -C "$T4B/local" status --porcelain "$EMAILS_PATH")"
+assert_not_contains "Test 4b: ...and never appended the address at all" \
+    "mallory@test.com" "$(cat "$T4B/local/$EMAILS_PATH")"
+
+(cd "$T4B/local" && ./.aitask-scripts/aitask_lock.sh --unlock 1 >/dev/null 2>&1)
+out4b=$(cd "$T4B/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "mallory@test.com" 2>&1)
+assert_contains "Test 4b: the same-address retry succeeded" "OWNED:1" "$out4b"
+
+assert_eq "Test 4b: emails.txt is clean after the retry" \
+    "" "$(git -C "$T4B/local" status --porcelain "$EMAILS_PATH")"
+assert_contains "Test 4b: the address is committed at HEAD" \
+    "mallory@test.com" "$(git -C "$T4B/local" show "HEAD:$EMAILS_PATH")"
+count4b=$(git -C "$T4B/local" log --format=%H --grep='^ait: Record contributor email' | wc -l)
+assert_eq "Test 4b: exactly one contributor-email commit" "1" "$count4b"
+assert_eq "Test 4b: no claim commit touches emails.txt" \
+    "" "$(claim_commits_touching "$T4B" "$EMAILS_PATH")"
+
+rm -rf "$T4B"
+
+# --- Test 4c: PRE-LOCK fast-path recovery ------------------------------------
+# An address on disk but not at HEAD — the end state of any write whose commit
+# was lost. The membership fast-path used to return before EMAIL_STORED could be
+# set, making that permanent; it now consults HEAD.
+echo "--- Test 4c: a membership hit on an UNCOMMITTED address is recovered ---"
+
+T4C="$(setup_paired_repos)"
+(cd "$T4C/local" && printf 'mallory@test.com\n' >> "$EMAILS_PATH")
+
+out4c=$(cd "$T4C/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "mallory@test.com" 2>&1)
+assert_contains "Test 4c: claim succeeded" "OWNED:1" "$out4c"
+
+assert_eq "Test 4c: emails.txt is clean — the stranded address was recovered" \
+    "" "$(git -C "$T4C/local" status --porcelain "$EMAILS_PATH")"
+assert_contains "Test 4c: the address is committed at HEAD" \
+    "mallory@test.com" "$(git -C "$T4C/local" show "HEAD:$EMAILS_PATH")"
+
+email4c=$(git -C "$T4C/local" log --format=%H --grep='^ait: Record contributor email' | head -1)
+assert_non_empty "Test 4c: a contributor-email commit was made" "$email4c"
+files4c=$(git -C "$T4C/local" show --name-only --pretty=format: "$email4c" | grep -v '^$')
+assert_eq "Test 4c: that commit touches ONLY emails.txt" "$EMAILS_PATH" "$files4c"
+assert_eq "Test 4c: HEAD is still the claim commit" \
+    "ait: Start work on t1: set status to Implementing" \
+    "$(git -C "$T4C/local" log -1 --pretty=%s)"
+
+rm -rf "$T4C"
+
+# --- Test 4d: UNDER-LOCK recheck recovery ------------------------------------
+# The concurrent hole the pre-lock fix alone does not close, and the widest
+# window of the two writers: store_email runs under the mutex but its commit
+# happens much later, in commit_and_push.
+#
+#   holder (registry_lock)        claim (store_email, under test)
+#   ---------------------------   -----------------------------------------
+#   acquire; ready
+#                                 start; PRE-LOCK check runs — address ABSENT
+#                                 ... blocks on the mutex
+#   append addr; release; EXIT
+#   (never commits)
+#                                 acquires; RE-CHECK finds it ⇒ must consult
+#                                 HEAD and commit it
+echo "--- Test 4d: a holder's uncommitted append is recovered at the re-check ---"
+
+run_recheck_scenario() {   # <mode: fixed|prefix> <label>
+    local mode="$1" label="$2"
+    local T; T="$(setup_paired_repos)"
+    [[ "$mode" == "prefix" ]] && install_prefix_store_email_norecheck "$T"
+    install_acquire_barrier "$T"
+
+    local lockbase="$T/locks" holder
+    local sig="$T/.at_acquire" go="$T/.acquire_go"
+    holder="$(write_holder "$T")"
+    mkdir -p "$lockbase"
+
+    # 1. Start the claim. It runs store_email's PRE-LOCK check now — erin is
+    #    absent, because nothing has written it yet — and then parks at the
+    #    barrier, before contending for the mutex.
+    (cd "$T/local" && AITASKS_LOCK_DIR="$lockbase" EMAILS_LOCK_TIMEOUT=30 \
+        AIT_TEST_ACQ_SIGNAL="$sig" AIT_TEST_ACQ_GO="$go" \
+        ./.aitask-scripts/aitask_pick_own.sh 1 --email "erin@test.com" \
+        > "$T/.claim_out" 2>&1) &
+    local claim_pid=$!
+
+    if ! wait_for_file "$sig" 30; then
+        assert_record_fail
+        echo "FAIL: $label: the claim never reached the mutex barrier"
+        kill "$claim_pid" 2>/dev/null; wait "$claim_pid" 2>/dev/null
+        rm -rf "$T"; return 1
+    fi
+
+    # The barrier proves the ordering rather than assuming it: the pre-lock
+    # check has run, and it ran against this state.
+    assert_not_contains "$label: precondition — erin was ABSENT at the pre-lock check" \
+        "erin@test.com" "$(cat "$T/local/$EMAILS_PATH")"
+
+    # 2. The other writer appends erin under the mutex and exits WITHOUT
+    #    committing. Synchronous: nothing is contending yet.
+    AITASKS_LOCK_DIR="$lockbase" bash "$holder" \
+        "$lockbase/emails" "$T/local/$EMAILS_PATH" "erin@test.com" >/dev/null 2>&1
+
+    assert_contains "$label: precondition — the holder's address is on disk" \
+        "erin@test.com" "$(cat "$T/local/$EMAILS_PATH")"
+    assert_contains "$label: precondition — and uncommitted" \
+        " M $EMAILS_PATH" "$(git -C "$T/local" status --porcelain "$EMAILS_PATH")"
+
+    # 3. Release the claim. Its UNDER-LOCK re-check is the only thing left that
+    #    can notice the address, and it is the branch under test.
+    : > "$go"
+    wait "$claim_pid" 2>/dev/null
+
+    LAST_RECHECK_OUT="$(cat "$T/.claim_out" 2>/dev/null)"
+    LAST_RECHECK_DIR="$T"
+}
+
+run_recheck_scenario fixed "Test 4d"
+T4D="$LAST_RECHECK_DIR"
+assert_contains "Test 4d: the claim succeeded" "OWNED:1" "$LAST_RECHECK_OUT"
+assert_contains "Test 4d: the holder's address is on disk" \
+    "erin@test.com" "$(cat "$T4D/local/$EMAILS_PATH")"
+assert_eq "Test 4d: emails.txt is clean — the re-check recovered it" \
+    "" "$(git -C "$T4D/local" status --porcelain "$EMAILS_PATH")"
+assert_contains "Test 4d: the address is committed at HEAD" \
+    "erin@test.com" "$(git -C "$T4D/local" show "HEAD:$EMAILS_PATH")"
+email4d=$(git -C "$T4D/local" log --format=%H --grep='^ait: Record contributor email' | head -1)
+assert_non_empty "Test 4d: a contributor-email commit was made" "$email4d"
+files4d=$(git -C "$T4D/local" show --name-only --pretty=format: "$email4d" | grep -v '^$')
+assert_eq "Test 4d: that commit touches ONLY emails.txt" "$EMAILS_PATH" "$files4d"
+assert_eq "Test 4d: HEAD is still the claim commit" \
+    "ait: Start work on t1: set status to Implementing" \
+    "$(git -C "$T4D/local" log -1 --pretty=%s)"
+rm -rf "$T4D"
+
+# --- Test 4e: NEGATIVE CONTROLS ---------------------------------------------
+# Each asserts its defect POSITIVELY, so a control whose injection silently
+# failed cannot pass.
+echo "--- Test 4e: NEGATIVE CONTROLS — pre-fix ordering and pre-fix re-check ---"
+
+# 4e-1: store_email BEFORE the lock gate (pre-fix ordering) plus the pre-fix
+# body whose fast path never consults HEAD. Both halves are needed: with the
+# fixed fast path the retry would recover the address and the control would not
+# reproduce.
+T4E1="$(setup_paired_repos)"
+install_prefix_store_email "$T4E1"
+install_prefix_store_email_ordering "$T4E1"
+
+(cd "$T4E1/local" && ./.aitask-scripts/aitask_lock.sh --lock 1 --email "bob@test.com" >/dev/null 2>&1)
+refused4e=$(cd "$T4E1/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "mallory@test.com" 2>&1)
+assert_contains "Test 4e-1: the claim was refused" "LOCK_FAILED" "$refused4e"
+assert_contains "Test 4e-1: pre-fix DOES leave emails.txt dirty after a refusal" \
+    " M $EMAILS_PATH" "$(git -C "$T4E1/local" status --porcelain "$EMAILS_PATH")"
+
+(cd "$T4E1/local" && ./.aitask-scripts/aitask_lock.sh --unlock 1 >/dev/null 2>&1)
+out4e=$(cd "$T4E1/local" && ./.aitask-scripts/aitask_pick_own.sh 1 --email "mallory@test.com" 2>&1)
+assert_contains "Test 4e-1: control ran to completion (not an early abort)" "OWNED:1" "$out4e"
+assert_contains "Test 4e-1: pre-fix leaves it STILL dirty after the same-address retry" \
+    " M $EMAILS_PATH" "$(git -C "$T4E1/local" status --porcelain "$EMAILS_PATH")"
+assert_eq "Test 4e-1: pre-fix makes NO contributor-email commit" \
+    "" "$(git -C "$T4E1/local" log --format=%H --grep='^ait: Record contributor email')"
+rm -rf "$T4E1"
+
+# 4e-2: the pre-lock consult present, the under-lock `else` absent — the exact
+# control for Test 4d. Without this, 4d could pass on the pre-lock fix alone.
+run_recheck_scenario prefix "Test 4e-2"
+T4E2="$LAST_RECHECK_DIR"
+assert_contains "Test 4e-2: control ran to completion" "OWNED:1" "$LAST_RECHECK_OUT"
+assert_contains "Test 4e-2: pre-fix DOES leave the holder's address dirty" \
+    " M $EMAILS_PATH" "$(git -C "$T4E2/local" status --porcelain "$EMAILS_PATH")"
+assert_eq "Test 4e-2: pre-fix makes NO contributor-email commit" \
+    "" "$(git -C "$T4E2/local" log --format=%H --grep='^ait: Record contributor email')"
+rm -rf "$T4E2"
 
 # --- Test 5: a claim with NO email never touches the list -------------------
 echo "--- Test 5: a claim with no --email does not commit a dirty emails.txt ---"

@@ -201,6 +201,73 @@ task_git() {
     fi
 }
 
+# --- Path-scoped commit (shared) ---
+
+# task_git_commit_scoped <msg> <path>... — stage and commit ONLY these paths.
+# Returns 0 = committed, 2 = verified nothing to commit, 1 = commit failed.
+#
+# `git commit -- <paths>` is a PARTIAL commit: it takes those paths' WORKTREE
+# content and ignores their index entry (verified: a staged-then-modified path
+# commits the on-disk version). That is deliberate for its callers — a claim's
+# own aitask_update.sh write is on disk — but it is a real change from an
+# index-wide commit, so it is stated rather than assumed.
+#
+# Lives here rather than in one script because BOTH writers of the shared
+# contributor list commit through it (t1626): aitask_pick_own.sh (via its
+# _commit_scoped alias) and aitask_create.sh::add_email_to_file.
+task_git_commit_scoped() {
+    local msg="$1"; shift
+    # Load-bearing: `git commit --` with no pathspec commits the WHOLE index,
+    # silently re-creating the cross-session swallow this exists to stop.
+    # `-o` below makes that case fatal rather than silent; this guard means it
+    # is never reached.
+    (( $# )) || return 2
+
+    # `add` is needed ONLY so an untracked path can be named by the pathspec;
+    # a pathspec cannot match a file git does not know about.
+    task_git add -- "$@" >/dev/null 2>&1 || true
+
+    # Capture the status exit separately: a failing status with empty stdout
+    # must read as "unverified", never as "clean" (same shape as the guard in
+    # aitask_gate.sh's materialize-active).
+    local st st_rc=0
+    st="$(task_git status --porcelain -- "$@" 2>/dev/null)" || st_rc=$?
+    if [[ $st_rc -eq 0 && -z "$st" ]]; then
+        return 2
+    fi
+    [[ $st_rc -ne 0 ]] && warn "git status failed for $* — committing anyway"
+
+    # stdout to /dev/null: --quiet already silences the summary, but
+    # aitask_create.sh's stdout is a DATA channel (it prints the created task
+    # file path), so this helper must never be able to contaminate it.
+    task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null || return 1
+}
+
+# --- Contributor list (shared by both of its writers) ---
+
+# The one canonical path. aitask_pick_own.sh and aitask_create.sh each keep a
+# local EMAILS_FILE name, assigned from this, so their call sites are unchanged.
+AIT_EMAILS_FILE="aitasks/metadata/emails.txt"
+
+# ait_email_is_committed <email>
+# 0 = the address is in the COMMITTED contributor list.
+# 1 = it is not — INCLUDING when the answer cannot be established (no HEAD, the
+#     file untracked, a git failure).
+#
+# The failure direction is deliberate and is the whole point of t1626. Both
+# writers short-circuit on membership, and an address appended by a write whose
+# commit never happened is invisible to every later call: the short-circuit
+# returns before the "this call owes the file a commit" flag can be set, so the
+# one path that would commit it never runs again. Answering "not committed" when
+# unsure costs at most one task_git_commit_scoped call that returns 2 (verified
+# nothing to commit); answering "committed" when unsure is permanent.
+ait_email_is_committed() {
+    local email="$1" head_list="" rc=0
+    head_list="$(task_git show "HEAD:$AIT_EMAILS_FILE" 2>/dev/null)" || rc=$?
+    [[ $rc -eq 0 ]] || return 1
+    grep -qxF -- "$email" <<<"$head_list"
+}
+
 # --- Task data sync (best-effort, but never silent) ---
 #
 # Outcome of the most recent task_sync call. task_sync always returns 0 (the

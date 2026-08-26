@@ -67,12 +67,18 @@ TASK_ID=""
 EMAIL=""
 SYNC_ONLY=false
 FORCE=false
-EMAILS_FILE="aitasks/metadata/emails.txt"
+EMAILS_FILE="$AIT_EMAILS_FILE"
 
-# Set by store_email() when THIS invocation added a new address — the only
-# condition under which the contributor list is this claim's to persist. A claim
-# refused at the task lock still leaves its append on disk, so a later claim must
-# not commit that foreign line under its own task message.
+# "This claim OWES the contributor list a commit." Set by store_email() in TWO
+# disjoint cases (t1626): a successful APPEND, and a membership hit on an address
+# that is on disk but NOT at HEAD. See store_email()'s header for why the second
+# one exists — without it a write whose commit was lost is swallowed forever.
+#
+# It is NOT "this invocation added a new address". Narrowing it back to that
+# removes the recovery, which is the failure this flag now guards against.
+#
+# Still false by default, and still false for a claim carrying no email at all:
+# a foreign line someone else left on disk is never committed under this claim.
 EMAIL_STORED=false
 
 # Seconds to wait for the contributor-list mutex before giving up on recording
@@ -237,10 +243,19 @@ _lock_cleanup_warn() {
 }
 
 # --- Store email (idempotent, deduplicated, serialized) ---
-# Sets EMAIL_STORED=true only when this call's APPEND actually adds a new
-# address. Membership is the real predicate: re-adding a known address changes no
-# content, so it must not make the contributor list look like this claim's to
-# commit. The append is what the flag answers for — see the chain below.
+# EMAIL_STORED means "this claim OWES the contributor list a commit" (t1626).
+# Two disjoint things set it: a successful APPEND, and a membership hit on an
+# address that is on disk but NOT at HEAD.
+#
+# It used to mean only the former, and that is what made the stranding permanent:
+# an address appended by a write whose commit never happened is invisible to
+# every later call, because a membership short-circuit returns before the flag
+# can be set again. There are TWO such short-circuits — the pre-lock fast path
+# below and the under-lock re-check further down — and BOTH now consult HEAD.
+# Adding a third membership check without that consult re-opens the hole.
+#
+# The append is still what the flag's PLACEMENT in the chain answers for: it sits
+# between the append and the sort, never behind both (t1614).
 store_email() {
     local email="$1"
     if [[ -z "$email" ]]; then
@@ -250,7 +265,14 @@ store_email() {
     dir=$(dirname "$EMAILS_FILE")
     mkdir -p "$dir"
     touch "$EMAILS_FILE"
-    grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null && return 0   # already known
+    if grep -qxF -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+        # Already on disk — but membership alone must NOT end the call. If this
+        # address was appended by a write whose commit never landed, this is
+        # exactly where it gets swallowed forever. Claim it for this claim's
+        # contributor commit instead.
+        ait_email_is_committed "$email" || EMAIL_STORED=true
+        return 0
+    fi
 
     # `echo >> ; sort -u -o` is a read-modify-write: sort SNAPSHOTS the file and
     # renames its output over the target, so a concurrent session's append made
@@ -283,12 +305,24 @@ store_email() {
             # not after both: it is what tells commit_and_push the contributor
             # list is this claim's to commit, and the APPEND is the write it
             # answers for. Behind the sort as well, a normalization failure
-            # would leave this address appended, uncommitted and dirty forever
-            # — the next call's membership fast-path above finds it already
-            # present and returns before the flag is ever set again.
+            # would leave THIS claim walking away from an address it just
+            # appended — recoverable now that both membership checks consult
+            # HEAD (t1626), but only by some later call, and only if one ever
+            # comes. Recording it here is what makes it this claim's problem.
             printf '%s\n' "$email" >> "$EMAILS_FILE" &&
                 EMAIL_STORED=true &&
                 sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+        else
+            # The holder we waited on added it — but it may have died, or had
+            # its own commit fail, between releasing the mutex and committing.
+            # Our PRE-LOCK check ran while the address was still absent, so this
+            # is the only place this interleaving can be caught, and we are
+            # holding the mutex looking straight at the dirty file. Walking away
+            # here re-creates the stranding this whole function guards (t1626).
+            #
+            # Pure read plus an assignment, and kept LAST in the branch: it
+            # cannot set rc, so the group's status still answers for the append.
+            ait_email_is_committed "$email" || EMAIL_STORED=true
         fi
     } || rc=$?
     registry_lock_release "$lockdir"
@@ -428,38 +462,12 @@ update_task_status() {
 
 # --- Commit and push ---
 
-# _commit_scoped <msg> <path>... — stage and commit ONLY these paths.
-# Returns 0 = committed, 2 = verified nothing to commit, 1 = commit failed.
-#
-# `git commit -- <paths>` is a PARTIAL commit: it takes those paths' WORKTREE
-# content and ignores their index entry (verified: a staged-then-modified path
-# commits the on-disk version). That is deliberate here — the claim's own
-# aitask_update.sh write is on disk — but it is a real change from the
-# index-wide commit this replaces, so it is stated rather than assumed.
-_commit_scoped() {
-    local msg="$1"; shift
-    # Load-bearing: `git commit --` with no pathspec commits the WHOLE index,
-    # silently re-creating the cross-session swallow this exists to stop.
-    # `-o` below makes that case fatal rather than silent; this guard means it
-    # is never reached.
-    (( $# )) || return 2
-
-    # `add` is needed ONLY so an untracked path can be named by the pathspec;
-    # a pathspec cannot match a file git does not know about.
-    task_git add -- "$@" >/dev/null 2>&1 || true
-
-    # Capture the status exit separately: a failing status with empty stdout
-    # must read as "unverified", never as "clean" (same shape as the guard in
-    # aitask_gate.sh's materialize-active).
-    local st st_rc=0
-    st="$(task_git status --porcelain -- "$@" 2>/dev/null)" || st_rc=$?
-    if [[ $st_rc -eq 0 && -z "$st" ]]; then
-        return 2
-    fi
-    [[ $st_rc -ne 0 ]] && warn "git status failed for $* — committing anyway"
-
-    task_git commit -o -m "$msg" --quiet -- "$@" || return 1
-}
+# _commit_scoped <msg> <path>... — thin alias for task_git_commit_scoped in
+# lib/task_utils.sh, where the body now lives so that aitask_create.sh's
+# add_email_to_file() commits the shared contributor list through the SAME seam
+# (t1626). Contract is unchanged: 0 = committed, 2 = verified nothing to commit,
+# 1 = commit failed. Kept as an alias so every call site below stays as it was.
+_commit_scoped() { task_git_commit_scoped "$@"; }
 
 commit_and_push() {
     local task_id="$1"; shift
@@ -533,12 +541,7 @@ main() {
         prev_assigned=$(grep '^assigned_to:' "$task_file" 2>/dev/null | sed 's/assigned_to: *//' || true)
     fi
 
-    # Step 2: Store email if provided
-    if [[ -n "$EMAIL" ]]; then
-        store_email "$EMAIL"
-    fi
-
-    # Step 3: Acquire lock — capture stdout so we can parse PRIOR_LOCK:
+    # Step 2: Acquire lock — capture stdout so we can parse PRIOR_LOCK:
     # before it's lost. Forward the captured output verbatim to our caller.
     local lock_result=0 acquire_stdout=""
     acquire_stdout=$(acquire_lock "$TASK_ID" "$EMAIL") || lock_result=$?
@@ -560,8 +563,13 @@ main() {
     elif [[ $lock_result -eq 1 || $lock_result -eq 4 || $lock_result -eq 5 ]]; then
         # LOCK_FAILED / LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER already
         # printed by acquire_lock. Nothing was claimed — the gate refuses
-        # before the lock write, the status update and the commit — so there
-        # is no state to roll back here.
+        # before the lock write, the status update, the contributor-list write
+        # and the commit — so there is no state to roll back here.
+        #
+        # The contributor list is named explicitly because it is the one that
+        # was NOT true until t1626: store_email used to run before this gate,
+        # so a refused claim reached here with emails.txt already appended and
+        # dirty. It is now written at Step 4, below every exit on this path.
         exit 1
     elif [[ $lock_result -eq 2 ]]; then
         # LOCK_INFRA_MISSING already printed by acquire_lock
@@ -585,8 +593,23 @@ main() {
             prior_starttime_kind <<<"${prior_line#PRIOR_LOCK:}"
     fi
 
-    # Step 4: Update task metadata
+    # Step 3: Update task metadata
     update_task_status "$TASK_ID" "$EMAIL"
+
+    # Step 4: Store email — AFTER the lock gate and the status write, and
+    # immediately before the commit that persists it (t1626).
+    #
+    # This used to run before acquire_lock, which meant a claim refused with
+    # LOCK_FAILED / LOCK_LIVE_HOLDER / LOCK_UNVERIFIABLE_HOLDER exited having
+    # already appended its address, leaving emails.txt dirty with nothing left
+    # to commit it. Every refusal path now precedes this write, so a refused
+    # claim writes nothing at all.
+    #
+    # Placed after update_task_status, not merely after the lock: there is no
+    # `set -e` early exit left between the append and commit_and_push below.
+    if [[ -n "$EMAIL" ]]; then
+        store_email "$EMAIL"
+    fi
 
     # Step 5: Commit and push — ONLY the paths this claim owns. The task file is
     # the sole task-owned path a claim writes: lock artifacts are blobs on the

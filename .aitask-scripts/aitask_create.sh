@@ -1117,7 +1117,7 @@ select_xdeprepo() {
 # `set -e` (without -u) an unset variable would expand to `task_git add ""`,
 # whose `|| true` would silently stop committing the vocabulary.
 LABELS_FILE="${TASK_DIR}/metadata/labels.txt"
-EMAILS_FILE="aitasks/metadata/emails.txt"
+EMAILS_FILE="$AIT_EMAILS_FILE"
 # Budget for the contributor-list mutex, in the attempts x sleep form
 # stale_lock_acquire takes (~10s, matching acquire_child_lock above and
 # EMAILS_LOCK_TIMEOUT in aitask_pick_own.sh). Overridable so tests can drive both
@@ -1137,49 +1137,103 @@ add_email_to_file() {
     local email="$1"
     [[ -n "$email" ]] || return 0
     ensure_emails_file
-    grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null && return 0   # fast path only
 
-    # `echo >> ; sort -u -o` is a read-modify-write, and `sort -o` renames a
-    # SNAPSHOT over the target — so a concurrent session's append made after that
-    # snapshot is erased. Atomicity is not serialization: hold the shared mutex,
-    # or do not write. This is the SAME lock path store_email() takes in
-    # aitask_pick_own.sh (t1608). The two reach it through different adapters —
-    # this one calls lib/stale_lock.sh directly, that one via lib/registry_lock.sh
-    # — but registry_lock delegates to stale_lock on the caller's dir, so both
-    # contend on one mkdir mutex. Keep both call sites on `ait_lock_dir emails`.
-    local lockdir token rc=0
-    lockdir="$(ait_lock_dir emails)" || return 0
-    # Same markerless-guard window registry_lock.sh passes, and that agreement
-    # is REQUIRED, not incidental (t1598): `ait_lock_dir emails` is reached both
-    # here and through registry_lock_acquire in aitask_pick_own.sh, so if the two
-    # disagreed then whether a wedged guard self-heals would depend on which
-    # writer happened to arrive first.
-    if ! stale_lock_acquire "$lockdir" "$EMAILS_LOCK_ATTEMPTS" "$EMAILS_LOCK_SLEEP" \
-            "contributor list" "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
-        # Best-effort, like store_email: the address is already recorded in the
-        # task's own assigned_to, only the autocomplete vocabulary misses it — and
-        # the task file is on disk uncommitted by now, so failing here would
-        # strand it to fix a strictly smaller problem.
-        warn "contributor list busy — email not recorded$(stale_lock_describe "$lockdir")"
-        return 0
-    fi
-    token="$STALE_LOCK_TOKEN"
-    {
-        # Re-check under the lock: a holder we waited on may have added it.
-        if ! grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null; then
-            # CHAINED ON PURPOSE. errexit is suppressed inside a group tested by
-            # `|| rc=$?`, so as two statements a failed append followed by a
-            # successful sort would leave the group's status at 0 — reporting
-            # success for an address that was never written. `&&` makes the
-            # append's failure the group's status, and skips a sort that would
-            # only rewrite the unchanged file.
-            printf '%s\n' "$email" >> "$EMAILS_FILE" &&
-                sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+    # "This call OWES emails.txt a commit" — NOT "this call appended" (t1626).
+    # Two disjoint things set it, and both must reach the single commit tail at
+    # the bottom, which is why neither membership check returns early any more.
+    local needs_email_commit=false
+
+    if grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+        # (a) RECOVERY, pre-lock. Already on disk — but membership alone must
+        # not end the call. An address appended by a write whose commit never
+        # happened is stranded exactly here: an "appended" flag would stay
+        # false and the file would stay dirty forever, because every later call
+        # short-circuits in the same place. Consult HEAD instead.
+        ait_email_is_committed "$email" || needs_email_commit=true
+    else
+        # `echo >> ; sort -u -o` is a read-modify-write, and `sort -o` renames a
+        # SNAPSHOT over the target — so a concurrent session's append made after that
+        # snapshot is erased. Atomicity is not serialization: hold the shared mutex,
+        # or do not write. This is the SAME lock path store_email() takes in
+        # aitask_pick_own.sh (t1608). The two reach it through different adapters —
+        # this one calls lib/stale_lock.sh directly, that one via lib/registry_lock.sh
+        # — but registry_lock delegates to stale_lock on the caller's dir, so both
+        # contend on one mkdir mutex. Keep both call sites on `ait_lock_dir emails`.
+        local lockdir token rc=0 rel_rc=0
+        lockdir="$(ait_lock_dir emails)" || return 0
+        # Same markerless-guard window registry_lock.sh passes, and that agreement
+        # is REQUIRED, not incidental (t1598): `ait_lock_dir emails` is reached both
+        # here and through registry_lock_acquire in aitask_pick_own.sh, so if the two
+        # disagreed then whether a wedged guard self-heals would depend on which
+        # writer happened to arrive first.
+        if ! stale_lock_acquire "$lockdir" "$EMAILS_LOCK_ATTEMPTS" "$EMAILS_LOCK_SLEEP" \
+                "contributor list" "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
+            # Best-effort, like store_email: the address is already recorded in the
+            # task's own assigned_to, only the autocomplete vocabulary misses it — and
+            # the task file is on disk uncommitted by now, so failing here would
+            # strand it to fix a strictly smaller problem. Nothing was written under
+            # the mutex, so there is nothing to commit either.
+            warn "contributor list busy — email not recorded$(stale_lock_describe "$lockdir")"
+            return 0
         fi
-    } || rc=$?
-    stale_lock_release "$lockdir" "$token" \
-        || warn "add_email_to_file: contributor-list lock not fully released"
-    [[ $rc -eq 0 ]] || warn "add_email_to_file: failed to record ${email} (rc=$rc)"
+        token="$STALE_LOCK_TOKEN"
+        {
+            # Re-check under the lock: a holder we waited on may have added it.
+            if ! grep -qFx -- "$email" "$EMAILS_FILE" 2>/dev/null; then
+                # CHAINED ON PURPOSE. errexit is suppressed inside a group tested by
+                # `|| rc=$?`, so as two statements a failed append followed by a
+                # successful sort would leave the group's status at 0 — reporting
+                # success for an address that was never written. `&&` makes the
+                # append's failure the group's status, and skips a sort that would
+                # only rewrite the unchanged file.
+                #
+                # The flag sits BETWEEN the append and the sort, never behind both:
+                # the append is the write it answers for (t1614's ordering).
+                printf '%s\n' "$email" >> "$EMAILS_FILE" &&
+                    needs_email_commit=true &&
+                    sort -u "$EMAILS_FILE" -o "$EMAILS_FILE"
+            else
+                # (b) RECOVERY, under the lock. The holder we waited on added it
+                # and may have died — or had its own commit fail — between
+                # releasing the mutex and committing. Our pre-lock check ran
+                # while the address was still absent, so this is the ONLY place
+                # that interleaving can be caught (t1626). Same rule as (a).
+                #
+                # Pure read plus an assignment, kept LAST in the branch: it
+                # cannot set rc, so the group's status still answers for the
+                # append.
+                ait_email_is_committed "$email" || needs_email_commit=true
+            fi
+        } || rc=$?
+        # Keep the release STATUS rather than discarding it. Note the direction:
+        # a non-zero status means OUR OWN lock dir is still in place (guard busy,
+        # or a failed verified-rm), so the commit below is MORE serialized then,
+        # not less — gating it on this status would skip it precisely when it is
+        # safest. The genuinely ambiguous case ("not owner … leaving intact") is
+        # reported as SUCCESS. So the commit always runs; a retained mutex must
+        # never silently swallow an address that is already on disk.
+        stale_lock_release "$lockdir" "$token" || rel_rc=$?
+        [[ $rel_rc -eq 0 ]] || warn "add_email_to_file: contributor-list lock not fully released — the lock dir stays until stale_lock's dead-record reclaim clears it"
+        [[ $rc -eq 0 ]] || warn "add_email_to_file: failed to record ${email} (rc=$rc)"
+    fi
+
+    # The single commit tail. Path-scoped, and in its OWN commit that names no
+    # task: emails.txt is shared, so a commit of it may legitimately carry a
+    # concurrent session's append, and only a task-free message stays true.
+    # Same shape and message as commit_and_push() in aitask_pick_own.sh.
+    #
+    # Deliberately OUTSIDE the mutex, matching that split: task_git can die()
+    # on a wedged data worktree, and this critical section has no EXIT trap, so
+    # committing inside it would leak the lock dir. `sort -o` renames a temp
+    # over the target and a single short append is not torn, so the worst a
+    # concurrent writer can cause is a commit that lags its line by one write —
+    # and that line's own writer owes it a commit, which the recovery paths
+    # above now guarantee.
+    if [[ "$needs_email_commit" == true ]]; then
+        local crc=0
+        task_git_commit_scoped "ait: Record contributor email" "$EMAILS_FILE" || crc=$?
+        [[ $crc -eq 1 ]] && warn "could not commit ${EMAILS_FILE}"
+    fi
     return 0
 }
 
