@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, aitask_monitor, tui, tmux, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1598
 followup_kind: upstream_defect
 created_at: 2026-08-26 08:01
-updated_at: 2026-08-26 08:01
+updated_at: 2026-08-26 08:47
 ---
 
 ## Origin
