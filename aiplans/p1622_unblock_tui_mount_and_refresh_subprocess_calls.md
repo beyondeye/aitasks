@@ -520,3 +520,47 @@ reassessment note): both inline phases are bounded and independently verifiable,
 so they lower risk 1's severity without changing the blast radius or the
 dual-writer surface. Code-health stays **medium**; goal-achievement stays
 **low**.
+
+---
+
+## Implementation notes
+
+All parts landed as planned. Deviations and findings worth carrying forward:
+
+- **Part A / A1.** `TmuxClient.run_async` is used exactly as designed. The
+  docstring's ambient-socket rationale is pinned by
+  `test_the_seed_queries_the_ambient_server_for_its_own_pane`, which asserts on
+  the **resolved argv** and additionally pops `AITASKS_TMUX_SOCKET` first — the
+  first draft passed under an environment where the default already resolves to
+  no flag, i.e. it could not have failed. The precondition assertion is what
+  makes it falsifiable.
+- **B3 / tests.** `tests/test_minimonitor_top_chrome_render.py` does **not**
+  scrub `TMUX` at import (unlike the other two suites), so the new class scrubs
+  it in `setUp`. Without that, `run_test`'s own `on_mount` took the in-tmux path,
+  built a real `TmuxMonitor` (and a live `tmux -C attach`) and left
+  `_refresh_inflight` set, so the assertions read an untouched bar. Same trap
+  reordered the env setup in the two `MountWindowProbeTests` cases.
+- **Test 7 fixture.** Seeding the desync cache with a *fresh* entry made the test
+  non-discriminating: the blocking `get_desync_summary` serves a fresh entry too,
+  so the regression passed. The entry is now deliberately TTL-expired, which is
+  the only state that separates the cached-only reader from the blocking one.
+- **Post-phase mitigations.** Both applied:
+  `pin_own_window_consumer_refusals` → `OwnWindowNotYetSeededTests` (5 tests);
+  `fix_sibling_pane_refusal_message` → `_find_sibling_pane_id` now reports
+  "Own window not detected yet" separately from "Not inside tmux", pinned in both
+  directions.
+
+**Positive controls executed** (each mutation confirmed to fail the named test,
+then reverted): `on_mount` back to `subprocess.run`; a bare `TmuxClient()`; the
+`is None` seed guards dropped; the two sibling refusals re-merged; the desync
+pre-fetch not passed to `_rebuild_session_bar`; the bar builder back on the
+blocking reader; `_fetch_async`'s `except asyncio.CancelledError` removed.
+
+**Live verification.** Booted both TUIs against the real ambient tmux server
+inside this session: minimonitor mount+boot 11 ms with the seed resolving this
+pane's window correctly (`@125 / 2 / agent-pick-1622`); full monitor refresh
+23 ms with the session bar rendered and the desync cache populated by the async
+reader.
+
+**Suite:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)` — 5365 passed,
+2 skipped, plus the 5 serial live modules.
