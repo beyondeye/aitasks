@@ -151,7 +151,16 @@ swallowed.
   A claim with **no** email still never reaches `store_email` (`main()` guards
   on `[[ -n "$EMAIL" ]]`), so a dirty foreign list is still left alone — the
   Test 5 invariant is preserved by construction.
-- Update `store_email`'s header comment (lines 239-243). It currently reads
+- Update **both** comments that state the flag's contract, not just one:
+  - the **global declaration** of `EMAIL_STORED` (`aitask_pick_own.sh:72`). It
+    says the flag is set "when THIS invocation added a new address — the only
+    condition", and adds "A claim refused at the task lock still leaves its
+    append on disk" — the second sentence asserts the very defect this task
+    removes, and the first would invite a maintainer to narrow the recovery
+    branches back out. Restate it as "this claim owes emails.txt a commit",
+    naming both setters and keeping the one thing that is still true (a claim
+    with no email never commits a foreign line).
+  - `store_email`'s header comment (lines 239-243). It currently reads
   "Sets `EMAIL_STORED=true` only when this call's APPEND actually adds a new
   address"; that is no longer the whole truth. The flag now means **"this claim
   owes `emails.txt` a commit"** — set by a successful append *or* by a detected
@@ -453,3 +462,104 @@ then `./.aitask-scripts/aitask_pick_own.sh <n> --email <fresh address>` ⇒
 the augmented plan leaves both levels unchanged — code-health stays **medium**
 (the blast radius of touching `lib/task_utils.sh` is reduced-but-not-removed by
 a test sweep) and goal-achievement stays **low**.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-26 15:10)
+- **Requested by user:** The global `EMAIL_STORED` declaration comment
+  (`aitask_pick_own.sh:72`) still said the flag is set only when this invocation
+  added a new address, contradicting `store_email`'s updated contract and
+  inviting a future maintainer to narrow the recovery branches back out.
+- **Changes made:** Rewrote the declaration comment as the contract "this claim
+  owes emails.txt a commit", naming both setters and stating explicitly that
+  narrowing it back removes the recovery. Verification found a second, worse
+  problem in the same comment that the report did not name: its follow-on
+  sentence, "A claim refused at the task lock still leaves its append on disk",
+  asserted the very defect this task removes. That sentence was removed and
+  replaced with the clause that IS still true — a claim carrying no email never
+  commits a foreign line. Plan step 2 updated to list both comment sites rather
+  than only `store_email`'s header.
+- **Files affected:** `.aitask-scripts/aitask_pick_own.sh`,
+  `aiplans/p1626_emails_txt_writers_strand_uncommitted_addresses.md`
+- **Verification:** comment-only change; both suites re-run — 103 + 78 passing.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in the planned order (pre-phase
+  mitigation first, then steps 1-3, then tests, then the post-phase sweep).
+  `lib/task_utils.sh` gained `task_git_commit_scoped` (body moved verbatim from
+  `aitask_pick_own.sh::_commit_scoped`, which is now a one-line delegator),
+  `AIT_EMAILS_FILE`, and `ait_email_is_committed`. `aitask_pick_own.sh` moved
+  `store_email` below the lock gate and the status write, and both of its
+  membership short-circuits now consult HEAD. `aitask_create.sh` restructured
+  `add_email_to_file` around one `needs_email_commit` flag and one commit tail,
+  with both short-circuits consulting HEAD and the release status captured
+  rather than discarded. Tests: `test_pick_own_scoped_commit.sh` 69 → 103
+  assertions, `test_create_email_lock.sh` 35 → 78.
+
+- **Deviations from plan:** One, in the *test* design rather than the fix. The
+  plan sketched the under-lock-recheck tests as "start the holder, start the
+  writer, wait for the task file to appear, then release" — which is a RACE, not
+  a deterministic scenario: nothing in that ordering guarantees the writer's
+  pre-lock check runs before the holder's append, and if it does not, the writer
+  takes the *pre-lock* recovery branch instead and the test silently stops
+  exercising the branch it exists for. Replaced with a barrier patched into the
+  fixture's COPY of the mutex library (`registry_lock.sh` / `stale_lock.sh`),
+  parking the writer at the seam between its pre-lock check and its mutex
+  acquisition. The holder sources the PROJECT's unpatched library, so it is
+  still a real second process contending on the real mutex; only the writer's
+  position is pinned. This is what makes the "absent at pre-lock, present at
+  under-lock" ordering a fact the test asserts rather than a timing hope.
+
+  Also strengthened beyond the plan: `test_create_email_lock.sh` Test 12 as
+  planned would have duplicated Test 3's on-disk assertions. Its scenario driver
+  now samples git state before `teardown` pops the directory, so Test 12 pins
+  what only it can see — the commit made outside the mutex carries the holder's
+  line too and strands nothing.
+
+- **Issues encountered:**
+  - The two Test 4 assertions in `test_pick_own_scoped_commit.sh` failed after
+    the fix, exactly as the plan predicted: they reached their dirty state
+    *through* the defect (a refused claim appending). Repaired by seeding the
+    dirty state directly, keeping the invariant the test actually guards, and
+    adding Test 4b to cover the same-address retry the old test could not.
+  - The `EMAIL_STORED` declaration comment (Change Request 1 above) was missed
+    in the first pass — the plan named `store_email`'s header comment but not
+    the global declaration eight lines from the top of the file.
+
+- **Key decisions:**
+  - **`ait_email_is_committed` fails toward "not committed".** Over-claiming
+    costs at most one `task_git_commit_scoped` call that returns 2 (verified
+    nothing to commit); under-claiming is permanent. Same reasoning applies to
+    an unreadable HEAD, an untracked file, and a repo with no commits.
+  - **The commit runs OUTSIDE the contributor-list mutex**, matching the shipped
+    `store_email` / `commit_and_push` split. Committing inside would put a
+    `die`-capable `task_git` call (`assert_data_worktree_clean`) inside a
+    critical section with no EXIT trap, leaking the lock dir on a wedged data
+    worktree.
+  - **The release status is captured but does NOT gate the commit**, and the
+    direction is the opposite of what it looks like: `stale_lock_release`
+    returns non-zero exactly when OUR OWN lock dir is still in place
+    (`stale_lock.sh:691`, `:700-701`), so the commit is *more* serialized then,
+    while the genuinely ambiguous case ("not owner … leaving intact", `:706`)
+    returns success. Gating on the status would skip the commit precisely when
+    it is safest. The warning instead names the dead-record reclaim that clears
+    a retained lock, so a retained mutex is never a silent dead end.
+  - **All four membership short-circuits consult HEAD**, not just the two
+    pre-lock ones. Fixing only the pre-lock path leaves a live concurrent hole,
+    and each of the four is covered by a test with its own positive
+    negative-control.
+
+- **Upstream defects identified:** None
+
+- **Verification run:** `tests/test_pick_own_scoped_commit.sh` 103/103;
+  `tests/test_create_email_lock.sh` 78/78; `test_claim_id.sh` 54/54;
+  `test_create_manual_verification_gates.sh` 42/42;
+  `test_create_manual_verification.sh` 18/18; `test_create_project_flag.sh`
+  34/34; `test_create_silent_stdout.sh` 14/14; `test_lock_diag.sh` 9/9;
+  `test_lock_force.sh` 16/16; `test_lock_live_holder_gate.sh` 60/60;
+  `test_lock_reclaim.sh` 20/20; `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  `shellcheck` finding counts unchanged versus HEAD for all three source files
+  (19 = 19 on `aitask_create.sh`; the rest pre-existing). Live smoke of
+  `ait_email_is_committed` against this repo returns correctly in both
+  directions.
