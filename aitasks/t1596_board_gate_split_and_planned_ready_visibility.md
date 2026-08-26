@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [1595]
 issue_type: enhancement
-status: Ready
+status: Folded
 labels: [aitask_board, tui, gates]
 gates: [risk_evaluated]
+folded_into: 1603
 anchor: 1595
 created_at: 2026-08-25 10:16
-updated_at: 2026-08-25 10:16
+updated_at: 2026-08-26 22:18
 ---
 
 # Board: gate-reached split in the in-flight view + planned-vs-unplanned visibility for Ready tasks
