@@ -23,7 +23,9 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -190,6 +192,9 @@ def _mk_app(monitor=None, task_id="1427_2", rejected_rc=0, rejected_out=""):
     app._loop_now = lambda: app._loop_clock[0]
     app._loop_last_service_at = None
     app._loop_stale_false_pending = False
+    # Visible-hold edge-trigger state + durable-event identities (t1606).
+    app._loop_hold_reason = None
+    app._loop_identity = {}
     app._session = "s"
     app._own_window_name = "agent-x"
     app.spy_notify: list = []
@@ -2492,14 +2497,32 @@ class ReviewLoopFireTests(unittest.TestCase):
         other verdict means the pane is not where we left it, and the delivery
         must send no key: a dialog would EAT the Enter, an indeterminate read
         is no evidence at all, and ready/working mean the text is gone.
+
+        **The Enter counts are CONTRACT and did not move in t1606** — the veto
+        is exactly as strict as it was. What t1606 changed is the CONSEQUENCE,
+        and only for the AMBIGUOUS verdicts, so `armed` is now part of the
+        table:
+
+        * DIALOG — the shadow's transcript can mask a still-busy composer, and
+          running commands (which is the shadow's job on a recheck) pops an
+          approval dialog as a normal consequence. Ambiguous → HOLD, armed.
+        * AT_REST / STREAMING (ready/working) — the text is demonstrably not
+          where we put it. Unambiguous → DISARM, and the message was already
+          true. Keeping these fatal is also what prevents a re-fire spin:
+          READY collapses to ready-True, so an abort would re-permit on the
+          next tick and re-write the prompt forever.
         """
         cases = [
-            (_rlfx.CLAUDE_DIALOG_RAW, 0, "left in the shadow composer"),
-            (_rlfx.CLAUDE_AT_REST_RAW, 0, "not in the shadow composer"),
-            (_rlfx.CLAUDE_STREAMING_RAW, 0, "not in the shadow composer"),
-            (_rlfx.CLAUDE_TYPED_RAW, 1, None),      # the authorising verdict
+            # tail, enters, armed_after, message
+            (_rlfx.CLAUDE_DIALOG_RAW, 0, True,
+             "shadow showed a dialog before the Enter"),
+            (_rlfx.CLAUDE_AT_REST_RAW, 0, False,
+             "not in the shadow composer"),
+            (_rlfx.CLAUDE_STREAMING_RAW, 0, False,
+             "not in the shadow composer"),
+            (_rlfx.CLAUDE_TYPED_RAW, 1, True, None),  # authorising verdict
         ]
-        for tail, enters, message in cases:
+        for tail, enters, armed_after, message in cases:
             with self.subTest(state=_rl.shadow_state(tail, "claude")):
                 app, mon, _ = self._armed()
                 mon.typed_tail = tail   # what the post-write readback sees
@@ -2507,16 +2530,31 @@ class ReviewLoopFireTests(unittest.TestCase):
                 self.assertEqual(
                     sum(1 for _p, k, _l in mon.sent if k == "Enter"), enters,
                     mon.sent)
+                self.assertEqual(app._review_loop.armed, armed_after,
+                                 app.spy_notify)
                 if message is not None:
                     self.assertTrue(
                         any(message in m for m, _s in app.spy_notify),
                         app.spy_notify)
+                # The false message t1606 Deliverable 3 removes: only a
+                # delivery that provably left text behind may say so.
+                if tail is not _rlfx.CLAUDE_TYPED_RAW:
+                    self.assertFalse(
+                        any("left in the shadow composer" in m
+                            for m, _s in app.spy_notify), app.spy_notify)
 
     def test_an_unreadable_pane_before_the_enter_vetoes_the_send(self):
         """The fail-CLOSED half, against the fail-open-but-loud half below.
 
         A capture failure before the Enter is not evidence the pane is safe, so
         nothing is sent — the same rule `shadow_state` states for readiness.
+
+        **The veto is unchanged; t1606 changed what follows it.** An
+        indeterminate read used to auto-disarm, which directly contradicted
+        the rule this subsystem states for itself in
+        `find_shadow_pane_info_async` — "a transient tmux failure pauses the
+        loop, only a verified absence disarms it". It now HOLDS, visibly, and
+        the message is true: the composer was unreadable, not full.
         """
         app, mon, _ = self._armed()
         real_prompt_written = []
@@ -2530,8 +2568,13 @@ class ReviewLoopFireTests(unittest.TestCase):
         _tick(app, 3)
         self.assertEqual(sum(1 for _p, k, _l in mon.sent if k == "Enter"), 0,
                          mon.sent)
-        self.assertTrue(any("left in the shadow composer" in m
-                            for m, _s in app.spy_notify), app.spy_notify)
+        self.assertTrue(app._review_loop.armed, app.spy_notify)
+        self.assertTrue(any("could not read the shadow pane before the Enter"
+                            in m for m, _s in app.spy_notify), app.spy_notify)
+        # Deliverable 3: the composer is EMPTY here, so the leftover-text
+        # message would be a lie.
+        self.assertFalse(any("left in the shadow composer" in m
+                             for m, _s in app.spy_notify), app.spy_notify)
 
     def test_a_dialog_after_the_enter_is_unverified_not_submitted(self):
         """`SHADOW_DIALOG` must not be read as "submitted".
@@ -3548,6 +3591,523 @@ class PayloadOverrideForwardTests(unittest.TestCase):
         app = _mk_app()
         app.apply_concern_pick_result(_pick_result(forwarded=[]), "1427_2")
         self.assertEqual(app.spy_clipboard, [])
+
+
+class TeardownPathCharacterizationTests(unittest.TestCase):
+    """Risk-mitigation pre-phase `characterize_teardown_paths` (t1606).
+
+    Before t1606 consolidates them, pin what each auto-disarm teardown does
+    **today**, so the consolidation shows up as a flipped assertion rather
+    than as a silent behaviour change nobody reviewed.
+
+    There are two reachable teardowns, not the three the task description
+    assumed (the third — the latched-False replay's `ACTION_AUTO_DISARM`
+    block — is provably unreachable; that is pinned in
+    `test_review_loop.ReplayDisarmUnreachabilityTests`, and t1606 deletes the
+    dead block):
+
+    1. :meth:`MiniMonitorApp._loop_auto_disarm` — the helper. Clears the
+       settle deadline.
+    2. The inline `action == ACTION_AUTO_DISARM` branch in
+       `_service_review_loop`. Open-codes the same five mutations but
+       **omits** `_loop_shadow_settle_until = None`.
+
+    That omission is the live divergence. The two assertions marked
+    CHARACTERIZATION below record it as-is; Phase 1c flips them to
+    `assertIsNone` when the branch starts routing through the helper. They are
+    **characterization, not contract** — do not "restore" them if a later
+    change makes them fail, that failure is the fix landing.
+    """
+
+    _SENTINEL_DEADLINE = 12345.0
+
+    def _armed_with_standing_deadline(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        # Arming clears the deadline (t1509), so seed it afterwards. Set
+        # directly rather than via the latch: what is under test is what the
+        # teardown does to a standing deadline, not how one comes to stand.
+        app._loop_shadow_settle_until = self._SENTINEL_DEADLINE
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        app._loop_shadow_hash = 999
+        app._loop_shadow_hash_streak = 4
+        app._set_loop_banner("⟳ auto-recheck ARMED")
+        return app, mon, snap
+
+    # ---- teardown 1: the helper -------------------------------------------
+
+    def test_helper_clears_every_piece_of_loop_state(self):
+        """CONTRACT — the helper is the reference behaviour."""
+        app, _mon, _snap = self._armed_with_standing_deadline()
+        app._loop_auto_disarm(mm.review_loop.DISARM_SHADOW_GONE)
+        self.assertFalse(app._review_loop.armed)
+        self.assertIsNone(app._loop_baseline)
+        self.assertIsNone(app._loop_shadow_hash)
+        self.assertEqual(app._loop_shadow_hash_streak, 0)
+        self.assertEqual(app._loop_banner_text, "")
+        self.assertIsNone(app._loop_shadow_settle_until)
+        self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
+
+    # ---- teardown 2: the inline ctrl.tick branch --------------------------
+
+    def test_inline_tick_branch_disarms_on_verified_shadow_absence(self):
+        """CONTRACT — the parts the inline branch does get right."""
+        app, mon, _ = self._armed_with_standing_deadline()
+        mon._async_list = _SHADOW_LIST_NONE   # verified: no shadow bound
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        self.assertIsNone(app._loop_baseline)
+        self.assertIsNone(app._loop_shadow_hash)
+        self.assertEqual(app._loop_shadow_hash_streak, 0)
+        self.assertEqual(app._loop_banner_text, "")
+        self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
+
+    def test_inline_tick_branch_clears_the_settle_deadline(self):
+        """FLIPPED by t1606 Phase 1c — was the divergence, is now the fix.
+
+        Until Phase 1c this asserted the deadline was still STANDING: the
+        inline branch open-coded the teardown and omitted
+        `_loop_shadow_settle_until = None`. Routing it through
+        `_loop_auto_disarm` removed the divergence, so the assertion inverted.
+
+        Kept as characterization rather than deleted: it is the evidence that
+        the consolidation actually changed behaviour, and the negative control
+        for the change (drop the clear from the helper and this fails).
+        """
+        app, mon, _ = self._armed_with_standing_deadline()
+        mon._async_list = _SHADOW_LIST_NONE
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed, "precondition: it disarmed")
+        self.assertIsNone(app._loop_shadow_settle_until)
+
+    def test_the_two_teardowns_now_agree_about_the_settle_deadline(self):
+        """FLIPPED by t1606 Phase 1c. The whole point of the consolidation:
+        there is one teardown, so there is nothing left to disagree."""
+        helper_app, _m, _s = self._armed_with_standing_deadline()
+        helper_app._loop_auto_disarm(mm.review_loop.DISARM_SHADOW_GONE)
+
+        inline_app, inline_mon, _ = self._armed_with_standing_deadline()
+        inline_mon._async_list = _SHADOW_LIST_NONE
+        _tick(inline_app, 1)
+
+        self.assertIsNone(helper_app._loop_shadow_settle_until)
+        self.assertIsNone(inline_app._loop_shadow_settle_until)
+
+
+class _LoopEventStoreMixin:
+    """Point the durable event store at a temp dir for the duration."""
+
+    def setUp(self):
+        super().setUp()
+        self._events_tmp = tempfile.TemporaryDirectory()
+        self.events_dir = Path(self._events_tmp.name) / "events"
+        os.environ[mm.review_loop_log.LOG_DIR_ENV] = str(self.events_dir)
+        mm.review_loop_log.reset_session_for_tests()
+        self.addCleanup(self._events_tmp.cleanup)
+        self.addCleanup(mm.review_loop_log.reset_session_for_tests)
+        self.addCleanup(
+            lambda: os.environ.pop(mm.review_loop_log.LOG_DIR_ENV, None))
+
+    def recorded(self):
+        events, _notes = mm.review_loop_log.read_events(
+            self.events_dir, limit=100)
+        return events
+
+    def reasons(self, kind=None):
+        return [e["reason"] for e in self.recorded()
+                if kind is None or e["kind"] == kind]
+
+
+class DisarmIsRecordedTests(_LoopEventStoreMixin, unittest.TestCase):
+    """Every auto-disarm leaves a DURABLE trace naming its condition (t1606).
+
+    The bug this task exists to fix was reported live and was never
+    reproducible synthetically. A toast fades in ~5s, so before t1606 the next
+    occurrence was as undiagnosable as the last one.
+    """
+
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def test_verified_shadow_absence_records_shadow_gone(self):
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_NONE
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM),
+                         [_rl.DISARM_SHADOW_GONE])
+        # And the message the user saw matches the code that was recorded.
+        self.assertTrue(
+            any(_rl.loop_reason_message(_rl.DISARM_SHADOW_GONE) in m
+                for m, _s in app.spy_notify), app.spy_notify)
+
+    def test_verified_agent_departure_records_agent_gone(self):
+        """The OTHER half of the pair that shared one message before t1606.
+
+        `tick` produces ACTION_AUTO_DISARM for either absence; only
+        `last_disarm_reason` tells them apart.
+        """
+        app, mon, snap = self._armed()
+        app._find_own_agent_snapshot = lambda: None
+        mon.discovered = set()
+        mon.enumerated = {"s"}
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM),
+                         [_rl.DISARM_AGENT_GONE])
+
+    def test_the_two_absence_reasons_are_distinguishable(self):
+        """Stated as one assertion so it cannot be read as two unrelated
+        facts: this IS the ambiguity Deliverable 1 removes."""
+        self.assertNotEqual(_rl.DISARM_AGENT_GONE, _rl.DISARM_SHADOW_GONE)
+        self.assertNotEqual(
+            _rl.loop_reason_message(_rl.DISARM_AGENT_GONE),
+            _rl.loop_reason_message(_rl.DISARM_SHADOW_GONE))
+
+    def test_a_delivery_failure_records_its_own_condition(self):
+        app, mon, _ = self._armed()
+        mon.send_results = [False]        # the prompt write itself fails
+        _tick(app, 3)
+        self.assertFalse(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM),
+                         [_rl.DISARM_PROMPT_WRITE_FAILED])
+
+    def test_a_swallowed_enter_records_submit_unconfirmed(self):
+        app, mon, _ = self._armed()
+        mon.swallow_enter = True
+        _tick(app, 3)
+        self.assertFalse(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM),
+                         [_rl.DISARM_SUBMIT_UNCONFIRMED])
+
+    def test_a_record_names_the_followed_shadow_pair(self):
+        """A reason says WHAT went wrong; the identities say to WHICH agent.
+
+        A user runs several followed/shadow pairs at once, so without these an
+        event cannot be correlated back to a pane — most of the diagnostic
+        value. Pinned on an EMITTED record, not on `_loop_event_context` in
+        isolation, so the fields have to survive the whole teardown path.
+        """
+        app, mon, _ = self._armed()
+        _tick(app, 1)                       # a healthy tick learns the pair
+        mon._async_list = _SHADOW_LIST_NONE  # then the shadow verifiably goes
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        events = self.recorded()
+        self.assertEqual(len(events), 1, events)
+        record = events[0]
+        self.assertEqual(record["reason"], _rl.DISARM_SHADOW_GONE)
+        self.assertEqual(record["agent"], "claude")
+        self.assertEqual(record["shadow_agent"], "claude")
+        self.assertEqual(record["shadow_pane"], "%5")
+        self.assertEqual(record["session"], "s")
+        self.assertEqual(record["window"], "agent-x")
+
+    def test_identities_survive_a_tick_that_cannot_re_resolve_them(self):
+        """Last-observed, not re-queried.
+
+        The teardown path is exactly where a fresh tmux lookup may fail — or
+        be the very thing that failed — so a tick that cannot resolve the
+        shadow must not ERASE what the previous tick knew and leave the record
+        anonymous.
+        """
+        app, mon, _ = self._armed()
+        _tick(app, 1)
+        self.assertEqual(app._loop_identity.get("shadow_agent"), "claude")
+        mon.list_rc = 1                     # the shadow lookup now fails
+        _tick(app, 1)
+        self.assertEqual(app._loop_identity.get("shadow_agent"), "claude")
+        self.assertEqual(app._loop_identity.get("shadow_pane"), "%5")
+
+    def test_a_rearm_onto_a_different_pair_never_records_a_mixed_one(self):
+        """Identities must not survive an `L`-`L` cycle (t1606 review).
+
+        `_note_loop_identity` only overwrites non-empty values — deliberately,
+        so a tick that cannot re-resolve the shadow keeps what the last one
+        knew. But that stickiness would carry a stale pair ACROSS lifecycles:
+        re-arm onto a different followed/shadow pair, hit an immediate absence
+        or a failed re-resolution, and the record would name the NEW agent
+        beside the OLD shadow — a pair that never existed.
+
+        Arming therefore clears and re-seeds from the identities
+        `action_toggle_review_loop` has already validated, so even a
+        first-tick teardown names the right pair rather than nothing.
+        """
+        app, mon, _ = self._armed()
+        _tick(app, 1)                                  # learn pair A
+        self.assertEqual(app._loop_identity.get("shadow_pane"), "%5")
+
+        app._review_loop.disarm()
+        # A different shadow pane, bound to the same followed agent.
+        mon._async_list = "%77\t%1\tcodex\t4242\n%6\t\tzsh\t7\n"
+        asyncio.run(app.action_toggle_review_loop())    # re-arm onto pair B
+        self.assertTrue(app._review_loop.armed, app.spy_notify)
+        self.assertEqual(app._loop_identity.get("shadow_pane"), "%77")
+        self.assertEqual(app._loop_identity.get("shadow_agent"), "codex")
+
+        # An immediate verified absence, before any successful re-resolution.
+        mon._async_list = _SHADOW_LIST_NONE
+        _tick(app, 1)
+        self.assertFalse(app._review_loop.armed)
+        record = self.recorded()[0]
+        self.assertEqual(record["shadow_pane"], "%77",
+                         "recorded the PREVIOUS lifecycle's shadow pane")
+        self.assertEqual(record["shadow_agent"], "codex",
+                         "recorded the PREVIOUS lifecycle's shadow agent")
+
+    def test_exactly_one_record_per_disarm(self):
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_NONE
+        _tick(app, 4)          # extra ticks after the loop is already dead
+        self.assertEqual(len(self.recorded()), 1, self.recorded())
+
+    def test_an_unrecordable_store_still_tells_the_user(self):
+        """A captured diagnostic nobody can see is not a diagnostic."""
+        blocker = Path(self._events_tmp.name) / "blocked"
+        blocker.write_text("not a directory", encoding="utf-8")
+        os.environ[mm.review_loop_log.LOG_DIR_ENV] = str(blocker / "events")
+        mm.review_loop_log.reset_session_for_tests()
+        app, mon, _ = self._armed()
+        mon._async_list = _SHADOW_LIST_NONE
+        _tick(app, 1)
+        self.assertTrue(any("(not recorded)" in m for m, _s in app.spy_notify),
+                        app.spy_notify)
+
+
+class HoldLifecycleTests(_LoopEventStoreMixin, unittest.TestCase):
+    """The visible hold, across its whole lifecycle (t1606).
+
+    t1525 chose a VISIBLE auto-disarm over a SILENT hold, so the replacement
+    must be a visible hold — never a quiet one. But a hold spans many ticks by
+    design, so it is edge-triggered, and edge-triggering has its own failure
+    modes: swallowing a genuine change, and leaking state past recovery.
+    """
+
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def _hold(self, app, reason):
+        app._loop_hold(reason)
+
+    def test_a_dialog_before_the_enter_holds_visibly_and_stays_armed(self):
+        app, mon, _ = self._armed()
+        mon.typed_tail = _rlfx.CLAUDE_DIALOG_RAW
+        _tick(app, 3)
+        self.assertEqual(sum(1 for _p, k, _l in mon.sent if k == "Enter"), 0)
+        self.assertTrue(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_PRE_ENTER_DIALOG])
+        # VISIBLE: not the generic ARMED line, and not empty.
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_PRE_ENTER_DIALOG))
+
+    def test_a_repeated_reason_records_and_toasts_once(self):
+        app, _mon, _ = self._armed()
+        for _ in range(6):
+            self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_PRE_ENTER_DIALOG])
+        self.assertEqual(
+            sum(1 for m, _s in app.spy_notify if "holding" in m), 1)
+
+    def test_a_changed_reason_records_again_and_replaces_the_banner(self):
+        """Edge-triggering must suppress repeats, NOT genuine change."""
+        app, _mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        self._hold(app, _rl.HOLD_PRE_ENTER_UNREADABLE)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_PRE_ENTER_UNREADABLE,
+                          _rl.HOLD_PRE_ENTER_DIALOG])   # newest first
+        # The banner is REPLACED, not merely non-empty.
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_PRE_ENTER_UNREADABLE))
+        self.assertNotEqual(app._loop_banner_text,
+                            _rl.loop_hold_banner(_rl.HOLD_PRE_ENTER_DIALOG))
+
+    def test_a_successful_delivery_clears_the_hold(self):
+        app, mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        _tick(app, 3)                     # a clean delivery
+        self.assertTrue(mon.submitted, mon.sent)
+        self.assertIsNone(app._loop_hold_reason)
+        self.assertIn("recheck #1 sent", app._loop_banner_text)
+
+    def test_the_same_reason_after_a_recovery_records_again(self):
+        """Edge-triggering must not PERMANENTLY swallow a reason it has seen.
+
+        Without the clear on recovery, a loop that held, recovered, and held
+        again for the same cause would go silent for the rest of the session.
+        """
+        app, _mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        app._clear_loop_hold()
+        self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_PRE_ENTER_DIALOG,
+                          _rl.HOLD_PRE_ENTER_DIALOG])
+
+    def test_a_disarm_clears_the_hold_state(self):
+        app, _mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        app._loop_auto_disarm(_rl.DISARM_SHADOW_GONE)
+        self.assertIsNone(app._loop_hold_reason)
+        self.assertEqual(app._loop_banner_text, "")
+
+    def test_arming_clears_a_stale_hold(self):
+        """A fresh lifecycle must not inherit the previous one's hold — the
+        banner would be wrong AND the edge-trigger would suppress the real
+        hold when it recurred."""
+        app, _mon, snap = self._armed()
+        self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        app._review_loop.disarm()
+        asyncio.run(app.action_toggle_review_loop())   # re-arm
+        self.assertIsNone(app._loop_hold_reason)
+        self.assertEqual(app._loop_banner_text, "⟳ auto-recheck ARMED")
+
+    def test_a_manual_disarm_clears_the_hold_state(self):
+        app, _mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_PRE_ENTER_DIALOG)
+        asyncio.run(app.action_toggle_review_loop())   # the `L` disarm
+        self.assertIsNone(app._loop_hold_reason)
+
+    def test_supersession_is_recorded_but_not_surfaced(self):
+        """A user pressing `L` mid-delivery is a lifecycle event, not a fault.
+
+        Before t1606 this returned "failed" and routed to the auto-disarm,
+        telling the user they had left text in the composer — for a state
+        they had caused.
+        """
+        app, _mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_DELIVERY_SUPERSEDED)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_DELIVERY_SUPERSEDED])
+        self.assertFalse([m for m, _s in app.spy_notify if "holding" in m])
+        self.assertFalse([m for m, _s in app.spy_notify
+                          if "left in the shadow composer" in m])
+
+    def test_an_unrecordable_store_tells_the_user_the_hold_was_not_recorded(self):
+        """A hold's durable record is the one t1606 most depends on.
+
+        The ambiguous pre-Enter reads this task rerouted are HOLDS, so an
+        unwritable store leaves the next occurrence with no trace at all —
+        exactly the gap Deliverable 1 exists to close — while the banner and
+        toast fade. `_loop_hold` must surface that the same way
+        `_loop_auto_disarm` does; an earlier revision discarded the return
+        value and said nothing.
+        """
+        blocker = Path(self._events_tmp.name) / "blocked"
+        blocker.write_text("not a directory", encoding="utf-8")
+        os.environ[mm.review_loop_log.LOG_DIR_ENV] = str(blocker / "events")
+        mm.review_loop_log.reset_session_for_tests()
+        app, mon, _ = self._armed()
+        mon.typed_tail = _rlfx.CLAUDE_DIALOG_RAW      # an ambiguous read
+        _tick(app, 3)
+        self.assertTrue(app._review_loop.armed)
+        self.assertTrue(any("(not recorded)" in m for m, _s in app.spy_notify),
+                        app.spy_notify)
+        # Still visible as a hold, not silently downgraded.
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_PRE_ENTER_DIALOG))
+
+    def test_an_unrecordable_quiet_hold_still_reports_the_failure(self):
+        """A hold that normally stays quiet must still say the LOG broke.
+
+        Supersession is a normal lifecycle event and is deliberately silent —
+        but a failed record is a fault in its own right, and staying silent
+        about both would leave the diagnostic subsystem broken invisibly.
+        """
+        blocker = Path(self._events_tmp.name) / "blocked2"
+        blocker.write_text("not a directory", encoding="utf-8")
+        os.environ[mm.review_loop_log.LOG_DIR_ENV] = str(blocker / "events")
+        mm.review_loop_log.reset_session_for_tests()
+        app, _mon, _ = self._armed()
+        self._hold(app, _rl.HOLD_DELIVERY_SUPERSEDED)
+        self.assertTrue(any("(not recorded)" in m for m, _s in app.spy_notify),
+                        app.spy_notify)
+
+    def test_hold_banners_fit_the_chrome_budget(self):
+        """`_LOOP_STATUS_ROWS` is 2; wording that outgrows it costs the pane
+        list a row via `_MAX_CHROME_ROWS`. Asserted against the real width."""
+        usable = 38
+        for code, banner in _rl.LOOP_HOLD_BANNERS.items():
+            rows = -(-len(banner) // usable)      # ceil
+            self.assertLessEqual(rows, mm._LOOP_STATUS_ROWS,
+                                 f"{code}: {banner!r} needs {rows} rows")
+
+
+class SupersededDeliveryTests(_LoopEventStoreMixin, unittest.TestCase):
+    """A stale delivery must never kill the lifecycle that replaced it.
+
+    `_submit_shadow_prompt`'s token check used to return "failed", which the
+    caller routed to `_loop_auto_disarm`. So pressing `L` twice during a drain
+    — disarm, then re-arm — had the OLD delivery disarm the NEW arm. Its
+    sibling check in `_fire_shadow_recheck` already returned "not_ready"; the
+    same condition had two opposite outcomes.
+    """
+
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def test_a_rearm_during_the_drain_survives_the_stale_delivery(self):
+        app, mon, _ = self._armed()
+        ctrl = app._review_loop
+
+        def _disarm_and_rearm_once_written():
+            if mon.composer_text and ctrl.state == _rl.DELIVERING:
+                ctrl.disarm()
+                ctrl.arm(pending_work=True)   # the FRESH lifecycle
+        mon.on_capture = _disarm_and_rearm_once_written
+
+        _tick(app, 3)
+        self.assertEqual(sum(1 for _p, k, _l in mon.sent if k == "Enter"), 0,
+                         mon.sent)
+        self.assertTrue(ctrl.armed,
+                        "the stale delivery killed the fresh arm")
+        self.assertFalse(any("left in the shadow composer" in m
+                             for m, _s in app.spy_notify), app.spy_notify)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+
+
+class ReadyPreEnterStaysFatalTests(_LoopEventStoreMixin, unittest.TestCase):
+    """Positive control for the case the abort scope deliberately EXCLUDES.
+
+    `abort_fire` stamps no cooldown and preserves the streak, and `READY`
+    collapses to ready-True — so aborting there would re-permit on the very
+    next tick and RE-WRITE the prompt, an unbounded key-injection spin. It
+    stays fatal, with the message that was already true.
+    """
+
+    def _armed(self, **kwargs):
+        app, mon, snap = _loop_app(self, **kwargs)
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon, snap
+
+    def test_a_ready_composer_before_the_enter_disarms_and_never_refires(self):
+        app, mon, _ = self._armed()
+        mon.typed_tail = _rlfx.CLAUDE_AT_REST_RAW      # SHADOW_READY
+        _tick(app, 6)                                  # well past a re-fire
+        self.assertEqual(sum(1 for _p, k, _l in mon.sent if k == "Enter"), 0)
+        self.assertFalse(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM),
+                         [_rl.DISARM_TEXT_NOT_IN_COMPOSER])
+        # The prompt was written ONCE. A spin would show many literal writes.
+        self.assertEqual(sum(1 for _p, _k, literal in mon.sent if literal), 1,
+                         mon.sent)
 
 
 if __name__ == "__main__":

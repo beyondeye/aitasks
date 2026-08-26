@@ -48,6 +48,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     _SHADOW_TRUNCATED_MSG,
 )
 from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t1159_2)
+from monitor import review_loop_log  # noqa: E402  (durable disarm/hold record, t1606)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
@@ -962,6 +963,14 @@ class MiniMonitorApp(
         # FIRED controller would never see its re-arm edge. The writer sets
         # this; the next committed tick delivers False once and clears it.
         self._loop_stale_false_pending: bool = False
+        # The hold reason currently displayed, or None (t1606). Edge-trigger
+        # state for `_loop_hold`: a hold spans many ticks, so this is what
+        # stops one vetoed delivery from toasting and recording on every one
+        # of them. Cleared on recovery, on any disarm, and at arm.
+        self._loop_hold_reason: str | None = None
+        # Last-observed followed/shadow identities, attached to every durable
+        # loop event (t1606). See `_note_loop_identity`.
+        self._loop_identity: dict[str, str] = {}
         # Prioritized-agent marks (t1326): cached reader + purge scheduling.
         self._init_agent_marks()
 
@@ -1000,6 +1009,15 @@ class MiniMonitorApp(
         if self._mark_pane:
             with contextlib.suppress(Exception):
                 mark_monitor_pane("minimonitor")
+
+        # Review-loop event retention (t1606). At STARTUP only, and only over
+        # files no live process owns — which is what makes it structurally
+        # incapable of interleaving with another session's append. Suppressed
+        # rather than reported: a housekeeping failure must not delay a boot.
+        with contextlib.suppress(Exception):
+            # reserve=1 holds a slot for THIS session's file, which does not
+            # exist yet — without it the store settles at MAX_SESSION_FILES+1.
+            review_loop_log.prune(reserve=1)
 
         # Detect own window ID, index, and name for auto-close, auto-selection,
         # and the "switch to full monitor" handoff.
@@ -3343,15 +3361,139 @@ class MiniMonitorApp(
                 return False  # verified: enumerated, and the agent is gone
         return None
 
-    def _loop_auto_disarm(self, reason: str) -> None:
-        """Visible auto-disarm: banner off, baseline/ring cleared, one toast."""
-        self._review_loop.disarm()
+    def _loop_event_context(self) -> dict:
+        """Identifying fields attached to every durable loop event (t1606).
+
+        Best-effort by construction: this runs on a teardown path, so a failure
+        to describe the situation must never replace the record OF the
+        situation. Anything unreadable is simply omitted.
+        """
+        ctrl = self._review_loop
+        context: dict[str, object] = {
+            "state": getattr(ctrl, "state", None),
+            "rounds_fired": getattr(ctrl, "rounds_fired", None),
+            "session": self._session,
+            "window": self._own_window_name,
+        }
+        # The followed/shadow pair this event happened to (t1606). Without it
+        # a reason says WHAT went wrong but not to WHICH agent — and a user
+        # runs several followed/shadow pairs at once, so correlating a recorded
+        # disarm back to a pane is most of the diagnostic value. Carried as
+        # last-observed identity rather than re-queried: this runs on a
+        # teardown path, where a fresh tmux lookup could fail (or be the very
+        # thing that failed) and would replace the record with nothing.
+        context.update(self._loop_identity)
+        with contextlib.suppress(Exception):
+            context["project_root"] = str(self._project_root)
+        return context
+
+    def _note_loop_identity(self, *, agent=None, shadow_agent=None,
+                            shadow_pane=None) -> None:
+        """Record best-known identities for the next durable loop event.
+
+        Updated incrementally as `_service_review_loop` learns them, so an
+        early-returning teardown still carries whatever was known by then
+        instead of nothing. Only non-empty values overwrite: a tick that could
+        not resolve the shadow's agent must not erase the answer the previous
+        tick had.
+        """
+        for key, value in (("agent", agent), ("shadow_agent", shadow_agent),
+                           ("shadow_pane", shadow_pane)):
+            if value:
+                self._loop_identity[key] = value
+
+    def _loop_auto_disarm(self, reason_code: str | None = None, *,
+                          subject: str = "") -> None:
+        """Visible auto-disarm: banner off, baseline/ring cleared, one toast.
+
+        The ONE teardown. Before t1606 two further copies were open-coded in
+        :meth:`_service_review_loop`, and both omitted
+        ``_loop_shadow_settle_until = None`` — a live divergence no test
+        covered.
+
+        ``reason_code`` is a ``review_loop.DISARM_*`` code. Passing ``None`` is
+        how the tick-originated call site hands off: the controller carries the
+        code on ``last_disarm_reason``, which is what lets one helper serve
+        both the delivery failures (explicit code) and the absence disarms.
+
+        **Snapshot before the teardown.** ``ctrl.disarm()`` deliberately does
+        not clear ``last_disarm_reason`` (see the controller's ``__init__``),
+        but resolving the code into a local FIRST means the order is correct
+        even if that ever changes — the failure it guards against is silent,
+        and would restore exactly the ambiguity t1606 removes.
+        """
+        ctrl = self._review_loop
+        code = reason_code or ctrl.last_disarm_reason or "unknown"
+        context = self._loop_event_context()
+
+        ctrl.disarm()
         self._loop_baseline = None
         self._loop_shadow_hash = None
         self._loop_shadow_hash_streak = 0
         self._loop_shadow_settle_until = None
+        self._loop_hold_reason = None
         self._set_loop_banner("")
-        self.notify(f"Auto-recheck loop disarmed: {reason}", severity="warning")
+
+        recorded = review_loop_log.record_event(
+            review_loop_log.KIND_DISARM, code, subject=subject or None,
+            **context)
+        message = review_loop.loop_reason_message(code, subject=subject)
+        if not recorded:
+            # A diagnostic nobody can see is not a diagnostic. The user gets
+            # told once that the durable record did not land, so a silently
+            # unwritable log cannot masquerade as "it never happened".
+            message += " (not recorded)"
+        self.notify(f"Auto-recheck loop disarmed: {message}",
+                    severity="warning")
+
+    def _loop_hold(self, reason_code: str) -> None:
+        """Visible, non-fatal hold: the delivery was vetoed, the loop lives.
+
+        t1525 chose a *visible* auto-disarm over a *silent* hold, so the
+        replacement for the disarm must be a visible hold — never a quiet one.
+
+        **Edge-triggered on the reason.** The loop holds for many ticks by
+        design, so toasting and recording on every tick would bury the signal
+        under its own repetition. Only a CHANGE of reason surfaces. Recovery
+        clears ``_loop_hold_reason``, so the same reason recurring later is a
+        new edge and does surface again — edge-triggering must not permanently
+        swallow a reason it has seen once.
+        """
+        if self._loop_hold_reason == reason_code:
+            return
+        self._loop_hold_reason = reason_code
+
+        recorded = review_loop_log.record_event(
+            review_loop_log.KIND_HOLD, reason_code, **self._loop_event_context())
+
+        banner = review_loop.loop_hold_banner(reason_code)
+        message = review_loop.loop_reason_message(reason_code)
+        if not recorded:
+            # Same rule as `_loop_auto_disarm`, and it matters MORE here: the
+            # ambiguous pre-Enter reads t1606 rerouted are holds, so an
+            # unwritable store would leave the next occurrence with no durable
+            # trace at all — the exact gap this task exists to close — while
+            # the banner and toast fade. A failed record is a fault in its own
+            # right, so it is surfaced even for a hold that otherwise stays
+            # quiet; a hold is edge-triggered, so this cannot repeat per tick.
+            if banner:
+                self._set_loop_banner(banner)
+            self.notify(f"Auto-recheck loop holding: {message} (not recorded)",
+                        severity="warning")
+            return
+        if not banner:
+            # A hold with no banner is a normal lifecycle event, not a fault —
+            # a user pressing `L` mid-delivery supersedes it, and scolding them
+            # for a state they caused is precisely the false message t1606
+            # Deliverable 3 removes. Recorded, not surfaced.
+            return
+        self._set_loop_banner(banner)
+        self.notify(f"Auto-recheck loop holding: {message}",
+                    severity="warning")
+
+    def _clear_loop_hold(self) -> None:
+        """Recovery: the loop is no longer holding for a vetoed delivery."""
+        self._loop_hold_reason = None
 
     def _apply_shadow_settle_latch(self, state: str,
                                    shadow_ready: bool | None) -> bool | None:
@@ -3425,6 +3567,7 @@ class MiniMonitorApp(
         ctrl = self._review_loop
         if ctrl.armed:
             ctrl.disarm()
+            self._loop_hold_reason = None
             self._set_loop_banner("")
             self.notify("Auto-recheck loop disarmed")
             return
@@ -3507,8 +3650,28 @@ class MiniMonitorApp(
                               (snap.pane.width, snap.pane.height))
         self._loop_shadow_hash = None
         self._loop_shadow_hash_streak = 0
-        # A fresh lifecycle never inherits a settle deadline (t1509).
+        # A fresh lifecycle never inherits a settle deadline (t1509), and
+        # likewise never inherits a hold reason (t1606) — otherwise the first
+        # tick would repaint a hold banner for a delivery that belonged to the
+        # previous lifecycle, and the edge-trigger would suppress the real
+        # hold when it recurred.
         self._loop_shadow_settle_until = None
+        self._loop_hold_reason = None
+        # Nor the previous lifecycle's IDENTITIES. `_note_loop_identity` only
+        # overwrites non-empty values — deliberately, so a tick that cannot
+        # re-resolve the shadow does not erase what the last one knew — but
+        # that same stickiness would carry a stale pair ACROSS an `L`-`L`
+        # cycle onto a different followed/shadow pair. An immediate absence or
+        # a failed re-resolution would then record the new agent beside the
+        # old shadow, i.e. an event naming a pair that never existed.
+        #
+        # Cleared and re-seeded here rather than merely cleared: this branch
+        # has already resolved and validated all three, so a first-tick
+        # teardown still names the right pair instead of nothing.
+        self._loop_identity = {}
+        self._note_loop_identity(agent=snap.agent_key,
+                                 shadow_agent=shadow_key,
+                                 shadow_pane=shadow_pane)
         self._loop_last_service_at = None
         self._set_loop_banner("⟳ auto-recheck ARMED")
         self.notify("Auto-recheck loop armed — press 'L' again to disarm")
@@ -3547,6 +3710,11 @@ class MiniMonitorApp(
         self._loop_last_service_at = now_mono
 
         agent_presence = self._derive_agent_presence(snap)
+        # Learned as early as possible so even an early-returning
+        # teardown carries them (t1606).
+        self._note_loop_identity(
+            agent=(snap.agent_key if snap is not None else None),
+            shadow_pane=(shadow_pane if shadow_ok else None))
 
         # Baseline maintenance + work classification (hardenings 6/8/9).
         # Only here, on a committed evidence tick — arm() seeds the baseline,
@@ -3595,10 +3763,11 @@ class MiniMonitorApp(
                 # for a transient tmux failure. Disarming here would destroy
                 # the user's armed state over a process-table race.
                 return
+            self._note_loop_identity(shadow_agent=shadow_key)
             if shadow_key not in review_loop.SHADOW_READY_DETECTORS:
                 self._loop_auto_disarm(
-                    f"shadow agent '{shadow_command or 'unknown'}' has no "
-                    "readiness detection")
+                    review_loop.DISARM_NO_DETECTOR,
+                    subject=shadow_command or "unknown")
                 return
 
         # Shadow readiness over a raw tail + hash ring (only while armed —
@@ -3658,7 +3827,20 @@ class MiniMonitorApp(
             if stale_input is False:
                 pass  # the current tick itself delivers the False
             else:
-                replay = ctrl.tick(
+                # The replay CANNOT auto-disarm, and the block that used to
+                # handle that case here was deleted in t1606 as dead code:
+                # `can_consume` above forces `agent_presence is True` and a
+                # truthy `shadow_pane`, so both presence arguments below are
+                # True, while tick()'s only ACTION_AUTO_DISARM producer needs
+                # one of them to be False. Enumerated exhaustively — exactly
+                # one input combination reaches this call, and it returns
+                # ACTION_NONE.
+                #
+                # `test_review_loop.ReplayDisarmUnreachabilityTests` is what
+                # makes the deletion safe: widen `can_consume` so the replay
+                # can observe an absence and that test fails, saying the
+                # branch must be reinstated.
+                ctrl.tick(
                     agent_present=agent_presence,
                     shadow_present=(None if not shadow_ok
                                     else bool(shadow_pane)),
@@ -3669,15 +3851,6 @@ class MiniMonitorApp(
                     modal_open=modal_open,
                     now=now_mono,
                 )
-                if replay == review_loop.ACTION_AUTO_DISARM:
-                    self._loop_baseline = None
-                    self._loop_shadow_hash = None
-                    self._loop_shadow_hash_streak = 0
-                    self._set_loop_banner("")
-                    self.notify(
-                        "Auto-recheck loop disarmed: followed agent or "
-                        "shadow pane is gone", severity="warning")
-                    return
         action = ctrl.tick(
             agent_present=agent_presence,
             shadow_present=(None if not shadow_ok else bool(shadow_pane)),
@@ -3690,32 +3863,49 @@ class MiniMonitorApp(
         )
 
         if action == review_loop.ACTION_AUTO_DISARM:
-            self._loop_baseline = None
-            self._loop_shadow_hash = None
-            self._loop_shadow_hash_streak = 0
-            self._set_loop_banner("")
-            self.notify("Auto-recheck loop disarmed: followed agent or "
-                        "shadow pane is gone", severity="warning")
+            # No reason code passed: the controller carries it on
+            # `last_disarm_reason`, which is what distinguishes a departed
+            # followed agent from a departed shadow — one message for two
+            # different failures, before t1606.
+            self._loop_auto_disarm()
             return
 
         if action == review_loop.ACTION_FIRE:
             token = ctrl.delivery_token
-            outcome, detail = await self._fire_shadow_recheck(
+            outcome, reason = await self._fire_shadow_recheck(
                 shadow_pane, snap, shadow_key, raw_tail, tick_text, token)
             if outcome == "sent":
                 ctrl.confirm_fire(token, time.monotonic())
+                # Recovery: a delivery landed, so any standing hold is over.
+                self._clear_loop_hold()
             elif outcome == "not_ready":
+                # The delivery was vetoed but nothing is broken — abort back
+                # to WAITING and HOLD, visibly. Before t1606 the ambiguous
+                # pre-Enter verdicts routed to the disarm below instead, which
+                # destroyed the user's armed state on a read the loop's own
+                # contract calls indeterminate ("disarm only on verified
+                # absence; pause on uncertainty").
                 ctrl.abort_fire(token)
+                self._loop_hold(reason)
             else:  # transport failure — never leave the loop armed (hardening 1)
-                self._loop_auto_disarm(detail)
+                self._loop_auto_disarm(reason)
                 return
 
         # Banner reflects the post-decision state every tick.
         if ctrl.state == review_loop.FIRED:
+            self._clear_loop_hold()
             self._set_loop_banner(
                 f"⟳ recheck #{ctrl.rounds_fired} sent — waiting for shadow")
         elif ctrl.state == review_loop.DELIVERING:
             self._set_loop_banner("⟳ auto-recheck: delivering…")
+        elif self._loop_hold_reason is not None and review_loop.loop_hold_banner(
+                self._loop_hold_reason):
+            # A standing hold outranks the generic ARMED line: the loop is
+            # armed but is NOT simply waiting, and saying "ARMED" here would
+            # make a vetoed delivery invisible — the silent hold t1525
+            # deliberately rejected.
+            self._set_loop_banner(
+                review_loop.loop_hold_banner(self._loop_hold_reason))
         elif ctrl.holding_for_shadow:
             self._set_loop_banner("⟳ waiting for shadow to settle")
         else:
@@ -3742,7 +3932,7 @@ class MiniMonitorApp(
         ctrl = self._review_loop
         fresh = await capture_raw_tail(self._monitor, shadow_pane)
         if not ctrl.delivery_valid(token):
-            return "not_ready", "delivery superseded"
+            return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
         # The fresh capture must be ready AND match the tail the decision was
         # made on — a shadow that changed between tick and delivery is not
         # the shadow we validated.
@@ -3769,7 +3959,7 @@ class MiniMonitorApp(
         state = review_loop.shadow_state(fresh, shadow_key)
         ready = review_loop.shadow_prompt_ready(fresh, shadow_key, hash_stable)
         if self._apply_shadow_settle_latch(state, ready) is not True:
-            return "not_ready", "shadow not settled at delivery time"
+            return "not_ready", review_loop.HOLD_SHADOW_NOT_SETTLED
         meta = parse_block_meta(tick_text) if tick_text else None
         expected_round = (meta.round + 1) if meta else None
         phase = None
@@ -3784,10 +3974,9 @@ class MiniMonitorApp(
         prompt = review_loop.compose_recheck_prompt(phase, expected_round)
         monitor = self._monitor
         if monitor is None:
-            return "failed", "no tmux monitor"
+            return "failed", review_loop.DISARM_NO_MONITOR
         if not monitor.send_keys(shadow_pane, prompt, literal=True):
-            return ("failed",
-                    "could not write the recheck prompt to the shadow pane")
+            return "failed", review_loop.DISARM_PROMPT_WRITE_FAILED
         return await self._submit_shadow_prompt(
             monitor, shadow_pane, shadow_key, prompt, token)
 
@@ -3845,25 +4034,61 @@ class MiniMonitorApp(
         abandoning after it would leave text in the composer, which is the
         failure this method exists to remove.
         """
-        leftover = ("recheck text left in the shadow composer — submit or "
-                    "clear it there manually")
-        missing = ("the recheck prompt is not in the shadow composer — "
-                   "nothing was submitted")
         ctrl = self._review_loop
         for _attempt in range(review_loop.SHADOW_SUBMIT_RETRIES + 1):
             await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
             before = review_loop.shadow_state(
                 await capture_raw_tail(monitor, shadow_pane), shadow_key)
             if before != review_loop.SHADOW_BUSY:
-                return "failed", (
-                    leftover
-                    if before in (review_loop.SHADOW_DIALOG,
-                                  review_loop.SHADOW_UNKNOWN)
-                    else missing)
+                # The VETO is unchanged — no key is sent on any verdict here.
+                # Only the CONSEQUENCE differs, and only for the two AMBIGUOUS
+                # verdicts (t1606):
+                #
+                #   DIALOG  — `_ordered_state` sweeps the prompt patterns over
+                #             the whole tail before the composer scan, so a
+                #             dialog string in the shadow's own transcript
+                #             masks a still-busy composer. The shadow's job on
+                #             "refetch and recheck" is to RUN COMMANDS, so an
+                #             exec-approval dialog appearing between the write
+                #             and this read is a normal consequence of the
+                #             fire, not a fault.
+                #   UNKNOWN — the capture failed. That is no evidence at all,
+                #             and disarming on it directly contradicted the
+                #             rule this subsystem states for itself in
+                #             `find_shadow_pane_info_async`: "a transient tmux
+                #             failure pauses the loop, only a verified absence
+                #             disarms it".
+                #
+                # Both collapse through `_ready_from_state` to a not-True
+                # readiness, so the aborted loop provably HOLDS rather than
+                # re-firing — pinned by
+                # `test_review_loop.AmbiguousVerdictsHoldTests`.
+                #
+                # READY/WORKING stay FATAL, and that asymmetry is deliberate.
+                # There the text is demonstrably not where we put it, and
+                # READY collapses to ready-True: aborting would re-permit on
+                # the very next tick and re-WRITE the prompt, an unbounded
+                # key-injection spin. Their message was already true.
+                if before == review_loop.SHADOW_DIALOG:
+                    return "not_ready", review_loop.HOLD_PRE_ENTER_DIALOG
+                if before == review_loop.SHADOW_UNKNOWN:
+                    return "not_ready", review_loop.HOLD_PRE_ENTER_UNREADABLE
+                return "failed", review_loop.DISARM_TEXT_NOT_IN_COMPOSER
             if not ctrl.delivery_valid(token):
-                return "failed", leftover
+                # The user disarmed (or re-armed) during one of the drains.
+                # This is supersession, not failure — and reporting it as one
+                # was actively harmful: it routed to the auto-disarm, so a
+                # disarm-then-RE-ARM in this window had the stale delivery
+                # kill the FRESH arm, while telling the user they had left
+                # text in the composer for a state they caused. Its sibling
+                # check in `_fire_shadow_recheck` already returned
+                # "not_ready"; the two now agree.
+                return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
             if not monitor.send_keys(shadow_pane, "Enter"):
-                return "failed", leftover
+                # Genuine transport failure after a successful write: the text
+                # IS sitting in the composer. One of the only two conditions
+                # the leftover-text message is true of.
+                return "failed", review_loop.DISARM_ENTER_SEND_FAILED
             await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
             state = review_loop.shadow_state(
                 await capture_raw_tail(monitor, shadow_pane), shadow_key)
@@ -3874,7 +4099,12 @@ class MiniMonitorApp(
                     f"recheck sent, but submission could not be verified "
                     f"(shadow reads '{state}')", severity="warning")
             return "sent", prompt
-        return "failed", leftover
+        # Budget exhausted: every Enter was swallowed and the composer read
+        # positively BUSY each time, so the text IS still sitting there. The
+        # second and last condition the leftover-text message is true of, and
+        # the one t1525 deliberately made a VISIBLE auto-disarm rather than a
+        # silent hold — it stays fatal.
+        return "failed", review_loop.DISARM_SUBMIT_UNCONFIRMED
 
     async def action_pick_concerns(self) -> None:
         """Forward the shadow agent's concerns to the followed agent (via clipboard).

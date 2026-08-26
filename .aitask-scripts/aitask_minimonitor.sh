@@ -13,6 +13,17 @@ source "$SCRIPT_DIR/lib/tmux_exec.sh"
 
 PYTHON="$(require_ait_python)"
 
+# Read-only review-loop event log (t1606). Dispatched HERE, before everything
+# below it, and that placement is load-bearing rather than tidiness: reading a
+# log needs neither Textual nor tmux, and the single-instance guard further down
+# would answer "A monitor is already running. Exiting." (exit 0, no output) for
+# anyone asking why their loop disarmed from the very window that hosts the
+# minimonitor — i.e. it would fail in exactly the case it exists to serve.
+if [[ "${1:-}" == "--loop-log" ]]; then
+    shift
+    exec "$PYTHON" "$SCRIPT_DIR/monitor/review_loop_log.py" "$@"
+fi
+
 # Catch the "venv exists but lacks deps" case (framework upgraded but setup not re-run).
 missing=()
 "$PYTHON" -c "import textual" 2>/dev/null || missing+=(textual)

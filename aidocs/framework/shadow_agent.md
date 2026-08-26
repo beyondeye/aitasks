@@ -670,6 +670,21 @@ latch, the bounded-capture residual), not the full list:
    disarm). Since t1520 **no shipped `AGENT_KEYS` member lacks a detector**, so
    that swap branch has no real-agent subject and is exercised with a synthetic
    key — it is kept for the next agent wired in ahead of its detector.
+
+   **The rule applies to the delivery gate too (t1606).** It did not used to:
+   an ambiguous pre-Enter read — a masking dialog, or a capture that simply
+   failed — auto-disarmed, which is the opposite of what this item says. Those
+   two now abort the delivery and **hold**, visibly (banner + reason), while
+   the loop stays armed; see item 9. A *visible* hold is the requirement,
+   because t1525 deliberately chose a visible auto-disarm over a **silent**
+   hold — the fix restores "pause on uncertainty" without restoring silence.
+
+   Every disarm and hold carries a **machine-readable reason code**
+   (`review_loop.DISARM_*` / `HOLD_*`, with prose in `LOOP_REASON_MESSAGES`,
+   the single source of that wording) and is written to a durable store — see
+   *Review-loop event log* below. Before t1606 the reason existed only in a
+   ~5s toast, which is why a live, non-reproducible auto-disarm left nothing
+   to diagnose.
 7. **Single-line literal injection only** (`send_keys -l` + `Enter` through
    the tmux gateway; no bracketed paste), with a **wall-clock drain between the
    two keystrokes**. `review_loop.COMPOSER_DRAIN_SECONDS` separates the literal
@@ -704,9 +719,32 @@ latch, the bounded-capture residual), not the full list:
      the **only** verdict that permits the keystroke. `SHADOW_DIALOG` would
      have the Enter answer the dialog; `SHADOW_UNKNOWN` is no evidence the pane
      is safe; `SHADOW_READY`/`SHADOW_WORKING` mean the text is not where it was
-     put. The refusals carry two different messages, because in the first pair
-     the text is presumed still in the composer and in the second it
-     demonstrably is not.
+     put.
+
+     **The veto is unchanged; what follows it is not (t1606).** All four
+     verdicts still send no key. The *consequence* now splits, and the split
+     is by whether the verdict is ambiguous:
+
+     | pre-Enter verdict | outcome | why |
+     |---|---|---|
+     | `SHADOW_DIALOG` | **hold**, armed | `_ordered_state` sweeps the prompt patterns over the whole tail before the composer scan, so a dialog string in the shadow's own transcript masks a still-busy composer — and the shadow's job on a recheck is to *run commands*, so an approval dialog opening between the write and this read is a normal consequence of the fire |
+     | `SHADOW_UNKNOWN` | **hold**, armed | a failed capture is no evidence at all; disarming on it contradicted item 6 and `find_shadow_pane_info_async`'s own rule |
+     | `SHADOW_READY` / `SHADOW_WORKING` | **disarm** | the text is demonstrably not where it was put, and that message was already true |
+
+     Holding is safe for the first two and **only** those two, because both
+     collapse through `_ready_from_state` to a not-`True` readiness: the loop
+     provably holds instead of re-firing. `SHADOW_READY` collapses to `True`,
+     and `abort_fire` preserves the streak and stamps **no cooldown** — so
+     aborting there would re-permit on the very next tick and **re-write the
+     prompt**, an unbounded key-injection spin. That asymmetry is pinned by
+     `test_review_loop.AmbiguousVerdictsHoldTests`; a detector change that
+     makes `DIALOG` read ready-`True` fails there rather than shipping the
+     spin.
+
+     A **superseded delivery** (the user pressed `L` during a drain) is also a
+     hold, not a failure. It used to disarm — so a disarm-then-*re-arm* in
+     that window had the stale delivery kill the fresh arm, while blaming the
+     user for leftover text in a composer they had just cleared.
    - **After each Enter** it only decides what to *claim* about a key already
      sent, so it fails **open-but-loud**. Only `WORKING`/`READY` are positive
      evidence of a submit. A still-`BUSY` composer means the Enter was
@@ -719,6 +757,14 @@ latch, the bounded-capture residual), not the full list:
      patterns over the whole tail before the composer scan, so a dialog string
      in the shadow's own transcript can mask a still-busy composer, and
      claiming "sent" there would silently reproduce the original failure.
+
+     This half is **unchanged by t1606, deliberately**. Exhausting the retry
+     budget is one of only two conditions where the leftover-text message is
+     *true* — a write that succeeded followed by an Enter that provably did
+     not land (the other is a `send_keys` failure on the Enter itself) — and
+     it is the case t1525's "visible auto-disarm over silent hold" was written
+     about, so it stays fatal. Everything else that used to borrow that
+     message now carries its own.
 
    The delivery token is re-checked immediately before **every** Enter, so a
    disarm during any of the four suspension points cannot still inject a key.
@@ -733,6 +779,73 @@ latch, the bounded-capture residual), not the full list:
     which change captured content without any work having happened; only
     classified work re-opens the latch (arming opens it when staleness is
     already pending — the explicit user action covers that first round).
+
+### Review-loop event log
+
+Every auto-disarm and every hold is written to a durable store, because the
+toast that used to be the only record fades in about five seconds — and the
+spurious auto-disarm t1606 fixed was reported live, was never reproducible
+synthetically, and left nothing behind to diagnose.
+
+```bash
+ait minimonitor --loop-log        # last 20 events, newest first
+ait minimonitor --loop-log 100
+```
+
+The reader is dispatched **before** the tmux check and the single-instance
+guard, on purpose: reading a log needs neither, and after the guard the
+command would answer "A monitor is already running. Exiting." for anyone
+asking why their loop disarmed from the very window hosting the minimonitor.
+
+Store — `~/.config/aitasks/review_loop_events/`, overridable with
+`AITASKS_REVIEW_LOOP_LOG_DIR`, one `<stamp>-<pid>.jsonl` file per app instance
+(`0600`, in a `0700` directory). Implementation in
+`.aitask-scripts/monitor/review_loop_log.py`.
+
+**Per-session, append-only, and the active file is never rewritten.** That is
+the whole design, and it is a safety property rather than a convenience. A
+single shared file trimmed to a ring is a read-modify-write, so an append
+landing after the trim's read but before its `os.replace` is silently lost —
+and the lost events are exactly the ones this log exists to capture. Measured
+against a faithful implementation of that rejected shape under two concurrent
+writers and one pruner: **119 of 120 records lost**, versus 0 for the shipped
+design (`test_review_loop_log.RetentionNeverRacesAnAppendTests`). Locking every
+append is not an alternative either — every mutex in this framework is a shell
+script, so it would mean a subprocess on the Textual event loop per disarm.
+
+Retention therefore runs **at startup only, over files no live process owns**,
+keeping `MAX_SESSION_FILES` and deleting oldest-first, so it cannot interleave
+with an append at all. It reserves one slot for the session about to start —
+that file does not exist yet at prune time, so without the reserve the store
+would settle one over the cap. Two independent guards, because deleting a live
+session's file is the one unrecoverable mistake here: liveness via
+`lib/monitor_marker.py` (only a *provable* absence licenses a delete; an
+unverifiable read counts as present), plus an age floor that refuses any
+recently-modified file whatever liveness says — which covers the pid reuse
+liveness cannot.
+
+Each event carries the followed/shadow pair it happened to — `agent`,
+`shadow_agent`, `shadow_pane` alongside `session`, `window`, `state`,
+`rounds_fired` and `project_root`. A reason says *what* went wrong; the
+identities say *which* agent, and a user typically runs several pairs at once.
+They are **last-observed**, not re-queried at teardown: a fresh tmux lookup on
+that path could fail — or be the very thing that failed — and would replace the
+record with nothing. That stickiness is scoped to one lifecycle: arming clears
+the cache and re-seeds it from the pair `action_toggle_review_loop` has just
+validated, so an `L`-`L` cycle onto a different pair can never record the new
+agent beside the old shadow.
+
+Recording never raises: an unwritable store returns `False` and the disarm
+**or hold** toast gains a `(not recorded)` suffix, so a silently broken log
+cannot masquerade as "it never happened". That matters most for holds — the
+ambiguous pre-Enter reads are holds, so an unwritable store would otherwise
+leave the next occurrence with no durable trace at all, which is the gap this
+log exists to close. A hold that normally stays quiet (supersession) still
+reports a *failed* record, because a broken diagnostic subsystem is a fault in
+its own right. The reader is tolerant **by line** — a torn
+or non-event line is skipped with a count on stderr, stdout stays a clean
+event stream, and the exit status stays 0, because a diagnostic tool that dies
+on a damaged file fails exactly when it is needed.
 
 **Bounded-capture residual (documented limitation).** The trigger and the
 classifier both read a `capture_lines`-bounded tail. Work whose settled tail
