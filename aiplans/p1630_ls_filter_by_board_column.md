@@ -372,3 +372,367 @@ Step 9 (Post-Implementation) handles cleanup, archival and merge.
   addresses all of them. The one deviation is suggested-implementation item 5
   (`-v` surfacing), which the task asked to "decide deliberately" — D4 decides
   it, with the reason. `None otherwise identified.`
+
+---
+
+## Implementation notes (as landed)
+
+All five changes landed as planned; both inline post-phase mitigations were
+implemented and **mutation-tested** (below). Deviations and additions:
+
+- **`columns_of_tree()` was extracted as a public function**, with the CLI verb
+  a thin wrapper over it. The plan described only the verb; splitting it keeps
+  the rule testable from Python and matches how `column_records` /
+  `column_records_at` are already paired in this module.
+- **`os.path.relpath` instead of `Path.relative_to`** for the emitted path.
+  `relative_to` raises for several legitimate `--root` spellings; `relpath` is
+  total. Branch mode keeps the symlinked `aitasks/…` spelling either way, which
+  is what `aitask_ls.sh` keys its lookups by.
+- **`parsed[0]` is `isinstance`-guarded** before reaching `column_of` — a
+  frontmatter block that parses to a non-mapping would otherwise raise
+  `AttributeError` inside the scan.
+- **`board/reference.md` needed the D2 fix too**, in two places (`:380`,
+  `:432`) — both described the Unsorted lane as "tasks without this field",
+  which is half the rule. Also documented there that a non-string `boardcol`
+  renders nowhere.
+- **Test count: 60 assertions across 11 cases**, one more case than planned:
+  `test_yaml_boolean_boardcol_matches_nothing` pairs the unquoted `boardcol: no`
+  with a quoted `boardcol: "no"` in the same fixture, so the test discriminates
+  on YAML *typing* rather than merely on the string.
+
+### Mitigations — verified non-vacuous
+
+Each guard was proven able to fail by mutating the source it guards:
+
+| mutation | expected catcher | result |
+|---|---|---|
+| `column_of` returns a distinct id for an explicit `unordered` (D2 broken) | `test_unordered_matches_both_states` | 2 FAILs, exactly there |
+| `build_boardcol_map` called unconditionally (laziness removed) | `test_hot_path_stays_lazy` | 4 FAILs, incl. the call-order pins |
+
+`test_map_miss_is_fatal` is the standing negative control for
+`mode-matrix-key-agreement`: it stubs the seam to emit a well-formed scan
+(`SCAN_OK` and all) with one row removed, and asserts the listing aborts naming
+that path — so "exits zero in all four modes" cannot be satisfied by a map that
+never detects a miss.
+
+### Verification results
+
+- `shellcheck .aitask-scripts/aitask_ls.sh` — 9 findings, byte-identical to the
+  set `HEAD` already had. No new ones.
+- `tests/test_ls_boardcol_filter.sh` — 60/60.
+- `tests/test_ls_display_and_filters.sh` — 89/89, file **unmodified** (the D4
+  guard).
+- `tests/test_board_column_cli.sh` — 102/102; `tests/test_boardcol_update.sh` — 13/13.
+- `run_all_python_tests.sh` — `PYTHON SUITE: PASSED (runner=pytest, exit=0)`;
+  5365 passed / 2 skipped, plus the 5-test serial carve-out.
+- `hugo build --gc --minify` — 237 pages, clean (the new `relref` resolves).
+- Live, this repo: `--boardcol now` returns 21 parents and **every one** is
+  confirmed `now` by `aitask_board_column.sh current-column`; the seam
+  independently reports the same 21, so the agreement holds in both directions.
+- Live D2: `--boardcol unordered` returns **269** = 265 absent-field + 4
+  explicit `boardcol: unordered`, and all four explicit ones are present by name.
+- D4: HEAD's `aitask_ls.sh` run from the live repo root produced `-v` output
+  **byte-identical** to the new one (`diff` empty).
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-26 19:05)
+
+- **Requested by user:** Review flagged the new `--boardcol` argument arm
+  (`aitask_ls.sh`): `ait ls --boardcol` (no value) spins in an infinite busy
+  loop, and `ait ls --boardcol ''` silently returns the ordinary listing.
+  Disposition: blocking.
+
+- **Verified — both confirmed, and the loop is a PRE-EXISTING CLASS.**
+  `timeout 5 ./ait ls --boardcol` exits 124 (hung); `./ait ls --boardcol ''`
+  returns the plain Ready listing with exit 0. Root cause: with only one
+  argument left, bash's `shift 2` **fails and shifts nothing**, and
+  `aitask_ls.sh` has no `set -e`, so the `while` loop re-parses the same argv
+  forever. The empty case is skipped by every filter block, so the command
+  looks filtered and is not.
+
+  The same defect was measured on **all six** value-taking flags — `--type`,
+  `-s`, `-l`, `--followup-kind`, `-c` all hang identically, and my diff added
+  only the sixth `shift 2`. So `--boardcol` inherited an existing landmine
+  rather than introducing one.
+
+- **Changes made — the class was fixed, not just the reported flag.** A single
+  `require_flag_value <flag> <argc> <value>` helper, called by all six arms:
+  a missing value dies with "`<flag>` requires a value.", an empty one with
+  "`<flag>` requires a non-empty value.".
+
+  *Why the class and not just `--boardcol`:* a one-flag fix is **more** code
+  than the shared guard (it would be a special case standing beside five
+  identical landmines) and would leave `--boardcol` behaving differently from
+  every neighbouring flag. Rejecting empty is also exactly the invariant this
+  file's existing validation block already states — a silent full listing is
+  indistinguishable from a real answer, the same way an unknown column id is.
+
+  *Blast radius checked before widening:* no caller anywhere in the repo passes
+  an empty value to any `ait ls` filter (grepped `.sh`/`.py`/`.md`), so no
+  existing behaviour depended on `-l ""` meaning "no filter".
+
+  A comment records the deliberate asymmetry with `ait update --boardcol ""`,
+  where an empty value legitimately **clears** the field — that flag writes,
+  this one selects, so the two must not be "unified".
+
+- **Files affected:** `.aitask-scripts/aitask_ls.sh`,
+  `tests/test_ls_boardcol_filter.sh`.
+
+- **Tests added:** `test_value_taking_flags_require_a_value` — 12 invocations
+  (6 flags × missing/empty), each asserting exit **1** and the specific message,
+  plus positive controls that a supplied value still filters and that a
+  genuinely valueless flag (`--no-followup-kind`) is unaffected. Every call is
+  wrapped in `timeout`, so a regression of the loop surfaces as a named FAIL
+  (`got '124'`) instead of hanging the suite. The sibling flags are covered in
+  the same test because all six share **one** guard — splitting them would let
+  a partial revert pass.
+
+  **Verified non-vacuous:** neutering `require_flag_value` to `return 0`
+  produced **30 FAILs** (6 flags × 5 assertions), including the `124` hang
+  detection. Suite: 93/93 with the guard, 63/93 without.
+
+- **Re-verification after the fix:** `test_ls_boardcol_filter.sh` 93/93;
+  `test_ls_display_and_filters.sh` 89/89 still **unmodified**; shellcheck still
+  9 findings, identical to `HEAD`; the seven other suites that drive
+  `aitask_ls.sh` (`test_xdeps_parser` 5/5, `test_xdeps_blocking` 18/18,
+  `test_dependency_unblock` 12/12, `test_create_silent_stdout` 14/14,
+  `test_draft_finalize` 38/38, `test_plan_approved_marker_drift` 15/15,
+  `test_parallel_child_create` 24/24) all pass.
+
+### Change Request 2 (2026-08-26 19:25)
+
+- **Requested by user:** `test_ls_boardcol_filter.sh` calls bare `timeout`
+  unconditionally. macOS is a supported platform and BSD ships no `timeout`
+  (Homebrew coreutils exposes it as `gtimeout`), so the suite would exit 127
+  there before testing the guard. `tests/test_setup_help_flag.sh` already
+  carries a `timeout`/`gtimeout`/watchdog fallback; reuse it. Disposition:
+  blocking.
+
+- **Verified — CONFIRMED.** With `timeout` and `gtimeout` both removed from
+  `PATH`, `timeout 3 true` returns **127**. `tests/test_setup_help_flag.sh:34`
+  documents exactly this and carries the three-rung `run_bounded`, citing
+  `aitask_sync.sh:97` and `aitask_remote_drift_check.sh:152` as the framework's
+  own precedent.
+
+- **Changes made — promoted rather than copied.** `run_bounded` moved verbatim
+  into **`tests/lib/proc_fixtures.sh`** (the shell suite's process-fixture lib),
+  and both consumers now source it: `test_setup_help_flag.sh` lost its 37-line
+  local copy, and `test_ls_boardcol_filter.sh` routes all four bounded calls
+  through it.
+
+  *Why promote instead of copy:* copying would have made it the second
+  implementation of a subtle process-group-kill helper — the same duplication
+  this task exists to remove for `column_of`. Doing it the other way would have
+  been inconsistent with the change it ships inside.
+
+- **Files affected:** `tests/lib/proc_fixtures.sh` (helper added),
+  `tests/test_setup_help_flag.sh` (local copy removed, sources the shared one),
+  `tests/test_ls_boardcol_filter.sh` (bare `timeout` → `run_bounded`).
+
+- **All three rungs exercised directly**, not merely assumed — a `PATH`
+  containing neither binary, and one containing only `gtimeout`:
+
+  | rung | hang | clean exit | failing exit |
+  |---|---|---|---|
+  | `timeout` (this box) | 124 | 0 | 7 |
+  | `gtimeout` only (macOS + Homebrew) | 124 | — | 5 |
+  | watchdog, neither present (bare BSD) | 124 | 0 | 7, output captured |
+
+- **Re-verification:** `test_ls_boardcol_filter.sh` 93/93;
+  `test_setup_help_flag.sh` 23/23 after losing its local copy;
+  `test_ls_display_and_filters.sh` 89/89 still unmodified;
+  `test_board_column_cli.sh` 102/102; `test_boardcol_update.sh` 13/13;
+  `proc_fixtures.sh`'s four pre-existing consumers all green
+  (`test_registry_lock` 51/51, `test_registry_lock_single_winner` 15/15,
+  `test_stale_lock` 134/134, `test_merge_lock_broker` 95/95).
+  shellcheck: `aitask_ls.sh` still 9 findings (identical to `HEAD`); the three
+  touched test files 0 findings.
+
+### Change Request 3 (2026-08-26 19:45)
+
+- **Requested by user:** `test_value_taking_flags_require_a_value` creates
+  `bound_out` with `mktemp` but only directories in `CLEANUP_DIRS` are removed,
+  so each run leaks one temp file. Disposition: follow-up (low).
+
+- **Verified — the SYMPTOM is real, the ATTRIBUTION was not.** A per-test leak
+  sweep (private driver, with each test's assertion count checked so a
+  never-ran probe could not read as a clean zero — the first attempt silently
+  aborted and reported all-zeros):
+
+  | test | leaked |
+  |---|---|
+  | `test_value_taking_flags_require_a_value` | **0** |
+  | `test_map_miss_is_fatal` | **2** |
+  | all others | 0 |
+
+  `bound_out` does not leak: the `rm -f "$bound_out"` added when the calls were
+  rewired to `run_bounded` (CR 2) runs. The two leaked files are
+  `aitask_ls.sh`'s own `existing_ids_file` and `output_file`.
+
+- **Root cause — a leak this task introduced, in production code, not in the
+  test.** `aitask_ls.sh` mktemps two scratch files and removed them only by
+  falling off the bottom of the script. That was sufficient for the script's
+  whole history because **every** `die` in it fired during argument validation,
+  before either file existed. `--boardcol` added three deaths that fire after:
+  `aitask_ls.sh:371` and `:382` (in `build_boardcol_map`, called after the first
+  `mktemp`) and `:749` (in `process_task_file`, after both). Each such exit
+  leaked one or two files per invocation — so the real blast radius was every
+  error exit of `ait ls`, not one temp file per test run.
+
+- **Changes made:** an `EXIT` trap installed with the first `mktemp`
+  (`trap 'rm -f "$existing_ids_file" "${output_file:-}"' EXIT`); the
+  bottom-of-script `rm` folded into it so there is one cleanup site rather than
+  two that can diverge. `${output_file:-}` because the second file does not
+  exist yet at install time, and a trap installed later would not cover the
+  deaths in between.
+
+  Fixed now rather than deferred as a follow-up: the defect is in shipped code
+  on a path this task added, and the fix is two lines.
+
+- **Files affected:** `.aitask-scripts/aitask_ls.sh`,
+  `tests/test_ls_boardcol_filter.sh`.
+
+- **Tests added:** `test_map_miss_is_fatal` now runs its fatal invocation under
+  a private `TMPDIR` and asserts the directory is empty afterwards — measurable
+  without counting a shared `/tmp` other processes are also writing to — plus a
+  **positive control** over a successful run, so "0 files" cannot be satisfied
+  by the temp files simply landing elsewhere.
+
+  **Verified non-vacuous:** removing the trap produces both FAILs
+  (`expected '0', got '2'` on the fatal path, `got '4'` on the success path) and
+  the suite leaks 50 files instead of 0. Suite: 95/95 with the trap.
+
+- **Re-verification:** `test_ls_boardcol_filter.sh` 95/95 and **0 files leaked**
+  suite-wide (was 2); `test_ls_display_and_filters.sh` 89/89 unmodified;
+  `test_setup_help_flag.sh` 23/23; `test_board_column_cli.sh` 102/102;
+  `test_boardcol_update.sh` 13/13; shellcheck still 9 findings on
+  `aitask_ls.sh`, identical to `HEAD`. Live: `--boardcol now` 21,
+  `--boardcol unordered` 269, `-v` unchanged.
+
+### Change Request 4 (2026-08-26 20:05)
+
+- **Requested by user:** The `EXIT` trap added in CR 3 names `output_file`
+  before that variable is assigned. Bash imports exported environment variables,
+  so a caller exporting `output_file=/path/to/sentinel` would have `rm -f`
+  delete their file if a death occurs in the window. Disposition: blocking.
+
+- **Verified — CONFIRMED, with a live sentinel.** The vulnerable window is
+  exactly *trap installed* → `output_file` assigned. Only **one** death is
+  reachable inside it: `build_boardcol_map`'s scan failure
+  (`aitask_ls.sh:382`). The missing-executable death just above it
+  (`:371`) is unreachable in practice — `normalize_board_column` probes the
+  same script earlier and dies first — and `process_task_file`'s miss (`:749`)
+  runs after `output_file` is the script's own. Driving `:382` with a stub that
+  fails `columns-of` while letting `list-columns` pass:
+
+  ```
+  output_file=$SENTINEL ./ait ls --boardcol now 5
+  -> *** SENTINEL DELETED ***
+  ```
+
+  The first reproduction attempt was a **false negative** — it made the seam
+  non-executable, which dies in `normalize_board_column` *before* the trap is
+  installed, so the sentinel survived for the wrong reason. Worth recording:
+  the naive repro exonerates the bug.
+
+- **Changes made:** `output_file=""` immediately before the trap, and the trap
+  simplified to `"$output_file"`. Initialising is the actual fix — a
+  `${output_file:-}` default **cannot** help, because an inherited value IS set
+  and the default never applies. `rm -f ""` is a silent no-op (verified,
+  exit 0). The trap still has to be installed with the first `mktemp`, so
+  claiming the variable before it is the only ordering that works.
+
+- **Files affected:** `.aitask-scripts/aitask_ls.sh`,
+  `tests/test_ls_boardcol_filter.sh`.
+
+- **Tests added:** `test_trap_never_removes_an_inherited_path` — drives the
+  `:382` death with `output_file` exported to a real file and asserts the file
+  and its contents survive. It leads with a **positive control** asserting the
+  death is actually reached (non-zero exit, and the message is the scan
+  failure), because a survival assertion is vacuous if the trap never ran — the
+  exact way the first manual repro fooled itself.
+
+  **Verified non-vacuous:** reverting the trap to `${output_file:-}` produces
+  both FAILs (`file not found`, and empty contents). Suite: 99/99 fixed,
+  97/99 vulnerable.
+
+- **Re-verification:** `test_ls_boardcol_filter.sh` 99/99, 0 files leaked;
+  `test_ls_display_and_filters.sh` 89/89 unmodified; `test_setup_help_flag.sh`
+  23/23; `test_board_column_cli.sh` 102/102; `test_boardcol_update.sh` 13/13;
+  shellcheck 9 on `aitask_ls.sh` (identical to `HEAD`), 0 on the three test
+  files. Live: `--boardcol now` 21, `--boardcol unordered` 269, unknown id
+  still refused naming all eight configured ids.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** `ait ls --boardcol <col>` filters tasks by board column,
+  resolving each task's column through `board_columns.column_of` rather than a
+  bash re-read of the field. `_column_of` was promoted to public `column_of`,
+  a `columns-of` reader verb added (whole-tree scan, `SCAN_OK` trailer), and
+  `work_report_gather.py`'s inline copy of the rule folded onto the seam — so
+  the rule ends with **one** implementation instead of the two it had and the
+  three a bash-local read would have made. Plus `--help`, website docs, and a
+  new 99-assertion test suite.
+
+- **Deviations from plan:**
+  - `columns_of_tree()` extracted as a public function with the CLI verb a thin
+    wrapper, mirroring the existing `column_records` / `column_records_at` pair.
+  - `os.path.relpath` instead of `Path.relative_to` (total for every `--root`
+    spelling); `parsed[0]` `isinstance`-guarded before reaching `column_of`.
+  - `board/reference.md` also needed the D2 correction — it described the
+    Unsorted lane as "tasks without this field", which is half the rule.
+  - **D4 (do NOT add the column to the `-v` line) was decided deliberately**,
+    not skipped: the `-v` shape is a parsing contract for `aitask-pick` Step 2a
+    frozen across the rendered goldens, and surfacing it would also make the
+    Python scan unconditional on every `-v` run, destroying the laziness that
+    makes the whole approach free.
+  - Four review rounds added work beyond the plan: an argument guard, a
+    portable `run_bounded`, an `EXIT` trap, and the `output_file=""`
+    initialiser. All four are recorded in Post-Review Changes above.
+
+- **Issues encountered:**
+  - **Three defects in code this task added**, all found in review and all
+    fixed here: an infinite `shift 2` loop on a valueless flag (a *pre-existing
+    class* across six flags, which `--boardcol` joined); scratch-file leakage on
+    the new post-`mktemp` death paths; and an `EXIT` trap that would delete a
+    caller's file via an inherited `output_file`.
+  - A **false-negative reproduction**: the naive way to trigger the trap bug
+    (making the seam non-executable) dies *before* the trap installs, so the
+    sentinel survives for the wrong reason. Only the `columns-of` scan failure
+    at `:382` is inside the window. The regression test therefore leads with a
+    positive control asserting the death is reached.
+  - A **broken leak probe** initially reported all-zeros because the driver
+    aborted before running anything; adding an assertion-count check exposed it
+    and changed the answer from "no leak" to "2 files, in production code".
+
+- **Key decisions:**
+  - Route the bash side through the Python seam rather than take the task's
+    "bash-local read + drift guard" escape hatch — measured, the lazy
+    subprocess costs ~4% of a run that already takes 5 s, and it buys the
+    YAML-typing parity bash cannot reach (`boardcol: no` is the boolean `False`,
+    and `generate_col_id("No")` really does mint the id `no`).
+  - `--boardcol unordered` matches **both** on-disk states (absent field and
+    explicit `unordered`), because both are one board lane and 4 tasks in this
+    repo carry the explicit form.
+  - A map miss is **fatal**, not "excluded" — the Python globs are a strict
+    superset of the consumer's, so a miss can only mean they drifted.
+  - Fixed the argument-guard bug as a **class** (one shared helper for all six
+    flags), and **promoted** `run_bounded` into `tests/lib/proc_fixtures.sh`
+    rather than copying it — copying either would have created the second
+    implementation of one rule, which is the exact thing this task removes.
+  - Every guard was **mutation-tested** rather than assumed: five mutations,
+    each caught by exactly the assertions meant to catch it.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_ls.sh:149-196 — every value-taking flag (-s, -l,
+    --type, --followup-kind, -c) spun in an infinite loop on a missing value and
+    silently returned an unfiltered listing on an empty one. Pre-existing, not
+    introduced here; fixed in this commit because --boardcol joined the class
+    and the shared guard was smaller than a one-flag special case.`
+
+- **Notes for sibling tasks:** n/a (not a child task).
