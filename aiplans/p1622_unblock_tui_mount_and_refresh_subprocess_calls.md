@@ -51,12 +51,14 @@ Recorded here so the deviation is visible rather than silent:
 - **`lib/tui_switcher.py:_fetch_desync_summary`** — a separate, pre-existing
   reimplementation of the same probe for the switcher overlay. It runs in the
   switcher's own worker, not on a monitor path. Untouched.
-- **`TmuxClient.run_async`'s own cancellation gap** (`lib/tmux_exec.py:217`) —
+- **`TmuxClient.run_async`'s own cancellation gap** (`lib/tmux_exec.py:218`) —
   it catches `asyncio.TimeoutError` but not `CancelledError`, so a cancelled
   gateway call can orphan a `tmux` child exactly as B1 fixes for the desync
   helper. Pre-existing, affects every gateway caller, and widening this task to
-  the shared gateway is a bigger blast radius than it warrants. Worth its own
-  task; flagged again at Step 8d.
+  the shared gateway is a bigger blast radius than it warrants. **Tracked as
+  t1628** (`bug`, `followup_kind: upstream_defect`, `anchor: 1598`), created
+  during Step 8 review — a residual noted only in prose is not tracking, and
+  A2's seed worker is a newly cancellable caller of exactly this path.
 
 ---
 
@@ -498,10 +500,11 @@ behind.
   the signal lands before any await can be interrupted; the reap is
   best-effort on top. Test 12 pins both the re-raise and the dead child.
 - `TmuxClient.run_async` keeps the identical cancellation gap, so the same
-  orphan class survives for every gateway caller. · severity: medium ·
-  → mitigation: none here — **accepted residual, stated so it is not mistaken
-  for coverage**: this task fixes the desync helper only. Flagged as a follow-up
-  candidate at Step 8d.
+  orphan class survives for every gateway caller — and A2's seed worker is a new
+  caller of it that Textual cancels at app exit. · severity: medium ·
+  → mitigation: **t1628** (created during Step 8 review). This task fixes the
+  desync helper only; the gateway instance is durably tracked rather than left
+  as prose.
 
 ### Goal-achievement risk: low
 
@@ -564,3 +567,42 @@ reader.
 
 **Suite:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)` — 5365 passed,
 2 skipped, plus the 5 serial live modules.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-26 09:40)
+- **Requested by user:** `tests/test_desync_summary_cache.py` created scratch
+  directories with `tempfile.mkdtemp()` and registered no cleanup, stranding
+  several per run in `/tmp`. Asked to use `TemporaryDirectory` / cleanup
+  callbacks while keeping the post-test child-liveness assertions.
+- **Verified:** CONFIRMED, and worse than "several" — three call sites
+  (`_CacheIsolated.setUp`, `_stub_helper`, and both pid-file sites) × 10 tests.
+  Measured: **15 stranded `/tmp` entries per run**.
+- **Changes made:** Introduced one `_CacheIsolated._tmpdir()` helper returning a
+  `tempfile.TemporaryDirectory` registered via `addCleanup`, and routed all four
+  call sites through it. `addCleanup` fires *after* the test body, so every
+  child-liveness assertion still runs against a live pid file. Re-measured: **0
+  stranded entries**. Fixed in place rather than deferred — it is a leak in a
+  file authored by this task, and committing a known leak in order to file a
+  follow-up would be the worse trade.
+
+### Change Request 2 (2026-08-26 17:35)
+- **Requested by user:** The plan documents `TmuxClient.run_async`'s
+  `CancelledError` gap (`lib/tmux_exec.py:218`) as a residual, but creates no
+  follow-up task — so the exposure this task *newly widened* (the mount seed at
+  `minimonitor_app.py:1405` is a `run_worker` task Textual cancels at app exit)
+  is not durably tracked.
+- **Verified:** CONFIRMED. `run_async` catches only `asyncio.TimeoutError`;
+  `wait_for` cancels the inner `communicate()` and re-raises without touching the
+  child. A prose residual is not tracking.
+- **Changes made:** Created **t1628** — `bug`, medium/low,
+  `followup_kind: upstream_defect`, `anchor: 1598` (same topic group as t1598 /
+  t1622), `gates: [risk_evaluated]` — carrying the defect location, the widened
+  path, the two-exit fix shape, and a verification recipe pointing at this task's
+  `FetchAsyncChildLifecycleTests` as the proven pattern (plus the "never signal a
+  pid you did not create / do not spawn a real tmux server" constraint). The
+  plan's out-of-scope entry and its `## Risk` bullet now name t1628 instead of
+  deferring to "flagged at Step 8d".
+- **Not fixed here, deliberately:** the user's stated disposition was
+  *follow-up*, and the gateway is shared by every async caller — a blast radius
+  this task's review did not cover.
