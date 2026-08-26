@@ -268,3 +268,5 @@ Ordered by what actually removes the symptom:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-25T13:24:26Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-26T04:57:12Z status=pass attempt=1 type=human
