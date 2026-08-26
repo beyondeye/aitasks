@@ -284,6 +284,7 @@ assert_contains "Help output mentions LEGACY_MODE" "LEGACY_MODE" "$output"
 assert_contains "Help output mentions --link-worktree" "--link-worktree" "$output"
 assert_contains "Help output mentions LINKED" "LINKED" "$output"
 assert_contains "Help output mentions NOT_INITIALIZED" "NOT_INITIALIZED" "$output"
+assert_contains "Help output mentions WORKTREE_UNLINKED" "WORKTREE_UNLINKED" "$output"
 
 # ===========================================================================
 # --link-worktree (t1616)
@@ -580,6 +581,193 @@ assert_eq "22: aiplans target is exactly .aitask-data/aiplans" \
 assert_eq "22: primary's aitasks target is the same form" \
     ".aitask-data/aitasks" "$(readlink "$LW_MAIN/aitasks")"
 rm -rf "$LW_TMP"
+
+# ===========================================================================
+# Bare (no-flag) invocation from a checkout that is not the primary (t1624)
+#
+# The bare form's Checks 1 and 2 probe RELATIVE paths, so they only ever see the
+# checkout they are standing in. Inside a linked task worktree neither fires, and
+# control used to reach Step 4 and attempt `git worktree add .aitask-data
+# aitask-data` — which does one of two wrong things depending on the primary's
+# state. These cases pin all three worktree outcomes plus the controls that keep
+# the guard from swallowing a state that already answered correctly.
+# ===========================================================================
+
+# trace_run <dir> -> bare (no-flag) invocation with cwd=<dir>, run under a
+# PATH-injected `git` shim that appends every argv to a log before delegating to
+# the real git. Sets BARE_OUT / BARE_ERR / BARE_RC / TRACE.
+#
+# The trace is load-bearing. A REFUSED `git worktree add` (the branch is already
+# checked out at the primary) and a NEVER-ATTEMPTED one leave IDENTICAL on-disk
+# state: no .aitask-data directory, the same worktree list. Only the attempt
+# itself distinguishes "the guard stopped it" from "Step 4 ran and git said no",
+# so state assertions alone cannot catch a regression that reaches Step 4.
+#
+# The script is invoked by its PRIMARY path, as lw_run does: install_script
+# copies into the working tree without committing, so a worktree cut from HEAD
+# has no .aitask-scripts/ of its own. cwd is what the bare form keys on.
+# strip_ansi <text> -> the text with CSI colour sequences removed. die_code()
+# wraps its message in ${RED}…${NC} unconditionally, so a remedy extracted from
+# stderr carries a trailing reset that breaks `eval`. Builds a literal ESC byte
+# rather than using the \x1b shorthand, which is GNU-only — the same technique
+# and the same reason as shadow_strip_ansi in aitask_shadow_capture.sh.
+strip_ansi() {
+    local esc
+    esc="$(printf '\033')"
+    printf '%s\n' "$1" | sed "s/${esc}\[[0-9;]*m//g"
+}
+
+trace_run() {
+    local shimdir errfile tracelog real_git
+    shimdir="$(mktemp -d)"
+    errfile="$(mktemp)"
+    tracelog="$(mktemp)"
+    real_git="$(command -v git)"
+    # real_git is baked in as an absolute path so the shim cannot recurse.
+    cat > "$shimdir/git" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$tracelog"
+exec "$real_git" "\$@"
+EOF
+    chmod +x "$shimdir/git"
+    BARE_RC=0
+    BARE_OUT="$(cd "$1" && PATH="$shimdir:$PATH" \
+        bash "$LW_MAIN/.aitask-scripts/aitask_init_data.sh" 2>"$errfile")" || BARE_RC=$?
+    BARE_ERR="$(cat "$errfile")"
+    TRACE="$(cat "$tracelog")"
+    rm -rf "$shimdir" "$errfile" "$tracelog"
+}
+
+# --- Test 23: bare invocation inside .aitask-data/ still reports LEGACY_MODE ---
+# Characterization, and load-bearing for the guard below: the data worktree IS a
+# registered linked worktree, so its toplevel differs from the main root exactly
+# like a task worktree's does. Only Check 2 winning first (the data branch checks
+# out a real aitasks/ directory) keeps it out of the linked-worktree guard.
+echo "--- Test 23: bare invocation inside .aitask-data/ reports LEGACY_MODE ---"
+
+lw_repo primary
+trace_run "$LW_MAIN/.aitask-data"
+assert_eq_trim "23: reports LEGACY_MODE" "LEGACY_MODE" "$BARE_OUT"
+assert_eq "23: exits 0" "0" "$BARE_RC"
+rm -rf "$LW_TMP"
+
+# --- Test 24a: the defect — unlinked worktree, primary holds the branch ---
+echo "--- Test 24a: unlinked worktree reports WORKTREE_UNLINKED ---"
+
+lw_repo primary
+trace_run "$LW_WT"
+assert_eq_trim "24a: reports WORKTREE_UNLINKED" "WORKTREE_UNLINKED" "$BARE_OUT"
+assert_eq "24a: exits 3" "3" "$BARE_RC"
+assert_contains "24a: names the --link-worktree remedy" "--link-worktree" "$BARE_ERR"
+assert_contains "24a: names this worktree" "$LW_WT" "$BARE_ERR"
+# The whole point of t1624: the old message advised the command that just failed.
+assert_not_contains "24a: does not advise the impossible add" \
+    "git worktree add .aitask-data aitask-data" "$BARE_ERR"
+assert_not_contains "24a: never attempted a worktree add" "worktree add" "$TRACE"
+# Shim liveness. Without this, a failed PATH injection would leave an empty log
+# and the not_contains above would pass vacuously.
+assert_contains "24a: the git shim actually captured invocations" "rev-parse" "$TRACE"
+
+# --- Test 24b: nested subdirectory — the guard keys on the worktree ROOT ---
+# Also the copy-safety pin: from here a ./.aitask-scripts/... spelling does not
+# resolve, so the printed command must carry an absolute script path.
+echo "--- Test 24b: nested subdirectory of a worktree ---"
+
+mkdir -p "$LW_WT/nested/deep"
+trace_run "$LW_WT/nested/deep"
+assert_eq_trim "24b: reports WORKTREE_UNLINKED from a nested subdir" \
+    "WORKTREE_UNLINKED" "$BARE_OUT"
+assert_eq "24b: exits 3" "3" "$BARE_RC"
+# Extract the remedy verbatim and run it from that same nested subdirectory.
+remedy="$(strip_ansi "$BARE_ERR" | sed -n 's/.*Run: //p')"
+remedy_script="$(printf '%s\n' "$remedy" | sed -n 's/^"\([^"]*\)".*/\1/p')"
+assert_contains "24b: the remedy script path is absolute" "/" "${remedy_script:0:1}"
+assert_file_exists "24b: the remedy script path exists" "$remedy_script"
+REMEDY_RC=0
+REMEDY_OUT="$(cd "$LW_WT/nested/deep" && eval "$remedy" 2>/dev/null)" || REMEDY_RC=$?
+assert_eq_trim "24b: the printed remedy links the worktree" "LINKED" "$REMEDY_OUT"
+assert_eq "24b: the printed remedy exits 0" "0" "$REMEDY_RC"
+
+# --- Test 24c: positive control — a LINKED worktree still reports ALREADY_INIT ---
+# Without this, 24a would also pass if the guard fired unconditionally.
+echo "--- Test 24c: linked worktree reports ALREADY_INIT ---"
+
+# Establish the precondition here rather than inheriting 24b's remedy run, so a
+# break in 24b fails 24b alone instead of also failing this control for the
+# wrong reason. --link-worktree is idempotent, so this is safe either way.
+lw_run "$LW_WT"
+trace_run "$LW_WT"
+assert_eq_trim "24c: reports ALREADY_INIT" "ALREADY_INIT" "$BARE_OUT"
+assert_eq "24c: exits 0" "0" "$BARE_RC"
+
+# --- Test 24d: the primary is unaffected by a worktree existing ---
+echo "--- Test 24d: primary still reports ALREADY_INIT ---"
+
+trace_run "$LW_MAIN"
+assert_eq_trim "24d: reports ALREADY_INIT" "ALREADY_INIT" "$BARE_OUT"
+assert_eq "24d: exits 0" "0" "$BARE_RC"
+
+# --- Test 24e: an ordinary subdirectory of the primary is not a worktree ---
+# Pins the toplevel-vs-$PWD discrimination: a plain subdir shares the primary's
+# toplevel, so it must NOT be described as a linked worktree.
+echo "--- Test 24e: ordinary subdirectory of the primary ---"
+
+mkdir -p "$LW_MAIN/sub"
+trace_run "$LW_MAIN/sub"
+assert_not_contains "24e: emits no WORKTREE_UNLINKED token" "WORKTREE_UNLINKED" "$BARE_OUT"
+assert_not_contains "24e: emits no NOT_INITIALIZED token" "NOT_INITIALIZED" "$BARE_OUT"
+assert_not_contains "24e: does not call a subdirectory a worktree" \
+    "linked git worktree" "$BARE_ERR"
+rm -rf "$LW_TMP"
+
+# --- Test 24f: NO_DATA_BRANCH survives from inside a worktree ---
+# The ordering pin. Check 3b runs AFTER the branch probe precisely so this
+# already-correct answer is not swallowed by the guard.
+echo "--- Test 24f: worktree with no data branch reports NO_DATA_BRANCH ---"
+
+TMPDIR_24F="$(setup_repo_with_remote)"
+LW_MAIN="$TMPDIR_24F/local"
+install_script "$LW_MAIN"
+git -C "$LW_MAIN" worktree add -q -b aitask/tF "$LW_MAIN/aiwork/tF" HEAD
+trace_run "$LW_MAIN/aiwork/tF"
+assert_eq_trim "24f: reports NO_DATA_BRANCH" "NO_DATA_BRANCH" "$BARE_OUT"
+assert_eq "24f: exits 0" "0" "$BARE_RC"
+assert_not_contains "24f: never attempted a worktree add" "worktree add" "$TRACE"
+rm -rf "$TMPDIR_24F"
+
+# --- Test 24g: uninitialized primary is classified, not initialized into ---
+# Before t1624 this case SUCCEEDED and planted the repo's only data checkout
+# inside a throwaway task worktree, which disappears when the task lands.
+echo "--- Test 24g: worktree whose primary has no .aitask-data ---"
+
+lw_repo primary
+git -C "$LW_MAIN" worktree remove --force .aitask-data
+git -C "$LW_MAIN" worktree prune
+trace_run "$LW_WT"
+assert_eq_trim "24g: reports NOT_INITIALIZED" "NOT_INITIALIZED" "$BARE_OUT"
+assert_eq "24g: exits 3" "3" "$BARE_RC"
+assert_contains "24g: points at ait setup" "ait setup" "$BARE_ERR"
+assert_not_contains "24g: never attempted a worktree add" "worktree add" "$TRACE"
+assert_dir_not_exists "24g: no data checkout planted in the worktree" \
+    "$LW_WT/.aitask-data"
+rm -rf "$LW_TMP"
+
+# --- Test 24h: tracer positive control ---
+# Proves the "never attempted a worktree add" assertions above are capable of
+# failing: on the path where Step 4 legitimately runs, the trace DOES record it.
+echo "--- Test 24h: tracer records a worktree add when one happens ---"
+
+TMPDIR_24H="$(setup_repo_with_remote)"
+LW_MAIN="$TMPDIR_24H/local"
+install_script "$LW_MAIN"
+create_data_branch_setup "$LW_MAIN"
+git -C "$LW_MAIN" worktree remove --force .aitask-data
+git -C "$LW_MAIN" worktree prune
+rm -f "$LW_MAIN/aitasks" "$LW_MAIN/aiplans"
+trace_run "$LW_MAIN"
+assert_eq_trim "24h: reports INITIALIZED" "INITIALIZED" "$BARE_OUT"
+assert_contains "24h: the trace DID record the worktree add" "worktree add" "$TRACE"
+rm -rf "$TMPDIR_24H"
 
 # --- Summary ---
 echo ""

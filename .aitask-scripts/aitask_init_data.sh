@@ -15,6 +15,13 @@
 #   ALREADY_INIT      Already initialized (.aitask-data worktree exists)
 #   LEGACY_MODE       Not a data-branch repo (aitasks/ is a real directory)
 #   NO_DATA_BRANCH    No aitask-data branch found locally or remotely
+#   WORKTREE_UNLINKED Linked worktree, primary already holds the data branch
+#                     (exit 3) — give this worktree the layout with
+#                     --link-worktree <dir>
+#   NOT_INITIALIZED   Linked worktree, primary has no .aitask-data worktree
+#                     (exit 3) — run 'ait setup' at the primary first. Same
+#                     state as the --link-worktree token of that name, which
+#                     exits 0 because its no-op is harmless.
 #
 # Output for --link-worktree:
 #   LINKED            Data layout created or repaired in the worktree
@@ -52,6 +59,13 @@ Output (stdout):
   ALREADY_INIT      Already initialized
   LEGACY_MODE       Not a data-branch repo
   NO_DATA_BRANCH    No aitask-data branch found
+  WORKTREE_UNLINKED Linked worktree, primary already holds the data branch
+                    (exit 3) — give this worktree the layout with
+                    --link-worktree <dir>
+  NOT_INITIALIZED   Linked worktree, primary has no .aitask-data worktree
+                    (exit 3) — run 'ait setup' at the primary first. Same
+                    state as the --link-worktree token of that name, which
+                    exits 0 because its no-op is harmless.
 
 --link-worktree <dir>
   Give a linked git worktree (e.g. a task worktree at aiwork/<task_name>)
@@ -177,11 +191,54 @@ if [[ "$branch_found" == false ]]; then
     exit 0
 fi
 
+# --- Check 3b: bare invocation inside a linked worktree ---
+# Checks 1 and 2 probe RELATIVE paths, so they only ever see this checkout. In a
+# linked worktree with no data layout neither fires, and control reaches Step 4 —
+# where `git worktree add` does one of two wrong things depending on the
+# primary's state. Classify instead of guessing.
+#
+# Ordering is load-bearing. This runs AFTER Check 3, so a repo with no
+# aitask-data branch still answers NO_DATA_BRANCH from inside a worktree exactly
+# as it did before; that answer is already correct and must not be swallowed.
+#
+# Keyed on the worktree ROOT, not on $PWD: an ordinary subdirectory of the
+# primary shares the primary's toplevel and must NOT be called a worktree, and a
+# nested subdirectory of a task worktree must still resolve to that worktree.
+# Both resolutions must be non-empty before refusing — anything unresolvable
+# (not a repository, an unusual GIT_DIR) falls through to Step 4 as before.
+wt_git_common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [[ -n "$wt_git_common" ]]; then
+    wt_main_root="$(ait_canon_path "$(dirname "$wt_git_common")" 2>/dev/null || true)"
+    wt_toplevel="$(ait_canon_path "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || true)"
+    if [[ -n "$wt_main_root" && -n "$wt_toplevel" && "$wt_toplevel" != "$wt_main_root" ]]; then
+        # SCRIPT_DIR is absolute, so the printed command is copy-safe from ANY
+        # cwd — including a nested subdirectory of the worktree, where a
+        # ./.aitask-scripts/... spelling does not resolve.
+        self="$SCRIPT_DIR/${BASH_SOURCE[0]##*/}"
+        if [[ -d "$wt_main_root/$AIT_DATA_DIR_NAME/.git" \
+              || -f "$wt_main_root/$AIT_DATA_DIR_NAME/.git" ]]; then
+            # The primary holds the aitask-data branch, so a second worktree of
+            # it cannot be created here. --link-worktree is the operation that
+            # applies, and it accepts this worktree from any cwd.
+            echo "WORKTREE_UNLINKED"
+            die_code 3 "'$wt_toplevel' is a linked git worktree with no task-data layout, and the primary checkout at '$wt_main_root' already has the aitask-data branch checked out — a second worktree of it cannot be created here. Run: \"$self\" --link-worktree \"$wt_toplevel\""
+        fi
+        # The branch exists (Check 3 passed) but the primary has no data
+        # worktree. Step 4 would SUCCEED here and put the repo's only task-data
+        # checkout inside a throwaway task worktree, which is removed when the
+        # task lands. Same state --link-worktree already calls NOT_INITIALIZED.
+        echo "NOT_INITIALIZED"
+        die_code 3 "'$wt_toplevel' is a linked git worktree, and the primary checkout at '$wt_main_root' has no $AIT_DATA_DIR_NAME worktree. Initializing from here would put the repo's only task data inside this worktree. Run 'ait setup' in '$wt_main_root' first, then: \"$self\" --link-worktree \"$wt_toplevel\""
+    fi
+fi
+
 # --- Step 4: Create worktree ---
 info "Creating .aitask-data/ worktree..." >&2
 git worktree prune 2>/dev/null || true
-git worktree add .aitask-data aitask-data >/dev/null 2>&1 || {
-    die "Failed to create worktree. Run: git worktree add .aitask-data aitask-data"
+# Surface git's own error: the old text named `git worktree add .aitask-data
+# aitask-data` as the remedy, which is the command that just failed.
+wt_add_err="$(git worktree add .aitask-data aitask-data 2>&1 >/dev/null)" || {
+    die "Failed to create the .aitask-data worktree in '$PWD'. git said: ${wt_add_err:-<no output>}"
 }
 
 # --- Step 5: Create symlinks ---
