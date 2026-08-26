@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: [1608]
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, robustness, task_metadata, concurrency]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1599
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-25 19:02
-updated_at: 2026-08-26 11:21
+updated_at: 2026-08-26 14:43
+completed_at: 2026-08-26 14:43
 ---
 
 ## Origin
@@ -99,3 +100,14 @@ is the shape that discriminates this branch:
 > **✅ gate:plan_approved** run=2026-08-26T08:21:42Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-26T11:14:02Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-26T11:43:09Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a65a3b6a343419fb
+
+> **✅ gate:risk_evaluated** run=2026-08-26T11:43:09Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1614/risk_evaluated_2026-08-26T11:43:09Z-risk_evaluated-a1.log`
