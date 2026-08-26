@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 19:02
-updated_at: 2026-08-25 22:07
+updated_at: 2026-08-26 11:21
 ---
 
 ## Origin
@@ -89,3 +90,8 @@ is the shape that discriminates this branch:
 - Negative control: with the pre-fix body, the warning is absent and the
   contributor-email commit **is** made. Assert that positively, so an injection
   that silently failed cannot pass.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-26T08:21:42Z status=pass attempt=1 type=human
