@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [artifacts, scheduling, planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 created_at: 2026-08-27 11:26
-updated_at: 2026-08-27 11:26
+updated_at: 2026-08-27 12:22
 ---
 
 Extend the shared trail gatherer with **generic in-flight / planned-surface
