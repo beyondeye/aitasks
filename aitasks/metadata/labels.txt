@@ -59,6 +59,7 @@ display
 docs
 documentation
 execution_profiles
+fold
 framework
 gates
 geminicli
