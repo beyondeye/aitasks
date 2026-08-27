@@ -956,19 +956,19 @@
         },
         "explore": {
           "all_time": {
-            "runs": 11
+            "runs": 12
           },
           "prev_month": {
-            "period": "2026-06",
-            "runs": 1
-          },
-          "month": {
             "period": "2026-07",
             "runs": 10
           },
+          "month": {
+            "period": "2026-08",
+            "runs": 1
+          },
           "week": {
-            "period": "2026-W31",
-            "runs": 2
+            "period": "2026-W35",
+            "runs": 1
           }
         },
         "changelog": {
