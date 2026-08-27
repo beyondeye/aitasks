@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [1569]
 issue_type: feature
 status: Ready
 labels: [backlog, planning, skills, fold]
