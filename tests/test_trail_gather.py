@@ -36,6 +36,7 @@ SCRIPTS_DIR = REPO_ROOT / ".aitask-scripts"
 sys.path.insert(0, str(SCRIPTS_DIR / "lib"))
 
 import trail_gather  # noqa: E402
+import plan_paths  # noqa: E402
 import trail_schema  # noqa: E402
 
 WRAPPER = SCRIPTS_DIR / "aitask_trail_gather.sh"
@@ -1898,6 +1899,100 @@ class InflightRecordPositionTests(InflightCase):
         self.assertEqual(row[0], "mainproj#100")
         self.assertEqual(row[1], "tracked")
         self.assertEqual(row[2], "a/b.sh", "free-ish field is LAST")
+
+
+class InflightTrackedEvidenceTests(InflightCase):
+    """`git ls-files` is the CLASSIFICATION evidence and must never be
+    synthesised. Swallowing its failure into empty sets turns an
+    infrastructure failure into a measured result: every path reads `phantom`,
+    still counts as yielded, and both probe lines still read `ok` — a
+    complete-looking all-clear derived from zero evidence."""
+
+    def fail_tracked_sets(self, exc):
+        real = plan_paths.tracked_sets
+
+        def boom(*a, **k):
+            raise exc
+        plan_paths.tracked_sets = boom
+        self.addCleanup(setattr, plan_paths, "tracked_sets", real)
+
+    def setup_one_task(self):
+        self.repo.write_task("100", "t")
+        self.repo.write_plan("100", "t", "a/b.sh aidocs/new.md\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+
+    def test_git_failure_is_reported_not_swallowed(self):
+        self.setup_one_task()
+        self.fail_tracked_sets(subprocess.CalledProcessError(128, "git"))
+        snap = self.snap_inflight("100")
+        tracked_line = [s for s in snap["sources"] if s[0] == "tracked"]
+        self.assertTrue(tracked_line, "the evidence source must be reported")
+        self.assertEqual(tracked_line[0][1], "unavailable")
+        self.assertEqual(tracked_line[0][3], "scan_error")
+
+    def test_git_failure_yields_no_phantom_classification(self):
+        """The specific false negative: without this, a/b.sh and aidocs/new.md
+        would both emit as `phantom` and look measured."""
+        self.setup_one_task()
+        self.fail_tracked_sets(OSError("git missing"))
+        snap = self.snap_inflight("100")
+        classes = [c for _, c, _ in snap["paths"]]
+        self.assertEqual(set(classes), {"unclassified"})
+        self.assertNotIn("phantom", classes)
+
+    def test_git_failure_does_not_report_a_measured_corpus(self):
+        self.setup_one_task()
+        self.fail_tracked_sets(OSError("git missing"))
+        snap = self.snap_inflight("100")
+        self.assertEqual(snap["scan"][1], "not_scanned")
+        self.assertNotEqual(snap["scan"][1], "extractable")
+
+    def test_git_timeout_is_named_distinctly(self):
+        self.setup_one_task()
+        self.fail_tracked_sets(subprocess.TimeoutExpired("git", 5))
+        snap = self.snap_inflight("100")
+        tracked_line = [s for s in snap["sources"] if s[0] == "tracked"][0]
+        self.assertEqual(tracked_line[3], "timeout")
+
+    def test_positive_control_healthy_git_still_classifies(self):
+        """Without this, the assertions above could pass for the wrong reason."""
+        self.setup_one_task()
+        self.repo.git_track("a/b.sh")
+        snap = self.snap_inflight("100")
+        classes = [c for _, c, _ in snap["paths"]]
+        self.assertIn("tracked", classes)
+        self.assertNotIn("unclassified", classes)
+        tracked_line = [s for s in snap["sources"] if s[0] == "tracked"][0]
+        self.assertEqual(tracked_line[1], "ok")
+
+
+class InflightArchiveStatusNamingTests(InflightCase):
+    """The fourth INFLIGHT: field carries the producer's ARCHIVE STATUS
+    (aitask_query_files.sh:94), not a gate state, and a lock-only task
+    contributes the `unknown` sentinel. Both belong to one declared enum."""
+
+    def test_gate_sourced_task_republishes_the_producer_vocabulary(self):
+        self.repo.write_task("100", "t")
+        self.inject(gate=self.src("gate", {
+            "100": ("IMPLEMENT", "BLOCKED:risk_evaluated")}))
+        row = self.snap_inflight("100")["inflight"][0]
+        self.assertEqual(row[3], "BLOCKED:risk_evaluated")
+
+    def test_lock_only_task_uses_the_unknown_sentinel(self):
+        self.repo.write_task("100", "t")
+        self.inject(gate=self.src("gate", {}),
+                    lock=self.src("lock", {"100": ("-", "unknown")}, age=1))
+        row = self.snap_inflight("100")["inflight"][0]
+        self.assertEqual(row[3], "unknown")
+        self.assertEqual(row[2], "-", "no resume point from a lock")
+
+    def test_every_producer_value_round_trips(self):
+        for value in ("NO_GATES", "ALL_PASS", "BLOCKED:a,b"):
+            with self.subTest(value=value):
+                self.repo.write_task("100", "t")
+                self.inject(gate=self.src("gate", {"100": ("PLAN", value)}))
+                row = self.snap_inflight("100")["inflight"][0]
+                self.assertEqual(row[3], value)
 
 
 class ReadOnlyTests(TrailGatherCase):

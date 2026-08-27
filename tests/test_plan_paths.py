@@ -172,6 +172,14 @@ class TrackedSetsTests(unittest.TestCase):
         self.assertEqual(tracked, {"aidocs/x.md"})
         self.assertEqual(dirs, {"aidocs"})
 
+    def test_ls_files_is_bounded(self):
+        """Unbounded, a wedged index.lock or a hung NFS mount blocks a caller
+        that promised never to fail its own operation, and no outer budget can
+        rescue a synchronous call."""
+        self.assertTrue(plan_paths.LS_FILES_TIMEOUT_S > 0)
+        with self.assertRaises(subprocess.TimeoutExpired):
+            plan_paths.tracked_sets(self.root, timeout=0.000001)
+
     def test_git_failure_raises_rather_than_returning_empty(self):
         outside = Path(self._tmp.name) / "not-a-repo"
         outside.mkdir()

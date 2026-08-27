@@ -59,8 +59,8 @@ ERROR:<kind>:<id>
 Adding `--with-inflight` emits four further prefixes:
 
 ```
-INFLIGHT_SOURCE:<gate|lock>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
-INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<gate_state>
+INFLIGHT_SOURCE:<gate|lock|tracked>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
+INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<archive_status>
 INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
 INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
 ```
@@ -71,6 +71,18 @@ lines appear **only** under `--with-inflight`. The compatibility guarantee
 is therefore *digest* identity, **not** whole-output identity — a default
 snapshot is not byte-identical to one from before these lines existed, but
 its `DIGEST:` is, so every stored trail stays comparable.
+
+`INFLIGHT:`'s fourth field is the **archive status**, republished from the
+producer: `NO_GATES` / `ALL_PASS` / `BLOCKED:<csv>`, plus `unknown` for a
+lock-only task. It is *not* a gate state, and the `unknown` sentinel is
+part of the enum.
+
+`INFLIGHT_SOURCE:tracked` reports the **classification evidence**
+(`git ls-files`). When it is `unavailable`, every task gets an
+`unclassified` sentinel and `corpus_status` is `not_scanned`.
+Never synthesise a classification from absent git evidence:
+every path would read `phantom`, and the result would look both
+complete and healthy while resting on nothing.
 
 **A healthy probe is not a complete one.** `source_status`
 (`both_sources_ok` / `one_source_ok` / `no_source`) reports **only which

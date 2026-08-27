@@ -240,7 +240,13 @@ fi
 # intersect below is `grep -Fxf`, which is order-independent, so the emitted
 # OVERLAP order can differ while no verdict does (t1569_1).
 plan_paths=""
-if [[ -r "$PLAN_FILE" ]]; then
+# `-e || -L` rather than `-r`: a plan that EXISTS but cannot be read (mode 000,
+# a broken symlink, another user's file) must reach the extractor and fail
+# closed. The former `-r` test intercepted precisely the case the header names,
+# skipping the block and printing NO_OVERLAP with exit 0 -- the false all-clear
+# this path exists to prevent. A plan file that is genuinely ABSENT keeps the
+# pre-existing behaviour: no paths, no overlap claim of its own.
+if [[ -e "$PLAN_FILE" || -L "$PLAN_FILE" ]]; then
     extract_rc=0
     plan_paths=$(plan_paths_extract "$PLAN_FILE") || extract_rc=$?
     if [[ $extract_rc -ne 0 ]]; then

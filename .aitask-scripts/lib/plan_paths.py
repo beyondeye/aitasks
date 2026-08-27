@@ -118,21 +118,32 @@ def classify(token: str, tracked: "set[str]", tracked_dirs: "set[str]") -> str:
     return "phantom"
 
 
-def tracked_sets(repo_root=None) -> "tuple[set[str], set[str]]":
+# Bound for the single `git ls-files` call. It is not optional: a wedged
+# `.git/index.lock` or a hung NFS mount would otherwise block a caller that has
+# promised never to fail its own operation, and no outer budget can rescue it
+# because the call is synchronous.
+LS_FILES_TIMEOUT_S = 5
+
+
+def tracked_sets(repo_root=None, timeout=LS_FILES_TIMEOUT_S) -> "tuple[set[str], set[str]]":
     """`git ls-files` once, plus the set of tracked directory prefixes.
 
     ONE subprocess for the whole classification pass -- never one per path and
     never one per task. A single live plan contributes 45 paths.
 
-    Returns `(tracked_files, tracked_dirs)`. Raises `subprocess.CalledProcessError`
-    or `OSError` when git cannot answer; callers decide what that means rather
-    than receiving an empty set that reads as "nothing is tracked".
+    Returns `(tracked_files, tracked_dirs)`. Raises `subprocess.CalledProcessError`,
+    `subprocess.TimeoutExpired` or `OSError` when git cannot answer; callers
+    decide what that means rather than receiving an empty set that reads as
+    "nothing is tracked". A caller that swallows this turns an infrastructure
+    failure into a measured result: every path would classify `phantom`, and a
+    consumer would read a complete-looking all-clear derived from zero evidence.
     """
     cmd = ["git"]
     if repo_root is not None:
         cmd += ["-C", str(repo_root)]
     cmd += ["ls-files", "-z"]
-    out = subprocess.run(cmd, capture_output=True, check=True).stdout
+    out = subprocess.run(cmd, capture_output=True, check=True,
+                         timeout=timeout).stdout
     # -z: NUL-delimited, so a path containing a newline cannot split a record.
     tracked = {p.decode("utf-8", "surrogateescape")
                for p in out.split(b"\0") if p}

@@ -156,6 +156,40 @@ assert_not_contains "fail-closed: never a silent NO_OVERLAP" "NO_OVERLAP" "$bad_
 assert_not_contains "fail-closed: never a spurious OVERLAP" "OVERLAP:" "$bad_out"
 assert_eq "fail-closed: exits non-zero (3 = infra)" "3" "$bad_rc"
 
+# An EXISTING but unreadable plan must reach the extractor and fail closed.
+# The former `-r` guard intercepted exactly this case -- the one the script
+# header names -- skipping the block and printing NO_OVERLAP with exit 0.
+echo "--- guard: an unreadable plan fails closed, not silently ---"
+
+# (a) mode 000
+cp "$root/local/plan.md" "$root/local/unreadable.md"
+chmod 000 "$root/local/unreadable.md"
+if [[ -r "$root/local/unreadable.md" ]]; then
+    echo "SKIP: running as root -- mode 000 is still readable"
+else
+    out=$(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/unreadable.md" 2>&1 || true)
+    rc=0
+    (cd "$root/local" && "$HELPER" "$default_branch" "$root/local/unreadable.md" >/dev/null 2>&1) || rc=$?
+    assert_contains "unreadable plan: emits EXTRACT_FAILED" "EXTRACT_FAILED" "$out"
+    assert_not_contains "unreadable plan: never a silent NO_OVERLAP" "NO_OVERLAP" "$out"
+    assert_eq "unreadable plan: exits 3" "3" "$rc"
+fi
+chmod 644 "$root/local/unreadable.md" 2>/dev/null || true
+
+# (b) broken symlink -- `-e` is false for it, so the guard must also test `-L`
+ln -s /nonexistent/target.md "$root/local/broken.md"
+out=$(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/broken.md" 2>&1 || true)
+rc=0
+(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/broken.md" >/dev/null 2>&1) || rc=$?
+assert_contains "broken symlink plan: emits EXTRACT_FAILED" "EXTRACT_FAILED" "$out"
+assert_not_contains "broken symlink plan: never a silent NO_OVERLAP" "NO_OVERLAP" "$out"
+assert_eq "broken symlink plan: exits 3" "3" "$rc"
+
+# (c) a genuinely ABSENT plan keeps the pre-existing behaviour.
+out=$(cd "$root/local" && "$HELPER" "$default_branch" "$root/local/absent.md" 2>&1 || true)
+assert_not_contains "absent plan: not treated as an extraction failure" \
+    "EXTRACT_FAILED" "$out"
+
 echo ""
 echo "================================"
 echo "Results: $PASS passed, $FAIL failed (of $TOTAL total)"

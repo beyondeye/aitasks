@@ -67,6 +67,10 @@ for profile in "${PROFILES[@]}"; do
         "MEMBER_EXT:<ref>" "$skill"
     assert_contains "$profile: the four INFLIGHT prefixes are pinned" \
         "INFLIGHT_SCAN:<n_tasks>" "$skill"
+    assert_contains "$profile: the fourth INFLIGHT field is named for what it carries" \
+        "is the **archive status**, republished from the" "$skill"
+    assert_contains "$profile: absent git evidence is never synthesised away" \
+        "Never synthesise a classification from absent git evidence" "$skill"
     assert_contains "$profile: new prefixes are declared digest-excluded" \
         "All five new prefixes are digest-excluded" "$skill"
     assert_contains "$profile: the guarantee is digest identity, not whole-output" \

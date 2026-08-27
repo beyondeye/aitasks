@@ -36,7 +36,7 @@ outcome including ERROR lines, 2 usage, 3 infra):
 
   Only under --with-inflight (t1569_1) -- VOLATILE, see the determinism note:
     INFLIGHT_SOURCE:<gate|lock>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
-    INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<gate_state>
+    INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<archive_status>
     INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
     INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
 
@@ -621,9 +621,23 @@ def _middle_enum(value) -> str:
 # unknown key, so a future attempt to smuggle one in fails loudly rather than
 # invalidating every stored digest.
 
-# Named budgets. The block budget must EXCEED the sum of its phases (5+5+10=20),
-# or it is not a backstop for the work that sits in no phase at all: the single
-# `git ls-files` call, the reflog read, the plan reads, interpreter startup.
+# Named budgets.
+#
+# The block budget must be able to BIND, which is a stronger requirement than
+# exceeding the sum of the phases. It is consulted only through
+# `min(block_deadline, now + _CLASSIFY_TIMEOUT_S)`, so it selects itself only
+# when the work BEFORE classification has already consumed enough of it:
+#
+#   probes, worst case   gate 1 call + lock 3 calls = 4 x 5s  = 20s
+#   git ls-files                                                5s   (bounded)
+#   -------------------------------------------------------------------
+#   elapsed before classify                                    25s
+#   classify term                              25 + 10       = 35s  > 30s
+#
+# so the block deadline wins and the block branch is reachable. Bounding
+# `git ls-files` is what makes that true: while it was unbounded the classify
+# term was always <= 30s, the block could never be the smaller value, and the
+# one call the budget was raised to cover could hang the snapshot forever.
 _PROBE_TIMEOUT_S = 5
 _CLASSIFY_TIMEOUT_S = 10
 _INFLIGHT_TIMEOUT_S = 30
@@ -679,7 +693,13 @@ class SourceResult:
 
 
 def probe_gate_source(root: Path) -> SourceResult:
-    """`aitask_query_files.sh inflight` -> {id: (resume_point, gate_state)}.
+    """`aitask_query_files.sh inflight` -> {id: (resume_point, archive_status)}.
+
+    The fourth field is the PRODUCER's `<archive_status>`
+    (`aitask_query_files.sh:94`): NO_GATES | ALL_PASS | BLOCKED:<csv>. It is
+    republished under that name rather than as "gate state", which it is not.
+    A lock-only task contributes `unknown` -- the established absent-value
+    sentinel -- so the published enum is that vocabulary plus `unknown`.
 
     Requires `Implementing` AND a `## Gate Runs` heading, so it is INCOMPLETE by
     construction -- measured live on this repo it surfaced 0 of 4 Implementing
@@ -837,27 +857,55 @@ def emit_inflight(out, tree, roots, local_name: str) -> None:
 
     merged: dict[str, list] = {}
     for src, tag in ((gate, "gate"), (lock, "lock")):
-        for task_id, (resume, gate_state) in src.ids.items():
+        for task_id, (resume, archive_status) in src.ids.items():
             if task_id in merged:
                 merged[task_id][0] = "both"
                 if merged[task_id][1] == "-":
-                    merged[task_id][1], merged[task_id][2] = resume, gate_state
+                    merged[task_id][1] = resume
+                    merged[task_id][2] = archive_status
             else:
-                merged[task_id] = [tag, resume, gate_state]
+                merged[task_id] = [tag, resume, archive_status]
 
     ordered = sorted(merged)
     for task_id in ordered:
-        tag, resume, gate_state = merged[task_id]
+        tag, resume, archive_status = merged[task_id]
         ref = _validated_ref_field(f"{local_name}#{task_id}")
-        print(f"INFLIGHT:{ref}|{tag}|{resume}|{enum_field(gate_state)}",
+        print(f"INFLIGHT:{ref}|{tag}|{resume}|{enum_field(archive_status)}",
               file=out)
 
     truncated = False
+    tracked_src = SourceResult("tracked")
     if ordered:
+        # `git ls-files` is the CLASSIFICATION evidence, and it is its own
+        # evidence source -- reported on its own line, never swallowed.
+        #
+        # Substituting empty sets here (as an earlier revision did) would turn
+        # an infrastructure failure into a measured result: every path would
+        # classify `phantom`, they would still count as yielded, the corpus axis
+        # would read `extractable` and both probe lines would read `ok`. A
+        # consumer would receive a complete-looking, healthy-looking
+        # classification derived from ZERO git evidence -- a false negative for
+        # every `tracked` and `planned_new` collision t1569_3 exists to catch.
+        # plan_paths.tracked_sets() documents that its callers must decide;
+        # deciding means reporting, not defaulting.
+        tracked = tracked_dirs = None
         try:
             tracked, tracked_dirs = plan_paths.tracked_sets(root)
+        except subprocess.TimeoutExpired:
+            tracked_src.status, tracked_src.reason = "unavailable", "timeout"
         except (subprocess.CalledProcessError, OSError):
-            tracked, tracked_dirs = set(), set()
+            tracked_src.status, tracked_src.reason = "unavailable", "scan_error"
+        print(tracked_src.line(), file=out)
+
+        if tracked is None:
+            # Classification did not run for ANY task. Each gets the sentinel
+            # that says exactly that, so no task looks classified.
+            for task_id in ordered:
+                rref = _validated_ref_field(f"{local_name}#{task_id}")
+                print(f"INFLIGHT_PATH:{rref}|unclassified|-", file=out)
+            print(f"INFLIGHT_SCAN:{len(ordered)}|not_scanned|{source_status}",
+                  file=out)
+            return
 
         classify_deadline = min(deadline,
                                 time.monotonic() + _CLASSIFY_TIMEOUT_S)
