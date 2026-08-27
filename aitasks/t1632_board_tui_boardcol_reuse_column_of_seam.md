@@ -8,6 +8,8 @@ labels: [aitask_board, board_columns, python]
 anchor: 1630
 created_at: 2026-08-26 22:30
 updated_at: 2026-08-26 22:30
+boardcol: now
+boardidx: 15430
 ---
 
 ## Problem
