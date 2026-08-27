@@ -58,6 +58,34 @@ for profile in "${PROFILES[@]}"; do
     assert_contains "$profile: guard compares the current-version line" \
         '`* sha256:` line against `<base_version>`' "$skill"
 
+    # (b2) t1569_1 gatherer contract additions. These are PROSE contracts, and
+    # this is where the claim actually lives: "the status reports probe health,
+    # not completeness" has no executable form against gatherer output, so it is
+    # pinned here as contract text instead of as a pseudo-assertion that would
+    # be silently weakened.
+    assert_contains "$profile: MEMBER_EXT is in the pinned line set" \
+        "MEMBER_EXT:<ref>" "$skill"
+    assert_contains "$profile: the four INFLIGHT prefixes are pinned" \
+        "INFLIGHT_SCAN:<n_tasks>" "$skill"
+    assert_contains "$profile: new prefixes are declared digest-excluded" \
+        "All five new prefixes are digest-excluded" "$skill"
+    assert_contains "$profile: the guarantee is digest identity, not whole-output" \
+        "*digest* identity" "$skill"
+    assert_contains "$profile: probe health is not completeness" \
+        "A healthy probe is not a complete one" "$skill"
+    assert_contains "$profile: both_sources_ok must not be read as safe" \
+        'Never read `both_sources_ok` as' "$skill"
+    assert_contains "$profile: the extension scope limit is stated" \
+        "Path evidence covers only" "$skill"
+    assert_contains "$profile: absence of overlap is not safety" \
+        "**not** evidence of safety" "$skill"
+    assert_contains "$profile: the age unit and its only sentinel are stated" \
+        "An unknown age is never rendered as \`0\`" "$skill"
+    assert_contains "$profile: planned_new limitation (moved file)" \
+        "A file that MOVED away lands there too" "$skill"
+    assert_contains "$profile: planned_new limitation (top-level file)" \
+        "classifies \`phantom\` rather than \`planned_new\`" "$skill"
+
     # (c) --show is read-only.
     assert_contains "$profile: --show read-only contract" \
         "strictly read-only: zero writes, no confirmation" "$skill"

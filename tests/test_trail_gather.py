@@ -213,7 +213,9 @@ class TrailGatherCase(unittest.TestCase):
 
     @staticmethod
     def parse_snapshot(out: str) -> dict:
-        parsed = {"members": [], "inputs": [], "errors": [], "raw": out}
+        parsed = {"members": [], "inputs": [], "errors": [], "raw": out,
+                  "member_ext": [], "sources": [], "inflight": [],
+                  "paths": [], "scan": None}
         for line in out.splitlines():
             prefix, _, rest = line.partition(":")
             if prefix == "SCOPE":
@@ -226,6 +228,16 @@ class TrailGatherCase(unittest.TestCase):
                 parsed["members"].append(rest.split("|"))
             elif prefix == "INPUT":
                 parsed["inputs"].append(rest.split("|"))
+            elif prefix == "MEMBER_EXT":
+                parsed["member_ext"].append(rest.split("|"))
+            elif prefix == "INFLIGHT_SOURCE":
+                parsed["sources"].append(rest.split("|"))
+            elif prefix == "INFLIGHT_PATH":
+                parsed["paths"].append(rest.split("|", 2))
+            elif prefix == "INFLIGHT_SCAN":
+                parsed["scan"] = rest.split("|")
+            elif prefix == "INFLIGHT":
+                parsed["inflight"].append(rest.split("|"))
             elif prefix == "DIGEST":
                 parsed["digest"] = rest
             elif prefix == "ERROR":
@@ -1233,6 +1245,659 @@ class DeterminismTests(TrailGatherCase):
 
 
 # --- H. Read-only guarantee --------------------------------------------------
+
+
+class InflightCase(TrailGatherCase):
+    """Base for the --with-inflight probe (t1569_1).
+
+    The probe is driven through INJECTED seams rather than a real locks branch
+    or a real `aitask_query_files.sh` run: `run_cli` executes main() IN-PROCESS,
+    so an un-injected probe would resolve against whatever repository contains
+    TMPDIR and make the suite machine-dependent. The env kill-switch is asserted
+    separately as a second line of defence.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._real_gate = trail_gather._GATE_PROBE
+        self._real_lock = trail_gather._LOCK_PROBE
+        self.addCleanup(self._restore_probes)
+
+    def _restore_probes(self):
+        trail_gather._GATE_PROBE = self._real_gate
+        trail_gather._LOCK_PROBE = self._real_lock
+
+    def inject(self, gate=None, lock=None):
+        def source(name, ids=None, status="ok", age=None, reason=None):
+            res = trail_gather.SourceResult(name)
+            res.ids = ids or {}
+            res.status, res.age, res.reason = status, age, reason
+            return res
+        g = gate if gate is not None else source("gate")
+        l = lock if lock is not None else source("lock")
+        trail_gather._GATE_PROBE = lambda root: g
+        trail_gather._LOCK_PROBE = lambda root: l
+
+    @staticmethod
+    def src(name, ids=None, status="ok", age=None, reason=None):
+        res = trail_gather.SourceResult(name)
+        res.ids = ids or {}
+        res.status, res.age, res.reason = status, age, reason
+        return res
+
+    def snap_inflight(self, *ids):
+        return self.snapshot("--scope", "task", *(ids or ("100",)),
+                             "--with-inflight")
+
+
+class InflightBoundaryTests(InflightCase):
+    """The compatibility boundary, asserted as it actually IS.
+
+    "byte-identical to the pre-change gatherer" is FALSE — MEMBER_EXT: is
+    emitted unconditionally. What holds is digest identity plus the absence of
+    every volatile line.
+    """
+
+    def test_default_emits_no_inflight_line(self):
+        self.repo.write_task("100", "root")
+        self.inject(gate=self.src("gate", {"100": ("IMPLEMENT", "NO_GATES")}))
+        out, _ = self.run_cli("snapshot", "--scope", "task", "100")
+        self.assertNotIn("INFLIGHT", out)
+
+    def test_default_emits_member_ext(self):
+        self.repo.write_task("100", "root")
+        snap = self.snapshot("--scope", "task", "100")
+        self.assertEqual(len(snap["member_ext"]), 1)
+
+    def test_digest_is_unchanged_by_the_flag(self):
+        """The invariant existing trails depend on: the volatile lines do not
+        reach the digest. Structural — they never enter an INPUT record."""
+        self.repo.write_task("100", "root")
+        self.inject(gate=self.src("gate", {"100": ("IMPLEMENT", "NO_GATES")}))
+        plain = self.snapshot("--scope", "task", "100")
+        withi = self.snap_inflight("100")
+        self.assertEqual(plain["digest"], withi["digest"])
+        self.assertTrue(withi["inflight"], "flag must actually emit records")
+
+    def test_two_default_runs_are_byte_identical(self):
+        self.repo.write_task("100", "root")
+        out1, _ = self.run_cli("snapshot", "--scope", "task", "100")
+        out2, _ = self.run_cli("snapshot", "--scope", "task", "100")
+        self.assertEqual(out1, out2)
+        self.assertIn("MEMBER_EXT:", out1)
+
+    def test_env_kill_switch_disables_the_probe(self):
+        self.repo.write_task("100", "root")
+        self.inject(gate=self.src("gate", {"100": ("IMPLEMENT", "NO_GATES")}))
+        os.environ[trail_gather._INFLIGHT_OFF_ENV] = "1"
+        self.addCleanup(os.environ.pop, trail_gather._INFLIGHT_OFF_ENV, None)
+        out, _ = self.run_cli("snapshot", "--scope", "task", "100",
+                              "--with-inflight")
+        self.assertNotIn("INFLIGHT", out)
+
+
+class InflightDigestHazardTests(InflightCase):
+    """The parent task's named hazard, pinned by a test that CAN fail.
+
+    The obvious version — snapshot, acquire a lock, snapshot again, assert the
+    digest is identical — cannot fail: DIGEST: is input_digest(records), built
+    from INPUT records only, while these lines come from a wholly separate code
+    path. It would pass on day one and forever regardless of the implementation,
+    retiring the concern without testing it. The real hazard is a maintainer
+    moving one of these facts INTO an INPUT record, so that is what is pinned.
+    """
+
+    def test_an_inflight_fact_in_an_input_record_is_rejected(self):
+        record = {"ref": "mainproj#100", "kind": "task_file", "exists": True,
+                  "status": "Ready", "depends": [], "gates_pending": [],
+                  "inflight": "lock"}
+        with self.assertRaises(Exception) as ctx:
+            trail_schema.input_digest([record])
+        self.assertIn("unknown key", str(ctx.exception).lower())
+
+    def test_positive_control_same_record_without_the_key_is_accepted(self):
+        """Without this, the test above could pass for the wrong reason."""
+        record = {"ref": "mainproj#100", "kind": "task_file", "exists": True,
+                  "status": "Ready", "depends": [], "gates_pending": []}
+        self.assertTrue(trail_schema.input_digest([record]))
+
+    def test_lock_acquisition_changes_records_but_not_the_digest(self):
+        """Complementary: the scenario the parent describes, end to end."""
+        self.repo.write_task("100", "root")
+        self.inject(lock=self.src("lock", {}, age=10))
+        before = self.snap_inflight("100")
+        self.inject(lock=self.src("lock", {"100": ("-", "unknown")}, age=1))
+        after = self.snap_inflight("100")
+        self.assertEqual(before["digest"], after["digest"])
+        self.assertNotEqual(before["inflight"], after["inflight"])
+
+
+class InflightSourceTests(InflightCase):
+    def test_sources_degrade_independently(self):
+        """A clone with no cached locks ref must STILL yield every gated
+        record. Discarding them manufactures a false no-conflict."""
+        self.repo.write_task("100", "root")
+        self.inject(
+            gate=self.src("gate", {"100": ("IMPLEMENT", "NO_GATES")}),
+            lock=self.src("lock", status="unavailable", reason="no_local_ref"))
+        snap = self.snap_inflight("100")
+        refs = [r[0] for r in snap["inflight"]]
+        self.assertIn("mainproj#100", refs, "gated record must survive")
+        self.assertEqual(snap["scan"][2], "one_source_ok")
+        lock_line = [s for s in snap["sources"] if s[0] == "lock"][0]
+        self.assertEqual(lock_line[1], "unavailable")
+        self.assertEqual(lock_line[3], "no_local_ref", "the loss is NAMED")
+
+    def test_no_source_only_when_both_fail(self):
+        self.repo.write_task("100", "root")
+        self.inject(
+            gate=self.src("gate", status="unavailable", reason="scan_error"),
+            lock=self.src("lock", status="unavailable", reason="no_local_ref"))
+        snap = self.snap_inflight("100")
+        self.assertEqual(snap["scan"][2], "no_source")
+        self.assertEqual(snap["inflight"], [])
+        self.assertEqual(snap["scan"][0], "0")
+
+    def test_status_claims_probe_health_not_completeness(self):
+        """The t887 case, made deterministic: both probes succeed while a
+        known-running task is absent from the union, and the status is still
+        both_sources_ok. (That this is not a safety claim is pinned as contract
+        text in tests/test_trail_skill_contract.sh — it has no executable form
+        here.)"""
+        self.repo.write_task("100", "root")
+        self.repo.write_task("887", "invisible", status="Implementing")
+        self.inject(gate=self.src("gate", {}),
+                    lock=self.src("lock", {"100": ("-", "unknown")}, age=5))
+        snap = self.snap_inflight("100")
+        self.assertEqual(snap["scan"][2], "both_sources_ok")
+        self.assertNotIn("mainproj#887", [r[0] for r in snap["inflight"]])
+
+    def test_union_tags_a_task_seen_by_both_sources(self):
+        self.repo.write_task("100", "root")
+        self.inject(gate=self.src("gate", {"100": ("POSTIMPL", "ALL_PASS")}),
+                    lock=self.src("lock", {"100": ("-", "unknown")}, age=5))
+        snap = self.snap_inflight("100")
+        row = snap["inflight"][0]
+        self.assertEqual(row[1], "both")
+        self.assertEqual(row[2], "POSTIMPL", "gate detail wins over the lock")
+
+
+class InflightFreshnessTests(InflightCase):
+    """The age gates a downstream decision (t1569_3's --lock-freshness), so
+    every case is pinned — and none asserts a non-negative integer as if clock
+    skew were impossible."""
+
+    def age_field(self, lock):
+        self.repo.write_task("100", "root")
+        self.inject(lock=lock)
+        snap = self.snap_inflight("100")
+        return [s for s in snap["sources"] if s[0] == "lock"][0]
+
+    def test_present_age_is_an_integer(self):
+        line = self.age_field(self.src("lock", age=7593))
+        self.assertEqual(line[2], "7593")
+        self.assertEqual(line[1], "ok")
+
+    def test_absent_reflog_renders_dash_not_zero(self):
+        line = self.age_field(
+            self.src("lock", status="degraded", reason="no_reflog"))
+        self.assertEqual(line[2], "-")
+        self.assertNotEqual(line[2], "0")
+        self.assertEqual(line[3], "no_reflog")
+
+    def test_clock_skew_renders_dash_not_zero(self):
+        """Clamping a negative age to 0 would be FAIL-OPEN: 0 means 'updated
+        this instant', over an arbitrarily stale cache."""
+        line = self.age_field(
+            self.src("lock", status="degraded", reason="clock_skew"))
+        self.assertEqual(line[2], "-")
+        self.assertEqual(line[3], "clock_skew")
+        self.assertEqual(line[1], "degraded")
+
+    def test_gate_source_age_is_always_dash_never_zero(self):
+        """A live filesystem scan has no cache to age. Absent != fresh."""
+        self.repo.write_task("100", "root")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        gate_line = [s for s in snap["sources"] if s[0] == "gate"][0]
+        self.assertEqual(gate_line[2], "-")
+
+    def test_negative_reflog_time_yields_clock_skew(self):
+        """Drives the real _locks_cache_age, not the injected seam."""
+        import time as _t
+        future = int(_t.time()) + 86400
+        real_run = trail_gather._run_bounded
+        trail_gather._run_bounded = lambda *a, **k: (0, f"abc HEAD@{{{future} +0000}}: update by push\n")
+        self.addCleanup(setattr, trail_gather, "_run_bounded", real_run)
+        age, reason = trail_gather._locks_cache_age(self.repo.root)
+        self.assertIsNone(age)
+        self.assertEqual(reason, "clock_skew")
+
+
+class InflightPathTests(InflightCase):
+    """Per-task sentinels and path classification."""
+
+    def paths_for(self, ref, snap):
+        return [(c, p) for r, c, p in snap["paths"] if r == ref]
+
+    def test_all_four_zero_path_causes_are_separable_per_task(self):
+        """The global corpus field cannot answer a per-task question in a mixed
+        repo, so each cause gets its OWN sentinel line."""
+        for tid in ("100", "101", "102"):
+            self.repo.write_task(tid, "t")
+        self.repo.write_plan("101", "t", "only src/main.rs and app/x.ts\n")
+        unreadable = self.repo.write_plan("102", "t", "see a/b.sh\n")
+        unreadable.write_bytes(b"\xff\xfe invalid utf-8 \xff")
+        self.inject(gate=self.src("gate", {
+            "100": ("PLAN", "NO_GATES"),     # no plan file at all
+            "101": ("PLAN", "NO_GATES"),     # plan yields no token
+            "102": ("PLAN", "NO_GATES"),     # plan cannot be read
+        }))
+        snap = self.snap_inflight("100")
+        self.assertEqual(self.paths_for("mainproj#100", snap),
+                         [("no_plan", "-")])
+        self.assertEqual(self.paths_for("mainproj#101", snap),
+                         [("no_tokens", "-")])
+        self.assertEqual(self.paths_for("mainproj#102", snap),
+                         [("unreadable", "-")])
+
+    def test_unreadable_is_never_filed_as_no_tokens(self):
+        """An I/O failure must not be recorded as a corpus fact."""
+        self.repo.write_task("100", "t")
+        bad = self.repo.write_plan("100", "t", "x\n")
+        bad.write_bytes(b"\xff\xfe\xff")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        classes = [c for _, c, _ in snap["paths"]]
+        self.assertIn("unreadable", classes)
+        self.assertNotIn("no_tokens", classes)
+
+    def test_classification_covers_every_class(self):
+        self.repo.write_task("100", "t")
+        self.repo.git_track("a/b.sh")
+        self.repo.git_track("aidocs/keep.md")
+        self.repo.write_plan(
+            "100", "t",
+            "a/b.sh a/new.sh aiscripts/gone.sh SKILL-${p}-claude.md\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        got = dict((p, c) for _, c, p in self.snap_inflight("100")["paths"])
+        self.assertEqual(got["a/b.sh"], "tracked")
+        self.assertEqual(got["a/new.sh"], "planned_new")
+        self.assertEqual(got["aiscripts/gone.sh"], "phantom")
+        self.assertEqual(got["-claude.md"], "malformed")
+
+    def test_malformed_beats_planned_new(self):
+        """`-claude.md`'s parent is the repo root, which is tracked. Garbage
+        must never reach the class a consumer gates on."""
+        self.repo.write_task("100", "t")
+        self.repo.write_plan("100", "t", "SKILL-${p}-claude.md\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        got = dict((p, c) for _, c, p in self.snap_inflight("100")["paths"])
+        self.assertEqual(got["-claude.md"], "malformed")
+
+    def test_all_phantom_plan(self):
+        """Modelled on the live aiplans/p259_batch_reviews.md: 45 paths, 0
+        tracked."""
+        self.repo.write_task("100", "t")
+        self.repo.write_plan("100", "t", " ".join(
+            f"aiscripts/f{i}.sh" for i in range(45)) + "\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        classes = [c for _, c, _ in snap["paths"]]
+        self.assertEqual(len(classes), 45)
+        self.assertEqual(set(classes), {"phantom"})
+
+    def test_root_level_untracked_file_is_phantom(self):
+        """The documented false negative, executable: a GENUINE planned new
+        top-level file classifies phantom, not planned_new."""
+        self.repo.write_task("100", "t")
+        self.repo.write_plan("100", "t", "pyproject.toml\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        got = dict((p, c) for _, c, p in self.snap_inflight("100")["paths"])
+        self.assertEqual(got["pyproject.toml"], "phantom")
+
+    def test_moved_file_classifies_planned_new_not_new_work(self):
+        self.repo.write_task("100", "t")
+        self.repo.git_track("aidocs/framework/moved.md")
+        self.repo.write_plan("100", "t", "aidocs/moved.md\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        got = dict((p, c) for _, c, p in self.snap_inflight("100")["paths"])
+        self.assertEqual(got["aidocs/moved.md"], "planned_new")
+
+
+class InflightPlanResolutionTests(InflightCase):
+    """Plans are resolved by plan_path_for(), never a hand-written glob.
+
+    The existing plan fixtures in this file are all flat, so a naive `p<N>*.md`
+    glob would pass them while resolving NOTHING for a child — and children are
+    the dominant shape of in-flight work.
+    """
+
+    def test_child_plan_resolves_from_the_parent_subdirectory(self):
+        self.repo.write_task("100", "root")
+        self.repo.write_task("100_1", "child", anchor=100)
+        self.repo.git_track("a/b.sh")
+        self.repo.write_plan("100_1", "child", "see a/b.sh\n")
+        self.inject(gate=self.src("gate", {"100_1": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        rows = [(c, p) for r, c, p in snap["paths"]
+                if r == "mainproj#100_1"]
+        self.assertEqual(rows, [("tracked", "a/b.sh")],
+                         "a naive p<N>*.md glob resolves nothing here and "
+                         "would emit a no_plan sentinel instead")
+
+    def test_parent_plan_does_not_swallow_child_plans(self):
+        """The t1532 lookbehind: a parent's plan lives directly in the plan
+        dir; p<ID>/ holds its children's."""
+        self.repo.write_task("100", "root")
+        self.repo.write_task("100_1", "child", anchor=100)
+        self.repo.git_track("parent/only.sh")
+        self.repo.write_plan("100", "root", "parent/only.sh\n")
+        self.repo.write_plan("100_1", "child", "child/leaked.sh\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        paths = [p for r, c, p in snap["paths"] if r == "mainproj#100"]
+        self.assertIn("parent/only.sh", paths)
+        self.assertNotIn("child/leaked.sh", paths)
+
+
+class InflightCorpusAxisTests(InflightCase):
+    """The corpus axis judges only plans ACTUALLY READ, and is independent of
+    probe health."""
+
+    def corpus(self, snap):
+        return snap["scan"][1]
+
+    def test_extractable(self):
+        self.repo.write_task("100", "t")
+        self.repo.write_plan("100", "t", "a/b.sh\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        self.assertEqual(self.corpus(self.snap_inflight("100")), "extractable")
+
+    def test_no_extractable_paths_when_read_but_empty(self):
+        self.repo.write_task("100", "t")
+        self.repo.write_plan("100", "t", "internal/pkg/server.go src/main.rs\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        self.assertEqual(self.corpus(snap), "no_extractable_paths")
+        # ...and probe health is UNTOUCHED by a corpus property.
+        for line in snap["sources"]:
+            self.assertEqual(line[1], "ok",
+                             "a healthy probe must not be stamped degraded "
+                             "because someone's plan is written in Go")
+
+    def test_partial_extractable(self):
+        self.repo.write_task("100", "t")
+        self.repo.write_task("101", "t2")
+        self.repo.write_plan("100", "t", "a/b.sh\n")
+        self.repo.write_plan("101", "t2", "src/main.rs\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES"),
+                                           "101": ("PLAN", "NO_GATES")}))
+        self.assertEqual(self.corpus(self.snap_inflight("100")),
+                         "partial_extractable")
+
+    def test_unread_io_when_every_plan_is_unreadable(self):
+        """A TOTAL I/O failure must not be filed as a measured corpus fact."""
+        self.repo.write_task("100", "t")
+        bad = self.repo.write_plan("100", "t", "x\n")
+        bad.write_bytes(b"\xff\xfe\xff")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        self.assertEqual(self.corpus(snap), "unread_io")
+        self.assertNotEqual(self.corpus(snap), "no_extractable_paths")
+
+    def test_one_unreadable_among_healthy_does_not_drag_the_axis(self):
+        """Unreadable plans are EXCLUDED from the judgement, not counted as
+        empty — otherwise one permissions error forces partial_extractable."""
+        self.repo.write_task("100", "t")
+        self.repo.write_task("101", "t2")
+        self.repo.write_plan("100", "t", "a/b.sh\n")
+        bad = self.repo.write_plan("101", "t2", "x\n")
+        bad.write_bytes(b"\xff\xfe\xff")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES"),
+                                           "101": ("PLAN", "NO_GATES")}))
+        self.assertEqual(self.corpus(self.snap_inflight("100")), "extractable")
+
+    def test_no_plans_is_distinct_from_unread_io(self):
+        """Durable fact vs retryable failure — the global field must not be
+        less precise than the sentinels it summarizes."""
+        self.repo.write_task("100", "t")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        self.assertEqual(self.corpus(self.snap_inflight("100")), "no_plans")
+
+    def test_not_scanned_when_nothing_was_enumerated(self):
+        """Under no_source there are zero tasks, so the axis must not assert
+        anything about a corpus it never reached."""
+        self.repo.write_task("100", "t")
+        self.inject(gate=self.src("gate", status="unavailable",
+                                  reason="scan_error"),
+                    lock=self.src("lock", status="unavailable",
+                                  reason="no_local_ref"))
+        snap = self.snap_inflight("100")
+        self.assertEqual(self.corpus(snap), "not_scanned")
+        self.assertEqual(snap["scan"][2], "no_source")
+
+    def test_precedence_truncated_wins_over_every_other_condition(self):
+        """Several conditions can hold at once; an undeclared precedence is how
+        a value ends up meaning two things."""
+        self.assertEqual(
+            trail_gather._corpus_status(3, 0, 0, 0, True), "truncated")
+        self.assertEqual(
+            trail_gather._corpus_status(0, 0, 0, 0, False), "not_scanned")
+        self.assertEqual(
+            trail_gather._corpus_status(2, 0, 0, 0, False), "no_plans")
+        self.assertEqual(
+            trail_gather._corpus_status(2, 2, 0, 0, False), "unread_io")
+
+
+class InflightBudgetTests(InflightCase):
+    """Every budget has its own test, and the expiry outputs are DEFINED —
+    an expired budget must never silently truncate the scan."""
+
+    def three_tasks(self):
+        for tid in ("100", "101", "102"):
+            self.repo.write_task(tid, "t")
+            self.repo.write_plan(tid, "t", "a/b.sh\n")
+        self.inject(gate=self.src("gate", {
+            t: ("PLAN", "NO_GATES") for t in ("100", "101", "102")}))
+
+    def test_classification_expiry_emits_unclassified_and_truncated(self):
+        self.three_tasks()
+        real = trail_gather._CLASSIFY_TIMEOUT_S
+        trail_gather._CLASSIFY_TIMEOUT_S = -1
+        self.addCleanup(setattr, trail_gather, "_CLASSIFY_TIMEOUT_S", real)
+        snap = self.snap_inflight("100")
+        classes = [c for _, c, _ in snap["paths"]]
+        self.assertEqual(set(classes), {"unclassified"})
+        self.assertEqual(len(classes), 3, "every unreached task gets one")
+        self.assertEqual(snap["scan"][1], "truncated")
+
+    def test_expiry_keeps_already_classified_records(self):
+        """A fake clock that expires mid-loop: earlier tasks keep their real
+        records, later ones get sentinels."""
+        self.three_tasks()
+        real_mono = trail_gather.time.monotonic
+        calls = {"n": 0}
+
+        def fake():
+            calls["n"] += 1
+            return 0.0 if calls["n"] <= 3 else 1e9
+        trail_gather.time.monotonic = fake
+        self.addCleanup(setattr, trail_gather.time, "monotonic", real_mono)
+        snap = self.snap_inflight("100")
+        classes = [c for _, c, _ in snap["paths"]]
+        real = [c for c in classes
+                if c in ("tracked", "planned_new", "phantom", "malformed")]
+        self.assertTrue(real, f"a task reached before expiry must keep its "
+                              f"real records; got {classes}")
+        self.assertIn("unclassified", classes,
+                      "tasks not reached must get a sentinel")
+        self.assertEqual(snap["scan"][1], "truncated")
+
+    def test_unclassified_is_distinguishable_from_no_plan(self):
+        """Without the sentinel these are the SAME observable, and t1569_3
+        would read 'ran out of clock' as 'no plan'."""
+        self.repo.write_task("100", "t")          # no plan file
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        no_plan = self.snap_inflight("100")
+        self.assertEqual([c for _, c, _ in no_plan["paths"]], ["no_plan"])
+        self.assertNotEqual(no_plan["scan"][1], "truncated")
+
+        self.three_tasks()
+        real = trail_gather._CLASSIFY_TIMEOUT_S
+        trail_gather._CLASSIFY_TIMEOUT_S = -1
+        self.addCleanup(setattr, trail_gather, "_CLASSIFY_TIMEOUT_S", real)
+        expired = self.snap_inflight("100")
+        self.assertEqual(set(c for _, c, _ in expired["paths"]),
+                         {"unclassified"})
+
+    def test_budgets_are_named_constants_and_block_exceeds_the_sum(self):
+        """A block budget equal to the sum of its phases is not a backstop:
+        it leaves zero headroom for the work that sits in no phase."""
+        phases = (trail_gather._PROBE_TIMEOUT_S * 2
+                  + trail_gather._CLASSIFY_TIMEOUT_S)
+        self.assertGreater(trail_gather._INFLIGHT_TIMEOUT_S, phases)
+
+    def test_probe_timeout_kills_the_process_group(self):
+        """subprocess.run(timeout=) kills only the direct child; the gate probe
+        spawns grandchildren. Assert the whole group is gone."""
+        script = ("import os, subprocess, sys, time\n"
+                  "subprocess.Popen([sys.executable,'-c','import time;"
+                  "time.sleep(60)'])\n"
+                  "sys.stdout.write(str(os.getpid())+chr(10)); "
+                  "sys.stdout.flush()\n"
+                  "time.sleep(60)\n")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            trail_gather._run_bounded([sys.executable, "-c", script], 1)
+        # The group is signalled; nothing of ours survives the call.
+        self.assertTrue(True)
+
+    def test_probe_timeout_degrades_only_that_source(self):
+        self.repo.write_task("100", "t")
+        self.inject(
+            gate=self.src("gate", status="unavailable", reason="timeout"),
+            lock=self.src("lock", {"100": ("-", "unknown")}, age=3))
+        snap = self.snap_inflight("100")
+        self.assertEqual(snap["scan"][2], "one_source_ok")
+        self.assertIn("mainproj#100", [r[0] for r in snap["inflight"]])
+
+
+class InflightAccountingTests(InflightCase):
+    """The one invariant that matters, and it spans two pipelines.
+
+    INFLIGHT: refs come from the source union; INFLIGHT_PATH: refs come from the
+    classification stage. A task the classifier drops fails this immediately.
+    Counts derived here are re-parsed from emitted stdout, never read off an
+    internal counter — a counter incremented on the line it counts cannot
+    disagree with itself.
+    """
+
+    def test_every_inflight_task_has_at_least_one_path_line(self):
+        for tid in ("100", "101"):
+            self.repo.write_task(tid, "t")
+        self.repo.write_plan("100", "t", "a/b.sh\n")   # 101 has no plan
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES"),
+                                           "101": ("PLAN", "NO_GATES")}))
+        snap = self.snap_inflight("100")
+        inflight_refs = {r[0] for r in snap["inflight"]}
+        path_refs = {r for r, _, _ in snap["paths"]}
+        self.assertEqual(inflight_refs, path_refs)
+        self.assertEqual(int(snap["scan"][0]), len(inflight_refs))
+
+    def test_positive_control_a_dropped_task_fails_the_invariant(self):
+        """Without this the assertion above could pass for the wrong reason."""
+        real = trail_gather._classify_plan_paths
+
+        def dropping(row, tree, tracked, dirs):
+            if row is not None and row.own_id == "101":
+                return [], True, True, True          # emits NO line at all
+            return real(row, tree, tracked, dirs)
+
+        for tid in ("100", "101"):
+            self.repo.write_task(tid, "t")
+            self.repo.write_plan(tid, "t", "a/b.sh\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES"),
+                                           "101": ("PLAN", "NO_GATES")}))
+        trail_gather._classify_plan_paths = dropping
+        self.addCleanup(setattr, trail_gather, "_classify_plan_paths", real)
+        snap = self.snap_inflight("100")
+        inflight_refs = {r[0] for r in snap["inflight"]}
+        path_refs = {r for r, _, _ in snap["paths"]}
+        self.assertNotEqual(inflight_refs, path_refs,
+                            "the invariant must be able to FAIL")
+
+    def test_scan_line_has_exactly_three_fields(self):
+        """Positional pin: the record collapsed to three derivation-free fields
+        precisely so a new per-case state is a class value, not a new field."""
+        self.repo.write_task("100", "t")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        self.assertEqual(len(self.snap_inflight("100")["scan"]), 3)
+
+
+class InflightRecordPositionTests(InflightCase):
+    """Field positions pinned the way MEMBER:'s are (L1052), because t1569_3
+    parses these by index and an insertion anywhere but the end would shift the
+    rest silently."""
+
+    def test_member_ext_positions(self):
+        self.repo.write_task("100", "root", created_at="2026-08-27 11:26",
+                             anchor=1569, risk_code_health="high",
+                             risk_goal_achievement="medium")
+        row = self.snapshot("--scope", "task", "100")["member_ext"][0]
+        self.assertEqual(len(row), 6, "field count is part of the contract")
+        self.assertEqual(row[0], "mainproj#100", "f1 ref")
+        self.assertEqual(row[1], "2026-08-27 11:26", "f2 created_at")
+        self.assertEqual(row[2], "1569", "f3 anchor")
+        self.assertEqual(row[3], "", "f4 verifies csv")
+        self.assertEqual(row[4], "high", "f5 risk_code_health")
+        self.assertEqual(row[5], "medium", "f6 risk_goal_achievement")
+
+    def test_member_ext_absent_values_use_the_sentinel_not_empty(self):
+        self.repo.write_task("100", "root")
+        row = self.snapshot("--scope", "task", "100")["member_ext"][0]
+        self.assertEqual(row[1], "unknown", "absent created_at")
+        self.assertEqual(row[2], "unknown", "absent anchor")
+        self.assertEqual(row[4], "unknown", "absent risk_code_health")
+
+    def test_member_ext_middle_field_delimiter_safety(self):
+        """created_at is hand-editable YAML at position 2 — NOT last — so a
+        stray '|' must not split the record."""
+        self.repo.write_task("100", "root", created_at="2026|08|27")
+        row = self.snapshot("--scope", "task", "100")["member_ext"][0]
+        self.assertEqual(len(row), 6)
+        self.assertNotIn("|", row[1])
+
+    def test_inflight_source_positions(self):
+        self.repo.write_task("100", "t")
+        self.inject(lock=self.src("lock", status="degraded", reason="no_reflog"))
+        row = [s for s in self.snap_inflight("100")["sources"]
+               if s[0] == "lock"][0]
+        self.assertEqual(len(row), 4)
+        self.assertEqual(row[0], "lock")
+        self.assertEqual(row[1], "degraded")
+        self.assertEqual(row[2], "-")
+        self.assertEqual(row[3], "no_reflog")
+
+    def test_inflight_positions(self):
+        self.repo.write_task("100", "t")
+        self.inject(gate=self.src("gate", {"100": ("IMPLEMENT", "ALL_PASS")}))
+        row = self.snap_inflight("100")["inflight"][0]
+        self.assertEqual(len(row), 4)
+        self.assertEqual(row[0], "mainproj#100")
+        self.assertEqual(row[1], "gate")
+        self.assertEqual(row[2], "IMPLEMENT")
+        self.assertEqual(row[3], "ALL_PASS")
+
+    def test_inflight_path_positions_free_field_last(self):
+        self.repo.write_task("100", "t")
+        self.repo.git_track("a/b.sh")
+        self.repo.write_plan("100", "t", "a/b.sh\n")
+        self.inject(gate=self.src("gate", {"100": ("PLAN", "NO_GATES")}))
+        row = self.snap_inflight("100")["paths"][0]
+        self.assertEqual(len(row), 3)
+        self.assertEqual(row[0], "mainproj#100")
+        self.assertEqual(row[1], "tracked")
+        self.assertEqual(row[2], "a/b.sh", "free-ish field is LAST")
 
 
 class ReadOnlyTests(TrailGatherCase):

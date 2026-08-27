@@ -57,11 +57,53 @@ snapshot/verdict): surface the error to the user and stop the flow.
 SCOPE:<kind>|<topics csv>
 OWNER:<ref | none>
 MEMBER:<ref>|<status>|<priority>|<effort>|<boardcol>|<labels csv>|<followup_kind>|<path>
+MEMBER_EXT:<ref>|<created_at>|<anchor>|<verifies csv>|<risk_code_health>|<risk_goal_achievement>
 INPUT:task_file|<exists>|<status>|<depends csv>|<gates csv>|<ref>
 INPUT:plan_file|<exists>|<content_hash>|<ref>
 DIGEST:<hex>
 ERROR:<kind>:<id>
 ```
+
+Adding `--with-inflight` emits four further prefixes:
+
+```
+INFLIGHT_SOURCE:<gate|lock>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
+INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<gate_state>
+INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
+INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
+```
+
+**All five new prefixes are digest-excluded**, but they differ in
+availability: `MEMBER_EXT:` is always emitted, while the four `INFLIGHT*`
+lines appear **only** under `--with-inflight`. The compatibility guarantee
+is therefore *digest* identity, **not** whole-output identity — a default
+snapshot is not byte-identical to one from before these lines existed, but
+its `DIGEST:` is, so every stored trail stays comparable.
+
+**A healthy probe is not a complete one.** `source_status`
+(`both_sources_ok` / `one_source_ok` / `no_source`) reports **only which
+probes ran cleanly**. The gated source requires a `## Gate Runs` ledger and
+the lock source tracks locks rather than execution, so neither — nor their
+union — enumerates every running task. Never read `both_sources_ok` as
+"nothing else is in flight".
+
+**Path evidence covers only `.sh .py .md .yaml .yml .json .toml`.** A plan
+written in any other language contributes no paths, and its absence of
+overlap is **not** evidence of safety; that case is reported on the
+`corpus_status` axis (`no_extractable_paths`), which is independent of
+probe health. `corpus_status` also carries `unread_io` (plans exist, none
+readable), `no_plans`, `not_scanned` (nothing enumerated) and `truncated`
+(a budget expired) — evaluate it as reported, never inferred from the
+absence of `INFLIGHT_PATH:` lines.
+
+`INFLIGHT_SOURCE:`'s age is **integer seconds** since this clone last
+updated the ref, or `-` when it cannot be established (`no_reflog`,
+`clock_skew`).
+An unknown age is never rendered as `0` — `-` is the only sentinel.
+
+**`planned_new` means "a plausibly-createable location", not "confirmed new
+work".** A file that MOVED away lands there too, and a genuine planned
+top-level file classifies `phantom` rather than `planned_new`.
 
 `./.aitask-scripts/aitask_trail_gather.sh drift --trail <path-or-art:handle>`:
 

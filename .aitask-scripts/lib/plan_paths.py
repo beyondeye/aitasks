@@ -16,6 +16,15 @@ extraction previously lived inline in the drift check as a one-line
 on the edges recorded in
 ``aidocs/framework/plan_path_reference_extraction_findings.md``.
 
+NOT THE ONLY EXTRACTOR IN THE REPO, AND DELIBERATELY SO. ``aitask_change_surface.sh``
+carries its own, broader one (t1263): no extension allowlist, a token class that
+admits a leading dot, and validation against the FILESYSTEM rather than
+``git ls-files``. It answers a different question -- "which files did this task
+change?" -- with different correctness requirements, so the two are not merged.
+This module owns the extension-allowlisted grammar shared by the drift check and
+the gatherer; ``tests/test_plan_paths_seam.sh`` guards that scope and pins the
+other one so it cannot quietly drift into a copy.
+
 GRAMMAR -- deliberately unchanged from the pipeline this replaces, so the move is
 behaviour-preserving. There is NO allowlist of directory roots (t1275 removed it:
 OVERLAP is an exact full-line intersection, so a root filter can only remove TRUE

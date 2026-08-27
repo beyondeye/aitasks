@@ -26,6 +26,7 @@ outcome including ERROR lines, 2 usage, 3 infra):
     SCOPE:<kind>|<topics csv>
     OWNER:<ref | none>
     MEMBER:<ref>|<status>|<priority>|<effort>|<boardcol>|<labels csv>|<followup_kind>|<path>
+    MEMBER_EXT:<ref>|<created_at>|<anchor>|<verifies csv>|<risk_code_health>|<risk_goal_achievement>
     INPUT:task_file|<exists>|<status>|<depends csv>|<gates csv>|<ref>
     INPUT:plan_file|<exists>|<content_hash or ->|<ref>
     DIGEST:<hex>
@@ -33,11 +34,31 @@ outcome including ERROR lines, 2 usage, 3 infra):
     DRIFT:<code>|<task_ref or ->|<detail>
     ERROR:<kind>:<id>            (staged -- emitted alone, exit 0)
 
+  Only under --with-inflight (t1569_1) -- VOLATILE, see the determinism note:
+    INFLIGHT_SOURCE:<gate|lock>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
+    INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<gate_state>
+    INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
+    INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
+
 Deterministic ordering: INPUT lines in canonical (kind, ref) order (the
-same order the digest hashes), MEMBER lines sorted by ref, topics csv
-sorted, DRIFT lines deduplicated by (code, task_ref) -- lexicographically
-smallest sanitized detail survives -- and sorted by (code, task_ref). Two
-runs over unchanged state are byte-identical.
+same order the digest hashes), MEMBER / MEMBER_EXT lines sorted by ref,
+topics csv sorted, DRIFT lines deduplicated by (code, task_ref) --
+lexicographically smallest sanitized detail survives -- and sorted by
+(code, task_ref).
+
+DETERMINISM, SCOPED. Two runs over unchanged state are byte-identical
+ACROSS THE DIGEST-RELEVANT LINES -- everything above except the four
+INFLIGHT* prefixes. Those four are volatile by nature (locks and
+in-flight status change minute to minute), which is exactly why they are
+opt-in and digest-excluded; stating the guarantee over the whole output,
+as this docstring once did, would make the determinism test encode the
+wrong property and keep passing while the real one rots. MEMBER_EXT: is
+NOT volatile -- its fields change only when a task file changes -- so it
+is emitted unconditionally and stays inside the guarantee.
+
+The invariant existing trails depend on is DIGEST identity, not
+whole-output identity: adding a non-volatile line changes the default
+output while leaving every stored digest comparable.
 
 Error vocabulary (ERROR:<kind>:<id>): unknown_task, unresolved_project,
 cross_repo_topic_unsupported, unstable_repository_state, undriftable_input,
@@ -117,8 +138,10 @@ import argparse
 import hashlib
 import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -139,8 +162,10 @@ from gate_ledger import archive_status_from_text  # noqa: E402
 # The vocabulary-clamped field builder; shared with work_report_gather so
 # "neither sentinel means a real kind" holds by construction on both records.
 from followup_kinds import followup_kind_field  # noqa: E402
+import plan_paths  # noqa: E402
 from record_protocol import (  # noqa: E402
     INVALID_ENUM, enum_field, has_record_breaking, sanitize_last_field,
+    sanitize_middle_field,
 )
 from task_yaml import BOARD_KEYS, parse_frontmatter  # noqa: E402
 from topic_semantics import topic_key  # noqa: E402
@@ -536,6 +561,364 @@ def member_line(row: TaskRow) -> str:
             + f"|{sanitize_last_field(str(row.path))}")
 
 
+def member_ext_line(row: TaskRow) -> str:
+    """MEMBER_EXT: — per-member value/origin facts (t1569_1).
+
+    A NEW line rather than extra fields on MEMBER:. That record's free-ish
+    `path` field is last by contract, and DeterminismTests pins all eight of its
+    positions specifically to make an insertion loud — so this goes beside it,
+    never inside it.
+
+    Emitted UNCONDITIONALLY (no --with-inflight): it needs no probe, no network
+    and no git, the metadata is already read to build MEMBER:, and it is
+    NON-VOLATILE — its fields change only when a task file changes. It is
+    digest-excluded like every line here, structurally: these facts never enter
+    an INPUT record, and trail_schema rejects unknown keys if one ever tried.
+
+    Every field is sanitized and every field has a sentinel. t1569_3 parses this
+    positionally, so a stray '|' would break the record and an empty field would
+    be ambiguous. `created_at` and `anchor` are free-form hand-editable YAML at
+    positions 2 and 3 — NOT last — so they take sanitize_middle_field().
+    """
+    ref = _validated_ref_field(row.ref)
+    meta = row.metadata
+    verifies = meta.get("verifies")
+    verifies_csv = ",".join(
+        _csv_entry(v) for v in verifies) if isinstance(verifies, list) else ""
+    return ("MEMBER_EXT:" + ref
+            + f"|{_middle_enum(meta.get('created_at'))}"
+            + f"|{_middle_enum(meta.get('anchor'))}"
+            + f"|{verifies_csv}"
+            + f"|{enum_field(meta.get('risk_code_health'))}"
+            + f"|{enum_field(meta.get('risk_goal_achievement'))}")
+
+
+def _middle_enum(value) -> str:
+    """enum_field()'s sentinel discipline, with middle-field delimiter safety.
+
+    enum_field() alone would let a hand-typed '|' in `created_at:` split the
+    record; sanitize_middle_field() alone would render an absent value as an
+    empty field, which is indistinguishable from a present-but-empty one.
+    """
+    if value is None or value == "":
+        return enum_field(None)
+    return sanitize_middle_field(str(value))
+
+
+# --- in-flight probe (--with-inflight; t1569_1) ------------------------------
+#
+# Everything below is OPT-IN. Without --with-inflight no INFLIGHT* line is
+# emitted, no lock ref is read and no plan file is scanned -- that is what keeps
+# every ordinary trail off the network and inside its latency budget.
+#
+# COMPATIBILITY BOUNDARY. The default snapshot is NOT byte-identical to the
+# pre-change gatherer: MEMBER_EXT: is added unconditionally above. What IS
+# guaranteed, and what existing trails actually depend on, is that the DIGEST:
+# line is unchanged. Only the volatile INFLIGHT-prefixed lines are opt-in.
+#
+# DIGEST EXCLUSION is structural, not a convention: these facts never enter an
+# INPUT record, and trail_schema._normalize_input_record() hard-errors on any
+# unknown key, so a future attempt to smuggle one in fails loudly rather than
+# invalidating every stored digest.
+
+# Named budgets. The block budget must EXCEED the sum of its phases (5+5+10=20),
+# or it is not a backstop for the work that sits in no phase at all: the single
+# `git ls-files` call, the reflog read, the plan reads, interpreter startup.
+_PROBE_TIMEOUT_S = 5
+_CLASSIFY_TIMEOUT_S = 10
+_INFLIGHT_TIMEOUT_S = 30
+
+_LOCKS_REF = "origin/aitask-locks"
+_LOCK_FILE_RE = re.compile(r"^t(\d+(?:_\d+)?)_lock\.yaml$")
+
+# Kill-switch. Set to "1" to make --with-inflight a no-op regardless of argv.
+# Tests need this in addition to the injectable seams below, because run_cli
+# executes main() IN-PROCESS: without it, a probe that escaped the fixture would
+# reach the developer's real repository.
+_INFLIGHT_OFF_ENV = "AIT_TRAIL_NO_INFLIGHT"
+
+
+def _run_bounded(cmd, timeout, cwd=None) -> "tuple[int, str]":
+    """Run `cmd`, killing the whole PROCESS GROUP on timeout.
+
+    subprocess.run(timeout=) kills only the direct child. The gate probe shells
+    out to aitask_query_files.sh, which spawns its own git children, so a plain
+    timeout would orphan the grandchildren. start_new_session puts the child in
+    its own group; on timeout we signal the group.
+
+    Raises subprocess.TimeoutExpired on expiry; returns (rc, stdout) otherwise.
+    """
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        start_new_session=True, cwd=None if cwd is None else str(cwd))
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
+        proc.communicate()
+        raise
+    return proc.returncode, out.decode("utf-8", "replace")
+
+
+@dataclass
+class SourceResult:
+    """One evidence source's outcome. `status` is PROBE HEALTH only."""
+    name: str                       # gate | lock
+    status: str = "ok"              # ok | degraded | unavailable
+    age: "int | None" = None        # seconds; None renders as '-'
+    reason: "str | None" = None
+    ids: "dict[str, tuple[str, str]]" = field(default_factory=dict)
+
+    def line(self) -> str:
+        age = "-" if self.age is None else str(self.age)
+        return (f"INFLIGHT_SOURCE:{self.name}|{self.status}|{age}|"
+                f"{self.reason or '-'}")
+
+
+def probe_gate_source(root: Path) -> SourceResult:
+    """`aitask_query_files.sh inflight` -> {id: (resume_point, gate_state)}.
+
+    Requires `Implementing` AND a `## Gate Runs` heading, so it is INCOMPLETE by
+    construction -- measured live on this repo it surfaced 0 of 4 Implementing
+    tasks. That is precisely why the union exists and why the scan status claims
+    probe health rather than completeness.
+    """
+    result = SourceResult("gate")
+    script = os.path.join(_SCRIPTS_DIR, "aitask_query_files.sh")
+    try:
+        rc, out = _run_bounded([script, "inflight"], _PROBE_TIMEOUT_S, cwd=root)
+    except subprocess.TimeoutExpired:
+        result.status, result.reason = "unavailable", "timeout"
+        return result
+    except OSError:
+        result.status, result.reason = "unavailable", "scan_error"
+        return result
+    if rc != 0:
+        result.status, result.reason = "unavailable", "scan_error"
+        return result
+    for line in out.split("\n"):
+        if not line.startswith("INFLIGHT:"):
+            continue
+        parts = line[len("INFLIGHT:"):].split("|")
+        if len(parts) >= 4:
+            result.ids[parts[0]] = (parts[2], parts[3])
+    return result
+
+
+def probe_lock_source(root: Path) -> SourceResult:
+    """Locked task ids from the LOCAL `origin/aitask-locks` tree. No fetch.
+
+    Deliberately not `ait lock --list`: that performs a network `git fetch` and
+    prints ANSI-coloured human text to stdout on its degenerate paths. Reading
+    the cached ref keeps the shared gatherer off the network -- which is why the
+    cache's AGE is load-bearing and reported here.
+    """
+    result = SourceResult("lock")
+
+    def git(*a):
+        return _run_bounded(["git", "-C", str(root), *a], _PROBE_TIMEOUT_S)
+
+    try:
+        rc, _ = git("rev-parse", "--verify", "--quiet", _LOCKS_REF + "^{tree}")
+        if rc != 0:
+            result.status, result.reason = "unavailable", "no_local_ref"
+            return result
+        rc, listing = git("ls-tree", "--name-only", _LOCKS_REF)
+        if rc != 0:
+            result.status, result.reason = "unavailable", "unreadable_tree"
+            return result
+    except subprocess.TimeoutExpired:
+        result.status, result.reason = "unavailable", "timeout"
+        return result
+    except OSError:
+        result.status, result.reason = "unavailable", "scan_error"
+        return result
+
+    for name in listing.split("\n"):
+        match = _LOCK_FILE_RE.match(name.strip())
+        if match:
+            result.ids[match.group(1)] = ("-", "unknown")
+
+    result.age, age_reason = _locks_cache_age(root)
+    if result.age is None:
+        result.status, result.reason = "degraded", age_reason
+    return result
+
+
+def _locks_cache_age(root: Path) -> "tuple[int | None, str | None]":
+    """Seconds since THIS CLONE last updated the ref, from its reflog.
+
+    NOT `git log -1 --format=%ct`: that is when the last lock was committed on
+    whichever peer machine, while the consumer's question is how stale this
+    cache is. The two diverge both ways -- a quiet branch fetched a second ago
+    reports days, and a peer with a forward-skewed clock on a branch whose whole
+    purpose is multi-host coordination yields a NEGATIVE age.
+
+    A negative or unavailable age emits '-', never 0. Clamping to 0 would be
+    fail-open: 0 reads as "updated this instant", the most plausible-and-wrong
+    value this field can carry, over an arbitrarily stale cache.
+    """
+    try:
+        rc, out = _run_bounded(
+            ["git", "-C", str(root), "reflog", "show", "--date=raw",
+             "-n", "1", _LOCKS_REF], _PROBE_TIMEOUT_S)
+    except (subprocess.TimeoutExpired, OSError):
+        return None, "timeout"
+    if rc != 0 or not out.strip():
+        return None, "no_reflog"
+    match = re.search(r"@\{(\d+)\s", out)
+    if not match:
+        return None, "no_reflog"
+    age = int(time.time()) - int(match.group(1))
+    if age < 0:
+        return None, "clock_skew"
+    return age, None
+
+
+# Injectable seams. Tests replace these rather than the functions above, so a
+# probe can be driven deterministically without a network, a locks branch, or a
+# dependence on whatever repository happens to contain TMPDIR.
+_GATE_PROBE = probe_gate_source
+_LOCK_PROBE = probe_lock_source
+
+
+def _classify_plan_paths(row, tree, tracked, tracked_dirs):
+    """One task -> (class, path) records, or a single task sentinel.
+
+    Each zero-path cause gets its OWN sentinel, because t1569_3 decides per
+    task and a global field cannot answer a per-task question in a mixed repo:
+
+        no plan file        -> no_plan
+        plan yields nothing -> no_tokens
+        plan unreadable     -> unreadable      (an I/O failure, not a corpus fact)
+
+    Returns (records, has_plan, read_ok, yielded_tokens). `has_plan` is tracked
+    separately from `read_ok` so the corpus axis can tell "no task has a plan"
+    (durable, nothing to retry) from "plans exist but none could be read" (an
+    I/O failure, retryable) -- the per-task sentinels already separate them, and
+    a global field must not be less precise than the lines it summarizes.
+    """
+    plan = plan_path_for(row, tree) if row is not None else None
+    if plan is None:
+        return [("no_plan", "-")], False, False, False
+    try:
+        tokens = plan_paths.extract_file(plan)
+    except (OSError, UnicodeDecodeError):
+        return [("unreadable", "-")], True, False, False
+    if not tokens:
+        return [("no_tokens", "-")], True, True, False
+    return ([(plan_paths.classify(t, tracked, tracked_dirs), t)
+             for t in tokens], True, True, True)
+
+
+def emit_inflight(out, tree, roots, local_name: str) -> None:
+    """Emit the four INFLIGHT* records. Never raises; never fails the snapshot.
+
+    Every degradation is a content state on stdout with exit 0.
+    """
+    root = tree.root
+    deadline = time.monotonic() + _INFLIGHT_TIMEOUT_S
+
+    gate = _GATE_PROBE(root)
+    lock = _LOCK_PROBE(root)
+    print(gate.line(), file=out)
+    print(lock.line(), file=out)
+
+    # SOURCES DEGRADE INDEPENDENTLY. The lock tree resolves through a different
+    # command than the gated scan, so a clone with no cached ref must still
+    # yield every gated record -- discarding them would manufacture exactly the
+    # false no-conflict the parent task forbids.
+    healthy = sum(1 for s in (gate, lock) if s.status != "unavailable")
+    source_status = ("both_sources_ok" if healthy == 2
+                     else "one_source_ok" if healthy == 1 else "no_source")
+
+    merged: dict[str, list] = {}
+    for src, tag in ((gate, "gate"), (lock, "lock")):
+        for task_id, (resume, gate_state) in src.ids.items():
+            if task_id in merged:
+                merged[task_id][0] = "both"
+                if merged[task_id][1] == "-":
+                    merged[task_id][1], merged[task_id][2] = resume, gate_state
+            else:
+                merged[task_id] = [tag, resume, gate_state]
+
+    ordered = sorted(merged)
+    for task_id in ordered:
+        tag, resume, gate_state = merged[task_id]
+        ref = _validated_ref_field(f"{local_name}#{task_id}")
+        print(f"INFLIGHT:{ref}|{tag}|{resume}|{enum_field(gate_state)}",
+              file=out)
+
+    truncated = False
+    if ordered:
+        try:
+            tracked, tracked_dirs = plan_paths.tracked_sets(root)
+        except (subprocess.CalledProcessError, OSError):
+            tracked, tracked_dirs = set(), set()
+
+        classify_deadline = min(deadline,
+                                time.monotonic() + _CLASSIFY_TIMEOUT_S)
+        n_plan = n_read = n_yield = 0
+        for index, task_id in enumerate(ordered):
+            if time.monotonic() > classify_deadline:
+                # Budget expired. Every task not yet reached gets its OWN
+                # sentinel -- without it, "ran out of clock" and "no plan file"
+                # are the same observable, and t1569_3 would read the former as
+                # the latter.
+                truncated = True
+                for remaining in ordered[index:]:
+                    rref = _validated_ref_field(f"{local_name}#{remaining}")
+                    print(f"INFLIGHT_PATH:{rref}|unclassified|-", file=out)
+                break
+            row = tree.by_own_id.get(task_id)
+            records, has_plan, read_ok, yielded = _classify_plan_paths(
+                row, tree, tracked, tracked_dirs)
+            n_plan += 1 if has_plan else 0
+            n_read += 1 if read_ok else 0
+            n_yield += 1 if yielded else 0
+            ref = _validated_ref_field(f"{local_name}#{task_id}")
+            for cls, path in records:
+                rendered = "-" if path == "-" else sanitize_last_field(path)
+                print(f"INFLIGHT_PATH:{ref}|{cls}|{rendered}", file=out)
+    else:
+        n_plan = n_read = n_yield = 0
+
+    print(f"INFLIGHT_SCAN:{len(ordered)}|"
+          f"{_corpus_status(len(ordered), n_plan, n_read, n_yield, truncated)}|"
+          f"{source_status}", file=out)
+
+
+def _corpus_status(n_tasks: int, n_plan: int, n_read: int, n_yield: int,
+                   truncated: bool) -> str:
+    """The corpus axis, judged ONLY over plans actually read.
+
+    Evaluated in a declared order, because several conditions can hold at once
+    and an undeclared precedence is how a value ends up meaning two things.
+    Unreadable and absent plans are EXCLUDED rather than counted as empty:
+    counting them would let one permissions error file an I/O failure as a
+    durable corpus fact.
+    """
+    if truncated:
+        return "truncated"
+    if n_tasks == 0:
+        return "not_scanned"
+    if n_plan == 0:
+        # Tasks were enumerated and NONE has a plan. A durable corpus fact with
+        # nothing to retry -- distinct from the I/O failure below.
+        return "no_plans"
+    if n_read == 0:
+        # Plans exist but none could be read. Retryable, an operator problem.
+        return "unread_io"
+    if n_yield == 0:
+        return "no_extractable_paths"
+    if n_yield < n_read:
+        return "partial_extractable"
+    return "extractable"
+
+
 # --- snapshot verb ----------------------------------------------------------
 
 def _resolve_scope_ids(raw_ids: list[str], scope: str, local_name: str,
@@ -658,10 +1041,19 @@ def cmd_snapshot(args, out=None) -> int:
     unique_rows = {row.ref: row for row, _ in members}
     for ref in sorted(unique_rows):
         print(member_line(unique_rows[ref]), file=out)
+    for ref in sorted(unique_rows):
+        print(member_ext_line(unique_rows[ref]), file=out)
     ordered = sorted(records, key=lambda r: (r["kind"], r["ref"]))
     for record in ordered:
         print(input_line(record), file=out)
     print(f"DIGEST:{trail_schema.input_digest(records)}", file=out)
+    # AFTER the digest, and gated: these lines are volatile and digest-excluded.
+    # The env kill-switch is checked here as well as at the flag, so a test that
+    # never reaches argv still cannot let a probe escape its fixture.
+    if getattr(args, "with_inflight", False)             and os.environ.get(_INFLIGHT_OFF_ENV) != "1":
+        local_tree = trees.get(local_name)
+        if local_tree is not None:
+            emit_inflight(out, local_tree, roots, local_name)
     return 0
 
 
@@ -1143,6 +1535,9 @@ def build_parser() -> argparse.ArgumentParser:
     snap.add_argument("--scope", required=True,
                       choices=("task", "topic", "multi_topic"))
     snap.add_argument("--owner", help="explicit owner task id (RFC J4)")
+    snap.add_argument("--with-inflight", action="store_true",
+                      help="probe in-flight tasks + their planned surfaces "
+                           "(opt-in: reads the local locks ref and plan files)")
     snap.add_argument("ids", nargs="+", help="task ids or topic root ids")
     drift = sub.add_parser("drift", help="recompute a stored trail's freshness")
     drift.add_argument("--trail", required=True,
