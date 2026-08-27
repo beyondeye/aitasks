@@ -192,13 +192,21 @@ fi
 
 # Check remote (if local not found and remote exists)
 if [[ "$branch_found" == false ]] && git remote get-url origin &>/dev/null; then
-    if git ls-remote --heads origin aitask-data 2>/dev/null | grep -q aitask-data; then
+    # Exact ref match. `ls-remote --heads origin aitask-data | grep -q
+    # aitask-data` matched on the TAIL of a ref through an unanchored grep, so a
+    # remote carrying only `refs/heads/backup/aitask-data` answered "found" and
+    # the fetch below then failed on a ref that was never there. Same probe, same
+    # correction as setup_data_branch Step 1 (t1631).
+    if git ls-remote --exit-code --heads origin refs/heads/aitask-data >/dev/null 2>&1; then
         info "Found aitask-data branch on remote, fetching..." >&2
-        git fetch origin aitask-data 2>/dev/null || {
-            warn "Failed to fetch aitask-data branch from remote" >&2
+        # Report git's own error rather than discarding it (t1631, mirroring
+        # t1627's sweep in aitask_setup.sh).
+        fetch_err=""
+        if ! fetch_err="$(git fetch origin aitask-data 2>&1 >/dev/null)"; then
+            warn "Failed to fetch aitask-data branch from remote. git said: ${fetch_err:-<no output>}" >&2
             echo "NO_DATA_BRANCH"
             exit 0
-        }
+        fi
         branch_found=true
     fi
 fi

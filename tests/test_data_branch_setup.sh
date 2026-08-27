@@ -91,7 +91,7 @@ setup_repo_with_remote() {
     # Create local clone
     git clone --quiet "$tmpdir/remote.git" "$tmpdir/local" 2>/dev/null
     (
-        cd "$tmpdir/local"
+        cd "$tmpdir/local" || exit 1
         git config user.email "test@test.com"
         git config user.name "Test"
         # Need at least one commit for the repo to be usable
@@ -108,7 +108,7 @@ setup_local_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
     (
-        cd "$tmpdir"
+        cd "$tmpdir" || exit 1
         git init --quiet
         git config user.email "test@test.com"
         git config user.name "Test"
@@ -117,6 +117,178 @@ setup_local_repo() {
         git commit -m "init" --quiet
     )
     echo "$tmpdir"
+}
+
+# --- Command shims (t1631) ---
+#
+# Several t1631 tests need one specific `git` or `cp` invocation inside
+# setup_data_branch to fail while every other call behaves normally. A wrapper
+# on PATH is the only mechanism that is deterministic for EVERY EUID: `chmod
+# 000` on a source file does nothing when the suite runs as root, which is a
+# common CI/container identity, and that is precisely where the no-delete
+# guarantee most needs pinning.
+#
+# shim_install <name>:<matcher> [<name>:<matcher> ...]
+#   <matcher> names a case in the generated wrapper (see below). Every wrapper
+#   passes through to the real binary — resolved via AIT_TEST_REAL_PATH, saved
+#   before PATH is modified — for anything it does not match, so a shimmed
+#   `git` still runs `worktree add`, `rm`, `add`, `push` and the rest for real.
+SHIM_DIR=""
+AIT_TEST_REAL_PATH=""
+
+shim_install() {
+    local spec name matcher
+    SHIM_DIR="$(mktemp -d)"
+    AIT_TEST_REAL_PATH="$PATH"
+    export AIT_TEST_REAL_PATH
+
+    for spec in "$@"; do
+        name="${spec%%:*}"
+        matcher="${spec#*:}"
+        {
+            echo '#!/usr/bin/env bash'
+            echo "real=\"\$(PATH=\"\$AIT_TEST_REAL_PATH\" command -v $name)\""
+            case "$matcher" in
+                git_fetch)
+                    # `git -C <dir> fetch origin aitask-data` -> fail.
+                    cat <<'SHIM'
+for a in "$@"; do
+    if [[ "$a" == "fetch" ]]; then
+        echo "fatal: shim: simulated fetch failure" >&2
+        exit 1
+    fi
+done
+SHIM
+                    ;;
+                git_commit)
+                    # `git commit` inside the data worktree -> fail. Scoped by
+                    # CWD so the main-branch commits still work.
+                    cat <<'SHIM'
+for a in "$@"; do
+    if [[ "$a" == "commit" && "$PWD" == */.aitask-data ]]; then
+        echo "fatal: shim: simulated commit failure" >&2
+        exit 1
+    fi
+done
+SHIM
+                    ;;
+                git_worktree_list_fail)
+                    # `git worktree list --porcelain` -> fail. Everything else,
+                    # including `worktree add` and `worktree remove`, passes
+                    # through, so this subverts ONLY the identity guard.
+                    cat <<'SHIM'
+_wt=0; _list=0
+for a in "$@"; do
+    [[ "$a" == "worktree" ]] && _wt=1
+    [[ "$_wt" == 1 && "$a" == "list" ]] && _list=1
+done
+if [[ "$_wt" == 1 && "$_list" == 1 ]]; then
+    echo "fatal: shim: simulated worktree list failure" >&2
+    exit 1
+fi
+SHIM
+                    ;;
+                git_worktree_list_omit)
+                    # `git worktree list --porcelain` -> real output with the
+                    # .aitask-data block filtered out. Exit status 0, so this
+                    # pins "parsed, no match" as distinct from "command failed".
+                    cat <<'SHIM'
+_wt=0; _list=0
+for a in "$@"; do
+    [[ "$a" == "worktree" ]] && _wt=1
+    [[ "$_wt" == 1 && "$a" == "list" ]] && _list=1
+done
+if [[ "$_wt" == 1 && "$_list" == 1 ]]; then
+    "$real" "$@" | awk '
+        /^worktree /  { skip = ($0 ~ /\.aitask-data$/) }
+        /^$/          { skip = 0 }
+        !skip         { print }
+    '
+    exit 0
+fi
+SHIM
+                    ;;
+                cp_ok_then_drop_worktree)
+                    # Copy aiplans for real, then make the whole data worktree
+                    # vanish, and report success. This is the only fixture that
+                    # reaches Step 4 with a missing .aitask-data, which is what
+                    # exercises that subshell's `cd ... || exit 1` guard.
+                    cat <<'SHIM'
+_dst="${!#}"
+if [[ "$_dst" == */.aitask-data/aiplans/* || "$_dst" == */.aitask-data/aiplans/ ]]; then
+    "$real" "$@" 2>/dev/null
+    _wt="${_dst%%/.aitask-data/*}/.aitask-data"
+    PATH="$AIT_TEST_REAL_PATH" rm -rf "$_wt"
+    exit 0
+fi
+SHIM
+                    ;;
+                cp_partial_ok_aitasks)
+                    # A partial copy that reports SUCCESS. cp's own exit status
+                    # cannot catch this one, so it is the only fixture that
+                    # reaches — and therefore pins — the Step-5 pre-delete
+                    # verification.
+                    cat <<'SHIM'
+_dst="${!#}"
+if [[ "$_dst" == */.aitask-data/aitasks/* || "$_dst" == */.aitask-data/aitasks/ ]]; then
+    _src="${@:$(($#-1)):1}"
+    _one="$(PATH="$AIT_TEST_REAL_PATH" find "${_src%/.}" -maxdepth 1 -type f | head -n1)"
+    [[ -n "$_one" ]] && "$real" "$_one" "$_dst" 2>/dev/null
+    exit 0
+fi
+SHIM
+                    ;;
+                cp_into_aitasks|cp_into_aiplans)
+                    # `cp -a <src>/. <dst>/` where <dst> is the named directory
+                    # in the data worktree -> copy ONE file, then fail. The
+                    # partial tree is the point: a complete copy and a part-way
+                    # one must be distinguishable at the moment Step 5 deletes
+                    # the source. Scoped to ONE destination so a test pins the
+                    # call site it names — the aitasks and aiplans copies are
+                    # separate statements and each needs its own check.
+                    printf '_target="%s"\n' "${matcher#cp_into_}"
+                    cat <<'SHIM'
+_dst="${!#}"
+if [[ "$_dst" == */.aitask-data/"$_target"/* || "$_dst" == */.aitask-data/"$_target"/ ]]; then
+    _src="${@:$(($#-1)):1}"
+    _one="$(PATH="$AIT_TEST_REAL_PATH" find "${_src%/.}" -maxdepth 1 -type f | head -n1)"
+    [[ -n "$_one" ]] && "$real" "$_one" "$_dst" 2>/dev/null
+    echo "cp: shim: simulated copy failure" >&2
+    exit 1
+fi
+SHIM
+                    ;;
+                *)
+                    echo "shim_install: unknown matcher '$matcher'" >&2
+                    return 1
+                    ;;
+            esac
+            echo 'exec "$real" "$@"'
+        } > "$SHIM_DIR/$name"
+        chmod +x "$SHIM_DIR/$name"
+    done
+
+    PATH="$SHIM_DIR:$PATH"
+    export PATH
+    hash -r
+}
+
+shim_remove() {
+    [[ -n "$SHIM_DIR" ]] || return 0
+    PATH="${PATH#"$SHIM_DIR":}"
+    export PATH
+    hash -r
+    rm -rf "$SHIM_DIR"
+    SHIM_DIR=""
+}
+
+# Push a real aitask-data branch to a fixture's remote.
+seed_remote_data_branch() {
+    local repo="$1"
+    (
+        cd "$repo" || exit 1
+        git push --quiet origin "HEAD:refs/heads/aitask-data" 2>/dev/null
+    )
 }
 
 # Source the setup script to get access to functions
@@ -292,7 +464,7 @@ mkdir -p "$SCRIPT_DIR"
 
 # Create existing task/plan data on main
 (
-    cd "$TMPDIR_2/local"
+    cd "$TMPDIR_2/local" || exit 1
     mkdir -p aitasks/metadata aitasks/archived aiplans/archived aitasks/new
     echo "---" > aitasks/t1_test.md
     echo "priority: high" >> aitasks/t1_test.md
@@ -405,7 +577,7 @@ mkdir -p "$SCRIPT_DIR"
 
 # Create some task data
 (
-    cd "$TMPDIR_4/local/.aitask-data"
+    cd "$TMPDIR_4/local/.aitask-data" || exit 1
     mkdir -p aitasks
     echo "---" > aitasks/t5_remote_task.md
     echo "Remote task" >> aitasks/t5_remote_task.md
@@ -602,7 +774,7 @@ cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_11/local/seed/" 2>/dev/null 
 
 (cd "$TMPDIR_11/local" && setup_data_branch </dev/null >/dev/null 2>&1)
 (
-    cd "$TMPDIR_11/local/.aitask-data"
+    cd "$TMPDIR_11/local/.aitask-data" || exit 1
     mkdir -p aitasks
     : > aitasks/t1_alpha.md
     : > aitasks/t2_beta.md
@@ -662,7 +834,7 @@ cp "$PROJECT_DIR/seed/project_config.yaml" "$TMPDIR_12/local/seed/"
 # directories only — once setup_data_branch turns aitasks/aiplans into
 # symlinks, they appear as untracked in `git status`.
 (
-    cd "$TMPDIR_12/local"
+    cd "$TMPDIR_12/local" || exit 1
     cat > .gitignore <<'EOF'
 .aitask-data/
 aitasks/
@@ -1052,6 +1224,355 @@ ait_linked_worktree_roots "$TMPDIR_21/sgd" || rc_21b=$?
 assert_eq_trim "21: the primary checkout still classifies not-linked (rc 1)" "1" "$rc_21b"
 
 rm -rf "$TMPDIR_21"
+
+# ============================================================================
+# t1631 — silent failures in setup_data_branch's probe / fetch / copy / commit
+#
+# Every fixture below drives a real setup_data_branch through its real entry
+# point. The failures are injected with PATH shims (see shim_install) rather
+# than with permissions, so each is deterministic for every EUID.
+# ============================================================================
+
+# --- Test 22: decoy remote ref is not evidence (exact-ref probe) ---
+echo "--- Test 22: decoy remote ref does not count as 'found' (t1631) ---"
+
+# `ls-remote --heads origin aitask-data` matches on the TAIL of a ref, and the
+# old caller grepped unanchored — so a remote carrying only
+# refs/heads/backup/aitask-data answered "found", the fetch then failed on a ref
+# that was never there, and Step 2 died on "invalid reference: aitask-data".
+# The correct answer is "absent": create the orphan branch and carry on.
+TMPDIR_22="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_22/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+(cd "$TMPDIR_22/local" && git push --quiet origin "HEAD:refs/heads/backup/aitask-data" 2>/dev/null)
+
+(cd "$TMPDIR_22/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+assert_dir_exists "22: worktree created despite decoy ref" "$TMPDIR_22/local/.aitask-data"
+assert_file_exists "22: worktree is a real git worktree" "$TMPDIR_22/local/.aitask-data/.git"
+assert_symlink "22: aitasks symlink created" "$TMPDIR_22/local/aitasks"
+TOTAL=$((TOTAL + 1))
+if git -C "$TMPDIR_22/local" show-ref --verify refs/heads/aitask-data &>/dev/null; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 22: aitask-data branch not created (decoy ref treated as 'found')"
+fi
+
+rm -rf "$TMPDIR_22"
+
+# --- Test 23: a failed fetch is reported and does not claim the branch ---
+echo "--- Test 23: failed fetch refuses rather than claiming the branch (t1631) ---"
+
+TMPDIR_23="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_23/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+seed_remote_data_branch "$TMPDIR_23/local"
+# Drop the local ref the push left behind: this fixture is "the remote has it,
+# we have no copy, and the fetch fails".
+git -C "$TMPDIR_23/local" update-ref -d refs/remotes/origin/aitask-data 2>/dev/null
+
+shim_install git:git_fetch
+out_23=$(cd "$TMPDIR_23/local" && setup_data_branch </dev/null 2>&1)
+shim_remove
+
+assert_contains "23: git's fetch error is surfaced" "simulated fetch failure" "$out_23"
+assert_contains_ci "23: refusal is explained" "could not be fetched" "$out_23"
+assert_dir_not_exists "23: no worktree created" "$TMPDIR_23/local/.aitask-data"
+assert_not_symlink "23: aitasks left as a real directory" "$TMPDIR_23/local/aitasks"
+TOTAL=$((TOTAL + 1))
+if git -C "$TMPDIR_23/local" show-ref --verify refs/heads/aitask-data &>/dev/null; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 23: a second, unrelated aitask-data branch was created locally"
+else
+    PASS=$((PASS + 1))
+fi
+
+rm -rf "$TMPDIR_23"
+
+# --- Test 24: a local branch still wins after a failed fetch ---
+echo "--- Test 24: local aitask-data still usable when the fetch fails (t1631) ---"
+
+# Negative control for Test 23: the fall-through must not become a blanket
+# refusal. The remote copy is unreachable, but a local branch is a real answer.
+TMPDIR_24="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_24/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+seed_remote_data_branch "$TMPDIR_24/local"
+git -C "$TMPDIR_24/local" branch aitask-data 2>/dev/null
+
+shim_install git:git_fetch
+(cd "$TMPDIR_24/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+shim_remove
+
+assert_dir_exists "24: worktree created from the local branch" "$TMPDIR_24/local/.aitask-data"
+assert_file_exists "24: worktree is a real git worktree" "$TMPDIR_24/local/.aitask-data/.git"
+assert_symlink "24: aitasks symlink created" "$TMPDIR_24/local/aitasks"
+
+rm -rf "$TMPDIR_24"
+
+# --- Test 25: an unreachable remote is 'unknown', not a refusal ---
+echo "--- Test 25: unreachable remote still creates the branch (t1631 boundary) ---"
+
+# The refusal in Test 23 is scoped to "the remote definitively HAS the branch".
+# An unreachable remote is a different state: warn, but keep working, or an
+# offline `ait setup` would stop being possible.
+TMPDIR_25="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_25/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+git -C "$TMPDIR_25/local" remote set-url origin "$TMPDIR_25/does-not-exist.git"
+
+out_25=$(cd "$TMPDIR_25/local" && setup_data_branch </dev/null 2>&1)
+
+assert_contains_ci "25: the probe failure is surfaced" "could not check the remote" "$out_25"
+assert_dir_exists "25: worktree still created" "$TMPDIR_25/local/.aitask-data"
+assert_file_exists "25: worktree is a real git worktree" "$TMPDIR_25/local/.aitask-data/.git"
+assert_symlink "25: aitasks symlink created" "$TMPDIR_25/local/aitasks"
+
+rm -rf "$TMPDIR_25"
+
+# Build a migration-shaped fixture: real task/plan data committed on main.
+setup_migration_fixture() {
+    local tmpdir
+    tmpdir="$(setup_repo_with_remote)"
+    (
+        cd "$tmpdir/local" || exit 1
+        mkdir -p aitasks/metadata aitasks/archived aiplans/archived aitasks/new
+        printf -- '---\npriority: high\n---\nTest task content\n' > aitasks/t1_test.md
+        printf -- '---\n---\nTest plan\n' > aiplans/p1_test.md
+        echo "label1" > aitasks/metadata/labels.txt
+        echo "Draft content" > aitasks/new/draft.md
+        git add aitasks/ aiplans/
+        git commit -m "ait: Add initial tasks" --quiet
+        git push --quiet 2>/dev/null
+    )
+    echo "$tmpdir"
+}
+
+# The no-delete guarantee, asserted the same way everywhere it must hold.
+assert_migration_originals_intact() {
+    local label="$1" root="$2"
+    assert_file_exists "$label: task file still on the current branch" "$root/aitasks/t1_test.md"
+    assert_file_exists "$label: plan file still on the current branch" "$root/aiplans/p1_test.md"
+    assert_not_symlink "$label: aitasks left as a real directory" "$root/aitasks"
+    local tracked
+    tracked=$(git -C "$root" ls-tree HEAD -- aitasks/ 2>/dev/null | wc -l | tr -d ' ')
+    TOTAL=$((TOTAL + 1))
+    if [[ "$tracked" != "0" ]]; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $label: aitasks/ is no longer tracked on the current branch"
+    fi
+}
+
+# --- Test 26: a failed copy aborts before anything is deleted ---
+echo "--- Test 26: failed cp aborts the migration, deletes nothing (t1631) ---"
+
+# Step 5 removes these very files from the current branch. With cp's status
+# discarded, a copy that stopped part-way reached that delete looking exactly
+# like a complete one.
+TMPDIR_26="$(setup_migration_fixture)"
+SCRIPT_DIR="$TMPDIR_26/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+
+shim_install cp:cp_into_aitasks
+out_26=$(cd "$TMPDIR_26/local" && setup_data_branch </dev/null 2>&1)
+shim_remove
+
+assert_contains "26: cp's error is surfaced" "simulated copy failure" "$out_26"
+assert_contains_ci "26: the failing directory is named" "copy aitasks/" "$out_26"
+assert_contains_ci "26: the user is told nothing was removed" "nothing was removed" "$out_26"
+assert_migration_originals_intact "26" "$TMPDIR_26/local"
+# The teardown is also the identity guard's POSITIVE control: it proves the
+# guard authorizes removal in the ordinary case rather than being stuck closed.
+assert_dir_not_exists "26: partial worktree torn down so a re-run retries" "$TMPDIR_26/local/.aitask-data"
+
+rm -rf "$TMPDIR_26"
+
+# --- Test 26b: the aiplans copy is checked too ---
+echo "--- Test 26b: failed aiplans cp also aborts the migration (t1631) ---"
+
+# The aiplans copy is a separate statement with the same shape; a check on only
+# the aitasks copy would leave half the migration silent.
+TMPDIR_26B="$(setup_migration_fixture)"
+SCRIPT_DIR="$TMPDIR_26B/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+
+shim_install cp:cp_into_aiplans
+out_26b=$(cd "$TMPDIR_26B/local" && setup_data_branch </dev/null 2>&1)
+shim_remove
+
+assert_contains "26b: cp's error is surfaced" "simulated copy failure" "$out_26b"
+assert_contains_ci "26b: the failing directory is named" "copy aiplans/" "$out_26b"
+assert_migration_originals_intact "26b" "$TMPDIR_26B/local"
+assert_dir_not_exists "26b: partial worktree torn down" "$TMPDIR_26B/local/.aitask-data"
+
+rm -rf "$TMPDIR_26B"
+
+# --- Test 27: a failed data-branch commit aborts before anything is deleted ---
+echo "--- Test 27: failed commit aborts the migration and re-runs cleanly (t1631) ---"
+
+# Copy equality is not durability. If the commit fails, the copied data exists
+# only as staged files in a worktree this run created, while Step 5 is about to
+# remove the tracked originals.
+TMPDIR_27="$(setup_migration_fixture)"
+SCRIPT_DIR="$TMPDIR_27/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+
+shim_install git:git_commit
+out_27=$(cd "$TMPDIR_27/local" && setup_data_branch </dev/null 2>&1)
+shim_remove
+
+assert_contains_ci "27: the commit failure is surfaced" "could not commit the task data" "$out_27"
+assert_migration_originals_intact "27" "$TMPDIR_27/local"
+assert_dir_not_exists "27: partial worktree torn down" "$TMPDIR_27/local/.aitask-data"
+
+# Absence of state is only half the claim: the point of tearing the worktree
+# down is that `ait setup` can retry, and the "already configured" early return
+# is what would silence it.
+(cd "$TMPDIR_27/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_file_exists "27: re-run creates a real worktree" "$TMPDIR_27/local/.aitask-data/.git"
+assert_symlink "27: re-run creates the aitasks symlink" "$TMPDIR_27/local/aitasks"
+committed_27=$(git -C "$TMPDIR_27/local/.aitask-data" show HEAD:aitasks/t1_test.md 2>/dev/null | grep -c "Test task content")
+assert_eq_trim "27: re-run committed the migrated task" "1" "$committed_27"
+
+rm -rf "$TMPDIR_27"
+
+# --- Test 28: fresh setup, failed commit tears down before the symlinks ---
+echo "--- Test 28: fresh-setup commit failure leaves no half-configured layout (t1631) ---"
+
+# Nothing is deleted on this path, but "warn and continue" is still wrong: the
+# symlinks would point at a worktree whose seeded contents are uncommitted, and
+# the early return at the top of setup_data_branch would report that state as
+# "already configured" forever after.
+TMPDIR_28="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_28/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+setup_seed_file "$TMPDIR_28/local"
+
+shim_install git:git_commit
+out_28=$(cd "$TMPDIR_28/local" && setup_data_branch </dev/null 2>&1)
+shim_remove
+
+assert_contains_ci "28: the commit failure is surfaced" "could not commit the task data" "$out_28"
+assert_dir_not_exists "28: partial worktree torn down" "$TMPDIR_28/local/.aitask-data"
+assert_not_symlink "28: no aitasks symlink over an uncommitted worktree" "$TMPDIR_28/local/aitasks"
+assert_not_symlink "28: no aiplans symlink over an uncommitted worktree" "$TMPDIR_28/local/aiplans"
+
+(cd "$TMPDIR_28/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+assert_file_exists "28: re-run creates a real worktree" "$TMPDIR_28/local/.aitask-data/.git"
+assert_symlink "28: re-run creates the aitasks symlink" "$TMPDIR_28/local/aitasks"
+TOTAL=$((TOTAL + 1))
+if git -C "$TMPDIR_28/local/.aitask-data" ls-tree HEAD -- aitasks/metadata/ 2>/dev/null | grep -q .; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 28: re-run did not commit the seeded metadata"
+fi
+
+rm -rf "$TMPDIR_28"
+
+# --- Tests 29 / 30: the identity guard refuses rather than removing blind ---
+#
+# The guard is what authorizes `git worktree remove --force` and its `rm -rf`
+# fallback, so both of its branches need pinning — Test 26 covers "permits".
+# 29 and 30 are deliberately distinct: one makes the command fail, the other
+# lets it succeed with no matching entry, so a guard that merely checked for
+# non-empty output could not pass both.
+
+run_identity_guard_refusal_case() {
+    local label="$1" git_matcher="$2" root
+    local tmpdir
+    tmpdir="$(setup_migration_fixture)"
+    root="$tmpdir/local"
+    SCRIPT_DIR="$root/.aitask-scripts"
+    mkdir -p "$SCRIPT_DIR"
+
+    shim_install cp:cp_into_aitasks "git:$git_matcher"
+    local out
+    out=$(cd "$root" && setup_data_branch </dev/null 2>&1)
+    shim_remove
+
+    assert_contains_ci "$label: the refusal is stated" "left '.aitask-data' in place" "$out"
+    assert_contains_ci "$label: the consequence is stated" "already configured" "$out"
+    assert_dir_exists "$label: the worktree is left untouched" "$root/.aitask-data"
+    assert_file_exists "$label: its partial copy is left untouched" "$root/.aitask-data/aitasks/t1_test.md"
+    # The no-delete guarantee does not depend on the teardown succeeding.
+    assert_migration_originals_intact "$label" "$root"
+
+    rm -rf "$tmpdir"
+}
+
+# --- Test 31: the pre-delete verification catches a copy that lied ---
+echo "--- Test 31: copy verification refuses the delete on a silent partial copy (t1631) ---"
+
+# cp reporting success is the primary guard; this is the last one, and it is the
+# only guard that can catch a copy which returned 0 without writing everything.
+# Nothing else in the fixture set reaches it, so without this test the check
+# could be deleted and the suite would not notice.
+TMPDIR_31="$(setup_migration_fixture)"
+SCRIPT_DIR="$TMPDIR_31/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+
+shim_install cp:cp_partial_ok_aitasks
+out_31=$(cd "$TMPDIR_31/local" && setup_data_branch </dev/null 2>&1)
+shim_remove
+
+assert_contains_ci "31: the verification failure is surfaced" "copy verification failed" "$out_31"
+assert_contains_ci "31: diff's own output is quoted" "diff said" "$out_31"
+assert_migration_originals_intact "31" "$TMPDIR_31/local"
+assert_dir_not_exists "31: partial worktree torn down" "$TMPDIR_31/local/.aitask-data"
+
+rm -rf "$TMPDIR_31"
+
+# --- Test 32: a vanished data worktree never commits against the project root ---
+echo "--- Test 32: Step 4 refuses when the data worktree disappeared (t1631) ---"
+
+# Step 4's subshell is the left operand of `|| data_commit_rc=$?`, and bash
+# disables errexit inside a compound command whose status is tested. An
+# unguarded `cd` there would leave `git add .` and `git commit` running against
+# the PROJECT ROOT, and the subshell would still report success — so Step 5
+# would delete the originals having committed the wrong repository.
+TMPDIR_32="$(setup_migration_fixture)"
+SCRIPT_DIR="$TMPDIR_32/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+head_before_32=$(git -C "$TMPDIR_32/local" rev-parse HEAD)
+# An unrelated dirty file is what makes the hazard visible rather than
+# theoretical: `git add .` run from the wrong directory sweeps whatever the
+# developer happens to have in progress into the data-branch commit.
+echo "work in progress" > "$TMPDIR_32/local/stray_uncommitted.txt"
+
+shim_install cp:cp_ok_then_drop_worktree
+out_32=$(cd "$TMPDIR_32/local" && setup_data_branch </dev/null 2>&1)
+shim_remove
+
+assert_contains_ci "32: the commit failure is surfaced" "could not commit the task data" "$out_32"
+head_after_32=$(git -C "$TMPDIR_32/local" rev-parse HEAD)
+assert_eq_trim "32: nothing was committed to the project repository" "$head_before_32" "$head_after_32"
+TOTAL=$((TOTAL + 1))
+if git -C "$TMPDIR_32/local" log --oneline -20 2>/dev/null | grep -q "Migrate task data from main branch"; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 32: the data-branch commit landed on the project's own branch"
+else
+    PASS=$((PASS + 1))
+fi
+TOTAL=$((TOTAL + 1))
+if git -C "$TMPDIR_32/local" ls-files --error-unmatch stray_uncommitted.txt >/dev/null 2>&1; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 32: an unrelated in-progress file was swept into a commit"
+else
+    PASS=$((PASS + 1))
+fi
+assert_migration_originals_intact "32" "$TMPDIR_32/local"
+
+rm -rf "$TMPDIR_32"
+
+echo "--- Test 29: identity guard refuses when 'worktree list' fails (t1631) ---"
+run_identity_guard_refusal_case "29" "git_worktree_list_fail"
+
+echo "--- Test 30: identity guard refuses when the path is not listed (t1631) ---"
+run_identity_guard_refusal_case "30" "git_worktree_list_omit"
 
 # --- Summary ---
 echo ""

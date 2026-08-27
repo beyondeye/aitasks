@@ -1430,6 +1430,79 @@ update_agentsmd() {
     fi
 }
 
+# ait_data_worktree_is_registered <project_dir>
+# True only when <project_dir>/.aitask-data is a worktree registered with THIS
+# repository. This is the authorization for the `rm -rf` in
+# abort_data_branch_setup below, so it FAILS CLOSED on every non-answer: a
+# `git worktree list` that errors, empty output, or a path that will not resolve
+# are all "could not check", which is its own state — never a licence to remove
+# (t1631).
+#
+# Both sides go through ait_canon_path (lib/data_symlinks.sh), the same resolver
+# every other identity comparison in the framework uses: `worktree list
+# --porcelain` prints absolute paths, and $project_dir may reach us through
+# symlinked components, so comparing the raw strings would miss a match that is
+# really there.
+ait_data_worktree_is_registered() {
+    local project_dir="$1"
+    local target listing line wt_path resolved
+
+    target="$(ait_canon_path "$project_dir/$AIT_DATA_DIR_NAME")" || return 1
+    [[ -n "$target" ]] || return 1
+
+    listing="$(git -C "$project_dir" worktree list --porcelain 2>/dev/null)" || return 1
+    [[ -n "$listing" ]] || return 1
+
+    while IFS= read -r line; do
+        [[ "$line" == worktree\ * ]] || continue
+        wt_path="${line#worktree }"
+        resolved="$(ait_canon_path "$wt_path")" || continue
+        [[ "$resolved" == "$target" ]] && return 0
+    done <<< "$listing"
+
+    return 1
+}
+
+# abort_data_branch_setup <project_dir> <branch_existed> <needs_migration> <reason>
+# Bail out of task-data-branch setup without touching the user's data. Called
+# from the migration copy, the copy verification, and the data-branch commit
+# check — the places that would otherwise leave a half-populated worktree
+# behind (t1631).
+#
+# The teardown matters because the "already configured" early return at the top
+# of setup_data_branch keys on .aitask-data/.git alone: a worktree left here
+# would make every later `ait setup` report success without ever finishing the
+# job. Reaching any call site means THIS run created the worktree (the early
+# return fires otherwise) and Step 5 has not run, so it holds nothing unique.
+abort_data_branch_setup() {
+    local project_dir="$1" branch_existed="$2" needs_migration="$3" reason="$4"
+
+    warn "$reason"
+    if [[ "$needs_migration" == true ]]; then
+        warn "Nothing was removed from the current branch — your task and plan files are untouched."
+    else
+        warn "No symlinks were created — re-run 'ait setup' to retry."
+    fi
+
+    if ait_data_worktree_is_registered "$project_dir"; then
+        local rm_err=""
+        if ! rm_err="$(cd "$project_dir" && git worktree remove --force "$AIT_DATA_DIR_NAME" 2>&1 >/dev/null)"; then
+            rm -rf "${project_dir:?}/$AIT_DATA_DIR_NAME"
+            git -C "$project_dir" worktree prune 2>/dev/null || true
+        fi
+        if [[ -e "$project_dir/$AIT_DATA_DIR_NAME" ]]; then
+            warn "Could not remove the partial '$AIT_DATA_DIR_NAME' worktree${rm_err:+ (git said: $rm_err)}. Remove it by hand, or the next 'ait setup' will report it as already configured and skip this step."
+        fi
+    else
+        warn "Left '$AIT_DATA_DIR_NAME' in place: it is not a worktree registered with this repository, or that could not be determined."
+        warn "  The next 'ait setup' will treat it as already configured and skip this step — remove it by hand first if it is not wanted."
+    fi
+
+    if [[ "$branch_existed" == false ]]; then
+        info "  The 'aitask-data' branch was created and is left in place for that retry."
+    fi
+}
+
 # --- Task data branch setup (aitask-data orphan branch + worktree + symlinks) ---
 setup_data_branch() {
     local project_dir="$SCRIPT_DIR/.."
@@ -1531,19 +1604,64 @@ setup_data_branch() {
 
     # --- Step 1: Get or create aitask-data branch ---
     local branch_exists=false
+    local remote_state="absent"   # absent | present | unknown
 
     # Check remote first (if available)
     if [[ "$has_remote" == true ]]; then
-        if git -C "$project_dir" ls-remote --heads origin "aitask-data" 2>/dev/null | grep -q "aitask-data"; then
-            info "Found aitask-data branch on remote — fetching..."
-            git -C "$project_dir" fetch origin aitask-data 2>/dev/null || true
+        # Exact ref match (t1631). The old probe was
+        # `ls-remote --heads origin aitask-data | grep -q aitask-data`:
+        # ls-remote matches a pattern against the TAIL of a ref and the grep was
+        # unanchored, so a remote carrying only `refs/heads/backup/aitask-data`
+        # answered "found". --exit-code additionally separates "definitively
+        # absent" (2) from "the probe itself failed" (anything else), which the
+        # old `2>/dev/null` collapsed together.
+        local ls_err="" ls_rc=0
+        ls_err="$(git -C "$project_dir" ls-remote --exit-code --heads origin refs/heads/aitask-data 2>&1 >/dev/null)" || ls_rc=$?
+        case "$ls_rc" in
+            0) remote_state="present" ;;
+            2) remote_state="absent"  ;;
+            *) remote_state="unknown"
+               warn "Could not check the remote for an aitask-data branch. git said: ${ls_err:-<no output>}" ;;
+        esac
+    fi
+
+    if [[ "$remote_state" == "present" ]]; then
+        info "Found aitask-data branch on remote — fetching..."
+        # Report git's own error rather than discarding it, and do not claim the
+        # branch was found when the fetch that materializes it failed (t1631).
+        # The old `|| true` plus an unconditional `branch_exists=true` sent
+        # Step 2 into git's "invalid reference: aitask-data".
+        local fetch_err=""
+        if fetch_err="$(git -C "$project_dir" fetch origin aitask-data 2>&1 >/dev/null)"; then
             branch_exists=true
+        else
+            warn "Could not fetch the aitask-data branch from remote. git said: ${fetch_err:-<no output>}"
         fi
     fi
 
     # Check local
     if [[ "$branch_exists" == false ]] && git -C "$project_dir" show-ref --verify refs/heads/aitask-data &>/dev/null; then
         branch_exists=true
+        if [[ "$remote_state" == "present" ]]; then
+            info "  Using the local aitask-data branch instead. Re-run 'ait setup' once the fetch above works to reconcile it with the remote."
+        fi
+    fi
+
+    # The remote definitively HAS the branch, we could not get it, and there is
+    # no local copy. The creation block below would then mint a SECOND,
+    # unrelated aitask-data — and on the migration path move the user's task
+    # data into it. Refuse instead; returning here is before Steps 3 and 5, so
+    # nothing is copied and nothing is deleted (t1631).
+    #
+    # Scoped to "present" on purpose: an unreachable remote is "unknown", and
+    # refusing there would break `ait setup` for anyone working offline. The
+    # residual is that a first setup performed offline against a remote that
+    # does carry aitask-data still creates a divergent branch.
+    if [[ "$branch_exists" == false && "$remote_state" == "present" ]]; then
+        warn "The remote has an aitask-data branch, it could not be fetched, and there is no local copy."
+        warn "Skipping task data branch setup rather than creating a second, unrelated aitask-data branch."
+        info "  Task and plan files stay on the current branch (legacy layout). Re-run 'ait setup' once the fetch above succeeds."
+        return
     fi
 
     # Create if not found
@@ -1593,10 +1711,25 @@ setup_data_branch() {
     if [[ "$needs_migration" == true ]]; then
         info "Migrating task data to aitask-data branch..."
         mkdir -p "$project_dir/.aitask-data/aitasks" "$project_dir/.aitask-data/aiplans"
-        # Copy all existing data (preserving structure, including drafts)
-        cp -a "$project_dir/aitasks/." "$project_dir/.aitask-data/aitasks/" 2>/dev/null || true
+        # Copy all existing data (preserving structure, including drafts).
+        #
+        # cp's status is checked and a failure aborts the migration: Step 5
+        # below deletes these very files from main, and a part-way copy
+        # (permissions, a full disk, an unreadable file) is otherwise
+        # indistinguishable from a complete one at the point of that delete —
+        # the old `2>/dev/null || true` threw away the only evidence (t1631).
+        local cp_err=""
+        if ! cp_err="$(cp -a "$project_dir/aitasks/." "$project_dir/.aitask-data/aitasks/" 2>&1 >/dev/null)"; then
+            abort_data_branch_setup "$project_dir" "$branch_exists" "$needs_migration" \
+                "Failed to copy aitasks/ into the data worktree. cp said: ${cp_err:-<no output>}"
+            return
+        fi
         if [[ -d "$project_dir/aiplans" ]]; then
-            cp -a "$project_dir/aiplans/." "$project_dir/.aitask-data/aiplans/" 2>/dev/null || true
+            if ! cp_err="$(cp -a "$project_dir/aiplans/." "$project_dir/.aitask-data/aiplans/" 2>&1 >/dev/null)"; then
+                abort_data_branch_setup "$project_dir" "$branch_exists" "$needs_migration" \
+                    "Failed to copy aiplans/ into the data worktree. cp said: ${cp_err:-<no output>}"
+                return
+            fi
         fi
     else
         info "Creating task data directory structure..."
@@ -1665,14 +1798,26 @@ setup_data_branch() {
     fi
 
     # --- Step 4: Commit and push on data branch ---
+    #
+    # The local commit is REQUIRED, not best-effort. Copy equality is not
+    # durability: Step 5 below removes the tracked originals from the current
+    # branch, and if the commit failed the copied data exists only as staged
+    # files in a worktree this run created. The push stays advisory — once the
+    # local commit lands the data is durable, remote or not (t1631).
+    local data_commit_rc=0
     (
-        cd "$project_dir/.aitask-data"
-        git add .
+        # `|| exit 1` is load-bearing, not decoration: this subshell is the left
+        # operand of `|| data_commit_rc=$?` below, which suppresses errexit
+        # inside it. Without the guard a failed cd would leave `git add .` and
+        # `git commit` running against the project root, and the subshell would
+        # still report success — handing Step 5 a green light to delete.
+        cd "$project_dir/$AIT_DATA_DIR_NAME" || exit 1
+        git add . || exit 1
         if ! git diff --cached --quiet 2>/dev/null; then
             if [[ "$needs_migration" == true ]]; then
-                git commit -m "ait: Migrate task data from main branch"
+                git commit -m "ait: Migrate task data from main branch" || exit 1
             else
-                git commit -m "ait: Initialize task data structure"
+                git commit -m "ait: Initialize task data structure" || exit 1
             fi
             if [[ "$has_remote" == true ]]; then
                 # Report git's own error rather than discarding it (t1627).
@@ -1682,13 +1827,47 @@ setup_data_branch() {
                 fi
             fi
         fi
-    )
+    ) || data_commit_rc=$?
+
+    if [[ "$data_commit_rc" -ne 0 ]]; then
+        # Both paths abort, and both abort HERE — before Step 6. On the
+        # migration path that is what keeps Step 5 from deleting originals whose
+        # copy is not committed. On the fresh path there is nothing to delete,
+        # but "warn and continue" is still not available: Step 6 would lay
+        # symlinks over a worktree whose seeded contents are uncommitted, and
+        # the "already configured" early return at the top of this function
+        # keys on .aitask-data/.git alone — so `ait setup` could never retry the
+        # failed initialization, and ait_ensure_data_symlinks is called from
+        # nowhere else in setup. Tearing the worktree down leaves the plain
+        # legacy layout, which a later `ait setup` retries from scratch.
+        abort_data_branch_setup "$project_dir" "$branch_exists" "$needs_migration" \
+            "Could not commit the task data on the aitask-data branch (git exited $data_commit_rc)."
+        return
+    fi
 
     # --- Step 5: Clean up main (migration only) ---
     if [[ "$needs_migration" == true ]]; then
+        # Last guard before an irreversible delete. cp reporting success and the
+        # commit landing are the primary ones; this compares the trees outright,
+        # because from setup's point of view the removal below cannot be undone.
+        # Fails closed: diff exits 1 on differences and 2 on trouble (e.g. a file
+        # it cannot read), and both mean "do not delete" (t1631).
+        local diff_out="" verify_ok=true
+        if ! diff_out="$(diff -r -q "$project_dir/aitasks" "$project_dir/.aitask-data/aitasks" 2>&1)"; then
+            verify_ok=false
+        elif [[ -d "$project_dir/aiplans" ]] \
+             && ! diff_out="$(diff -r -q "$project_dir/aiplans" "$project_dir/.aitask-data/aiplans" 2>&1)"; then
+            verify_ok=false
+        fi
+        if [[ "$verify_ok" == false ]]; then
+            abort_data_branch_setup "$project_dir" "$branch_exists" "$needs_migration" \
+                "Copy verification failed — refusing to remove the originals from the current branch. diff said: ${diff_out:-<no output>}"
+            return
+        fi
+
         info "Removing task data from main branch..."
         (
-            cd "$project_dir"
+            cd "$project_dir" || exit 1
             git rm -r --quiet aitasks/ 2>/dev/null || true
             git rm -r --quiet aiplans/ 2>/dev/null || true
             # Remove any remaining untracked files/dirs
@@ -1781,7 +1960,7 @@ setup_data_branch() {
     # (it is in _ait_framework_paths), commits it path-scoped, and honours that
     # baseline (t1612).
     (
-        cd "$project_dir"
+        cd "$project_dir" || exit 1
         local files_to_add=()
         if [[ "$gitignore_changed" == true ]]; then
             files_to_add+=(".gitignore")
