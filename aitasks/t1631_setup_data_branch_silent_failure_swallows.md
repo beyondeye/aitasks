@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,8 +15,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1159
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-26 22:22
-updated_at: 2026-08-26 22:51
+updated_at: 2026-08-27 11:21
 ---
 
 ## Origin
@@ -72,3 +75,8 @@ Step 5 if it failed, leaving the user's data on main untouched. Consider
 verifying the copy (file count or `diff -r`) before the `git rm`, since the
 delete is irreversible from setup's point of view. Note the same
 `2>/dev/null || true` shape appears on the `aiplans` copy directly below.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-27T08:22:09Z status=pass attempt=1 type=human
