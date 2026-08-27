@@ -63,6 +63,50 @@ class SyntheticRepo:
         (root / "aitasks" / "archived").mkdir()
         (root / "aitasks" / "metadata" / "project_config.yaml").write_text(
             f"project:\n  name: {name}\n", encoding="utf-8")
+        self._git_init()
+
+    def _git_init(self) -> None:
+        """Make the fixture a real git repository (t1569_1 pre-phase).
+
+        Without this, `git ls-files` run with cwd inside the fixture walks UP
+        the directory tree and answers from whatever repository happens to
+        contain TMPDIR -- so path classification would be machine-dependent and
+        `tracked` would be untestable. `git_tracked()` below asserts the repo
+        actually answers from here.
+        """
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
+               "GIT_CONFIG_SYSTEM": os.devnull}
+        run = lambda *a: subprocess.run(  # noqa: E731
+            ["git", "-C", str(self.root), *a], check=True, env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        run("init", "-q")
+        run("config", "user.email", "test@example.com")
+        run("config", "user.name", "Test")
+        # One tracked file so `git ls-files` has a non-empty, assertable answer.
+        (self.root / "README.md").write_text("fixture\n", encoding="utf-8")
+        run("add", "README.md")
+        run("commit", "-q", "-m", "fixture init")
+
+    def git_track(self, relpath: str, content: str = "x\n") -> Path:
+        """Create and `git add` a file, so it is `tracked` for classification."""
+        path = self.root / relpath
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
+               "GIT_CONFIG_SYSTEM": os.devnull}
+        subprocess.run(["git", "-C", str(self.root), "add", "--", relpath],
+                       check=True, env=env, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        return path
+
+    def git_tracked(self) -> set[str]:
+        """`git ls-files` as this fixture answers it."""
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull,
+               "GIT_CONFIG_SYSTEM": os.devnull}
+        out = subprocess.run(["git", "-C", str(self.root), "ls-files"],
+                             capture_output=True, text=True, check=True,
+                             env=env)
+        return {l for l in out.stdout.split("\n") if l}
 
     def task_path(self, task_id: str, slug: str) -> Path:
         if "_" in task_id:
@@ -296,6 +340,35 @@ class TrailGatherCase(unittest.TestCase):
 
 
 # --- A. Topic/scope parity ---------------------------------------------------
+
+
+class FixtureIsolationTests(TrailGatherCase):
+    """t1569_1 pre-phase: the fixture must be its own git repository.
+
+    Path classification asks `git ls-files`. If the fixture is not a repo, that
+    question is answered by whatever repository contains TMPDIR -- on this
+    machine, potentially the aitasks checkout itself -- which makes the suite
+    machine-dependent and `tracked` untestable. These assertions fail loudly if
+    the fixture ever stops being git-backed.
+    """
+
+    def test_git_resolves_inside_the_fixture(self):
+        toplevel = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(Path(toplevel).resolve(), self.repo.root.resolve(),
+                         "git resolves outside the fixture -- classification "
+                         "would be machine-dependent")
+
+    def test_ls_files_answers_from_the_fixture(self):
+        tracked = self.repo.git_tracked()
+        self.assertIn("README.md", tracked)
+        # The real repository's files must not be visible from in here.
+        self.assertNotIn(".aitask-scripts/lib/trail_gather.py", tracked)
+
+    def test_git_track_makes_a_path_tracked(self):
+        self.repo.git_track("aidocs/note.md")
+        self.assertIn("aidocs/note.md", self.repo.git_tracked())
 
 
 class TopicScopeTests(TrailGatherCase):

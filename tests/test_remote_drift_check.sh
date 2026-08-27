@@ -558,6 +558,107 @@ result=$("$HELPER" 2>&1 || true)
 assert_contains "missing args produces error" "<base-branch> is required" "$result"
 
 # ============================================================
+# Test 14: extraction characterization (t1569_1 pre-phase)
+#
+# Pins the plan-path extraction's observable output BEFORE it moves out of this
+# script into lib/plan_paths.py, so the move is provably behavior-preserving
+# rather than assumed. Written as a boundary test: the extraction is observable
+# through OVERLAP: lines, which is exactly the surface a verdict depends on.
+#
+# The fixture is deliberately discriminating on the edges that a naive move
+# would silently change:
+#   * an all-phantom pair (the p259 shape -- 45 paths, 0 tracked, live)
+#   * a leading-hyphen token, produced the way the live corpus produces one:
+#     `SKILL-${p}-claude.md` yields `-claude.md`, because `$` and `{` are
+#     outside the token charset and split it
+#   * a `./`-prefixed path, which must be stripped
+#   * a duplicated token, which must be deduped
+#   * a collation quartet (ab / aB / a_b / a-b) plus a leading-dot path
+#
+# NOTE ON ORDER. The intersect below is `grep -Fxf`, which emits in the REMOTE
+# list's order, so the plan-side sort order is NOT observable here and this test
+# cannot pin it. That is not an oversight: it is why the move may change the
+# plan-side collation (ambient `sort -u` -> codepoint) without changing any
+# verdict. The canonical order is pinned where it IS observable, against
+# lib/plan_paths.py directly, in tests/test_plan_paths.py.
+# ============================================================
+
+echo "--- Test 14: plan-path extraction characterization ---"
+
+write_extraction_fixture_plan() {
+    local target="$1"
+    cat > "$target" <<'PLAN'
+---
+Task: t999_extraction.md
+Base branch: main
+---
+
+## Plan
+
+All-phantom (the p259 shape): aiscripts/batch_review.sh and aiscripts/helper.py
+Leading hyphen, as the live corpus produces it: SKILL-${p}-claude.md
+Dot-slash prefix: ./.aitask-scripts/aitask_archive.sh
+Duplicate token: ./.aitask-scripts/aitask_archive.sh again
+Collation quartet: ab.md aB.md a_b.md a-b.md
+Not extractable (extension allowlist): internal/pkg/server.go src/main.rs app/index.ts
+PLAN
+}
+
+# Every token the current implementation extracts from that fixture, as a set.
+# Captured from the pre-move pipeline on 2026-08-27 and asserted here so the
+# post-move implementation must reproduce it exactly.
+EXTRACTION_GOLDEN='-claude.md
+.aitask-scripts/aitask_archive.sh
+a-b.md
+aB.md
+a_b.md
+ab.md
+aiscripts/batch_review.sh
+aiscripts/helper.py'
+
+pair=$(make_branch_mode_pair)
+root="${pair%|*}"
+default_branch="${pair##*|}"
+register_cleanup "$root"
+
+# Make the remote touch EVERY token in the golden, so the OVERLAP set is the
+# extracted set and nothing is hidden by a non-matching remote.
+git clone --quiet "$root/origin.git" "$root/other" 2>/dev/null
+(
+    cd "$root/other"
+    git config user.email "other@example.com"
+    git config user.name  "Other"
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        mkdir -p "$(dirname -- "$f")" 2>/dev/null || true
+        printf 'touched\n' > "$f"
+        git add -- "$f"
+    done <<< "$EXTRACTION_GOLDEN"
+    git commit --quiet -m "touch every extraction-golden path"
+    git push --quiet origin "$default_branch"
+)
+
+mark_branch_mode "$root/local"
+plan_path="$root/local/extraction_plan.md"
+write_extraction_fixture_plan "$plan_path"
+
+result=$(cd "$root/local" && "$HELPER" "$default_branch" "$plan_path" 2>&1)
+extracted=$(printf '%s\n' "$result" | sed -n 's/^OVERLAP://p' | LC_ALL=C sort)
+expected=$(printf '%s\n' "$EXTRACTION_GOLDEN" | LC_ALL=C sort)
+
+assert_eq "14a: extracted token set is byte-identical to the golden" \
+    "$expected" "$extracted"
+assert_not_contains "14b: unlisted extensions contribute no token" \
+    "server.go" "$result"
+assert_not_contains "14c: unlisted extensions contribute no token (rs)" \
+    "main.rs" "$result"
+assert_not_contains "14d: unlisted extensions contribute no token (ts)" \
+    "index.ts" "$result"
+# Dedupe: the ./-prefixed path appears twice in the fixture and once in the set.
+archive_hits=$(printf '%s\n' "$result" | grep -c '^OVERLAP:\.aitask-scripts/aitask_archive\.sh$' || true)
+assert_eq "14e: a duplicated token is deduped to one record" "1" "$archive_hits"
+
+# ============================================================
 # Summary
 # ============================================================
 

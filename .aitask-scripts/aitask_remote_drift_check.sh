@@ -24,8 +24,15 @@
 #     OVERLAP:<file>            (zero or more) one per remote-changed file
 #                               that is also referenced in the plan.
 #     NO_OVERLAP                emitted exactly once when no OVERLAP lines.
+#   EXTRACT_FAILED              Plan-path extraction could not run (lib/plan_paths.py
+#                               unreachable, or the plan file unreadable). Emitted
+#                               INSTEAD of any OVERLAP/NO_OVERLAP verdict, with a
+#                               non-zero exit, because "extracted nothing" and
+#                               "could not extract" are the same shape -- an empty
+#                               set -- and reporting the latter as NO_OVERLAP is a
+#                               false all-clear on the pick hot path.
 #
-# Exit code: always 0 unless invalid CLI args.
+# Exit code: 0 unless invalid CLI args (2) or extraction failure (3).
 #
 # Used by:
 #   .claude/skills/task-workflow/remote-drift-check.md (post-plan checkpoint)
@@ -37,6 +44,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/plan_paths_sh.sh
+source "$SCRIPT_DIR/lib/plan_paths_sh.sh"
 
 # --- Defaults ---
 NETWORK_TIMEOUT=10
@@ -219,14 +228,27 @@ fi
 # -- the strong half of the drift check -- unreachable in every consumer project,
 # and missed aidocs/ even here (t1275).
 #
-# The extension list below is a KNOWN remaining narrowing, deliberately left in
-# place: a plan referencing internal/pkg/server.go still yields zero tokens. See
+# The extension list is a KNOWN remaining narrowing, deliberately left in place:
+# a plan referencing internal/pkg/server.go still yields zero tokens. See
 # aidocs/framework/plan_path_reference_extraction_findings.md.
+#
+# The grammar itself lives in lib/plan_paths.py and is reached through the
+# lazy bridge sourced above -- it has three other consumers (lib/trail_gather.py
+# and t1569_3's admission checker among them) and forking it would guarantee
+# divergence on exactly the edges that document records. The extractor sorts in
+# codepoint order where this pipeline used locale-collated `sort -u`; the
+# intersect below is `grep -Fxf`, which is order-independent, so the emitted
+# OVERLAP order can differ while no verdict does (t1569_1).
 plan_paths=""
 if [[ -r "$PLAN_FILE" ]]; then
-    plan_paths=$(grep -oE '[A-Za-z0-9_./-]+\.(sh|py|md|yaml|yml|json|toml)' "$PLAN_FILE" 2>/dev/null \
-        | sed 's|^\./||' \
-        | sort -u || true)
+    extract_rc=0
+    plan_paths=$(plan_paths_extract "$PLAN_FILE") || extract_rc=$?
+    if [[ $extract_rc -ne 0 ]]; then
+        # FAIL CLOSED. Falling through with an empty set would print NO_OVERLAP,
+        # which is indistinguishable from a genuine all-clear.
+        echo "EXTRACT_FAILED"
+        exit 3
+    fi
 fi
 
 debug "plan-referenced paths:"
