@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [scheduling, planning, backlog]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 created_at: 2026-08-27 11:27
-updated_at: 2026-08-27 11:27
+updated_at: 2026-08-27 23:44
 ---
 
 Batch task->file-set derivation, a commit index, and pure origin resolution.
