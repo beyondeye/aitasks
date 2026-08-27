@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
+implemented_with: claudecode/opus5
 created_at: 2026-08-27 11:26
-updated_at: 2026-08-27 12:22
+updated_at: 2026-08-27 15:44
 ---
 
 Extend the shared trail gatherer with **generic in-flight / planned-surface
@@ -164,3 +165,8 @@ Required new tests:
    kill-switch.
 4. `planned_new` / `tracked` / `phantom` classification, including an
    all-phantom plan.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-27T12:44:33Z status=pass attempt=1 type=human
