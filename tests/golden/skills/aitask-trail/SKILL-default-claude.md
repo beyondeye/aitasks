@@ -59,7 +59,7 @@ ERROR:<kind>:<id>
 Adding `--with-inflight` emits four further prefixes:
 
 ```
-INFLIGHT_SOURCE:<gate|lock|tracked>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
+INFLIGHT_SOURCE:<gate|lock|tracked>|<ok|degraded|unavailable|not_consulted>|<age_seconds|->|<reason|->
 INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<archive_status>
 INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
 INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
@@ -78,17 +78,26 @@ lock-only task. It is *not* a gate state, and the `unknown` sentinel is
 part of the enum.
 
 `INFLIGHT_SOURCE:tracked` reports the **classification evidence**
-(`git ls-files`). When it is `unavailable`, every task gets an
-`unclassified` sentinel and `corpus_status` is `not_scanned`.
+(`git ls-files`) and is **always emitted** — with `not_consulted` when
+there was no in-flight task to classify, because absence is never the
+signal in this contract. When it is `unavailable`, every task gets an
+`unclassified` sentinel and `corpus_status` is `unclassifiable`.
 Never synthesise a classification from absent git evidence:
 every path would read `phantom`, and the result would look both
 complete and healthy while resting on nothing.
 
+`source_status` covers **only the two enumeration probes** (`gate`,
+`lock`) — the ones answering *which tasks are in flight*. It says
+nothing about `tracked`, which answers a different question, so
+`both_enumeration_ok` can accompany a failed `tracked` source. Read the
+two axes separately; never take `source_status` alone as a clean bill of
+health.
+
 **A healthy probe is not a complete one.** `source_status`
-(`both_sources_ok` / `one_source_ok` / `no_source`) reports **only which
+(`both_enumeration_ok` / `one_enumeration_ok` / `no_enumeration`) reports **only which
 probes ran cleanly**. The gated source requires a `## Gate Runs` ledger and
 the lock source tracks locks rather than execution, so neither — nor their
-union — enumerates every running task. Never read `both_sources_ok` as
+union — enumerates every running task. Never read `both_enumeration_ok` as
 "nothing else is in flight".
 
 **Path evidence covers only `.sh .py .md .yaml .yml .json .toml`.** A plan
@@ -96,9 +105,13 @@ written in any other language contributes no paths, and its absence of
 overlap is **not** evidence of safety; that case is reported on the
 `corpus_status` axis (`no_extractable_paths`), which is independent of
 probe health. `corpus_status` also carries `unread_io` (plans exist, none
-readable), `no_plans`, `not_scanned` (nothing enumerated) and `truncated`
-(a budget expired) — evaluate it as reported, never inferred from the
-absence of `INFLIGHT_PATH:` lines.
+readable), `no_plans`, `not_scanned` (**no task enumerated at all**),
+`unclassifiable` (**tasks enumerated, but the git evidence to classify
+them was unavailable**) and `truncated` (a budget expired). These last
+two are opposites and must not be conflated: one means there is no
+in-flight work, the other that there is and its surface is unknown.
+Evaluate the field as reported, never inferred from the absence of
+`INFLIGHT_PATH:` lines.
 
 `INFLIGHT_SOURCE:`'s age is **integer seconds** since this clone last
 updated the ref, or `-` when it cannot be established (`no_reflog`,

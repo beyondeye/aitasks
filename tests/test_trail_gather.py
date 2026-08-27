@@ -1384,7 +1384,7 @@ class InflightSourceTests(InflightCase):
         snap = self.snap_inflight("100")
         refs = [r[0] for r in snap["inflight"]]
         self.assertIn("mainproj#100", refs, "gated record must survive")
-        self.assertEqual(snap["scan"][2], "one_source_ok")
+        self.assertEqual(snap["scan"][2], "one_enumeration_ok")
         lock_line = [s for s in snap["sources"] if s[0] == "lock"][0]
         self.assertEqual(lock_line[1], "unavailable")
         self.assertEqual(lock_line[3], "no_local_ref", "the loss is NAMED")
@@ -1395,14 +1395,14 @@ class InflightSourceTests(InflightCase):
             gate=self.src("gate", status="unavailable", reason="scan_error"),
             lock=self.src("lock", status="unavailable", reason="no_local_ref"))
         snap = self.snap_inflight("100")
-        self.assertEqual(snap["scan"][2], "no_source")
+        self.assertEqual(snap["scan"][2], "no_enumeration")
         self.assertEqual(snap["inflight"], [])
         self.assertEqual(snap["scan"][0], "0")
 
     def test_status_claims_probe_health_not_completeness(self):
         """The t887 case, made deterministic: both probes succeed while a
         known-running task is absent from the union, and the status is still
-        both_sources_ok. (That this is not a safety claim is pinned as contract
+        both_enumeration_ok. (That this is not a safety claim is pinned as contract
         text in tests/test_trail_skill_contract.sh — it has no executable form
         here.)"""
         self.repo.write_task("100", "root")
@@ -1410,7 +1410,7 @@ class InflightSourceTests(InflightCase):
         self.inject(gate=self.src("gate", {}),
                     lock=self.src("lock", {"100": ("-", "unknown")}, age=5))
         snap = self.snap_inflight("100")
-        self.assertEqual(snap["scan"][2], "both_sources_ok")
+        self.assertEqual(snap["scan"][2], "both_enumeration_ok")
         self.assertNotIn("mainproj#887", [r[0] for r in snap["inflight"]])
 
     def test_union_tags_a_task_seen_by_both_sources(self):
@@ -1667,7 +1667,7 @@ class InflightCorpusAxisTests(InflightCase):
         self.assertEqual(self.corpus(self.snap_inflight("100")), "no_plans")
 
     def test_not_scanned_when_nothing_was_enumerated(self):
-        """Under no_source there are zero tasks, so the axis must not assert
+        """Under no_enumeration there are zero tasks, so the axis must not assert
         anything about a corpus it never reached."""
         self.repo.write_task("100", "t")
         self.inject(gate=self.src("gate", status="unavailable",
@@ -1676,7 +1676,7 @@ class InflightCorpusAxisTests(InflightCase):
                                   reason="no_local_ref"))
         snap = self.snap_inflight("100")
         self.assertEqual(self.corpus(snap), "not_scanned")
-        self.assertEqual(snap["scan"][2], "no_source")
+        self.assertEqual(snap["scan"][2], "no_enumeration")
 
     def test_precedence_truncated_wins_over_every_other_condition(self):
         """Several conditions can hold at once; an undeclared precedence is how
@@ -1689,6 +1689,10 @@ class InflightCorpusAxisTests(InflightCase):
             trail_gather._corpus_status(2, 0, 0, 0, False), "no_plans")
         self.assertEqual(
             trail_gather._corpus_status(2, 2, 0, 0, False), "unread_io")
+        # `unclassifiable` is produced by the early return, not this ladder —
+        # pin that they are different values so neither absorbs the other.
+        self.assertNotEqual(
+            trail_gather._corpus_status(0, 0, 0, 0, False), "unclassifiable")
 
 
 class InflightBudgetTests(InflightCase):
@@ -1779,7 +1783,7 @@ class InflightBudgetTests(InflightCase):
             gate=self.src("gate", status="unavailable", reason="timeout"),
             lock=self.src("lock", {"100": ("-", "unknown")}, age=3))
         snap = self.snap_inflight("100")
-        self.assertEqual(snap["scan"][2], "one_source_ok")
+        self.assertEqual(snap["scan"][2], "one_enumeration_ok")
         self.assertIn("mainproj#100", [r[0] for r in snap["inflight"]])
 
 
@@ -1944,8 +1948,42 @@ class InflightTrackedEvidenceTests(InflightCase):
         self.setup_one_task()
         self.fail_tracked_sets(OSError("git missing"))
         snap = self.snap_inflight("100")
-        self.assertEqual(snap["scan"][1], "not_scanned")
+        self.assertEqual(snap["scan"][1], "unclassifiable")
         self.assertNotEqual(snap["scan"][1], "extractable")
+
+    def test_unclassifiable_is_not_not_scanned(self):
+        """They are OPPOSITES: not_scanned means there is no in-flight work,
+        unclassifiable means there IS and its surface is unknown. One value for
+        both would make t1569_3 branch on a field that means two things."""
+        self.setup_one_task()
+        self.fail_tracked_sets(OSError("git missing"))
+        snap = self.snap_inflight("100")
+        self.assertEqual(snap["scan"][1], "unclassifiable")
+        self.assertNotEqual(snap["scan"][1], "not_scanned")
+        self.assertGreater(int(snap["scan"][0]), 0,
+                           "tasks WERE enumerated on this path")
+
+    def test_source_status_is_scoped_to_the_enumeration_probes(self):
+        """A failed `tracked` source must not be masked by, nor mask, the
+        enumeration health — they answer different questions."""
+        self.setup_one_task()
+        self.fail_tracked_sets(OSError("git missing"))
+        snap = self.snap_inflight("100")
+        self.assertEqual(snap["scan"][2], "both_enumeration_ok")
+        tracked_line = [s for s in snap["sources"] if s[0] == "tracked"][0]
+        self.assertEqual(tracked_line[1], "unavailable")
+
+    def test_tracked_line_is_emitted_even_with_no_inflight_task(self):
+        """Absence is never the signal in this contract."""
+        self.repo.write_task("100", "t")
+        self.inject(gate=self.src("gate", {}), lock=self.src("lock", {}))
+        snap = self.snap_inflight("100")
+        names = [s[0] for s in snap["sources"]]
+        self.assertEqual(names, ["gate", "lock", "tracked"])
+        tracked_line = [s for s in snap["sources"] if s[0] == "tracked"][0]
+        self.assertEqual(tracked_line[1], "not_consulted")
+        self.assertEqual(tracked_line[3], "no_tasks")
+        self.assertEqual(snap["scan"][1], "not_scanned")
 
     def test_git_timeout_is_named_distinctly(self):
         self.setup_one_task()

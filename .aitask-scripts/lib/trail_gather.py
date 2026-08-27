@@ -35,7 +35,7 @@ outcome including ERROR lines, 2 usage, 3 infra):
     ERROR:<kind>:<id>            (staged -- emitted alone, exit 0)
 
   Only under --with-inflight (t1569_1) -- VOLATILE, see the determinism note:
-    INFLIGHT_SOURCE:<gate|lock>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
+    INFLIGHT_SOURCE:<gate|lock|tracked>|<ok|degraded|unavailable|not_consulted>|<age_seconds|->|<reason|->
     INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<archive_status>
     INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
     INFLIGHT_SCAN:<n_tasks>|<corpus_status>|<source_status>
@@ -680,8 +680,8 @@ def _run_bounded(cmd, timeout, cwd=None) -> "tuple[int, str]":
 @dataclass
 class SourceResult:
     """One evidence source's outcome. `status` is PROBE HEALTH only."""
-    name: str                       # gate | lock
-    status: str = "ok"              # ok | degraded | unavailable
+    name: str                       # gate | lock | tracked
+    status: str = "ok"              # ok | degraded | unavailable | not_consulted
     age: "int | None" = None        # seconds; None renders as '-'
     reason: "str | None" = None
     ids: "dict[str, tuple[str, str]]" = field(default_factory=dict)
@@ -851,9 +851,17 @@ def emit_inflight(out, tree, roots, local_name: str) -> None:
     # command than the gated scan, so a clone with no cached ref must still
     # yield every gated record -- discarding them would manufacture exactly the
     # false no-conflict the parent task forbids.
+    # Scoped to the two ENUMERATION probes -- the ones that answer "which tasks
+    # are in flight". `tracked` is a third declared source but reports
+    # CLASSIFICATION evidence, a different question, so folding it in here would
+    # conflate two axes. The value names its own scope for exactly that reason:
+    # "both_sources_ok" beside three declared sources invites a reader to assume
+    # a clean bill of health for all three, which is the same trap as the
+    # original "full" this vocabulary already replaced once.
     healthy = sum(1 for s in (gate, lock) if s.status != "unavailable")
-    source_status = ("both_sources_ok" if healthy == 2
-                     else "one_source_ok" if healthy == 1 else "no_source")
+    source_status = ("both_enumeration_ok" if healthy == 2
+                     else "one_enumeration_ok" if healthy == 1
+                     else "no_enumeration")
 
     merged: dict[str, list] = {}
     for src, tag in ((gate, "gate"), (lock, "lock")):
@@ -874,7 +882,15 @@ def emit_inflight(out, tree, roots, local_name: str) -> None:
               file=out)
 
     truncated = False
+    # Declared unconditionally. With no in-flight task there is no
+    # classification to have evidence about, but this contract is careful
+    # everywhere else that absence is never the signal -- no_plan, no_tokens and
+    # unclassified all exist for that reason -- so the state is NAMED rather
+    # than represented by a missing line.
     tracked_src = SourceResult("tracked")
+    if not ordered:
+        tracked_src.status, tracked_src.reason = "not_consulted", "no_tasks"
+        print(tracked_src.line(), file=out)
     if ordered:
         # `git ls-files` is the CLASSIFICATION evidence, and it is its own
         # evidence source -- reported on its own line, never swallowed.
@@ -903,8 +919,13 @@ def emit_inflight(out, tree, roots, local_name: str) -> None:
             for task_id in ordered:
                 rref = _validated_ref_field(f"{local_name}#{task_id}")
                 print(f"INFLIGHT_PATH:{rref}|unclassified|-", file=out)
-            print(f"INFLIGHT_SCAN:{len(ordered)}|not_scanned|{source_status}",
-                  file=out)
+            # `unclassifiable`, never `not_scanned`. Tasks WERE enumerated —
+            # emitting a value glossed "nothing enumerated" beside a non-zero
+            # n_tasks would make one value mean two opposite things: "there is
+            # no in-flight work" and "there is in-flight work and we have no
+            # idea what it touches". t1569_3 branches on this field.
+            print(f"INFLIGHT_SCAN:{len(ordered)}|unclassifiable|"
+                  f"{source_status}", file=out)
             return
 
         classify_deadline = min(deadline,
@@ -952,6 +973,9 @@ def _corpus_status(n_tasks: int, n_plan: int, n_read: int, n_yield: int,
     if truncated:
         return "truncated"
     if n_tasks == 0:
+        # Nothing was enumerated, so there is no corpus to judge. Distinct from
+        # `unclassifiable`, which means tasks WERE enumerated but the
+        # classification evidence (git ls-files) was unavailable.
         return "not_scanned"
     if n_plan == 0:
         # Tasks were enumerated and NONE has a plan. A durable corpus fact with

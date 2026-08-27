@@ -71,14 +71,20 @@ for profile in "${PROFILES[@]}"; do
         "is the **archive status**, republished from the" "$skill"
     assert_contains "$profile: absent git evidence is never synthesised away" \
         "Never synthesise a classification from absent git evidence" "$skill"
+    assert_contains "$profile: not_scanned and unclassifiable are opposites" \
+        "These last" "$skill"
+    assert_contains "$profile: source_status declares its own scope" \
+        "covers **only the two enumeration probes**" "$skill"
+    assert_contains "$profile: the tracked line is always emitted" \
+        "and is **always emitted**" "$skill"
     assert_contains "$profile: new prefixes are declared digest-excluded" \
         "All five new prefixes are digest-excluded" "$skill"
     assert_contains "$profile: the guarantee is digest identity, not whole-output" \
         "*digest* identity" "$skill"
     assert_contains "$profile: probe health is not completeness" \
         "A healthy probe is not a complete one" "$skill"
-    assert_contains "$profile: both_sources_ok must not be read as safe" \
-        'Never read `both_sources_ok` as' "$skill"
+    assert_contains "$profile: the enumeration status must not be read as safe" \
+        'Never read `both_enumeration_ok` as' "$skill"
     assert_contains "$profile: the extension scope limit is stated" \
         "Path evidence covers only" "$skill"
     assert_contains "$profile: absence of overlap is not safety" \
