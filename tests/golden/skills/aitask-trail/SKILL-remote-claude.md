@@ -115,9 +115,10 @@ overlap is **not** evidence of safety; that case is reported on the
 probe health. `corpus_status` also carries `unread_io` (plans exist, none
 readable), `no_plans`, `not_scanned` (**no task enumerated at all**),
 `unclassifiable` (**tasks enumerated, but the git evidence to classify
-them was unavailable**) and `truncated` (a budget expired). These last
-two are opposites and must not be conflated: one means there is no
-in-flight work, the other that there is and its surface is unknown.
+them was unavailable**) and `truncated` (a budget expired).
+`not_scanned` and `unclassifiable` are opposites and must never be
+conflated: `not_scanned` means there is no in-flight work at all, while
+`unclassifiable` means there IS and its surface is unknown.
 Evaluate the field as reported, never inferred from the absence of
 `INFLIGHT_PATH:` lines.
 
@@ -125,6 +126,23 @@ Evaluate the field as reported, never inferred from the absence of
 updated the ref, or `-` when it cannot be established (`no_reflog`,
 `clock_skew`).
 An unknown age is never rendered as `0` — `-` is the only sentinel.
+
+`<reason>` is a **closed vocabulary**. It is `-` when the source is
+`ok`; otherwise exactly one of:
+
+| reason | source | meaning |
+|---|---|---|
+| `no_local_ref` | lock | no cached `origin/aitask-locks` — this clone has never fetched it |
+| `unreadable_tree` | lock | the ref resolves but its tree could not be listed |
+| `no_reflog` | lock | no reflog entry, so the cache age cannot be established |
+| `clock_skew` | lock | the ref's recorded update time is in the future |
+| `timeout` | gate, lock, tracked | the probe exceeded its budget |
+| `scan_error` | gate, tracked | the probe ran and failed |
+| `no_tasks` | tracked | no in-flight task, so classification was `not_consulted` |
+
+Branch on these, not on the status alone: `no_local_ref` is a
+never-fetched clone while `timeout` is a transient operator problem, and
+`--lock-freshness` depends on telling them apart.
 
 **`planned_new` means "a plausibly-createable location", not "confirmed new
 work".** A file that MOVED away lands there too, and a genuine planned

@@ -71,8 +71,16 @@ for profile in "${PROFILES[@]}"; do
         "is the **archive status**, republished from the" "$skill"
     assert_contains "$profile: absent git evidence is never synthesised away" \
         "Never synthesise a classification from absent git evidence" "$skill"
-    assert_contains "$profile: not_scanned and unclassifiable are opposites" \
-        "These last" "$skill"
+    assert_contains "$profile: the conflation pair is named, not positional" \
+        'and `unclassifiable` are opposites and must never be' "$skill"
+    # The closed <reason> vocabulary the plan's Step 5 required. Every value the
+    # code can emit must be declared, or t1569_3 branches on undocumented text.
+    assert_contains "$profile: <reason> is declared closed" \
+        "is a **closed vocabulary**" "$skill"
+    for reason in no_local_ref unreadable_tree no_reflog clock_skew timeout scan_error no_tasks; do
+        assert_contains "$profile: reason '"'"'$reason'"'"' is declared" \
+            "\`$reason\`" "$skill"
+    done
     assert_contains "$profile: source_status declares its own scope" \
         "covers **only the two enumeration probes**" "$skill"
     assert_contains "$profile: the tracked line is always emitted" \

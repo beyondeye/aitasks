@@ -19,11 +19,13 @@ Run: python3 -m unittest tests.test_trail_gather -v
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2031,6 +2033,88 @@ class InflightArchiveStatusNamingTests(InflightCase):
                 self.inject(gate=self.src("gate", {"100": ("PLAN", value)}))
                 row = self.snap_inflight("100")["inflight"][0]
                 self.assertEqual(row[3], value)
+
+
+class InflightReasonVocabularyTests(unittest.TestCase):
+    """Every `<reason>` the code can emit must be DECLARED in the pinned
+    contract.
+
+    A structural guard rather than a checklist: `no_tasks` shipped undeclared in
+    three committed goldens because the contract was updated by hand and the
+    code was not re-read. t1569_3 branches on these values — `no_local_ref` is a
+    never-fetched clone, `timeout` a transient operator problem — so an
+    undeclared one is a consumer branching on undocumented text.
+    """
+
+    GOLDEN = (REPO_ROOT / "tests" / "golden" / "skills" / "aitask-trail"
+              / "SKILL-fast-claude.md")
+    SOURCE = SCRIPTS_DIR / "lib" / "trail_gather.py"
+
+    def emitted_reasons(self):
+        """Reasons assigned to a SourceResult anywhere in the gatherer.
+
+        Parsed with `ast`, not regex: the assignments come in two shapes —
+        `x.reason = "v"` and the tuple form `x.status, x.reason = "s", "v"` —
+        and a regex over the second reliably captures the STATUS instead, which
+        is how the first version of this guard reported nonsense.
+        """
+        tree = ast.parse(self.SOURCE.read_text(encoding="utf-8"))
+        found = set()
+
+        def value_of(node):
+            return (node.value
+                    if isinstance(node, ast.Constant)
+                    and isinstance(node.value, str) else None)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    # x.reason = "v"
+                    if (isinstance(target, ast.Attribute)
+                            and target.attr == "reason"):
+                        val = value_of(node.value)
+                        if val:
+                            found.add(val)
+                    # x.status, x.reason = "s", "v"  -> positional match
+                    elif isinstance(target, ast.Tuple) and isinstance(
+                            node.value, ast.Tuple):
+                        for elt, val_node in zip(target.elts,
+                                                 node.value.elts):
+                            if (isinstance(elt, ast.Attribute)
+                                    and elt.attr == "reason"):
+                                val = value_of(val_node)
+                                if val:
+                                    found.add(val)
+            # `_locks_cache_age` returns (None, "<reason>")
+            elif isinstance(node, ast.Return) and isinstance(node.value,
+                                                             ast.Tuple):
+                elts = node.value.elts
+                if (len(elts) == 2 and isinstance(elts[0], ast.Constant)
+                        and elts[0].value is None):
+                    val = value_of(elts[1])
+                    if val:
+                        found.add(val)
+        return found
+
+    def test_every_emitted_reason_is_declared(self):
+        emitted = self.emitted_reasons()
+        self.assertTrue(emitted, "the scraper found nothing — it has rotted")
+        contract = self.GOLDEN.read_text(encoding="utf-8")
+        undeclared = sorted(r for r in emitted if f"`{r}`" not in contract)
+        self.assertEqual(
+            undeclared, [],
+            f"reason(s) emitted by trail_gather.py but absent from the PINNED "
+            f"contract: {undeclared}. Declare them in "
+            f".claude/skills/aitask-trail/SKILL.md.j2 and regenerate the "
+            f"goldens in the same commit.")
+
+    def test_scraper_finds_the_known_reasons(self):
+        """Positive control: without it, a scraper that silently matched
+        nothing would make the guard above pass vacuously."""
+        emitted = self.emitted_reasons()
+        for known in ("no_local_ref", "timeout", "scan_error", "no_reflog",
+                      "clock_skew", "unreadable_tree", "no_tasks"):
+            self.assertIn(known, emitted)
 
 
 class ReadOnlyTests(TrailGatherCase):
