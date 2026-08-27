@@ -6,7 +6,7 @@ Archived Sibling Plans: aiplans/archived/p1569/p1569_*_*.md
 Base branch: main
 Output branch: main
 plan_verified:
-  - claudecode/opus5 @ 2026-08-27 15:31
+  - claudecode/opus5 @ 2026-08-27 15:41
 ---
 
 # t1569_1 — In-flight / planned-surface facts in the shared gatherer
@@ -259,7 +259,7 @@ Emit:
 INFLIGHT_SOURCE:<gate|lock>|<ok|degraded|unavailable>|<age_seconds|->|<reason|->
 INFLIGHT:<ref>|<gate|lock|both>|<PLAN|IMPLEMENT|POSTIMPL|->|<gate_state>
 INFLIGHT_PATH:<ref>|<tracked|planned_new|phantom|malformed|no_tokens|unreadable|no_plan|unclassified>|<path|->
-INFLIGHT_SCAN:<n_tasks>|<extractable|partial_extractable|no_extractable_paths|unread|truncated>|<both_sources_ok|one_source_ok|no_source>
+INFLIGHT_SCAN:<n_tasks>|<extractable|partial_extractable|no_extractable_paths|unread_io|no_plans|not_scanned|truncated>|<both_sources_ok|one_source_ok|no_source>
 ```
 
 The summary line carries **three independent axes** — path counts, corpus
@@ -320,18 +320,46 @@ independently readable by t1569_3:
 
 | corpus status | meaning |
 |---|---|
-| `extractable` | every in-flight plan **that was read** yielded ≥1 token |
+| corpus status | meaning |
+|---|---|
+| `extractable` | every plan **that was read** yielded ≥1 token |
 | `partial_extractable` | among plans that were read, some yielded tokens and some yielded none |
 | `no_extractable_paths` | **at least one** plan was read, and none of the plans read yielded a single token |
-| `unread` | **no** plan was successfully read at all — nothing to judge |
+| `unread_io` | ≥1 plan **exists** but **none** could be read — an I/O failure, retryable |
+| `no_plans` | ≥1 task was enumerated and **none of them has a plan** — a durable corpus fact, nothing to retry |
+| `not_scanned` | **no task was enumerated** (`n_tasks == 0`) — the corpus was never reached |
 | `truncated` | the scan did not finish (classification or block budget expired) — corpus extractability is **unknown**, not measured |
 
-`unread` completes the vocabulary. Once the other rows require a successful read,
-"nothing was read at all" — every plan unreadable, or no in-flight task has one —
-has no value left to carry: `no_extractable_paths` no longer applies, `truncated` is
-wrong because nothing expired, and the remaining rows are vacuous. It is the same
-unmeasured-versus-measured gap `truncated` fills for expiry, and it must not fall
-back to a measured-looking value.
+**Evaluate in this exact order** — several conditions can hold at once, and an
+undeclared precedence is how a value ends up meaning two things:
+
+1. a budget expired → `truncated`
+2. else `n_tasks == 0` → `not_scanned`
+3. else no enumerated task has a plan → `no_plans`
+4. else ≥1 plan exists but none was read → `unread_io`
+5. else judge the plans that **were** read → `extractable` / `partial_extractable` /
+   `no_extractable_paths`
+
+### Why `unread_io` and `no_plans` are separate, and why `not_scanned` exists
+
+They were briefly one value (`unread`), which folded together **an I/O failure**
+(retryable, an operator problem) and **a durable corpus fact** (nothing to retry) —
+making the global field *less precise than the detail lines it summarizes*, since
+the per-task axis already separates them via the `unreadable` and `no_plan`
+sentinels. That is the same defect shape this plan removed three times before (a
+timing outcome on the corpus axis, a corpus property on the probe-health axis, an
+I/O failure filed as a corpus fact), reappearing inside the value introduced to fix
+the last instance. Splitting is the consistent fix, and it is now **cheap**: after
+the summary collapsed to three fields, a new value is additive inside an existing
+enum — no positional change, no schema break, no pin-test failure. That is exactly
+what the collapse was for.
+
+`not_scanned` restores coverage that the collapse dropped. The counted design said
+"on `no_source`, all counts are `0`", and that sentence left with the counts. Under
+`no_source` there are zero `INFLIGHT:` lines, so no plans were ever enumerated — and
+without `not_scanned` that case falls through to a value asserting something about a
+corpus that was never reached. The source axis says *why* nothing was enumerated;
+the corpus axis says only that it was not.
 
 **Unreadable plans are excluded from the corpus judgement, not counted as empty.**
 A plan that could not be opened was never read, so counting it as "yielded none"
@@ -731,14 +759,22 @@ New tests in `tests/test_trail_gather.py`:
    safe and therefore silently); and a **parent** in-flight task resolves only its
    own plan, never its children's (the t1532 lookbehind). Drive it through
    `plan_path_for()`, not a locally-written glob.
-7c. **`unreadable` stays separable from `no_tokens`, on both axes, in both the mixed
-   and the total case** — a plan file made unreadable (chmod / broken symlink /
-   undecodable bytes) emits the `unreadable` sentinel, **never** `no_tokens`. Two
-   corpus assertions, because the earlier single one left the total case open:
+7c. **`unreadable` stays separable from `no_tokens`, on both axes** — a plan file
+   made unreadable (chmod / broken symlink / undecodable bytes) emits the
+   `unreadable` sentinel, **never** `no_tokens`. One corpus assertion per
+   distinguishable case, since the global axis must not be less precise than the
+   sentinels it summarizes:
    - *mixed* — one unreadable plan among healthy ones: the axis still reads
      `extractable`, not `partial_extractable`;
-   - *all unreadable* — the axis reads **`unread`**, not `no_extractable_paths`;
-     a total I/O failure must not be filed as a measured corpus fact.
+   - *all unreadable* — **`unread_io`**, not `no_extractable_paths`; a total I/O
+     failure must not be filed as a measured corpus fact;
+   - *tasks enumerated, none has a plan* — **`no_plans`**, distinct from `unread_io`:
+     a durable fact, not a retryable failure;
+   - *`no_source` / zero tasks* — **`not_scanned`**; nothing was enumerated, so the
+     axis must not assert anything about a corpus it never reached.
+   Also assert the **precedence order** directly: a fixture satisfying two conditions
+   at once (e.g. a budget expiry over an all-unreadable set) resolves to the
+   higher-precedence value (`truncated`).
 8. **Classification**, including: an all-phantom plan (the `p259` shape, 45 paths /
    0 tracked); a leading-hyphen token classified `malformed`, **never** `planned_new`;
    a root-level untracked file classified `phantom`, not `planned_new`.
