@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -170,3 +172,5 @@ Required new tests:
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-27T12:44:33Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-27T15:40:47Z status=pass attempt=1 type=human
