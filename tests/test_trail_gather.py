@@ -2046,17 +2046,48 @@ class InflightReasonVocabularyTests(unittest.TestCase):
     undeclared one is a consumer branching on undocumented text.
     """
 
-    GOLDEN = (REPO_ROOT / "tests" / "golden" / "skills" / "aitask-trail"
-              / "SKILL-fast-claude.md")
+    # ALL THREE goldens, not one. The reason table sits outside every Jinja
+    # conditional today, so they agree -- but the template does carry
+    # conditionals, and a declaration placed inside one would satisfy `fast`
+    # while leaving `default` and `remote` short.
+    GOLDENS = tuple(
+        REPO_ROOT / "tests" / "golden" / "skills" / "aitask-trail"
+        / f"SKILL-{profile}-claude.md"
+        for profile in ("default", "fast", "remote"))
     SOURCE = SCRIPTS_DIR / "lib" / "trail_gather.py"
 
-    def emitted_reasons(self):
-        """Reasons assigned to a SourceResult anywhere in the gatherer.
+    @staticmethod
+    def declared_in(contract: str) -> "set[str]":
+        """Reasons declared as a ROW of the reason table.
 
-        Parsed with `ast`, not regex: the assignments come in two shapes —
-        `x.reason = "v"` and the tuple form `x.status, x.reason = "s", "v"` —
-        and a regex over the second reliably captures the STATUS instead, which
-        is how the first version of this guard reported nonsense.
+        Anchored to the row, not a substring search: `timeout` and
+        `no_local_ref` are each mentioned a second time in the prose beneath the
+        table, so a bare backtick-substring check stays green for exactly
+        those two even if their rows are deleted -- verifying nothing about the
+        declaration it exists to protect.
+        """
+        return set(re.findall(r"^\|\s*`([a-z_]+)`\s*\|", contract,
+                              re.MULTILINE))
+
+    #: Syntactic shapes this scraper understands. Stated as the guard's
+    #: DECLARED SCOPE, because a scraper cannot flag a form nobody has written
+    #: yet: a value introduced through a shape not listed here would ship
+    #: undeclared and the guard would stay green — the very failure it exists to
+    #: prevent, one syntax over. Adding a shape to the code means adding it here.
+    COVERED_SHAPES = (
+        'x.reason = "v"',
+        'x.status, x.reason = "s", "v"',
+        'return None, "v"',
+        'SourceResult(name, status, age, "v")',
+        'SourceResult(..., reason="v")',
+    )
+
+    def emitted_reasons(self):
+        """Reasons a SourceResult can carry, over `COVERED_SHAPES`.
+
+        Parsed with `ast`, not regex: a regex over the tuple form reliably
+        captures the STATUS instead, which is how the first version of this
+        guard reported nonsense.
         """
         tree = ast.parse(self.SOURCE.read_text(encoding="utf-8"))
         found = set()
@@ -2085,6 +2116,21 @@ class InflightReasonVocabularyTests(unittest.TestCase):
                                 val = value_of(val_node)
                                 if val:
                                     found.add(val)
+            # SourceResult(name, status, age, reason) / reason="v".
+            # `reason` is a dataclass FIELD, so it can arrive through the
+            # constructor without ever being assigned to an attribute.
+            elif (isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Name)
+                  and node.func.id == "SourceResult"):
+                if len(node.args) >= 4:
+                    val = value_of(node.args[3])
+                    if val:
+                        found.add(val)
+                for kw in node.keywords:
+                    if kw.arg == "reason":
+                        val = value_of(kw.value)
+                        if val:
+                            found.add(val)
             # `_locks_cache_age` returns (None, "<reason>")
             elif isinstance(node, ast.Return) and isinstance(node.value,
                                                              ast.Tuple):
@@ -2096,17 +2142,48 @@ class InflightReasonVocabularyTests(unittest.TestCase):
                         found.add(val)
         return found
 
-    def test_every_emitted_reason_is_declared(self):
+    def test_every_emitted_reason_is_declared_in_every_golden(self):
         emitted = self.emitted_reasons()
         self.assertTrue(emitted, "the scraper found nothing — it has rotted")
-        contract = self.GOLDEN.read_text(encoding="utf-8")
-        undeclared = sorted(r for r in emitted if f"`{r}`" not in contract)
-        self.assertEqual(
-            undeclared, [],
-            f"reason(s) emitted by trail_gather.py but absent from the PINNED "
-            f"contract: {undeclared}. Declare them in "
-            f".claude/skills/aitask-trail/SKILL.md.j2 and regenerate the "
-            f"goldens in the same commit.")
+        for golden in self.GOLDENS:
+            with self.subTest(golden=golden.name):
+                declared = self.declared_in(golden.read_text(encoding="utf-8"))
+                undeclared = sorted(emitted - declared)
+                self.assertEqual(
+                    undeclared, [],
+                    f"reason(s) emitted by trail_gather.py but not declared as "
+                    f"a reason-table row in {golden.name}: {undeclared}. "
+                    f"Declare them in .claude/skills/aitask-trail/SKILL.md.j2 "
+                    f"and regenerate all three goldens in the same commit.")
+
+    def test_row_anchor_rejects_a_prose_only_mention(self):
+        """Negative control for the anchoring. A reason mentioned only in prose
+        must NOT count as declared — otherwise the guard is a substring search
+        wearing a docstring about declarations."""
+        prose = "a `ghost_reason` appears only in a sentence, not a table row.\n"
+        self.assertNotIn("ghost_reason", self.declared_in(prose))
+        self.assertIn("ghost_reason",
+                      self.declared_in("| `ghost_reason` | lock | x |\n"))
+
+    def test_constructor_form_is_covered(self):
+        """The dataclass field can be set without any attribute assignment."""
+        import textwrap
+        tree = ast.parse(textwrap.dedent("""
+            a = SourceResult("lock", "unavailable", None, "positional_only")
+            b = SourceResult("lock", reason="keyword_only")
+        """))
+        found = set()
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "SourceResult"):
+                if len(node.args) >= 4 and isinstance(node.args[3],
+                                                      ast.Constant):
+                    found.add(node.args[3].value)
+                for kw in node.keywords:
+                    if kw.arg == "reason" and isinstance(kw.value,
+                                                         ast.Constant):
+                        found.add(kw.value.value)
+        self.assertEqual(found, {"positional_only", "keyword_only"})
 
     def test_scraper_finds_the_known_reasons(self):
         """Positive control: without it, a scraper that silently matched
