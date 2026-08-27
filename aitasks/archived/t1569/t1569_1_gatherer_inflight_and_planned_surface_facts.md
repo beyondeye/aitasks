@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [artifacts, scheduling, planning]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 implemented_with: claudecode/opus5
 created_at: 2026-08-27 11:26
-updated_at: 2026-08-27 15:44
+updated_at: 2026-08-27 18:41
+completed_at: 2026-08-27 18:41
 ---
 
 Extend the shared trail gatherer with **generic in-flight / planned-surface
@@ -174,3 +175,14 @@ Required new tests:
 > **✅ gate:plan_approved** run=2026-08-27T12:44:33Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-27T15:40:47Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-27T15:41:19Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:21ce7dac0a643b3c
+
+> **✅ gate:risk_evaluated** run=2026-08-27T15:41:19Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1569_1/risk_evaluated_2026-08-27T15:41:19Z-risk_evaluated-a1.log`
