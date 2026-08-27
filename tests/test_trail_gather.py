@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -2082,14 +2083,22 @@ class InflightReasonVocabularyTests(unittest.TestCase):
         'SourceResult(..., reason="v")',
     )
 
-    def emitted_reasons(self):
+    def emitted_reasons(self, source: "str | None" = None):
         """Reasons a SourceResult can carry, over `COVERED_SHAPES`.
 
         Parsed with `ast`, not regex: a regex over the tuple form reliably
         captures the STATUS instead, which is how the first version of this
         guard reported nonsense.
+
+        `source` overrides the file's text so a shape test can drive THIS
+        function with a synthetic snippet. Without that seam a shape test can
+        only assert on its own copy of the logic, and deleting a branch here
+        leaves it green — verified by mutation, which is how the constructor
+        branch was found to be untested.
         """
-        tree = ast.parse(self.SOURCE.read_text(encoding="utf-8"))
+        text = source if source is not None else self.SOURCE.read_text(
+            encoding="utf-8")
+        tree = ast.parse(text)
         found = set()
 
         def value_of(node):
@@ -2165,25 +2174,36 @@ class InflightReasonVocabularyTests(unittest.TestCase):
         self.assertIn("ghost_reason",
                       self.declared_in("| `ghost_reason` | lock | x |\n"))
 
-    def test_constructor_form_is_covered(self):
-        """The dataclass field can be set without any attribute assignment."""
-        import textwrap
-        tree = ast.parse(textwrap.dedent("""
-            a = SourceResult("lock", "unavailable", None, "positional_only")
-            b = SourceResult("lock", reason="keyword_only")
-        """))
-        found = set()
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                    and node.func.id == "SourceResult"):
-                if len(node.args) >= 4 and isinstance(node.args[3],
-                                                      ast.Constant):
-                    found.add(node.args[3].value)
-                for kw in node.keywords:
-                    if kw.arg == "reason" and isinstance(kw.value,
-                                                         ast.Constant):
-                        found.add(kw.value.value)
-        self.assertEqual(found, {"positional_only", "keyword_only"})
+    def test_every_covered_shape_is_actually_scraped(self):
+        """Drives the REAL emitted_reasons() with one snippet per covered shape.
+
+        The previous version parsed its own copy of the logic, so deleting the
+        constructor branch from emitted_reasons() left it green — proven by
+        mutation. It also covered the one shape no production code uses, which
+        is exactly the shape whose coverage cannot be inferred from the seven
+        live reasons. This drives the function itself.
+        """
+        snippet = textwrap.dedent("""
+            def f():
+                a = SourceResult("lock")
+                a.reason = "attr_form"
+                a.status, a.reason = "unavailable", "tuple_form"
+                b = SourceResult("lock", "unavailable", None, "ctor_positional")
+                c = SourceResult("lock", reason="ctor_keyword")
+                return None, "return_form"
+        """)
+        self.assertEqual(
+            self.emitted_reasons(snippet),
+            {"attr_form", "tuple_form", "ctor_positional", "ctor_keyword",
+             "return_form"},
+            "a shape listed in COVERED_SHAPES is not actually scraped")
+
+    def test_shape_test_would_notice_a_deleted_branch(self):
+        """Negative control for the control: a shape NOT in COVERED_SHAPES must
+        not be picked up, so the assertion above is discriminating rather than
+        matching every string in sight."""
+        snippet = 'x = {"reason": "dict_form"}\nSourceResult("lock", "s")\n'
+        self.assertEqual(self.emitted_reasons(snippet), set())
 
     def test_scraper_finds_the_known_reasons(self):
         """Positive control: without it, a scraper that silently matched
