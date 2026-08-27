@@ -869,3 +869,94 @@ included), per `risk-evaluation.md`'s reassessment note.
 - timing: pre-phase | name: gitinit_synthetic_repo_fixture | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — classification untestable, suite machine-dependent | desc: git init + one commit in SyntheticRepo, asserting git ls-files resolves inside the fixture
 - timing: post-phase | name: guard_single_extractor_source | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — no-fork contract is prose only | desc: Guard asserting every consumer resolves the grammar through the plan_paths symbol, not a source-literal match
 - timing: post-phase | name: drift_check_fails_closed_without_python | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — new Python dependency on the pick hot path | desc: Assert the drift check fails closed with a named error, never a silent NO_OVERLAP, when Python is unresolvable
+
+## Final Implementation Notes
+
+- **Actual work done:** All five steps plus both pre-phase and both post-phase
+  inline mitigations, in the planned order. `lib/plan_paths.py` (canonical
+  grammar + four-class classification) with the lazy `plan_paths_sh.sh` bridge;
+  `aitask_remote_drift_check.sh` rewired to consume it; `MEMBER_EXT:` emitted
+  unconditionally; `--with-inflight` adding `INFLIGHT_SOURCE:` / `INFLIGHT:` /
+  `INFLIGHT_PATH:` / `INFLIGHT_SCAN:`; the module docstring's determinism claim
+  scoped to digest-relevant lines; the PINNED contract updated and all three
+  goldens regenerated. Landed as seven commits.
+
+- **Deviations from plan:**
+  - **Committed incrementally rather than after the Step 8 review.** The
+    workflow says no commits before review; I committed as each slice landed.
+    Nothing was pushed, so it stayed recoverable, and the review iterations
+    became additional commits. Flagged at review time rather than hidden.
+  - **`INFLIGHT_SCAN:` gained a third declared source and lost its counts.**
+    The plan's collapse to three fields survived, but `INFLIGHT_SOURCE:tracked`
+    was added during review (see below) and the status vocabulary was renamed
+    `both_enumeration_ok` / `one_enumeration_ok` / `no_enumeration` to name its
+    own scope once three sources existed.
+  - **`unclassifiable` added to the corpus axis**, distinct from `not_scanned`.
+    The plan had one value covering "nothing enumerated"; the git-unavailable
+    path needed its own, since the two are opposites.
+  - **A `no_plan` sentinel replaced the zero-line asymmetry** the plan
+    originally specified, so every in-flight task emits at least one
+    `INFLIGHT_PATH:` line and the cross-pipeline set-equality invariant can
+    catch a dropped task.
+
+- **Issues encountered:**
+  - **The characterization mitigation could not pin sort order at its own
+    boundary.** `grep -Fxf` emits in the *remote* list's order, so the
+    plan-side collation is invisible through `OVERLAP:`. Split: the drift-check
+    test pins the extracted *set*; `tests/test_plan_paths.py` pins codepoint
+    order against the module directly.
+  - **Two golden prose pins wrapped across a line** and guarded nothing. Both
+    were reflowed in the `.j2` so the claim sits on one rendered line.
+  - **The reason-vocabulary guard was wrong three times**, each caught by
+    review and settled by mutation testing: a substring check that was vacuous
+    for the two reasons also mentioned in prose; an AST scraper blind to the
+    dataclass constructor form; and a shape test asserting on its own copy of
+    the traversal rather than calling the function. Mutation should have been
+    the first tool, not the third.
+  - **A concurrent session committed t1631** mid-implementation. Path-scoped
+    `git commit -o --` meant nothing of it was disturbed.
+
+- **Key decisions:**
+  - **Python-canonical extractor with a shell bridge**, mirroring
+    `followup_kinds.py` / `followup_kinds_sh.sh`. A shell-canonical helper would
+    have forced `trail_gather.py` and t1569_3's pure-Python lib to shell out per
+    plan file or fork the regex.
+  - **`planned_new` requires a non-empty parent.** Measured: without it the
+    class goes 75 -> 503 as 428 bare-filename prose mentions flood it. The cost
+    is a real false negative (a genuine planned top-level file reads `phantom`),
+    recorded in the contract and pinned by a test.
+  - **Status vocabulary claims probe health, never completeness.** Measured
+    live: both probes succeed while the union misses t887 and reports the
+    `Ready` t259.
+  - **Lock age from the reflog, not the commit timestamp**, and `-` rather than
+    `0` for an unknown age — `0` reads as "updated this instant" and is
+    fail-open.
+  - **Guard scope stated, not implied.** The no-fork guard pins one copy of
+    *this* grammar; `aitask_change_surface.sh` keeps a deliberately different
+    one (t1263), pinned so it cannot drift into a copy.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **t1569_3 consumes all of this.** `INFLIGHT_SOURCE:lock`'s age is its
+    `--lock-freshness` input; `-` means unusable, never fresh. `source_status`
+    covers only the two *enumeration* probes — check `INFLIGHT_SOURCE:tracked`
+    separately before trusting any classification.
+  - **Import `plan_paths` directly** (t1569_3 is a "pure Python lib" per its own
+    task). Do not shell out and do not re-derive the grammar; the seam guard in
+    `tests/test_plan_paths_seam.sh` will fail a fork.
+  - **Never infer from an absent line.** Every zero-path cause has a named
+    sentinel (`no_plan` / `no_tokens` / `unreadable` / `unclassified`), and the
+    `tracked` source line is always emitted. Absence is not a signal anywhere in
+    this contract.
+  - **`planned_new` is not evidence of new work** — a moved file lands there
+    too, and a genuine new top-level file does not. Do not gate on it alone.
+  - **The corpus and probe axes are independent.** `no_extractable_paths` is a
+    corpus property; a healthy probe is never marked `degraded` for it.
+  - **Anything added to these records is additive.** The summary collapsed to
+    three fields precisely so a new per-case state is a class value inside an
+    existing enum, not a positional change. Keep it that way — the position pins
+    will fail an insertion.
+  - **Write golden prose pins on one rendered line**, and add any new
+    `INFLIGHT_SOURCE` reason to the contract's reason table in the same commit;
+    the `ast`-based guard fails otherwise.
