@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: high
+risk_goal_achievement: high
 effort: high
 depends: []
 issue_type: feature
@@ -12,7 +14,7 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-18 12:33
-updated_at: 2026-08-27 09:49
+updated_at: 2026-08-27 11:24
 boardcol: now
 boardidx: 2118
 ---
@@ -55,6 +57,31 @@ of backlog work that is safe to run *in parallel with whatever is currently in
 flight*, ranked by value and freshness, so the user can open it at any moment and
 start a task in the background with minimal conflict risk.
 
+**Plus a shared parallel-admission checker** (added 2026-08-27 during planning).
+The roadmap alone is only a *pre-estimate* — the candidate has no plan yet and the
+world moves. The framework today has ownership locks, a remote-drift check and
+worktree/merge protection, but **no authoritative check against other active
+tasks**; an agent may notice a collision while planning, but that is judgement,
+not a guard. So this task also delivers one checker with two consumers:
+
+```
+Roadmap estimate → candidate selected → plan written
+                                  ↓
+                       Remote-drift check          (exists today)
+                                  ↓
+                  Parallel-admission preflight     (new, required)
+                                  ↓
+                  proceed / confirm / stop-and-replan
+```
+
+**One shared checker, two consumers**: the roadmap calls it for an advisory
+preview, `task-workflow` calls the *same* checker as a required preflight (and
+again on implementation re-entry). Two implementations would mean two subtly
+different definitions of "safe". Its verdicts are `CLEAR` / `CLEAR_CAVEATED` /
+`CONFLICT` / `UNCHECKABLE`, and **`CLEAR` means "no known conflict at check
+time"** — the checker observes, it does not reserve, so a race remains open until
+t1343's declared-claims backend is adopted.
+
 ## Design decisions (settled during exploration — do not re-litigate)
 
 ### Shape: a dedicated skill emitting a standard trail artifact
@@ -77,10 +104,40 @@ intended gather output; `trail_gather.py` has no such probe).
 Both chosen conflict signals reduce to the same computation — a **hot file set**
 per in-flight task:
 
-- **(a) Origin-task git file sets.** Resolve each follow-up's origin via
-  `followup_of:` / `verifies:`, find that origin's landed commits (commit
-  subjects carry `(tNN)`), and take their changed paths. Requires **no new
-  frontmatter** and works on all 182 follow-ups today.
+- **(a) Origin-task git file sets.** Resolve each follow-up's origin, find that
+  origin's landed commits (commit subjects carry `(tNN)`), and take their changed
+  paths. Requires **no new frontmatter**.
+
+  **CORRECTED 2026-08-27 — `followup_of:` is not a persisted frontmatter field.**
+  It is a creation-time flag on `aitask_create.sh` (`resolve_anchor()`,
+  `:228-266`) that reads the source task's anchor and writes **`anchor:`** — the
+  *topic root*, which by contract "always points at the root and never chains".
+  Zero task files carry `followup_of:`. Origin is therefore resolved from
+  existing metadata only, with the **quality rendered honestly**. Measured over
+  the 229 live follow-ups, **mutually exclusive** (`verifies:` wins over
+  `anchor:` where both are present):
+
+  | evidence | quality | count |
+  |---|---|---|
+  | `verifies:` present | **exact** | **86** (49 `verifies`-only + 37 with both) |
+  | `anchor:` only | **topic** — explicitly *not* an exact origin | **130** |
+  | neither | **unknown** | **13** |
+
+  Raw signal counts are `verifies` 86 and `anchor` 167 with a **37-task
+  overlap**; quoting 167 as the topic population double-counts it. A persisted
+  direct-origin field (`followup_origins:`) is deferred to a **separately
+  justified enhancement**, gated on measured evidence that the coarser resolution
+  actually degrades ranking — the parallel-admission preflight, not provenance,
+  now makes the safety decision. `followup_kind:` already settles *classification*
+  and is a separate concern from origin.
+
+  **`UNKNOWN_HISTORY` is a required third state.** A task id with no recognised
+  reachable commit currently yields *nothing* — `aitask_revert_analyze.sh
+  --task-files` warns on stderr and returns 0 with empty stdout — so an absent
+  map entry is indistinguishable from "touched no files", i.e. a **false
+  no-conflict**. Live today: 7 of the 86 exact-quality follow-ups, 41 of 260
+  candidates, and all 4 non-candidate `Implementing` tasks. It must be its own
+  state and must flow to `UNCHECKABLE`, never `CLEAR`.
 - **(b) In-flight tasks' plan-file path lists.** Extract declared paths from the
   `aiplans/p<N>.md` of each in-flight task.
 
@@ -99,7 +156,37 @@ So the roadmap renders **two lanes**:
 
 The trail schema already carries the vocabulary for both and **nothing writes
 it**: observation kinds `in_flight_conflict` / `shared_surface_collision` /
-`stale_premise`, and relation kind `coordinates_with`.
+`stale_premise`, and relation kind `coordinates_with`. It also already has
+`classification: coordination_only` (rendered `⇄` at `aitask_board.py:639`) — so
+the lanes need **no schema change and no new lane field**.
+
+**ADDED 2026-08-27 — the coordination lane is unexercisable on the live corpus.**
+Simulated: coordination **0**, parallel-safe **220**, unresolvable **40**. The
+cause is real, not a modelling error. Of the five non-candidate in-flight
+sources: 2 of the 4 `Implementing` tasks have **no plan file at all** (t1576,
+t1555_2); t259 is lock-only (`status: Ready`, locked since 2026-02-26, a
+pre-PID-anchor lock with no liveness token) and its plan references `aiscripts/…`,
+a directory that no longer exists, so **0 of its 45 extracted paths resolve on
+disk**; only t887 and t1631 carry a usable declared surface. Consequences:
+
+- Conflict signals stay scoped to **declared plan paths + origin-derived file
+  sets**. Checkout-wide uncommitted changes are **out** — they cannot be
+  attributed safely to a specific in-flight task.
+- The lane is proven by **deterministic synthetic fixtures** (overlap,
+  no-overlap, missing-plan, all-phantom-plan), never by the live corpus, which is
+  an unstable oracle. The live smoke asserts shape only, never lane counts.
+- Output distinguishes **CLEAR / CLEAR_CAVEATED / CONFLICT / UNCHECKABLE**.
+  Missing, stale or non-resolving evidence is **never** rendered as safe, and an
+  unverified-but-not-absent source downgrades to `CLEAR_CAVEATED` rather than
+  collapsing into `CLEAR`.
+- **Availability is a design constraint.** A naive "any incomplete in-flight
+  source ⇒ UNCHECKABLE" rule would prompt on **100% of picks today**, training
+  the user to dismiss the guard. `UNCHECKABLE` must be per-source and named, and
+  in-flight sources classified `live` / `lock_only` / `dead` / `unknown`.
+- **The candidate must be excluded from its own comparison set.** `task-workflow`
+  sets `Implementing` and takes the lock at Step 4, long before the plan exists —
+  verified live against t1569 — so without explicit exclusion the candidate
+  overlaps 100% of its own plan and every pick is a `CONFLICT`.
 
 ### Scoring — transparent, overridable, component-wise
 
@@ -189,7 +276,7 @@ asserts the digest is unchanged.
 |---|---|
 | In-flight, gated | `.aitask-scripts/aitask_query_files.sh inflight` → `INFLIGHT:<id>\|<path>\|<PLAN\|IMPLEMENT\|POSTIMPL>\|<NO_GATES\|ALL_PASS\|BLOCKED:csv>` |
 | In-flight, all | `ait lock --list` → `t<id>: locked by <email> on <host> since <ts>` (branch `aitask-locks`; liveness via `lib/pid_anchor.sh`) |
-| Plan path extraction | `aitask_remote_drift_check.sh:211-219` — **note its allowlist is repo-specific, the live bug t1275** |
+| Plan path extraction | `aitask_remote_drift_check.sh:225-230`. **CORRECTED 2026-08-27: t1275 is DONE** (landed `26c4b7781`, 2026-08-25) — the repo-specific root allowlist is gone. What remains is the *extension* narrowing (`sh\|py\|md\|yaml\|yml\|json\|toml`) plus char-class / NFC-NFD / non-UTF8 gaps, recorded in `aidocs/framework/plan_path_reference_extraction_findings.md`. The one-liner is still inline and must be **factored out and shared**, not forked — it gains three more consumers. |
 | Staleness conventions | `aitask_verification_stale.sh` (see above) |
 | Trail storage | `ait artifact create/update/get/versions`; schema `lib/implementation_trail.schema.json` |
 | Gatherer / drift | `lib/trail_gather.py`, `aitask_trail_gather.sh`, `lib/trail_schema.py` |
