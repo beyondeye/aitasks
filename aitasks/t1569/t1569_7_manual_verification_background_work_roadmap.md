@@ -1,11 +1,11 @@
 ---
 priority: medium
 effort: medium
-depends: [t1569_6]
+depends: [t1569_4, t1569_6]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1569_1, 1569_3, 1569_4, 1569_5, 1569_6]
+verifies: [t1569_1, t1569_3, t1569_4, t1569_5, t1569_6]
 anchor: 1569
 followup_kind: manual_verification
 created_at: 2026-08-27 11:34

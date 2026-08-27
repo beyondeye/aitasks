@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: high
-depends: [t1569_2]
+depends: [t1569_1, t1569_2]
 issue_type: feature
 status: Ready
 labels: [scheduling, planning, git]
 gates: [risk_evaluated]
 anchor: 1569
 created_at: 2026-08-27 11:28
-updated_at: 2026-08-27 11:28
+updated_at: 2026-08-27 11:29
 ---
 
 The **single definition of "safe"** for parallel work. Slice 3 of 6 for t1569 —

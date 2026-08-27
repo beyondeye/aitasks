@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [t1569_3]
 issue_type: feature
 status: Ready
 labels: [backlog, scheduling, planning]
