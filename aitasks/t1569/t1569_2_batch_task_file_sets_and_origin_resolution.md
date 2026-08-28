@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: high
 depends: []
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
+implemented_with: claudecode/opus5
 created_at: 2026-08-27 11:27
-updated_at: 2026-08-27 23:44
+updated_at: 2026-08-28 16:46
 ---
 
 Batch task->file-set derivation, a commit index, and pure origin resolution.
@@ -147,3 +150,8 @@ Required acceptance:
    follow-ups; no double counting), never on frozen counts.
 5. Record the measured perf and coverage numbers in the Final Implementation
    Notes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-28T13:46:41Z status=pass attempt=1 type=human
