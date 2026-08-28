@@ -614,3 +614,142 @@ tests guard but do not remove.*
 - timing: post-phase | name: guard_recovered_not_substituted | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: recovered-field substitution and UNKNOWN_HISTORY conflation | desc: Assert default output has no RECOVERED_* lines, that --with-recovered leaves TASKFILES:/STATUS: byte-identical over a non-empty divergence fixture, and that --help documents the narrowed UNKNOWN_HISTORY meaning and names t1569_3 as the only sanctioned --with-recovered caller.
 - timing: post-phase | name: pin_cli_record_layout | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: CLI protocol drift and residue escaping | desc: Assert every followup_origin.py CLI row splits into exactly five tab-separated fields, that the NO_FRONTMATTER / UNPARSEABLE_ID marker rows match the reference shape, and that a residue token containing a tab, comma and % round-trips through the %-first encoding.
 - timing: after | name: normalize_verifies_in_task_yaml | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: heterogeneous verifies id shapes | desc: Add `verifies` to task_yaml's id-normalisation list so consumers stop re-canonicalising; deferred because it changes a shared parser read by every board/ls/monitor consumer and needs its own risk evaluation.
+
+---
+
+## Final Implementation Notes
+
+Landed as planned; every correction the verification pass identified held up
+under implementation. Nothing was descoped.
+
+### What shipped
+
+| file | role |
+|---|---|
+| `.aitask-scripts/aitask_revert_analyze.sh` | `--batch-map` + `--ids-from` + `--with-recovered`; `--task-files` untouched |
+| `.aitask-scripts/lib/task_file_sets.py` | NEW — pure bucketer (framing, matching, disk/commit child expansion, three-state status) |
+| `.aitask-scripts/lib/followup_origin.py` | NEW — pure origin resolver + 5-field CLI |
+| `tests/test_task_file_sets.py` | NEW — 37 tests |
+| `tests/test_followup_origin.py` | NEW — 39 tests |
+| `tests/test_revert_analyze_batch.sh` | NEW — 44 assertions |
+
+### Measured (this box, 2026-08-28 — re-measured, not restated)
+
+- Corpus walked: **21192 commits**, **1689** carrying a `(tNN)` tag, **46441**
+  `(commit, path)` pairs. (The task's "2261 commits / 9680 pairs" were stale.)
+- `--batch-map` over the full 2182-id enumeration: **0.575 s**.
+- `--task-files` per call: **105 ms** mean over a 60-id sample (range 0.098 s for
+  a childless id to **3.03 s** for t635 — the task's flat "0.53 s/call" hid a 30x
+  spread; the cost is the per-parent `all-children` shell-out, not the git grep).
+- Extrapolated per-call cost for the same enumeration: **229 s** → **~399x**.
+- Resolver over 470 active task files: every row exactly **5** tab-separated
+  fields; `exact` 88 / `topic` 249 / `unknown` 128, plus **4** `NO_FRONTMATTER`
+  and **1** `UNPARSEABLE_ID` — both marker rows occur naturally in the corpus, so
+  neither is fixture-only.
+- Follow-ups only (the population the plan quotes): **229** → `exact` **87** /
+  `topic` **129** / `unknown` **13**, a mutually exclusive partition. Already
+  drifted from the task's 86/130/13, which is why the test asserts shape.
+- Live residue rows: **0**. The percent-encoding is contract-driven, exercised
+  only by fixtures — as intended.
+
+### Acceptance
+
+**Whole-corpus byte-equality oracle: 2182 ids compared, 0 mismatches.** The
+enumeration came from the real three-source pipeline (`SRC_A=759`, `SRC_B=1597`,
+`SRC_C=140` → `ENUM=2182`), and both probe classes are populated.
+
+Every control was mutation-tested rather than assumed — a control that has never
+failed proves nothing. Ten deliberate breakages, each caught:
+
+| mutation | caught by |
+|---|---|
+| drop the first-path newline strip | 9 failures |
+| blanket `.strip()` on every path token | 1 failure (the precise control) |
+| drop the fail-closed hash validation | 1 failure |
+| loosen the id regex (drop the literal parens) | 2 failures |
+| mixed `verifies:` still returns `exact` | 3 failures |
+| `anchor` reported as `exact` | 6 failures |
+| skip canonicalisation | 18 failures + 1 error |
+| encode `%` last (breaks injectivity) | 2 failures |
+| widen `resolve()` to a 3-tuple | 9 failures + 5 errors |
+| consult `followup_kind` | 1 failure |
+
+### Two defects found by user review (both blocking, both fixed)
+
+1. **`parse_log_stream` was not fail-closed on truncation.** An incomplete
+   record header hit `break`, so a *valid prefix followed by a cut-short record*
+   returned the good records and exited 0 — a short map indistinguishable from a
+   complete one, contradicting Verification item 12. Now: a stream not ending on
+   a NUL raises, and a marker with fewer than four following tokens raises.
+   Getting this right needed one more byte of care than it first appeared: a
+   well-formed record always carries the format-terminating NUL *after* the
+   message, so even an empty-message, no-paths commit leaves **four** tokens
+   after its marker (`\0sha\0ct\0\0`). A `< 3` guard would have accepted the
+   truncated form; the guard is `< 4`. Added a CLI-level test asserting no map
+   and a non-zero exit, **with a positive control** proving the same prefix,
+   properly terminated, still yields a map — otherwise the assertion would pass
+   against a parser that rejects everything.
+
+2. **`resolve_detailed()` discarded the ids that *did* parse.** For
+   `{"verifies": ["t42", "not-an-id"]}` it returned `origins: []`,
+   `residue: ["not-an-id"]` — the canonical `42` was gone, not merely unclaimed.
+   The plan's promise that "the valid ids and the malformed tokens are still
+   fully recoverable" was therefore false as implemented, and my own
+   `test_degradation_loses_no_information` was too weak: it asserted the residue
+   only, so it passed against exactly this bug. Added a distinct
+   **`degraded_origins`** field carrying the parsed-but-unclaimed ids, and the
+   mixed-input test now asserts `origins`, `residue` **and** `degraded_origins`
+   together. Withholding the strongest quality claim is the point; discarding
+   the evidence was not.
+
+   Scope note: `degraded_origins` is a **detailed-API field only**. The CLI
+   record stays at exactly five fields — a sixth would break the protocol the
+   task specifies — so the CLI surfaces residue, and a caller wanting the
+   withheld ids uses `resolve_detailed()`.
+
+Re-verified after both fixes: full oracle **2182/2182, 0 mismatches**; the
+emitted map is **byte-identical** to the pre-fix map (the parser change rejects
+malformed input only); suite `PYTHON SUITE: PASSED`; shellcheck clean.
+
+Three further mutations confirm the new guards bite — reintroducing either
+reported defect now fails loudly:
+
+| mutation | caught by |
+|---|---|
+| restore the `break` on a short header | 2 python failures + 3 bash |
+| drop the unterminated-stream check | 1 failure |
+| discard the parsed-but-unclaimed ids | 3 failures |
+
+### Two defects found in my own implementation during review
+
+1. **`trap ... RETURN` with a `local` tmpdir.** The trap body is evaluated after
+   the function's locals are gone, so under `set -u` it died on the very variable
+   it was cleaning up. Replaced with a script-level `EXIT` trap.
+2. **`git ls-files` is cwd-relative.** Run from a subdirectory, `TRACKED:` silently
+   dropped from 1850 rows to 398 while `TASKFILES:` (repo-relative from
+   `git log`) did not — a half-correct map. Both git calls and the `aitasks/`
+   glob are now anchored to `git rev-parse --show-toplevel`.
+
+Also fixed: `--ids-from` used `[[ -f ]]`, which rejects a process substitution
+(`<(...)` is a fifo). Now `[[ -r ]]` + `cat`, so `<(...)`, a fifo and
+`/dev/stdin` all work. Empty-array expansions use the repo's
+`${arr[@]+"${arr[@]}"}` idiom (bash 3.2 / macOS `set -u`).
+
+### Deviations from the plan
+
+None in substance. One naming choice: the pure bucketer is
+`lib/task_file_sets.py` (the plan named it without fixing the filename), and the
+resolver's detailed API is `resolve_detailed()` returning a dict, mirroring
+`followup_backfill_classify.classify()`.
+
+### Carried forward
+
+- `resolve_detailed()` returns four keys (`origins`, `quality`, `residue`,
+  `degraded_origins`); `resolve()` remains the published two-tuple.
+- `RECOVERED_*` ships behind `--with-recovered`, documented in `--help` as
+  callable only by `aitask_parallel_admission.sh` (t1569_3), with the
+  monotone-toward-less-confidence rule stated there. **t1569_3 must implement
+  the two consuming rules** (`UNCHECKABLE_CAUSE:candidate|origin_history_off_disk_children`
+  and `CAVEAT:candidate|recovered_history_diverges`) — this slice only produces
+  the evidence.
+- `normalize_verifies_in_task_yaml` is the spawned "after" mitigation (Step 8d).
