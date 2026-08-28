@@ -12,11 +12,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [t1635]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 implemented_with: claudecode/opus5
 created_at: 2026-08-27 11:27
-updated_at: 2026-08-28 17:08
+updated_at: 2026-08-28 17:52
 ---
 
 Batch task->file-set derivation, a commit index, and pure origin resolution.

@@ -593,7 +593,7 @@ tests guard but do not remove.*
 - `UNKNOWN_HISTORY` conflates "never landed" with "landed under an off-disk child",
   so a default-stream consumer can read it as "no history exists". · severity: medium · → mitigation: inline post-phase `guard_recovered_not_substituted`
 - `verifies:` id shapes are heterogeneous corpus-wide; every future consumer must
-  re-canonicalise or silently miss 2/3 of entries. · severity: medium · → mitigation: `normalize_verifies_in_task_yaml`
+  re-canonicalise or silently miss 2/3 of entries. · severity: medium · → mitigation: t1635
 - Residue is the one CLI field holding raw YAML text; an unencoded tab or newline in
   it would desynchronise the shell consumer's field split. · severity: medium · → mitigation: inline post-phase `pin_cli_record_layout`
 - The byte-equality oracle can pass vacuously if the id enumeration silently narrows
@@ -613,7 +613,7 @@ tests guard but do not remove.*
 - timing: post-phase | name: pin_oracle_unchanged | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: batch/oracle drift and vacuous oracle coverage | desc: Characterization test pinning `--task-files` output for a fixture task so the oracle cannot be edited to meet the batch, plus execution of the real three-source enumeration pipeline asserting class A (off-disk-child divergence) and class B (no history) are both non-empty and source (b) is non-empty, with probes drawn from those classes rather than hardcoded ids.
 - timing: post-phase | name: guard_recovered_not_substituted | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: recovered-field substitution and UNKNOWN_HISTORY conflation | desc: Assert default output has no RECOVERED_* lines, that --with-recovered leaves TASKFILES:/STATUS: byte-identical over a non-empty divergence fixture, and that --help documents the narrowed UNKNOWN_HISTORY meaning and names t1569_3 as the only sanctioned --with-recovered caller.
 - timing: post-phase | name: pin_cli_record_layout | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: CLI protocol drift and residue escaping | desc: Assert every followup_origin.py CLI row splits into exactly five tab-separated fields, that the NO_FRONTMATTER / UNPARSEABLE_ID marker rows match the reference shape, and that a residue token containing a tab, comma and % round-trips through the %-first encoding.
-- timing: after | name: normalize_verifies_in_task_yaml | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: heterogeneous verifies id shapes | desc: Add `verifies` to task_yaml's id-normalisation list so consumers stop re-canonicalising; deferred because it changes a shared parser read by every board/ls/monitor consumer and needs its own risk evaluation.
+- timing: after | name: normalize_verifies_in_task_yaml | type: enhancement | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: heterogeneous verifies id shapes | desc: Add `verifies` to task_yaml's id-normalisation list so consumers stop re-canonicalising; deferred because it changes a shared parser read by every board/ls/monitor consumer and needs its own risk evaluation. | created: t1635
 
 ---
 
