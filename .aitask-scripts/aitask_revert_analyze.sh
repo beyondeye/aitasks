@@ -7,11 +7,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 # --- Defaults ---
 MODE=""
 TASK_ID=""
 LIMIT=20
+IDS_FROM=""
+WITH_RECOVERED=0
+BATCH_TMPDIR=""
 
 # --- Helpers ---
 
@@ -26,9 +31,15 @@ Subcommands:
   --task-files <id>       Flat list of all changed files
   --find-task <id>        Locate task and plan files across all storage
   --task-children-areas <id>  Group areas by child task (parent tasks only)
+  --batch-map             Whole-corpus task->file-set map in ONE git pass
 
 Options:
   --limit N               Max results for --recent-tasks (default: 20)
+  --ids-from <file|->     --batch-map: report STATUS for exactly these ids
+                          (one per line; '-' reads stdin). Default: every id
+                          the map discovers.
+  --with-recovered        --batch-map: additionally emit the opt-in
+                          RECOVERED_* lines (see below)
   --help, -h              Show this help
 
 Output formats:
@@ -42,6 +53,30 @@ Output formats:
   CHILD_AREA|<child_id>|<dir>|<file_count>|<insertions>|<deletions>|<file_list>
   PARENT_HEADER|<parent_id>|<commit_count>
   PARENT_AREA|<parent_id>|<dir>|<file_count>|<insertions>|<deletions>|<file_list>
+
+--batch-map output (reproduces --task-files for every id, at whole-corpus cost):
+  TASKFILES:<task_id>|<path>
+  COMMIT:<path>|<sha>|<committed_at>|<task_ids csv>
+  TRACKED:<path>
+  STATUS:<task_id>|<FILES|NO_FILES|UNKNOWN_HISTORY>
+
+  STATUS is emitted for EVERY queried id, so a consumer never infers state from
+  an absent entry. UNKNOWN_HISTORY means "unrecognized by the oracle's
+  disk-derived expansion" -- it does NOT mean "no commit exists anywhere". A
+  parent whose work landed only under child ids whose task files are no longer
+  on disk reports UNKNOWN_HISTORY even though its history exists; pass
+  --with-recovered to learn whether that is the case.
+
+--with-recovered adds (opt-in, never a substitute for the lines above):
+  RECOVERED_TASKFILES:<task_id>|<path>
+  RECOVERED_STATUS:<task_id>|<FILES|NO_FILES|UNKNOWN_HISTORY>
+  RECOVERED_DIVERGES:<task_id>|<n_paths_only_in_recovered>
+
+  These carry the commit-derived child expansion. aitask_parallel_admission.sh
+  (t1569_3) is the only sanctioned caller: recovered evidence may name an
+  uncheckable cause or caveat a verdict, and may never assert a conflict or
+  move a verdict toward CLEAR. Consumers must not substitute RECOVERED_* for
+  TASKFILES:/STATUS:.
 EOF
 }
 
@@ -69,6 +104,11 @@ parse_args() {
                 MODE="task_children_areas"
                 [[ $# -lt 2 ]] && die "--task-children-areas requires a task ID"
                 TASK_ID="$2"; shift 2 ;;
+            --batch-map) MODE="batch_map"; shift ;;
+            --ids-from)
+                [[ $# -lt 2 ]] && die "--ids-from requires a file path or '-'"
+                IDS_FROM="$2"; shift 2 ;;
+            --with-recovered) WITH_RECOVERED=1; shift ;;
             --limit)
                 [[ $# -lt 2 ]] && die "--limit requires a number"
                 LIMIT="$2"; shift 2 ;;
@@ -426,6 +466,70 @@ _find_file_location() {
     echo "${label}|not_found|"
 }
 
+# Whole-corpus task->file-set map from ONE `git log` pass.
+#
+# --task-files stays the oracle; this reproduces it for every id at whole-corpus
+# cost instead of per-id cost (the per-parent all-children shell-out is what
+# dominates there). Three invariants are not negotiable and each is a
+# silent-wrong-answer bug if dropped:
+#
+#   --no-renames  `cmd_task_files` uses `git diff-tree` (plumbing: renames off,
+#                 so a rename is a delete + an add). `git log --name-only` is
+#                 porcelain and collapses a rename to the new path only. Without
+#                 this flag the two disagree on every commit containing one.
+#   %B            The oracle greps the FULL message (`--fixed-strings --grep`),
+#                 not the subject, so %s would silently diverge.
+#   NUL framing   A path may contain any byte but NUL, and a message may contain
+#                 arbitrary control bytes; NUL is the only safe delimiter. The
+#                 parser fails closed rather than emitting a corrupt map.
+cmd_batch_map() {
+    local py toplevel
+    py="$(resolve_python)"
+    # Anchor to the repo root, not $PWD. `git log --name-only` always yields
+    # repo-relative paths, but `git ls-files` run from a subdirectory lists only
+    # that subtree -- so TRACKED: would silently shrink while TASKFILES: did not,
+    # and the aitasks/ glob would resolve against the wrong directory.
+    toplevel="$(git rev-parse --show-toplevel)" || die "--batch-map: not a git repository"
+
+    # Script-level EXIT trap, not a RETURN trap: a RETURN trap body is evaluated
+    # after the function's locals are gone, so under `set -u` it dies on the very
+    # variable it is meant to clean up.
+    BATCH_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/aitask_batchmap_XXXXXX")"
+    trap 'rm -rf "${BATCH_TMPDIR:-}"' EXIT
+    local tmpdir="$BATCH_TMPDIR"
+
+    # Read the queried-id list BEFORE the walk: '-' consumes stdin, and stdin
+    # must be free for the git stream that follows.
+    local -a ids_args=()
+    if [[ -n "$IDS_FROM" ]]; then
+        if [[ "$IDS_FROM" == "-" ]]; then
+            cat > "$tmpdir/ids.txt"
+        else
+            # -r, not -f: a process substitution (`--ids-from <(...)`), a fifo
+            # and /dev/stdin are all legitimate id sources, and none is a
+            # regular file. `cat` for the same reason -- `cp` on a fifo is not
+            # portable.
+            [[ -r "$IDS_FROM" ]] || die "--ids-from: cannot read: $IDS_FROM"
+            cat -- "$IDS_FROM" > "$tmpdir/ids.txt"
+        fi
+        ids_args=(--ids-file "$tmpdir/ids.txt")
+    fi
+
+    local -a rec_args=()
+    [[ "$WITH_RECOVERED" -eq 1 ]] && rec_args=(--with-recovered)
+
+    git -C "$toplevel" ls-files -z > "$tmpdir/tracked.z"
+
+    # `${arr[@]+"${arr[@]}"}`: expanding an empty array as "${arr[@]}" is an
+    # unbound-variable error under `set -u` on bash 3.2 (macOS).
+    git -C "$toplevel" log --all --no-renames -z --name-only \
+            --format='%x00%H%x00%ct%x00%B' \
+        | "$py" "$SCRIPT_DIR/lib/task_file_sets.py" \
+            --root "$toplevel" \
+            --tracked-file "$tmpdir/tracked.z" \
+            "${ids_args[@]+"${ids_args[@]}"}" "${rec_args[@]+"${rec_args[@]}"}"
+}
+
 cmd_find_task() {
     local task_id="$1"
     _find_file_location "task" "$task_id"
@@ -443,6 +547,7 @@ main() {
         task_files)          cmd_task_files "$TASK_ID" ;;
         find_task)           cmd_find_task "$TASK_ID" ;;
         task_children_areas) cmd_task_children_areas "$TASK_ID" ;;
+        batch_map)           cmd_batch_map ;;
         *) show_help; exit 1 ;;
     esac
 }
