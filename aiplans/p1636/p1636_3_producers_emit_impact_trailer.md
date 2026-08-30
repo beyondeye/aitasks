@@ -412,3 +412,91 @@ confirmed pre-phase mitigations in it.
 Standard Step 9. **No port task needed** for the other code agents: their
 `aitask-shadow` trees carry only the `SKILL.md` wrapper (verified above), so the
 producer docs edited here have no counterpart to port.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four producers now emit the impact trailer
+  (`Improves:` / `Worsens:` / `Effort:`) with the two-placement discipline, plus
+  the closed 7-dimension vocabulary inline. The three `plan-*` producers gained a
+  `Disposition:` trailer and a three-way rubric for the first time.
+  `impl-review-angles.md` grounds `blocking` / `follow-up` / `informational` in
+  the vector as a re-expression of the obligation rubric. All eight legacy
+  priority-assignment sites were rewritten so `derive_priority(improves)` is the
+  only mapping to the marker. Guards added to `tests/test_concern_parser.py`
+  (`TestProducerMagnitudeFramingRule`, `TestProducerImpactVectorRule`,
+  `TestProducerExampleTrailerShape`) plus three rendered-variant tests; the three
+  plan producers joined `SITES` and `ALL_SURFACES` in
+  `tests/test_shadow_disposition_surfaces.py`. Website doc and the three
+  `impl-challenge` goldens updated.
+
+- **Deviations from plan:** Two, both additive.
+  1. The plan said each plan producer's *emit step* would be hoisted into a `##`
+     section; in `plan-diagnose-errors.md` the old step 5 had to become a
+     heading too (`## Step 5 — …`), because it followed the hoisted block and
+     would otherwise have been absorbed into it.
+  2. The hoisted sections were dedented by 3 columns after the move. Left as-is
+     they carried leftover list indentation that no longer had a list, which in
+     strict markdown risks code-block interpretation.
+  Also: the plan's `TestProducerExampleTrailerShape` sketch used inline
+  assertions. Review found that shape could not prove the marker/vector check
+  can fail, so the checks were factored into a shared
+  `_trailer_shape_violations` predicate the negative control drives directly.
+
+- **Issues encountered:**
+  - The first `TestProducerMagnitudeFramingRule` negative control passed
+    spuriously: its directive fixture restated `magnitudes are advisory`, so the
+    directive-only case reached count 2 on its own. Each placement must carry
+    the counted phrase exactly once — noted in the fixture.
+  - `plan-assumptions.md`'s exposure list tripped the new proximity guard: the
+    trailing `peripheral → \`low\`` sat beyond the 160-char window from
+    `derive_priority`. Fixed by keeping the derivation adjacent, which is the
+    authoring constraint the guard imposes and the plan recorded.
+  - The first website rewrite pushed `informational` outside the
+    `stale_enumerations` window from `blocking`; the sentence was tightened.
+  - Review (round 1) found two examples emitting `Improves: correctness` with
+    `Disposition: follow-up`, contradicting the obligation rubric added in the
+    same change. Both bodies genuinely describe correctness defects, so they
+    became `blocking` rather than having their vectors weakened; each producer
+    gained a `follow-up` example with a non-obligated improve side to keep the
+    partition demonstration. The semantic rule is now asserted.
+
+- **Key decisions:**
+  - The vocabulary is inlined per producer as a compact 7-line name+rubric list,
+    not `concern-format.md`'s three-column table — the names are load-bearing
+    (an invented one fails the parser's alternation), the `label` column is
+    picker-side only.
+  - The existing severity heuristics were **re-pointed at the vector**, not
+    deleted: `plan-assumptions.md`'s exposure matrix now selects improve entries
+    and magnitudes, and `derive_priority` yields the same `high`/`medium`/`low`
+    it used to write directly. Outcomes unchanged; mappings reduced from two to
+    one.
+  - The single-source guard is a **proximity rule** over assignment-shaped cues,
+    not a list of stale phrasings — the same reasoning `stale_enumerations`
+    documents. Its controls include an arrow-matrix shape and a wording that
+    appears nowhere in this repo, so it is shown to catch shapes it was not
+    written against.
+  - `robustness` / `performance` are deliberately **not** asserted by the
+    obligation check: they are obligations only when a task's own AC says so, a
+    per-task judgement no static check can make.
+  - Plan-side producers get `Disposition:` but no `Verified:` — verdicts are an
+    artifact of the impl review's verification pass, which has no plan analogue.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **t1636_4 (picker):** every producer now emits `derive_priority(improves)`
+    as the marker, so the picker's "flag a disagreeing marker" path will be
+    exercised only by pre-t1636_3 blocks and malformed trailers — not by
+    freshly-emitted ones. The short labels (`corr`, `robus`, …) are unused so
+    far; `concern_dimensions.label_for` is their only source.
+  - **Behavior change t1636_4 will surface:** plan-review concerns now carry a
+    disposition, so `informational` plan concerns land in the picker's dimmed
+    section instead of all plan concerns landing in "Needs addressing".
+  - **Adding a producer rule:** the two-placement predicates count a phrase that
+    must appear **exactly once per placement**. Use placeholder grammar
+    (`Improves: <dimension>(<magnitude>)`) as the counted token, never the
+    concrete example, or an example line inflates the count and masks a deleted
+    rule site.
+  - **Adding a `SITES` entry:** anchor on a real `##`/`###` heading.
+    `extract_section` derives its end bound from heading depth, so a
+    numbered-list anchor computes `level = 0` and slices to EOF.
