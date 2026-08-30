@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
+implemented_with: claudecode/opus5
 created_at: 2026-08-27 11:28
-updated_at: 2026-08-30 08:31
+updated_at: 2026-08-30 14:59
 ---
 
 The **single definition of "safe"** for parallel work. Slice 3 of 6 for t1569 —
@@ -214,3 +215,8 @@ unresolved-candidate-surface, lock-only-holder, unknown-liveness-holder** — pl
 - a measured false-positive rate for `--from plan` over a replay of recent real
   picks, recorded in the Final Implementation Notes — it is t1569_4's entry
   criterion.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-30T11:59:58Z status=pass attempt=1 type=human
