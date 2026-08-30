@@ -500,3 +500,97 @@ must not be trustworthy merely because it is checked in.
   value depends on the follow-up actually being created and linked · severity:
   low · → mitigation: post-phase step 11 creates it with an explicit
   `depends: [1638]` and records its id in the `mark_glyphs` docstring
+
+---
+
+## Final Implementation Notes
+
+Landed in `300a80daf` (implementation) and `16532c7de` (follow-up back-references).
+Full Python suite green: 5571 passed, 2 skipped, plus the 5 serial carve-out.
+
+### What was built
+
+`.aitask-scripts/lib/mark_glyphs.py` is the single authority: glyph pair
+(`✓` U+2713 / `□` U+25A1), colours (`#F1FA8C` / `#6272A4`), the composed
+`mark_markup()` / `rich_mark_style()` renderers, `SUPPORTED_FONTS`, and
+`GLYPH_EVIDENCE`. Import-free at module level; Rich is imported inside
+`rich_mark_style` only.
+
+All four consumers now derive from it. The board's `.task-mark` CSS became
+layout-and-state only and `.task-marked` an empty state hook, mirroring the
+`.task-followup-glyph` precedent three lines below it.
+
+### Deviations from the approved plan (all deliberate)
+
+1. **`test_concern_picker_modal.py::test_every_mark_is_single_width` was kept
+   whole**, not reduced to `✗`/`»` as the plan said. Its subject is the
+   `_CONCERN_MARKS` dict as the modal consumes it; dropping the two mark glyphs
+   would have left the other two as the only ones checked against a budget all
+   four spend from. `CodepointPolicyTests` owns the vocabulary-level rule; this
+   one owns the dict. Both now exist, and the reason is in the docstring.
+2. **`monitor_shared` does not re-export `MARK_CHECKED`/`MARK_UNCHECKED`.** The
+   plan had it importing them; nothing reads them off that module, so the unused
+   imports were removed rather than waived. Only the board re-exports them, and
+   that is load-bearing — `tests/test_board_marking.py:103-104` reads
+   `cls.ab.MARK_CHECKED`. It is declared in the guard's `RE_EXPORTS` table with
+   a staleness check.
+3. **A `RE_EXPORTS` waiver table was added** to the drift guard. The reviewed
+   Rule 3 ("every imported name must be used") is correct but has exactly one
+   legitimate exception, and declaring it beats loosening the rule. The
+   render-helper half of Rule 3 deliberately does not consult that table, so no
+   consumer can satisfy Rule 3 without actually rendering through the authority.
+
+### Things found while implementing that were not in the plan
+
+- **`fc-list` is not merely family-agnostic, it is wrong.** It reported
+  JetBrainsMono NF as not covering U+2714 while that font's `cmap` contains it.
+  This is why the manifest generator parses `cmap` directly and fontconfig is
+  used only to *locate* files.
+- **`▫` U+25AB — the narrow-safe alternative offered during planning — is
+  emoji-capable.** Rule (b) would have rejected it. The chosen `□` is not. This
+  is pinned in `test_the_ambiguous_width_residual_is_recorded_not_overlooked`.
+- **A broken comment continuation in `widgets.py`** (a dropped `#` during the
+  docstring sweep) was caught by the drift guard's own `ast.parse`, not by any
+  test of the widget — an argument for the guard parsing consumers directly.
+- **`_ConcernRow` does not read `Concern.disposition` at construction**; it owns
+  its own quad-state. Surfaced only because the composited test drives the real
+  `render()` rather than the `_CONCERN_MARKS` dict.
+
+### Negative controls actually executed
+
+Each mutation was verified present on disk, then reverted:
+
+| injected defect | result |
+|---|---|
+| `MARK_CHECKED = "☑"` re-declared in the board | RED — Rule 1 |
+| `f"[bold #FF0000]{MARK_CHECKED}[/]"` in `widgets.py` | RED — Rule 4 |
+| `MARK_CHECKED = "✔"` | RED — coverage (Caskaydia) + emoji oracle |
+| both colours set equal | RED — composited distinguishability |
+| checked colour reverted to bare `yellow` | RED — ratification |
+| manifest `2611` flipped to covered | RED — `ManifestFreshnessTests` |
+
+One control was initially a **false red**: `MARK_CHECKED_COLOUR = "notacolour"`
+produced `found no collectors`, i.e. an import crash rather than an assertion
+failure (`brainstorm_dag_display` builds a `Style` at module level). It was
+replaced with importable mutations. A control that fails to collect proves
+nothing about the assertion it was meant to exercise.
+
+### Deliberately NOT done
+
+- `★`/`☆` (`monitor_shared.py:207-209`) keeps its glyphs and its bold-white/dim
+  styling. Same coverage gap, but not emoji-capable, so it still honours its
+  foreground and is not broken today. Deferred to **t1639** (`depends: [1638]`),
+  which also picks up `✔` U+2714 at `aitask_board.py:3541,3596` — a live
+  instance of this exact defect, shipping now in the by-trail view — and `⚠`
+  U+26A0.
+- `lib/workflow_phase.py:121`, `tests/review_loop_fixtures.py` and
+  `aidocs/framework/shadow_agent.md:1118,1133` keep their `☐`/`☑`: those detect
+  **Claude Code's own** question chip in captured pane text. Pinned by
+  `QuestionDetectorPinTests`, which was written *before* any glyph moved.
+
+### Accepted residual
+
+`□` U+25A1 is EAW *Ambiguous* where `☐` was *Neutral*, so a wide-ambiguous
+terminal renders it in two cells while Rich budgets one. Chosen knowingly by the
+user over the narrow-safe alternative; the repo already carries this exposure
+for `●` and `◆` on the same monitor rows. Recorded as an assertion, not prose.
