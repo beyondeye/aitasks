@@ -112,3 +112,45 @@ find the actual cause rather than the nearest plausible one.
   were patched by hand to unblock live tmux sessions; `aitasks_go`,
   `aitasks_mobile`, `timexchange` and `teamim` still carry the broken copy and
   will be fixed by the next framework release.
+
+## Risk
+
+Evaluated retroactively at wrap time, against the change as committed rather
+than against a pre-implementation design. Recorded because the task declares the
+`risk_evaluated` gate; the verifier checks that both subsections and both
+frontmatter levels exist, and archival is blocked until they do.
+
+### Code-health risk: low
+
+- `LC_ALL=C` applies to the whole `sed` process, not just the offending range,
+  so it changes collation for all three expressions at once · severity: low ·
+  → mitigation: none needed — the other two expressions are built from literal
+  7-bit bytes and negated sets with no ranges, and UTF-8 pass-through was
+  measured byte-identical against `monitor/ansi_utils.py` on Hebrew, CJK, a
+  4-byte emoji and box-drawing input
+- The six downstream installs each carry a synced copy of the helper;
+  `thinking_app` and `thinking_backend` were hand-patched to unblock live tmux
+  sessions, so those two now differ from what VERSION 0.33.0 shipped until the
+  next release overwrites them · severity: low · → mitigation: the divergence is
+  the one-line fix itself and is self-correcting on release; recorded in this
+  plan's "Not covered here" note
+- Blast radius is one function in one file, with the three sed expressions
+  textually unchanged · severity: low · → mitigation: none needed
+
+### Goal-achievement risk: low
+
+- The macOS/BSD half of the claim is **unverified** — there is no Mac on this
+  host and no macOS CI job in the repo, so "BSD sed rejects this too" is a
+  structural argument from shared libc `regcomp`, not a measurement ·
+  severity: medium · → mitigation: the doc scopes its measured table explicitly
+  to "GNU sed 4.10 / glibc 2.44 under en_US.UTF-8" and does not claim the same
+  ordering for BSD; the fix itself (`LC_ALL=C`) is correct on both regardless of
+  whether BSD's collation order matches
+- The documented collation order is empirical, derived from probing 361 endpoint
+  pairs on one host, so it describes glibc 2.44's behaviour rather than a
+  specification · severity: low · → mitigation: all 13 verdicts in the doc table
+  were re-run against `sed` before the file was written, and the actionable
+  guidance (`LC_ALL=C`, or enumerate) does not depend on the order being right
+- The stated goal — shadow captures work again — was verified end-to-end on the
+  live pane that produced the report, not only in tests · severity: low ·
+  → mitigation: none needed
