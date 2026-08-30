@@ -320,3 +320,112 @@ Both are proved by negative controls that drive the real predicate (step 3).
 
 Standard Step 9 (task-workflow): commit, archive task + this plan, `./ait git`
 for task/plan files.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four steps landed as planned, plus both inline
+  pre-phase mitigations. New pure module
+  `.aitask-scripts/monitor/concern_dimensions.py` (7 dimensions in canonical
+  order, `VALID_DIMENSIONS`, `OBLIGATION_DIMENSIONS`, `MAGNITUDES`,
+  `MAX_LABEL_CELLS`, `check_label_widths`, `validate_dimension`,
+  `dimensions_pipe`, `label_for`, `rubric_for`, `normalize_magnitude`,
+  `derive_priority`). New 98-line section
+  `### Derived fields: the impact vector (Improves / Worsens / Effort)` in
+  `.claude/skills/aitask-shadow/concern-format.md`, placed between the
+  disposition/verdict section and the capture-join contract. New
+  `tests/test_concern_dimensions.py` — 29 tests across 6 classes.
+
+- **Deviations from plan:**
+  - **Added a third label property.** `check_label_widths` also rejects an
+    **empty** label. The planned pair (ASCII + `len() <= 5`) is satisfied by
+    `""`, which would render as a bare arrow — one extra line closes a real
+    render hole.
+  - **`derive_priority` walks `MAGNITUDES` instead of carrying a rank table.**
+    `MAGNITUDES` is already ordered strongest-first, so the ranking is read off
+    the existing constant rather than duplicated into a second `{"high": 3, …}`
+    map that could drift from it.
+  - **No `main()` / `--pipe` CLI.** `followup_kinds.py` has one only because a
+    shell bridge shells out to it; this vocabulary has no shell consumer, so
+    the surface was not added.
+  - **The drift guard's negative controls run in memory, not by mutating the
+    doc on disk.** Same predicate, same real doc text, no risk of leaving the
+    file mutated. The on-disk proof was still performed once manually (four
+    mutations, each breaking the suite, then restored) — see below.
+
+- **Issues encountered:**
+  - **The planned drift guard was too weak, and the review caught it.** The
+    first design asserted the doc section *named* exactly `VALID_DIMENSIONS`.
+    That contract is blind to `label` and `rubric` drift, and — because the new
+    section's own prose names all seven dimensions (the grammar example, the
+    obligation core, the per-task-obligation note) — it would still have passed
+    with the table **deleted**. Verified concretely: no dimension name appeared
+    anywhere in `concern-format.md` before this change, so every occurrence is
+    one this section introduced. Replaced with ordered
+    `(dimension, label, rubric)` row-tuple equality plus two tripwires
+    (exactly-one-heading, exactly-one-table), and the doc table grew a `label`
+    column so it mirrors the module completely.
+  - **A commit was rejected by flag ordering, not by content:**
+    `git commit -o -- <paths> -m <msg>` puts `-m` after `--`, so git read the
+    message as a pathspec. Correct form is `git commit -o -m "<msg>" -- <paths>`.
+  - **`main` advanced mid-session** (concurrent sessions committing t1603_1 and
+    t1638). `git show HEAD` after committing showed *another* session's commit;
+    this task's commit was confirmed by hash (`f36071b9f`) and by
+    `git merge-base --is-ancestor`. Unrelated untracked `parallel_admission*`
+    files from another session were left untouched by committing explicit paths.
+
+- **Key decisions:**
+  - **The width guard is a `raise`, not an `assert`.** `python -O` strips
+    assertions, which would leave the only structural defense of t1636_4's
+    packing budget silently checking nothing. Labels are pinned ASCII in the
+    same guard because the bound is stated in *terminal cells* while `len()`
+    counts *characters* — the ASCII pin is what makes `len()` an exact cell
+    count rather than an assumption.
+  - **The `<=5` derivation is recorded in `check_label_widths.__doc__`, naming
+    `monitor_shared._NARROW_PREFIX_COLS` (8) and the 3-space narrow-row indent
+    in `_ConcernRow.render`.** Both were re-verified against the live code:
+    `24 - 3 = 21` cells, `2*(1+W+1) + 2 + 4 <= 21 → W <= 5`. If t1636_4 changes
+    that geometry, this docstring is the pointer back.
+  - **Unknown magnitude → `""` (unspecified), never `low`** — degrading it on
+    the worsen side understates a cost, the unsafe direction for an
+    anti-overengineering mechanism.
+  - **Entries are read by index (`entry[1]`), not duck-typed on index *and*
+    attribute.** t1636_2's `ImpactEntry` is a `NamedTuple`, which supports
+    index access, so one path covers both it and plain tuples. Pinned by
+    `test_namedtuple_entries_resolve_identically_to_tuples`.
+  - **The drift-guard primitives are imported from
+    `tests/test_shadow_disposition_surfaces.py`, not re-implemented** —
+    `extract_section` carries the "anchor matched N lines (expected exactly 1)"
+    tripwire and `normalize` the whitespace collapse. House precedent for a
+    sibling test import: `tests/test_stats_backlog_panes_live.py:41`.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **The API t1636_2 needs is in place:** `dimensions_pipe()` returns the
+    sorted alternation for `_TRAILER_SENTENCE`; `normalize_magnitude()` handles
+    the bounded-permissive `\w{1,16}` token (unrecognised → `""`);
+    `derive_priority()` accepts any iterable of indexable 2-entries. Import it
+    as a **sibling** with the same try/except relative/flat pattern
+    `concern_parser.py` already uses for `ansi_utils` (lines 104–107) — the
+    module is pure and needs no `sys.path` work.
+  - **t1636_4: the `<=5` label bound is asserted at import time, against your
+    budget.** If the narrow row's geometry changes (`_NARROW_PREFIX_COLS`, the
+    3-space indent, the 4-cell effort token), re-derive the bound in
+    `check_label_widths.__doc__` — do not just widen a label, or the guard will
+    fire at import and take every consumer down with it.
+  - **t1636_3: `concern-format.md` now states the producer rules** the producer
+    docs must mirror — the mandatory `Worsens:` sentence (including that
+    `Worsens: nothing.` is a *different state* from an absent one), the marker
+    priority equalling `derive_priority(improves)`, and the disposition
+    grounding. The section cross-references `impl-review-angles.md` as the
+    rubric's authoritative home, so grounding it there closes the loop.
+  - **Editing the dimension table means editing two places, and the build will
+    tell you.** `tests/test_concern_dimensions.py` compares the doc table's
+    rows to `CONCERN_DIMENSIONS` field-by-field and in order. Change the module
+    and the doc in the same commit.
+  - **`concern-format.md` is read at runtime into the shadow pane (t1123).** It
+    carries no Jinja and its rendered copy is byte-identical to the authoring
+    source, so edits need no re-render — but never write a contiguous
+    open-fence → `- [..]` items → close-fence block in it.
+    `TestShadowDocsNotParserLive` globs every `*.md` in the shadow dir and will
+    catch it.
