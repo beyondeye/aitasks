@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [board, gates]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: upstream_defect
 created_at: 2026-08-30 19:35
-updated_at: 2026-08-30 19:35
+updated_at: 2026-08-30 19:41
 ---
 
 ## Origin
