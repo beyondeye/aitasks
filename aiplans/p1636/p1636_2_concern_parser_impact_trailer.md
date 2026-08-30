@@ -6,97 +6,224 @@ Archived Sibling Plans: aiplans/archived/p1636/p1636_*_*.md
 Branch: main
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-08-30 17:00
 ---
 
 # p1636_2 — Parser: impact-trailer extension
 
-Extends `.aitask-scripts/monitor/concern_parser.py` to derive `improves` /
-`worsens` / `effort` from the terminal trailer run. Depends on t1636_1
-(`concern_dimensions.py`). Parent plan decisions 5 (three-state Worsens) and 6
-(grammar: closed dimensions, bounded-permissive magnitudes, per-sentence
-atomicity with valid-suffix runs) are binding.
+## Context
+
+The shadow agent classifies every concern on a single, undefined `high/medium/low`
+severity scale. t1636 replaces that with a **signed impact vector over a closed
+quality-dimension vocabulary** — the improve side and the worsen side drawn from
+the *same* dimensions — plus a separate one-time-cost `Effort:` scalar, so a
+concern prices its own suggestion instead of being a pure demand with
+externalised costs.
+
+t1636_1 landed the vocabulary module
+(`.aitask-scripts/monitor/concern_dimensions.py`) and the prose contract
+(`concern-format.md` §"Derived fields: the impact vector"). **This child is the
+consumer surface**: it extends `.aitask-scripts/monitor/concern_parser.py` to
+derive `improves` / `worsens` / `effort` from the terminal trailer run, alongside
+the existing `Disposition:` / `Verified:` derivation. It adds **no** producers
+(t1636_3) and **no** UI (t1636_4) — only the parsed fields those consume.
+
+Parent-plan decisions 5 (three-state Worsens) and 6 (grammar) are binding.
+
+## Verification findings (this re-verification pass)
+
+The plan was re-verified against the current tree. Baseline
+`tests/test_concern_parser.py` + `test_concern_body_display_contract.py` +
+`test_concern_dimensions.py`: **169 passed**. The design was probed against the
+real vocabulary and confirmed to behave exactly as specified — including
+per-sentence atomicity (`Text. Improves: bogus(x). Disposition: blocking.` strips
+only ` Disposition: blocking.` and leaves the invalid sentence visible). Three
+things the plan did not state:
+
+1. **`_TRAILER_SPAN` carries `re.IGNORECASE`, so dimension names match
+   case-insensitively too.** `Improves: Robustness(High).` matches the span and
+   is therefore *stripped from the display body* — but a naive extractor stores
+   `("Robustness", "")`, a name outside the closed vocabulary, for text the user
+   can no longer see. The dimension name **must be lowercased** when the entry is
+   built. This is the established convention, not a new one: `_parse_trailer`
+   already does `.lower()` for disposition and `.upper()` for verdict.
+2. **Duplicate sentences: first wins.** `Disposition: blocking. Disposition:
+   informational.` already derives `blocking` (the `.search()` shape). The new
+   per-sentence extractors use the same shape, so they inherit it — pin it rather
+   than leave it open.
+3. **An empty or trailing-comma entry list fails the sentence.** `Improves: .`
+   and `Improves: goal,` do not match, so they stay visible. `improves` can
+   therefore only ever be `None` or non-empty — `()` is reachable **only** via
+   `Worsens: nothing.`, which is precisely the three-state mechanism.
 
 ## Steps
 
-1. **[characterize_parser_backcompat — risk mitigation, FIRST, before any
-   parser edit]** Add to `tests/test_concern_parser.py` a characterization
-   class pinning the **five-field projection contract**, and run it to
-   **observed-pass against unmodified `concern_parser.py`** before step 3.
-   Expected values are recorded literals that do NOT change when the
-   implementation lands. Pins, for (a) a block with no trailer and (b) a block
-   with a `Disposition: follow-up. Verified: PLAUSIBLE.`-only trailer:
+**Step 0 — durable plan first.** These findings exist only in the approved
+preview until the plan is externalized. The Step-6 externalize call runs with
+`--force` (mandatory on the verify path — `plan-externalization.md:125`: without
+it the helper short-circuits with `PLAN_EXISTS` and the revisions never reach
+`aiplans/`), replacing `aiplans/p1636/p1636_2_concern_parser_impact_trailer.md`
+and committing it **before step 1**. No code is written until
+`OVERWRITTEN:` is observed — otherwise t1636_3 / _4 / _5 would inherit a plan
+whose constraints are absent from the audit trail.
+
+### Pre-phase (risk mitigations)
+
+1. **[`characterize_parser_backcompat`]** Add to `tests/test_concern_parser.py` a
+   characterization class pinning the **five-field projection contract**, and run
+   it to **observed-pass against unmodified `concern_parser.py` before step 3
+   touches anything**. Expected values are recorded literals that do NOT change
+   when the implementation lands. Pins, for (a) a block with no trailer and (b) a
+   block with a `Disposition: follow-up. Verified: PLAUSIBLE.`-only trailer:
    - each parsed `Concern`'s projection onto (`priority`, `region`, `body`,
-     `disposition`, `verdict`) equals today's exact output (literal tuples in
-     the test);
+     `disposition`, `verdict`) equals today's exact output (literal tuples);
    - `Concern("high", "r", "b", "blocking", "CONFIRMED")` five-argument
      positional construction populates exactly those five fields;
    - `display_body()` and `build_clipboard_payload([...])` outputs are
      byte-identical literals.
-   (Whole-tuple equality is deliberately NOT pinned — appending fields changes
-   tuple length/equality by construction; note that in the test docstring.)
 
-2. **[discriminate_priced_vs_unpriced_worsens — risk mitigation, before the
-   field shape is implemented]** Write the test that fails unless the parser
-   distinguishes **three** states, all named explicitly:
+   Whole-tuple equality is deliberately **not** pinned — appending fields changes
+   tuple length and equality by construction. Say so in the class docstring so
+   the omission reads as a decision, not a gap.
+
+2. **[`discriminate_priced_vs_unpriced_worsens`]** Write, **before the field
+   shape is implemented**, the test that fails unless the parser distinguishes
+   **three** states, all named explicitly:
    - `… Worsens: nothing. …` → `worsens == ()` (priced, empty);
    - no `Worsens:` sentence at all → `worsens is None` (not priced);
    - `… Worsens: simplicity(low). …` → populated tuple.
-   A two-state implementation (e.g. empty-vs-populated) must fail it.
 
-3. **Implement the grammar** in `concern_parser.py`:
+   A two-state implementation (empty-vs-populated) must fail it. Assert
+   `worsens is None` / `worsens == ()` **identity-wise** — `assertFalse` passes
+   for both and would make the test vacuous.
+
+### Main implementation
+
+3. **Implement the grammar** in `.aitask-scripts/monitor/concern_parser.py`:
    - `ImpactEntry = NamedTuple("ImpactEntry", [("dimension", str), ("magnitude", str)])`
      — magnitude already normalized (`""` = unspecified).
-   - Import `concern_dimensions` as a sibling with the same try/except
-     relative/flat fallback used for `ansi_utils` (line ~104); the module
-     stays pure.
+   - Import `concern_dimensions` as a sibling with the **same try/except
+     relative-then-flat fallback used for `ansi_utils`** (line ~104); the module
+     stays pure (`concern_dimensions` has an explicit purity contract).
    - Extend `_TRAILER_SENTENCE` with three alternatives built from
      `concern_dimensions.dimensions_pipe()`:
-     - `Improves: <entry-list>` / `Worsens: (nothing|<entry-list>)` /
-       `Effort: \w{1,16}`;
-     - `<entry-list>` = comma-separated `name(?:\(\w{1,16}\))?` where `name`
-       is the **closed** alternation — an unknown dimension fails the whole
-       sentence (it stays in the body/display, the chosen visible failure
-       mode);
-     - keep `_TRAILER_SPAN = (?:\s*SENTENCE)+\s*$` — terminal anchoring and
-       free sentence order preserved verbatim; an invalid sentence simply
-       isn't part of the matched suffix run.
-   - Append to `Concern`: `improves: tuple | None = None`,
-     `worsens: tuple | None = None`, `effort: str = ""` — **after** the
-     existing fields, defaults set, docstring noting `None` = sentence absent
-     vs `()` = `Worsens: nothing.`.
-   - Extend `_parse_trailer` to return `(disposition, verdict, improves,
-     worsens, effort)`: extract each sentence from the matched trailer span
-     with per-sentence regexes (mirror `_DISPOSITION_IN_TRAILER`);
-     `normalize_magnitude` each entry's token; `Effort:` token normalized the
-     same way (`""` when unrecognized).
-   - `display_body()` — no change needed: it already strips the whole matched
-     span. Verify via tests that a fully valid run (all five sentence kinds)
-     is fully stripped, and an invalid `Improves:` sentence before a valid
-     suffix stays visible.
+     - entry = `(?:<closed-alternation>)(?:\(\w{1,16}\))?`; list =
+       `entry(?:\s*,\s*entry)*`;
+     - `Improves:\s*<list>` / `Worsens:\s*(?:nothing|<list>)` /
+       `Effort:\s*\w{1,16}`;
+     - keep `_TRAILER_SPAN = (?:\s*SENTENCE)+\s*$` **verbatim** — terminal
+       anchoring and free sentence order are preserved, and an invalid sentence
+       simply is not part of the matched suffix run.
+   - Append to `Concern`, **after** the existing fields, with defaults:
+     `improves: tuple[ImpactEntry, ...] | None = None`,
+     `worsens: tuple[ImpactEntry, ...] | None = None`, `effort: str = ""`.
+     Docstring states `None` = sentence absent (not priced) vs `()` =
+     `Worsens: nothing.` (priced as nothing), and why the distinction is
+     load-bearing.
+   - Extend `_parse_trailer` to return
+     `(disposition, verdict, improves, worsens, effort)`, extracting each
+     sentence from the matched span with per-sentence regexes that mirror
+     `_DISPOSITION_IN_TRAILER`. **Lowercase each dimension name** (finding 1) and
+     `normalize_magnitude` each token; normalize the `Effort:` token the same way
+     (`""` when unrecognised — never `low`).
+   - `display_body()` needs **no change**: it already removes exactly the matched
+     span.
+   - Update the module docstring's derived-fields bullet to name the three new
+     fields. Leave every marker-grammar claim unchanged.
 
-4. **Vector-grammar test class** (beyond steps 1–2): missing magnitude
-   (`robustness` bare → `("robustness","")`); unknown magnitude
-   (`robustness(extreme)` → `("robustness","")` — never `low`); unknown
-   dimension on each side (whole sentence unparsed, visible in
-   `display_body()`, valid suffix still parsed); sentence-order freedom
-   (Effort before Improves etc.); multi-entry lists; `derive_priority`
-   integration (`from concern_dimensions import derive_priority` over parsed
-   `improves`); clipboard forwards `.body` verbatim with the full trailer.
+4. **Vector-grammar test class**, beyond steps 1–2:
+   - missing magnitude (`robustness` → `("robustness", "")`); unknown magnitude
+     (`robustness(extreme)` → `("robustness", "")`, **never** `low`);
+   - **mixed-case dimension normalizes** — `Improves: Robustness(High).` →
+     `("robustness", "high")` and is stripped from `display_body()` (finding 1;
+     without this the parser emits a dimension outside the closed vocabulary for
+     text the user can no longer see);
+   - **recognized `Effort:` is actually derived** — `Effort: low|medium|high` →
+     `effort == "low"|"medium"|"high"`, plus `Effort: High.` → `"high"` for case
+     normalization, asserted **independently of any stripping or ordering
+     assertion**. This is the positive control for the scalar: without it, an
+     implementation that matches the `Effort:` sentence for stripping but never
+     assigns the field still passes every other test here, because the residual
+     test (step 6) and the absent-sentence case both expect `""`;
+   - **duplicate sentence: first wins — parameterized over all three new
+     extractors**, `Improves:` / `Worsens:` / `Effort:` (finding 2). One
+     subTest per field, not a single `Disposition:`-shaped example: the three
+     are separate regexes at separate call sites, so one written last-wins
+     (e.g. `findall()[-1]`) would otherwise regress undetected. Keep
+     `Disposition:` in the same parameterization as the reference case;
+   - **empty / trailing-comma entry list fails the sentence** and stays visible,
+     so `improves` is never `()` (finding 3);
+   - unknown dimension on each side — whole sentence unparsed, visible in
+     `display_body()`, and a valid suffix after it still parsed;
+   - sentence-order freedom; multi-entry lists;
+   - `derive_priority` over parsed `improves` (empty, all-unknown, mixed);
+   - clipboard forwards `.body` verbatim with the full trailer.
 
-5. **Contract sweeps**: `tests/test_concern_body_display_contract.py` must
-   stay green **untouched** (its role map already governs `.body` vs
-   `display_body()`); the docstring format table in `concern_parser.py` gains
-   the new derived fields mention (keep the marker-grammar claims unchanged).
+5. **Contract sweeps.** `tests/test_concern_body_display_contract.py` must stay
+   green **untouched** — its AST role map governs `.body` vs `display_body()`,
+   and this change adds no new Concern-body read. Confirm rather than assume.
+
+### Post-phase (risk mitigations)
+
+6. **[`pin_effort_overstrip_residual`]** Pin, as a test, what the
+   bounded-permissive `Effort:` alternative deliberately does **not** buy: a body
+   ending `… reduces Effort: significantly.` has that sentence stripped from
+   `display_body()` and yields `effort == ""`. Name the test for the accepted
+   limit, not for a bug, and state in its docstring why the exposure is the
+   settled design — an unrecognised token must yield unspecified rather than fail
+   the sentence, so a closed `high|medium|low` class is not an option here. This
+   records the residual so a later reader meets a documented decision instead of
+   rediscovering it as a defect.
 
 ## Verification
 
-- `python -m pytest tests/test_concern_parser.py tests/test_concern_body_display_contract.py tests/test_concern_dimensions.py`
-- Step 1's class observed passing **before** step 3's first edit (record the
-  run in the Final Implementation Notes).
-- `bash tests/run_all_python_tests.sh --test-dir tests`; read only the last
-  line.
+- `python3 -m pytest tests/test_concern_parser.py tests/test_concern_body_display_contract.py tests/test_concern_dimensions.py -q`
+  (baseline before any edit: 169 passed).
+- Step 1's characterization class **observed passing before step 3's first
+  edit** — record that run in the Final Implementation Notes.
+- `bash tests/run_all_python_tests.sh --test-dir tests` — read only the last
+  line (`PYTHON SUITE: PASSED|FAILED`); piping discards the exit status.
 
 ## Post-Implementation
 
-Standard Step 9. Note for t1636_3/_4/_5: the new fields and `ImpactEntry` are
-the consumer surface; do not add consumers here.
+Standard Step 9. Note for t1636_3 / _4 / _5: `ImpactEntry` and the three new
+`Concern` fields are the consumer surface — **do not add consumers here**.
+
+## Risk
+
+### Code-health risk: low
+- `_TRAILER_SPAN` is the single derivation point that every existing
+  disposition/verdict derivation *and* `display_body()` strip depend on; widening
+  its alternation with three sentence kinds could over-strip prose ·
+  severity: low (residual — a byte-identical back-compat baseline is pinned
+  before the regex is edited) ·
+  → mitigation: inline pre-phase characterize_parser_backcompat
+- Appending fields to the `Concern` NamedTuple has a positional-construction
+  blast radius across the parser and ~40 constructions in the test modules ·
+  severity: low (residual — the five-field projection and five-arg positional
+  construction are pinned by the same pre-phase) ·
+  → mitigation: inline pre-phase characterize_parser_backcompat
+- `Effort:\s*\w{1,16}` is the one new alternative **not** drawn from a closed
+  vocabulary, so a body ending `… reduces Effort: significantly.` is stripped
+  from the display. This is the settled bounded-permissive design (an
+  unrecognised token must yield unspecified, not fail the sentence), so the
+  exposure is accepted, not removed · severity: low ·
+  → mitigation: inline post-phase pin_effort_overstrip_residual
+
+### Goal-achievement risk: low
+- Collapsing "priced as nothing" (`()`) with "not priced" (`None`) would delete
+  the anti-overengineering mechanism that is the feature's whole point ·
+  severity: low (residual — a three-state discriminator is written before the
+  field shape is chosen) ·
+  → mitigation: inline pre-phase discriminate_priced_vs_unpriced_worsens
+- `re.IGNORECASE` on the span means a mixed-case dimension name is stripped from
+  the display body while yielding a name outside the closed vocabulary, which
+  t1636_4's picker would render as an empty label for text the user can no longer
+  see · severity: low (addressed directly by step 3's lowercase normalization and
+  step 4's explicit test — not deferred) · → mitigation: none — fixed in-plan
+
+### Planned mitigations
+- timing: pre-phase | name: characterize_parser_backcompat | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — trailer regex is the single derivation point; Concern positional blast radius | desc: pin the five-field projection, five-arg positional construction, and display/clipboard byte-identity for no-trailer and disposition-only blocks, observed passing before _TRAILER_SPAN is edited
+- timing: pre-phase | name: discriminate_priced_vs_unpriced_worsens | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — collapsing "priced as nothing" with "not priced" deletes the mechanism | desc: three-state test (nothing / absent / populated) written before the field shape is chosen, asserted identity-wise so it cannot pass vacuously
+- timing: post-phase | name: pin_effort_overstrip_residual | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the permissive Effort: alternative strips prose ending in "Effort: <word>" | desc: pin the accepted over-strip residual as a test naming it a settled design limit, so it is not later rediscovered as a defect
