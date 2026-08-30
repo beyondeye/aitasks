@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: [1595]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [ui, task-workflow]
 gates: [risk_evaluated]
 folded_tasks: [1596]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 created_at: 2026-08-25 12:34
-updated_at: 2026-08-26 22:18
+updated_at: 2026-08-30 09:33
 boardcol: now
 boardidx: 3142
 ---
