@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1636_2]
 issue_type: enhancement
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1636
+implemented_with: claudecode/opus5
 created_at: 2026-08-30 14:53
-updated_at: 2026-08-30 17:54
+updated_at: 2026-08-30 18:23
 ---
 
 ## Context
@@ -100,3 +103,8 @@ existing model.
 - `./.aitask-scripts/aitask_skill_verify.sh` before committing.
 - `bash tests/run_all_python_tests.sh --test-dir tests` — read only the last
   line (`PYTHON SUITE: PASSED|FAILED`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-30T15:24:14Z status=pass attempt=1 type=human
