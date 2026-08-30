@@ -341,7 +341,10 @@ give:
 
 - a one-line statement of the problem;
 - *why* it bites (the triggering scenario);
-- severity (high / medium / low);
+- its **impact vector** — which quality dimensions addressing the finding would
+  improve, which it would worsen, and what it would cost (see the emit section
+  for the closed vocabulary and grammar); the severity you quote is the priority
+  that vector derives, not a second judgement;
 - its **disposition** — `blocking`, `follow-up`, or `informational`, classified
   per the catalog's **disposition rubric** (impact vs obligations — never by
   angle, never by verdict);
@@ -383,6 +386,42 @@ inferable from the followed agent's window name, e.g. `agent-pick-635_3`) — ru
 fresh concern that is substantively the same as a previously-rejected entry,
 even when reworded. The full contract is in the rules list below.
 
+**Price your own suggestion: emit the impact vector.** Every finding ends its
+body with `Improves: <dimension>(<magnitude>)[, …].`, then
+`Worsens: <dimension>(<magnitude>)[, …].` — and **the Worsens sentence is
+mandatory**, as `Worsens: nothing.` when the fix genuinely costs nothing — then
+`Effort: <high|medium|low>.`, alongside the `Disposition:` and (Advanced/Deep)
+`Verified:` sentences. Without the worsen side a finding is a pure demand with
+externalised costs, and a change that absorbs every such demand is silently
+over-engineered; a finding that improves only non-obligated dimensions at a
+simplicity cost self-identifies as a bad trade. `Worsens: nothing.` is a
+*priced* empty set and an omitted `Worsens:` is a different state — the parser
+distinguishes them, so never drop the sentence to mean "nothing". The marker
+priority you write is then not a free choice: it is `derive_priority(improves)`,
+the strongest known magnitude on the improve side.
+
+**Dimensions are load-bearing; magnitudes are advisory.** Naming *which* quality
+moves is the information the old bare severity scalar never carried, and it is
+what the reader acts on. Calibrating *how far* it moves is noisy, so a magnitude
+refines a finding and never decides whether it is one. Draw every dimension from
+this closed vocabulary — the parser builds its name alternation from it, so an
+invented name makes the whole sentence fail to match and it stays visibly in the
+body:
+
+- `goal` — the task's AC / the user's stated intent is delivered
+- `correctness` — right behavior on reachable inputs
+- `robustness` — stability under failure / concurrency / hostile input (includes security)
+- `performance` — latency, throughput, resource cost
+- `verification` — testability; proof the change works
+- `maintainability` — readability, duplication, conventions; ease of safe change
+- `simplicity` — amount of mechanism; the classic worsen-side
+
+The vector is also what makes the disposition decidable: `blocking` when the
+improve side touches an obligation dimension for this task, `follow-up` when it
+is net-positive but touches none, `informational` when there is no proposed
+delta at all. The catalog's rubric in `impl-review-angles.md` stays
+authoritative — this is the same rule expressed over the vector.
+
 Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a closing
 `===END-CONCERNS===` line (those two exact literals; single source of truth:
 `.claude/skills/aitask-shadow/concern-format.md`), with one concern per line
@@ -390,9 +429,9 @@ between them. The concern lines themselves look like:
 
 ```
 Round: 1 @ 2026-08-11T14:03:27Z
-- [high | file.ext:120] In path/to/file.ext the new guard compares the raw email instead of the normalized one, so a task assigned with a trailing-space email never matches and re-locks every resume. It bites on the common reclaim path. Normalizing both sides before compare would fix it — exact form your call. Disposition: blocking. Verified: CONFIRMED.
-- [medium | unmitigated risk] The plan's Risk section flagged concurrent writers to the ledger, but the diff adds no locking around the append, so two resumes can interleave and drop one run. The Final Implementation Notes don't mention it, so it looks unaddressed rather than deliberately deferred. Disposition: follow-up. Verified: PLAUSIBLE.
-- [low | accepted risk] The plan explicitly accepted the unlocked counter increment, on the rationale that only the reaper writes it. That rationale holds against the diff — the only other writer is behind the same mutex — so I am not asking for a change; flagging it so you can judge the single-writer assumption yourself. Disposition: informational. Verified: CONFIRMED.
+- [high | file.ext:120] In path/to/file.ext the new guard compares the raw email instead of the normalized one, so a task assigned with a trailing-space email never matches and re-locks every resume. It bites on the common reclaim path. Normalizing both sides before compare would fix it — exact form your call. Improves: correctness(high). Worsens: nothing. Effort: low. Disposition: blocking. Verified: CONFIRMED.
+- [medium | unmitigated risk] The plan's Risk section flagged concurrent writers to the ledger, but the diff adds no locking around the append, so two resumes can interleave and drop one run. The Final Implementation Notes don't mention it, so it looks unaddressed rather than deliberately deferred. Improves: robustness(medium), verification(low). Worsens: simplicity(low). Effort: medium. Disposition: follow-up. Verified: PLAUSIBLE.
+- [low | accepted risk] The plan explicitly accepted the unlocked counter increment, on the rationale that only the reaper writes it. That rationale holds against the diff — the only other writer is behind the same mutex — so I am not asking for a change; flagging it so you can judge the single-writer assumption yourself. Improves: robustness(low). Worsens: nothing. Effort: low. Disposition: informational. Verified: CONFIRMED.
 ```
 
 **Emit a round header as the first line inside the block.** Immediately after
@@ -413,7 +452,12 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
 - The leading `- ` (dash **and** space) is **MANDATORY** on every concern line —
   it is the wrap-collision guard (a soft-wrapped continuation line never carries
   it, so the parser can't mistake wrapped text for a new item).
-- `priority` is one of `high`, `medium`, `low` — reuse the severity you assigned.
+- `priority` is one of `high`, `medium`, `low`, and for a vector-bearing finding
+  it is exactly `derive_priority(improves)` — the strongest known magnitude on
+  the improve side, `low` when that side is absent, empty, or carries only
+  unspecified magnitudes. That is the **single** mapping to this field: do not
+  compute it from anything else. The picker shows the derived value and flags a
+  marker that disagrees, rather than silently reconciling the two.
 - `region` for implementation concerns should identify the **code locus**
   or the **axis** (`unmitigated risk`, `unjustified deviation`,
   `pending narration`, `correctness`)
@@ -440,6 +484,15 @@ Rules — all load-bearing for minimonitor's parser; match them exactly:
   body** (it is matched only as a terminal run, so anything written after it is
   not read as a trailer), and an omitted trailer makes the finding show up as
   needing attention.
+- **Impact vector.** The same trailer run also carries
+  `Improves: <dimension>(<magnitude>)[, …].`,
+  `Worsens: <dimension>(<magnitude>)[, …].` or `Worsens: nothing.`, and
+  `Effort: <high|medium|low>.` — and the Worsens sentence is mandatory, in both
+  forms: a priced-nothing worsen side and an omitted one are different states
+  and the parser reads them differently. Dimension names come only from the
+  closed vocabulary above; the dimension names are the load-bearing part and
+  magnitudes are advisory, so an uncertain magnitude is still worth naming its
+  dimension for. Sentence order within the run is free.
 - Order items to match the prose list: blocking partition first, then
   follow-up, then informational, severity-ordered within each partition.
 - **Suppress previously-rejected concerns.** Before emitting, run

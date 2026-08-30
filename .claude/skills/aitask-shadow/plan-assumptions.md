@@ -47,102 +47,183 @@ agent's pane.
    conceivable precondition. Present everything to the user to judge; suggest, if
    asked, which assumptions would be worth turning into an explicit check.
 
-6. **Also emit the structured concern block (for pick-and-forward).** After the
-   human-readable list above, append a machine-parseable copy of the dangerous
-   assumptions so the user can tick a subset and forward them to the followed
-   agent via minimonitor's concern picker — instead of retyping them. This block
-   is **additive**: it does not replace the prose, and it does **not** relax the
-   advisory-only guardrail (it is text for the *user* to copy; you still never
-   drive the followed pane).
+6. **Also emit the structured concern block (for pick-and-forward)** — see the
+   section of that name below, and emit it as the final output of the review.
 
-   **Consult the rejection store before emitting.** Using the source task id
-   from your launch arguments or Step 2 — resolving one now if you have neither
-   (it is inferable from the followed agent's window name, e.g.
-   `agent-pick-635_3`) — run
-   `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop every
-   fresh concern that is substantively the same as a previously-rejected entry,
-   even when reworded. The full contract is in the rules list below.
+## Also emit the structured concern block (for pick-and-forward)
 
-   Map assumptions to items: emit one item per **dangerous** assumption
-   (load-bearing AND unverified — the ones Step 4 ordered first); include lesser
-   ones only if useful. Set `priority` by how exposed the assumption is:
-   - load-bearing **and** unverified → `high`,
-   - load-bearing **and** verified, or peripheral **and** unverified → `medium`,
-   - peripheral → `low`.
+After the human-readable list above, append a machine-parseable copy of the
+dangerous assumptions so the user can tick a subset and forward them to the followed
+agent via minimonitor's concern picker — instead of retyping them. This block
+is **additive**: it does not replace the prose, and it does **not** relax the
+advisory-only guardrail (it is text for the *user* to copy; you still never
+drive the followed pane).
 
-   Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a
-   closing `===END-CONCERNS===` line (those two exact literals; single source of
-   truth: `.claude/skills/aitask-shadow/concern-format.md`), with one concern per
-   line between them. The concern lines themselves look like:
+**Consult the rejection store before emitting.** Using the source task id
+from your launch arguments or Step 2 — resolving one now if you have neither
+(it is inferable from the followed agent's window name, e.g.
+`agent-pick-635_3`) — run
+`./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>` and drop every
+fresh concern that is substantively the same as a previously-rejected entry,
+even when reworded. The full contract is in the rules list below.
 
-   ```
-   Round: 1 @ 2026-08-11T14:03:27Z
-   - [high | sequencing] The plan assumes sibling t1037_1's parser has already landed, but nothing in it verifies that. If the parser isn't there yet, the emitted block has no consumer and the whole feature silently does nothing — no error, just a no-op that looks like success in a demo. Worth confirming the parser module exists (or wiring it as an explicit dependency) before relying on it; how to sequence that is your call.
-   - [medium | behavior of other code] The plan assumes aitask_shadow_capture.sh hands the parser wrap-joined lines, but the capture call omits tmux's -J flag. Long concern bodies will then split mid-word at the pane edge and the parser's space-join will stitch the fragments with a stray space inside a word. It only surfaces on bodies long enough to wrap, so it passes short-example tests and breaks in real use. Adding -J (or otherwise rejoining) at the capture site would fix it — exact spot left to you.
-   ```
+Map assumptions to items: emit one item per **dangerous** assumption
+(load-bearing AND unverified — the ones Step 4 ordered first); include lesser
+ones only if useful.
 
-   **Emit a round header as the first line inside the block.** Immediately
-   after the opening fence — before the first `- [` marker — emit exactly one
-   line of the form `Round: <N> @ <timestamp>`, for example
-   `Round: 2 @ 2026-08-11T14:03:27Z`. If the request that triggered this review
-   names a round ("recheck round N"), use that N; otherwise N is 1 for the
-   first review you run in this conversation and increments by one on each
-   later review you run in it (any review sub-procedure counts; a fresh shadow
-   session starts at 1 again — the timestamp is what disambiguates). Obtain the
-   timestamp by running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A
-   **zero-concern** review (nothing found, or suppression removed everything)
-   still emits the block: the two fences with only this header between them,
-   which is the machine-readable record that the round completed clean.
+**Price your own suggestion: emit the impact vector.** Every concern ends its
+body with `Improves: <dimension>(<magnitude>)[, …].`, then
+`Worsens: <dimension>(<magnitude>)[, …].` — and **the Worsens sentence is
+mandatory**, as `Worsens: nothing.` when confirming the assumption genuinely
+costs nothing — then `Effort: <high|medium|low>.`, then `Disposition: …`
+(below). Without the worsen side a concern is a pure demand with externalised
+costs, and a plan that absorbs every such demand is silently over-engineered:
+turning every trusted assumption into an explicit check buys certainty at a
+real cost in mechanism, and that trade is the user's to judge.
+`Worsens: nothing.` is a *priced* empty set and an omitted `Worsens:` is a
+different state — the parser distinguishes them, so never drop the sentence
+to mean "nothing".
 
-   Rules — all load-bearing for minimonitor's parser; match them exactly:
-   - One concern per line, in the form `- [priority | region] body`.
-   - The leading `- ` (dash **and** space) is **MANDATORY** on every concern
-     line — it is the wrap-collision guard (a soft-wrapped continuation line
-     never carries it, so the parser can't mistake wrapped text for a new item).
-   - `priority` is one of `high`, `medium`, `low` (mapped as above).
-   - `region` names the assumption category (`environment/tooling`,
-     `data/inputs`, `behavior of other code`, `sequencing`, `intent/scope`) or a
-     named plan region — it is **mandatory and never empty** (it is the row's
-     only title in minimonitor's picker; an omitted one renders as
-     `(no region)`) — and MUST stay **short** (≤ ~30 chars): use a category
-     or a `basename.ext:LINE` locus, never a full repo path (put the full path
-     in the body instead). The whole `[priority | region]` marker must survive
-     on ONE rendered row: some agent TUIs hard-wrap long lines with literal
-     newlines that even a wrap-joined capture cannot rejoin, and a wrap
-     *inside the bracket* makes the item unparseable to minimonitor.
-   - `body` carries the **full framing** — the assumption, *why it is dangerous*
-     (what silently goes wrong if it's false), and enough context for the
-     receiving agent to choose **how** to confirm or harden it. Match the
-     **substance** of the corresponding prose item from Step 3; do **not**
-     compress it to a bare one-liner — the framing is as important as the point.
-     "One logical line" is a **parser constraint** (emit no literal newline
-     mid-concern — let the terminal soft-wrap), **not** a brevity constraint: a
-     rich, multi-sentence body that soft-wraps across several rows is correct and
-     reassembles into one concern.
-   - Order items by priority, matching the prose list (dangerous ones first).
-   - **Suppress previously-rejected concerns.** Before emitting, run
-     `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>`. Exactly three
-     outcomes are defined: the single line `NO_REJECTIONS` means nothing is
-     rejected; a printed body is the user's previously-rejected concerns; and
-     **anything else** — a non-zero exit (a malformed task id exits `2`), empty
-     output, or output matching neither shape — means you could not consult the
-     store, so emit every fresh concern and state that rejection suppression was
-     skipped. Never read an error as "nothing was rejected". Drop a fresh
-     concern only when it is substantively the same as a rejected one; when
-     unsure, **keep it and say why** (fail-open). Whenever N ≥ 1 were dropped,
-     report `Suppressed N previously-rejected concern(s).` in the prose before
-     the block. When no task id can be resolved, say suppression was skipped.
-   - **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
-     auto-offer only fires on a complete block.
-   - **Round header.** The first line after the opening fence is
-     `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the
-     first `- [` marker — placed after an item it is absorbed into that item's
-     body and the round is lost — and it must never itself begin with `- [`.
-     Take N from the request when it names a round ("recheck round N"), else
-     count from 1 within this conversation; get the timestamp from
-     `date -u +%Y-%m-%dT%H:%M:%SZ`, never by estimate. A **zero-concern**
-     review — no assumption worth forwarding after suppression — still emits
-     the fences with only this header between them (say so in the prose).
-     Minimonitor reads the header to show the round, to re-offer the picker
-     when a later round repeats the same concerns, and to judge concern
-     freshness.
+**How exposure maps in.** An assumption's exposure is what sets the *improve
+side*, and the marker priority then follows from it — it is never written
+directly. `derive_priority(improves)` is the only mapping to that field:
+- load-bearing **and** unverified → a `goal` or `correctness` improve entry
+  at `high` (the plan fails outright if the assumption is false);
+- load-bearing **and** verified, or peripheral **and** unverified → the same
+  dimensions at `medium`;
+- peripheral → `low`.
+
+Never write an exposure label straight into the bracket: the marker is always
+whatever `derive_priority(improves)` yields from the entries you chose above.
+
+**Dimensions are load-bearing; magnitudes are advisory.** Naming *which*
+quality moves is the information the old bare severity scalar never carried,
+and it is what the reader acts on. Calibrating *how far* it moves is noisy,
+so a magnitude refines a concern and never decides whether it is one. Draw
+every dimension from this closed vocabulary — the parser builds its name
+alternation from it, so an invented name makes the whole sentence fail to
+match and it stays visibly in the body:
+
+- `goal` — the task's AC / the user's stated intent is delivered
+- `correctness` — right behavior on reachable inputs
+- `robustness` — stability under failure / concurrency / hostile input (includes security)
+- `performance` — latency, throughput, resource cost
+- `verification` — testability; proof the change works
+- `maintainability` — readability, duplication, conventions; ease of safe change
+- `simplicity` — amount of mechanism; the classic worsen-side
+
+**Give each item a disposition**, grounded in its vector — `blocking`,
+`follow-up`, or `informational`:
+- **`blocking`** — the improve side touches an *obligation dimension* for
+  this plan: `goal` and `correctness` categorically, `robustness` and
+  `performance` only when the task's own acceptance criteria or the plan
+  obligates them. A load-bearing, unverified assumption the plan cannot
+  survive being wrong about belongs here.
+- **`follow-up`** — real and net-positive, but touching no obligation
+  dimension: worth confirming, but separable from approving this plan.
+- **`informational`** — no proposed delta at all, or the point is already
+  settled: the plan states the assumption and its rationale, or verifies it
+  elsewhere. Say *what* settles it so the user can disagree.
+  `informational` is never a parking slot for an assumption you believe is
+  genuinely dangerous — that one is `blocking` or `follow-up`.
+
+Emit a block delimited by an opening `===AITASK-CONCERNS===` line and a
+closing `===END-CONCERNS===` line (those two exact literals; single source of
+truth: `.claude/skills/aitask-shadow/concern-format.md`), with one concern per
+line between them. The concern lines themselves look like:
+
+```
+Round: 1 @ 2026-08-11T14:03:27Z
+- [high | sequencing] The plan assumes sibling t1037_1's parser has already landed, but nothing in it verifies that. If the parser isn't there yet, the emitted block has no consumer and the whole feature silently does nothing — no error, just a no-op that looks like success in a demo. Worth confirming the parser module exists (or wiring it as an explicit dependency) before relying on it; how to sequence that is your call. Improves: goal(high), correctness(high). Worsens: nothing. Effort: low. Disposition: blocking.
+- [medium | behavior of other code] The plan assumes aitask_shadow_capture.sh hands the parser wrap-joined lines, but the capture call omits tmux's -J flag. Long concern bodies will then split mid-word at the pane edge and the parser's space-join will stitch the fragments with a stray space inside a word. It only surfaces on bodies long enough to wrap, so it passes short-example tests and breaks in real use. Adding -J (or otherwise rejoining) at the capture site would fix it — exact spot left to you. Improves: correctness(medium), robustness(low). Worsens: simplicity(low). Effort: low. Disposition: follow-up.
+```
+
+**Emit a round header as the first line inside the block.** Immediately
+after the opening fence — before the first `- [` marker — emit exactly one
+line of the form `Round: <N> @ <timestamp>`, for example
+`Round: 2 @ 2026-08-11T14:03:27Z`. If the request that triggered this review
+names a round ("recheck round N"), use that N; otherwise N is 1 for the
+first review you run in this conversation and increments by one on each
+later review you run in it (any review sub-procedure counts; a fresh shadow
+session starts at 1 again — the timestamp is what disambiguates). Obtain the
+timestamp by running `date -u +%Y-%m-%dT%H:%M:%SZ` — never estimate it. A
+**zero-concern** review (nothing found, or suppression removed everything)
+still emits the block: the two fences with only this header between them,
+which is the machine-readable record that the round completed clean.
+
+Rules — all load-bearing for minimonitor's parser; match them exactly:
+- One concern per line, in the form `- [priority | region] body`.
+- The leading `- ` (dash **and** space) is **MANDATORY** on every concern
+  line — it is the wrap-collision guard (a soft-wrapped continuation line
+  never carries it, so the parser can't mistake wrapped text for a new item).
+- `priority` is one of `high`, `medium`, `low`, and for a vector-bearing
+  concern it is exactly `derive_priority(improves)` — the strongest known
+  magnitude on the improve side, `low` when that side is absent, empty, or
+  carries only unspecified magnitudes. That is the **single** mapping to this
+  field: do not compute it from anything else, exposure included. The picker
+  shows the derived value and flags a marker that disagrees, rather than
+  silently reconciling the two.
+- `region` names the assumption category (`environment/tooling`,
+  `data/inputs`, `behavior of other code`, `sequencing`, `intent/scope`) or a
+  named plan region — it is **mandatory and never empty** (it is the row's
+  only title in minimonitor's picker; an omitted one renders as
+  `(no region)`) — and MUST stay **short** (≤ ~30 chars): use a category
+  or a `basename.ext:LINE` locus, never a full repo path (put the full path
+  in the body instead). The whole `[priority | region]` marker must survive
+  on ONE rendered row: some agent TUIs hard-wrap long lines with literal
+  newlines that even a wrap-joined capture cannot rejoin, and a wrap
+  *inside the bracket* makes the item unparseable to minimonitor.
+- `body` carries the **full framing** — the assumption, *why it is dangerous*
+  (what silently goes wrong if it's false), and enough context for the
+  receiving agent to choose **how** to confirm or harden it. Match the
+  **substance** of the corresponding prose item from Step 3; do **not**
+  compress it to a bare one-liner — the framing is as important as the point.
+  "One logical line" is a **parser constraint** (emit no literal newline
+  mid-concern — let the terminal soft-wrap), **not** a brevity constraint: a
+  rich, multi-sentence body that soft-wraps across several rows is correct and
+  reassembles into one concern.
+- **Impact vector.** End the body with
+  `Improves: <dimension>(<magnitude>)[, …].`,
+  `Worsens: <dimension>(<magnitude>)[, …].` or `Worsens: nothing.`, and
+  `Effort: <high|medium|low>.` — and the Worsens sentence is mandatory, in
+  both forms: a priced-nothing worsen side and an omitted one are different
+  states and the parser reads them differently. Dimension names come only
+  from the closed vocabulary above; the dimension names are the load-bearing
+  part and magnitudes are advisory, so an uncertain magnitude is still worth
+  naming its dimension for.
+- **Disposition.** End the body with `Disposition: blocking.`,
+  `Disposition: follow-up.` or `Disposition: informational.`, exactly as
+  classified above. These trailer sentences are **parsed**: minimonitor
+  groups the picker by disposition, dimming `informational`. An omitted
+  disposition makes the assumption show up as needing attention.
+- The trailer sentences must be the **last thing in the body** — they are
+  matched only as a terminal run, so anything written after them is not read
+  as a trailer. Their order within that run is free.
+- Order items `blocking` first, then `follow-up`, then `informational`,
+  matching the prose list, by derived priority within each partition.
+- **Suppress previously-rejected concerns.** Before emitting, run
+  `./.aitask-scripts/aitask_shadow_rejected.sh list <task_id>`. Exactly three
+  outcomes are defined: the single line `NO_REJECTIONS` means nothing is
+  rejected; a printed body is the user's previously-rejected concerns; and
+  **anything else** — a non-zero exit (a malformed task id exits `2`), empty
+  output, or output matching neither shape — means you could not consult the
+  store, so emit every fresh concern and state that rejection suppression was
+  skipped. Never read an error as "nothing was rejected". Drop a fresh
+  concern only when it is substantively the same as a rejected one; when
+  unsure, **keep it and say why** (fail-open). Whenever N ≥ 1 were dropped,
+  report `Suppressed N previously-rejected concern(s).` in the prose before
+  the block. When no task id can be resolved, say suppression was skipped.
+- **Always emit the closing `===END-CONCERNS===` fence** — minimonitor's
+  auto-offer only fires on a complete block.
+- **Round header.** The first line after the opening fence is
+  `Round: <N> @ <timestamp>` and nothing else. It MUST come **before** the
+  first `- [` marker — placed after an item it is absorbed into that item's
+  body and the round is lost — and it must never itself begin with `- [`.
+  Take N from the request when it names a round ("recheck round N"), else
+  count from 1 within this conversation; get the timestamp from
+  `date -u +%Y-%m-%dT%H:%M:%SZ`, never by estimate. A **zero-concern**
+  review — no assumption worth forwarding after suppression — still emits
+  the fences with only this header between them (say so in the prose).
+  Minimonitor reads the header to show the round, to re-offer the picker
+  when a later round repeats the same concerns, and to judge concern
+  freshness.

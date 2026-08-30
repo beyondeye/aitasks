@@ -45,6 +45,14 @@ CHALLENGE = ".claude/skills/aitask-shadow/impl-challenge.md"
 SHADOW_SKILL = ".claude/skills/aitask-shadow/SKILL.md"
 WEBSITE = "website/content/docs/workflows/shadow-agent.md"
 
+# The three plan-review producers. Until t1636_3 they emitted no disposition at
+# all, so they enumerated nothing and were correctly absent from both lists
+# below; now that each classifies its own findings they are enumerating surfaces
+# like any other.
+PLAN_CHALLENGE = ".claude/skills/aitask-shadow/plan-challenge.md"
+PLAN_ASSUMPTIONS = ".claude/skills/aitask-shadow/plan-assumptions.md"
+PLAN_DIAGNOSE = ".claude/skills/aitask-shadow/plan-diagnose-errors.md"
+
 #: The profile whose render actually strips content (t1311 gated
 #: impl-challenge's tier fallback on `shadow_impl_review_tier`, which only
 #: `fast` sets). Checking the weakest surface is the point: the agent executes
@@ -63,12 +71,30 @@ SITES = [
     (CHALLENGE, "## Findings presentation"),
     (CHALLENGE, "## Also emit the structured concern block"),
     (WEBSITE, "### Review the implementation"),
+    # The plan-review producers (t1636_3). Each anchors on a real `##` heading,
+    # NOT on the numbered procedure item that points at it: `extract_section`
+    # derives a section's end bound from markdown heading depth, so a
+    # numbered-list anchor computes `level = 0`, never satisfies its
+    # `0 < depth <= level` break, and slices to EOF — a site that would pass on
+    # any disposition enumeration living later in the file. That is precisely
+    # the vacuous coverage this list's site granularity exists to prevent.
+    (PLAN_CHALLENGE, "## Also emit the structured concern block"),
+    (PLAN_ASSUMPTIONS, "## Also emit the structured concern block"),
+    (PLAN_DIAGNOSE, "## Also emit the structured concern block"),
 ]
 
 # Every shadow surface that mentions dispositions at all. SKILL.md is checked for
 # stale two-value enumerations but is deliberately NOT required to list all three
 # values — it describes review *tiers*, not dispositions.
-ALL_SURFACES = [ANGLES, CHALLENGE, SHADOW_SKILL, WEBSITE]
+ALL_SURFACES = [
+    ANGLES,
+    CHALLENGE,
+    SHADOW_SKILL,
+    WEBSITE,
+    PLAN_CHALLENGE,
+    PLAN_ASSUMPTIONS,
+    PLAN_DIAGNOSE,
+]
 
 #: Half-width, in normalized characters, of the co-occurrence window. Wide enough
 #: to span a sentence or a bulleted clause, narrow enough that two unrelated

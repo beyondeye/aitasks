@@ -259,6 +259,26 @@ determines disposition; verdict confidence never does either.
   imperfection breaching no obligation is `follow-up`; a correctness-angle
   finding whose mechanism is demonstrably already guarded elsewhere in the
   change is `informational`, never a silent drop.
+- **Grounding in the impact vector (the same rule, made decidable).** Every
+  finding carries a signed impact vector — the quality dimensions it improves,
+  those it worsens, and its effort (see `concern-format.md`). That vector is
+  what turns the rubric above from a feel into a decision, and it is a
+  re-expression of it, not a replacement: where the two seem to disagree, the
+  obligation analysis above wins and the vector is what needs fixing.
+  - **`blocking`** — the improve side touches an **obligation dimension** for
+    this change. `goal` and `correctness` are obligations *categorically* —
+    failing them means the change did not do what it was asked to do.
+    `robustness` and `performance` become obligations only when the task's own
+    acceptance criteria or the plan says so, which is a per-task judgement made
+    against that task's text and is why they cannot be a static list.
+  - **`follow-up`** — the improve side is real and net-positive, but touches no
+    obligation dimension.
+  - **`informational`** — there is no proposed delta at all (the vector's
+    improve side is empty or already realised), or the matter is settled.
+  - A finding whose improve side touches only non-obligated dimensions while
+    its worsen side carries a comparable `simplicity` or `maintainability` cost
+    is, by its own vector, a bad trade — report it, price it honestly, and let
+    the user weigh it. That is what the mandatory worsen side is for.
 - **Uncertainty rule:** a PLAUSIBLE verdict does NOT demote a finding to
   `follow-up`, and never to `informational`. Confidence (verdict) and
   disposition are orthogonal: classify by consequence-if-real; the verdict

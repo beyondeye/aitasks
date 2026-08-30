@@ -344,9 +344,11 @@ def needs_addressing(concern: Concern) -> bool:
     """False only for an explicitly ``informational`` concern.
 
     The single home of the actionable/not rule, so display surfaces never
-    re-derive it. An *unspecified* disposition (the three ``plan-*`` producers
-    emit no trailer at all, and older blocks may predate it) counts as needing
-    attention — the safe direction.
+    re-derive it. An *unspecified* disposition — an older block predating the
+    trailer, or a producer that omitted it — counts as needing attention, the
+    safe direction. Every shipped producer now emits one (the ``plan-*`` three
+    gained it in t1636_3), so an unspecified disposition means a block from
+    before that, or one whose trailer did not parse.
     """
     return concern.disposition != "informational"
 

@@ -11,6 +11,7 @@ Run: bash tests/run_all_python_tests.sh
   or: python3 -m pytest tests/test_concern_parser.py -v
 """
 import os
+import re
 import sys
 import textwrap
 import unittest
@@ -1567,6 +1568,453 @@ class TestProducerRoundHeaderRule(unittest.TestCase):
                 )
 
 
+#: The bolded pre-emit directive for the magnitude-framing rule, verbatim.
+#: Load-bearing: it is what lets the predicate tell the two placements apart.
+_MAGNITUDE_FRAMING_DIRECTIVE = (
+    "**Dimensions are load-bearing; magnitudes are advisory.**"
+)
+
+
+def _states_magnitude_framing_rule(text: str) -> bool:
+    """True when a producer states the magnitude framing in BOTH placements.
+
+    Same shape as :func:`_states_round_header_rule` — whitespace is collapsed,
+    and a count tells the two placements apart (directive + rules bullet).
+
+    The counted token is ``magnitudes are advisory``, **not** ``load-bearing``:
+    :data:`TestProducerShortRegionRule.PRODUCER_MARKER` is itself
+    "load-bearing for minimonitor's parser", so counting that phrase would be
+    satisfied by the marker line every producer already carries and the guard
+    would pass on a doc that never states this rule at all.
+    """
+    flat = " ".join(text.split())
+    return (_MAGNITUDE_FRAMING_DIRECTIVE in flat
+            and flat.count("magnitudes are advisory") >= 2)
+
+
+class TestProducerMagnitudeFramingRule(unittest.TestCase):
+    """Every producer must frame magnitudes as advisory (t1636_3).
+
+    Risk mitigation ``state_magnitudes_advisory_in_producers`` from the t1636
+    parent plan. LLM calibration of *how far* a quality moves is noisy; naming
+    *which* quality moves is the information the old bare severity scalar never
+    carried. If that framing is lost from the producers, the trailer degrades
+    into noise the user learns to ignore — which costs the whole mechanism, not
+    just the magnitudes.
+
+    Mirrors :class:`TestProducerRoundHeaderRule`, including its two-placement
+    discipline: these are prompt files read at runtime, and a rule stated once
+    is a rule the agent may skip.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_producer_set_is_the_known_set(self):
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_magnitude_framing_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_magnitude_framing_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state that dimensions are load-bearing and "
+            "magnitudes advisory in both placements (bolded emit directive AND "
+            "rules-list entry), so noisy magnitude calibration can turn the "
+            "trailer into ignorable noise: " + ", ".join(offenders),
+        )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control: prove the guard is placement-aware, per placement.
+
+        Synthetic text, not a mutate-and-restore of a repo file — this worktree
+        is shared with concurrent sessions.
+        """
+        base = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        # Each placement must carry the counted phrase EXACTLY ONCE, so that
+        # deleting either one drops the count below 2. A directive that
+        # restated the phrase would satisfy the count on its own and the
+        # directive-only case below would pass while the bullet was gone.
+        directive = (
+            _MAGNITUDE_FRAMING_DIRECTIVE + " Naming which quality moves is the\n"
+            "signal; how far it moves only refines a concern and never decides\n"
+            "whether it is one.\n"
+        )
+        rules_entry = (
+            "- **Impact magnitudes.** The dimension names are the load-bearing\n"
+            "  part of the vector; magnitudes are advisory.\n"
+        )
+
+        # Neither copy — and note `base` alone already contains "load-bearing",
+        # which is exactly why that word is not the counted token.
+        self.assertFalse(_states_magnitude_framing_rule(base))
+        # Rules-list entry only — the directive was deleted.
+        self.assertFalse(_states_magnitude_framing_rule(base + rules_entry))
+        # Directive only — the rules-list entry was deleted.
+        self.assertFalse(_states_magnitude_framing_rule(base + directive))
+        # Both placements present.
+        self.assertTrue(
+            _states_magnitude_framing_rule(base + directive + rules_entry)
+        )
+
+
+#: The bolded pre-emit directive for the impact-vector rule, verbatim.
+_IMPACT_VECTOR_DIRECTIVE = (
+    "**Price your own suggestion: emit the impact vector.**"
+)
+
+
+def _states_impact_vector_rule(text: str) -> bool:
+    """True when a producer states the impact-trailer rule in BOTH placements.
+
+    Every counted token uses the **placeholder** grammar
+    (``Improves: <dimension>(<magnitude>)``), never the concrete example
+    (``Improves: robustness(high)``), so an example line cannot inflate a count
+    and mask a deleted rule site — the lesson :func:`_states_round_header_rule`
+    records.
+
+    ``the Worsens sentence is mandatory`` is counted as its own token because
+    the mandatory worsen side *is* the anti-overengineering mechanism: a
+    producer that keeps the grammar but drops the obligation emits vectors that
+    are pure demands again.
+    """
+    flat = " ".join(text.split())
+    return (_IMPACT_VECTOR_DIRECTIVE in flat
+            and flat.count("Improves: <dimension>(<magnitude>)") >= 2
+            and flat.count("the Worsens sentence is mandatory") >= 2
+            and flat.count("Effort: <high|medium|low>") >= 2)
+
+
+#: Half-width, in normalized characters, of the priority-assignment window.
+#: Matches ``test_shadow_disposition_surfaces.WINDOW`` — wide enough to span a
+#: sentence or a bulleted clause, narrow enough that two unrelated paragraphs do
+#: not bleed into each other.
+_PRIORITY_WINDOW = 160
+
+#: Shapes that *assign* the marker priority. A deliberately open cue set: the
+#: point is to catch an assignment by its **shape**, so a policy nobody has
+#: written yet is still caught. Matching a list of known stale phrasings would
+#: miss the next shape someone writes — the same reasoning
+#: ``test_shadow_disposition_surfaces.stale_enumerations`` documents.
+#:
+#: The bare-arrow alternative (``→ `high` ``) is what catches an exposure- or
+#: blast-radius **matrix**, which states no verb at all.
+_PRIORITY_ASSIGNMENT_CUE = re.compile(
+    r"set\s+`?priority"
+    r"|assign(?:s|ed|ing)?\s+(?:the\s+)?`?(?:priority|severity)"
+    r"|reuse\s+the\s+severity"
+    r"|mapped\s+as\s+above"
+    r"|`priority`\s+by\b"
+    r"|`priority`\s+is\s+one\s+of"
+    r"|choose\s+`?priority"
+    r"|→\s*`?(?:high|medium|low)`?",
+    re.IGNORECASE,
+)
+
+
+def _assigns_priority_from_another_source(
+    text: str, window: int = _PRIORITY_WINDOW
+) -> list:
+    """Windows that assign the marker priority without naming the derivation.
+
+    ``concern-format.md`` makes ``derive_priority(improves)`` the *single*
+    mapping from a concern to its ``- [priority | region]`` marker. A producer
+    that keeps its own policy beside it — ``plan-assumptions.md``'s exposure
+    matrix, ``impl-challenge.md``'s "reuse the severity you assigned" — gives
+    the agent two rules for one field, and the picker then flags a
+    marker/vector disagreement on every concern it emits.
+
+    Returns the offending windows (not a bool) so a failure message can show
+    the text, exactly as ``stale_enumerations`` does.
+    """
+    flat = " ".join(text.split())
+    offenders = []
+    for match in _PRIORITY_ASSIGNMENT_CUE.finditer(flat):
+        lo = max(0, match.start() - window)
+        hi = min(len(flat), match.end() + window)
+        chunk = flat[lo:hi]
+        if "derive_priority" not in chunk:
+            offenders.append(chunk)
+    return offenders
+
+
+class TestProducerImpactVectorRule(unittest.TestCase):
+    """Every producer must state the impact-trailer rule, and only one priority
+    rule may survive anywhere in it (t1636_3).
+
+    Two halves that fail the build separately:
+
+    * the **positive** half is the two-placement check every other producer-rule
+      class runs — :func:`_states_impact_vector_rule`;
+    * the **negative** half is risk mitigation
+      ``single_source_the_marker_priority``. It is not "the mapping is
+      mentioned" but "no *other* mapping survives", which is a different
+      property and needs its own predicate: a producer can state
+      ``derive_priority(improves)`` in both placements while three bullets
+      further down still maps assumption exposure straight onto ``high``.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def test_producer_set_is_the_known_set(self):
+        self.assertEqual(sorted(self._producers()), self.KNOWN_PRODUCERS)
+
+    def test_every_producer_states_the_impact_vector_rule(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if not _states_impact_vector_rule(text)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state the impact-trailer rule in both "
+            "placements (bolded emit directive AND rules-list entry), so the "
+            "agent may emit concerns with no vector — or with an unpriced "
+            "worsen side, which is the anti-overengineering mechanism itself: "
+            + ", ".join(offenders),
+        )
+
+    def test_every_producer_states_the_derived_priority_mapping(self):
+        offenders = [
+            name
+            for name, text in self._producers().items()
+            if " ".join(text.split()).count("derive_priority(improves)") < 2
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "producer doc(s) do not state the derive_priority(improves) marker "
+            "mapping in both placements: " + ", ".join(offenders),
+        )
+
+    def test_no_producer_assigns_priority_from_another_source(self):
+        for name, text in self._producers().items():
+            with self.subTest(producer=name):
+                offenders = _assigns_priority_from_another_source(text)
+                self.assertEqual(
+                    offenders,
+                    [],
+                    f"{name}: assigns the marker priority without naming "
+                    f"derive_priority nearby, so two rules govern one field "
+                    f"and the picker flags a marker/vector disagreement. "
+                    f"First offending window:\n  …{offenders[0] if offenders else ''}…",
+                )
+
+    def test_guard_flags_a_producer_missing_the_rule(self):
+        """Negative control for the positive half, per placement."""
+        base = "Rules — all " + self.PRODUCER_MARKER + "; match them exactly:\n"
+        directive = (
+            _IMPACT_VECTOR_DIRECTIVE + " Emit\n"
+            "`Improves: <dimension>(<magnitude>)[, …].` and — because the\n"
+            "Worsens sentence is mandatory — `Worsens: nothing.` when the\n"
+            "change genuinely costs nothing, plus `Effort: <high|medium|low>.`\n"
+        )
+        rules_entry = (
+            "- **Impact vector.** `Improves: <dimension>(<magnitude>)[, …].`,\n"
+            "  and the Worsens sentence is mandatory, then\n"
+            "  `Effort: <high|medium|low>.`\n"
+        )
+
+        self.assertFalse(_states_impact_vector_rule(base))
+        self.assertFalse(_states_impact_vector_rule(base + rules_entry))
+        self.assertFalse(_states_impact_vector_rule(base + directive))
+        self.assertTrue(_states_impact_vector_rule(base + directive + rules_entry))
+
+    def test_priority_guard_flags_shapes_it_was_not_written_against(self):
+        """Negative control for the negative half.
+
+        The value of a proximity rule is that it catches an assignment nobody
+        has written yet, so the controls deliberately include a wording that
+        appears nowhere in this repo. A guard that only recognised the one
+        legacy phrase would pass every one of these but the first.
+        """
+        cases = {
+            "legacy phrase": "- `priority` is one of `high`, `medium`, `low` — "
+                             "reuse the severity you assigned in Step 3.",
+            "exposure matrix": "Set `priority` by how exposed the assumption "
+                               "is: load-bearing and unverified → `high`, "
+                               "peripheral → `low`.",
+            "novel wording": "Choose `priority` from the blast radius: wide → "
+                             "`high`, contained → `low`.",
+        }
+        for label, text in cases.items():
+            with self.subTest(shape=label):
+                self.assertTrue(
+                    _assigns_priority_from_another_source(text),
+                    f"the guard must flag the {label} assignment",
+                )
+
+        # …and must NOT flag a compliant site, which names the derivation next
+        # to the value list. This is the control that keeps the guard usable:
+        # without it, a predicate that flagged everything would also pass.
+        compliant = (
+            "- `priority` is one of `high`, `medium`, `low`, and for a "
+            "vector-bearing concern it is exactly derive_priority(improves) — "
+            "the strongest known magnitude on the improve side, `low` when "
+            "that side is absent, empty, or all-unspecified."
+        )
+        self.assertEqual(_assigns_priority_from_another_source(compliant), [])
+
+
+def _example_item_lines(text: str) -> list:
+    """The ``- [`` item lines of a producer's first fenced example block.
+
+    Walks the lines toggling on ``` rather than pairing fences with a regex: a
+    ```bash block preceding the example makes findall mispair (the closing
+    fence of one block matches as the opening fence of the next). Same walk as
+    :meth:`TestProducerRoundHeaderRule.test_example_block_opens_with_the_header`.
+    """
+    bodies = []
+    current = None
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            if current is None:
+                current = []
+            else:
+                bodies.append(current)
+                current = None
+        elif current is not None:
+            current.append(line)
+    for body in bodies:
+        items = [line.strip() for line in body if line.lstrip().startswith("- [")]
+        if items:
+            return items
+    return []
+
+
+class TestProducerExampleTrailerShape(unittest.TestCase):
+    """Every producer's *example* concerns carry a well-formed trailer (t1636_3).
+
+    The rule-prose guards above prove a producer **states** the trailer rule.
+    They cannot see the example sitting three lines below it, and the example is
+    the part an agent pattern-matches against — a stale one is copyable guidance
+    that contradicts the rule beside it.
+
+    This parses the examples with the **real** ``parse_concerns`` rather than
+    re-implementing the grammar, so a producer whose example the shipped parser
+    cannot read fails here. The block is assembled **in memory**: the docs must
+    never contain a contiguous open→items→close block (t1123), which is exactly
+    why the examples cannot simply be parsed in place.
+    """
+
+    SHADOW_DIR = TestProducerShortRegionRule.SHADOW_DIR
+    PRODUCER_MARKER = TestProducerShortRegionRule.PRODUCER_MARKER
+    KNOWN_PRODUCERS = TestProducerShortRegionRule.KNOWN_PRODUCERS
+    #: The three plan-review producers; they emit a disposition but never a
+    #: verdict (verdicts come from the impl review's verification pass).
+    PLAN_PRODUCERS = [
+        "plan-assumptions.md",
+        "plan-challenge.md",
+        "plan-diagnose-errors.md",
+    ]
+
+    _producers = TestProducerShortRegionRule._producers
+
+    def _parsed(self, text):
+        return parse_concerns(
+            "\n".join([OPEN, HEADER] + _example_item_lines(text) + [CLOSE])
+        )
+
+    def test_every_producer_example_carries_a_full_vector(self):
+        from concern_dimensions import derive_priority
+
+        for name, text in self._producers().items():
+            with self.subTest(producer=name):
+                items = _example_item_lines(text)
+                self.assertTrue(
+                    items,
+                    f"{name}: no example item lines found — a renamed or "
+                    f"removed fence would otherwise reduce this test to "
+                    f"checking nothing",
+                )
+                concerns = self._parsed(text)
+                self.assertEqual(
+                    len(concerns), len(items),
+                    f"{name}: {len(items)} example line(s) but "
+                    f"{len(concerns)} parsed — an example the shipped parser "
+                    f"cannot read is guidance the agent should not copy",
+                )
+                for concern in concerns:
+                    self.assertIsNotNone(
+                        concern.improves,
+                        f"{name}: example '{concern.region}' has no Improves: "
+                        f"sentence",
+                    )
+                    self.assertIsNotNone(
+                        concern.worsens,
+                        f"{name}: example '{concern.region}' leaves the worsen "
+                        f"side unpriced; the Worsens sentence is mandatory "
+                        f"(use `Worsens: nothing.` when it genuinely costs "
+                        f"nothing)",
+                    )
+                    self.assertNotEqual(
+                        concern.effort, "",
+                        f"{name}: example '{concern.region}' has no Effort:",
+                    )
+                    self.assertEqual(
+                        concern.priority, derive_priority(concern.improves),
+                        f"{name}: example '{concern.region}' has marker "
+                        f"priority {concern.priority!r} but its vector derives "
+                        f"{derive_priority(concern.improves)!r} — the example "
+                        f"contradicts the mapping the same doc states",
+                    )
+
+    def test_every_plan_producer_example_carries_a_disposition(self):
+        for name, text in self._producers().items():
+            if name not in self.PLAN_PRODUCERS:
+                continue
+            with self.subTest(producer=name):
+                for concern in self._parsed(text):
+                    self.assertNotEqual(
+                        concern.disposition, "",
+                        f"{name}: example '{concern.region}' has no "
+                        f"Disposition:, so it would land undifferentiated in "
+                        f"the picker's 'Needs addressing' section",
+                    )
+
+    def test_assertions_fail_on_a_trailerless_example(self):
+        """Negative control: each assertion above must be able to fail."""
+        bare = "- [high | verification] A body with no trailer at all."
+        concern = parse_concerns("\n".join([OPEN, HEADER, bare, CLOSE]))[0]
+        self.assertIsNone(concern.improves)
+        self.assertIsNone(concern.worsens)
+        self.assertEqual(concern.effort, "")
+        self.assertEqual(concern.disposition, "")
+
+        priced = (
+            "- [medium | verification] A body. Improves: verification(medium). "
+            "Worsens: nothing. Effort: low. Disposition: follow-up."
+        )
+        concern = parse_concerns("\n".join([OPEN, HEADER, priced, CLOSE]))[0]
+        self.assertEqual(concern.improves[0].dimension, "verification")
+        self.assertEqual(concern.worsens, ())
+        self.assertEqual(concern.effort, "low")
+        self.assertEqual(concern.disposition, "follow-up")
+
+    def test_extractor_ignores_a_preceding_bash_fence(self):
+        """The fence walk, not a regex pairing, is what makes the extraction
+        correct — every producer opens with a ```bash capture command."""
+        text = (
+            "```bash\n./.aitask-scripts/aitask_shadow_capture.sh --deep\n```\n"
+            "```\nRound: 1 @ 2026-08-11T14:03:27Z\n"
+            "- [low | axis] Body. Improves: simplicity(low). "
+            "Worsens: nothing. Effort: low.\n```\n"
+        )
+        self.assertEqual(len(_example_item_lines(text)), 1)
+
+
 class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
     """The same guarantees must survive rendering (t1311).
 
@@ -1691,6 +2139,46 @@ class TestRenderedShadowDocsKeepTheGuarantees(unittest.TestCase):
             "rendered producer(s) lost the round-header rule in one or both "
             "placements: " + ", ".join(offenders),
         )
+
+    def test_every_rendered_producer_states_the_magnitude_framing_rule(self):
+        """Same rationale for the magnitude framing (t1636_3): the rendered tree
+        is the surface the agent actually reads."""
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if not _states_magnitude_framing_rule(t)]
+        self.assertEqual(
+            offenders,
+            [],
+            "rendered producer(s) lost the magnitudes-are-advisory framing in "
+            "one or both placements: " + ", ".join(offenders),
+        )
+
+    def test_every_rendered_producer_states_the_impact_vector_rule(self):
+        """A conditional that dropped the trailer rule from one profile's render
+        would leave the authoring-dir guard green while the executed surface
+        emitted concerns with no vector — or an unpriced worsen side."""
+        offenders = [n for n, t in self._rendered_producers().items()
+                     if not _states_impact_vector_rule(t)]
+        self.assertEqual(
+            offenders,
+            [],
+            "rendered producer(s) lost the impact-vector rule in one or both "
+            "placements: " + ", ".join(offenders),
+        )
+
+    def test_no_rendered_producer_assigns_priority_from_another_source(self):
+        """The single-source property must survive rendering too: a render that
+        resurrected a legacy priority policy would hand the executed surface two
+        rules for one field."""
+        for name, text in self._rendered_producers().items():
+            with self.subTest(producer=name):
+                offenders = _assigns_priority_from_another_source(text)
+                self.assertEqual(
+                    offenders,
+                    [],
+                    f"{name} [rendered {self.PROFILE}]: assigns the marker "
+                    f"priority without naming derive_priority nearby. First "
+                    f"offending window:\n  …{offenders[0] if offenders else ''}…",
+                )
 
     def test_no_rendered_producer_retains_the_omit_block_rule(self):
         """A conditional that resurrected the pre-round omit-when-clean wording

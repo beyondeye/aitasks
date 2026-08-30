@@ -175,9 +175,11 @@ Three rules make the derivation safe:
   the trailer would delete the disposition from what the followed agent
   receives. Display surfaces call `Concern.display_body()`, which removes
   exactly the matched span. The clipboard path must always use `body`.
-- **Unspecified is not informational.** No trailer (the three plan-review
-  producers emit none) ⇒ `disposition == ""`, which `needs_addressing()` treats
-  as needing attention — the safe direction.
+- **Unspecified is not informational.** No trailer ⇒ `disposition == ""`, which
+  `needs_addressing()` treats as needing attention — the safe direction. All
+  four producers emit a disposition today; the plan-review three adopted it in
+  t1636_3, so an unspecified disposition now means a block emitted before that
+  or a trailer that failed to parse, not a producer that never had one.
 
 The picker consumes this by splitting its list into **Needs addressing** and
 **Informational** sections and dimming the latter. A block whose concerns all
