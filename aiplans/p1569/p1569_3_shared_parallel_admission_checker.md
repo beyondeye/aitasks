@@ -1034,12 +1034,12 @@ Post-implementation cleanup, archival and merge are handled by **Step 9
 - The demotion model and its threshold rest on one corpus snapshot. Demotion
   makes a wrong threshold cost verdict *grading* rather than recall, which bounds
   the damage — but the grading is what t1569_4 blocks on. · severity: medium ·
-  → mitigation: spawned after task threshold_sensitivity_replay
+  → mitigation: t1643
 - The checker can be entirely correct and still measure ~100% UNCHECKABLE today,
   because the in-flight side has no fallback and two tasks lack plans. A reviewer
   reading the headline rate alone will reasonably conclude the design failed;
   only `CAUSE_RATE:` distinguishes the two. · severity: medium ·
-  → mitigation: spawned after task threshold_sensitivity_replay
+  → mitigation: t1643
 - `CLEAR` is an observation, not a reservation, and the residual race stays open
   until t1343. If either consumer's wording drifts to "safe to run in parallel",
   the guard over-promises. · severity: low · → mitigation: inline post-phase clear_wording_pin
@@ -1047,7 +1047,7 @@ Post-implementation cleanup, archival and merge are handled by **Step 9
 ### Planned mitigations
 - timing: post-phase | name: purity_guard | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: pure/impure split eroding | desc: Poison sys.modules for subprocess/shutil/socket, import the core, assert decide still emits the golden bytes; plus an AST guard forbidding import os/time.
 - timing: post-phase | name: vocabulary_exhaustiveness_guard | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: widened vocabularies degrading silently downstream | desc: Drive every closed-vocabulary assertion from lib/parallel_admission_vocab.py — reason round-trip with shape validation, an AST scan proving no reason literal bypasses format_reason, and a drift guard pinning the codes imported from t1569_1.
-- timing: after | name: threshold_sensitivity_replay | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: threshold and availability rates resting on one snapshot | desc: Re-run replay at hub thresholds 8/10/20/50 over the live corpus, recording precision, recall of CONFLICT u CLEAR_CAVEATED, and the CAUSE_RATE histogram as t1569_4's entry criterion.
+- timing: after | name: threshold_sensitivity_replay | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: threshold and availability rates resting on one snapshot | desc: Re-run replay at hub thresholds 8/10/20/50 over the live corpus, recording precision, recall of CONFLICT u CLEAR_CAVEATED, and the CAUSE_RATE histogram as t1569_4's entry criterion. | created: t1643
 - timing: post-phase | name: clear_wording_pin | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: observation-not-reservation guarantee drifting | desc: Assert the DISPLAY line contains "no known conflict at check time" and never the substring "safe to run in parallel".
 
 ---
