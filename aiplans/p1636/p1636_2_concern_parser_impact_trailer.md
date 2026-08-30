@@ -227,3 +227,90 @@ Standard Step 9. Note for t1636_3 / _4 / _5: `ImpactEntry` and the three new
 - timing: pre-phase | name: characterize_parser_backcompat | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — trailer regex is the single derivation point; Concern positional blast radius | desc: pin the five-field projection, five-arg positional construction, and display/clipboard byte-identity for no-trailer and disposition-only blocks, observed passing before _TRAILER_SPAN is edited
 - timing: pre-phase | name: discriminate_priced_vs_unpriced_worsens | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — collapsing "priced as nothing" with "not priced" deletes the mechanism | desc: three-state test (nothing / absent / populated) written before the field shape is chosen, asserted identity-wise so it cannot pass vacuously
 - timing: post-phase | name: pin_effort_overstrip_residual | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the permissive Effort: alternative strips prose ending in "Effort: <word>" | desc: pin the accepted over-strip residual as a test naming it a settled design limit, so it is not later rediscovered as a defect
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-30 17:20)
+- **Requested by user:** The `if __name__ == "__main__": unittest.main()` guard
+  sat above the four newly appended t1636_2 test classes, so
+  `python3 tests/test_concern_parser.py` ran 122 tests and exited OK while pytest
+  and `unittest discover` collected 147. The file's own direct-run entry point
+  gave a false green that omitted all 25 new parser checks. Verified: CONFIRMED —
+  reproduced exactly (122 vs 147) before the fix.
+- **Changes made:** Moved the guard to be the last statement in the file, and
+  added a comment stating *why* it must stay there, so a future append does not
+  silently recreate the same false green. Both entry points now report 147.
+- **Files affected:** `tests/test_concern_parser.py`
+- **Root cause worth noting for siblings:** appending test classes with a shell
+  heredoc (`cat >>`) lands them after any trailing `__main__` guard. t1636_3 /
+  _4 / _5 will extend this same module — check the guard is still last after
+  appending.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan, in order. `concern_parser.py`
+  gained a sibling import of `concern_dimensions` (relative-then-flat fallback,
+  matching `ansi_utils`), the `_IMPACT_ENTRY` / `_IMPACT_LIST` builders over
+  `dimensions_pipe()`, three new alternatives in `_TRAILER_SENTENCE`, per-sentence
+  extractors (`_IMPROVES_IN_TRAILER` / `_WORSENS_IN_TRAILER` /
+  `_EFFORT_IN_TRAILER` / `_IMPACT_ENTRY_PARTS`), a new `ImpactEntry` NamedTuple,
+  three appended `Concern` fields, and a `_parse_trailer` returning the 5-tuple.
+  `_TRAILER_SPAN` and `display_body()` are byte-unchanged. Tests: four new
+  classes, 25 checks.
+- **Pre-phase observation (required by the plan):**
+  `TestFiveFieldProjectionBackCompat` was written first and observed
+  **PASSING against the unmodified `concern_parser.py`** — `5 passed, 122
+  deselected` — before any parser edit. `TestWorsensIsPricedOrUnpriced` was then
+  written and observed **FAILING** (`4 failed`, `AttributeError` on `worsens`)
+  before the field shape existed, which is what proves it discriminates.
+- **Deviations from plan:** None in approach. One addition beyond the written
+  steps: `_parse_entries()` was extracted as a helper rather than inlined twice
+  in `_parse_trailer`, since the improve and worsen sides parse identically.
+- **Issues encountered:**
+  - `_TRAILER_SPAN` carries `re.IGNORECASE`, so the closed dimension alternation
+    matches case-insensitively too. `Improves: Robustness(High).` is therefore
+    *stripped from the display body*, and a naive extractor would store
+    `("Robustness", "")` — a name outside `VALID_DIMENSIONS` — describing text
+    the user can no longer see. Fixed by lower-casing the name in
+    `_parse_entries`, mirroring what the trailer already did for `disposition`
+    (`.lower()`) and `verdict` (`.upper()`). Found during plan re-verification,
+    not during coding.
+  - Post-review: the appended test classes landed *after* the module's trailing
+    `if __name__ == "__main__": unittest.main()` guard, so
+    `python3 tests/test_concern_parser.py` ran 122 tests and exited OK while
+    pytest collected 147 — a false green on the file's own direct-run entry
+    point. Guard moved to the end of the file with a comment pinning why it must
+    stay there. See Post-Review Changes above.
+- **Key decisions:**
+  - `Worsens: nothing` yields `()` *for free*: `_IMPACT_ENTRY_PARTS.finditer`
+    finds no dimension name in the literal `nothing`. The three-state
+    distinction therefore falls out of the grammar rather than needing a special
+    case.
+  - `improves` can only ever be `None` or non-empty — an empty or
+    trailing-comma entry list fails the sentence, and only `Worsens:` accepts
+    `nothing`. So `()` is a deliberate statement, never an accident of parsing.
+  - Duplicate sentences resolve **first-wins** for all five extractors, matching
+    what `Disposition:` already did. Pinned as a parameterized test rather than
+    left implicit, because the five extractors are five separate regexes at five
+    separate call sites.
+  - The permissive `Effort:\s*\w{1,16}` over-strip is recorded as an accepted
+    limit (`TestEffortOverStripIsAnAcceptedLimit`), not silently tolerated. It
+    costs display only — `build_clipboard_payload` reads `.body`, so nothing is
+    ever dropped from what the followed agent receives.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **Consumer surface for t1636_3 / _4 / _5:** `ImpactEntry(dimension,
+    magnitude)` and `Concern.improves` / `.worsens` / `.effort`. `None` vs `()`
+    on the two vector sides is load-bearing — render them differently.
+    `magnitude == ""` means *unspecified* and must render as `?`, never as `low`.
+  - The marker priority is NOT derived here: `Concern.priority` is still the
+    producer's marker value. t1636_4 should compare it against
+    `concern_dimensions.derive_priority(c.improves)` and flag a disagreement
+    rather than reconcile it silently (per `concern-format.md`).
+  - `tests/test_concern_body_display_contract.py` stayed green and **byte
+    untouched** — this change adds no new Concern-body read. Any sibling that
+    reads `.body` or `display_body()` in `monitor/` must register its ROLE there
+    or that guard fails closed.
+  - **Appending to `tests/test_concern_parser.py` with `cat >>` puts your classes
+    after the `__main__` guard.** Verify `python3 tests/test_concern_parser.py`
+    and `pytest` report the same count before you call it done.
