@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from rich.cells import cell_len, set_cell_size
 from rich.markup import escape
 from rich.text import Text
+from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED, mark_markup
 from config_utils import load_layered_config, split_config, save_project_config, save_local_config, local_path_for, task_dir
 from agent_command_screen import AgentCommandScreen, resolve_skill_profile
 from agent_launch_utils import find_terminal, spawn_in_terminal, find_window_by_name, resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, launch_or_focus_codebrowser, load_tmux_defaults, maybe_spawn_minimonitor, _lookup_window_name, tmux_window_target
@@ -2808,7 +2809,7 @@ class GroupHeader(Static):
     def set_collapsed(self, collapsed: bool) -> None:
         """Flip the glyph in place — no recompose.
 
-        The same in-place repaint idiom `_repaint_card_mark` uses for the ☑/☐:
+        The same in-place repaint idiom `_repaint_card_mark` uses for the ✓/□:
         one widget's content changes, so rebuilding the column would be pure
         waste. (Collapse itself DOES recompose, because members mount/unmount;
         this is for a header whose glyph alone is stale.)
@@ -2989,13 +2990,16 @@ class ViewSelector(Static):
 
 
 # --- Multi-select marking (t1243_6) ---
-# The t1004 checkbox convention — ☑/☐, never a dot, marked = bold yellow — which
-# monitor/monitor_shared.py records as meaning "selected for this action",
-# exactly the sense here. Rendered as a CSS-classed Label rather than Rich markup
-# because that is how .task-number / .task-modified already work in the same
-# title row.
-MARK_CHECKED = "☑"
-MARK_UNCHECKED = "☐"
+# The glyph and its colours are owned by lib/mark_glyphs.py (t1638) — this module
+# re-exports MARK_CHECKED/MARK_UNCHECKED for callers and tests, and renders via
+# mark_markup() so the colour travels with the glyph. Do NOT restate either here:
+# four independent copies of this pair is what t1638 was fixing, and
+# tests/test_mark_glyphs_single_source.py now fails on a re-fork.
+#
+# The mark keeps meaning "selected for this action", the sense
+# monitor/monitor_shared.py records. Rendered as a CSS-classed Label because that
+# is how .task-number / .task-modified already work in the same title row — but
+# the class carries LAYOUT and STATE only, never the colour; see `.task-mark`.
 
 
 class MarkedSelection:
@@ -3114,7 +3118,7 @@ class TaskCard(Static):
         with Horizontal(classes="task-title-row"):
             if self.markable:
                 marked = self._is_marked()
-                yield Label(MARK_CHECKED if marked else MARK_UNCHECKED,
+                yield Label(mark_markup(marked),
                             classes="task-mark task-marked" if marked else "task-mark")
             # Follow-up provenance gutter (t1468_3). Deliberately NOT hung off
             # the mark above: `markable=True` is set only in
@@ -7978,8 +7982,16 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     #view_indicator.viewing-plan { background: #FFB86C; color: $background; }
     #md_view { margin: 1 0; border: solid $secondary-background; }
     .task-title-row { height: auto; }
-    .task-mark { color: #6272A4; width: auto; margin: 0 1 0 0; }
-    .task-marked { color: yellow; text-style: bold; }
+    /* Layout and state ONLY — no `color:`, mirroring `.task-followup-glyph`
+       below. The colour is Rich markup from `mark_glyphs.mark_markup()`; a
+       `color:` here would be a second authority that CSS cannot keep in sync
+       with the Python constant, and CSS cannot express the glyph at all, so the
+       two halves of one mark would live in two files. `.task-marked` survives
+       as a STATE HOOK with no declarations — `_repaint_card_mark` and the tests
+       key off it. (t1638; the `color: yellow` this replaces resolved to
+       #ffff00, which was not the Dracula yellow the other surfaces intended.) */
+    .task-mark { width: auto; margin: 0 1 0 0; }
+    .task-marked { }
     /* Layout ONLY — no `color:`, and no per-kind classes. The colour is a
        literal Rich style from FOLLOWUP_KINDS (see `_followup_marker`); a
        `.fk-<kind>` rule here would be a second authority that CSS cannot keep
@@ -10178,7 +10190,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         return isinstance(self.screen, ModalScreen)
 
     def _repaint_card_mark(self, card) -> None:
-        """Repaint ONE card's ☑/☐ in place — no recompose, no board-wide query.
+        """Repaint ONE card's ✓/□ in place — no recompose, no board-wide query.
 
         Scoped to the card's own subtree deliberately: t1243_4 measured a
         whole-board `query(TaskCard)` at ~6.8 ms, and exactly one card changes
@@ -10190,7 +10202,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             return
         marked = card.task_data.filename in self.marked
         label = labels.first()
-        label.update(MARK_CHECKED if marked else MARK_UNCHECKED)
+        label.update(mark_markup(marked))
         label.set_class(marked, "task-marked")
 
     def action_toggle_mark(self) -> None:

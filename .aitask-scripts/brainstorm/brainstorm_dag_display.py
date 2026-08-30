@@ -14,6 +14,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
+from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED, rich_mark_style  # noqa: E402
+
 from textual import events
 from textual.binding import Binding
 from textual.containers import VerticalScroll
@@ -55,14 +57,19 @@ NODE_ID_STYLE = Style(bold=True)
 DESC_STYLE = Style(color="#F8F8F2")
 EDGE_STYLE = Style(color="#6272A4")
 
-# Space-marked state (t1004): a checkbox glyph in each node-box title row,
-# mirroring the list-view NodeRow glyph so the graph and list Browse views show
-# selection marks consistently. ☑ when marked (bold yellow, matches the list),
-# ☐ when not (dim) — shown on every node box.
-MARK_CHECKED = "☑"    # ☑
-MARK_UNCHECKED = "☐"  # ☐
-MARK_CHECKED_STYLE = Style(color="yellow", bold=True)
-MARK_UNCHECKED_STYLE = Style(color="#6272A4")
+# Space-marked state (t1004): a mark glyph in each node-box title row, mirroring
+# the list-view NodeRow glyph so the graph and list Browse views show selection
+# marks consistently — shown on every node box. The glyph and its colours are
+# owned by lib/mark_glyphs.py (t1638); do not restate them here.
+#
+# Named *_RICH_STYLE rather than *_STYLE because these are `rich.style.Style`
+# OBJECTS, while mark_glyphs.MARK_CHECKED_STYLE is a markup STRING — one name
+# for two types, in modules that now sit in the same import block, is exactly
+# the confusion this rename avoids. This is also the only surface that renders
+# the mark through Rich rather than Textual, which is why it painted #808000
+# (Rich's ANSI-3 olive for `yellow`) while every other surface painted #FFFF00.
+MARK_CHECKED_RICH_STYLE = rich_mark_style(True)
+MARK_UNCHECKED_RICH_STYLE = rich_mark_style(False)
 
 # Operation badge colors (Dracula palette).
 OP_BADGE_STYLES = {
@@ -235,7 +242,7 @@ def _render_node_box(
     Returns NODE_ROWS lines: top border, title, op badge, description,
     bottom border. ``operation`` is the originating op name; falsy values
     render a blank badge row (legacy sessions). ``is_marked`` draws a checkbox
-    glyph (``☑``/``☐``) in the title row, matching the list-view mark (t1004).
+    glyph (``✓``/``□``) in the title row, matching the list-view mark (t1004).
     """
     inner_w = BOX_WIDTH - 2  # inside the borders
     if is_anchor:
@@ -263,13 +270,13 @@ def _render_node_box(
     border_str = "+" + "-" * inner_w + "+"
     lines.append(Text(border_str, style=border_style + bg))
 
-    # Row 1: title | ☑ n001  HEAD       |  (checkbox always shown, t1004)
+    # Row 1: title | ✓ n001  HEAD       |  (mark always shown, t1004)
     t = Text()
     t.append("|", style=border_style + bg)
     inner = Text()
-    mark_glyph = MARK_CHECKED if is_marked else MARK_UNCHECKED
-    mark_style = MARK_CHECKED_STYLE if is_marked else MARK_UNCHECKED_STYLE
-    inner.append(mark_glyph + " ", style=mark_style + bg)
+    glyph = MARK_CHECKED if is_marked else MARK_UNCHECKED
+    glyph_style = MARK_CHECKED_RICH_STYLE if is_marked else MARK_UNCHECKED_RICH_STYLE
+    inner.append(glyph + " ", style=glyph_style + bg)
     inner.append(node_id, style=NODE_ID_STYLE + bg)
     if is_head:
         inner.append(" HEAD", style=HEAD_TAG_STYLE + bg)
@@ -646,7 +653,7 @@ class DAGDisplay(VerticalScroll):
 
         The app's ``NodeSelection.marked`` is the source of truth; this widget
         holds a copy, pushed from ``_refresh_node_marks``, so the graph view
-        mirrors the list-view ``☑``/``☐`` glyph. Stores a copy to avoid aliasing
+        mirrors the list-view ``✓``/``□`` glyph. Stores a copy to avoid aliasing
         the live selection set; skips the repaint when no DAG is loaded yet.
         ``_marked`` survives a ``load_dag`` rebuild, so marks persist across
         reloads (e.g. a HEAD change) automatically."""

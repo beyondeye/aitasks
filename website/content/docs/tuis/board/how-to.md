@@ -71,7 +71,7 @@ Marking selects a set of tasks for a bulk operation.
 1. Focus a parent task card
 2. Press **Space** to mark it, and **Space** again to unmark
 
-Every parent card carries a mark glyph at the start of its title row — **☑** when marked, **☐** when not — so the column is always present and rows never shift as you toggle. Marked cards are drawn in bold yellow.
+Every parent card carries a mark glyph at the start of its title row — **✓** when marked, **□** when not — so the column is always present and rows never shift as you toggle. Marked cards are drawn in bold Dracula yellow (`#F1FA8C`).
 
 Only parent cards can be marked. Pressing **Space** on a child says so rather than doing nothing silently:
 

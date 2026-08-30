@@ -2,7 +2,7 @@
 
 Exercises ConcernPickerModal's pure-UI contract (no clipboard backend):
 - N concerns render as N focusable rows, first focused;
-- space toggles a row's selection (☐ ↔ ☑);
+- space toggles a row's selection (□ ↔ ✓, from lib/mark_glyphs.py);
 - ``a`` selects all / deselects all;
 - OK / Enter dismiss with exactly the selected Concerns, in order;
 - ``A`` (copy ALL) dismisses with every concern regardless of toggles;
@@ -25,6 +25,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "board"))
+
+from mark_glyphs import MARK_CHECKED, MARK_UNCHECKED  # noqa: E402
 
 from textual.app import App, ComposeResult  # noqa: E402
 from textual.widgets import Label, TextArea  # noqa: E402
@@ -174,17 +176,17 @@ class ConcernPickerModalTests(unittest.TestCase):
                 await pilot.pause()
                 row = list(app.screen.query(_ConcernRow))[0]
                 self.assertFalse(row.selected)
-                self.assertIn("☐", row.render())
+                self.assertIn(MARK_UNCHECKED, row.render())
 
                 await pilot.press("space")
                 await pilot.pause()
                 self.assertTrue(row.selected)
-                self.assertIn("☑", row.render())
+                self.assertIn(MARK_CHECKED, row.render())
 
                 await pilot.press("space")
                 await pilot.pause()
                 self.assertFalse(row.selected)
-                self.assertIn("☐", row.render())
+                self.assertIn(MARK_UNCHECKED, row.render())
 
         self._run(runner())
 
@@ -205,7 +207,7 @@ class ConcernPickerModalTests(unittest.TestCase):
                 await pilot.press("r")
                 await pilot.pause()
                 self.assertEqual(row.state, "none")
-                self.assertIn("☐", row.render())
+                self.assertIn(MARK_UNCHECKED, row.render())
                 self.assertNotIn("rejected", row.classes)
 
         self._run(runner())
@@ -231,7 +233,7 @@ class ConcernPickerModalTests(unittest.TestCase):
                 await pilot.pause()
                 self.assertEqual(row.state, "none")
                 self.assertFalse(row.spun_off)
-                self.assertIn("☐", row.render())
+                self.assertIn(MARK_UNCHECKED, row.render())
 
         self._run(runner())
 
@@ -245,10 +247,10 @@ class ConcernPickerModalTests(unittest.TestCase):
                 row = list(app.screen.query(_ConcernRow))[0]
 
                 for key, state, glyph in (
-                    ("space", "forward", "☑"),
+                    ("space", "forward", MARK_CHECKED),
                     ("r", "rejected", "✗"),
                     ("t", "spinoff", "»"),
-                    ("space", "forward", "☑"),
+                    ("space", "forward", MARK_CHECKED),
                     ("t", "spinoff", "»"),
                     ("r", "rejected", "✗"),
                 ):
@@ -257,7 +259,7 @@ class ConcernPickerModalTests(unittest.TestCase):
                     self.assertEqual(row.state, state)
                     rendered = row.render()
                     self.assertIn(glyph, rendered)
-                    for other in ("☑", "✗", "»"):
+                    for other in (MARK_CHECKED, "✗", "»"):
                         if other != glyph:
                             self.assertNotIn(other, rendered)
 
@@ -325,21 +327,28 @@ class ConcernPickerModalTests(unittest.TestCase):
                 self.assertEqual(row.state, "rejected")
                 self.assertFalse(row.selected)
                 self.assertIn("✗", row.render())
-                self.assertNotIn("☑", row.render())
+                self.assertNotIn(MARK_CHECKED, row.render())
 
                 # and back the other way
                 await pilot.press("space")
                 await pilot.pause()
                 self.assertEqual(row.state, "forward")
                 self.assertFalse(row.rejected)
-                self.assertIn("☑", row.render())
+                self.assertIn(MARK_CHECKED, row.render())
                 self.assertNotIn("✗", row.render())
 
         self._run(runner())
 
     def test_every_mark_is_single_width(self):
         """_NARROW_PREFIX_COLS budgets the prefix in COLUMNS, so a double-width
-        glyph would silently eat region text at the widths with none to spare."""
+        glyph would silently eat region text at the widths with none to spare.
+
+        Kept covering all four marks even though the two mark_glyphs ones are
+        also pinned by tests/test_mark_glyphs_single_source.py: the subject here
+        is the _CONCERN_MARKS dict as this modal consumes it, and dropping half
+        of it would leave `✗` and `»` as the only glyphs checked against a budget
+        that all four spend from.
+        """
         import unicodedata
         for state, markup in monitor_shared._CONCERN_MARKS.items():
             glyph = re.sub(r"\[/?[^\]]*\]", "", markup)

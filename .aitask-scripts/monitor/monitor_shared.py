@@ -23,6 +23,9 @@ import agent_marks  # noqa: E402
 # The ONE authority for follow-up glyphs and colours (t1468_1), shared with the
 # board's card marker — imported, never mirrored (t1468_5).
 from followup_kinds import marker_for  # noqa: E402
+# The ONE authority for the multi-select mark glyph and its colours (t1638),
+# shared with the board and both brainstorm views — imported, never mirrored.
+from mark_glyphs import mark_markup  # noqa: E402
 
 # `PaneSnapshot` + the task-context symbols moved to monitor_core (t822_6);
 # re-exported here so `from monitor.monitor_shared import TaskInfo, …` keeps
@@ -201,8 +204,17 @@ def format_shadow_glyph(
 
 # Prioritized-agent mark (t1326): the user's own durable annotation, shaped
 # distinctly from ● (live state) and ◆ (shadow state) so the row still reads at
-# a glance. ☑/☐ was rejected — it already means "selected for this action" in
-# ConcernPickerModal further down this module.
+# a glance. The multi-select mark pair (lib/mark_glyphs.py, ✓/□ since t1638 —
+# ☑/☐ before it) was rejected here: it already means "selected for this action"
+# in ConcernPickerModal further down this module. That separation is the point,
+# so this pair is NOT sourced from mark_glyphs.
+#
+# KNOWN COVERAGE GAP, deliberately deferred (t1638): neither U+2605 nor U+2606
+# is covered by any font in mark_glyphs.SUPPORTED_FONTS, so both resolve by
+# fallback. Unlike ☑ they are not emoji-capable, so they still honour the
+# requested foreground and are NOT broken today — which is why t1638 changed the
+# selection mark and left this one alone. Re-evaluate if rendering trouble
+# appears; see the follow-up task recorded in the t1638 plan.
 MARK_GLYPH = "★"        # prioritized
 MARK_EMPTY_GLYPH = "☆"  # not prioritized
 
@@ -212,7 +224,7 @@ def format_mark_glyph(marked: bool) -> str:
 
     Unlike :func:`format_shadow_glyph`, this NEVER returns ``""`` — the pair is
     always-on by explicit decision (the t1004 convention, cf. the board's and
-    brainstorm's ☑/☐), so an unmarked agent reads as *deliberately unmarked*
+    brainstorm's ✓/□), so an unmarked agent reads as *deliberately unmarked*
     rather than as a row that forgot to render one. That costs two columns on
     every row, which is paid for in the minimonitor by a shorter name budget.
 
@@ -2622,8 +2634,8 @@ def parse_rejected_machine_lines(out: str) -> list[RejectedEntry]:
 #: none to spare. `»` (U+00BB) is East-Asian-Width *Ambiguous*, i.e. width 1
 #: outside CJK locales — the same class as the three glyphs above it.
 _CONCERN_MARKS = {
-    "none": "☐",
-    "forward": "[bold yellow]☑[/]",
+    "none": mark_markup(False),
+    "forward": mark_markup(True),
     "rejected": "[red]✗[/]",
     "spinoff": "[bold cyan]»[/]",
 }
@@ -2640,8 +2652,9 @@ class _ConcernRow(Static):
     Holds one ``Concern``, its ``original_index`` in the modal's input list, and a
     **mutually exclusive** disposition in
     ``{"none", "forward", "rejected", "spinoff"}`` (t1427_2; ``spinoff`` added
-    t1159_3). The checkbox glyph follows the t1004 convention (☑/☐, never a dot;
-    marked = bold yellow); rejection adds a red ``✗`` and spin-off a cyan ``»``.
+    t1159_3). The mark glyph follows the t1004 convention, sourced from
+    ``lib/mark_glyphs.py`` (✓/□, never a dot — t1638); rejection adds a red
+    ``✗`` and spin-off a cyan ``»``.
     Navigation mirrors ``_SiblingRow``; ``space`` toggles *forward*, ``r``
     toggles *rejected* and ``t`` toggles *spinoff* — setting any one clears the
     others, so a concern can never carry two dispositions at once (``enter``
@@ -2651,7 +2664,7 @@ class _ConcernRow(Static):
     still describes the narrow layout's prefix budget.
 
     **Two layouts (t1274).** The wide variant is one line,
-    ``☐ BADGE region body``. The narrow variant — the minimonitor companion pane,
+    ``□ BADGE region body``. The narrow variant — the minimonitor companion pane,
     where the laid-out row gets ~28 columns — is **two** lines, region on the
     first and body on the second. One line does not fit there: Rich's fold drops
     an overflowing segment whole rather than truncating it, so a region past ~19
@@ -3193,7 +3206,9 @@ class _RejectedRow(Static):
     """A focusable, toggleable row of :class:`RejectedStoreModal` (t1427_2).
 
     ``space`` marks the entry for **un-rejection**; the mark follows the same
-    t1004 convention as ``_ConcernRow`` (☑/☐, marked = bold yellow). Navigation
+    t1004 convention as ``_ConcernRow``, sourced from ``lib/mark_glyphs.py``
+    (t1638) — its unmarked state was bare/unstyled before t1638 and is now dim
+    like every other surface. Navigation
     mirrors ``_ConcernRow._focus_neighbor``.
 
     Rendered with ``markup=False`` semantics: the marker line is escaped before
@@ -3241,7 +3256,7 @@ class _RejectedRow(Static):
         self.refresh()
 
     def render(self) -> str:
-        mark = "[bold yellow]☑[/]" if self._marked else "☐"
+        mark = mark_markup(self._marked)
         meta = escape(f"{self._entry.id} · {self._entry.producer}")
         return f"{mark}  [dim]{meta}[/]\n   {escape(self._entry.marker_line)}"
 

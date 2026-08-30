@@ -96,7 +96,7 @@ In graph view each node is a five-row box:
 
 ```
 ┌──────────────────────────┐  ← top border (green = HEAD, orange = anchor)
-│ n003  ☑                  │  ← node id + selection checkbox (☑ marked / ☐ not)
+│ n003  ✓                  │  ← node id + selection checkbox (✓ marked / □ not)
 │ explore                  │  ← operation badge (color-coded, see below)
 │ Variant: cache-first …   │  ← one-line description
 └──────────────────────────┘  ← bottom border

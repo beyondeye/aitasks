@@ -6,6 +6,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
 
+from mark_glyphs import mark_markup  # noqa: E402
+
 from pathlib import Path
 from numbered_source_view import NumberedSourceView
 from textual.app import ComposeResult
@@ -397,7 +399,8 @@ class NodeRow(Static):
 
     # Space-marked state (t983_3): reflects membership in the Browse
     # NodeSelection.marked set. Reactive so toggling it re-renders the checkbox
-    # glyph (☑/☐, shared with the graph-view DAG boxes — t1004).
+    # glyph (✓/□, from lib/mark_glyphs.py — t1004, t1638; shared with the
+    # graph-view DAG boxes).
     marked = reactive(False)
 
     class OperationOpened(Message):
@@ -416,7 +419,7 @@ class NodeRow(Static):
 
     def render(self) -> str:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
-        mark = "[bold yellow]☑[/] " if self.marked else "[#6272A4]☐[/] "
+        mark = f"{mark_markup(self.marked)} "
         return (
             f"{mark}[bold]{self.node_id}[/]{head_marker}  "
             f"{self.node_description}"

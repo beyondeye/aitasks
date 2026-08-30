@@ -1,7 +1,7 @@
 """Multi-select marking on the board (t1243_6).
 
 `space` toggles a mark on the focused parent card; the mark renders as the t1004
-`☑`/`☐` glyph and lives in an app-level `MarkedSelection` keyed by task filename.
+`✓`/`□` glyph and lives in an app-level `MarkedSelection` keyed by task filename.
 This is the selection primitive t1243_7 (`m` move-to-column) and t1243_12 (`G`
 group membership) both consume.
 
@@ -187,7 +187,7 @@ class MarkGlyphRenderTests(_BoardMarkTestBase, unittest.TestCase):
                 self.assertEqual(label.render().plain, self.MARK_CHECKED)
                 self.assertNotIn(self.MARK_UNCHECKED, label.render().plain)
                 self.assertIn("task-marked", label.classes,
-                              "the marked glyph must carry the bold-yellow class")
+                              "the marked glyph must carry the marked-state class")
                 self.assertIn(PARENT, app.marked)
 
                 await pilot.press("space")

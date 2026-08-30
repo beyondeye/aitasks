@@ -903,7 +903,7 @@ rules live there and are not repeated here. What matters at this level:
 ### Spin-off triage arm
 
 The picker's fourth disposition. `t` marks the focused concern `»` — *keep this,
-but as its own task* — mutually exclusive with forward (`☑`) and reject (`✗`).
+but as its own task* — mutually exclusive with forward (`✓`) and reject (`✗`).
 Unlike a rejection the row is **not** dimmed: the concern is being kept, just
 elsewhere. It is the anti-bloat answer to a plan absorbing every secondary
 concern across rounds.

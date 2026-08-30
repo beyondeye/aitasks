@@ -1,9 +1,16 @@
 """Tests for the DAG node-box space-marked checkbox glyph (t1004).
 
 t983_3 wired space-marking into NodeSelection.marked and reflected it on the
-list-view NodeRow glyph only; t1004 renders the same checkbox (☑/☐) on the
-graph-view DAG node boxes so both Browse views agree. These cover
+list-view NodeRow glyph only; t1004 renders the same mark (✓/□ since t1638) on
+the graph-view DAG node boxes so both Browse views agree. These cover
 _render_node_box's title-row glyph and _render_layer's marked_ids threading.
+
+The glyph and its colours moved to lib/mark_glyphs.py in t1638, so everything
+here derives from that authority — including the colour, which is now an
+explicit hex. It had to be: this is the only surface that renders the mark
+through Rich, and Rich resolves the bare name `yellow` to #808000 (ANSI-3 olive)
+while Textual resolves it to #FFFF00, so the DAG box had been painting a
+different colour from every other mark in the repo.
 """
 
 from __future__ import annotations
@@ -14,25 +21,33 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
+sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts" / "lib"))
+
+from mark_glyphs import MARK_CHECKED_COLOUR  # noqa: E402
 
 from brainstorm.brainstorm_dag_display import (  # noqa: E402
     BOX_WIDTH,
     COL_STRIDE,
     MARK_CHECKED,
-    MARK_CHECKED_STYLE,
+    MARK_CHECKED_RICH_STYLE,
     MARK_UNCHECKED,
     _render_layer,
     _render_node_box,
 )
 
 
-def _has_bold_yellow_span(text) -> bool:
-    """True if any span carries a bold-yellow style (the ☑ glyph style)."""
+def _has_bold_colour_span(text, colour: str) -> bool:
+    """True if any span carries a bold style in `colour` (the ✓ glyph style).
+
+    Parameterised on the colour rather than hard-coding one: the authority owns
+    that value, and a helper pinning its own would be a second authority in the
+    very test that exists to stop them multiplying.
+    """
     for s in text.spans:
         st = s.style
         if st and getattr(st, "bold", False):
             col = getattr(st, "color", None)
-            if col is not None and getattr(col, "name", "") == "yellow":
+            if col is not None and getattr(col, "name", "") == colour.lower():
                 return True
     return False
 
@@ -66,15 +81,19 @@ class TestRenderNodeBoxMark(unittest.TestCase):
                             f"{row.plain!r}",
                         )
 
-    def test_checked_glyph_is_bold_yellow(self):
+    def test_checked_glyph_carries_the_ratified_colour(self):
         rows = _render_node_box("n001_x", "desc", False, False, is_marked=True)
         self.assertTrue(
-            _has_bold_yellow_span(rows[1]),
-            "expected a bold-yellow span for the ☑ glyph",
+            _has_bold_colour_span(rows[1], MARK_CHECKED_COLOUR),
+            f"expected a bold {MARK_CHECKED_COLOUR} span for the "
+            f"{MARK_CHECKED} glyph",
         )
-        # And the constant itself is bold yellow.
-        self.assertTrue(MARK_CHECKED_STYLE.bold)
-        self.assertEqual(MARK_CHECKED_STYLE.color.name, "yellow")
+        # And the constant itself carries bold + the ratified colour. For a hex,
+        # `Style.color.name` round-trips as the lowercased hex string.
+        self.assertTrue(MARK_CHECKED_RICH_STYLE.bold)
+        self.assertEqual(
+            MARK_CHECKED_RICH_STYLE.color.name, MARK_CHECKED_COLOUR.lower()
+        )
 
 
 class TestRenderLayerMark(unittest.TestCase):

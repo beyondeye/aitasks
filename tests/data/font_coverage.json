@@ -1,0 +1,44 @@
+{
+  "coverage": {
+    "25A1": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
+    "2605": {
+      "CaskaydiaMono Nerd Font": false,
+      "JetBrainsMono Nerd Font": false
+    },
+    "2606": {
+      "CaskaydiaMono Nerd Font": false,
+      "JetBrainsMono Nerd Font": false
+    },
+    "2610": {
+      "CaskaydiaMono Nerd Font": false,
+      "JetBrainsMono Nerd Font": false
+    },
+    "2611": {
+      "CaskaydiaMono Nerd Font": false,
+      "JetBrainsMono Nerd Font": false
+    },
+    "2713": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
+    "2714": {
+      "CaskaydiaMono Nerd Font": false,
+      "JetBrainsMono Nerd Font": true
+    }
+  },
+  "fonts": {
+    "CaskaydiaMono Nerd Font": {
+      "file": "/usr/share/fonts/TTF/CaskaydiaMonoNerdFont-Regular.ttf",
+      "version": "Version 2407.024; ttfautohint (v1.8.4);Nerd Fonts 3.5.1"
+    },
+    "JetBrainsMono Nerd Font": {
+      "file": "/usr/share/fonts/TTF/JetBrainsMonoNerdFont-Regular.ttf",
+      "version": "Version 2.304; ttfautohint (v1.8.4.7-5d5b);Nerd Fonts 3.5.0"
+    }
+  },
+  "generated_by": "tests/tools/regen_font_coverage.py",
+  "note": "Read from each font's cmap table, NOT from fc-list \u2014 see the generator's docstring. Rejected codepoints are recorded on purpose so the manifest can be shown to discriminate."
+}

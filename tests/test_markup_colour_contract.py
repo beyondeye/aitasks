@@ -65,6 +65,16 @@ from monitor.monitor_shared import (  # noqa: E402
 from monitor.monitor_core import (  # noqa: E402
     PaneCategory, PaneSnapshot, TmuxPaneInfo,
 )
+
+from mark_glyphs import (  # noqa: E402
+    MARK_CHECKED, MARK_CHECKED_COLOUR, MARK_CHECKED_STYLE,
+    MARK_UNCHECKED, MARK_UNCHECKED_COLOUR, MARK_UNCHECKED_STYLE,
+    mark_markup,
+)
+import monitor.monitor_shared as ms  # noqa: E402
+from brainstorm.widgets import NodeRow  # noqa: E402
+from monitor.concern_parser import Concern  # noqa: E402
+from brainstorm.brainstorm_dag_display import _render_node_box  # noqa: E402
 from brainstorm.widgets import OperationRow  # noqa: E402
 
 #: Payload of an unstyled reference run, and of a styled one. Distinct ASCII so
@@ -222,6 +232,38 @@ class RatifiedStylesTests(unittest.TestCase):
         """
         self.assertTrue(TUI_RUNNING_STYLE.startswith("#"))
         self.assertNotIn("ansi", TUI_RUNNING_STYLE)
+
+    # --- the multi-select mark (t1638) ----------------------------------
+
+    def test_the_mark_colours_are_the_ratified_values(self):
+        self.assertEqual(MARK_CHECKED_COLOUR, "#F1FA8C")
+        self.assertEqual(MARK_UNCHECKED_COLOUR, "#6272A4")
+
+    def test_the_mark_colours_are_hex_not_palette_names(self):
+        """The bare name `yellow` is not merely theme-dependent here, it was
+        actively wrong: Rich resolves it to #808000 (ANSI-3 olive) and Textual
+        to #FFFF00, so the DAG's Rich `Style` had been painting a different
+        colour from the three Textual-markup marks ever since t1004."""
+        for value in (MARK_CHECKED_COLOUR, MARK_UNCHECKED_COLOUR):
+            self.assertTrue(value.startswith("#"), value)
+            self.assertNotIn("ansi", value.lower())
+
+    def test_the_mark_colours_match_the_board_palette(self):
+        """Provenance pin. `mark_glyphs` restates the hexes rather than indexing
+        into PALETTE_COLORS — a user-facing picker whose ORDER is presentation —
+        so the agreement is asserted rather than coupled."""
+        from board_columns import PALETTE_COLORS
+
+        self.assertIn((MARK_CHECKED_COLOUR, "Yellow"), PALETTE_COLORS)
+        self.assertIn((MARK_UNCHECKED_COLOUR, "Gray"), PALETTE_COLORS)
+
+    def test_the_state_ladder_keeps_its_bare_ansi_names(self):
+        """t1638 hexed the MARK colours; it did NOT adopt a blanket no-ANSI
+        rule. These stay names by decision — repainting the state ladder would
+        change the meaning of every agent dot, which is a different change."""
+        self.assertEqual(STATE_STYLE_IDLE, "yellow")
+        self.assertEqual(STATE_STYLE_ACTIVE, "green")
+        self.assertEqual(TUI_KEY_HINT_STYLE, "bold cyan")
 
     def test_disabled_operation_row_is_dim_and_struck(self):
         """The disabled row has no named constant; ratify the markup itself."""
@@ -614,6 +656,150 @@ class RichConsumedSitePins(unittest.TestCase):
         """
         colours = self._painted(lambda: RichText("ZZTOP", style="bright_cyan"))
         self.assertEqual(colours["ZZTOP"], colours[_REF_PLAIN])
+
+
+class MarkPaintingTests(_CompositedCase):
+    """The multi-select mark, composited — every surface that renders it (t1638).
+
+    Asserting only on `mark_markup()` would prove the helper paints while
+    leaving each call site unverified, and the call sites are where the four
+    independent copies used to live. `_RejectedRow` matters most: its unmarked
+    state was a bare unstyled glyph before t1638, so it is the one surface whose
+    rendering actually changes.
+    """
+
+    def _run(self, markups, reference_style: str) -> dict[str, str]:
+        result: dict[str, str] = {}
+
+        async def runner():
+            app = _MarkupHost(list(markups), reference_style)
+            async with app.run_test(size=(80, 16)) as pilot:
+                await pilot.pause()
+                result.update(painted(app))
+
+        asyncio.run(runner())
+        return result
+
+    # --- the helper ------------------------------------------------------
+
+    def test_the_checked_mark_paints_the_checked_colour(self):
+        colours = self._run([mark_markup(True)], MARK_CHECKED_STYLE)
+        self.assert_painted_with(colours, MARK_CHECKED, "mark_markup(True)")
+
+    def test_the_unchecked_mark_paints_the_unchecked_colour(self):
+        colours = self._run([mark_markup(False)], MARK_UNCHECKED_STYLE)
+        self.assert_painted_with(colours, MARK_UNCHECKED, "mark_markup(False)")
+
+    def test_both_marks_composite_and_are_distinguishable(self):
+        """AC 4, and the literal t1638 user-visible failure: the CHECKED mark
+        reached the compositor and painted as if it carried no style at all."""
+        colours = self._run(
+            [mark_markup(True), mark_markup(False)], MARK_CHECKED_STYLE
+        )
+        self.assertIn(MARK_CHECKED, colours)
+        self.assertIn(MARK_UNCHECKED, colours)
+        self.assertNotEqual(
+            colours[MARK_CHECKED], colours[MARK_UNCHECKED],
+            "the two mark states paint the same colour — indistinguishable",
+        )
+        self.assertNotEqual(
+            colours[MARK_CHECKED], colours[_REF_PLAIN],
+            "the checked mark paints as unstyled text — the t1638 signature",
+        )
+        self.assertNotEqual(
+            colours[MARK_UNCHECKED], colours[_REF_PLAIN],
+            "the unchecked mark paints as unstyled text",
+        )
+
+    def test_the_checked_mark_keeps_its_bold(self):
+        """A dropped attribute is half the t1453 defect signature."""
+        result: dict[str, object] = {}
+
+        async def runner():
+            app = _MarkupHost([mark_markup(True)], MARK_CHECKED_STYLE)
+            async with app.run_test(size=(80, 16)) as pilot:
+                await pilot.pause()
+                result.update(styles_of(app))
+
+        asyncio.run(runner())
+        self.assertTrue(result[MARK_CHECKED].bold)
+
+    # --- the production surfaces -----------------------------------------
+
+    def test_the_brainstorm_node_row_paints_the_canonical_mark(self):
+        marked, unmarked = NodeRow("n001", "desc"), NodeRow("n002", "desc")
+        marked.marked = True
+        colours = self._run(
+            [marked.render(), unmarked.render()], MARK_CHECKED_STYLE
+        )
+        self.assert_painted_with(colours, MARK_CHECKED, "NodeRow.render(marked)")
+        self.assertNotEqual(colours[MARK_CHECKED], colours[MARK_UNCHECKED])
+
+    def test_the_concern_row_marks_paint_the_canonical_mark(self):
+        """Driven through the real widget, not the `_CONCERN_MARKS` dict: the
+        dict is what the row consumes, but the row is what the user sees."""
+        forwarded = ms._ConcernRow(Concern("high", "region", "body"))
+        # The row owns its own quad-state; the Concern's `disposition` field is
+        # not read at construction. Set the state the row actually renders from.
+        forwarded._state = "forward"
+        plain = ms._ConcernRow(Concern("low", "otherregion", "body"))
+        colours = self._run(
+            [forwarded.render(), plain.render()], MARK_CHECKED_STYLE
+        )
+        self.assert_painted_with(
+            colours, MARK_CHECKED, "_ConcernRow.render(forward)"
+        )
+        self.assertNotEqual(colours[MARK_CHECKED], colours[MARK_UNCHECKED])
+
+    def test_the_rejected_row_marks_paint_the_canonical_mark(self):
+        """The surface whose rendering CHANGES: its unmarked mark was a bare
+        unstyled glyph before t1638 and is now dim like every other surface.
+
+        Driven through the real `render()` for exactly that reason — a test
+        against `mark_markup()` would have passed just as well before the fix,
+        because the helper was never the broken half.
+        """
+        entry = ms.RejectedEntry("r1", "2026-08-30T00:00:00", "shadow",
+                                 "- [high | region] body")
+        marked = ms._RejectedRow(entry)
+        marked._marked = True
+        unmarked = ms._RejectedRow(entry)
+        colours = self._run(
+            [marked.render(), unmarked.render()], MARK_UNCHECKED_STYLE
+        )
+        self.assert_painted_with(
+            colours, MARK_UNCHECKED, "_RejectedRow.render(unmarked)"
+        )
+        self.assertNotEqual(
+            colours[MARK_UNCHECKED], colours[_REF_PLAIN],
+            "the unmarked rejected-row mark is still unstyled — the divergence "
+            "t1638 removed has come back",
+        )
+        self.assertNotEqual(colours[MARK_CHECKED], colours[MARK_UNCHECKED])
+
+    def test_the_dag_node_box_paints_the_canonical_mark(self):
+        """The Rich `Style` path — the one surface that painted #808000 olive
+        while every other mark painted #FFFF00."""
+        marked = _render_node_box("n001", "desc", False, False, is_marked=True)[1]
+        unmarked = _render_node_box("n002", "desc", False, False)[1]
+        colours = self._run([marked, unmarked], MARK_CHECKED_STYLE)
+        self.assert_painted_with(colours, MARK_CHECKED, "_render_node_box(marked)")
+        self.assertNotEqual(colours[MARK_CHECKED], colours[MARK_UNCHECKED])
+
+    # --- negative control -------------------------------------------------
+
+    def test_the_harness_detects_an_inert_style(self):
+        """Without this every assertion in this class is potentially vacuous.
+
+        `notacolour` behaves exactly as a Rich-only style name does under
+        Textual: the span keeps the string and the compositor paints the
+        default, which is the failure mode `assert_painted_with` exists to
+        catch. If this does NOT raise, the harness cannot see one.
+        """
+        colours = self._run([f"[bold notacolour]{MARK_CHECKED}[/]"],
+                            "bold notacolour")
+        with self.assertRaises(AssertionError):
+            self.assert_painted_with(colours, MARK_CHECKED, "negative control")
 
 
 if __name__ == "__main__":

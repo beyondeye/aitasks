@@ -54,7 +54,7 @@ depth: [advanced]
 | `n` | Create a new task | Board |
 | `x` | Toggle expand/collapse child tasks | Board (parent or child card) |
 | `x` | Expand / collapse the focused task group | Board (focused group header) |
-| `Space` | Mark / unmark the focused task (`☑` / `☐`) | Board (parent cards only; hidden in In-Flight, By-Topic and By-Trail views) |
+| `Space` | Mark / unmark the focused task (`✓` / `□`) | Board (parent cards only; hidden in In-Flight, By-Topic and By-Trail views) |
 | `c` | Commit focused modified task | Board (shown when task is modified) |
 | `C` | Commit all modified tasks | Board (shown when any task is modified; hidden in By-Trail view) |
 | `p` | Pick the focused task (start implementation) | Board (context-dependent — shown when task is pickable) |
@@ -95,7 +95,7 @@ depth: [advanced]
 
 ```
 ┌─────────────────────────────────┐  ← Border color = priority
-│ ▲ ☐ t47 *  playlists support    │  ← Follow-up glyph (only on follow-up tasks), mark (☑ marked / ☐ unmarked), task number (cyan), * if modified (orange), title (bold)
+│ ▲ □ t47 *  playlists support    │  ← Follow-up glyph (only on follow-up tasks), mark (✓ marked / □ unmarked), task number (cyan), * if modified (orange), title (bold)
 │ 💪 medium | 🏷️ ui,api | GH | PR:GH | @alice │  ← Effort, labels, issue/PR indicator, contributor
 │ 🔒 alice@example.com            │  ← Lock indicator (if locked)
 │ 🚫 blocked | 👤 alice           │  ← Status/blocked, assigned to
