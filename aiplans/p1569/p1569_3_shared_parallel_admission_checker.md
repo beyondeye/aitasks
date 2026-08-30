@@ -1049,3 +1049,228 @@ Post-implementation cleanup, archival and merge are handled by **Step 9
 - timing: post-phase | name: vocabulary_exhaustiveness_guard | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: widened vocabularies degrading silently downstream | desc: Drive every closed-vocabulary assertion from lib/parallel_admission_vocab.py — reason round-trip with shape validation, an AST scan proving no reason literal bypasses format_reason, and a drift guard pinning the codes imported from t1569_1.
 - timing: after | name: threshold_sensitivity_replay | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: threshold and availability rates resting on one snapshot | desc: Re-run replay at hub thresholds 8/10/20/50 over the live corpus, recording precision, recall of CONFLICT u CLEAR_CAVEATED, and the CAUSE_RATE histogram as t1569_4's entry criterion.
 - timing: post-phase | name: clear_wording_pin | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: observation-not-reservation guarantee drifting | desc: Assert the DISPLAY line contains "no known conflict at check time" and never the substring "safe to run in parallel".
+
+---
+
+## Final Implementation Notes
+
+### What landed
+
+| file | role | pure? |
+|---|---|---|
+| `.aitask-scripts/lib/parallel_admission_vocab.py` | the reason/enum table, `format_reason` / `parse_reason`, `encode_path` | yes |
+| `.aitask-scripts/lib/parallel_admission.py` | dataclasses, `tier`, `decide`, `render`, the record adapters | yes |
+| `.aitask-scripts/lib/parallel_admission_collect.py` | `collect()`, the three probes, liveness, CLI `main` | no |
+| `.aitask-scripts/aitask_parallel_admission.sh` | 19-line wrapper over `require_ait_python` | — |
+| `tests/test_parallel_admission.py` | 69 core tests | — |
+| `tests/test_parallel_admission_vocab.py` | 17 tests — inline mitigation `vocabulary_exhaustiveness_guard` | — |
+| `tests/test_parallel_admission_purity.py` | 7 tests — inline mitigation `purity_guard` | — |
+| `tests/test_parallel_admission_collect.py` | 40 collector tests via the injectable seams | — |
+| `tests/test_parallel_admission_cli.sh` | 24 wrapper/exit-status assertions, incl. `clear_wording_pin` | — |
+
+### Measured rates — t1569_4's entry criterion
+
+Replay over the **124** candidates that have an active plan file, 2026-08-30:
+
+| `--from` / `--lock-freshness` | CLEAR | CLEAR_CAVEATED | CONFLICT | UNCHECKABLE |
+|---|---|---|---|---|
+| `plan` / `require-fresh` | **60 (48%)** | 25 (20%) | **24 (19%)** | **15 (12%)** |
+| `plan` / `allow-cached` | 0 | 85 | 24 | 15 |
+| `origin` / `require-fresh` | 17 | 1 | 14 | 92 (74%) |
+
+`CAUSE_RATE` for the `plan` / `require-fresh` row: `all_phantom` 5,
+`no_extractable_paths` 9, `no_plan` 1 — **every UNCHECKABLE is candidate-side**;
+`hub_overlap_only` 39; `stale_claim` 124 (informational, non-driving).
+
+**The availability prediction was wrong, in the good direction.** The plan
+expected ~100% UNCHECKABLE because t1576 and t1555_2 are `Implementing` with no
+plan. In practice both are **provably `dead`** (their sessions ended 11 days
+ago), so the Step 7 2b matrix *excludes* them and they produce no cause at all.
+Combined with Step 5a's corpus union — which cut candidate-side `all_phantom`
+from 18 to 5 — UNCHECKABLE lands at **12%**, not 100%. Plain `CLEAR` is reachable
+(48%), which is what the `--max-claim-age` bound was added to protect.
+
+`allow-cached` never yields plain `CLEAR` by construction (the cached ref is
+always a caveat). That is correct and is why t1569_5's roadmap output is labelled
+an estimate.
+
+`origin` provenance is dominated by `unknown_origin`: most of these 124 are
+ordinary tasks with no `verifies:`/`anchor:`, so there is no origin to derive a
+surface from. It is the right mode for a *follow-up*, not for this population.
+
+### Deviations from the plan, and why
+
+1. **`InflightClaim` carries `claim_at_s` + `claim_age_reason`, not a
+   precomputed `claim_age_s`.** The plan declared the latter and a separate
+   `now`. Deriving the age inside `decide` makes `now` load-bearing rather than
+   decorative, and moves clock-skew detection into the pure, fixture-testable
+   half. The plan's contract is unchanged: unknown age ⇒ blocking + caveat,
+   boundary pinned at `>`.
+2. **`--from origin` resolves the candidate's ORIGIN via `followup_origin`,**
+   not its own id. A first pass looked up the candidate's own file set, which is
+   always `UNKNOWN_HISTORY` for unlanded work — the mode was inert. Caught by
+   `--from auto` and `--from plan` returning byte-identical rates.
+3. **`replay` re-aims one snapshot (`_respin`)** instead of re-collecting per
+   candidate. The plan specified this; the first pass did not, costing ~2.5 s per
+   candidate (~5 min for 124) *and* judging each candidate against a slightly
+   different world, which makes the rates incomparable. Now 3.4 s total.
+4. **`surfaces_from_inflight_records` takes `data_tracked`.** Without it the
+   injected (t1569_5) path inherits the gatherer's code-branch-only
+   classification and reproduces the very blind spot Step 5a fixes.
+5. **`DISPLAY:` cites only verdict-*driving* caveats.** A `stale_claim` is
+   reported but does not drive the verdict, so naming it as the reason for
+   `CLEAR_CAVEATED` was misleading.
+
+### Defects found by the tests
+
+- **Identity-key mismatch** in `input_from_records`: surfaces were keyed by the
+  gatherer's raw ref (`t9`) and looked up by canonical ref (`9`), so every
+  surface silently missed and read as `no_plan` — an UNCHECKABLE that looked
+  like a real evidence gap. Both sides are now canonicalised.
+- Mutation-tested: removing dead-exclusion fails 4 tests, removing hub demotion
+  fails 3, splicing a reason literal past `format_reason` fails the AST guard,
+  and the shell test exits 1 on a seeded failure. The suite discriminates.
+
+### Latency
+
+A full `check` is **~2.5 s** (batch map 0.7 s, three probes, per-lock `git show`,
+two corpus listings). The plan's "well under a second" described the batch map
+alone. `replay` over 124 candidates is 3.4 s.
+
+### Not in scope here
+
+The helper whitelist entries (`aitask_audit_wrappers.sh apply-helper-whitelist`)
+and the profile knob `parallel_admission: block|warn|off` belong to **t1569_4**,
+which wires this into `task-workflow`.
+
+### Summary bullets
+
+- **Actual work done:** Delivered the shared checker as four source files and
+  five test files (3 048 lines, all new — **no existing file was modified**).
+  Pure core (`parallel_admission.py`) with a separate vocabulary table
+  (`parallel_admission_vocab.py`) and an impure collector
+  (`parallel_admission_collect.py`) behind a 19-line shell wrapper. All eight
+  plan steps landed, including the three inline post-phase risk mitigations.
+  157 tests across the five files, plus the full suite green (5 704 passed).
+- **Deviations from plan:** Five, all listed under "Deviations from the plan, and
+  why" above — the load-bearing ones are deriving claim age inside `decide`
+  (so `now` is real and clock-skew is pure), routing `--from origin` through
+  `followup_origin` to resolve the candidate's *origin* rather than its own id,
+  and making `replay` re-aim one snapshot as the plan actually specified.
+- **Issues encountered:** (1) An identity-key mismatch in `input_from_records` —
+  surfaces keyed by raw ref, looked up by canonical ref — which silently degraded
+  every injected surface to `no_plan`; found by the boundary test, fixed by
+  canonicalising both sides. (2) `--from auto` and `--from plan` returning
+  byte-identical rates, which exposed that origin resolution was never wired in.
+  (3) Two of my own fixtures were wrong (a hard-coded epoch aged the holder past
+  `--max-claim-age`; `allow-cached` always caveats so plain `CLEAR` was
+  unreachable) — corrected by anchoring `now` to the fixture's own timestamp.
+- **Key decisions:** Demote hub overlaps rather than drop them (dropping costs
+  ~two-thirds of real collisions); union the task-data corpus by passing wider
+  sets to the *same* `plan_paths.classify` rather than forking it or widening its
+  pinned vocabulary; add a third `status` enumeration probe rather than a fifth
+  table row; keep `tier` derived rather than stored; treat an unknown claim age
+  as blocking-eligible (conservative) with a named caveat.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_lock.sh:416,421,427,437 — list_locks() writes four
+    degenerate informational strings ("No locks (no remote configured)", "No
+    locks (branch not initialized)", "No locks", "No active locks") to STDOUT via
+    info(), which is `echo -e "${BLUE}$1${NC}"` in lib/terminal_compat.sh:19 —
+    i.e. non-record prose WITH ANSI escapes on a machine-readable stream. Its
+    sibling warn() correctly redirects to stderr. Any parser of `ait lock --list`
+    must strip ANSI and pattern-match the record shape to avoid treating these as
+    locks.`
+- **Notes for sibling tasks:**
+  - **t1569_4 (blocking preflight):** call
+    `./.aitask-scripts/aitask_parallel_admission.sh check --candidate <id>
+    --from plan --lock-freshness require-fresh`. Read `VERDICT:` (always exit 0);
+    exit 2 means CLI misuse, not a verdict. `UNCHECKABLE_CAUSE:` is already
+    per-source and named, so the operator remedy can name the blocking task.
+    **Measured today: CLEAR 48% / CLEAR_CAVEATED 20% / CONFLICT 19% /
+    UNCHECKABLE 12%** — materially better than the 100%-UNCHECKABLE projection
+    the parent task recorded, because provably-dead holders are excluded. That is
+    the entry-criterion evidence for revisiting the `warn` default, but note the
+    rate depends on the live in-flight population and should be re-measured.
+    Still owed by t1569_4: the helper whitelist entries and the
+    `parallel_admission: block|warn|off` profile knob.
+  - **t1569_5 (roadmap):** `from parallel_admission import decide,
+    input_from_records` — do **not** import `parallel_admission_collect`; a test
+    asserts the roadmap path never needs it. Pass `data_tracked=` to
+    `input_from_records` or you inherit the gatherer's code-branch-only
+    classification and every `aitasks/` path reads as phantom. The gatherer has
+    no `status` probe, so supply `SourceEvidence("status", "not_consulted")` —
+    which correctly means the roadmap can never emit plain `CLEAR`. Do not
+    synthesise `ok` to make the lane look cleaner.
+  - **Shared gotcha:** `MAX_CLAIM_AGE_S` and `HUB_THRESHOLD` are module constants
+    in the pure core. Both consumers must inherit them; a second default would be
+    a second definition of "safe".
+
+### Defects found in Step 8 review — all four in `replay`
+
+The `check` path was sound; every one of these was in the batch verb, and two
+could corrupt the very metric t1569_4 uses as its entry criterion.
+
+1. **Self-exclusion leaked across the whole run (high).** `replay` built its base
+   snapshot with `_collect_one(opts, cands[0])`, and `collect` removes the
+   candidate from the comparison population. `_respin` then removed only the
+   *current* candidate and never restored the first one — so whichever candidate
+   was listed first became permanently invisible. If it was itself in flight,
+   every later candidate was judged against a world where that active task did
+   not exist. **Measured: listing live in-flight `t1603_1` first moved CONFLICT
+   from 24 to 17 of 124** — a 29% understatement, controlled entirely by input
+   order. Fixed with `collect(..., exclude_self=False)` for the base; the
+   per-candidate exclusion stays in `_respin`. Pinned by
+   `test_rates_do_not_depend_on_candidate_order` plus a discriminating control
+   asserting the colliding candidate still reports CONFLICT from either
+   position.
+2. **Non-positive safety thresholds silently disarmed the guard (high).**
+   `--hub-threshold 0` (or negative) makes every path satisfy
+   `count >= threshold` — including untouched paths, count 0 — so every
+   `specific` overlap is demoted to a hub caveat. `--max-claim-age 0` puts every
+   claim past the bound and into the advisory tier. Both were *accepted*
+   invocations, not rejected misuse. Verified against live conflicting candidate
+   t1061: `--hub-threshold 10` → CONFLICT, `0` / `-1` → CLEAR_CAVEATED; same for
+   `--max-claim-age`. Rejected at parse time (exit 2) with a message naming the
+   consequence.
+
+   **First fix was insufficient — corrected in a second review round.** Bounding
+   the knobs at `>= 1` still let an ordinary `check` flag override a concrete
+   CONFLICT: almost every real path has at least one task touch, so
+   `--hub-threshold 1` demotes essentially the whole surface (measured over 124
+   candidates: **CONFLICT 24 -> 3**), and `--max-claim-age 1` makes every claim
+   older than a second advisory. The "1 is still count-dependent" reasoning was
+   wrong in practice.
+
+   Both knobs are **monotone in strictness** — verified against t1061:
+   `--hub-threshold` 1 -> CLEAR_CAVEATED, 5/10/50/500 -> CONFLICT;
+   `--max-claim-age` 1 -> CLEAR_CAVEATED, 86400/1209600/99999999 -> CONFLICT.
+   Raising either only turns hub overlaps back into specific ones and advisory
+   claims back into blocking ones; it can never hide a collision. So the rule is
+   **one-way on `check`**: the floor is the shared default
+   (`HUB_THRESHOLD`, `MAX_CLAIM_AGE_S`), anything stricter is accepted, anything
+   looser exits 2 with a message pointing at `replay`. `replay` renders no
+   admission decision and sweeping thresholds is its purpose, so it accepts any
+   positive value. This is what makes "a CONFLICT is not overridable" true of the
+   CLI and not just of the verdict logic.
+3. **`replay --plan` was accepted and ignored (medium).** `_respin` always calls
+   `plan_path_for()` and never sees `opts["plan"]`, so a caller measuring a
+   proposed plan silently got rates for the on-disk one. `--plan` names a single
+   candidate's file and has no defensible meaning across many, so it is now
+   rejected for `replay` with a message pointing at `check`.
+4. **Two batch maps per run (medium).** `_collect_one` fetched one inside
+   `collect` and `replay` immediately fetched another, so a concurrent commit
+   could leave the base's touch counts disagreeing with the candidates'
+   origin-derived surfaces. `collect` now accepts injected `batch_lines` and
+   `corpus`, and `replay` resolves each exactly once — asserted by counting the
+   seam invocations: **1 `_BATCH_MAP` and 1 `_TRACKED_SETS` for 124 candidates.**
+   The corpus resolution was a third, unreported instance of the same problem and
+   is fixed by the same change (`resolve_corpora`).
+
+All four are mutation-tested: restoring the self-exclusion leak fails 2 tests,
+re-fetching the batch map per candidate fails 1. The recorded rates above are the
+post-fix ones (the pre-fix baseline read `61|24|24|15`).
+
+**Process note:** the review also caught that an appended test class landed after
+this file's `if __name__ == "__main__"` block and therefore never ran — the test
+count stayed at 46 instead of 51. Worth checking the count, not just the status,
+after adding tests to an existing module.
