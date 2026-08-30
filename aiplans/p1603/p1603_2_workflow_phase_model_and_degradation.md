@@ -37,8 +37,10 @@ t1603_3's, and **nothing in this child asserts anything about lanes**.
 
 ## Verification findings that reshaped this plan
 
-Six things were checked against the tree and changed the design. All line
-numbers below are current.
+Seven things were checked against the tree and changed the design. Findings 1-6
+came from the verify pass; **finding 7 was surfaced by the tests during
+implementation** and corrects the phase table this plan was approved with. All
+line numbers below are current.
 
 1. **`_resolve_plan_path` is already duplicated.**
    `TaskDetailScreen._resolve_plan_path` (`aitask_board.py:6567`) and
@@ -104,6 +106,24 @@ numbers below are current.
    the task. That contradicts `TaskGateState`'s documented rule that decision
    surfaces key off the active set (`gate_ledger.py:162-165`). **This seam
    iterates `state.active_gates` instead** — see §3.
+
+7. **`ALL_PASS` is not evidence of being past review** (found by the tests,
+   post-approval). The approved table read `post_impl | archive_decision ==
+   "ALL_PASS" or resume_point == "POSTIMPL"`. The first disjunct is wrong:
+   `ALL_PASS` says "the archival guard would allow archiving", which is a
+   different claim from "the task is past review". A task whose active set does
+   not include `review_approved` — say `gates: [tests_pass]`, recorded during
+   implementation — reaches `ALL_PASS` while `resume_point` is still
+   `IMPLEMENT`, and the ladder then reports a mid-implementation task as
+   `post_impl`. The same holds for a **skipped** `review_approved`:
+   `_resume_point_from_state` (`gate_ledger.py:2025-2034`) applies a strict
+   `== "pass"` precisely because a skip is "not applicable", not an approval.
+
+   **Resolution: `post_impl` is exactly `resume_point == "POSTIMPL"`.** Nothing
+   is lost — `ALL_PASS` is exactly `progress[0] == progress[1]`, so a consumer
+   that wants to say "ready to archive" reads it off the fraction. That keeps
+   archivability (an action fact) out of the phase axis, which is what the
+   two-axis model asks for. Pinned by `test_all_pass_without_review_is_not_post_impl`.
 
 ## Implementation Steps
 
@@ -219,8 +239,9 @@ B. status == "Implementing"
          provenance "ledger":
            1. awaiting_review       pending_human, OR failed, OR state.stale_signed
            2. needs_attended_agent  pending_procedure
-           3. post_impl             archive_decision == "ALL_PASS" OR
-                                    resume_point == "POSTIMPL"
+           3. post_impl             resume_point == "POSTIMPL"
+                                    (NOT archive_decision == "ALL_PASS" —
+                                     see finding 7)
            4. plan_approved         resume_point == "IMPLEMENT"
            5. implementing          otherwise
 
@@ -448,3 +469,102 @@ line** (`PYTHON SUITE: PASSED|FAILED (runner=…, exit=N)`); an earlier
 
 Standard closure: commit, merge per the plan header (current-branch mode — base
 and output are both `main`), archive the task and plan.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned scope. In `aitask_board.py`:
+  `_resolve_plan_path_for_task(task, manager)` extracted to module level (beside
+  the `GateStateResult` / `InFlightItem` dataclasses) with
+  `TaskDetailScreen._resolve_plan_path` and `KanbanApp._resolve_plan_path_for`
+  reduced to one-line delegates — a net *removal* of one implementation, with all
+  7 `KanbanApp` call sites untouched. Added `WORKFLOW_PHASES` /
+  `WORKFLOW_PROVENANCES`, the `WorkflowPhase` dataclass, `_gate_progress`, and
+  `derive_workflow_phase` — pure, app-free, no Textual, no manager, no
+  filesystem access of its own. `tests/test_board_workflow_phase.py` is new: 30
+  tests, all passing.
+
+- **Deviations from plan:** One, and it changes an approved acceptance criterion
+  — recorded as **finding 7** above. The approved phase table specified
+  `post_impl | archive_decision == "ALL_PASS" or resume_point == "POSTIMPL"`.
+  Two fixtures failed on the first disjunct and were right to: `ALL_PASS` means
+  "the archival guard would allow archiving", which is not "past review". A task
+  whose active set excludes `review_approved` (e.g. `gates: [tests_pass]`,
+  recorded during implementation) reaches `ALL_PASS` while `resume_point` is
+  still `IMPLEMENT`. `post_impl` is now exactly `resume_point == "POSTIMPL"`.
+  Nothing is lost: `ALL_PASS` is precisely `progress[0] == progress[1]`, so
+  archivability stays available to consumers as a fraction — an action fact kept
+  off the phase axis, which is what the two-axis model asks for.
+
+- **Issues encountered:**
+  - The plan's ladder was written against the `Implementing` population; two
+    fixtures (`ALL_PASS`-without-review, and a *skipped* `review_approved`)
+    exposed that `ALL_PASS` does not imply post-review. Fixed as above.
+  - A fixture asserting the `implementing` catch-all initially used
+    `plan_approved: pending`, which is a pending **human** gate and therefore
+    correctly routes to `awaiting_review`. Replaced with an all-machine gate set
+    (`tests_pass: pass`, `plan_approved` never recorded → `resume_point` PLAN),
+    which is the real shape of the catch-all. The original case was kept as its
+    own test (`test_pending_plan_approval_is_awaiting_review`) rather than
+    discarded — a pending human gate is a pending human gate whichever one it is.
+  - Building a *valid* `active_gates` tuple in a fixture needs the digest halves
+    to verify, or `read_active_tuple_from_text` silently falls back to raw
+    `gates:` and `filtered_gates` is always `[]` — which would have made the
+    profile-filtered tests vacuous. `_active_tuple_fm` computes the digest with
+    the production helpers (`_hash12`, `_gates_half_input`,
+    `_outputs_half_input`) rather than hardcoding a hash.
+
+- **Key decisions:**
+  - **Deliberate divergence from two shipped board helpers**, documented inline
+    at the call site. `pending_human` is not `_human_pending_gates` (which tests
+    `status != "pass"` and so reports a *skipped* gate as pending) and `failed`
+    is not `_has_failed_gate` (which scans all of `state.current` minus
+    `filtered_gates`, still classifying on a historical failure of a gate deleted
+    from `gates:` outright — such a gate is in neither list). Both contradict
+    `TaskGateState`'s active-set rule for decision surfaces. Deriving from
+    `archive_pending` / `active_gates` makes the correct behavior structural
+    rather than remembered.
+  - **`None` means "not in a workflow phase"**, keeping the vocabulary to exactly
+    five values instead of inventing a sixth for "not applicable", and mirroring
+    `_inflight_item_for`'s own `InFlightItem | None` contract.
+  - **The error state is produced the way production produces it** — the Task's
+    `filepath` points off-disk while its in-memory `content` still carries the
+    `## Gate Runs` markers, so `has_ledger` resolves True and
+    `read_task_gate_state` then raises, exercising the real `except` branch. No
+    patching and no hand-built `GateStateResult`.
+  - **Mutation-tested rather than merely green.** Dropping the B0 error branch,
+    restoring the `ALL_PASS` disjunct, and demoting `needs_attended_agent` below
+    `post_impl` each fail the intended tests (4, 7 and 5 failures respectively),
+    so the suite is not vacuous.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:1846-1861` — `_human_pending_gates`
+    tests `current.status != "pass"`, so a gate whose current run is `skip`
+    (terminal-satisfied per `SATISFIED_STATUSES`, and therefore absent from
+    `archive_pending`) is reported as a pending human gate. A task at `ALL_PASS`
+    with a skipped `review_approved` shows "pending human gate" in the in-flight
+    view. Out of scope here — this child does not change the actor grouping.
+  - `.aitask-scripts/board/aitask_board.py:1864-1872` — `_has_failed_gate`
+    iterates all of `state.current` minus `filtered_gates`. A gate deleted
+    outright from `gates:` is in neither `active_gates` nor `filtered_gates`
+    (`gate_ledger.read_active_tuple_from_text` fills `filtered` only from
+    `active_gates_filtered`), so a stale historical `fail` for it still
+    classifies the task as having a failed gate — contrary to `TaskGateState`'s
+    documented active-set rule (`gate_ledger.py:162-165`).
+
+- **Notes for sibling tasks:**
+  - **t1603_3 (lane + chips)** consumes `derive_workflow_phase`. Three contracts
+    it must honor: (1) `None` means the task occupies no phase — do not render a
+    chip; (2) `provenance` `unknown` and `error` are *positive* states, not
+    absences, and `progress is None` there must not be rendered as `0/N`; (3) the
+    ledger records nothing between `plan_approved` and `review_approved`, so a
+    task halfway through implementation reports `plan_approved` — render it as
+    "the last thing we know is that the plan was approved", never as
+    "implementation has not started".
+  - **"Ready to archive" is `progress[0] == progress[1]`**, not a phase. After
+    finding 7 the phase axis deliberately does not carry archivability.
+  - Both children should key any human/failed-gate logic off `archive_pending` /
+    `active_gates` as this seam does, not off the two older board helpers listed
+    under upstream defects.
+  - `_active_tuple_fm` in `tests/test_board_workflow_phase.py` is reusable for
+    any sibling test needing a *valid* `active_gates` tuple; without a matching
+    digest the tuple is ignored and `filtered_gates` is silently `[]`.
