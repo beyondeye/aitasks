@@ -131,6 +131,209 @@ class InFlightItem:
     # need re-signing rather than a first signature.
     stale_signed: list[str] = field(default_factory=list)
 
+
+def _resolve_plan_path_for_task(task: "Task", manager) -> Path | None:
+    """The plan file for ``task``, or ``None`` when it does not exist (t1603_2).
+
+    The ONE implementation of the `aiplans/` naming rule, including the
+    `aiplans/p<parent>/` nesting for child tasks. `TaskDetailScreen` and
+    `KanbanApp` both delegate here; before t1603_2 each carried its own
+    byte-identical copy.
+
+    A presence check, not a path constructor: a task with no plan yet answers
+    `None`, which is what lets callers use it as a boolean.
+    """
+    is_child = task.filepath.parent.name.startswith("t")
+    if is_child:
+        parent_num = manager.get_parent_num_for_child(task)
+        plan_name = "p" + task.filename[1:]
+        plan_path = Path("aiplans") / parent_num.replace("t", "p", 1) / plan_name
+    else:
+        plan_name = "p" + task.filename[1:]
+        plan_path = Path("aiplans") / plan_name
+    return plan_path if plan_path.exists() else None
+
+
+#: Where a task sits in the workflow (t1603_2). The LANE axis ("what happens
+#: next" — planned/human/agent/blocked) is separate and belongs to the in-flight
+#: view; nothing here derives or asserts a lane.
+WORKFLOW_PHASES = (
+    "plan_approved", "implementing", "awaiting_review",
+    "needs_attended_agent", "post_impl",
+)
+
+#: How the phase was determined. `unknown` and `error` are POSITIVE states, not
+#: absences — see `derive_workflow_phase`.
+WORKFLOW_PROVENANCES = ("ledger", "marker", "derived", "unknown", "error")
+
+
+@dataclass
+class WorkflowPhase:
+    """A task's workflow phase, how it was determined, and gate progress.
+
+    ``progress`` is ``(satisfied, enforced)`` or ``None``. ``None`` is never a
+    stand-in for ``0/N``: it means no fraction is derivable, which is a
+    different claim from "nothing has passed".
+    """
+    phase: str
+    provenance: str
+    progress: tuple[int, int] | None = None
+    current_gate: str | None = None
+
+
+def _gate_progress(state) -> tuple[tuple[int, int] | None, str | None]:
+    """``((satisfied, enforced), current_gate)`` from ONE authority (t1603_2).
+
+    ``archive_pending`` is computed by `gate_ledger._archive_status_from_state`
+    over the **active** set and over the ``effective`` view in which stale
+    signatures are already demoted. It is the same list the archival guard
+    reads, so a fraction derived from it cannot claim progress the workflow will
+    reject — and it inherits, with no second implementation, every case a
+    hand-rolled count over ``state.current`` gets wrong: a profile-filtered or
+    deleted gate is outside `active_gates` entirely, a ``skip`` is
+    terminal-satisfied, a stale signature stays pending despite a raw ledger
+    ``pass``, and a ``fail`` stays pending.
+
+    An ungated task has no meaningful fraction, so it answers ``None`` rather
+    than ``0/0``.
+    """
+    total = len(state.active_gates)
+    if not total:
+        return None, None
+    pending = list(state.archive_pending)
+    return (total - len(pending), total), (pending[0] if pending else None)
+
+
+def derive_workflow_phase(task: "Task", result: GateStateResult, registry: dict,
+                          *, plan_exists: bool) -> WorkflowPhase | None:
+    """Which workflow phase ``task`` occupies, or ``None`` if it occupies none.
+
+    Pure and app-free: a `Task`, a `GateStateResult`, the gate registry, and a
+    plan-existence boolean. No widgets, no manager, no filesystem access of its
+    own — callers thread ``plan_exists`` from `_resolve_plan_path_for_task`.
+
+    ``None`` means **"not in a workflow phase"** (a `Ready` task with neither a
+    deferred-plan marker nor a ledger; `Editing` / `Postponed` / `Done`). It
+    keeps the vocabulary to exactly `WORKFLOW_PHASES` instead of inventing a
+    sixth value for "not applicable", mirroring `_inflight_item_for`'s own
+    `InFlightItem | None` contract.
+
+    **Status routes before the ledger.** A `Ready` task carrying the t1595
+    deferred-plan marker is one whose plan was approved and whose implementation
+    was deliberately deferred — `plan-approved-stop.md` records `plan_approved`
+    in the ledger AND stamps the marker, so under a recording profile such a
+    task is `Ready` *with* a ledger. Running the in-flight ladder on it would
+    let an active-but-unrecorded `review_approved` classify it
+    `awaiting_review`, claiming a review is pending on code that does not exist.
+
+    **An unreadable gate state is not an absent ledger.** `has_ledger` can be
+    `True` alongside `state is None` and an error (`TaskManager.gate_state_for`
+    resolves `has_ledger` before the call that can raise), so "could not derive
+    the ledger" gets its own provenance, `error`, rather than being folded into
+    the no-ledger degradation below. The shipped consumers already make this
+    distinction — both `_inflight_item_for` and `_gate_summary` test
+    ``result.error`` before ``not result.has_ledger``.
+
+    **Accepted limitation.** The ledger records nothing between `plan_approved`
+    and `review_approved`, so a task halfway through implementation is
+    indistinguishable from one whose plan was just approved: both are
+    ``resume_point == "IMPLEMENT"`` and both report `plan_approved`. That is the
+    honest reading — "the last thing we know is that the plan was approved" —
+    and consumers must NOT render it as "implementation has not started".
+    """
+    status = task.metadata.get("status", "Ready")
+    state = result.state
+    readable = state is not None and not result.error
+
+    # --- A. Deferred-plan marker on a Ready task: status routes first. -------
+    if status == "Ready" and _plan_approved_marker(task.metadata):
+        if readable and state.resume_point == "IMPLEMENT":
+            progress, current = _gate_progress(state)
+            return WorkflowPhase("plan_approved", "ledger", progress, current)
+        # The marker is frontmatter, wholly independent of the ledger: an
+        # unreadable or absent one costs this branch only its corroboration.
+        # Claiming `error` here would over-report a failure that did not change
+        # the answer.
+        return WorkflowPhase("plan_approved", "marker")
+
+    if status != "Implementing":
+        return None
+
+    # --- B0. The ledger exists but could not be derived. ---------------------
+    # Ordered above B1 because `has_ledger` is True in this case, so a "no
+    # ledger" test would misroute it; and B2 must not run at all, since `state`
+    # is None. The phase comes from the task's own status and nothing else.
+    if result.error:
+        return WorkflowPhase("implementing", "error")
+
+    # --- B1. No ledger recorded: degrade honestly. ---------------------------
+    if not result.has_ledger or state is None:
+        # `status: Implementing` is the task's own assertion that implementation
+        # began. Never re-describe it as "still planning". With no ledger AND no
+        # plan file we cannot tell how far it got — a different claim from "it
+        # has not started" — so provenance is `unknown` and there is NO fraction,
+        # rather than a fabricated 0/N.
+        return WorkflowPhase("implementing", "derived" if plan_exists else "unknown")
+
+    # --- B2. The ledger ladder. ----------------------------------------------
+    # Both pending sets are derived from `archive_pending`, never from a raw
+    # status comparison, so they inherit `_gate_satisfied`: a `skip` is
+    # terminal-satisfied and cannot read as pending, and a stale signature is
+    # demoted and does. `archive_pending` is a subset of `active_gates` by
+    # construction, so both are active-set-scoped for free.
+    #
+    # These deliberately do NOT reuse `_human_pending_gates` / `_has_failed_gate`
+    # (t1603_2): the former tests `status != "pass"`, which reports a SKIPPED
+    # gate as pending; the latter scans all of `state.current` minus
+    # `filtered_gates`, which still classifies on a historical failure of a gate
+    # deleted from `gates:` outright — such a gate is in neither list. Both
+    # contradict `TaskGateState`'s active-set rule for decision surfaces.
+    pending_human = [g for g in state.archive_pending
+                     if registry.get(g, {}).get("type") == "human"]
+    pending_procedure = [g for g in state.archive_pending
+                         if registry.get(g, {}).get("kind") == "procedure"]
+    failed = [g for g in state.active_gates
+              if g in state.current and state.current[g].status in ("fail", "error")]
+
+    progress, current = _gate_progress(state)
+
+    if pending_human or failed or state.stale_signed:
+        phase = "awaiting_review"
+    elif pending_procedure:
+        # Ahead of post_impl on purpose. `docs_updated` is `type: machine` with
+        # `kind: procedure`: the headless engine defers it and only an attended
+        # agent can run it, so a task whose review already passed can still be
+        # blocked from archival by it. Reporting `post_impl` there would say
+        # "ready to archive" about a task the archival guard will refuse. Same
+        # reasoning as the `stale_signed` branch in `_inflight_item_for`, which
+        # sits ahead of ALL_PASS for exactly this reason (t1416). Keyed on the
+        # registry's `kind`, so any future procedure gate inherits it.
+        phase = "needs_attended_agent"
+    elif state.resume_point == "POSTIMPL":
+        # `resume_point` POSTIMPL means `review_approved` is recorded `pass` —
+        # the only evidence that the task is PAST review.
+        #
+        # Deliberately NOT `archive_decision == "ALL_PASS"` as well (t1603_2):
+        # ALL_PASS says "the archival guard would allow archiving", which is a
+        # different claim. A task whose active set does not include
+        # `review_approved` — say `gates: [tests_pass]`, recorded during
+        # implementation — reaches ALL_PASS while `resume_point` is still
+        # IMPLEMENT, and calling that `post_impl` would report a task that is
+        # mid-implementation as past review. The same holds for a SKIPPED
+        # `review_approved`: `_resume_point_from_state` applies a strict
+        # `== "pass"` because a skip is "not applicable", not an approval.
+        #
+        # Nothing is lost: ALL_PASS is exactly `progress[0] == progress[1]`, so
+        # a consumer that wants to say "ready to archive" reads it off the
+        # fraction — an archivability fact, kept out of the phase axis.
+        phase = "post_impl"
+    elif state.resume_point == "IMPLEMENT":
+        phase = "plan_approved"
+    else:
+        phase = "implementing"
+    return WorkflowPhase(phase, "ledger", progress, current)
+
+
 def _task_git_cmd() -> list[str]:
     """Return git command prefix for task data operations.
     In branch mode: ["git", "-C", ".aitask-data"]
@@ -6566,15 +6769,7 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
 
     def _resolve_plan_path(self):
         """Resolve the plan file path for this task."""
-        is_child = self.task_data.filepath.parent.name.startswith("t")
-        if is_child:
-            parent_num = self.manager.get_parent_num_for_child(self.task_data)
-            plan_name = "p" + self.task_data.filename[1:]
-            plan_path = Path("aiplans") / parent_num.replace("t", "p", 1) / plan_name
-        else:
-            plan_name = "p" + self.task_data.filename[1:]
-            plan_path = Path("aiplans") / plan_name
-        return plan_path if plan_path.exists() else None
+        return _resolve_plan_path_for_task(self.task_data, self.manager)
 
     def _build_risk_fields(self, meta):
         """Read-only risk widgets — shown only when explicitly set in metadata.
@@ -12774,15 +12969,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     def _resolve_plan_path_for(self, task: Task):
         """Resolve the plan file path for a given task."""
-        is_child = task.filepath.parent.name.startswith("t")
-        if is_child:
-            parent_num = self.manager.get_parent_num_for_child(task)
-            plan_name = "p" + task.filename[1:]
-            plan_path = Path("aiplans") / parent_num.replace("t", "p", 1) / plan_name
-        else:
-            plan_name = "p" + task.filename[1:]
-            plan_path = Path("aiplans") / plan_name
-        return plan_path if plan_path.exists() else None
+        return _resolve_plan_path_for_task(task, self.manager)
 
     def _categorize_pending_children(self, parent_num: str) -> dict:
         """Bucket a parent's pending children by status.
