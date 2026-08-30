@@ -14,6 +14,7 @@ macOS ships with BSD versions of `sed` and `grep`, not the GNU versions found on
 | Lowercase | `sed 's/./\L&/g'` | Not supported | Bash 4.0+: `${var,,}` |
 | Grouped multi-line commands | `sed -e :a -e '/pat/{ $d; N; ba; }'` | `{` `}` grouping fails across `-e` args | Use `awk` for multi-line processing |
 | BRE quantifiers `\?` `\+` `\|` | `sed 's/ab\?c/x/'` | Treated as literal `?`/`+`/`\|` — the match silently fails | Use `sed -E` with bare `?` `+` `\|` (e.g. `sed -E 's/ab?c/x/'`) |
+| Bracket **ranges** (`[x-y]`) | Collation-ordered; `[0-?]` accepted through 4.9, **rejected from 4.10** | Collation-ordered — rejected (`REG_ERANGE`) | `LC_ALL=C sed ...`, or enumerate: `[0-9:;<=>?]` |
 
 **`\?` / `\+` / `\|` are the most common silent footgun.** In Basic Regular
 Expressions these are GNU extensions; BSD sed treats the backslashed form as a
@@ -23,6 +24,57 @@ raw, un-substituted string, which then surfaces as bad data far downstream (a
 mis-parsed version number, an un-stripped filename prefix, garbled output).
 Always reach for `sed -E` (ERE) and write the quantifier bare: `?`, `+`, `|`.
 
+### Bracket ranges are ordered by the locale, not by ASCII
+
+A bracket *range* `[x-y]` is valid only when its endpoints are in non-descending
+order under the **locale's collating sequence**. That sequence is not ASCII, so
+a range that looks obviously well-formed can be rejected outright:
+
+```
+$ printf 'x\n' | sed 's/[0-?]//g'
+sed: -e expression #1, char 10: Invalid range end      # rc=1
+$ printf 'x\n' | LC_ALL=C sed 's/[0-?]//g'
+x                                                      # rc=0
+```
+
+BSD sed has always enforced this. **GNU sed accepted such ranges through 4.9 and
+rejects them from 4.10** — which is how a pattern that had worked on Linux for
+years became a hard failure on an ordinary package upgrade (t1637: it killed
+every shadow-agent pane capture at once, because the helper is `set -euo
+pipefail` and the strip sits on its whole stdout path).
+
+Measured on GNU sed 4.10 / glibc 2.44 under `en_US.UTF-8`, the range-collation
+order is:
+
+    space + punctuation (in ASCII order)  <  digits  <  lowercase  <  uppercase
+
+Do not extrapolate that from ASCII intuition — it produces surprises in both
+directions:
+
+| Range | Verdict | Why |
+|-------|---------|-----|
+| `[0-9]` `[a-z]` `[A-Z]` | OK | endpoints inside one block |
+| `[0-A]` `[9-a]` `[!-~]` `[@-~]` `[:-@]` | **OK** | ascending in this order, though they cross blocks |
+| `[0-?]` | **rejected** | `?` is punctuation, so it sorts *before* the digits |
+| `[A-z]` `[A-b]` `[M-a]` | **rejected** | lowercase sorts *before* uppercase as a block — so `z < A` |
+
+Note `[A-z]`: uppercase-to-lowercase is a common way to spell "all letters and
+the punctuation between them", and it is exactly backwards here. Note too that
+the ordering is **blocked**, not interleaved — `[a-B]` is accepted while
+`[A-b]` is not.
+
+**Two portable fixes.** Pin `LC_ALL=C` on the command, which restores byte-value
+semantics for the whole expression (this is the repo idiom — see
+`shadow_strip_ansi` in `.aitask-scripts/aitask_shadow_capture.sh`, plus
+`lib/task_utils.sh`, `lib/pid_anchor.sh`); or enumerate the members explicitly,
+which is locale-proof without changing the process locale. `LC_ALL=C` is safe on
+UTF-8 text for a pattern built from 7-bit bytes: multi-byte sequences contain no
+7-bit bytes and pass through untouched.
+
+This row is the one entry in this guide that is **not macOS-specific** — a UTF-8
+locale is the default nearly everywhere, so treat a suspect range as broken on
+every platform, Linux included.
+
 ## Safe Features (work on both)
 
 These sed features are POSIX-compatible and work on both GNU and BSD sed:
@@ -30,7 +82,8 @@ These sed features are POSIX-compatible and work on both GNU and BSD sed:
 - Basic substitution: `sed 's/pattern/replacement/'`
 - Global substitution: `sed 's/pattern/replacement/g'`
 - Delete lines: `sed '/pattern/d'`
-- Character classes: `[[:space:]]`, `[[:alpha:]]`, etc.
+- Character *classes*: `[[:space:]]`, `[[:alpha:]]`, etc. — locale-independent,
+  unlike bracket *ranges* (see above)
 - Extended regex flag: `sed -E 's/pattern/replacement/'`
 - Backreferences: `\(group\)` and `\1`
 - Multiple expressions: `sed 's/a/b/;s/c/d/'`
@@ -40,6 +93,11 @@ These sed features are POSIX-compatible and work on both GNU and BSD sed:
 > *quantifiers* are **not** portable in their backslashed BRE form — see the
 > incompatibility row above. Prefer `sed -E` whenever a pattern needs `?`, `+`,
 > `|`, or grouping.
+
+> **Note:** a bracket *expression* is portable, but a *range* inside one is only
+> portable when its endpoints ascend in the locale's collating sequence. `[0-9]`,
+> `[a-z]`, `[A-Z]` are always safe; `[0-?]` and `[A-z]` are rejected under
+> `en_US.UTF-8`. Pin `LC_ALL=C` or enumerate — see the section above.
 
 ## The `sed_inplace()` Helper
 

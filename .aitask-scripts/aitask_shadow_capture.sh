@@ -159,11 +159,27 @@ EOF
 # body as [^BEL ESC]* keeps each substitution inside a single sequence, so an
 # unterminated OSC is left intact instead of swallowing the visible text after
 # it — same fail-safe direction the Python side documents.
+#
+# LC_ALL=C is load-bearing, not decoration (aidocs/framework/sed_macos_issues.md).
+# POSIX compares a bracket RANGE's endpoints by the locale's COLLATING sequence,
+# not by byte value. Under en_US.UTF-8 '?' collates before '0', so [0-?] is a
+# reversed range. GNU sed <= 4.9 accepted it anyway; sed 4.10 rejects it outright
+# with "Invalid range end" -- and because shadow_strip_ansi feeds shadow_clean,
+# the whole stdout path of this script, that killed EVERY shadow capture: the
+# picker read it as "Could not read the shadow pane", and the shadow agent's own
+# no-arg read of its followed pane returned nothing at all. BSD sed goes through
+# the same libc regcomp, so this is one fix for both platforms. The C locale
+# restores the byte-value semantics these three expressions were written
+# against, and is additionally the safer collation for capture text that may not
+# be valid UTF-8. Byte-wise matching is correct here: every pattern is built from
+# literal 7-bit bytes, so multi-byte UTF-8 sequences pass through untouched
+# (pinned by tests/test_shadow_strip_ansi.sh's mirror check against
+# monitor/ansi_utils.py).
 shadow_strip_ansi() {
     local esc bel
     esc=$(printf '\033')
     bel=$(printf '\007')
-    sed -e "s|${esc}\][^${bel}${esc}]*${bel}||g" \
+    LC_ALL=C sed -e "s|${esc}\][^${bel}${esc}]*${bel}||g" \
         -e "s|${esc}\][^${bel}${esc}]*${esc}\\\\||g" \
         -e "s|${esc}\[[0-?]*[ -/]*[@-~]||g"
 }
