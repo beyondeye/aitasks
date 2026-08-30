@@ -1,15 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [t1636_5]
+depends: [t1636_5, t1636_7]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1636_1, 1636_2, 1636_3, 1636_4, 1636_5]
+verifies: [t1636_1, t1636_2, t1636_3, t1636_4, t1636_5, t1636_7]
 anchor: 1636
 followup_kind: manual_verification
 created_at: 2026-08-30 14:58
-updated_at: 2026-08-30 14:58
+updated_at: 2026-08-30 19:53
 ---
 
 ## Manual Verification Task

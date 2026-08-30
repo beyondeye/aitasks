@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [t1636_6]
+depends: [t1636_5]
 issue_type: documentation
 status: Ready
 labels: [shadow, concern_format, documentation]
