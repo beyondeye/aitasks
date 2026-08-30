@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1595
+implemented_with: claudecode/opus5
 created_at: 2026-08-30 13:28
-updated_at: 2026-08-30 17:18
+updated_at: 2026-08-30 18:22
 ---
 
 ## Context
@@ -173,3 +174,8 @@ parser never produces, and the whole point is to match production semantics.
 
 Run: `bash tests/run_all_python_tests.sh --test-dir tests` — read only the last
 line.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-30T15:23:09Z status=pass attempt=1 type=human
