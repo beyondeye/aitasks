@@ -266,7 +266,8 @@ approved, implementation deliberately deferred". Shape-identical to
   verbatim by `ait ls -v` and parsed by later consumers.
 - **The lifecycle lives in skill prose across five procedure files** (set/clear in
   `plan-approved-stop.md`, clear in `SKILL.md`'s implementation body, in
-  `cross-repo-child-assignment.md`, in `planning.md` §6.0's replan branches, and in
+  `cross-repo-child-assignment.md`, in `planning.md` — twice: §6.0's replan
+  branches and §6.1's decomposition cleanup — and in
   `task-abort.md`) — so it ships with an executable contract test
   (`tests/test_plan_approved_marker_contract.sh`) that pins each site by hit count
   **and pins where the clear must NOT appear**. A presence-only test passes on a

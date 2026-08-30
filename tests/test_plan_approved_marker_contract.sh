@@ -4,7 +4,9 @@
 #
 # The marker's meaning -- "plan approved, implementation deliberately deferred,
 # not since invalidated" -- is only true if every site that ends that state
-# clears it. Those sites are skill PROSE spread across five procedure files, so
+# clears it. Those sites are skill PROSE spread across five procedure files
+# (planning.md carries two of them: the §6.0 replan branches and the §6.1
+# decomposition cleanup), so
 # a later edit can silently drop one and leave a marker that actively lies about
 # a task. This test is the executable guard for that (the post-phase mitigation
 # recorded in aiplans/p1595_*.md).
@@ -105,6 +107,13 @@ assert_hits "SKILL.md consumes the marker when implementation starts" \
     "1" "$DEFAULT_DIR/SKILL.md" '--plan-approved-at "" --silent'
 assert_hits "planning.md clears the marker on replan" \
     "1" "$DEFAULT_DIR/planning.md" '--plan-approved-at "" --silent'
+# planning.md carries TWO clear sites: §6.0's replan branches (above, matched on
+# the --silent form) and §6.1's decomposition cleanup (below, matched on
+# <parent_num>). The decomposition assertion is the direct counterpart to the
+# mitigation-stop ABSENCE check further down -- decomposition replaces the
+# single-task plan with children, so the marker must go; the mitigation stop
+# merely blocks an intact plan, so it must stay. Asserting only one of the pair
+# passes on a build that gets the other backwards (t1640).
 # ...in EVERY profile render, not just the interactive one. The replan branches
 # exist under a profile-driven `create_new` too, and the clearing block must not
 # live inside the interactive-only Jinja branch -- there it would render as a
@@ -112,6 +121,11 @@ assert_hits "planning.md clears the marker on replan" \
 for prof_dir in "$DEFAULT_DIR" "$FAST_DIR" "$PROJECT_DIR/.claude/skills/task-workflow-remote-"; do
     assert_hits "planning.md ($(basename "$prof_dir")) renders the replan clear command" \
         "1" "$prof_dir/planning.md" '--plan-approved-at "" --silent'
+done
+for prof_dir in "$DEFAULT_DIR" "$FAST_DIR" "$PROJECT_DIR/.claude/skills/task-workflow-remote-"; do
+    assert_hits "planning.md ($(basename "$prof_dir")) clears the marker on decomposition" \
+        "1" "$prof_dir/planning.md" \
+        '--batch <parent_num> --status Ready --assigned-to "" --plan-approved-at ""'
 done
 assert_hits "task-abort.md clears the marker on abort" \
     "1" "$DEFAULT_DIR/task-abort.md" '--assigned-to "" --plan-approved-at ""'

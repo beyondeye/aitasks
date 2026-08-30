@@ -216,9 +216,16 @@ While in plan mode:
     - **IMPORTANT:** Each child task description MUST include detailed context (see Child Task Documentation Requirements below)
     - **IMPORTANT:** Revert the parent task status back to "Ready" since only the child task being worked on should be "Implementing":
       ```bash
-      ./.aitask-scripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to ""
+      ./.aitask-scripts/aitask_update.sh --batch <parent_num> --status Ready --assigned-to "" --plan-approved-at ""
       ```
       The `aitask_ls.sh` script will automatically display the parent as "Has children" because it has pending `children_to_implement`. Do NOT manually set the parent status to "Blocked".
+
+      `--plan-approved-at ""` clears any deferred-plan marker: this task's
+      single-task plan has been replaced by the children, so it no longer
+      describes implementable work and must not be advertised as an approved
+      plan awaiting implementation. (A no-op when the task never carried one.)
+      Its cross-repo twin — the demotion in `cross-repo-child-assignment.md`
+      Step 4 — clears it for the same reason; the two sites must not drift.
     - **IMPORTANT:** Release the parent task lock since only child tasks should be locked during child implementation:
       ```bash
       ./.aitask-scripts/aitask_lock.sh --unlock <parent_num> 2>/dev/null || true

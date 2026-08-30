@@ -216,7 +216,7 @@ stop and cleared everywhere that stops being true:
 | "Approve and stop here" (`stop_reason=deferred`) | set |
 | "Stop and re-verify plan" (`stop_reason=drift`) | **cleared**, never refreshed — the flow stopped *because* re-verification is required |
 | Step 7 implementation body entered | cleared (consumed) |
-| Cross-repo demotion to parent-of-children | cleared (no single-task plan any more) |
+| Decomposition into children (single-repo or cross-repo) | cleared (no single-task plan any more) |
 | Risk-mitigation "before" stop | **retained** — approved and awaiting implementation, merely blocked |
 | Replan (§6.0 "create from scratch") / abort | cleared |
 

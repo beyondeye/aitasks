@@ -174,8 +174,9 @@ t<number>_<name>.md [Status: <status>, Priority: <priority>, Effort: <effort>, T
 upstream defect, …) — never as an empty or placeholder value, so its absence is
 what means "genuine new work". The `, Plan: approved <ts>` segment appears **only**
 while the task carries a deferred approved plan (`plan_approved_at`); it is cleared
-when implementation starts, on a replan, on an abort, and when a remote-drift stop
-demands re-verification — so its presence means the plan is ready to be picked up,
+when implementation starts, on a replan, on an abort, when the task is decomposed
+into children, and when a remote-drift stop demands re-verification — so its
+presence means the plan is ready to be picked up,
 not merely that a plan file exists. `ait ls` can also filter on these —
 `--followup-kind <kind>`, `--no-followup-kind`, `--plan-approved`,
 `--no-plan-approved`, and `--type <issue_type>`.

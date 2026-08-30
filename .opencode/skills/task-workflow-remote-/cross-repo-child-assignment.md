@@ -119,7 +119,9 @@ children get implemented. Mirror the single-repo decomposition cleanup:
 `--plan-approved-at ""` clears any deferred-plan marker: this task's single-task
 plan has become a paired decomposition, so it no longer describes implementable
 work and must not be advertised as an approved plan awaiting implementation.
-(A no-op when the task never carried one.)
+(A no-op when the task never carried one.) Its single-repo twin — the
+decomposition cleanup in `planning.md`'s Complexity Assessment — clears it for
+the same reason; the two sites must not drift.
 
 `aitask_ls.sh` then shows it as "Has children". Do not set it to "Blocked".
 
