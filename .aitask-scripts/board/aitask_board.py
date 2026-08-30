@@ -8,7 +8,7 @@ import json
 import glob
 import shlex
 import subprocess
-from datetime import datetime
+from datetime import date, datetime
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -3190,8 +3190,18 @@ class TaskCard(Static):
             status_parts.append("🚫 blocked")
         if xdep_blocked:
             status_parts.append("🌐 blocked (cross-repo)")
+        # Deferred-plan qualifier (t1603_1). The badge is suppressed on three
+        # conditions -- blocked, empty status, implementing children -- and the
+        # qualifier must survive all of them: a `Ready` task can legitimately be
+        # blocked *and* marked, because the risk-mitigation "before" stop
+        # deliberately keeps the marker (task-workflow/SKILL.md:553). Both
+        # branches route through `_status_badge_text` so the wording lives in
+        # exactly one place.
+        plan_marker = _plan_approved_marker(meta)
         if not is_blocked and status and not implementing_children:
-            status_parts.append(f"📋 {status}")
+            status_parts.append(_status_badge_text(status, plan_marker))
+        elif plan_marker:
+            status_parts.append(_status_badge_text("", plan_marker))
         if assigned_to: status_parts.append(f"👤 {assigned_to}")
         if status_parts:
             yield Label(" | ".join(status_parts), classes="task-info")
@@ -3432,6 +3442,70 @@ def _followup_marker(metadata):
     return marker_for((metadata or {}).get("followup_kind"))
 
 
+def _plan_approved_marker(metadata):
+    """The approval timestamp for a task whose plan was approved and whose
+    implementation was deliberately deferred, or `None` when there is none
+    (t1603_1).
+
+    The render boundary over `plan_approved_at` (t1595), in the same shape as
+    `_followup_marker` above: `lib/task_yaml.py` deliberately leaves frontmatter
+    values type-honest, so a hand-edited or foreign field arrives as `None`, a
+    list, a dict, an int, a bool — or, because the loader resolves YAML
+    timestamps, as a `datetime` (`2026-02-01 14:30:05`) or a `date`
+    (`2026-02-01`). The workflow's own writer emits the seconds-less
+    `2026-02-01 14:30` (`aitask_update.sh:822`), which stays a `str`. Never read
+    the raw value in a `compose`.
+
+    A value that cannot be read renders as a fixed literal rather than
+    vanishing: following `_followup_marker`'s rule, a bad value that silently
+    disappears is indistinguishable from a task that never had a marker.
+
+    Returning a string-or-``None`` rather than always a string is what keeps "no
+    marker" structurally distinct from "a marker that happens to look odd", so
+    every call site is a single `if marker:`.
+
+    **Not** `_normalize_opaque_scalar` (`board/aitask_merge.py:151`), despite
+    the overlapping input space. That one answers `""` for *every* non-`str`,
+    which is right for **comparison** — a merge must not treat a hand-edited
+    list as a distinguishing value — and wrong for **rendering**: it would hide
+    a `datetime`-parsed marker that `ait ls` (a line-oriented bash frontmatter
+    parse, which never sees a YAML type) still displays. The two boundaries
+    diverge on purpose; do not unify them.
+    """
+    raw = (metadata or {}).get("plan_approved_at")
+    if isinstance(raw, str):
+        return raw if raw.strip() else None
+    if raw is None:
+        return None
+    # `datetime` is a subclass of `date` and both format identically here, so
+    # one branch covers the seconds-bearing and bare-date spellings alike.
+    if isinstance(raw, date):
+        return raw.strftime("%Y-%m-%d %H:%M")
+    return "set (unreadable)"
+
+
+def _status_badge_text(status, plan_marker) -> str:
+    """The one authority for a card's status badge text (t1603_1).
+
+    Both call-site forms come from here: the ordinary badge and the
+    qualifier-only badge a *suppressed* card falls back to. A second literal at
+    the suppression site would let `· Planned` and `Planned` drift apart on the
+    next wording change, so that site calls this with an empty status rather
+    than spelling its own string.
+
+    `status` is a raw frontmatter value, **not** a `str` — `lib/task_yaml.py`
+    leaves values type-honest, so a hand-edited file yields `[Ready]`, `42`,
+    `True` or a `date`. The `str()` is load-bearing: `join` raises `TypeError`
+    on any of those, where the f-string it replaces was total, and a crash in
+    `compose` takes the whole board down. `f"{x}"` is `format(x, "")`, which
+    equals `str(x)` for every type reachable here, so the rendered bytes are
+    unchanged. Truthiness is tested on the RAW value, so falsey shapes (`""`,
+    `None`, `0`, `[]`) suppress exactly as the previous `if status:` did.
+    """
+    parts = [str(p) for p in (status, "Planned" if plan_marker else None) if p]
+    return f"📋 {' · '.join(parts)}" if parts else ""
+
+
 @lru_cache(maxsize=32)
 def _followup_colour_hex(colour: str) -> str:
     """A vocabulary colour pinned to an explicit truecolor hex (t1468_8).
@@ -3549,9 +3623,18 @@ class TrailTaskCard(TaskCard):
         yield Label(title, classes="task-title")
         yield Label(_trail_badge_text(self.trail_entry),
                     classes="task-info trail-badges", markup=False)
+        # Deferred-plan qualifier (t1603_1). The guard is `status or
+        # plan_marker`, not `status` -- a hand-edited task with a marker and no
+        # `status:` key must still surface `📋 Planned` here, exactly as
+        # TaskCard's suppressed-badge branch does. `_status_badge_text` returns
+        # "" iff both are falsey, so this condition is precisely "the helper has
+        # something to say": guard and helper agree by construction rather than
+        # by two separately-maintained truth tables.
         status = self.task_data.metadata.get("status", "")
-        if status:
-            yield Label(f"📋 {status}", classes="task-info")
+        plan_marker = _plan_approved_marker(self.task_data.metadata)
+        if status or plan_marker:
+            yield Label(_status_badge_text(status, plan_marker),
+                        classes="task-info")
         drift = _trail_drift_text(self.trail_view.drift_reasons)
         if drift:
             yield Label(drift, classes="task-info trail-drift", markup=False)
@@ -6598,6 +6681,17 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
             out.append(ReadOnlyField(f"  [b]Contributor:[/b] @{contributor_text}", classes="meta-ro"))
         if meta.get("implemented_with"):
             out.append(ReadOnlyField(f"[b]Implemented with:[/b] {meta['implemented_with']}", classes="meta-ro"))
+        # Deferred-plan marker (t1603_1). Read-only by design: the field is
+        # written and cleared exclusively by the task-workflow, so the board
+        # offers no affordance to edit it. Absent marker => no row at all, and
+        # the collapsible's `(<n>)` count adjusts for free. `escape` because
+        # ReadOnlyField parses Rich markup: a hand-edited value containing `[`
+        # would otherwise be swallowed. Wording matches `ait ls`, which renders
+        # `Plan: approved <ts>` (aitask_ls.sh:853).
+        plan_marker = _plan_approved_marker(meta)
+        if plan_marker:
+            out.append(ReadOnlyField(
+                f"[b]Plan approved:[/b] {escape(plan_marker)}", classes="meta-ro"))
         dates = []
         if meta.get("created_at"):
             dates.append(f"[b]Created:[/b] {meta['created_at']}")

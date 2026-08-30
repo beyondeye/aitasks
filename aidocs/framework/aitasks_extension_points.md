@@ -280,8 +280,19 @@ approved, implementation deliberately deferred". Shape-identical to
 - Write path = `--plan-approved-at` in `aitask_update.sh` only; fold = no-op
   comment; merge = `_BASE_AWARE_FIELDS` (deletion-aware); docs = layer 5 plus
   `aidocs/gates/ledger-driven-reentry.md`, whose "approved and stopped" section
-  would otherwise still claim the ledger entry is the only trace. (Board layer 3
-  ships separately.)
+  would otherwise still claim the ledger entry is the only trace.
+- **Board layer 3 = a render boundary plus its call sites, not a field read.**
+  `_plan_approved_marker` in `board/aitask_board.py` is the metadata-shaped
+  boundary (the `_followup_marker` pattern: total over the type-honest values
+  the loader produces, and a value it cannot read renders a fixed literal rather
+  than vanishing). The card badge is single-sourced through
+  `_status_badge_text`, because the badge is *suppressed* for a blocked card —
+  and a `Ready` task can be blocked and marked at once — so the qualifier needs
+  a second call site that must not spell its own copy of the wording. The detail
+  row is one guarded `ReadOnlyField` in `_build_tracking_fields`, whose value
+  goes through `rich.markup.escape`. A read-only field gets **no** edit
+  affordance on the board: `plan_approved_at` is written and cleared by the
+  task-workflow alone.
 
 ## Adding a new helper script
 
