@@ -26,9 +26,16 @@ last, and therefore kept honouring `#6272A4`; that asymmetry was the whole bug.
 SCOPE. This module governs the multi-select mark only. The rest of the TUI
 glyph inventory has not been measured against the policy above, and the t1638
 measurement found confirmed violations already shipping — notably `✔` U+2714 in
-the board's by-trail entries, which is this exact defect. **t1639** sweeps the
-inventory; do not assume a glyph elsewhere in the repo satisfies this policy
-merely because this module exists.
+the board's by-trail entries, which is this exact defect. Do not assume a glyph
+elsewhere in the repo satisfies this policy merely because this module exists.
+
+**t1639 supersedes the selection rule below.** Choosing codepoints from the
+intersection of every supported font optimises for coverage and pays for it in
+shape — `✓`/`□` is a tick beside a square where `☑`/`☐` was a checkbox and its
+empty twin. t1639 introduces a declared glyph tier defaulting to the Nerd Font
+Private Use Area (`U+F046`/`U+F096`), which carries the real shapes and is
+structurally immune to this defect because nothing but icon fonts claims the
+PUA. The glyphs below become the `unicode` fallback tier, not the only answer.
 
 ACCEPTED RESIDUAL. `□` U+25A1 is East Asian Width *Ambiguous*, where the `☐` it
 replaces was *Neutral* — a terminal configured wide-ambiguous renders it in two
