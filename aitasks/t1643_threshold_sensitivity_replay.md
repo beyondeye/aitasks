@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [scheduling, planning]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: risk_mitigation
 created_at: 2026-08-30 19:44
-updated_at: 2026-08-30 19:44
+updated_at: 2026-08-30 22:42
 ---
 
 ## Origin
