@@ -9,6 +9,8 @@ gates: [risk_evaluated]
 anchor: 1538
 created_at: 2026-08-17 23:48
 updated_at: 2026-08-17 23:48
+boardcol: now
+boardidx: 17478
 ---
 
 Brainstorm and design an advisory staleness mechanism for ordinary backlog tasks, generalizing the useful parts of t1555 without widening that manual-verification implementation beyond its deliberately narrow scope.

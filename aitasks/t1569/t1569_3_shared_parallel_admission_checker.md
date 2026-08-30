@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t1569_1, t1569_2]
 issue_type: feature
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 implemented_with: claudecode/opus5
 created_at: 2026-08-27 11:28
-updated_at: 2026-08-30 14:59
+updated_at: 2026-08-30 15:00
 ---
 
 The **single definition of "safe"** for parallel work. Slice 3 of 6 for t1569 —

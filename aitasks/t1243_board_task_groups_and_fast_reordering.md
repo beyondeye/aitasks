@@ -16,8 +16,8 @@ children_to_implement: [t1243_11, t1243_12, t1243_13, t1243_14, t1243_15]
 implemented_with: claudecode/opus5
 created_at: 2026-07-26 00:06
 updated_at: 2026-08-10 22:11
-boardcol: tests
-boardidx: 10
+boardcol: now
+boardidx: 18502
 ---
 
 ## Problem
