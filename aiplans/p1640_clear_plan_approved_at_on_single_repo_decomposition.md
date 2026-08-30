@@ -216,3 +216,57 @@ bash tests/test_plan_approved_at_roundtrip.sh        # field writer unchanged
 Both specs are in "Post-phase (risk mitigations)" under Verification. No spawned
 before/after tasks: both dimensions are `low` and both hazards (assertion
 vacuity, an unswept enumeration) are settled by controls inside this task.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan. `--plan-approved-at ""` appended
+  to the single-repo decomposition cleanup in
+  `.claude/skills/task-workflow/planning.md` (§6.1 Complexity Assessment), with
+  rationale prose and a reciprocal pointer to its cross-repo twin; the matching
+  pointer added at `cross-repo-child-assignment.md`. Five clear-site enumerations
+  updated with one phrase ("when the task is decomposed into children"):
+  `aitask-pick/SKILL.md.j2`, `website/content/docs/development/task-format.md`,
+  `website/content/docs/commands/task-management.md`,
+  `aidocs/framework/aitasks_extension_points.md`, and the lifecycle-table row in
+  `aidocs/gates/ledger-driven-reentry.md`. The decomposition-clear assertion added
+  to `tests/test_plan_approved_marker_contract.sh` across all three profile
+  renders. Goldens (`planning-{default,fast,remote}`,
+  `cross-repo-child-assignment-default`, `aitask-pick SKILL-*-claude`) regenerated
+  and the live closures re-rendered for all three profiles across
+  claude/codex/opencode.
+
+- **Deviations from plan:** None.
+
+- **Issues encountered:** None during implementation. Two enumeration sites were
+  missed during *planning* and caught by plan review — first
+  `aidocs/framework/aitasks_extension_points.md`, then
+  `website/content/docs/commands/task-management.md`. Root cause both times: the
+  sweep matched a *phrasing* ("on a replan", "replan branches") rather than the
+  field's identity, and the five sites word the lifecycle five different ways.
+  Resolved by re-sweeping with an identity anchor (`plan_approved_at`,
+  `deferred-plan`, `Plan: approved`, `--plan-approved`) and reading every hit;
+  that anchored sweep is now the recorded post-phase mitigation.
+
+- **Key decisions:**
+  - **One phrase closes two gaps.** All five enumerations already omitted the
+    *cross-repo* demotion as well, so "when the task is decomposed into children"
+    was chosen over naming the single-repo site specifically — it covers both
+    twins. `ledger-driven-reentry.md`'s existing `Cross-repo demotion` row was
+    generalized rather than having a second row added, for the same reason.
+  - **Needle disjointness over a broader match.** The four contract-test needles
+    were verified mutually exclusive before adding the fifth: the replan clear is
+    matched on `--plan-approved-at "" --silent`, decomposition on `<parent_num>`,
+    cross-repo on `<current_task_id>`, and the mitigation-stop boundary greps
+    `SKILL.md` for `<task_num>`. Without that, the new assertion could have made
+    an existing one vacuous.
+  - **Both directions, deliberately.** The retain direction (mitigation "before"
+    stop) was already pinned; only the clear direction was added. A comment at
+    both assertions names them as counterparts so neither is later "simplified"
+    away — a one-directional test passes on a build that clears everywhere.
+  - **No separate port task for Codex/OpenCode.** Those trees are thin stubs that
+    render from these same canonical templates; `aitask_skill_rerender.sh` loops
+    all three agents, so they were covered in this commit. Only the `-remote-`
+    rendered closures are git-tracked (the `-default-`/`-fast-` renders are
+    gitignored local artifacts), which is why the diff shows only those.
+
+- **Upstream defects identified:** None.
