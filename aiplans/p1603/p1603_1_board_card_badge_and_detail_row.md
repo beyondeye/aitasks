@@ -219,7 +219,25 @@ an artifact rather than a note.
 
 ### 4. `TrailTaskCard.compose` (`:3552-3554`)
 
-Use the helper directly; there is no suppression logic here.
+Use the helper **and widen the guard**. The original plan said "there is no
+suppression logic here" — that was **wrong**, and it shipped a real divergence
+before being caught in review. `if status:` *is* a suppression condition: the
+same empty-status trigger `TaskCard`'s `elif plan_marker` branch exists to
+cover. Left as-is, a task carrying a marker with no `status:` key rendered
+`📋 Planned` on the kanban card and **nothing at all** in By-Trail.
+
+```python
+status = self.task_data.metadata.get("status", "")
+plan_marker = _plan_approved_marker(self.task_data.metadata)
+if status or plan_marker:
+    yield Label(_status_badge_text(status, plan_marker), classes="task-info")
+```
+
+`_status_badge_text` returns `""` iff both inputs are falsey, so `status or
+plan_marker` is precisely "the helper has something to say" — guard and helper
+agree by construction rather than as two separately-maintained truth tables.
+**Single-sourcing the badge *text* was not enough; the *render condition* was
+duplicated too.**
 
 ### 5. Detail row — `_build_tracking_fields` (`:6583`)
 
@@ -260,12 +278,21 @@ New `tests/test_board_plan_approved_marker.py` (module idiom follows
   This is the case that turns the `join` from a crash into a no-op change;
 - **falsey non-string suppression** — `0` and `[]` suppress the badge exactly as
   `""` does, matching the previous `if status:` guard;
-- **single-authority drift guard** — assert the `📋` literal appears exactly
-  once in `aitask_board.py`, i.e. only inside `_status_badge_text`. Failure
-  message must name the remedy ("route the new badge through
-  `_status_badge_text`"). *Note for t1603_3:* if that sibling adds a legitimate
-  new badge surface, this guard is the prompt to route it through the helper or
-  to widen the guard deliberately;
+- **single-authority drift guard** — assert the `📋` glyph appears in exactly
+  one *rendered string literal*, i.e. only inside `_status_badge_text`. Scope it
+  via `ast` over non-docstring `Constant` nodes, **not** `source.count()`: the
+  raw count fires on explanatory comments about the badge, and a guard that
+  fails on its own documentation is a guard people delete. An f-string's static
+  pieces are `Constant` nodes and are still caught. Failure message names the
+  offending line numbers and the remedy. *Note for t1603_3:* if that sibling
+  adds a legitimate new badge surface, this guard is the prompt to route it
+  through the helper or to widen the guard deliberately;
+- **empty-status qualifier on BOTH card surfaces** — a task with a marker and no
+  `status:` key must read `📋 Planned` on `TaskCard` *and* `TrailTaskCard`.
+  Two separately-written conditions over one rule, so a single-surface test
+  lets them drift — which they did;
+- **widened-guard parity** — a trail card with neither status nor marker still
+  yields no status label, and emits no blank one;
 - **card render**: a marked task reads `📋 Ready · Planned`;
 - **exact-parity control**: an unmarked card's status line is byte-identical to
   the pre-phase baseline — for all three shapes (plain, blocked, implementing
@@ -335,3 +362,177 @@ module joins the parallel pool; no serial-carve-out edit is needed.
 Standard closure: commit, merge per the plan header (current-branch mode, `main`
 for both fields), archive the task and this plan. Step 8b carries the
 upstream-defect follow-up for the `planning.md:281` marker-clear gap.
+
+## Implementation notes
+
+All steps landed as planned; no deviations from the approved design.
+
+**Pre-phase (commit 1, `e23e549`).** `characterize_status_badge_render` was
+written and run against unmodified code. Every expected string was **read off
+the running board**, not predicted — which immediately corrected one assumption:
+the implementing-child shape yields **no status label at all** (with no assignee
+`status_parts` ends up empty), so the baseline for it is an absence, not a
+string. Positive control: perturbing the badge literal at `aitask_board.py:3194`
+(verified landed by re-reading the line, and by `git diff` showing that one line)
+failed `test_baseline_plain_card` and
+`test_baseline_non_string_status_renders_via_f_string` naming the expected
+strings, and correctly left the trail-card test passing. Restored byte-identical
+before implementing.
+
+**Steps 0–6 (commit 2).** Import widened to `from datetime import date,
+datetime`; `_plan_approved_marker` and `_status_badge_text` added beside
+`_followup_marker`; both card call sites and the detail row wired; the
+`aitasks_extension_points.md:283-284` deferral resolved into a real layer-3
+description.
+
+**Negative control.** With the pre-change board swapped back in (via
+`git show HEAD:<path>`, never a stash), **20 of 27** tests fail and 7 pass. The 7
+are exactly the six characterization baselines plus
+`test_the_row_is_absent_entirely_when_unmarked` — i.e. every assertion that
+describes *unchanged* behaviour passes, and every assertion that describes new
+behaviour fails. The parity claim is therefore load-bearing in both directions.
+
+**Width.** Widest reachable badge is `📋 Implementing · Planned` at 25 cells and
+`🚫 blocked | 📋 Planned` at 23, against the ~36 usable columns inside a
+40-column kanban column. The "no timestamp on the card" decision holds with room
+to spare.
+
+**Live check.** Seeded `--plan-approved-at now` on a real task, loaded it through
+the board's own `Task.from_text` + `TaskCard`, and confirmed both surfaces:
+card `🚫 blocked | 📋 Planned`, detail row `Plan approved: 2026-08-30 16:25`.
+That task is blocked on this one, so the live run exercised the
+**suppression-survival branch on a real file** rather than only in a fixture.
+Marker cleared afterwards and the file restored byte-identically (the two writes
+had bumped `updated_at`).
+
+**Suite.** `bash tests/run_all_python_tests.sh --test-dir tests` →
+`PYTHON SUITE: PASSED (runner=pytest, exit=0)` (5771 passed, 2 skipped, plus the
+5 serial carve-out tests).
+
+**Deferred to Step 8b.** The `implementing_children` + marker case is reachable
+because the single-repo decomposition cleanup (`planning.md:281`) omits the
+`--plan-approved-at ""` its cross-repo twin
+(`cross-repo-child-assignment.md:115`) performs — a task-workflow defect this
+read-only board child deliberately does not fix.
+
+### Review correction: the By-Trail empty-status divergence
+
+Caught in Step 8 review, after the first implementation pass. **Confirmed by
+probe**, not argued: a task with `plan_approved_at` and no `status:` key
+rendered `📋 Planned` on `TaskCard` and produced *no status label at all* on
+`TrailTaskCard`.
+
+Root cause was a plan error, not a coding slip — Step 4 originally asserted
+"there is no suppression logic here" about `TrailTaskCard`. Its `if status:` is
+exactly the empty-status suppression trigger that `TaskCard`'s `elif
+plan_marker` branch was added to survive. Introducing `_status_badge_text`
+single-sourced the badge **text** while leaving the **render condition**
+duplicated across the two surfaces, so the drift the helper was meant to prevent
+reappeared one level up.
+
+Fixed by widening the guard to `if status or plan_marker:` — the helper's own
+non-empty condition — plus two regression tests: the qualifier asserted on both
+surfaces in one test (so they cannot drift independently again), and a parity
+test that the widened guard adds only the qualifier case and never emits a blank
+label.
+
+The drift guard itself was rebuilt in the same pass. As first written it counted
+raw `📋` occurrences in the source and failed on the explanatory **comment**
+added beside the fix — a false positive on prose. It now walks the AST and
+counts only non-docstring string constants, so documentation may name the glyph
+freely while any second *rendered* literal still trips it.
+
+Three negative controls, all run:
+
+- narrowing the trail guard back to `if status:` fails the both-surfaces test;
+- a comment mentioning the glyph does **not** trip the drift guard;
+- a second rendered `f"📋 {status}"` does, naming both line numbers.
+
+## Final Implementation Notes
+
+- **Actual work done:** All six planned steps landed as designed. `date` added to
+  the `datetime` import; `_plan_approved_marker` (render boundary, total over the
+  loader's type-honest values) and `_status_badge_text` (single authority for
+  both badge forms) added beside `_followup_marker`; both card call sites and one
+  guarded `ReadOnlyField` detail row wired; the
+  `aitasks_extension_points.md:283-284` deferral resolved into a real layer-3
+  description. New `tests/test_board_plan_approved_marker.py` — 29 tests across
+  four classes, committed in two commits (pre-phase characterization first).
+
+- **Deviations from plan:** One, and it was a plan **error** rather than a
+  drifting implementation. Step 4 as approved said `TrailTaskCard` has "no
+  suppression logic"; its `if status:` is exactly the empty-status suppression
+  trigger. Corrected in place, with the wrong claim called out rather than
+  quietly overwritten. Two smaller in-flight corrections: the
+  implementing-child baseline turned out to be *no status label at all* rather
+  than a suppressed-badge string (discovered by reading the running board, which
+  is why the pre-phase reads rather than predicts), and the drift guard was
+  rebuilt from `source.count()` to an AST walk.
+
+- **Issues encountered:**
+  1. *By-Trail empty-status divergence (found in Step 8 review, after the first
+     pass).* A task with a marker and no `status:` key rendered `📋 Planned` on
+     `TaskCard` and nothing at all in By-Trail. Introducing `_status_badge_text`
+     single-sourced the badge **text** while leaving the **render condition**
+     duplicated, so the drift the helper was meant to prevent reappeared one
+     level up. Fixed by widening the guard to `if status or plan_marker:` — the
+     helper's own non-empty condition, so guard and helper now agree by
+     construction. Both surfaces are asserted in one test so they cannot drift
+     independently again.
+  2. *The drift guard failed on its own comment.* Counting raw `📋` occurrences
+     fired on explanatory prose beside the fix. Rebuilt to walk the AST and count
+     only non-docstring string constants: documentation may name the glyph, a
+     second rendered literal still trips it, and f-string static pieces are
+     `Constant` nodes so they remain caught.
+  3. *A near-miss the review caught before it shipped:* the first draft of
+     `_status_badge_text` used a bare `' · '.join(...)` over the raw `status`.
+     That raises `TypeError` for `[Ready]`, `42`, `True` or a `date` — all
+     reachable from a hand-edited file — where the f-string it replaced was
+     total, and a raising `compose` takes the board down. The `str()` and the
+     non-string regression matrix exist for exactly this.
+
+- **Key decisions:**
+  - *Render the stale marker rather than suppress it.* The
+    `implementing_children` + marker case is production-reachable (see upstream
+    defects). The board is a read-only mirror: showing `📋 Planned` is what makes
+    the staleness visible, rather than the board deciding the field is wrong.
+  - *Boundary diverges from `_normalize_opaque_scalar` on purpose.* That helper
+    answers `""` for every non-`str` — right for comparison, wrong for rendering,
+    since it would hide a datetime-parsed marker `ait ls` still displays. Pinned
+    by a test that asserts the divergence, not just the behaviour.
+  - *Guard conditions, not just strings, must be single-sourced.* The lesson of
+    issue 1, and why the empty-status case is asserted across both surfaces in a
+    single test.
+
+- **Upstream defects identified:**
+  - `.claude/skills/task-workflow/planning.md:281 — single-repo decomposition
+    cleanup reverts the parent with `--status Ready --assigned-to ""` but omits
+    the `--plan-approved-at ""` its cross-repo twin
+    (`cross-repo-child-assignment.md:115`) performs, so a task that was
+    approved-and-stopped and later decomposed keeps a `plan_approved_at` marker
+    its single-task plan no longer justifies. The cross-repo site's own comment
+    claims to "mirror the single-repo decomposition cleanup", so one of the two
+    is wrong by its own description. Out of scope here: this is a task-workflow
+    change, and t1603_1 is a read-only board surface.
+
+- **Notes for sibling tasks:**
+  - **t1603_3** (in-flight / planned lane) will most likely add a badge surface.
+    `_status_badge_text` is the single authority and
+    `test_the_badge_glyph_has_exactly_one_home` will fail on any new rendered
+    `📋` literal — that failure is the prompt to route the new surface through
+    the helper, or to widen the guard deliberately. `InFlightTaskCard`
+    (`aitask_board.py:3271`) renders **no** status badge today (it yields
+    `next_action` / `gate_summary`), so the lane work starts from zero there.
+  - **Card-render test harness.** `_info_texts` + `_status_line` in the new test
+    module select the status label **by content**, because `TrailTaskCard` yields
+    four `.task-info` labels and `.first(Label)` returns the trail badges. Reuse
+    that rather than positional indexing.
+  - **App-free detail-screen harness.** `TaskDetailScreen._build_tracking_fields`
+    reads only its `meta` argument, so
+    `_build_tracking_fields(None, meta)` returns the widget list with no app
+    boot — much cheaper than the pilot-based harness in
+    `test_board_detail_followup_kind.py`, and it makes "the row is absent" a
+    structural assertion. t1603_4 (expanded gate surface in task detail) can use
+    the same trick.
+  - **Frontmatter values are type-honest.** Any new board render boundary needs
+    the same totality table, and any new `join` over a raw value needs `str()`.
