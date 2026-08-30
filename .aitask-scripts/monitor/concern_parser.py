@@ -39,11 +39,18 @@ Format (single source of truth: ``.claude/skills/aitask-shadow/concern-format.md
   unknown value degrades to ``low`` (the item is never dropped).
 - A region-less marker (``- [medium] body``) parses with an empty ``region``
   instead of being swallowed as a wrap continuation (t1274).
-- ``disposition`` and ``verdict`` are **derived**, not marker fields: they are
-  read from the terminal ``Disposition: … Verified: …`` run the implementation
-  review appends to the body. ``body`` itself is left canonical so
-  :func:`build_clipboard_payload` forwards the trailer intact; display surfaces
-  call :meth:`Concern.display_body`.
+- ``disposition``, ``verdict``, ``improves``, ``worsens`` and ``effort`` are
+  **derived**, not marker fields: they are read from the terminal
+  ``Disposition: … Verified: … Improves: … Worsens: … Effort: …`` run the
+  producer appends to the body. The last three are the **impact vector**
+  (t1636_2) — a signed delta over the closed dimension vocabulary in
+  ``concern_dimensions``, plus a separate one-time-cost scalar — and
+  ``improves`` / ``worsens`` distinguish an absent sentence (``None``, not
+  priced) from ``Worsens: nothing.`` (``()``, priced as nothing). Deriving them
+  from the body means the ``[priority | region]`` bracket is untouched and every
+  block emitted before they existed keeps parsing identically. ``body`` itself
+  is left canonical so :func:`build_clipboard_payload` forwards the trailer
+  intact; display surfaces call :meth:`Concern.display_body`.
 - **Round header (t1159_1):** the first line inside the fences is
   ``Round: <N> @ <ISO-8601-UTC-seconds>Z``, read by :func:`parse_block_meta`.
   It sits in the one slot the item scanner already drops (a non-marker line
@@ -105,6 +112,18 @@ try:
     from .ansi_utils import strip_ansi
 except ImportError:  # imported flat (tests put MONITOR_DIR on sys.path)
     from ansi_utils import strip_ansi  # noqa: E402
+
+# The closed impact-vector vocabulary (t1636_1). Imported as a plain sibling,
+# with the same relative-then-flat fallback as `ansi_utils` above: that module
+# has its own purity contract (no I/O, no sys.path insertion, no third-party
+# imports), so pulling it in does not cost this module its own.
+try:
+    from .concern_dimensions import dimensions_pipe, normalize_magnitude
+except ImportError:  # imported flat (tests put MONITOR_DIR on sys.path)
+    from concern_dimensions import (  # noqa: E402
+        dimensions_pipe,
+        normalize_magnitude,
+    )
 
 _OPEN = "===AITASK-CONCERNS==="
 _CLOSE = "===END-CONCERNS==="
@@ -178,9 +197,28 @@ _VERDICTS = ("CONFIRMED", "PLAUSIBLE", "REFUTED")
 # `Disposition: informational.` mid-prose must neither be classified by it nor
 # have that prose stripped from the display (t1274). Sentence order within the
 # run is free.
+#
+# The impact-vector sentences (t1636_2) join the same run. Their dimension names
+# are the CLOSED vocabulary from `concern_dimensions` — the same reasoning that
+# makes `_ITEM_NO_REGION` use a closed priority class instead of `\w+`. A
+# sentence naming an unknown dimension therefore fails to match AS A WHOLE, so
+# it is not part of the suffix run: it stays in the body and in
+# `display_body()`, where a human sees it. That visible failure is the chosen
+# mode; a permissive name class would accept invented dimensions silently.
+#
+# Magnitudes are bounded-permissive (`\w{1,16}`) rather than a closed
+# `high|medium|low` class, because an unrecognised magnitude must degrade to
+# *unspecified* while keeping its dimension — see `normalize_magnitude`. Making
+# the class closed would instead fail the whole sentence and drop the dimension.
+_IMPACT_ENTRY = rf"(?:{dimensions_pipe()})(?:\(\w{{1,16}}\))?"
+_IMPACT_LIST = rf"{_IMPACT_ENTRY}(?:\s*,\s*{_IMPACT_ENTRY})*"
+
 _TRAILER_SENTENCE = (
     r"(?:Disposition:\s*(?:blocking|follow[- ]?up|informational)"
-    r"|Verified:\s*(?:CONFIRMED|PLAUSIBLE|REFUTED))\.?"
+    r"|Verified:\s*(?:CONFIRMED|PLAUSIBLE|REFUTED)"
+    rf"|Improves:\s*{_IMPACT_LIST}"
+    rf"|Worsens:\s*(?:nothing|{_IMPACT_LIST})"
+    r"|Effort:\s*\w{1,16})\.?"
 )
 _TRAILER_SPAN = re.compile(rf"(?:\s*{_TRAILER_SENTENCE})+\s*$", re.IGNORECASE)
 _DISPOSITION_IN_TRAILER = re.compile(
@@ -188,6 +226,18 @@ _DISPOSITION_IN_TRAILER = re.compile(
 )
 _VERDICT_IN_TRAILER = re.compile(
     r"Verified:\s*(CONFIRMED|PLAUSIBLE|REFUTED)", re.IGNORECASE
+)
+_IMPROVES_IN_TRAILER = re.compile(rf"Improves:\s*({_IMPACT_LIST})", re.IGNORECASE)
+_WORSENS_IN_TRAILER = re.compile(
+    rf"Worsens:\s*(nothing|{_IMPACT_LIST})", re.IGNORECASE
+)
+_EFFORT_IN_TRAILER = re.compile(r"Effort:\s*(\w{1,16})", re.IGNORECASE)
+
+# Splits a matched entry list into its entries. `Worsens: nothing.` yields no
+# match at all, which is exactly the empty tuple that "priced as nothing" means.
+_IMPACT_ENTRY_PARTS = re.compile(
+    rf"(?P<dimension>{dimensions_pipe()})(?:\((?P<magnitude>\w{{1,16}})\))?",
+    re.IGNORECASE,
 )
 
 DEFAULT_PREAMBLE = (
@@ -227,12 +277,51 @@ class BlockMeta(NamedTuple):
     reviewed_at: str    # verbatim text after '@' ("" when absent or empty)
 
 
+class ImpactEntry(NamedTuple):
+    """One dimension of a concern's impact vector (t1636_2).
+
+    ``magnitude`` is already normalized by
+    :func:`concern_dimensions.normalize_magnitude`: one of ``high`` / ``medium``
+    / ``low``, or ``""`` for **unspecified** (the magnitude was absent or
+    unrecognised). ``""`` is never promoted to ``low`` — degrading an unknown
+    magnitude would understate a cost on the worsen side, the unsafe direction
+    for a mechanism whose purpose is to make a reviewer price its own
+    suggestion. Surfaces render unspecified as ``?``; the dimension is kept
+    either way.
+    """
+
+    dimension: str       # a member of concern_dimensions.VALID_DIMENSIONS
+    magnitude: str       # "high" | "medium" | "low" | "" (unspecified)
+
+
 class Concern(NamedTuple):
     priority: str        # one of {"high", "medium", "low"}
     region: str          # free-text plan-region / axis label
     body: str            # free-text concern body (wrap-joined) — see below
     disposition: str = ""  # one of DISPOSITIONS, or "" when unspecified
     verdict: str = ""      # one of _VERDICTS, or "" when absent
+    # The impact vector (t1636_2), derived from the same terminal trailer run.
+    #
+    # ``improves`` / ``worsens`` distinguish THREE states, and the distinction is
+    # the feature, not an implementation detail:
+    #
+    #   None  — the sentence is absent: this side was NOT priced;
+    #   ()    — ``Worsens: nothing.``: priced, and the price is nothing;
+    #   (…,)  — priced, with real entries.
+    #
+    # Collapsing `None` into `()` would erase the difference between a reviewer
+    # who weighed the cost of their own suggestion and one who never did, which
+    # is precisely the anti-overengineering mechanism t1636 exists to add.
+    # ``improves`` can only ever be `None` or non-empty: an empty entry list
+    # fails the sentence grammar, and only ``Worsens:`` accepts ``nothing``.
+    improves: "tuple[ImpactEntry, ...] | None" = None
+    worsens: "tuple[ImpactEntry, ...] | None" = None
+    effort: str = ""       # "high" | "medium" | "low" | "" (unspecified/absent)
+
+    # NOTE: the three fields above are appended AFTER the original five on
+    # purpose. Positional construction — used at ~40 call sites across the test
+    # modules and in `_scan_items` — stays valid; inserting anywhere earlier
+    # would silently shift every one of them.
 
     # ``body`` is CANONICAL: exactly what the producer emitted, trailer included.
     # :func:`build_clipboard_payload` re-renders it verbatim, so stripping the
@@ -267,24 +356,65 @@ def _norm_priority(raw: str) -> str:
     return p if p in _VALID else "low"
 
 
-def _parse_trailer(body: str) -> tuple[str, str]:
-    """Return ``(disposition, verdict)`` read from ``body``'s terminal trailer.
+def _parse_entries(raw: str) -> "tuple[ImpactEntry, ...]":
+    """Split a matched ``Improves:`` / ``Worsens:`` list into its entries.
 
-    Both default to ``""`` — when there is no terminal trailer, or when the
-    trailer carries only one of the two sentences.
+    ``raw`` has already been matched against the closed grammar, so every name
+    found here is a member of the vocabulary. The name is **lower-cased**:
+    :data:`_TRAILER_SPAN` is compiled ``re.IGNORECASE``, so ``Improves:
+    Robustness(High).`` matches and is stripped from :meth:`Concern.display_body`
+    — storing the name as written would then leave an entry outside
+    ``VALID_DIMENSIONS`` describing text the user can no longer see. This
+    mirrors what the trailer already does for ``disposition`` (``.lower()``) and
+    ``verdict`` (``.upper()``).
+
+    ``Worsens: nothing`` contains no dimension name and so yields ``()`` — the
+    priced-empty state, distinct from the ``None`` a missing sentence gives.
+    """
+    return tuple(
+        ImpactEntry(
+            m.group("dimension").lower(),
+            normalize_magnitude(m.group("magnitude") or ""),
+        )
+        for m in _IMPACT_ENTRY_PARTS.finditer(raw)
+    )
+
+
+def _parse_trailer(
+    body: str,
+) -> "tuple[str, str, tuple[ImpactEntry, ...] | None, tuple[ImpactEntry, ...] | None, str]":
+    """Read the derived fields from ``body``'s terminal trailer.
+
+    Returns ``(disposition, verdict, improves, worsens, effort)``. Every field
+    defaults to its "absent" value — ``""`` for the three scalars and ``None``
+    for the two vector sides — when there is no terminal trailer, or when the
+    trailer carries only some of the sentences.
+
+    Each sentence is located with its own ``.search()`` over the matched span, so
+    a repeated sentence resolves **first-wins**, exactly as ``Disposition:``
+    already did before the vector existed.
     """
     match = _TRAILER_SPAN.search(body)
     if match is None:
-        return "", ""
+        return "", "", None, None, ""
     trailer = match.group(0)
     disposition = ""
     verdict = ""
+    improves = None
+    worsens = None
+    effort = ""
     if (d := _DISPOSITION_IN_TRAILER.search(trailer)) is not None:
         disposition = re.sub(r"\s+", "-", d.group(1).strip().lower())
         disposition = disposition.replace("followup", "follow-up")
     if (v := _VERDICT_IN_TRAILER.search(trailer)) is not None:
         verdict = v.group(1).upper()
-    return disposition, verdict
+    if (i := _IMPROVES_IN_TRAILER.search(trailer)) is not None:
+        improves = _parse_entries(i.group(1))
+    if (w := _WORSENS_IN_TRAILER.search(trailer)) is not None:
+        worsens = _parse_entries(w.group(1))
+    if (e := _EFFORT_IN_TRAILER.search(trailer)) is not None:
+        effort = normalize_magnitude(e.group(1))
+    return disposition, verdict, improves, worsens, effort
 
 
 def _last_block_region(text: str, *, require_close: bool) -> str | None:
@@ -410,7 +540,7 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
     out: list[Concern] = []
     for priority, region_label, parts in items:
         body = " ".join(p.strip() for p in parts if p.strip()).strip()
-        disposition, verdict = _parse_trailer(body)
+        disposition, verdict, improves, worsens, effort = _parse_trailer(body)
         out.append(
             Concern(
                 _norm_priority(priority),
@@ -418,6 +548,9 @@ def _scan_items(region: str) -> tuple[list[Concern], list[str]]:
                 body,
                 disposition,
                 verdict,
+                improves,
+                worsens,
+                effort,
             )
         )
     return out, unrecovered

@@ -1943,5 +1943,402 @@ TestRenderedShadowDocsKeepTheGuarantees.test_rendered_entry_point_routes_recheck
 )
 
 
+class TestFiveFieldProjectionBackCompat(unittest.TestCase):
+    """Back-compat baseline pinned BEFORE the impact-vector trailer landed (t1636_2).
+
+    Inline pre-phase risk mitigation ``characterize_parser_backcompat``. t1636_2
+    widens ``_TRAILER_SENTENCE`` — the ONE regex every existing
+    ``Disposition:`` / ``Verified:`` derivation and every ``display_body()``
+    strip depend on — and appends three fields to :class:`Concern`. Either move
+    can silently change what an *old* block parses to.
+
+    Every expectation below is a recorded literal, observed passing against the
+    parser as it stood before that change, and it does **not** change when the
+    new fields land. If one of these ever fails, the extension broke back
+    compatibility; that is the whole signal.
+
+    **Whole-tuple equality is deliberately NOT pinned.** Appending fields
+    changes a NamedTuple's length and its ``==`` against a 5-tuple by
+    construction, so pinning that would fail on the intended change rather than
+    on a regression. The contract is the *projection* onto the five original
+    fields — which is exactly what every pre-t1636_2 consumer reads.
+    """
+
+    #: Blocks that carry no impact vector: the two shapes every block emitted
+    #: before t1636_2 can have.
+    NO_TRAILER = "A plain concern with no trailer at all."
+    OLD_TRAILER = "Real prose. Disposition: follow-up. Verified: PLAUSIBLE."
+
+    def _projection(self, body):
+        concerns = parse_concerns(block(f"- [medium | some region] {body}"))
+        self.assertEqual(len(concerns), 1)
+        c = concerns[0]
+        return (c.priority, c.region, c.body, c.disposition, c.verdict)
+
+    def test_no_trailer_block_projects_to_the_recorded_five_tuple(self):
+        self.assertEqual(
+            self._projection(self.NO_TRAILER),
+            (
+                "medium",
+                "some region",
+                "A plain concern with no trailer at all.",
+                "",
+                "",
+            ),
+        )
+
+    def test_disposition_only_block_projects_to_the_recorded_five_tuple(self):
+        self.assertEqual(
+            self._projection(self.OLD_TRAILER),
+            (
+                "medium",
+                "some region",
+                "Real prose. Disposition: follow-up. Verified: PLAUSIBLE.",
+                "follow-up",
+                "PLAUSIBLE",
+            ),
+        )
+
+    def test_five_argument_positional_construction_still_fills_those_fields(self):
+        """Positional construction is the blast radius of appending fields.
+
+        ~40 call sites across the test modules build a ``Concern`` positionally.
+        Appending after ``verdict`` keeps them all valid; inserting anywhere
+        earlier would silently shift every one of them.
+        """
+        c = Concern("high", "r", "b", "blocking", "CONFIRMED")
+        self.assertEqual(c.priority, "high")
+        self.assertEqual(c.region, "r")
+        self.assertEqual(c.body, "b")
+        self.assertEqual(c.disposition, "blocking")
+        self.assertEqual(c.verdict, "CONFIRMED")
+
+    def test_display_body_output_is_byte_identical(self):
+        no_trailer, old_trailer = (
+            parse_concerns(
+                block(
+                    f"- [medium | some region] {self.NO_TRAILER}",
+                    f"- [low | other] {self.OLD_TRAILER}",
+                )
+            )
+        )
+        self.assertEqual(
+            no_trailer.display_body(), "A plain concern with no trailer at all."
+        )
+        self.assertEqual(old_trailer.display_body(), "Real prose.")
+
+    def test_clipboard_payload_is_byte_identical(self):
+        """The forward path must keep emitting the canonical body, verbatim."""
+        concerns = parse_concerns(
+            block(
+                f"- [medium | some region] {self.NO_TRAILER}",
+                f"- [low | other] {self.OLD_TRAILER}",
+            )
+        )
+        self.assertEqual(
+            build_clipboard_payload(concerns),
+            "I have some concerns: please verify them and if valid "
+            "please address in the plan\n"
+            "\n"
+            "- [medium | some region] A plain concern with no trailer at all.\n"
+            "- [low | other] Real prose. Disposition: follow-up. "
+            "Verified: PLAUSIBLE.",
+        )
+
+
+class TestWorsensIsPricedOrUnpriced(unittest.TestCase):
+    """`Worsens:` has THREE states, and collapsing any two deletes the feature (t1636_2).
+
+    Inline pre-phase risk mitigation ``discriminate_priced_vs_unpriced_worsens``,
+    written before the field shape was implemented so a two-state design could
+    not satisfy it.
+
+    The whole point of t1636 is that a concern must **price its own suggestion**.
+    That only works if "I considered the cost and there is none" is
+    distinguishable from "I never considered the cost":
+
+    ============================ ============ ==================================
+    trailer                      ``worsens``  meaning
+    ============================ ============ ==================================
+    ``Worsens: nothing.``        ``()``       priced, and the price is nothing
+    no ``Worsens:`` sentence     ``None``     NOT priced — the reviewer skipped it
+    ``Worsens: simplicity(low).``populated    priced, with a real cost
+    ============================ ============ ==================================
+
+    An implementation that maps both of the first two to ``()`` — or both to
+    ``None`` — passes any test written with ``assertFalse`` / truthiness, because
+    ``()`` and ``None`` are both falsy. Hence the identity-wise assertions below:
+    ``assertIsNone`` and ``assertEqual(..., ())`` cannot both hold for one value.
+    """
+
+    def _one(self, body):
+        concerns = parse_concerns(block(f"- [medium | region] {body}"))
+        self.assertEqual(len(concerns), 1)
+        return concerns[0]
+
+    def test_worsens_nothing_is_priced_as_the_empty_tuple(self):
+        c = self._one("Text. Improves: goal(high). Worsens: nothing. Effort: low.")
+        self.assertIsNotNone(c.worsens, "'Worsens: nothing.' was priced, not skipped")
+        self.assertEqual(c.worsens, ())
+
+    def test_absent_worsens_sentence_is_not_priced_at_all(self):
+        c = self._one("Text. Improves: goal(high). Effort: low.")
+        self.assertIsNone(c.worsens)
+
+    def test_populated_worsens_carries_the_entries(self):
+        c = self._one(
+            "Text. Improves: goal(high). Worsens: simplicity(low). Effort: low."
+        )
+        self.assertEqual(len(c.worsens), 1)
+        self.assertEqual(tuple(c.worsens[0]), ("simplicity", "low"))
+
+    def test_the_three_states_are_pairwise_distinct(self):
+        """The discriminator itself: a two-state implementation fails here."""
+        priced_nothing = self._one("T. Worsens: nothing.").worsens
+        not_priced = self._one("T. Improves: goal.").worsens
+        priced_real = self._one("T. Worsens: simplicity.").worsens
+        self.assertIsNone(not_priced)
+        self.assertIsNotNone(priced_nothing)
+        self.assertIsNotNone(priced_real)
+        self.assertNotEqual(priced_nothing, priced_real)
+
+
+class TestImpactVectorGrammar(unittest.TestCase):
+    """The `Improves:` / `Worsens:` / `Effort:` trailer sentences (t1636_2).
+
+    The dimension names are a CLOSED alternation built from
+    ``concern_dimensions``; the magnitudes are bounded-permissive. Those two
+    choices pull in opposite directions on purpose — an unknown *dimension*
+    fails its whole sentence (visible in the body), while an unknown *magnitude*
+    degrades to unspecified and keeps its dimension.
+    """
+
+    def _one(self, body):
+        concerns = parse_concerns(block(f"- [medium | region] {body}"))
+        self.assertEqual(len(concerns), 1)
+        return concerns[0]
+
+    # --- magnitudes -----------------------------------------------------
+
+    def test_absent_magnitude_is_unspecified_not_low(self):
+        c = self._one("T. Improves: robustness.")
+        self.assertEqual(c.improves, (("robustness", ""),))
+
+    def test_unrecognised_magnitude_is_unspecified_and_keeps_its_dimension(self):
+        """Never `low`: degrading an unknown cost is the unsafe direction."""
+        c = self._one("T. Worsens: robustness(extreme).")
+        self.assertEqual(c.worsens, (("robustness", ""),))
+        self.assertNotEqual(c.worsens[0].magnitude, "low")
+
+    def test_mixed_case_dimension_and_magnitude_normalize(self):
+        """`_TRAILER_SPAN` is IGNORECASE, so the sentence matches either way.
+
+        Because it matches, the text is stripped from `display_body()` — so the
+        stored name MUST be canonicalised too. Keeping it as written would leave
+        an entry outside `VALID_DIMENSIONS` describing prose the user can no
+        longer see, and t1636_4's picker would render it as an empty label.
+        """
+        c = self._one("T. Improves: Robustness(High). Worsens: SIMPLICITY(Low).")
+        self.assertEqual(c.improves, (("robustness", "high"),))
+        self.assertEqual(c.worsens, (("simplicity", "low"),))
+        self.assertEqual(c.display_body(), "T.")
+
+    # --- the effort scalar ----------------------------------------------
+
+    def test_recognised_effort_is_actually_derived(self):
+        """Positive control for the scalar — deliberately independent.
+
+        Every *other* effort expectation in this suite is `""`: the absent
+        sentence and the unrecognised token both yield it. So an implementation
+        that matches `Effort:` only well enough to strip it, and never assigns
+        the field, would satisfy all of them. This is the one assertion that
+        proves the value is derived rather than merely accepted.
+        """
+        for written, expected in (
+            ("low", "low"),
+            ("medium", "medium"),
+            ("high", "high"),
+            ("High", "high"),
+            ("MEDIUM", "medium"),
+        ):
+            with self.subTest(written=written):
+                self.assertEqual(self._one(f"T. Effort: {written}.").effort, expected)
+
+    def test_absent_effort_sentence_is_empty(self):
+        self.assertEqual(self._one("T. Improves: goal.").effort, "")
+
+    # --- duplicate sentences --------------------------------------------
+
+    def test_duplicate_sentence_resolves_first_wins_for_every_extractor(self):
+        """Parameterized over all four extractors, not just `Disposition:`.
+
+        The five sentence kinds are five separate regexes at five separate call
+        sites. Sharing a *pattern* with `Disposition:` is not proof that each
+        one uses `.search()` semantics — a single extractor written last-wins
+        (e.g. `findall()[-1]`) would otherwise regress undetected.
+        """
+        cases = (
+            ("disposition", "Disposition: blocking. Disposition: informational.",
+             lambda c: c.disposition, "blocking"),
+            ("verdict", "Verified: CONFIRMED. Verified: REFUTED.",
+             lambda c: c.verdict, "CONFIRMED"),
+            ("improves", "Improves: goal. Improves: simplicity.",
+             lambda c: c.improves, (("goal", ""),)),
+            ("worsens", "Worsens: nothing. Worsens: simplicity.",
+             lambda c: c.worsens, ()),
+            ("effort", "Effort: low. Effort: high.",
+             lambda c: c.effort, "low"),
+        )
+        for field, trailer, read, expected in cases:
+            with self.subTest(field=field):
+                self.assertEqual(read(self._one(f"T. {trailer}")), expected)
+
+    # --- sentences that do not match ------------------------------------
+
+    def test_empty_or_trailing_comma_entry_list_fails_the_sentence(self):
+        """So `improves` is only ever None or non-empty — never `()`.
+
+        `()` is reachable exclusively through `Worsens: nothing.`, which is what
+        keeps "priced as nothing" a deliberate statement rather than a shape the
+        grammar can produce by accident.
+        """
+        for trailer in ("Improves: .", "Improves: goal,", "Worsens: ."):
+            with self.subTest(trailer=trailer):
+                c = self._one(f"T. {trailer}")
+                self.assertIsNone(c.improves)
+                self.assertIsNone(c.worsens)
+                self.assertEqual(c.display_body(), c.body)
+
+    def test_unknown_dimension_fails_its_sentence_on_either_side(self):
+        for side, field in (("Improves", "improves"), ("Worsens", "worsens")):
+            with self.subTest(side=side):
+                c = self._one(f"T. {side}: bogus(high).")
+                self.assertIsNone(getattr(c, field))
+                self.assertEqual(c.display_body(), c.body)
+
+    def test_an_invalid_sentence_still_leaves_a_valid_suffix_parseable(self):
+        """Per-sentence atomicity: the run extends only over valid sentences."""
+        c = self._one(
+            "T. Improves: bogus(high). Worsens: simplicity(low). "
+            "Disposition: blocking."
+        )
+        self.assertIsNone(c.improves)
+        self.assertEqual(c.worsens, (("simplicity", "low"),))
+        self.assertEqual(c.disposition, "blocking")
+        self.assertEqual(c.display_body(), "T. Improves: bogus(high).")
+
+    # --- shape -----------------------------------------------------------
+
+    def test_multi_entry_lists_preserve_order_and_spacing_variants(self):
+        c = self._one("T. Improves: goal(high),correctness ,  verification(low).")
+        self.assertEqual(
+            c.improves,
+            (("goal", "high"), ("correctness", ""), ("verification", "low")),
+        )
+
+    def test_sentence_order_within_the_run_is_free(self):
+        ordered = (
+            "T. Effort: high. Worsens: nothing. Verified: PLAUSIBLE. "
+            "Improves: goal(low). Disposition: follow-up."
+        )
+        c = self._one(ordered)
+        self.assertEqual(c.improves, (("goal", "low"),))
+        self.assertEqual(c.worsens, ())
+        self.assertEqual(c.effort, "high")
+        self.assertEqual((c.disposition, c.verdict), ("follow-up", "PLAUSIBLE"))
+        self.assertEqual(c.display_body(), "T.")
+
+    # --- integration ------------------------------------------------------
+
+    def test_derive_priority_consumes_the_parsed_improve_side(self):
+        """The vocabulary module owns the vector -> marker-priority mapping."""
+        from concern_dimensions import derive_priority
+
+        cases = (
+            ("Improves: goal(high), simplicity(low).", "high"),
+            ("Improves: goal(medium), correctness(low).", "medium"),
+            ("Improves: goal, correctness.", "low"),        # all unspecified
+            ("Improves: goal(bogus).", "low"),              # all unrecognised
+            ("Worsens: nothing.", "low"),                   # improve side absent
+        )
+        for trailer, expected in cases:
+            with self.subTest(trailer=trailer):
+                self.assertEqual(
+                    derive_priority(self._one(f"T. {trailer}").improves), expected
+                )
+
+    def test_clipboard_forwards_the_full_vector_trailer_verbatim(self):
+        """`.body` stays canonical: the followed agent must see the pricing."""
+        trailer = (
+            "Improves: robustness(high), verification(medium). "
+            "Worsens: simplicity(low). Effort: low. Disposition: follow-up."
+        )
+        concerns = parse_concerns(block(f"- [high | parser] Real prose. {trailer}"))
+        self.assertEqual(
+            build_clipboard_payload(concerns, preamble="P"),
+            f"P\n\n- [high | parser] Real prose. {trailer}",
+        )
+        self.assertEqual(concerns[0].display_body(), "Real prose.")
+
+
+class TestEffortOverStripIsAnAcceptedLimit(unittest.TestCase):
+    """What the bounded-permissive `Effort:` class deliberately does NOT buy (t1636_2).
+
+    Inline post-phase risk mitigation ``pin_effort_overstrip_residual``. This
+    pins an accepted design limit, **not** a defect — read it as documentation
+    with an executable check, and do not "fix" what it asserts.
+
+    `Effort:\\s*\\w{1,16}` is the one impact-vector alternative not drawn from a
+    closed vocabulary. Every other sentence is anchored by a closed set
+    (`DISPOSITIONS`, `_VERDICTS`, the dimension names), so ordinary prose cannot
+    accidentally form one. `Effort:` can: a body ending ``… reduces Effort:
+    significantly.`` is a well-formed trailer sentence and is stripped from the
+    display.
+
+    **Why a closed `high|medium|low` class is not the answer here.** The
+    contract in ``concern-format.md`` requires an unrecognised magnitude to
+    yield *unspecified* while keeping the annotation. A closed class would
+    instead fail the whole sentence, which for `Effort:` means the concern
+    silently loses its cost scalar — trading a rare cosmetic over-strip for a
+    routine loss of the information the sentence exists to carry. The exposure
+    is bounded (a single terminal sentence, `\\w{1,16}`) and shares its shape
+    with the long-standing `Disposition:` / `Verified:` anchoring risk that
+    ``test_prose_mention_is_neither_classified_nor_stripped`` already documents.
+    """
+
+    def _one(self, body):
+        concerns = parse_concerns(block(f"- [medium | region] {body}"))
+        self.assertEqual(len(concerns), 1)
+        return concerns[0]
+
+    def test_prose_ending_in_an_effort_word_is_stripped_and_derives_nothing(self):
+        c = self._one("This rewrite reduces Effort: significantly.")
+        self.assertEqual(c.effort, "", "an unrecognised token stays unspecified")
+        self.assertEqual(c.display_body(), "This rewrite reduces")
+
+    def test_the_body_still_forwards_the_text_verbatim(self):
+        """The residual costs display only — the followed agent loses nothing.
+
+        This is what bounds the accepted limit: `build_clipboard_payload` reads
+        `.body`, so over-stripping can never delete a word from what is actually
+        forwarded.
+        """
+        body = "This rewrite reduces Effort: significantly."
+        c = self._one(body)
+        self.assertEqual(c.body, body)
+        self.assertIn(body, build_clipboard_payload([c]))
+
+    def test_a_mid_prose_effort_mention_is_untouched(self):
+        """The terminal anchor still bounds it: only a *trailing* run strips."""
+        c = self._one("It cuts Effort: hugely, but the risk is real.")
+        self.assertEqual(c.display_body(), c.body)
+        self.assertEqual(c.effort, "")
+
+
+# NOTE: this guard must stay the LAST statement in the file. `unittest.main()`
+# only sees classes already defined when it runs, so a class appended after it
+# is silently invisible to `python3 tests/test_concern_parser.py` while pytest
+# and `unittest discover` still collect it — a false green on the file's own
+# direct-run entry point (t1636_2).
 if __name__ == "__main__":
     unittest.main()
