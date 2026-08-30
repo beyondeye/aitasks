@@ -1,13 +1,17 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [bash_scripts, shadow, minimonitor, macos]
 gates: [risk_evaluated]
+implemented_with: claudecode/opus5
 created_at: 2026-08-30 11:25
-updated_at: 2026-08-30 11:25
+updated_at: 2026-08-30 12:34
+completed_at: 2026-08-30 12:34
 ---
 
 ## Symptom
@@ -149,3 +153,17 @@ plain bracket expressions are portable. Add:
 - A repo-wide sweep confirms `[0-?]` (and any other cross-class bracket range
   in shell) has no remaining shell call site. Current sweep found exactly one:
   `aitask_shadow_capture.sh:168` (plus its mirror comment at :148).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **🔄 gate:risk_evaluated** run=2026-08-30T09:33:40Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8934dde4af24a880
+
+> **✅ gate:risk_evaluated** run=2026-08-30T09:33:40Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1637/risk_evaluated_2026-08-30T09:33:40Z-risk_evaluated-a1.log`
