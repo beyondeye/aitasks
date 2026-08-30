@@ -1894,6 +1894,56 @@ def _example_item_lines(text: str) -> list:
     return []
 
 
+def _trailer_shape_violations(concern, require_disposition: bool = False) -> list:
+    """Every way an example concern's trailer contradicts the producers' rules.
+
+    A **shared** predicate rather than inline assertions, so the negative
+    controls below can drive the *production* checks on synthetic input instead
+    of re-implementing them. A re-implemented control stays green when the real
+    check is weakened or deleted, which is the failure mode it exists to catch.
+
+    Reports, in order: an unpriced improve side; an unpriced worsen side (the
+    mandatory one); a missing effort scalar; a marker priority that disagrees
+    with ``derive_priority``; and a disposition that contradicts the vector.
+
+    The **obligation rule** is the semantic half. ``concern-format.md`` and
+    ``impl-review-angles.md`` both make ``goal`` and ``correctness`` obligations
+    *categorically*, so an improve side touching either is ``blocking`` by the
+    rubric — an example that says otherwise is copyable guidance contradicting
+    the rule printed above it. ``robustness`` and ``performance`` are obligations
+    only when a task's own AC says so, a per-task judgement no static check can
+    make, so they are deliberately **not** asserted on.
+    """
+    from concern_dimensions import OBLIGATION_DIMENSIONS, derive_priority
+
+    problems = []
+    if concern.improves is None:
+        problems.append("no Improves: sentence")
+    if concern.worsens is None:
+        problems.append(
+            "worsen side unpriced; the Worsens sentence is mandatory (use "
+            "`Worsens: nothing.` when it genuinely costs nothing)"
+        )
+    if not concern.effort:
+        problems.append("no Effort: sentence")
+    derived = derive_priority(concern.improves)
+    if concern.priority != derived:
+        problems.append(
+            f"marker priority {concern.priority!r} but its vector derives "
+            f"{derived!r}"
+        )
+    obligated = {e.dimension for e in (concern.improves or ())} & OBLIGATION_DIMENSIONS
+    if obligated and concern.disposition != "blocking":
+        problems.append(
+            f"improves the obligation dimension(s) {sorted(obligated)} but is "
+            f"dispositioned {concern.disposition or 'unspecified'!r}, not "
+            f"'blocking'"
+        )
+    if require_disposition and not concern.disposition:
+        problems.append("no Disposition: sentence")
+    return problems
+
+
 class TestProducerExampleTrailerShape(unittest.TestCase):
     """Every producer's *example* concerns carry a well-formed trailer (t1636_3).
 
@@ -1927,9 +1977,9 @@ class TestProducerExampleTrailerShape(unittest.TestCase):
             "\n".join([OPEN, HEADER] + _example_item_lines(text) + [CLOSE])
         )
 
-    def test_every_producer_example_carries_a_full_vector(self):
-        from concern_dimensions import derive_priority
-
+    def test_every_producer_example_matches_the_rules_it_prints(self):
+        """The examples obey the trailer rules, the priority mapping, AND the
+        disposition rubric printed a few lines above them."""
         for name, text in self._producers().items():
             with self.subTest(producer=name):
                 items = _example_item_lines(text)
@@ -1947,61 +1997,81 @@ class TestProducerExampleTrailerShape(unittest.TestCase):
                     f"cannot read is guidance the agent should not copy",
                 )
                 for concern in concerns:
-                    self.assertIsNotNone(
-                        concern.improves,
-                        f"{name}: example '{concern.region}' has no Improves: "
-                        f"sentence",
-                    )
-                    self.assertIsNotNone(
-                        concern.worsens,
-                        f"{name}: example '{concern.region}' leaves the worsen "
-                        f"side unpriced; the Worsens sentence is mandatory "
-                        f"(use `Worsens: nothing.` when it genuinely costs "
-                        f"nothing)",
-                    )
-                    self.assertNotEqual(
-                        concern.effort, "",
-                        f"{name}: example '{concern.region}' has no Effort:",
+                    problems = _trailer_shape_violations(
+                        concern,
+                        require_disposition=name in self.PLAN_PRODUCERS,
                     )
                     self.assertEqual(
-                        concern.priority, derive_priority(concern.improves),
-                        f"{name}: example '{concern.region}' has marker "
-                        f"priority {concern.priority!r} but its vector derives "
-                        f"{derive_priority(concern.improves)!r} — the example "
-                        f"contradicts the mapping the same doc states",
+                        problems, [],
+                        f"{name}: example '{concern.region}' contradicts the "
+                        f"rules the same doc states: " + "; ".join(problems),
                     )
 
-    def test_every_plan_producer_example_carries_a_disposition(self):
-        for name, text in self._producers().items():
-            if name not in self.PLAN_PRODUCERS:
-                continue
-            with self.subTest(producer=name):
-                for concern in self._parsed(text):
-                    self.assertNotEqual(
-                        concern.disposition, "",
-                        f"{name}: example '{concern.region}' has no "
-                        f"Disposition:, so it would land undifferentiated in "
-                        f"the picker's 'Needs addressing' section",
+    def test_the_shape_check_rejects_each_way_an_example_can_be_wrong(self):
+        """Negative control — one case per reported problem, each driving the
+        **production** predicate rather than a re-implementation of it.
+
+        Without a case per problem, deleting or weakening a single check leaves
+        both the positive examples and this control green.
+        """
+        def only(line):
+            return parse_concerns("\n".join([OPEN, HEADER, line, CLOSE]))[0]
+
+        cases = {
+            "no trailer at all": (
+                "- [high | verification] A body with no trailer at all.",
+                ["no Improves:", "worsen side unpriced", "no Effort:"],
+            ),
+            "unpriced worsen side": (
+                "- [medium | verification] A body. Improves: "
+                "verification(medium). Effort: low.",
+                ["worsen side unpriced"],
+            ),
+            "no effort scalar": (
+                "- [medium | verification] A body. Improves: "
+                "verification(medium). Worsens: nothing.",
+                ["no Effort:"],
+            ),
+            # The case the t1636_3 review found missing: a fully parseable
+            # vector whose marker simply disagrees with it.
+            "marker disagrees with the vector": (
+                "- [low | verification] A body. Improves: "
+                "verification(high). Worsens: nothing. Effort: low.",
+                ["marker priority 'low' but its vector derives 'high'"],
+            ),
+            "obligation dimension not blocking": (
+                "- [high | axis] A body. Improves: correctness(high). "
+                "Worsens: nothing. Effort: low. Disposition: follow-up.",
+                ["obligation dimension"],
+            ),
+            "missing disposition on a plan producer": (
+                "- [low | axis] A body. Improves: simplicity(low). "
+                "Worsens: nothing. Effort: low.",
+                ["no Disposition:"],
+            ),
+        }
+        for label, (line, expected) in cases.items():
+            with self.subTest(case=label):
+                problems = _trailer_shape_violations(
+                    only(line), require_disposition=True
+                )
+                for fragment in expected:
+                    self.assertTrue(
+                        any(fragment in problem for problem in problems),
+                        f"{label}: expected a problem mentioning {fragment!r}, "
+                        f"got {problems}",
                     )
 
-    def test_assertions_fail_on_a_trailerless_example(self):
-        """Negative control: each assertion above must be able to fail."""
-        bare = "- [high | verification] A body with no trailer at all."
-        concern = parse_concerns("\n".join([OPEN, HEADER, bare, CLOSE]))[0]
-        self.assertIsNone(concern.improves)
-        self.assertIsNone(concern.worsens)
-        self.assertEqual(concern.effort, "")
-        self.assertEqual(concern.disposition, "")
-
-        priced = (
+        # …and a fully compliant example must report nothing, so a predicate
+        # that flagged everything could not pass either.
+        compliant = (
             "- [medium | verification] A body. Improves: verification(medium). "
-            "Worsens: nothing. Effort: low. Disposition: follow-up."
+            "Worsens: simplicity(low). Effort: low. Disposition: follow-up."
         )
-        concern = parse_concerns("\n".join([OPEN, HEADER, priced, CLOSE]))[0]
-        self.assertEqual(concern.improves[0].dimension, "verification")
-        self.assertEqual(concern.worsens, ())
-        self.assertEqual(concern.effort, "low")
-        self.assertEqual(concern.disposition, "follow-up")
+        self.assertEqual(
+            _trailer_shape_violations(only(compliant), require_disposition=True),
+            [],
+        )
 
     def test_extractor_ignores_a_preceding_bash_fence(self):
         """The fence walk, not a regex pairing, is what makes the extraction
