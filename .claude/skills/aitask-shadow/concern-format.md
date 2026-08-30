@@ -183,6 +183,104 @@ The picker consumes this by splitting its list into **Needs addressing** and
 **Informational** sections and dimming the latter. A block whose concerns all
 land in one partition shows no headers.
 
+### Derived fields: the impact vector (Improves / Worsens / Effort)
+
+A concern is a **proposed delta in a shared quality space**, not a bare demand.
+Alongside `Disposition:` and `Verified:`, the terminal trailer run carries a
+signed **impact vector** — an improve side and a worsen side drawn from the
+*same* closed dimension vocabulary — plus a separate effort scalar:
+
+```
+Improves: robustness(high), verification(medium). Worsens: simplicity(low). Effort: low.
+```
+
+Like `disposition` and `verdict`, these are **derived fields**: the
+`[priority | region]` bracket is untouched, so every block emitted before they
+existed still parses, and the t1167 drop hazard is not re-opened.
+
+**The dimension vocabulary.** Closed and framework-semantic — the parser builds
+its name alternation from this set, so a producer must not invent others. The
+single source of truth is `.aitask-scripts/monitor/concern_dimensions.py`; the
+table below mirrors it field for field, and `tests/test_concern_dimensions.py`
+fails the build if the two drift. The order shown is canonical: producers
+enumerate in it and the picker renders in it.
+
+| dimension | label | rubric |
+|---|---|---|
+| `goal` | `goal` | the task's AC / the user's stated intent is delivered |
+| `correctness` | `corr` | right behavior on reachable inputs |
+| `robustness` | `robus` | stability under failure / concurrency / hostile input (includes security) |
+| `performance` | `perf` | latency, throughput, resource cost |
+| `verification` | `verif` | testability; proof the change works |
+| `maintainability` | `maint` | readability, duplication, conventions; ease of safe change |
+| `simplicity` | `simpl` | amount of mechanism; the classic worsen-side |
+
+`maintainability` and `simplicity` are deliberately **separate**. Extracting a
+shared helper improves maintainability while worsening simplicity; merged into
+one "code health" scalar that trade would cancel itself out — and pricing added
+mechanism is the entire reason the worsen side exists. The `label` column is the
+short form the picker renders in its narrow layout; it is part of the contract
+because that layout's width budget depends on it.
+
+**Grammar.** Each of the three sentences is optional and their order within the
+trailer run is free, exactly as for `Disposition:` and `Verified:`:
+
+- `Improves: <entries>.` and `Worsens: <entries>.` — `<entries>` is a
+  comma-separated list of `name` or `name(magnitude)`, where `name` is one of
+  the closed dimensions above. `Worsens:` additionally accepts the literal
+  `nothing`.
+- `Effort: <magnitude>.`
+- A sentence naming a dimension outside the vocabulary does **not** match. It is
+  not silently dropped: it stays in the display body and in the payload
+  forwarded to the followed agent, where a human sees it. A permissive name
+  class is not an option — it would re-open the collision hazard the whole
+  marker format rests on.
+- Magnitudes are `high`, `medium` or `low`, matched case-insensitively. An
+  unrecognised or omitted magnitude yields **unspecified**, rendered `?` — never
+  `low`. The dimension itself is never dropped.
+
+**Magnitudes are advisory; the dimensions are load-bearing.** Naming *which*
+quality moves is the information the old bare severity scalar never carried.
+Calibrating *how far* it moves is noisy, so a magnitude refines a concern and
+never decides whether it is one. Degrading an unknown magnitude to `low` would
+understate a cost on the worsen side, which is the unsafe direction here — hence
+the unspecified state.
+
+**The worsen side is mandatory, and "priced as nothing" is not "not priced".**
+Every vector-bearing concern must price its own suggestion. `Worsens: nothing.`
+is a *priced* empty set; an omitted `Worsens:` sentence is a different state,
+and the parser distinguishes them. This is the anti-overengineering mechanism:
+without it a concern is a pure demand with externalised costs, and accumulating
+concerns silently over-engineers the solution. A concern that improves only
+non-obligated dimensions at a simplicity cost self-identifies as a bad trade.
+
+**`Effort:` is a separate one-time-cost scalar, never a vector dimension.**
+Quality deltas are permanent properties of the codebase; effort is transient and
+paid once. Mixing them corrupts both — a cheap fix and a durable improvement are
+different facts, and the reader is choosing between them.
+
+**Grounding the disposition in the vector.** The vector is what makes
+`blocking` / `follow-up` / `informational` decidable rather than a feel:
+
+- **blocking** — the improve side touches an *obligation dimension* for this
+  task. `goal` and `correctness` are obligations categorically; `robustness` and
+  `performance` become obligations only when the task's own AC or plan says so,
+  which is a per-task judgement the producing agent makes against that task's
+  text.
+- **follow-up** — net-positive, but no obligation dimension is touched.
+- **informational** — no proposed delta at all, or the point is already settled.
+
+`impl-review-angles.md` remains the authoritative home of the disposition
+rubric; this section only states how the vector grounds it.
+
+**Priority is derived from the vector.** For a vector-bearing concern the marker
+priority is `concern_dimensions.derive_priority(improves)` — the strongest known
+magnitude on the improve side, with an absent, empty, or all-unspecified improve
+side yielding `low`. Producers MUST emit a marker priority equal to it. On the
+consumer side the derived value is authoritative: the picker badge shows it and
+flags a disagreeing marker rather than silently reconciling the two. Concerns
+carrying no vector keep their marker priority exactly as before.
+
 ### Capture-join contract
 
 The parser space-joins each non-marker continuation line onto the current
