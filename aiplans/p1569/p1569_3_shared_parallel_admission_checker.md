@@ -1078,6 +1078,19 @@ Replay over the **124** candidates that have an active plan file, 2026-08-30:
 | `plan` / `allow-cached` | 0 | 85 | 24 | 15 |
 | `origin` / `require-fresh` | 17 | 1 | 14 | 92 (74%) |
 
+**These rates are a snapshot, not a constant — re-measure before using them.**
+The in-flight population changed twice *during this one session*: three locks
+appeared mid-implementation, and by the end two sibling tasks had advanced to
+their next child (`1603_1`→`1603_2`, `1636_1`→`1636_2`) with a new `t1640`
+freshly claimed. Re-running the identical command an hour later gave
+`124|72|18|17|17` — CLEAR 48%→58%, CONFLICT 19%→14% — with **no code change**.
+The movement is real signal, not noise: a task that has just been claimed but has
+not yet externalised a plan is blocking-eligible with `no_plan`, so it legitimately
+makes the check UNCHECKABLE for everyone until its plan lands. Availability is
+therefore coupled to how many agents are mid-claim at that moment. Treat the
+table as one measurement of the method, and re-run `replay` when the number
+actually has to carry a decision.
+
 `CAUSE_RATE` for the `plan` / `require-fresh` row: `all_phantom` 5,
 `no_extractable_paths` 9, `no_plan` 1 — **every UNCHECKABLE is candidate-side**;
 `hub_overlap_only` 39; `stale_claim` 124 (informational, non-driving).
@@ -1274,3 +1287,69 @@ post-fix ones (the pre-fix baseline read `61|24|24|15`).
 this file's `if __name__ == "__main__"` block and therefore never ran — the test
 count stayed at 46 instead of 51. Worth checking the count, not just the status,
 after adding tests to an existing module.
+
+### Fifth defect — the snapshot did not cover plan files
+
+Found in a later review round. `replay` froze the lock probes, the batch map and
+the corpora, but `_respin()` still called `surface_from_plan()` **inside the
+reporting loop**. Two consequences, both breaking the one-snapshot contract the
+entry-criterion rates depend on:
+
+- a plan edited mid-run produced rates mixed across two plan states, describing
+  no world that ever existed;
+- the first candidate's plan was read **twice** — once building the base, once
+  when its own turn came — so it alone could be judged against a state no other
+  candidate saw.
+
+Fixed in two parts. `_respin` no longer touches disk at all: it takes an
+already-resolved `Surface`. `replay` resolves **every** candidate surface up
+front, before it computes any verdict, via the new standalone
+`resolve_candidate_surface()`.
+
+**And a third read the first fix missed, surfaced by the new test.** A task can
+appear twice in one run in two different roles — as the candidate *and* as an
+in-flight claim — and both read the same plan file. `_plan_surface()` memoises
+per run on `(ref, path)`, so one plan file is read once regardless of role.
+
+Pinned by three tests, all mutation-verified (re-reading in the loop fails 3;
+dropping the shared cache fails 2):
+
+- `test_every_candidate_surface_is_read_before_any_verdict` — instruments both
+  `surface_from_plan` and `decide` and asserts **no plan read occurs after the
+  first verdict**. This is an ordering assertion, not a count, so it catches a
+  re-read wherever it is reintroduced.
+- `test_each_candidate_plan_is_read_exactly_once` — the double-read regression.
+- `test_a_repeated_candidate_is_still_read_once` — a candidate listed twice.
+
+**Live note from this round:** a concurrent session claimed `t1640` mid-review.
+It is `live` with no externalised plan yet, so it is blocking-eligible with an
+invisible surface and correctly makes every candidate `UNCHECKABLE`
+(`CAUSE_RATE:no_plan|124`). That is the design working, and it is precisely the
+case the cause histogram exists to distinguish from "the method is broken" — one
+named task, one cheap remedy.
+
+### A fragile test of my own, found by the same round
+
+`tests/test_parallel_admission_cli.sh` asserted the CLEAR-path wording ("no known
+conflict at check time") **unconditionally** against live output. When the
+concurrent-session claim of `t1640` pushed the live verdict to `UNCHECKABLE` —
+whose `DISPLAY:` correctly says "could not compare" — the assertion failed. The
+code was right; the test had pinned one outcome of an environment-dependent run.
+
+Both live assertions are now scoped correctly:
+
+- the **forbidden** phrase ("safe to run in parallel") stays unconditional — no
+  verdict may ever claim it;
+- the **required** phrase is asserted only for `CLEAR` / `CLEAR_CAVEATED`, with a
+  non-clear verdict instead required to explain itself;
+- the determinism check compares only the records that do not depend on the live
+  in-flight set (`CORPUS:`, `INFLIGHT_SOURCE:`, `CANDIDATE:`). On a repo with
+  concurrent agents, asserting byte-equality over `INFLIGHT:`/`VERDICT:` across
+  two runs seconds apart is a race, not a determinism check.
+
+The strong guarantees stay pinned deterministically in Python over frozen inputs
+(`RenderTests::test_determinism_same_input_twice_is_byte_identical`,
+`ClearWordingTests`). **General lesson for the siblings: a live-corpus assertion
+belongs on the invariant, never on the current verdict.** Re-ran the shell test
+three times for stability and re-verified its negative control (a seeded failure
+still exits 1).

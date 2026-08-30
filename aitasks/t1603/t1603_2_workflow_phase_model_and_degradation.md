@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t1603_1]
 issue_type: feature
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 implemented_with: claudecode/opus5
 created_at: 2026-08-30 13:28
-updated_at: 2026-08-30 18:22
+updated_at: 2026-08-30 18:23
 ---
 
 ## Context
