@@ -23,6 +23,13 @@ last, and therefore kept honouring `#6272A4`; that asymmetry was the whole bug.
     terminal's shaper. That is the same unverifiable environment-dependence this
     module exists to remove, and it cannot be pinned by any in-repo test.
 
+SCOPE. This module governs the multi-select mark only. The rest of the TUI
+glyph inventory has not been measured against the policy above, and the t1638
+measurement found confirmed violations already shipping — notably `✔` U+2714 in
+the board's by-trail entries, which is this exact defect. **t1639** sweeps the
+inventory; do not assume a glyph elsewhere in the repo satisfies this policy
+merely because this module exists.
+
 ACCEPTED RESIDUAL. `□` U+25A1 is East Asian Width *Ambiguous*, where the `☐` it
 replaces was *Neutral* — a terminal configured wide-ambiguous renders it in two
 cells while Rich budgets one. This was chosen deliberately over the narrow-safe

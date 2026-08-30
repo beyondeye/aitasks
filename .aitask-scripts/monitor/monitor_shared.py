@@ -213,8 +213,8 @@ def format_shadow_glyph(
 # is covered by any font in mark_glyphs.SUPPORTED_FONTS, so both resolve by
 # fallback. Unlike ☑ they are not emoji-capable, so they still honour the
 # requested foreground and are NOT broken today — which is why t1638 changed the
-# selection mark and left this one alone. Re-evaluate if rendering trouble
-# appears; see the follow-up task recorded in the t1638 plan.
+# selection mark and left this one alone. Re-evaluated by t1639, which sweeps
+# the whole TUI glyph inventory against mark_glyphs' codepoint policy.
 MARK_GLYPH = "★"        # prioritized
 MARK_EMPTY_GLYPH = "☆"  # not prioritized
 
