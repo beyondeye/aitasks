@@ -100,6 +100,10 @@ get_timestamp() {
 
 # --- Init: create the aitask-locks branch ---
 
+# STDOUT CONTRACT (audited — t1641): prose only. No structured record shares this
+# verb's stdout, so the info()/success() calls below are not mixing channels. If
+# a machine-readable record is ever added here, move the prose to stderr in the
+# same change rather than layering the two — see list_locks() for the pattern.
 init_lock_branch() {
     require_remote
 
@@ -126,6 +130,25 @@ init_lock_branch() {
 
 # --- Lock: atomically acquire a task lock ---
 
+# STDOUT CONTRACT (audited, deliberately unchanged — t1641): stdout carries BOTH
+# structured records — LOCK_RECLAIM: / LOCK_LIVE_HOLDER: /
+# LOCK_UNVERIFIABLE_HOLDER: / PRIOR_LOCK: / LOCK_HOLDER: — and one line of human
+# prose, success "Locked task t<id>". Its only PROGRAMMATIC consumer,
+# aitask_pick_own.sh:359 and :441, captures 2>&1 and prefix-greps, so it is
+# insensitive to the split; every other caller is a human typing `ait lock <id>`.
+#
+# Two things must survive any future cleanup here:
+#   1. aitask_pick_own.sh:386 parses the PROSE "already locked by <email>" as a
+#      legacy fallback whenever no LOCK_HOLDER: record is present. That text is
+#      emitted by die() below (line ~258) and so is already on stderr — it
+#      reaches the consumer only because the consumer merges the streams. Moving
+#      it, rewording it, or "tidying" it into a record silently breaks that
+#      fallback, and no test in this repo would notice.
+#   2. Because that consumer merges 2>&1, it CANNOT detect a regression in this
+#      verb's stream split. Splitting prose from records here therefore needs an
+#      explicit per-verb stdout contract plus a direct-CLI regression test for
+#      `ait lock <task_id>` FIRST. t1641 narrowed --list only, and stopped here
+#      on purpose rather than changing an output nothing can verify.
 lock_task() {
     local task_id="$1"
     local email="$2"
@@ -375,6 +398,13 @@ unlock_task() {
 
 # --- Check: is a task locked? ---
 
+# STDOUT CONTRACT: stdout is the lock RECORD — the raw lock-file YAML — and
+# nothing else; absence of a lock is signalled by the exit status (1) with an
+# empty stdout. Consumers parse it as data: task-workflow's pre-implementation
+# ownership guard reads the `hostname:` line out of it to detect a multi-PC
+# reclaim. So no informational prose may be added to this function's stdout —
+# route anything for a human through warn()/stderr, the way list_locks() does
+# for its degenerate cases (t1641).
 check_lock() {
     local task_id="$1"
     local lock_file="t${task_id}_lock.yaml"
@@ -411,20 +441,30 @@ _lock_field() {
     printf '%s\n' "$2" | awk -v k="^$1:" '$0 ~ k { sub(/^[^:]*: */, ""); print; exit }'
 }
 
+# Degenerate "no locks" messages are prose for humans, not records. --list's
+# stdout is a machine-readable channel — one `t<id>: locked by <who> on <host>
+# since <ts>` line per RECOGNIZED lock — and info() wraps its argument in ANSI
+# color escapes, so emitting these on stdout forced every consumer to strip
+# escapes and pattern-match the record shape just to tell "no locks" from a
+# lock. Empty stdout means "no recognized lock records" — NOT that the lock
+# tree is empty: a blob with no task_id: is skipped below and is visible only
+# under --debug (t1641).
+_list_note() { info "$1" >&2; }
+
 list_locks() {
     if ! has_remote; then
-        info "No locks (no remote configured)"
+        _list_note "No locks (no remote configured)"
         return 0
     fi
 
     if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
-        info "No locks (branch not initialized)"
+        _list_note "No locks (branch not initialized)"
         return 0
     fi
 
     local current_tree_hash
     current_tree_hash=$(git rev-parse "origin/$BRANCH^{tree}" 2>/dev/null) || {
-        info "No locks"
+        _list_note "No locks"
         return 0
     }
 
@@ -434,7 +474,7 @@ list_locks() {
     lock_files=$(git ls-tree "$current_tree_hash" | awk '$4 ~ /_lock\.yaml$/ {print $4}')
 
     if [[ -z "$lock_files" ]]; then
-        info "No active locks"
+        _list_note "No active locks"
         return 0
     fi
 
@@ -504,6 +544,11 @@ _cleanup_warn_unreadable() {
 #       mid-retry refresh) — any identified stale locks were left in place
 #   12  the branch stayed readable but the removal push was rejected on all
 #       MAX_RETRIES attempts
+# STDOUT CONTRACT (audited — t1641): prose only. This verb's machine-readable
+# verdict rides its EXIT STATUS (0 = completed, 11 = lock branch unreadable,
+# 12 = removal push rejected), not stdout, so the info()/success() calls below
+# share the stream with nothing. Same rule as init_lock_branch(): if a record is
+# ever added to stdout here, move the prose to stderr in the same change.
 cleanup_locks() {
     if ! has_remote; then
         debug "No remote — skipping lock cleanup"
@@ -670,8 +715,17 @@ Commands:
                                    liveness could not be established.
   --lock <task_id> [--email EMAIL] Lock a task (explicit syntax)
   --unlock <task_id>               Release a task lock
-  --check <task_id>                Check if locked (exit 0=locked, 1=free)
-  --list                           List all currently locked tasks
+  --check <task_id>                Check if locked (exit 0=locked, 1=free).
+                                   stdout is the lock record (raw YAML) when
+                                   locked, and empty when not.
+  --list                           List all currently locked tasks. stdout
+                                   carries one record per recognized lock —
+                                   "t<id>: locked by <email> on <host> since
+                                   <ts>" — and nothing else; informational
+                                   messages go to stderr. Empty stdout means no
+                                   RECOGNIZED records, not that the lock branch
+                                   is empty: a lock file with no task_id: field
+                                   is skipped and shown only under --debug.
   --init                           Initialize the aitask-locks branch on remote
   --cleanup                        Remove stale locks for archived tasks.
                                    Exit 0 = completed (including nothing to do),

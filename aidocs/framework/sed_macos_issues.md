@@ -15,6 +15,18 @@ macOS ships with BSD versions of `sed` and `grep`, not the GNU versions found on
 | Grouped multi-line commands | `sed -e :a -e '/pat/{ $d; N; ba; }'` | `{` `}` grouping fails across `-e` args | Use `awk` for multi-line processing |
 | BRE quantifiers `\?` `\+` `\|` | `sed 's/ab\?c/x/'` | Treated as literal `?`/`+`/`\|` — the match silently fails | Use `sed -E` with bare `?` `+` `\|` (e.g. `sed -E 's/ab?c/x/'`) |
 | Bracket **ranges** (`[x-y]`) | Collation-ordered; `[0-?]` accepted through 4.9, **rejected from 4.10** | Collation-ordered — rejected (`REG_ERANGE`) | `LC_ALL=C sed ...`, or enumerate: `[0-9:;<=>?]` |
+| Hex escapes `\xNN` | `sed 's/\x1b//'` matches the ESC byte | Not an escape — matches a literal `x`, `1`, `b` | Let **bash** produce the byte: `sed $'s/\033//'` |
+
+**`\xNN` fails the same silent way as `\?`.** The most common instance is
+stripping ANSI color from captured output before asserting on it —
+`sed 's/\x1b\[[0-9;]*m//g'`. On BSD sed the escape is never recognized, the
+substitution does not match, and the wrapper survives; an exact assertion then
+fails against a perfectly correct implementation, which reads as a bug in the
+code under test rather than in the test. Write the ESC byte with bash's `$'...'`
+quoting instead — `sed $'s/\033\[[0-9;]*m//g'` — so bash expands the escape
+before `sed` ever sees it and both implementations receive the same literal
+byte. (Octal `\033` inside `$'...'` is a *bash* escape, not a sed one; that is
+exactly why it is portable.)
 
 **`\?` / `\+` / `\|` are the most common silent footgun.** In Basic Regular
 Expressions these are GNU extensions; BSD sed treats the backslashed form as a

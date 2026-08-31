@@ -23,8 +23,8 @@ ait lock --list                    # Show all active locks
 | `<task_id>` | Lock a task. Auto-detects email from `userconfig.yaml`, falling back to `emails.txt`. Exit 0 = locked, 1 = held by another owner, 13 = held by another **live** session of yours on this host, 14 = held by a session of yours whose liveness could not be established (see [Locks]({{< relref "/docs/concepts/locks" >}})) |
 | `--lock <task_id> [--email EMAIL]` | Explicit lock syntax (same as bare task ID) |
 | `--unlock <task_id>` | Release a task lock. Idempotent (succeeds even if not locked) |
-| `--check <task_id>` | Check lock status. Exit 0 = locked (prints lock info), exit 1 = free |
-| `--list` | List all currently locked tasks |
+| `--check <task_id>` | Check lock status. Exit 0 = locked (stdout is the lock record, as raw YAML), exit 1 = free (stdout empty) |
+| `--list` | List all currently locked tasks (see [Output of `--list`](#output-of---list)) |
 | `--init` | Initialize the `aitask-locks` branch on the remote (usually done by `ait setup`) |
 | `--cleanup` | Remove stale locks for tasks that have been archived. Exit 0 = completed, 11 = lock branch unreadable, 12 = removal push rejected (see [Stale Lock Cleanup](#stale-lock-cleanup)) |
 
@@ -32,6 +32,31 @@ ait lock --list                    # Show all active locks
 |--------|-------------|
 | `--email EMAIL` | Override email for locking (default: auto-detect) |
 | `--debug` | Enable verbose debug output |
+
+### Output of `--list`
+
+`--list` writes one record per recognized lock to **stdout**, and nothing else:
+
+```
+t<id>: locked by <email> on <host> since <timestamp>
+```
+
+Informational messages -- "No active locks", "No locks (no remote configured)"
+and the like -- go to **stderr**, so stdout stays parseable by scripts:
+
+```bash
+ait lock --list 2>/dev/null        # records only, safe to parse
+ait lock --list 1>/dev/null        # just the informational message
+```
+
+Empty stdout means **no recognized lock records** -- which is not the same as
+"the lock branch is empty". A lock file that carries no `task_id:` field is
+skipped and reported only under `--debug`, so treat empty output as "nothing to
+act on", not as proof that the branch holds no files:
+
+```bash
+ait lock --debug --list            # also reports unrecognized lock files
+```
 
 ### Email Auto-Detection
 

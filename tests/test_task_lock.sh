@@ -164,6 +164,13 @@ TMPDIR_6="$(setup_paired_repos)"
 
 assert_exit_nonzero "Check unlocked task exits non-zero" bash -c "cd '$TMPDIR_6/local' && ./.aitask-scripts/aitask_lock.sh --check 99"
 
+# --check's stdout is the lock RECORD (raw lock YAML, parsed by task-workflow's
+# pre-implementation ownership guard for its `hostname:` line). Nothing else may
+# be written there — so an absent lock must produce an empty stdout, not prose
+# saying it is absent. Pinned alongside the --list contract (t1641).
+check_stdout_6=$(cd "$TMPDIR_6/local" && ./.aitask-scripts/aitask_lock.sh --check 99 2>/dev/null || true)
+assert_eq "Check on an unlocked task writes NOTHING to stdout" "" "$check_stdout_6"
+
 rm -rf "$TMPDIR_6"
 
 # --- Test 7: Unlock removes lock file ---
@@ -471,6 +478,14 @@ list_output=$(cd "$TMPDIR_13/local" && ./.aitask-scripts/aitask_lock.sh --list 2
 assert_contains_ci "List shows task 1" "t1:" "$list_output"
 assert_contains_ci "List shows task 2" "t2:" "$list_output"
 
+# Positive control for the t1641 stderr split: the redirect must remove PROSE
+# from stdout without taking any record with it. Every stdout line here has to be
+# a record — two locks, two lines, nothing else.
+assert_eq "List emits exactly one stdout line per lock" \
+    "2" "$(printf '%s\n' "$list_output" | grep -c .)"
+assert_eq "List stdout carries only record lines" "" \
+    "$(printf '%s\n' "$list_output" | grep -v '^t[0-9_]*: locked by .* on .* since ' || true)"
+
 rm -rf "$TMPDIR_13"
 
 # --- Test 13b-13d: --list robustness (t1378) ---
@@ -513,10 +528,78 @@ TMPDIR_13B="$(setup_paired_repos)"
 
 assert_exit_zero "--list on empty lock branch exits 0" \
     bash -c "cd '$TMPDIR_13B/local' && ./.aitask-scripts/aitask_lock.sh --list"
-list_output_13b=$(cd "$TMPDIR_13B/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
-assert_contains_ci "--list on empty lock branch says no active locks" "No active locks" "$list_output_13b"
+
+# --list's stdout is a machine-readable channel: one `t<id>: locked by ...` line
+# per RECOGNIZED lock, nothing else. The degenerate "no locks" prose is for
+# humans and belongs on stderr (t1641) — assert the two streams SEPARATELY.
+# Exact equality on stdout, never `contains`: a substring match is precisely what
+# would let an ANSI-wrapped prose line slip back onto the data channel unnoticed.
+list_stdout_13b=$(cd "$TMPDIR_13B/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
+list_stderr_13b=$(cd "$TMPDIR_13B/local" && ./.aitask-scripts/aitask_lock.sh --list 2>&1 >/dev/null)
+assert_eq "--list on empty lock branch writes NOTHING to stdout" "" "$list_stdout_13b"
+assert_contains_ci "--list on empty lock branch says no active locks on stderr" \
+    "No active locks" "$list_stderr_13b"
 
 rm -rf "$TMPDIR_13B"
+
+# --- Test 13e: --list before the lock branch exists ---
+# The `git fetch` failure path. Covered here so that all FOUR degenerate exits of
+# list_locks() have a fixture: an uncovered one can have its prose put back on
+# stdout with the suite still green (t1641).
+echo "--- Test 13e: --list on an uninitialized lock branch keeps stdout clean ---"
+
+TMPDIR_13E="$(setup_paired_repos)"   # deliberately NO --init
+
+assert_exit_zero "--list without a lock branch exits 0" \
+    bash -c "cd '$TMPDIR_13E/local' && ./.aitask-scripts/aitask_lock.sh --list"
+list_stdout_13e=$(cd "$TMPDIR_13E/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
+list_stderr_13e=$(cd "$TMPDIR_13E/local" && ./.aitask-scripts/aitask_lock.sh --list 2>&1 >/dev/null)
+assert_eq "--list without a lock branch writes NOTHING to stdout" "" "$list_stdout_13e"
+assert_contains_ci "--list without a lock branch explains itself on stderr" \
+    "branch not initialized" "$list_stderr_13e"
+
+rm -rf "$TMPDIR_13E"
+
+# --- Test 13f: --list when the remote-tracking ref cannot be resolved ---
+# The `git rev-parse origin/<branch>^{tree}` failure path — the last of the four,
+# and the non-obvious one. Unsetting remote.origin.fetch means nothing updates
+# refs/remotes/origin/*, so `git fetch origin aitask-locks` still exits 0 (the
+# guard above it passes) while `origin/aitask-locks` no longer resolves. Deleting
+# the already-fetched ref is what makes it unresolvable in the first place.
+# has_remote() is `git remote get-url origin`, which still succeeds here.
+# Do NOT "simplify" either git command away: together they are the only thing
+# that puts the repo in the state this path needs, and without them this test
+# silently degrades into a duplicate of Test 13b.
+echo "--- Test 13f: --list with an unresolvable lock ref keeps stdout clean ---"
+
+TMPDIR_13F="$(setup_paired_repos)"
+(cd "$TMPDIR_13F/local" && ./.aitask-scripts/aitask_lock.sh --init >/dev/null 2>&1)
+(
+    cd "$TMPDIR_13F/local"
+    git update-ref -d refs/remotes/origin/aitask-locks
+    git config --unset remote.origin.fetch
+)
+
+assert_exit_zero "--list with an unresolvable lock ref exits 0" \
+    bash -c "cd '$TMPDIR_13F/local' && ./.aitask-scripts/aitask_lock.sh --list"
+list_stdout_13f=$(cd "$TMPDIR_13F/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
+list_stderr_13f=$(cd "$TMPDIR_13F/local" && ./.aitask-scripts/aitask_lock.sh --list 2>&1 >/dev/null)
+assert_eq "--list with an unresolvable lock ref writes NOTHING to stdout" "" "$list_stdout_13f"
+# EXACT, not `contains`: "No locks" is a prefix of "No locks (branch not
+# initialized)", so a substring assertion would still pass if this fixture ever
+# degraded into the Test 13e path instead — pinning the wrong branch of the same
+# function. Strip the ANSI wrapper info() adds before comparing.
+# NOTE: $'\033[' — NOT 's/\x1b\[...' . GNU sed understands \x1b, but BSD sed
+# (macOS) does not and would leave the color wrapper in place, failing the exact
+# assertion below against a correct implementation. The $'...' quoting makes
+# BASH emit the literal ESC byte, so sed never has to interpret an escape at all
+# and the expression behaves identically on both. See
+# aidocs/framework/sed_macos_issues.md.
+list_stderr_13f_plain=$(printf '%s' "$list_stderr_13f" | sed $'s/\033\[[0-9;]*m//g')
+assert_eq "--list with an unresolvable lock ref reports exactly 'No locks' on stderr" \
+    "No locks" "$list_stderr_13f_plain"
+
+rm -rf "$TMPDIR_13F"
 
 # --- Test 13c: a stray non-lock file does not abort --list ---
 echo "--- Test 13c: an unrecognized lock file is skipped, not fatal ---"
@@ -530,6 +613,19 @@ assert_exit_zero "stray lock file does not abort --list" \
     bash -c "cd '$TMPDIR_13C/local' && ./.aitask-scripts/aitask_lock.sh --list"
 list_output_13c=$(cd "$TMPDIR_13C/local" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
 assert_contains "stray lock file does not hide the real lock" "t1:" "$list_output_13c"
+
+# The published contract is "only RECOGNIZED lock records reach stdout", which is
+# strictly weaker than "the lock tree is empty": a blob with no task_id: is
+# skipped and surfaces only under --debug. Pin that deliberately — the one real
+# lock is the WHOLE of stdout, the stray blob contributing no line of its own
+# (t1641). Count lines rather than compare text: lock_task authors a live
+# timestamp, so the record itself is not reproducible, but its CARDINALITY is.
+# A future "report the unparseable blob" change has to come here and update the
+# documented contract with it.
+assert_eq "stray lock file contributes no line of its own to stdout" \
+    "1" "$(printf '%s\n' "$list_output_13c" | grep -c .)"
+assert_eq "13c stdout carries only the recognized record" "" \
+    "$(printf '%s\n' "$list_output_13c" | grep -v '^t[0-9_]*: locked by .* on .* since ' || true)"
 
 rm -rf "$TMPDIR_13C"
 
@@ -761,8 +857,16 @@ TMPDIR_22="$(mktemp -d)"
     chmod +x .aitask-scripts/aitask_lock.sh
     echo "init" > dummy.txt && git add dummy.txt && git commit -m "init" --quiet
 )
+# Captured 2>&1, so this row alone cannot tell the fixed split from the bug —
+# it stays green either way. Split the streams below so it can (t1641).
 list_output_22=$(cd "$TMPDIR_22" && ./.aitask-scripts/aitask_lock.sh --list 2>&1)
 assert_contains_ci "List with no remote mentions no remote" "no remote" "$list_output_22"
+
+list_stdout_22=$(cd "$TMPDIR_22" && ./.aitask-scripts/aitask_lock.sh --list 2>/dev/null)
+list_stderr_22=$(cd "$TMPDIR_22" && ./.aitask-scripts/aitask_lock.sh --list 2>&1 >/dev/null)
+assert_eq "List with no remote writes NOTHING to stdout" "" "$list_stdout_22"
+assert_contains_ci "List with no remote reports the reason on stderr" \
+    "no remote configured" "$list_stderr_22"
 
 rm -rf "$TMPDIR_22"
 
