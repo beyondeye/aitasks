@@ -337,6 +337,12 @@ verified at real width.
 
 ### t1636_5 — delta-scoped auto-recheck
 
+> **Parked 2026-08-31 — now delivered by the standalone task `t1650`**
+> (`aiplans/p1650_delta_scoped_auto_recheck.md`). This section remains the
+> **binding spec** for that work; t1650 sequences it. It was removed from
+> t1636's `children_to_implement` and stripped from t1636_6 / t1636_7, so the
+> rest of this model completes without it.
+
 `review_loop.compose_recheck_prompt` (`.aitask-scripts/monitor/review_loop.py:1242`)
 today injects "re-run the review sub-procedure **end to end**" every round, so
 each round is a fresh unbounded search over an ill-defined space rather than a

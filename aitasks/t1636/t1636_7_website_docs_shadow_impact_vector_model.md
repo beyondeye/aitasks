@@ -1,13 +1,13 @@
 ---
 priority: medium
 effort: medium
-depends: [t1636_5]
+depends: []
 issue_type: documentation
 status: Ready
 labels: [shadow, concern_format, documentation]
 anchor: 1636
 created_at: 2026-08-30 19:53
-updated_at: 2026-08-30 19:53
+updated_at: 2026-08-31 16:41
 ---
 
 ## Context
@@ -17,32 +17,33 @@ gave website documentation to **t1636_3 only**, scoped to two paragraphs of
 `website/content/docs/workflows/shadow-agent.md` (the findings description and
 the concern-block description). Those landed with t1636_3.
 
-Nothing covers the user-facing surface the two remaining implementation
-children change:
+Nothing covers the user-facing surface the remaining implementation child
+changes:
 
 - **t1636_4** ships the picker's per-row **trade profile**
   (`▲robus ▼simpl E:lo`) and explicit forward / spinoff / reject **decision
   guidance**. Neither its task file nor its plan mentions documentation, and
   **four** user-facing pages describe that picker today.
-- **t1636_5** makes auto-recheck rounds **delta-scoped**. Its plan hedges with
-  "website shadow-agent.md *if* it describes the recheck loop" — it does, and
-  the current prose states the opposite of what t1636_5 makes true.
+The delta-scoped auto-recheck work (formerly t1636_5) was **parked as the
+standalone task t1650 on 2026-08-31** and is no longer part of this model's
+delivery. Its documentation is out of scope here and travels with t1650 — the
+recheck-loop prose on the website stays accurate as it is, and this task must
+not pre-document a loop that does not exist yet.
 
 This task is the dedicated website-docs child for the whole model, so the
 documentation is written once against the settled surface rather than
 accumulated in fragments across implementation children.
 
 **Scope is user-facing website docs only.** The framework-internal reference
-`aidocs/framework/shadow_agent.md` stays with t1636_5, which already lists it.
+`aidocs/framework/shadow_agent.md` is not this task's either — it travels with
+t1650, which already lists it.
 
 ## Key Files to Modify
 
 - `website/content/docs/workflows/shadow-agent.md` — the primary page.
-  - The **"Reject a concern so it does not come back"** section currently opens
-    "Every review round re-derives the shadow's findings from scratch, so a
-    concern you have looked at and decided against would otherwise reappear
-    each time." t1636_5 makes that **untrue**; rewrite it to describe the
-    delta-scoped loop and what a later round actually re-reports.
+  - Leave the **"Reject a concern so it does not come back"** section alone: its
+    "Every review round re-derives the shadow's findings from scratch" opening
+    is still accurate, and only t1650 will make it untrue.
   - The impact-vector and disposition prose added by t1636_3 (the findings
     paragraph and the "Forward concerns to the followed agent" paragraph) is
     the current-state baseline — extend it for the picker rendering, do not
@@ -76,9 +77,6 @@ t1636_4 may add or rename a surface.
    already shipped in t1636_3: plan concerns marked `informational` land in the
    picker's dimmed section instead of every plan concern appearing under
    "Needs addressing".
-5. **Delta-scoped recheck** (t1636_5) — what a later round re-reports, and how
-   that differs from the full re-derivation the docs describe today.
-
 ## Constraints
 
 - **Current-state prose only** — no version history, no "as of t1636_N", no

@@ -1,15 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [t1636_5, t1636_7]
+depends: [t1636_7]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [t1636_1, t1636_2, t1636_3, t1636_4, t1636_5, t1636_7]
+verifies: [t1636_1, t1636_2, t1636_3, t1636_4, t1636_7]
 anchor: 1636
 followup_kind: manual_verification
 created_at: 2026-08-30 14:58
-updated_at: 2026-08-30 19:53
+updated_at: 2026-08-31 16:41
 ---
 
 ## Manual Verification Task
@@ -35,8 +35,3 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1636_4] `ConcernHelpLineBudgetTests` green untouched.
 - [ ] [t1636_4] `bash tests/run_all_python_tests.sh --test-dir tests`; read only the last line.
 - [ ] [t1636_4] Live: real minimonitor companion pane at ~28 and 24 columns (render-level assertion).
-- [ ] [t1636_5] Helper (`tests/test_shadow_round_record.sh`, mirror `tests/test_shadow_rejected.sh`): malformed record; fence-bearing/truncated input refused; failed/partial write leaves no record (`ait_atomic_render` refusal paths); concurrent writer → `LOCK_BUSY` nothing written; identity fields round-tripped exactly; identity mismatch → non-zero + no record output.
-- [ ] [t1636_5] Delivery (python, minimonitor tests): record written with the identity of the very block parsed; prompt names that identity; head-truncated capture → no record; helper timeout/LOCK_BUSY at fire time still fires with no record named, never blocks the event loop (fail-safe path, not an error).
-- [ ] [t1636_5] Surfaces: both apps + context line + toast show scoped wording.
-- [ ] [t1636_5] End-to-end invariant: unavailable/mismatched/missing record ⇒ full review, never a clean certification; negative control: producer-doc mutation dropping the fail-safe rule trips the guard.
-- [ ] [t1636_5] `bash tests/run_all_python_tests.sh --test-dir tests` (last line only); `./.aitask-scripts/aitask_skill_verify.sh`; `shellcheck` on the new helper.
