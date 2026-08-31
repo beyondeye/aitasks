@@ -530,13 +530,12 @@ Post-implementation cleanup, archival and merge are handled by **Step 9**.
   mid-claim. On a busy box the real answer stays `UNCHECKABLE`, which is a fact
   about the fleet, not the threshold. If t1569_4 reads the excluded number as its
   availability figure it will ship `block` on a rate that never occurs.
-  · severity: medium · → mitigation: inline post-phase excluded_run_marker;
-  availability_timeseries
+  · severity: medium · → mitigation: inline post-phase excluded_run_marker; t1649
 
 ### Planned mitigations
 - timing: post-phase | name: corpus_drift_probe | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: the archived-plan oracle scored against today's corpus, biasing recall by an unmeasured amount | desc: Emit SWEEP_DRIFT: from the PlanExtraction records counting plan tokens dropped as phantom, with fixtures pinning both a non-zero and a zero drop count, and record the live value beside the recall figures.
 - timing: post-phase | name: excluded_run_marker | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: a counterfactual excluded rate being misread as the live availability figure | desc: Assert in the CLI test that replay --exclude always emits EXCLUDED: naming the canonicalised ids and that a plain replay never does — both directions, so the marker actually discriminates.
-- timing: after | name: availability_timeseries | type: test | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: one snapshot of the UNCHECKABLE rate cannot support promoting parallel_admission to block | desc: Sample the live replay rates repeatedly over days to produce a distribution of the UNCHECKABLE rate as agents actually experience it, rather than a single reading taken while 2-3 agents were mid-claim.
+- timing: after | name: availability_timeseries | type: test | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: one snapshot of the UNCHECKABLE rate cannot support promoting parallel_admission to block | desc: Sample the live replay rates repeatedly over days to produce a distribution of the UNCHECKABLE rate as agents actually experience it, rather than a single reading taken while 2-3 agents were mid-claim. | created: t1649
 
 ### Post-inline reassessment
 
