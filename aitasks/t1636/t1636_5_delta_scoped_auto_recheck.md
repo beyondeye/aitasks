@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1636_4]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, concern_format]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1636
 created_at: 2026-08-30 14:54
-updated_at: 2026-08-30 14:54
+updated_at: 2026-08-31 12:16
 ---
 
 ## Context
