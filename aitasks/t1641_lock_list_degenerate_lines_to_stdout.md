@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-30 19:32
-updated_at: 2026-08-30 22:42
+updated_at: 2026-08-31 10:22
 ---
 
 ## Origin
@@ -50,3 +53,8 @@ all and let the empty stdout mean "no locks" (the record protocol already makes
 absence unambiguous). Either way, keep stdout reserved for records. Check
 `check_lock()` at the same time: it prints the whole lock YAML to stdout, which
 is a separate but related shape question.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-31T07:23:04Z status=pass attempt=1 type=human
