@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t1603_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [board, ui, gates]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 created_at: 2026-08-30 13:28
-updated_at: 2026-08-30 13:28
+updated_at: 2026-08-31 16:55
 ---
 
 ## Context
