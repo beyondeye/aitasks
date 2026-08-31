@@ -284,11 +284,15 @@ two-banner case below is a known residual.
 All inline (the tests above) except one **spawned "after" follow-up, to be
 created at Step 8d — it does not exist yet**:
 
-- **`concern_picker_banner_rows_evict_keys`** — at 20 rows with `stale` *and*
-  `unrecovered` composed, no vertical tier can seat banners + help + a concern
-  row. Needs a precedence decision (which of banner / help / rows yields), not
-  more CSS. To be created at Step 8d with an explicit `depends: [1648]`, and its
-  real `t<id>` back-filled into this section then.
+- **t1652** (`concern_picker_cannot_fit_even_at_full_height`) — created at
+  Step 8d with `depends: [1648]`. Covers BOTH residual bands, which turned
+  out to be one defect: the content does not fit even at `max-height: 100%`.
+  (a) ~31-50 columns x 20 rows — just above the compact-help breakpoint the
+  full help is 5-7 wrapped rows; at 31x20 `needed` is 26 against 20.
+  (b) both banners composed in ~20 rows at any width. Both are pre-existing
+  and verified unchanged against this task's parent commit. Needs a
+  precedence decision (which of buttons / help wording / banners / concern
+  rows yields), not more CSS.
 
 ## Post-implementation
 
