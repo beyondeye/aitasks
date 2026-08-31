@@ -326,3 +326,100 @@ deliverables already required by the plan steps above.
 Cleanup, archival, and merge follow `task-workflow` Step 9 — the task is
 current-branch (`create_worktree: false`), so there is no task branch to merge.
 Active gate: `risk_evaluated`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All nine plan steps landed as designed.
+  `.aitask-scripts/board/aitask_board.py` gained two module-level predicates,
+  `_pending_human_gates(state, registry)` and `_failed_active_gates(state)`,
+  placed between `_gate_progress` and `derive_workflow_phase`. Both
+  `derive_workflow_phase`'s B2 ladder and `TaskManager._human_pending_gates` /
+  `_has_failed_gate` now delegate to them; `_inflight_item_for` is untouched.
+  The `t1603_2` "deliberately do NOT reuse" comment and the
+  `InFlightItem.stale_signed` comment were rewritten to describe the new
+  contract. `_active_tuple_fm` moved from `tests/test_board_workflow_phase.py`
+  to `tests/lib/board_fixture.py` as `active_tuple_fm()` (aliased back in the
+  original module, so its ~20 call sites are untouched) so both axes' tests
+  build fixtures from one builder. Tests added: six cases in
+  `InFlightActiveSetTests` (`tests/test_board_inflight_view.py`),
+  `SharedGatePredicateContractTest` and two `DigestInvalidationTest` cases
+  (`tests/test_board_gate_digest_budget.py`), and `TwoAxisAgreementTests`
+  (`tests/test_board_workflow_phase.py`). `website/content/docs/tuis/board/
+  how-to.md` now says a stale sign-off counts as pending and is re-signable.
+
+- **Deviations from plan:** Two additions, both negative controls the plan did
+  not name. (1) `SharedGatePredicateContractTest.
+  test_the_forbidden_shapes_are_present_in_the_shared_predicates` — the
+  no-gate-logic assertion on the thin methods is satisfied just as well by a
+  codebase that deleted the feature, so this pins that the forbidden attribute
+  reads MOVED into the shared predicates rather than vanishing. (2)
+  `DigestInvalidationTest.test_a_fresh_signature_owes_nobody` — without it, the
+  stale-signature assertions would also pass against a `_human_pending_gates`
+  that returned every human gate unconditionally. No plan step was dropped or
+  narrowed.
+
+- **Issues encountered:** None blocking. One thing worth recording for a future
+  reader: the task's own example ("a task at `archive_decision == ALL_PASS` with
+  a skipped `review_approved` shows 'pending human gate'") does not hold
+  literally — `_inflight_item_for`'s `ALL_PASS` rung sits ahead of the
+  `human_gates` rung, so that task's `next_action` reads "all gates pass —
+  archive/re-enter". The defect on that fixture is narrower (a `[s sign-off]`
+  op offered on a satisfied gate), so
+  `test_skipped_human_gate_does_not_own_the_actor_column` adds a pending MACHINE
+  gate to keep the task off `ALL_PASS` — that is the fixture where the actor
+  column genuinely flips from `human` to `agent`.
+
+- **Key decisions:**
+  - The predicates live in `aitask_board.py` beside `derive_workflow_phase`, not
+    in `gate_ledger.py`: the board is the only consumer and the seam already
+    lives there.
+  - `_has_failed_gate` keeps its `bool` return rather than widening to a list —
+    its name promises a bool and `_inflight_item_for` consumes it as one; the
+    which-items answer is available from `_failed_active_gates` directly.
+  - `pending_procedure` (keyed on registry `kind == "procedure"`) was left inline
+    in `derive_workflow_phase`; it has no second consumer, so extracting it would
+    add a seam nothing crosses.
+  - Deriving pending-human from `archive_pending` deliberately pulls
+    **stale-signed** human gates into `human_gates` — the archival guard really
+    does owe a person there. This closes a pre-existing gap where the card said
+    `awaiting re-sign: review_approved` but offered no `[s sign-off]` op and `s`
+    answered "No pending human gate for this task." Group and `next_action` are
+    unchanged, because the `stale_signed` rung already precedes the human-gate
+    rung.
+  - The delegation is guarded on both axes: structurally (frozen call sites +
+    no-gate-logic-in-the-thin-methods, via `ast`, mirroring the existing
+    `ClearGateCacheCallersTest` idiom) and behaviourally (`TwoAxisAgreementTests`
+    drives one fixture matrix through both surfaces, with a vacuity guard
+    requiring at least one non-empty pending set and one non-empty failed set).
+    Outcome-only tests cannot catch a re-duplication that keeps both copies
+    correct today.
+
+- **Upstream defects identified:** None
+
+## Verification results
+
+- `python3 -m unittest tests.test_board_inflight_view
+  tests.test_board_workflow_phase tests.test_board_gate_digest_budget` — 61
+  tests, OK.
+- **Discrimination check.** With the two `TaskManager` helper bodies temporarily
+  restored to their shipped form, 10 assertions failed and every control passed:
+  the three defect cases in `InFlightActiveSetTests`
+  (`test_skipped_human_gate_is_not_pending`,
+  `test_skipped_human_gate_does_not_own_the_actor_column`,
+  `test_historical_failure_of_inactive_gate_does_not_classify`), both drift
+  fixtures in `TwoAxisAgreementTests` (`t971_skip_plus_machine`,
+  `t972_ghost_fail`), both halves of `SharedGatePredicateContractTest` for both
+  predicates, and `test_stale_signature_is_offered_for_re_sign`. The controls
+  (`test_pending_human_gate_still_owns_the_actor_column`,
+  `test_profile_filtered_failure_still_does_not_classify`,
+  `test_active_gate_failure_still_classifies`,
+  `test_a_fresh_signature_owes_nobody`, and the shared-predicate negative
+  control) passed in both states, so the new assertions discriminate on the fix
+  and not on fixture shape.
+- Full suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)` — 5861 passed, 2
+  skipped, plus the 5 serial live-TUI tests.
+- Live check against the real repo: `TaskManager.load_tasks()` +
+  `get_inflight_items()` rendered all 7 in-flight tasks with correct groups, ops
+  hints and `human_gates` (t1642 itself reports "plan approved — resume
+  implementation" with `human_gates == []`, since its only pending active gate,
+  `risk_evaluated`, is `type: machine`).
