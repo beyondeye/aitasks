@@ -3303,6 +3303,19 @@ _PICKER_NARROW_MIN_WIDTH = 30
 #: fences wrap in the shadow pane and there is nothing parseable to show anyway.
 _PICKER_MIN_COLS = 24
 
+#: The share of the screen ``#concern-dialog`` may occupy, as declared by its
+#: own ``max-height`` (t1648). **Derived, not chosen** — pinned to the stylesheet
+#: by ``test_max_height_pct_is_derived_from_the_declared_stylesheet``, exactly as
+#: :data:`_PICKER_NARROW_MIN_WIDTH` is pinned to the declared ``min-width``.
+#:
+#: This is the *only* stylesheet value the height tier needs. Everything else it
+#: compares against is measured from the laid-out children, so a longer context
+#: line, a wrapped banner or a future widget is counted with no new term. An
+#: earlier attempt used a fixed "chrome rows" constant instead; it was wrong,
+#: because ``_context_line()`` wraps to **three** rows at 40 columns and grows
+#: further with ``format_block_meta`` / ``stale_detail``. Do not reintroduce one.
+_PICKER_MAX_HEIGHT_PCT = 80
+
 _CONCERN_HELP_FULL = (
     "[dim]\\[↑/↓] navigate  \\[Space] forward  \\[r] reject  \\[t] spin off  "
     "\\[e] edit payload  \\[R] rejected list  \\[u] unparsed  "
@@ -3344,20 +3357,32 @@ _CONCERN_GUIDANCE = (
 #: guidance is shown only where it cannot cost the keys.
 #:
 #: Both numbers are MEASURED, not chosen. At 40 columns `_CONCERN_HELP_FULL`
-#: wraps to **6** rows (the compact swap is keyed at ≤30, so the widest companion
-#: width is the worst-served one) and the dialog has ~4 rows of headroom — adding
-#: a wrapped guidance line there evicts the keys outright, which is exactly what
-#: `ConcernGuidanceContractTests` pins. By 80 columns the help is 3 rows and the
-#: room is real. `ConcernPickerNarrowLayoutTests` and the contract tests are the
-#: enforcement; if a future edit lengthens the help, they fail rather than the
-#: keys silently vanishing.
+#: wraps to **6** rows — the compact swap is keyed at ≤30, so the widest
+#: companion width gets the longest help line — and a wrapped guidance line costs
+#: ~3 more on top of it. By 80 columns the help is 3 rows and the room is real.
+#:
+#: **What this gate protects changed at t1648.** It used to be the last thing
+#: standing between the guidance and the key names: at 40 columns the dialog was
+#: capped at 80% of the screen, so the extra rows evicted the help line outright.
+#: The vertical-fit tier (:data:`_PICKER_MAX_HEIGHT_PCT`) now lifts that cap
+#: whenever it cannot seat the content, so the keys are no longer evictable at
+#: this width and the guidance is no longer competing with them. What it still
+#: buys is the concern rows' usable height: `#concern-list` is pinned to its
+#: `min-height` at 40 columns, and ~3 rows of advisory prose there costs a
+#: concern marker the per-row vector already encodes better.
+#:
+#: The precedence rule is unchanged and still one-directional — the key names
+#: outrank the guidance — it simply no longer has to be enforced by this gate
+#: alone. `ConcernPickerNarrowLayoutTests`, `ConcernGuidanceContractTests` and
+#: `ConcernVerticalFitTierTests` are the enforcement; if a future edit lengthens
+#: the help, they fail rather than the keys silently vanishing.
 _GUIDANCE_MIN_WIDTH = 80
 _GUIDANCE_MIN_HEIGHT = 24
 
 
 def _apply_measured_width_tier(
     screen, threshold: int, help_id: str, full: str, compact: str
-) -> None:
+) -> bool:
     """Set the ``xnarrow`` class and swap the help line from MEASURED width.
 
     Textual has no media queries, so every dialog that distinguishes 24 / 30 /
@@ -3372,12 +3397,84 @@ def _apply_measured_width_tier(
     tier. ``tui_layout.terminal_tier`` bounds NARROW at 80 and so answers True
     for every width these dialogs distinguish — see
     :data:`_PICKER_NARROW_MIN_WIDTH` for the full reasoning.
+
+    **Returns whether the help text was swapped** (t1648). A caller that goes on
+    to *measure* the help must wait a refresh when this is ``True``: the new text
+    is NOT laid out by the time this returns, and the stale height is wrong in
+    both directions — measured across the 30-column breakpoint, 31→30 reports 6
+    rows for a line that renders in 3, and 30→31 reports 3 for one that renders
+    in 7. The second is the dangerous one: it under-counts, so a fit check would
+    conclude there is room and leave the keys evicted.
     """
     xnarrow = screen.size.width <= threshold
     screen.set_class(xnarrow, "xnarrow")
     help_widgets = list(screen.query(f"#{help_id}"))
-    if help_widgets:
-        help_widgets[0].update(compact if xnarrow else full)
+    if not help_widgets:
+        return False
+    wanted = compact if xnarrow else full
+    # `render().plain` is the laid-out text; comparing against it (rather than
+    # tracking a flag) keeps this correct no matter who else called `update`.
+    changed = help_widgets[0].render().plain != Text.from_markup(wanted).plain
+    help_widgets[0].update(wanted)
+    return changed
+
+
+def _apply_measured_height_tier(
+    screen, dialog_id: str, list_id: str, pct: int
+) -> None:
+    """Set the ``xshort`` class when ``pct`` of the screen cannot seat the dialog.
+
+    The companion counterpart to :func:`_apply_measured_width_tier`, and
+    deliberately a SEPARATE decision (t1648). The two answer different questions
+    that one threshold used to conflate: *is the chrome too wide for this screen*
+    (a ``min-width`` fact, which owns the horizontal chrome and the help wording)
+    versus *does the content fit vertically* (this one, which owns the cap).
+
+    Keying the help swap on width alone is what left the widest companion pane
+    the worst-served: at 40 columns the full help wraps to six rows, and
+    ``max-height: 80%`` on a 20-row pane withholds exactly the rows needed to
+    show it. Compacting the help does NOT fix that — measured, the keys are still
+    evicted — because the evictor is the cap, not the wording.
+
+    **This measures; it does not model.** ``needed`` is summed from the children
+    Textual actually laid out, so a wrapped context line, a long ``stale_detail``,
+    a banner or a future widget is counted with no new term. The one exception is
+    ``#concern-list``: it is ``height: 1fr``, so its measured height is the
+    *result* of the cap and using it would be circular. Its declared
+    ``min-height`` — the floor that is actually reserved — is used instead.
+
+    A child's measured height is right even while the child is off screen (the
+    help reports 6 rows at 40x20 when nothing of it is visible), so this reads
+    the same in the broken state as in the fixed one.
+
+    **Cannot oscillate.** ``xshort`` changes only ``max-height``, which changes
+    only the ``1fr`` list. Every other child is width-driven and the list
+    contributes a static declared floor, so ``needed`` is invariant under the
+    class this sets.
+    """
+    dialogs = list(screen.query(f"#{dialog_id}"))
+    lists = list(screen.query(f"#{list_id}"))
+    if not dialogs or not lists:
+        return
+    dialog, concern_list = dialogs[0], lists[0]
+    # Pre-layout: every child reports 0, which would sum to "fits" and latch the
+    # wrong answer on first paint. Leave the class untouched and wait.
+    if dialog.size.height <= 0:
+        return
+
+    needed = dialog.gutter.height  # border + padding, both edges
+    for child in dialog.children:
+        if not child.display:
+            continue
+        margin = child.styles.margin
+        if child is concern_list:
+            rows = int(concern_list.styles.min_height.value or 0)
+        else:
+            rows = child.size.height
+        needed += rows + margin.top + margin.bottom
+
+    available = screen.size.height * pct // 100
+    screen.set_class(needed > available, "xshort")
 
 
 def format_block_meta(meta: "BlockMeta | None") -> str:
@@ -3934,6 +4031,17 @@ class ConcernPickerModal(ModalScreen):
        buttons are the right thing to drop. Nothing is ever half-drawn. */
     ConcernPickerModal.xnarrow #concern-buttons { display: none; }
     ConcernPickerModal.xnarrow #concern-buttons Button { width: 100%; margin: 0; }
+
+    /* Vertical-fit tier (t1648), applied when `max-height` above cannot seat the
+       dialog's own content — see _apply_measured_height_tier. Independent of
+       `xnarrow`: that one is keyed on width and owns the horizontal chrome, this
+       one is keyed on height and owns the cap. Conflating them is what left the
+       40-column companion pane — too WIDE for the xnarrow chrome, too SHORT for
+       80% of its rows — showing no key hints at all.
+       `max-height` is the ONLY property here. Dropping the buttons or compacting
+       the help buys no extra concern row at 40x20 (measured), so the cap is the
+       whole fix and everything else would be churn. */
+    ConcernPickerModal.xshort #concern-dialog { max-height: 100%; }
     """
 
     def __init__(
@@ -4102,8 +4210,24 @@ class ConcernPickerModal(ModalScreen):
         The mechanism itself lives in :func:`_apply_measured_width_tier`, shared
         with :class:`ConcernPayloadEditModal` (t1582) so the two dialogs cannot
         drift on *how* a tier is applied while keeping their own thresholds.
+
+        **The order below is load-bearing (t1648).**
+
+        *Guidance before the height tier.* ``#concern-guidance`` is composed
+        ``display=True`` and only hidden by :meth:`_apply_guidance_visibility`
+        below 80x24 — measured, it is still ``True`` when this method is first
+        reached. The height tier counts every *displayed* child, so computing it
+        first would charge ~3 rows for a line that never renders and lift the cap
+        at healthy vector-bearing geometries. The gate reads only ``self.size``,
+        never ``xshort``, so running it first is deterministic and non-circular.
+
+        *Height tier after a help swap has settled.* When the width tier changes
+        the help text, the new text is not laid out yet and its reported height
+        is stale in both directions, so the fit check is deferred one refresh.
+        This cannot loop: on the deferred pass the text is already correct, the
+        width tier returns ``False``, and the check runs inline.
         """
-        _apply_measured_width_tier(
+        help_changed = _apply_measured_width_tier(
             self,
             _PICKER_NARROW_MIN_WIDTH,
             "concern-help",
@@ -4112,6 +4236,23 @@ class ConcernPickerModal(ModalScreen):
         )
 
         self._apply_guidance_visibility()
+
+        if help_changed:
+            self.call_after_refresh(self._apply_fit_tier)
+        else:
+            self._apply_fit_tier()
+
+    def _apply_fit_tier(self) -> None:
+        """Lift the vertical cap when it cannot seat this dialog's content.
+
+        Split out from :meth:`_apply_size_tier` so it can be deferred a refresh
+        after a help swap — see that method for why the ordering matters. The
+        mechanism lives in :func:`_apply_measured_height_tier`, which keeps its
+        own threshold the way the width tier does.
+        """
+        _apply_measured_height_tier(
+            self, "concern-dialog", "concern-list", _PICKER_MAX_HEIGHT_PCT
+        )
 
     def _apply_guidance_visibility(self) -> None:
         """Show the guidance only where it cannot cost the help line's keys.

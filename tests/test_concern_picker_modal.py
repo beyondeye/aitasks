@@ -2750,13 +2750,22 @@ class ConcernGuidanceContractTests(unittest.TestCase):
     named, whereas the guidance restates a rubric the per-row vector already
     encodes.
 
-    **Why this is pinned per geometry rather than as one blanket "no worse".**
-    At 40x20 the keys are already evicted before this task touches anything —
-    `_CONCERN_HELP_FULL` wraps to six rows at 40 columns because the compact swap
-    is keyed at <=30 — so that geometry *cannot* detect a regression. At 40x24
-    the baseline does show them, and four extra rows of chrome removes all three.
-    Only the second geometry can hold the contract, so it is asserted there and
-    the first gets a weaker, honest guard.
+    **Why this is pinned per geometry.** `_CONCERN_HELP_FULL` wraps to six rows
+    at 40 columns (the compact swap is keyed at <=30), so how much headroom is
+    left to absorb an extra chrome line differs sharply by height and the
+    contract has to be asserted where it can actually be observed.
+
+    At t1636_4 that meant 40x20 could hold no contract at all: the keys were
+    already evicted there by the dialog's `max-height: 80%` cap, so the geometry
+    could not detect a regression and got a weaker, honest guard instead. t1648
+    fixed the cap (`ConcernVerticalFitTierTests`), and the full contract is now
+    asserted at 40x20 as well.
+
+    The same fix moved this suite's negative control the other way. At 40x24 the
+    fit tier now absorbs forced-on guidance, so that geometry can no longer
+    detect the precedence rule; the control was re-anchored at 40x20, where no
+    headroom remains even at full height. See
+    `test_negative_control_forcing_guidance_on_breaks_40x20`.
     """
 
     #: Named on the help line and nowhere else once the buttons are gone. The
@@ -2804,17 +2813,24 @@ class ConcernGuidanceContractTests(unittest.TestCase):
         self.assertTrue(self._keys_visible(flat, xn))
         self.assertFalse(guidance)
 
-    def test_40x20_is_no_worse_than_its_baseline(self):
-        """The keys are already gone here before this task — so guard the rest.
+    def test_keys_survive_at_40x20_with_vector_rows(self):
+        """The full contract now holds at the real companion geometry (t1648).
 
-        Claiming the contract at this geometry would be false; claiming nothing
-        would miss a real regression. What is actually assertable is that the
-        vector row still renders and the guidance stays out of the way.
+        This test used to assert the OPPOSITE — `assertFalse(keys_visible)`,
+        annotated "pre-existing, not ours" — because at 40x20 the dialog's
+        `max-height: 80%` cap evicted the help line before this suite could
+        observe anything, so the geometry could not hold a contract. t1648 fixed
+        the cap (see `ConcernVerticalFitTierTests`), so the characterization is
+        obsolete and the real contract is asserted here instead.
         """
         base_flat, _, xn = self._run(self._at(40, 20, concerns=_mixed_concerns()))
-        self.assertFalse(self._keys_visible(base_flat, xn))  # pre-existing, not ours
-        flat, guidance, _ = self._run(self._at(40, 20))
-        self.assertFalse(guidance)
+        self.assertTrue(self._keys_visible(base_flat, xn))
+        flat, guidance, xn = self._run(self._at(40, 20))
+        self.assertTrue(
+            self._keys_visible(flat, xn),
+            "three-line vector rows evicted the help line's key names",
+        )
+        self.assertFalse(guidance, "guidance must yield to the keys at 40 columns")
         self.assertIn("AAA", flat)
         self.assertIn("corr", flat)          # the profile core still reaches the screen
         self.assertIn("E:lo", flat)
@@ -2831,24 +2847,33 @@ class ConcernGuidanceContractTests(unittest.TestCase):
                                             narrow=False))
         self.assertFalse(guidance)
 
-    def test_negative_control_forcing_guidance_on_breaks_40x24(self):
+    def test_negative_control_forcing_guidance_on_breaks_40x20(self):
         """One mutation: show the guidance unconditionally.
 
-        Without this, `test_keys_survive_at_40x24_with_vector_rows` could be
-        passing because the gate happens to hide guidance for an unrelated
-        reason rather than because the precedence rule works.
+        Without this, the `test_keys_survive_at_40x…` tests could be passing
+        because the gate happens to hide guidance for an unrelated reason rather
+        than because the precedence rule works.
+
+        **Re-anchored from 40x24 to 40x20 at t1648.** The vertical-fit tier lifts
+        the dialog's cap whenever it cannot seat its content, so at 40x24 the
+        four extra rows of forced guidance are simply absorbed and the keys
+        survive — that geometry can no longer detect the precedence rule at all.
+        At 40x20 there is no headroom left to absorb them even at full height, so
+        the guidance still costs the keys and the control still bites. It was
+        re-anchored rather than deleted: what it proves is unchanged, only where
+        it can be proven moved.
         """
         with unittest.mock.patch.object(
             monitor_shared, "_GUIDANCE_MIN_WIDTH", 0
         ), unittest.mock.patch.object(
             monitor_shared, "_GUIDANCE_MIN_HEIGHT", 0
         ):
-            flat, guidance, xn = self._run(self._at(40, 24))
+            flat, guidance, xn = self._run(self._at(40, 20))
         self.assertTrue(guidance, "the mutation did not land")
         self.assertFalse(
             self._keys_visible(flat, xn),
             "forcing the guidance on did NOT cost the keys - the contract test "
-            "at 40x24 is not discriminating",
+            "at 40x20 is not discriminating",
         )
 
 
@@ -2998,6 +3023,426 @@ class ConcernRowMarkupSafetyTests(unittest.TestCase):
         with unittest.mock.patch.object(monitor_shared, "_escape_markup", tag_aware):
             with self.assertRaises(Exception):
                 self._run(self._screen(40, self._vector("x[")))
+
+
+class ConcernVerticalFitTierTests(unittest.TestCase):
+    """The vertical cap must never evict the help line's key names (t1648).
+
+    `#concern-dialog` is capped at `max-height: 80%`. On the real minimonitor
+    companion geometry (40x20) that withholds exactly the rows the dialog needs,
+    and the help line — the ONLY place `r` / `t` / `R` / `u` / Esc are named once
+    the buttons are dropped — was pushed off screen entirely.
+
+    **Compacting the help does not fix it.** Measured before the fix: forcing
+    `_CONCERN_HELP_COMPACT` on at 40x20 still left every key token off the
+    composited screen, and so did dropping the OK/Cancel buttons. The evictor is
+    the cap, so lifting the cap is the fix — which is why `xshort` is keyed on
+    HEIGHT and stays independent of the width-keyed `xnarrow`.
+
+    Every assertion here is on the **composited strips**: the widgets report
+    their heights whether or not anything of them reached the screen, so a
+    `size.height` of 6 proves nothing about visibility.
+    """
+
+    #: Named on the help line and nowhere else once the buttons are gone. Two
+    #: sets because the wording is width-dependent — the same reason
+    #: `ConcernGuidanceContractTests` carries two.
+    KEY_TOKENS_FULL = ("esc", "reject", "spin off", "rejected list", "unparsed")
+    KEY_TOKENS_COMPACT = ("esc", "r rej", "t spin", "R list", "u raw")
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    @staticmethod
+    def _needed(screen) -> int:
+        """Recompute the predicate from the laid-out children, independently.
+
+        Deliberately a second implementation rather than a call into the
+        production helper: `test_the_predicate_matches_the_laid_out_children`
+        compares the two, and a test that merely re-invoked the code under test
+        would agree with it by construction.
+        """
+        dialog = screen.query_one("#concern-dialog")
+        concern_list = screen.query_one("#concern-list")
+        needed = dialog.gutter.height
+        for child in dialog.children:
+            if not child.display:
+                continue
+            margin = child.styles.margin
+            rows = (
+                int(concern_list.styles.min_height.value or 0)
+                if child is concern_list
+                else child.size.height
+            )
+            needed += rows + margin.top + margin.bottom
+        return needed
+
+    async def _at(self, width, height, concerns=None, narrow=True, **host_kwargs):
+        app = _Host(concerns or _vector_concerns(), narrow=narrow, **host_kwargs)
+        async with app.run_test(size=(width, height)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            return self._snapshot(app)
+
+    def _snapshot(self, app):
+        screen = app.screen
+        return {
+            "flat": _flat_text(_screen_rows(app)),
+            "rows": _screen_rows(app),
+            "xnarrow": screen.has_class("xnarrow"),
+            "xshort": screen.has_class("xshort"),
+            "needed": self._needed(screen),
+            "available": screen.size.height * monitor_shared._PICKER_MAX_HEIGHT_PCT
+            // 100,
+        }
+
+    def _keys_visible(self, snap) -> bool:
+        tokens = (
+            self.KEY_TOKENS_COMPACT if snap["xnarrow"] else self.KEY_TOKENS_FULL
+        )
+        lowered = snap["flat"].lower()
+        return all(token.lower() in lowered for token in tokens)
+
+    # ---- the headline acceptance -------------------------------------------
+
+    def test_keys_reach_the_screen_at_the_companion_geometry(self):
+        """40x20 — the real companion pane, which showed NO key hints at all.
+
+        Asserted after mount with **no resize**, so this is also the first-paint
+        guard: a tier that only settled on a later resize would fail here.
+        """
+        for label, concerns in (("vector", _vector_concerns()),
+                                ("legacy", _mixed_concerns())):
+            with self.subTest(block=label):
+                snap = self._run(self._at(40, 20, concerns=concerns))
+                self.assertTrue(
+                    self._keys_visible(snap),
+                    "the help line's key names did not reach the screen at 40x20",
+                )
+
+    def test_nothing_is_clipped_at_the_companion_geometry(self):
+        """Lifting the cap must not push the dialog past the screen edges."""
+        for width, height in ((40, 20), (40, 24), (30, 24), (24, 20)):
+            with self.subTest(geometry=f"{width}x{height}"):
+                snap = self._run(self._at(width, height))
+                self.assertEqual(_clipped_rows(snap["rows"], width), [])
+
+    # ---- the predicate ------------------------------------------------------
+
+    def test_the_predicate_matches_the_laid_out_children(self):
+        """`xshort` is exactly `needed > available`, at every probed geometry."""
+        for width, height in ((40, 20), (40, 24), (40, 30), (60, 20),
+                              (80, 24), (100, 30), (30, 24), (24, 20)):
+            with self.subTest(geometry=f"{width}x{height}"):
+                snap = self._run(self._at(width, height))
+                self.assertEqual(
+                    snap["xshort"], snap["needed"] > snap["available"]
+                )
+
+    def test_tier_fires_only_where_the_cap_cannot_seat_the_content(self):
+        """Measured discrimination — a healthy geometry must not be disturbed."""
+        cases = (
+            (40, 20, _vector_concerns(), {}, True),
+            (40, 24, _vector_concerns(), {}, True),
+            (80, 24, _mixed_concerns(), {}, False),
+            (100, 30, _mixed_concerns(), {}, False),
+        )
+        for width, height, concerns, kwargs, expected in cases:
+            with self.subTest(geometry=f"{width}x{height}"):
+                snap = self._run(
+                    self._at(width, height, concerns=concerns, **kwargs)
+                )
+                self.assertEqual(snap["xshort"], expected)
+
+    def test_a_composed_banner_is_counted(self):
+        """A stale banner evicts the keys at 80x24 — a COMFORTABLE width.
+
+        The defect was never really about 40 columns; it is "chrome + help
+        exceeds the cap", and two extra banner rows reach it at 80. The
+        clean-block control below is what makes this discriminating: the same
+        geometry without the banner must NOT fire.
+        """
+        clean = self._run(self._at(80, 24, concerns=_mixed_concerns()))
+        self.assertFalse(clean["xshort"], "the control geometry already fires")
+
+        stale = self._run(
+            self._at(80, 24, concerns=_mixed_concerns(), stale=True)
+        )
+        self.assertTrue(stale["xshort"])
+        self.assertTrue(self._keys_visible(stale))
+
+    def test_a_long_context_line_is_counted(self):
+        """`_context_line()` wraps, and the extra row must be charged for.
+
+        This is the case a fixed "chrome rows" constant got wrong: it assumed one
+        context row, while the line already measures three at 40 columns and
+        grows further with the round suffix.
+        """
+        # The premise, measured rather than assumed: the context is NOT one row
+        # at the companion width. A chrome constant that budgeted one would
+        # understate the requirement by two rows before any suffix is added.
+        async def context_height(width, **kwargs):
+            app = _Host(_mixed_concerns(), narrow=True, **kwargs)
+            async with app.run_test(size=(width, 24)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                return app.screen.query_one("#concern-context").size.height
+
+        self.assertGreaterEqual(
+            self._run(context_height(40)), 2,
+            "premise: the context line wraps at the companion width",
+        )
+
+        # And the extra row a round suffix adds is charged for. Asserted at 80,
+        # where the suffix demonstrably changes the wrapped height (at 60 both
+        # forms wrap to 2 rows, so that width could not detect a miscount).
+        meta = BlockMeta(2, "2026-08-11T14:03:27Z")
+        self.assertGreater(
+            self._run(context_height(80, block_meta=meta)),
+            self._run(context_height(80)),
+            "premise: the suffix adds a row at this width",
+        )
+        plain = self._run(self._at(80, 24, concerns=_mixed_concerns()))
+        withmeta = self._run(
+            self._at(80, 24, concerns=_mixed_concerns(), block_meta=meta)
+        )
+        self.assertGreater(
+            withmeta["needed"], plain["needed"],
+            "the wrapped context row was not counted",
+        )
+        self.assertTrue(self._keys_visible(withmeta))
+
+    def test_a_long_stale_detail_is_counted(self):
+        """Same shape via `stale_detail`, which is producer-derived free text."""
+        short = self._run(
+            self._at(60, 24, concerns=_mixed_concerns(), stale=True,
+                     stale_detail=" (round 2)")
+        )
+        long = self._run(
+            self._at(60, 24, concerns=_mixed_concerns(), stale=True,
+                     stale_detail=" (round 2, last read 14 minutes ago, block "
+                                  "written 3 hours before that)")
+        )
+        self.assertGreater(long["needed"], short["needed"])
+        self.assertTrue(self._keys_visible(long))
+
+    def test_the_guidance_gate_runs_before_the_predicate(self):
+        """A hidden guidance line must contribute zero rows.
+
+        `#concern-guidance` is composed `display=True` and only hidden by
+        `_apply_guidance_visibility`. If the fit tier ran first it would charge
+        ~3 rows for a line that never renders, and lift the cap at healthy
+        vector-bearing geometries.
+        """
+        async def with_display_probe():
+            app = _Host(_vector_concerns(), narrow=True)
+            async with app.run_test(size=(40, 24)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                guidance = app.screen.query_one("#concern-guidance")
+                return guidance.display, self._snapshot(app)
+
+        displayed, hidden_snap = self._run(with_display_probe())
+        self.assertFalse(displayed, "premise: the gate hides it at 40x24")
+
+        # The other half of the claim: a guidance line that IS displayed gets
+        # counted. So had the fit tier run first — while `display` is still the
+        # composed default of True — it would have charged these rows for a line
+        # that never renders.
+        with unittest.mock.patch.object(
+            monitor_shared, "_GUIDANCE_MIN_WIDTH", 0
+        ), unittest.mock.patch.object(
+            monitor_shared, "_GUIDANCE_MIN_HEIGHT", 0
+        ):
+            shown_snap = self._run(self._at(40, 24))
+        self.assertGreater(
+            shown_snap["needed"], hidden_snap["needed"],
+            "a displayed guidance line is not counted - the ordering between "
+            "the gate and the fit tier would then not matter, and this test "
+            "would not be discriminating",
+        )
+
+    def test_the_predicate_is_invariant_under_its_own_class(self):
+        """No oscillation: setting `xshort` must not change `needed`.
+
+        The class changes only `max-height`, which changes only the `1fr` list —
+        and the list contributes its declared `min-height`, not its measured
+        height, precisely so this holds.
+        """
+        async def runner():
+            app = _Host(_vector_concerns(), narrow=True)
+            async with app.run_test(size=(40, 20)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                with_tier = self._needed(app.screen)
+                self.assertTrue(app.screen.has_class("xshort"), "premise")
+                app.screen.remove_class("xshort")
+                await pilot.pause()
+                await pilot.pause()
+                without_tier = self._needed(app.screen)
+                return with_tier, without_tier
+
+        with_tier, without_tier = self._run(runner())
+        self.assertEqual(with_tier, without_tier)
+
+    # ---- the breakpoint the deferral exists for -----------------------------
+
+    async def _resize_through(self, start, end):
+        app = _Host(_vector_concerns(), narrow=True)
+        async with app.run_test(size=start) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.resize_terminal(*end)
+            await pilot.pause()
+            await pilot.pause()
+            return self._snapshot(app)
+
+    def test_crossing_the_help_breakpoint_settles_the_tier(self):
+        """The help swap must settle before the fit tier measures it.
+
+        `_apply_measured_width_tier` calls `help.update(...)`, and the new text is
+        NOT laid out when it returns. Measured, the stale height is wrong in both
+        directions across the 30-column boundary: 31->30 reports 6 rows for a
+        line that renders in 3, and **30->31 reports 3 for one that renders in
+        7**. The second under-counts, so the fit check would conclude there is
+        room and leave the keys evicted.
+
+        `test_tier_is_reapplied_on_resize` cannot catch this: 40x30 -> 40x20 does
+        not cross the boundary, so the help text never changes there.
+        """
+        for start, end in (((30, 24), (31, 24)), ((31, 24), (30, 24))):
+            with self.subTest(resize=f"{start}->{end}"):
+                snap = self._run(self._resize_through(start, end))
+                self.assertEqual(
+                    snap["xshort"], snap["needed"] > snap["available"],
+                    "the tier was decided from a stale help height",
+                )
+                self.assertTrue(self._keys_visible(snap))
+
+    def test_the_deferral_makes_the_first_decision_after_a_swap_correct(self):
+        """What the `call_after_refresh` hop actually buys, stated honestly.
+
+        The *settled* state is self-correcting either way: swapping the help text
+        dirties the layout, which schedules another pass, and that pass sees the
+        real height. So the deferral is not what makes
+        `test_crossing_the_help_breakpoint_settles_the_tier` pass — claiming it
+        were would be a false negative control.
+
+        What it buys is that the **first** decision taken after a swap is already
+        made from the settled height, instead of a wrong one being published for
+        a frame and corrected afterwards. That is the property pinned here: with
+        the hop, every fit decision during a 30->31 resize agrees with the
+        settled measurement; with the hop made immediate — the pre-fix
+        behaviour — at least one does not.
+        """
+        async def decisions(*, immediate: bool):
+            seen: list[int] = []
+            real = monitor_shared._apply_measured_height_tier
+
+            def spy(screen, dialog_id, list_id, pct):
+                seen.append(self._needed(screen))
+                return real(screen, dialog_id, list_id, pct)
+
+            app = _Host(_vector_concerns(), narrow=True)
+            async with app.run_test(size=(30, 24)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                patches = [
+                    unittest.mock.patch.object(
+                        monitor_shared, "_apply_measured_height_tier", spy
+                    )
+                ]
+                if immediate:
+                    patches.append(unittest.mock.patch.object(
+                        type(app.screen), "call_after_refresh",
+                        lambda self, callback, *a, **kw: callback(*a, **kw),
+                    ))
+                for patch in patches:
+                    patch.start()
+                try:
+                    seen.clear()
+                    await pilot.resize_terminal(31, 24)
+                    await pilot.pause()
+                    await pilot.pause()
+                finally:
+                    for patch in reversed(patches):
+                        patch.stop()
+                return seen, self._needed(app.screen)
+
+        deferred, settled = self._run(decisions(immediate=False))
+        self.assertTrue(deferred, "premise: the tier ran at all")
+        self.assertEqual(
+            [n for n in deferred if n != settled], [],
+            "a fit decision was taken from a stale help height despite the "
+            "deferral",
+        )
+
+        inline, settled_inline = self._run(decisions(immediate=True))
+        self.assertNotEqual(
+            [n for n in inline if n != settled_inline], [],
+            "making the hop immediate did NOT produce a stale decision - this "
+            "control is not discriminating",
+        )
+
+    def test_tier_is_reapplied_on_resize(self):
+        """Textual has no media queries — `on_resize` is what keeps it live."""
+        snap = self._run(self._resize_through((40, 30), (40, 20)))
+        self.assertTrue(snap["xshort"])
+        self.assertTrue(self._keys_visible(snap))
+
+    # ---- guards -------------------------------------------------------------
+
+    def test_negative_control_without_the_tier_40x20_breaks(self):
+        """One mutation: make the cap so generous the tier can never fire.
+
+        Proves the tier — not an unrelated layout change — is what put the keys
+        back on screen at 40x20.
+        """
+        with unittest.mock.patch.object(
+            monitor_shared, "_PICKER_MAX_HEIGHT_PCT", 10_000
+        ):
+            snap = self._run(self._at(40, 20))
+        self.assertFalse(snap["xshort"], "the mutation did not land")
+        self.assertFalse(
+            self._keys_visible(snap),
+            "the keys survived at 40x20 without the tier - this test is not "
+            "discriminating",
+        )
+
+    def test_max_height_pct_is_derived_from_the_declared_stylesheet(self):
+        """Drift guard: the constant IS the dialog's declared `max-height`.
+
+        Same rule as `test_tier_threshold_is_derived_from_the_declared_min_width`
+        — retuning the CSS must move the tier, and this fails if the two ever
+        disagree.
+        """
+        declared = re.search(
+            r"#concern-dialog\s*\{[^}]*?max-height:\s*(\d+)%",
+            ConcernPickerModal.DEFAULT_CSS,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(declared, "#concern-dialog must declare a max-height")
+        self.assertEqual(
+            int(declared.group(1)), monitor_shared._PICKER_MAX_HEIGHT_PCT
+        )
+
+    def test_the_width_tier_is_unchanged_by_the_height_tier(self):
+        """`xnarrow` still answers a width question, and only a width question.
+
+        The whole point of t1648 is that the two tiers are independent: 40x20 is
+        short but not narrow, and 24x30 is narrow but not short.
+        """
+        wide_and_short = self._run(self._at(40, 20))
+        self.assertFalse(wide_and_short["xnarrow"])
+        self.assertTrue(wide_and_short["xshort"])
+
+        narrow_and_tall = self._run(self._at(24, 30))
+        self.assertTrue(narrow_and_tall["xnarrow"])
+        self.assertFalse(narrow_and_tall["xshort"])
+
+    def test_the_payload_editor_is_not_affected(self):
+        """`ConcernPayloadEditModal` shares the width tier but not this one."""
+        self.assertNotIn("xshort", ConcernPayloadEditModal.DEFAULT_CSS)
 
 
 if __name__ == "__main__":

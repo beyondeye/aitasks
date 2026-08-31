@@ -195,6 +195,8 @@ Press **R** to review what is already rejected for this task: **Space** marks an
 
 The picker adapts down to narrow companion panes: at 30 columns and below it drops its OK/Cancel buttons and switches to a compact key hint (confirm with **Enter**, cancel with **Esc**). 24 columns is the narrowest width it is designed for — below that the concern block's own markers wrap in the shadow pane and there is nothing left to parse.
 
+It adapts to *short* panes separately from narrow ones. The picker normally leaves a margin around itself, but on a pane too short to hold its content that way it uses the full height instead, so the key hints stay on screen for a picker whose content fits the pane at all. A pane carrying both a staleness warning and an unparsed-lines warning in around 20 rows can still run out of room — widen or lengthen the pane if the hints disappear.
+
 If no shadow is running, pressing **c** tells you to launch one with **e**; if the shadow has not raised any concerns yet, minimonitor says so and does nothing.
 
 > **Auto-offer:** when the shadow produces a fresh concern block, minimonitor proactively surfaces a `Shadow raised 2 concern(s) — press 'c' to pick` toast — once per block — so you don't have to poll the shadow pane for it. The count is of concerns needing attention; any informational ones are noted separately in the same toast, and the review round is named as a `(round N)` suffix when the block carries one.
