@@ -269,6 +269,22 @@ class DigestInvalidationTest(_DigestFixture):
         ops = self.ab.InFlightTaskCard._ops_hint(item)
         self.assertIn("[s sign-off]", ops)
         self.assertIn("[f fail]", ops)
+        # The stale row of t1603_3's lane/chip agreement table. It lives HERE
+        # rather than in `tests/test_board_inflight_planned_lane.py` because
+        # staleness is not a ledger shape: it needs the signal witness whose
+        # `code_digest=` no longer matches, which only this class's
+        # `_sign_all()` / `_mutate_code()` harness builds. A fixture that just
+        # writes `code_digest=` onto the ledger line yields `stale_signed == []`
+        # and would assert nothing.
+        # The fraction is `0/1`, not `1/1`: the task's one active gate is
+        # `review_approved`, whose demoted signature keeps it in
+        # `archive_pending`. A chip reading `1/1` beside "awaiting re-sign"
+        # would be the exact lane/chip disagreement t1603_3 exists to remove.
+        self.assertEqual(item.group, "human")
+        self.assertEqual(
+            self.ab.phase_chip_text(item.phase, item.provenance, item.progress,
+                                    error=item.state_error),
+            "awaiting review · 0/1")
 
     def test_a_fresh_signature_owes_nobody(self):
         """NEGATIVE CONTROL for the row above: with the signature still binding,

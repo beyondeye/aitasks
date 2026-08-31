@@ -135,6 +135,21 @@ class InFlightItem:
     # generic pending-human wording) and what `_gate_summary` pairs with the raw
     # ledger `pass`.
     stale_signed: list[str] = field(default_factory=list)
+    # t1603_2's workflow phase, flattened (t1603_3). `phase` / `provenance` are
+    # `WORKFLOW_PHASES` / `WORKFLOW_PROVENANCES` members; `progress` is
+    # `(satisfied, enforced)` or None — never a stand-in for 0/N.
+    phase: str = ""
+    provenance: str = ""
+    progress: tuple[int, int] | None = None
+    #: "Plan approved, implementation never started" — `Ready` AND carrying the
+    #: t1595 deferred-plan marker. The ONE authority for that state: the lane,
+    #: the ops hint and the three routing guards all read THIS. Never test
+    #: `group == "planned"` instead — a blocking dependency claims the lane
+    #: first, so such a task renders in Blocked and a lane-keyed guard hands
+    #: back `g resume` / `s sign-off` / `f fail` on a task that was never
+    #: implemented. Defaults False so every construction site that predates
+    #: this field keeps the armed-only-where-needed value.
+    approved_unstarted: bool = False
 
 
 def _resolve_plan_path_for_task(task: "Task", manager) -> Path | None:
@@ -382,6 +397,155 @@ def derive_workflow_phase(task: "Task", result: GateStateResult, registry: dict,
     else:
         phase = "implementing"
     return WorkflowPhase(phase, "ledger", progress, current)
+
+
+#: The In-Flight LANE axis ("what happens next"), in render order (t1603_3).
+#: `planned` is the fourth VALUE of this one axis — not an actor lane and not a
+#: second axis. The refresh path builds its grouping dict and its iteration
+#: order from here, so a lane cannot be rendered in one place and missing in
+#: the other.
+INFLIGHT_LANES = ("planned", "human", "agent", "blocked")
+
+#: The ONE mapping from t1603_2's phase axis onto the lane axis (t1603_3).
+#: Total over `WORKFLOW_PHASES` by test, so a sixth phase cannot land without a
+#: lane. Two shipped classifications moved when this replaced the old ladder,
+#: both deliberately and both pinned by a named test:
+#:   Δ1 `needs_attended_agent` + `resume_point == IMPLEMENT` was `agent`. A
+#:      pending `procedure` gate is owed by a person launching an attended
+#:      agent; the old ladder filed it under the agent only because it never
+#:      looked past `resume_point`.
+#:   Δ2 `resume_point == POSTIMPL` with another human gate still pending now
+#:      says "pending human gate" instead of "reviewed — post-implementation"
+#:      (the lane is `human` either way).
+LANE_FOR_PHASE = {
+    "plan_approved": "agent",
+    "implementing": "agent",
+    "awaiting_review": "human",
+    "needs_attended_agent": "human",
+    "post_impl": "human",
+}
+
+#: Human-readable phase labels — the chip's only vocabulary (t1603_3).
+PHASE_LABELS = {
+    "plan_approved": "plan approved",
+    "implementing": "implementing",
+    "awaiting_review": "awaiting review",
+    "needs_attended_agent": "needs attended agent",
+    "post_impl": "post-implementation",
+}
+
+
+def _inflight_lane(phase: str, progress, *, approved_unstarted: bool,
+                   blocked: bool) -> str:
+    """The lane for one in-flight item — PRIMITIVES ONLY (t1603_3).
+
+    Takes the phase NAME and its fraction, never a `TaskGateState`: the
+    signature is what makes a second derivation impossible rather than merely
+    discouraged, and `PhaseIsTheOnlyLaneAuthorityTest` scans this body for any
+    gate-state read. Before t1603_3 the lane was a parallel ladder over
+    `resume_point` / `archive_decision` / `stale_signed`, which is exactly the
+    drift that lets a card's lane and its chip contradict each other.
+
+    The archivable rung reads the phase model's OWN fraction: `ALL_PASS` is
+    exactly ``progress[0] == progress[1]`` (`derive_workflow_phase` says so in
+    as many words), so "ready to archive" comes off the phase rather than from
+    a second read of `archive_decision`.
+
+    `blocked` outranks `approved_unstarted` — a dependency-blocked task is one
+    where nothing can happen next, which is what this axis reports. That is
+    precisely why the routing guards read `approved_unstarted` DIRECTLY and
+    never `group == "planned"`: the lane is a display fact, and the two sets
+    differ on exactly this case.
+    """
+    if blocked:
+        return "blocked"
+    if approved_unstarted:
+        return "planned"
+    if progress and progress[0] == progress[1]:
+        return "human"
+    return LANE_FOR_PHASE[phase]
+
+
+def _inflight_next_action(phase: WorkflowPhase, *, blockers: list,
+                          approved_unstarted: bool, stale_signed: list,
+                          failed: bool, human_gates: list) -> str:
+    """The card's one-line "what happens next" copy (t1603_3).
+
+    Keyed on the phase rather than on a second walk of the gate state, in the
+    same order the lane rungs run, so the sentence and the lane cannot describe
+    different tasks. Every string a pre-t1603_3 board could produce is still
+    reachable here, at the same rung — see the Δ2 note on `LANE_FOR_PHASE` for
+    the single deliberate re-wording.
+    """
+    if blockers:
+        return "blocked by dependencies"
+    if phase.provenance == "error":
+        return "gate state unavailable"
+    if phase.provenance in ("unknown", "derived"):
+        return "No gate information yet — pick/resume"
+    if approved_unstarted:
+        return "approved plan — pick to implement"
+    if stale_signed:
+        # Ahead of the archivable rung on purpose (t1416): the demotion has
+        # already flipped the fraction off complete, but "blocked" alone would
+        # send the user looking for a gate that never ran. The action is to
+        # RE-SIGN an approval a code change invalidated, so say that.
+        return "awaiting re-sign: " + ", ".join(stale_signed)
+    if phase.progress and phase.progress[0] == phase.progress[1]:
+        return "all gates pass — archive/re-enter"
+    if phase.phase == "post_impl":
+        return "reviewed — post-implementation"
+    if phase.phase == "needs_attended_agent":
+        # `current_gate` is the first entry of `archive_pending`, so it names
+        # the gate actually owed. The chip stays a label + fraction and lets
+        # this line carry the gate name, which is what keeps both inside a
+        # 44-column card.
+        return f"needs an attended agent: {phase.current_gate or 'a procedure gate'}"
+    if failed:
+        return "failed gate — inspect/sign off or fail"
+    if human_gates:
+        return "pending human gate"
+    if phase.phase == "plan_approved":
+        return "plan approved — resume implementation"
+    return "resume or continue planning"
+
+
+def phase_chip_text(phase: str, provenance: str, progress, *,
+                    error: str = "", compact: bool = False) -> str:
+    """The ONE rendering of a workflow phase as text (t1603_3).
+
+    Shared with t1603_4's expanded gate surface: a second literal for the
+    degraded states is what would let the In-Flight card and the task detail
+    screen describe the same ledger differently.
+
+    `compact=True` is the **card** form — the phase label plus its fraction and
+    nothing else. The qualifiers (the provenance, the error text) belong to the
+    expanded surface. Measured on a real 100-column terminal: on a card they
+    land directly under `next_action` and restate it almost word for word —
+    "No gate information yet — pick/resume" over "No gate ledger —
+    implementing (unknown)" — while reintroducing exactly the ledger jargon
+    that line is deliberately written to keep off this surface (t635_9). The
+    card's own action line already carries the degraded state in friendly copy;
+    the chip's job here is the phase AXIS, which is what row B of the model
+    needs and what a fraction adds.
+
+    `marker` never says "No gate ledger" — a `Ready`-plus-marker task IS
+    reachable with a ledger present (the marker just outranks it), so the
+    phrase would be false. `None` progress prints no fraction at all rather
+    than a fabricated `0/0`, which is `derive_workflow_phase`'s own rule.
+    """
+    label = PHASE_LABELS[phase]
+    if compact:
+        return f"{label} · {progress[0]}/{progress[1]}" if progress else label
+    if provenance == "error":
+        return f"Gate state unavailable: {error}" if error else "Gate state unavailable"
+    if provenance == "marker":
+        return f"{label} (from marker)"
+    if provenance in ("unknown", "derived"):
+        return f"No gate ledger — {label} ({provenance})"
+    if progress:
+        return f"{label} · {progress[0]}/{progress[1]}"
+    return label
 
 
 def _task_git_cmd() -> list[str]:
@@ -2114,12 +2278,35 @@ class TaskManager:
         return bool(_failed_active_gates(result.state))
 
     def _inflight_item_for(self, task: Task) -> InFlightItem | None:
-        if task.metadata.get("status") != "Implementing":
+        status = task.metadata.get("status")
+        # Cheap pre-filter FIRST (t1603_3). `derive_workflow_phase` below is
+        # the actual admission rule — its `None` is exactly "not in a workflow
+        # phase" — but `gate_state_for` reads and parses the task file, and
+        # this method runs for every task on the board on every refresh. This
+        # only avoids paying for that on tasks `status` alone rejects.
+        if status not in ("Implementing", "Ready"):
+            return None
+        approved_unstarted = status == "Ready" and bool(
+            _plan_approved_marker(task.metadata))
+        if status == "Ready" and not approved_unstarted:
             return None
         task_id, title = TaskCard._parse_filename(task.filename)
         if not task_id:
             return None
         result = self.gate_state_for(task)
+        # KNOWN COST, tracked as t1656: `plan_exists` is read by
+        # exactly one of `derive_workflow_phase`'s branches (the no-ledger
+        # degradation), so this stat is discarded in every other state. Do NOT
+        # "fix" it by testing `result.error` / `result.has_ledger` here — that
+        # restates the ladder's branch conditions in the caller and drifts the
+        # moment their order changes. The fix belongs in the seam: take a
+        # CALLABLE and resolve it on the branch that reads it, exactly as
+        # `gate_state_for` does with `code_digest_for_refresh`.
+        phase = derive_workflow_phase(
+            task, result, self.gate_registry(),
+            plan_exists=_resolve_plan_path_for_task(task, self) is not None)
+        if phase is None:
+            return None
         blockers = self.unresolved_local_deps(task)
         xdep_display, xdep_blocked = self.cross_repo_dep_display(task)
         if xdep_blocked:
@@ -2128,42 +2315,18 @@ class TaskManager:
         human_gates = self._human_pending_gates(result)
         failed = self._has_failed_gate(result)
         state = result.state
+        stale_signed = list(state.stale_signed) if state else []
 
-        if blockers:
-            group = "blocked"
-            next_action = "blocked by dependencies"
-        elif result.error:
-            group = "agent"
-            next_action = "gate state unavailable"
-        elif not result.has_ledger:
-            group = "agent"
-            next_action = "No gate information yet — pick/resume"
-        elif state and state.stale_signed:
-            # Ahead of the ALL_PASS branch on purpose (t1416). The demotion has
-            # already flipped archive_decision to BLOCKED, so ALL_PASS no longer
-            # fires — but "blocked" alone would send the user looking for a gate
-            # that never ran. The action is to RE-SIGN an approval that has been
-            # invalidated by a code change, so say that.
-            group = "human"
-            next_action = "awaiting re-sign: " + ", ".join(state.stale_signed)
-        elif state and state.archive_decision == "ALL_PASS":
-            group = "human"
-            next_action = "all gates pass — archive/re-enter"
-        elif state and state.resume_point == "POSTIMPL":
-            group = "human"
-            next_action = "reviewed — post-implementation"
-        elif failed:
-            group = "human"
-            next_action = "failed gate — inspect/sign off or fail"
-        elif human_gates:
-            group = "human"
-            next_action = "pending human gate"
-        elif state and state.resume_point == "IMPLEMENT":
-            group = "agent"
-            next_action = "plan approved — resume implementation"
-        else:
-            group = "agent"
-            next_action = "resume or continue planning"
+        # Both axes come off the SAME `WorkflowPhase` (t1603_3). No branch below
+        # re-reads `resume_point` / `archive_decision` / `stale_signed` to
+        # decide a lane; that parallel ladder is what let a card's lane and its
+        # chip contradict each other.
+        group = _inflight_lane(phase.phase, phase.progress,
+                               approved_unstarted=approved_unstarted,
+                               blocked=bool(blockers))
+        next_action = _inflight_next_action(
+            phase, blockers=blockers, approved_unstarted=approved_unstarted,
+            stale_signed=stale_signed, failed=failed, human_gates=human_gates)
 
         return InFlightItem(
             task=task,
@@ -2176,7 +2339,11 @@ class TaskManager:
             blockers=blockers,
             state_error=result.error,
             has_ledger=result.has_ledger,
-            stale_signed=list(state.stale_signed) if state else [],
+            stale_signed=stale_signed,
+            phase=phase.phase,
+            provenance=phase.provenance,
+            progress=phase.progress,
+            approved_unstarted=approved_unstarted,
         )
 
     def get_inflight_items(self) -> list[InFlightItem]:
@@ -3539,8 +3706,18 @@ class InFlightTaskCard(TaskCard):
             yield Label(self.item.task_id, classes="task-number")
             yield Label(self.item.title, classes="task-title")
         yield Label(self.item.next_action, classes="task-info inflight-action")
-        if self.item.gate_summary:
-            yield Label(self.item.gate_summary, classes="task-info")
+        # The workflow-phase chip, on EVERY card including Planned ones
+        # (t1603_3) — a chip that disappears on some cards makes its absence
+        # ambiguous, and the same chip value one lane over is not redundant.
+        # It replaces the raw per-run `gate_summary` dump, which a 44-column
+        # card has no budget for; the full list lands on the detail screen.
+        # markup=False: the error text and gate names are free-form prose and
+        # Rich would eat a bracket.
+        yield Label(
+            phase_chip_text(self.item.phase, self.item.provenance,
+                            self.item.progress, error=self.item.state_error,
+                            compact=True),
+            classes="task-info inflight-phase", markup=False)
         if self.item.blockers:
             yield Label(f"blocked by: {', '.join(self.item.blockers)}", classes="task-info")
 
@@ -3551,11 +3728,24 @@ class InFlightTaskCard(TaskCard):
 
     @staticmethod
     def _ops_hint(item: InFlightItem) -> str:
-        """Assemble the literal operation-hint text for an In-Flight card."""
+        """Assemble the literal operation-hint text for an In-Flight card.
+
+        Both conditionals are gated on `approved_unstarted`, NOT on
+        `has_ledger` and NOT on the lane (t1603_3). An approved-but-unstarted
+        task DOES carry a ledger — `plan-approved-stop.md` records
+        `plan_approved: pass` before reverting the status, and nothing strips
+        `## Gate Runs` — whose `review_approved` is still pending, so a
+        `has_ledger` test advertises a resume that bypasses the planning
+        checkpoint and a sign-off on code that does not exist. A
+        `group == "planned"` test fails the same way one step later: a blocking
+        dependency puts such a task in the Blocked lane. This is the
+        advertisement only; `action_gate_resume` and
+        `_record_focused_human_gate` carry the matching refusals.
+        """
         ops = ["p pick"]
-        if item.has_ledger:
+        if item.has_ledger and not item.approved_unstarted:
             ops.append("g resume")
-        if item.human_gates:
+        if item.human_gates and not item.approved_unstarted:
             ops.append("s sign-off")
             ops.append("f fail")
         return "  ".join(f"[{op}]" for op in ops)
@@ -3563,6 +3753,8 @@ class InFlightTaskCard(TaskCard):
     def _priority_border_color(self):
         if self.item.group == "blocked":
             return "red"
+        if self.item.group == "planned":
+            return "magenta"
         if self.item.group == "human":
             return "yellow"
         return "green"
@@ -3572,11 +3764,13 @@ class InFlightColumn(VerticalScroll):
     """A column in the In-Flight action view."""
 
     TITLES = {
+        "planned": "Planned",
         "human": "Needs your action",
         "agent": "Agent can continue",
         "blocked": "Blocked",
     }
     COLORS = {
+        "planned": "#BD93F9",
         "human": "#FFB86C",
         "agent": "#50FA7B",
         "blocked": "#FF5555",
@@ -8354,6 +8548,7 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     .task-info { color: $text-muted; }
     .trail-drift { color: #FFB86C; }
     .inflight-action { color: $text; }
+    .inflight-phase { color: $text-muted; }
     .inflight-ops { color: $accent; }
     .inflight-empty { height: 1; padding: 0 1; color: $text-muted; }
     .child-wrapper { height: auto; }
@@ -9489,10 +9684,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         container.remove_children()
 
         if self.base_filter == "inflight":
-            grouped = {"human": [], "agent": [], "blocked": []}
+            # Both the buckets and the render order come from INFLIGHT_LANES
+            # (t1603_3) — a second literal tuple here is how a lane ends up
+            # grouped but never mounted.
+            grouped = {lane: [] for lane in INFLIGHT_LANES}
             for item in self.manager.get_inflight_items():
                 grouped[item.group].append(item)
-            for group in ("human", "agent", "blocked"):
+            for group in INFLIGHT_LANES:
                 container.mount(InFlightColumn(group, grouped[group], self.manager))
             self.call_after_refresh(self.apply_filter)
             self._queue_refocus(refocus_filename, refocus_col_id)
@@ -12134,6 +12332,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         focused = self._focused_card()
         if not isinstance(focused, InFlightTaskCard):
             return
+        # Visibility, not routing (t1595, aidocs/gates/ledger-driven-reentry.md).
+        # An approved-but-unstarted task is `Ready` and carries a ledger, so
+        # resuming it would start implementation without the planning
+        # checkpoint or its remote drift check. The refusal lives HERE, not
+        # only in `_ops_hint`: `g` stays reachable through its binding, a
+        # remap, or the command palette. Keyed on `approved_unstarted`, never
+        # on the lane — a blocking dependency moves such a task to Blocked.
+        if focused.item.approved_unstarted:
+            self.notify(
+                f"{focused.item.task_id} has an approved plan but has not "
+                "started — press p to pick it (resume would bypass the "
+                "planning checkpoint).",
+                severity="warning")
+            return
         task_num, _ = TaskCard._parse_filename(focused.task_data.filename)
         if not task_num:
             return
@@ -12174,6 +12386,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _record_focused_human_gate(self, status: str):
         focused = self._focused_card()
         if not isinstance(focused, InFlightTaskCard):
+            return
+        # Same refusal as `action_gate_resume`, and for a sharper reason: an
+        # approved-but-unstarted task's ledger has `review_approved` PENDING,
+        # so without this `s` would record a review sign-off on code that was
+        # never written (t1603_3). Before the `human_gates` read, so the
+        # message names the real reason rather than "no pending human gate".
+        if focused.item.approved_unstarted:
+            self.notify(
+                f"{focused.item.task_id} has not started — no gate can be "
+                "signed on an approved-but-unimplemented task.",
+                severity="warning")
             return
         gates = focused.item.human_gates
         if not gates:

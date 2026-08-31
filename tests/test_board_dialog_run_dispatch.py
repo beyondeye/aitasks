@@ -64,13 +64,26 @@ class DialogRunTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
         app._resolve_resume_profile.return_value = "fast"
         return app
 
-    def _focused(self, cls=None):
-        """Focused card stub carrying a real filename string."""
+    def _focused(self, cls=None, *, approved_unstarted=False):
+        """Focused card stub carrying a real filename string.
+
+        `item` is set explicitly because `MagicMock(spec=cls)` exposes only
+        CLASS attributes and `InFlightTaskCard.item` is assigned in `__init__`
+        — so a spec'd mock raises `AttributeError` for it. `action_gate_resume`
+        reads `item.approved_unstarted` before anything else (t1603_3): a task
+        with an approved-but-unstarted plan must not be resumable, since that
+        would start implementation without the planning checkpoint. These
+        dispatch tests are about the ordinary resumable card, so the default is
+        `False`; `PlannedRoutingGuardTests` in
+        `tests/test_board_inflight_planned_lane.py` owns the refusal itself.
+        """
         if cls is None:
             return SimpleNamespace(
                 task_data=SimpleNamespace(filename=TASK_FILE))
         card = MagicMock(spec=cls)
         card.task_data = SimpleNamespace(filename=TASK_FILE)
+        card.item = SimpleNamespace(task_id="t42",
+                                    approved_unstarted=approved_unstarted)
         return card
 
     def _dialog(self, app):
