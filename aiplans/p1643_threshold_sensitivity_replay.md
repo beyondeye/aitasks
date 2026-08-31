@@ -546,3 +546,137 @@ production behaviour, so the levels are unchanged: **code-health low**,
 *sizes* the oracle bias without correcting it, and `excluded_run_marker` stops the
 counterfactual being mislabelled without supplying the real availability
 distribution, which is what `availability_timeseries` is spawned to do.
+
+---
+
+## Final Implementation Notes
+
+### What landed
+
+| file | role |
+|---|---|
+| `.aitask-scripts/lib/parallel_admission_sweep.py` | **new, pure** — `PlanExtraction`, `Confusion`, `pair_input`/`pair_verdict`, `confusion`, the derived metrics, `POST_WORK_HEADINGS` + `cut_post_implementation` |
+| `.aitask-scripts/lib/parallel_admission_collect.py` | `plan_extraction` (the one extractor; `surface_from_plan` now delegates to it), `no_plan_claims`, `_respin` threshold/exclusion overrides, `--thresholds` / `--exclude` / `--exclude-no-plan` / `--candidates auto` / `--plan-scope`, the `sweep` verb |
+| `.aitask-scripts/aitask_parallel_admission.sh` | header only — the new verb and why the measurement flags are refused on `check` |
+| `tests/test_parallel_admission_sweep.py` | **new** — 27 pure tests |
+| `tests/test_parallel_admission_collect.py` | +40 tests; `_ReplayScaffold` extracted (see Defects) |
+| `tests/test_parallel_admission_cli.sh` | 38 → 49 wrapper assertions |
+| `tests/test_parallel_admission_purity.py` | `parallel_admission_sweep` added to `PURE_MODULES` |
+
+No change to `decide`, the verdict vocabulary, `HUB_THRESHOLD`, or any default.
+
+### The measurement — 2026-08-31 09:09 UTC
+
+**These are volatile corpus statistics, not constants.** t1569_3 saw CLEAR move
+48% → 58% in an hour with no code change; during *this* task the archived
+population moved 279 → 281 and the in-flight set turned over completely
+(`1641,1642,1643` at planning → `1210_5,1644,1646` at measurement). Re-run
+`sweep` / `replay --thresholds` when a number has to carry a decision.
+
+**Archived-pairs oracle** — 281 tasks, 39 340 pairs, 3 378 genuinely colliding.
+Shares are of all true collisions; `pre-impl` cuts each plan at
+`## Final Implementation Notes`:
+
+| hub threshold | hard-stopped | downgraded | missed | precision | hard-stopped (pre-impl) |
+|---|---|---|---|---|---|
+| 8 | 28.5% | 62.1% | 9.5% | 45.9% | 27.2% |
+| **10 (shipped)** | **31.8%** | **58.7%** | 9.5% | 44.8% | **30.4%** |
+| 20 | 67.1% | 23.5% | 9.5% | 25.3% | 65.3% |
+| 50 | 72.1% | 18.5% | 9.5% | 25.8% | 70.3% |
+| unnarrowed control | 90.5% | 0% | 9.5% | 27.0% | 87.6% |
+
+**Live replay** — 118 candidates with an active plan, one snapshot, both
+populations. `EXCLUDED:1210_5,1644,1646` was derived from that same snapshot:
+
+| threshold | CLEAR / CAVEATED / CONFLICT / UNCHECKABLE | same, unplanned claims excluded |
+|---|---|---|
+| 8 | 0 / 0 / 5 / 113 | 84 / 15 / 5 / 14 |
+| 10 | 0 / 0 / 5 / 113 | 84 / 15 / 5 / 14 |
+| 20 | 0 / 0 / 20 / 98 | 84 / 0 / 20 / 14 |
+| 50 | 0 / 0 / 20 / 98 | 84 / 0 / 20 / 14 |
+
+`CAUSE_RATE_AT:10` — `no_plan` 118, `stale_claim` 118 (non-driving),
+`all_phantom` 5, `no_extractable_paths` 9, `hub_overlap_only` 5. Excluded:
+`no_plan` **gone**, `hub_overlap_only` 5 → 20.
+
+`SWEEP_DRIFT:281|3089|3580` — **54% of extracted plan tokens are dropped as
+phantom** against today's corpus.
+
+### What the numbers say — and what they do not
+
+1. **Recall of `CONFLICT ∪ CLEAR_CAVEATED` is threshold-invariant.** 0.9053 in
+   every `full` row, 0.8763 in every `pre-impl` row, and the missed count is
+   constant (320 / 418). Demotion re-*grades* an overlap and never discards one,
+   so a wrong threshold cannot cost recall. **This retires the first risk.**
+2. **But grading is the quantity t1569_4 decides on, and it moves enormously.**
+   At the shipped threshold only **32%** of real collisions hard-stop; 59% are
+   downgraded to a confirmation the agent can click through. At 20 it is 67% /
+   23%, for 20pp of precision. Invariant recall hides this entirely, which is why
+   the composition is reported.
+3. **The threshold decision is NOT made here.** Whether 32%-hard-stop at 45%
+   precision beats 67% at 25% depends on what `block` does with each verdict —
+   t1569_4's question. This task is evidence.
+4. **t1569_3's recall was optimistic.** Archived plans carry post-hoc
+   `## Final Implementation Notes`; cutting them moves recall 91% → 88%.
+   **88% is a conservative floor**: `## Post-Review Changes` (79 plans, 73 of them
+   *before* the notes) is probably also hindsight but was not *proven* so, and a
+   wrong cut deletes genuine admission-time paths. True admission-time recall is
+   **at most** 88%.
+5. **The unnarrowed control reproduces t1569_3's published row** — 27.0%
+   precision, 90.5% recall against its 28% / 90% — so the harness implements the
+   original method rather than a lookalike.
+6. **The live half is still degenerate, and that is a fleet fact.** 113 of 118
+   UNCHECKABLE, entirely from three unplanned claims. The excluded column is a
+   **counterfactual**, not an availability figure: it says what the checker would
+   answer if nobody were mid-claim. On a busy box the real answer stays
+   UNCHECKABLE. `availability_timeseries` (spawned at Step 8d) is what would
+   supply the real distribution.
+
+### Defects found — both in this task's own work
+
+1. **The `pre-implementation` cutoff was wrong, and it corrupted the headline.**
+   The first draft also cut at `## Verification pass`. That heading is written
+   when a plan is *re-picked*, so it precedes the implementation body — in
+   `p1569_3` it is at line 32, ahead of the whole Step 1–8 plan. Cutting there
+   removed **9 of 281 tasks** from the population outright and inflated the
+   reported hindsight correction from 3pp to **6pp**; the "85% recall" an earlier
+   draft reported was that artefact. `POST_WORK_HEADINGS` is now one proven entry
+   with a regression fixture.
+2. **Three new test classes inherited from a concrete test class.** Caught by
+   `tests/test_collection_structure.py`: `unittest` and `pytest` both collect
+   inherited test methods, so the module silently re-ran `ReplayInvariantTests`
+   three extra times (125 → 101 tests after the fix). Resolved as that guard
+   prescribes — a test-free `_ReplayScaffold` base.
+
+### Upstream defects identified
+
+None. Both defects listed above were introduced by this task and fixed in it;
+no pre-existing bug in another script, helper or module was surfaced.
+
+### How the suite was shown to discriminate
+
+Mutation-tested rather than assumed: removing hub demotion fails 5 sweep tests,
+demoting everything fails 6, and an off-by-one (`>` for `>=`) fails 1 — the last
+only after a **boundary fixture pinned ON the threshold** was added, because the
+original touch counts merely straddled it. Injecting `import os` into the new
+pure module fails the purity guard, proving it is really in scope. Three seeded
+mutations of the CLI file each exit 1.
+
+### Deviations from the plan
+
+1. **`--exclude-no-plan` also refuses on `sweep`, with its own message.** The
+   plan said `--exclude` was refused there; the derived flag needed the same
+   treatment, and the two refusals are asserted to differ.
+2. **The live "precision differs across thresholds" assertion was dropped from
+   the CLI test.** Whether two thresholds grade differently depends on whether a
+   path's touch count falls between them — a corpus statistic that could fail for
+   no defect. It is pinned against a designed fixture instead; only the
+   *structural* recall invariance is asserted live. (Same reasoning the plan
+   applies to the full-vs-pre-impl comparison.)
+3. **`--thresholds` preserves caller order rather than sorting**, so the rows can
+   be read against the command that produced them.
+4. `tests/test_parallel_admission_cli.sh` now takes ~35s: every assertion is a
+   real invocation against the live corpus. It is run on its own, not from the
+   Python lane.
+
+Post-implementation cleanup, archival and merge are handled by **Step 9**.
