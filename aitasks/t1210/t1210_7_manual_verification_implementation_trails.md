@@ -5,7 +5,7 @@ depends: [t1210_6]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [t1210_2, t1210_3, t1210_4, t1210_5]
+verifies: [t1210_2, t1210_3, t1210_4, t1210_5, t1210_6]
 anchor: 1210
 followup_kind: manual_verification
 created_at: 2026-07-22 16:17
@@ -30,3 +30,5 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1210_4] Launch seams: create/refresh actions from a task card, a By-Topic lane header, and the By-Trail view all open AgentCommandScreen with the expected /aitask-trail arguments
 - [ ] [t1210_5] Move commands: `m` moves a focused entry to a chosen column; `M` moves a whole wave preserving wave order; ghost (archived/cross-repo) cards are excluded with a visible reason
 - [ ] [t1210_5] Passive report bridge: after `M` into a column, run the board Work Report flow on that column; report contains exactly those tasks in board order
+- [ ] [t1210_6] Docs render: open the Implementation Trails workflow page in a browser and confirm the five classification glyphs (◆ ▲ ● ⇄ ○) all render as distinct characters rather than tofu boxes, and that the classification table is readable at a normal window width
+- [ ] [t1210_6] Docs navigation: from the board Feature Reference page, the By-Trail 'Moving a wave into a column' cross-link scrolls to that section; the workflow page's links to Work Report and Topic anchoring both resolve
