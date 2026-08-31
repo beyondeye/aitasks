@@ -316,3 +316,72 @@ Run after the drafting steps, before the verification block:
   `TRAIL_CLASSIFICATION_GLYPHS` in `aitask_board.py`. Assert the glyph half is not
   self-satisfying — grep the schema for the glyph characters and confirm zero hits, so
   the note is provably guarding something the schema does not define.
+
+## Final Implementation Notes
+
+- **Actual work done:** Two new pages (`website/content/docs/workflows/implementation-trails.md`,
+  `website/content/docs/skills/aitask-trail.md`), bullets added to both hand-curated
+  indexes, the board reference and how-to corrected for the t1210_5 move commands, a
+  By-Trail clause in `tuis/_index.md`, cross-references in `work-report.md` and
+  `concepts/topic-anchoring.md`, the missing `trail` row in `commands/codeagent.md`,
+  and the RFC current-state sync. Every plan step landed; nothing was dropped.
+
+- **Deviations from plan:**
+  - The plan listed L92/L242/L322 of the RFC as future-tense fixes. On reading them in
+    context they are **false positives** — each describes the agent presenting the trail
+    it *proposes at runtime*, which is current behavior. They were left unchanged;
+    "fixing" them would have made the document wrong.
+  - Removing the §14 D-list created three dangling `§14 D-list` cross-references
+    (§8.3 CAS, §10 report-mode, §13-B). All three were redirected in the same change,
+    per the "delete X means redirect cross-refs now" rule. The plan anticipated the
+    risk of dropping a real limitation but not the inbound-reference breakage.
+  - Two **pre-existing** passages (`reference.md:247`, `how-to.md:218`) said `T` works
+    "from any other view", which is wrong for In-Flight. Not in the plan, but it is the
+    same defect being fixed in the new page and board docs are in scope, so both were
+    corrected rather than left inconsistent.
+
+- **Issues encountered:**
+  - `tests/test_website_doc_lists.sh` was **already failing on main** (43/44) before any
+    edit: t1210_3 registered the `trail` codeagent operation in `SUPPORTED_OPERATIONS`
+    but never added its row to `codeagent.md`. Baseline captured failing first, then
+    repaired; the guard also forced the new skill page to be linked from
+    `skills/_index.md` (45/45 after).
+  - A `cd website` in an early verification command persisted into later shell calls
+    (Bash cwd persists between calls), briefly making `ls aiplans/` look empty. No
+    lasting effect; worth knowing when mixing `cd` into read-only checks.
+  - Review surfaced four false claims in the drafted prose, all confirmed against
+    source and fixed: entries are not one-per-task (`entry.task` uniqueness is not
+    enforced); `T` is hidden in In-Flight and By-Trail; `S` is **not** read-only
+    (`action_trail_sync` → `_run_sync` → `ait sync --batch` pulls/pushes/merges); and
+    `m` requires a non-child card while `M` does not.
+
+- **Key decisions:**
+  - Enumerations are **not** reproduced in reader-visible prose. Only the five
+    classifications a reader acts on are named, with an HTML-comment drift note aimed
+    at maintainers. The note names **two** sources because they differ: the
+    classification enum lives in `implementation_trail.schema.json`, but the glyphs
+    (`◆ ▲ ● ⇄ ○`) live only in `TRAIL_CLASSIFICATION_GLYPHS`
+    (`.aitask-scripts/board/aitask_board.py`) — verified: the schema contains zero
+    glyph characters, so a schema-only note would have guarded nothing.
+  - The `§14` D-list was rewritten as **Current limitations** phrased as present
+    behavior rather than kept as a deferred backlog, which would read as an active plan
+    inside a shipped-state document. §13's rationale table was kept (user decision).
+  - Acceptance checks use an **inverted grep assertion** (exit 0 only when clean); a
+    bare `grep` exits 1 on the healthy no-match case and would read as failure.
+  - The workflow page sits under **Parallel** at `weight: 46`, next to Parallel Planning
+    — trails are cross-task sequencing, not outward reporting.
+
+- **Upstream defects identified:**
+  - `website/content/docs/commands/codeagent.md:11` — the `trail` codeagent operation
+    shipped in t1210_3 without its documented table row, leaving
+    `tests/test_website_doc_lists.sh` red on main. Fixed in this task.
+
+- **Notes for sibling tasks:** t1210_7 (manual verification) can rely on these as
+  documented, source-verified behaviors: `m` needs a focused non-child non-ghost card,
+  `M` needs any focused non-ghost card and stays live on a child; `M` always shows the
+  review dialog and preserves wave order (not board order); duplicate task refs in one
+  wave move once and are reported; `S` performs a real sync. The By-Trail footer reads
+  `r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync   v Summary   m Move to Col   M Move Wave`,
+  ordered by binding declaration. Note that board moves never stale a trail —
+  `boardcol`/`boardidx` are excluded from the digest — so a verification item asserting
+  "moving a card makes the trail stale" would be testing the opposite of the contract.
