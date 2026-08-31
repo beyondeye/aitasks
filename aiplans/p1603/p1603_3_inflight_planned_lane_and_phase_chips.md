@@ -540,6 +540,51 @@ Planned card.
 
 ## Final Implementation Notes
 
+- **Actual work done:** Exactly the approved plan. The pre-phase replaced
+  `_inflight_item_for`'s lane ladder with `_inflight_lane()` / `LANE_FOR_PHASE`
+  over primitives plus `_inflight_next_action()`; `Ready` + `plan_approved_at`
+  is admitted as the `planned` lane behind a status pre-filter; the routing hole
+  is closed at all three sinks on `approved_unstarted`; the `Planned` lane, the
+  `phase_chip_text` chip and the `INFLIGHT_LANES`-driven refresh path landed;
+  the post-phase measured and pinned the narrow-terminal budget. New
+  `tests/test_board_inflight_planned_lane.py` (25 tests); two sibling test
+  modules updated. Full suite `PASSED (runner=pytest, exit=0)`.
+- **Deviations from plan:** One — the card renders the **compact** chip
+  (`compact=True`); see item 1 below. The expanded spec wording is unchanged in
+  the shared helper for t1603_4.
+- **Issues encountered:** Δ2's planned fixture was unreachable (item 2); the
+  `stale_signed` row needed a witness file, not a ledger line (item 3); a
+  `MagicMock(spec=InFlightTaskCard)` in `tests/test_board_dialog_run_dispatch.py`
+  raised `AttributeError` on the `item` the new guard reads, because `spec`
+  exposes only class attributes and `item` is assigned in `__init__` — a fixture
+  gap, fixed by giving the stub a real `item` and defaulting
+  `approved_unstarted=False`.
+- **Key decisions:** (a) the lane is a total function of the phase plus
+  primitives, accepting two documented deltas rather than keeping a second
+  derivation; (b) the three routing guards key on `approved_unstarted`, never on
+  `group == "planned"`, because a blocking dependency takes that lane away;
+  (c) the narrow-terminal answer is the status quo made deliberate, on measured
+  evidence (181 columns, `min_width` never engages); (d) the eager `plan_exists`
+  probe is deferred to **t1656** rather than patched in the caller (item 4).
+- **Upstream defects identified:** None. Nothing in another script, helper or
+  module is broken. The one cross-module finding — `derive_workflow_phase`
+  resolving `plan_exists` eagerly — is a cost, not a defect, and is already
+  owned by t1656 (item 4); it is deliberately not repeated here so Step 8b does
+  not offer to spawn a second task for it.
+- **Notes for sibling tasks:** t1603_4 should call `phase_chip_text(...)`
+  **without** `compact=True` — the expanded form is exactly the spec its plan
+  already writes (`Gate state unavailable: <error>`,
+  `No gate ledger — <phase> (<provenance>)`), and calling the shared helper is
+  what keeps the card and the detail screen on one vocabulary. `InFlightItem`
+  now carries `phase` / `provenance` / `progress` / `approved_unstarted`;
+  `item.gate_summary` is still computed but no longer rendered on the card, so
+  t1603_4's expanded list is what restores that detail. t1603_5 documents four
+  lanes, not three (`website/content/docs/tuis/board/reference.md:213` and
+  `how-to.md:204-205` are stale until it lands). Any new phase value must be
+  added to `LANE_FOR_PHASE` and `PHASE_LABELS` or
+  `LaneMappingTotalityTests` fails — deliberately, since an unmapped phase would
+  raise `KeyError` inside a refresh.
+
 Everything in the plan landed. Four things the tree and a real terminal changed:
 
 1. **Deviation — the card's chip is compact (`phase_chip_text(..., compact=True)`).**
@@ -577,7 +622,40 @@ Everything in the plan landed. Four things the tree and a real terminal changed:
    gained the lane + chip assertions instead (measured `awaiting review · 0/1` —
    the demoted signature keeps its one active gate pending).
 
-4. **Live verification (real tmux pty, 100×40), beyond the headless pins.**
+4. **Known, deferred → tracked as t1656: `plan_exists` is resolved eagerly
+   (`aitask_board.py:2299`).**
+   Raised at Step-8 review and **verified**: `derive_workflow_phase` reads
+   `plan_exists` on exactly ONE branch — the no-ledger degradation
+   (`"derived" if plan_exists else "unknown"`). The marker branch, the
+   `result.error` branch and the whole ledger ladder all return without
+   touching it. So `_resolve_plan_path_for_task(task, self)` costs one
+   `Path.exists()` per admitted item per refresh that is thrown away in every
+   state except the no-ledger one. Bounded by the in-flight set rather than the
+   whole board (the status pre-filter rejects `Ready`-without-marker before any
+   of this), so it is small — but it is avoidable, and this task's own
+   cheap-pre-filter goal argues against it.
+
+   **Deliberately NOT fixed inline, because the obvious fix is the wrong one.**
+   Making the caller compute it conditionally —
+   `if not result.error and (not result.has_ledger or result.state is None)` —
+   restates `derive_workflow_phase`'s own branch conditions in the caller. That
+   is a second authority over precisely the derivation this task exists to
+   centralise, and it drifts the moment the ladder's ordering changes: the
+   caller would keep probing (or stop probing) for a branch that no longer
+   fires. The correct fix belongs in **t1603_2's seam**, not here: take
+   `plan_exists` as a **callable** and resolve it only on the branch that reads
+   it — the pattern `TaskManager.gate_state_for` already uses for
+   `code_digest_for_refresh` ("the BOUND METHOD, not its value: passing the memo
+   itself keeps the digest lazy"). That changes a landed sibling's signature and
+   its tests, which is why it is a follow-up rather than a line in this diff.
+
+   **Owned by `t1656` (`performance`, `anchor: 1595`, `followup_kind:
+   review_finding`)**, which carries the full change and its seam-level tests —
+   a counting spy proving the probe is never invoked on the marker, error or
+   ledger branches, with the no-ledger branch as the positive control. Recorded
+   here AND in a task on purpose: a note in an archived plan is not a schedule.
+
+5. **Live verification (real tmux pty, 100×40), beyond the headless pins.**
    Against a scratch `TASK_DIR` carrying a genuine approve-and-stop task and an
    `Implementing` twin with the identical ledger:
    - four lanes render in order, `Planned` first, and the view scrolls;
