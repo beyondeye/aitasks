@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-08-31 18:32
-updated_at: 2026-08-31 18:36
+updated_at: 2026-08-31 22:48
 ---
 
 ## Symptom (user report)
@@ -165,3 +166,8 @@ but record the decision either way.
   `_check_anchor` (:822), `max_scroll_y` (:1989), `scroll_end` (:3012);
   `_compositor.py` anchor re-application (:609, :693);
   `scrollbar.py` thumb-drag mapping (:384-392)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-31T19:48:43Z status=pass attempt=1 type=human
