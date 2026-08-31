@@ -357,6 +357,13 @@ gate names are free-form prose and Rich would eat a bracket
 (`project_textual_static_markup_eats_free_form_prose`). `next_action`, blockers
 and the ops line are unchanged and keep their order.
 
+**AS BUILT — the card passes `compact=True`.** See the deviation in
+`## Final Implementation Notes`: the expanded degraded wording above is the
+shared spec t1603_4 reuses verbatim, but on a 44-column card it restates
+`next_action` almost word for word and reintroduces the ledger jargon that line
+exists to avoid. The card renders the phase label plus its fraction only. One
+helper, one flag, both surfaces on one vocabulary.
+
 The current gate is surfaced through `next_action`
 (`needs an attended agent: docs_updated`), **not** the chip, so the chip stays
 inside a narrow card's budget: the longest ledger form is
@@ -382,14 +389,39 @@ than introducing one.
 **Chosen behaviour: the status quo, made deliberate.** No fold, no collapse, no
 narrowing (which would cost every card 10 columns and blow the chip's budget).
 
-1. **Measure**, don't guess: sweep `App.run_test(size=(W, 40))` in the In-Flight
-   view and compare `container.scrollable_content_region.width` against the
-   container's own region to find the exact W at which scrolling begins, at both
-   `width` and `min_width`. **Record the measured numbers in this plan** in this
-   section.
-2. **Pin it:** at a width below the threshold all four `InFlightColumn`s still
-   exist, in `INFLIGHT_LANES` order, with their four titles, and none is dropped
-   or clipped — the view scrolls.
+1. **Measure**, don't guess — DONE. Swept `App.run_test(size=(W, 40))` in the
+   In-Flight view from 80 to 200 columns, reading `#board_container`'s
+   `virtual_size.width` against its `container_size.width`.
+
+   **Measured result — the four-lane span is 181 columns.**
+
+   | W | lanes | virtual | container | lane widths |
+   |---|---|---|---|---|
+   | 80 | 4 | 181 | 80 | 44 44 44 44 |
+   | 140 | 4 | 181 | 140 | 44 44 44 44 |
+   | 180 | 4 | 181 | 180 | 44 44 44 44 |
+   | **181** | 4 | **181** | **181** | 44 44 44 44 |
+   | 182 | 4 | 182 | 182 | 44 44 44 44 |
+
+   Two facts the sweep settled that the estimate got wrong:
+
+   - **The `margin: (0, 1)` gaps collapse between neighbours.** `n` lanes span
+     `45n + 1`, not `46n`: **181** for four, **136** for three — a +45 delta, not
+     the +46 estimated. The view scrolls at any width **below 181**.
+   - **`min_width: 34` never engages.** Inside a `HorizontalScroll` the columns
+     keep their preferred 44 at every terminal width — even at W=80 — and the
+     container scrolls instead. There is no 144-column "floor" behaviour to
+     choose between; the only behaviour is the scroll.
+
+   So three lanes already scrolled below 136 columns before this task, and the
+   fourth extends that same scroll. The status quo is the right choice on the
+   measured evidence, not merely the cheap one.
+2. **Pin it:** `NarrowTerminalLaneBudgetTests` asserts, at W=100, that all four
+   `InFlightColumn`s exist in `INFLIGHT_LANES` order with their four titles,
+   that each is still 44 wide (so `min_width` engaging would fail the test),
+   that `virtual_size.width == 45 * 4 + 1`, and that the container overflows and
+   allows horizontal scrolling. The formula — not the literal 181 — is what is
+   pinned, so adding or removing a lane keeps the assertion honest.
 3. Live-check in a **real terminal** at a narrow width: a headless
    `App.run_test` pin can diverge from a real pty
    (`aidocs/framework/tui_conventions.md`).
@@ -505,6 +537,58 @@ Planned card.
 ### Planned mitigations
 - timing: pre-phase | name: phase_model_is_the_single_authority | type: refactor | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a second lane derivation over the same TaskGateState, and the two deliberate deltas it introduces | desc: Replace the lane ladder with `_inflight_lane(phase, progress, …)` over primitives plus a total `LANE_FOR_PHASE` map, freeze it with an AST scan and a lane/chip agreement table across every ledger state, and pin Δ1/Δ2 as named corrections.
 - timing: post-phase | name: narrow_terminal_lane_budget | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — a fourth lane changes the horizontal budget | desc: Measure the exact width at which the four-lane In-Flight view starts scrolling (headless sweep + a real-pty check), record it in this plan, and pin that below it all four lanes still exist in order with none dropped or clipped.
+
+## Final Implementation Notes
+
+Everything in the plan landed. Four things the tree and a real terminal changed:
+
+1. **Deviation — the card's chip is compact (`phase_chip_text(..., compact=True)`).**
+   Found by live-checking a 100-column pty, not by any test. The planned
+   expanded wording rendered directly under `next_action` as:
+
+   ```
+   No gate information yet — pick/resume       ← next_action
+   No gate ledger — implementing (unknown)     ← chip
+   ```
+
+   Two lines saying the same thing on a 44-column card, the lower one in exactly
+   the ledger jargon `test_inflight_card_renders_literal_ops_and_friendly_copy`
+   (t635_9) keeps off this surface. The full spec wording is unchanged in
+   `phase_chip_text` — t1603_4's expanded surface still gets
+   `Gate state unavailable: <error>` and `No gate ledger — <phase> (<provenance>)`
+   verbatim — and the card passes `compact=True` for the phase label plus its
+   fraction alone. Pinned by
+   `test_no_ledger_card_chip_does_not_echo_its_own_action_line` and
+   `test_compact_chip_never_carries_the_error_text`.
+
+2. **Δ2's fixture is `merge_approved`, not a pending `plan_approved`.** The
+   originally planned fixture was unreachable: `_resume_point_from_state`
+   requires `plan_approved` **and** `review_approved` to pass before it answers
+   `POSTIMPL`, so "POSTIMPL with a pending human gate" needs a *third* human
+   gate. `merge_approved` (`type: human`) is that gate, and the state is the
+   ordinary one between review and merge rather than a contrived one.
+
+3. **The `stale_signed` row lives in `test_board_gate_digest_budget.py`.**
+   Staleness is not a ledger shape — it needs a signal *witness* file whose
+   `code_digest=` no longer matches a freshly computed `code_digest()`, which
+   only that module's `_sign_all()` / `_mutate_code()` harness builds. A fixture
+   that writes `code_digest=` onto the ledger line yields `stale_signed == []`
+   and would have asserted nothing. `test_stale_signature_is_offered_for_re_sign`
+   gained the lane + chip assertions instead (measured `awaiting review · 0/1` —
+   the demoted signature keeps its one active gate pending).
+
+4. **Live verification (real tmux pty, 100×40), beyond the headless pins.**
+   Against a scratch `TASK_DIR` carrying a genuine approve-and-stop task and an
+   `Implementing` twin with the identical ledger:
+   - four lanes render in order, `Planned` first, and the view scrolls;
+   - the Planned card shows `approved plan — pick to implement` /
+     `plan approved · 1/2` / `[p pick]` **only**;
+   - the twin shows `pending human gate` / `awaiting review · 1/2` /
+     `[p pick] [g resume] [s sign-off] [f fail]`;
+   - pressing `g` on the Planned card produced the refusal toast and no resume
+     dialog; pressing `s` produced its refusal toast **and the fixture's
+     `## Gate Runs` was byte-identical afterwards** — the sign-off was genuinely
+     refused, not merely un-advertised.
 
 ## Step 9 (Post-Implementation)
 
