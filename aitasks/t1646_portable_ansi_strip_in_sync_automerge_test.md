@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 1569
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-31 10:59
-updated_at: 2026-08-31 17:34
+updated_at: 2026-08-31 17:35
 ---
 
 ## Origin
@@ -27,9 +29,27 @@ Spawned from t1641 during Step 8b review.
   as the one fixed in t1641, in an unrelated suite:
   `int_clean=$(printf '%s' "$int_out" | sed 's/\x1b\[[0-9;]*m//g')`. GNU sed
   interprets `\x1b` as the ESC byte; **BSD sed (macOS) does not** — it matches a
-  literal `x`, `1`, `b`, so the substitution never fires, the ANSI wrapper survives
-  the strip, and whatever `$int_clean` is asserted against fails against correct
-  code. There is no error: the caller just receives the un-stripped string.
+  literal `x`, `1`, `b`, so the substitution never fires and the ANSI wrapper
+  survives the strip. There is no error: the caller just receives the un-stripped
+  string.
+
+**Impact correction (verified during implementation).** This task was originally
+filed claiming that "whatever `$int_clean` is asserted against fails against
+correct code". That is **not** true at this site, and the claim was checked
+empirically by capturing the real bytes of `$int_out` from a live run of Test 5b.
+All three assertions there tolerate the colour wrapper:
+
+- the two `grep -c … == 0` checks are negative assertions, unaffected by it;
+- `assert_contains "Editing: aitasks/t2_body.md"` still matches, because the ESC
+  codes sit *outside* the phrase.
+
+Running the suite with the strip replaced by what BSD sed actually sees confirms
+it: 15 of 17 assertions still pass. So nothing observable fails on macOS today.
+
+The real defect is that the strip is a **silent no-op** there, which leaves two
+live traps: assertion 3 passes for the wrong reason, and any future tightening to
+an exact `assert_eq` — precisely the tightening `tests/test_task_lock.sh:592`'s
+own comment warns about — would then fail on macOS against correct code.
 
 ## Diagnostic context
 
