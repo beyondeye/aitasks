@@ -205,7 +205,7 @@ Shows tasks with `status: Implementing` in action groups:
 - **Agent can continue** — tasks that can be resumed by an agent, including implementing tasks without a gate ledger.
 - **Blocked** — tasks still blocked by unresolved dependencies.
 
-With an In-Flight row focused, **p** launches the normal pick/resume flow, **g** launches direct resume, and **s** / **f** sign off or fail a pending human gate. If more than one human gate is pending, the board asks which gate to update.
+With an In-Flight row focused, **p** launches the normal pick/resume flow, **g** launches direct resume, and **s** / **f** sign off or fail a pending human gate. A gate whose sign-off has gone stale — it was approved, but the code has changed since — counts as pending here and can be re-signed the same way. If more than one human gate is pending, the board asks which gate to update.
 
 **By-Trail view (`z`):**
 

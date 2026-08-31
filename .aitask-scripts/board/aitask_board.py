@@ -127,8 +127,13 @@ class InFlightItem:
     state_error: str = ""
     has_ledger: bool = False
     # Ledger-pass human gates whose code-bound signature no longer binds (t1416).
-    # Distinct from human_gates, which reports ledger truth: these DID pass, and
-    # need re-signing rather than a first signature.
+    # These ARE in `human_gates` (t1642): `archive_pending` is derived with stale
+    # signatures demoted, so the archival guard genuinely owes a person here and
+    # `s` / `f` must reach the gate. This list is the separate fact of WHY — a
+    # RE-signature of an approval invalidated by a code change, not a first
+    # signature — which is what `_inflight_item_for` renders (ahead of the
+    # generic pending-human wording) and what `_gate_summary` pairs with the raw
+    # ledger `pass`.
     stale_signed: list[str] = field(default_factory=list)
 
 
@@ -202,6 +207,45 @@ def _gate_progress(state) -> tuple[tuple[int, int] | None, str | None]:
         return None, None
     pending = list(state.archive_pending)
     return (total - len(pending), total), (pending[0] if pending else None)
+
+
+def _pending_human_gates(state, registry: dict) -> list[str]:
+    """Active HUMAN gates a person still owes, from ONE authority (t1642).
+
+    Derived from ``archive_pending`` — the same list the archival guard reads —
+    rather than a raw ``status != "pass"`` comparison, so it inherits
+    `gate_ledger._gate_satisfied` for free: a ``skip`` is terminal-satisfied and
+    cannot read as pending, while a ledger-``pass`` whose code-bound signature no
+    longer binds IS pending (it needs re-signing, and `s`/`f` must reach it).
+    ``archive_pending`` is a subset of ``active_gates`` by construction
+    (`gate_ledger._archive_status_from_state` is passed the active set), so the
+    result is active-set-scoped with no second filter — a profile-filtered or
+    deleted human gate can never appear.
+
+    An unreadable ledger (``state is None``) yields ``[]``: "could not tell" is
+    not "a human owes something".
+    """
+    if state is None:
+        return []
+    return [g for g in state.archive_pending
+            if registry.get(g, {}).get("type") == "human"]
+
+
+def _failed_active_gates(state) -> list[str]:
+    """ACTIVE gates whose current run failed, from ONE authority (t1642).
+
+    Iterates ``active_gates`` rather than all of ``state.current`` minus
+    ``filtered_gates``: a gate deleted outright from the task's ``gates:`` field
+    is in NEITHER list (`gate_ledger.read_active_tuple_from_text` fills
+    ``filtered`` only from ``active_gates_filtered``), so subtracting only the
+    filtered list still classifies on its stale historical ``fail``. Keying off
+    the active set is `TaskGateState`'s own documented rule for decision
+    surfaces.
+    """
+    if state is None:
+        return []
+    return [g for g in state.active_gates
+            if g in state.current and state.current[g].status in ("fail", "error")]
 
 
 def derive_workflow_phase(task: "Task", result: GateStateResult, registry: dict,
@@ -282,18 +326,24 @@ def derive_workflow_phase(task: "Task", result: GateStateResult, registry: dict,
     # demoted and does. `archive_pending` is a subset of `active_gates` by
     # construction, so both are active-set-scoped for free.
     #
-    # These deliberately do NOT reuse `_human_pending_gates` / `_has_failed_gate`
-    # (t1603_2): the former tests `status != "pass"`, which reports a SKIPPED
-    # gate as pending; the latter scans all of `state.current` minus
-    # `filtered_gates`, which still classifies on a historical failure of a gate
-    # deleted from `gates:` outright — such a gate is in neither list. Both
-    # contradict `TaskGateState`'s active-set rule for decision surfaces.
-    pending_human = [g for g in state.archive_pending
-                     if registry.get(g, {}).get("type") == "human"]
+    # `_pending_human_gates` / `_failed_active_gates` are the SHARED predicates
+    # (t1642): `TaskManager._human_pending_gates` / `_has_failed_gate` delegate
+    # to these same two functions, so the phase axis and the In-Flight actor axis
+    # cannot disagree about who owes what. t1603_2 deliberately did NOT reuse the
+    # TaskManager helpers because each carried a defect — a `status != "pass"`
+    # test that reported a SKIPPED gate as pending, and a scan of all of
+    # `state.current` minus `filtered_gates` that classified on a historical
+    # failure of a gate deleted from `gates:` outright (such a gate is in neither
+    # list). t1642 fixed both by collapsing them onto these predicates, so the
+    # residual is gone rather than merely accepted. The delegation is frozen by
+    # `SharedGatePredicateContractTest` in tests/test_board_gate_digest_budget.py;
+    # re-inlining either predicate here or there is what that test catches.
+    #
+    # `pending_procedure` stays inline: it has no second consumer.
+    pending_human = _pending_human_gates(state, registry)
     pending_procedure = [g for g in state.archive_pending
                          if registry.get(g, {}).get("kind") == "procedure"]
-    failed = [g for g in state.active_gates
-              if g in state.current and state.current[g].status in ("fail", "error")]
+    failed = _failed_active_gates(state)
 
     progress, current = _gate_progress(state)
 
@@ -2047,32 +2097,21 @@ class TaskManager:
         return "  ".join(parts)
 
     def _human_pending_gates(self, result: GateStateResult) -> list[str]:
-        # Decision surface: key off the ENFORCED active set (t635_33) — a
-        # profile-filtered human gate must not show as pending.
-        state = result.state
-        if not state:
+        """Pending human gates for the In-Flight view — the SAME predicate the
+        phase axis uses (t1642); see `_pending_human_gates`.
+
+        The body is kept free of gate logic on purpose: re-deriving it here is
+        exactly the drift this task removed, and
+        `SharedGatePredicateContractTest` fails if any reappears.
+        """
+        if result.state is None:
             return []
-        registry = self.gate_registry()
-        gates = []
-        for gate in state.active_gates:
-            meta = registry.get(gate, {})
-            if meta.get("type") != "human":
-                continue
-            current = state.current.get(gate)
-            if current is None or current.status != "pass":
-                gates.append(gate)
-        return gates
+        return _pending_human_gates(result.state, self.gate_registry())
 
     def _has_failed_gate(self, result: GateStateResult) -> bool:
-        # Decision surface: a failed historical run of a profile-filtered gate
-        # (state.filtered_gates, t635_33) stays audit-only in the summary text
-        # and must not classify the task as "failed gate".
-        state = result.state
-        return bool(state and any(
-            run.status in ("fail", "error")
-            for run in state.current.values()
-            if run.name not in state.filtered_gates
-        ))
+        """Whether an ACTIVE gate's current run failed (t1642); see
+        `_failed_active_gates`. Same no-gate-logic contract as above."""
+        return bool(_failed_active_gates(result.state))
 
     def _inflight_item_for(self, task: Task) -> InFlightItem | None:
         if task.metadata.get("status") != "Implementing":

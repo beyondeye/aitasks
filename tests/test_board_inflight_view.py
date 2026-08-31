@@ -299,5 +299,150 @@ class InFlightCardRenderTests(bf.FixtureBoardTestBase, unittest.TestCase):
             self.assertIn(hint, rendered["ops"])
 
 
+# --- t1642: the actor axis keys off the ENFORCED active set -------------------
+
+
+def _run(gate: str, status: str, **fields) -> str:
+    """One `## Gate Runs` marker line, matching the production writer's shape."""
+    icon = {"pass": "✅", "fail": "❌", "error": "❌", "skip": "⏭",
+            "pending": "⏸"}.get(status, "⏸")
+    extra = "".join(f" {k}={v}" for k, v in fields.items())
+    return (f"> **{icon} gate:{gate}** run=2026-01-01T00:00:00Z "
+            f"status={status} attempt=1{extra}\n")
+
+
+def _ledger(*runs: str) -> str:
+    return "\n## Gate Runs\n\n" + "".join(runs)
+
+
+class InFlightActiveSetTests(bf.FixtureBoardTestBase, unittest.TestCase):
+    """The In-Flight view's two decision helpers, over the cases t1603_2 found
+    them wrong on (t1642).
+
+    Fixtures are real task files parsed by the production gate parser and carry a
+    VALID `active_gates` tuple, so "active" vs "filtered" vs "absent from both"
+    are genuinely distinct here rather than collapsing onto raw `gates:`. The
+    class fixture stages `metadata/gates.yaml`, so `plan_approved` /
+    `review_approved` are `type: human` and `tests_pass` / `lint` are
+    `type: machine` — without it every one of these would measure the degraded
+    no-registry branch.
+    """
+
+    def _item(self, name: str, fm: str, ledger: str):
+        """`(InFlightItem, TaskGateState)` for one fixture task."""
+        mgr = _manager(self.ab)
+        path = self.tasks_dir / name
+        body = _body("Implementing", fm, ledger)
+        path.write_text(body, encoding="utf-8")
+        self.addCleanup(path.unlink, missing_ok=True)
+        task = self.ab.Task.from_text(path, body)
+        mgr.task_datas[task.filename] = task
+        items = mgr.get_inflight_items()
+        self.assertEqual(len(items), 1, "fixture must yield exactly one item")
+        return items[0], mgr.gate_state_for(task).state
+
+    # --- Defect 1: `skip` is terminal-satisfied, not pending ------------------
+
+    def test_skipped_human_gate_is_not_pending(self):
+        """`SATISFIED_STATUSES` is {pass, skip}, so a SKIPPED `review_approved`
+        is absent from `archive_pending` and the task is legitimately ALL_PASS.
+        The shipped `status != "pass"` test reported it pending, which put a
+        `[s sign-off]` op on a gate nothing is owed for."""
+        item, state = self._item(
+            "t1300_skipped.md",
+            bf.active_tuple_fm(["plan_approved", "review_approved"],
+                               ["plan_approved", "review_approved"], []),
+            _ledger(_run("plan_approved", "pass", type="human"),
+                    _run("review_approved", "skip", type="human")))
+        self.assertEqual(state.archive_decision, "ALL_PASS")
+        self.assertEqual(item.human_gates, [])
+        self.assertEqual(item.next_action, "all gates pass — archive/re-enter")
+
+    def test_skipped_human_gate_does_not_own_the_actor_column(self):
+        """DISCRIMINATING CASE. The ALL_PASS rung sits ahead of the human-gate
+        rung, so the fixture above cannot show the actor column moving. Here a
+        pending MACHINE gate keeps the task off ALL_PASS: the work is owed by an
+        agent, and only the skipped human gate was filing it under `human`."""
+        item, state = self._item(
+            "t1301_skip_plus_machine.md",
+            bf.active_tuple_fm(
+                ["plan_approved", "review_approved", "tests_pass"],
+                ["plan_approved", "review_approved", "tests_pass"], []),
+            _ledger(_run("plan_approved", "pass", type="human"),
+                    _run("review_approved", "skip", type="human"),
+                    _run("tests_pass", "pending", type="machine")))
+        self.assertEqual(state.archive_pending, ["tests_pass"])
+        self.assertEqual(item.human_gates, [])
+        self.assertEqual(item.group, "agent")
+        self.assertEqual(item.next_action, "plan approved — resume implementation")
+
+    def test_pending_human_gate_still_owns_the_actor_column(self):
+        """NEGATIVE CONTROL for the row above: the identical fixture with the
+        human gate `pending` instead of `skip` must still be the human's. Without
+        it, the assertions above would also pass against a `_human_pending_gates`
+        that always answered `[]`."""
+        item, _ = self._item(
+            "t1302_pending_plus_machine.md",
+            bf.active_tuple_fm(
+                ["plan_approved", "review_approved", "tests_pass"],
+                ["plan_approved", "review_approved", "tests_pass"], []),
+            _ledger(_run("plan_approved", "pass", type="human"),
+                    _run("review_approved", "pending", type="human"),
+                    _run("tests_pass", "pending", type="machine")))
+        self.assertEqual(item.human_gates, ["review_approved"])
+        self.assertEqual(item.group, "human")
+        self.assertEqual(item.next_action, "pending human gate")
+
+    # --- Defect 2: a failure only counts for an ACTIVE gate -------------------
+
+    def test_historical_failure_of_inactive_gate_does_not_classify(self):
+        """A gate deleted from `gates:` outright is in NEITHER `active_gates` nor
+        `active_gates_filtered`, so the shipped `_has_failed_gate` — which
+        subtracts only `filtered_gates` from all of `state.current` — still
+        classified on its historical `fail` and reported "failed gate" for a task
+        whose only outstanding item is a human review."""
+        item, state = self._item(
+            "t1303_ghost_fail.md",
+            bf.active_tuple_fm(["plan_approved", "review_approved"],
+                               ["plan_approved", "review_approved"], []),
+            _ledger(_run("plan_approved", "pass", type="human"),
+                    _run("review_approved", "pending", type="human"),
+                    _run("tests_pass", "fail", type="machine")))
+        # Precondition: the failed gate really is outside BOTH lists.
+        self.assertIn("tests_pass", state.current)
+        self.assertNotIn("tests_pass", state.active_gates)
+        self.assertNotIn("tests_pass", state.filtered_gates)
+        self.assertEqual(item.next_action, "pending human gate")
+        self.assertEqual(item.human_gates, ["review_approved"])
+
+    def test_profile_filtered_failure_still_does_not_classify(self):
+        """The other route into "not active" — a gate the profile filtered out.
+        This one IS in `filtered_gates`, so the shipped helper already handled
+        it; asserted so the rewrite does not regress it while fixing the sibling
+        above."""
+        item, state = self._item(
+            "t1304_filtered_fail.md",
+            bf.active_tuple_fm(["plan_approved", "review_approved", "lint"],
+                               ["plan_approved", "review_approved"], ["lint"]),
+            _ledger(_run("plan_approved", "pass", type="human"),
+                    _run("review_approved", "pending", type="human"),
+                    _run("lint", "fail", type="machine")))
+        self.assertEqual(state.filtered_gates, ["lint"])
+        self.assertEqual(item.next_action, "pending human gate")
+
+    def test_active_gate_failure_still_classifies(self):
+        """POSITIVE CONTROL for the two rows above: an ACTIVE gate's failure must
+        still reach the `failed` rung. Without this they would both pass against
+        a `_has_failed_gate` that always returned False."""
+        item, _ = self._item(
+            "t1305_real_fail.md",
+            bf.active_tuple_fm(["plan_approved", "tests_pass"],
+                               ["plan_approved", "tests_pass"], []),
+            _ledger(_run("plan_approved", "pass", type="human"),
+                    _run("tests_pass", "fail", type="machine")))
+        self.assertEqual(item.group, "human")
+        self.assertEqual(item.next_action, "failed gate — inspect/sign off or fail")
+
+
 if __name__ == "__main__":
     unittest.main()

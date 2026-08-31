@@ -167,25 +167,10 @@ def _ledger(*runs: str) -> str:
     return "\n## Gate Runs\n\n" + "".join(runs)
 
 
-def _active_tuple_fm(gates: list[str], active: list[str], filtered: list[str]) -> str:
-    """Frontmatter for a VALID `active_gates` tuple.
-
-    The digest is computed with the production helpers rather than hardcoded, so
-    the fixture stays valid if the canonical digest inputs ever change — and so
-    it is genuinely the tuple `read_active_tuple_from_text` accepts, not a
-    look-alike that silently falls back to raw `gates:`. The middle (profile)
-    half is unchecked without a profile in scope, so it is a placeholder.
-    """
-    gates_line = "gates: [" + ", ".join(gates) + "]\n"
-    gates_half = gate_ledger._hash12(gate_ledger._gates_half_input("---\n" + gates_line + "---\n"))
-    outputs_half = gate_ledger._hash12(gate_ledger._outputs_half_input(active, filtered))
-    return (
-        gates_line
-        + "active_gates: [" + ", ".join(active) + "]\n"
-        + "active_gates_filtered: [" + ", ".join(filtered) + "]\n"
-        + "active_gates_profile: fast\n"
-        + f"active_gates_digest: {gates_half}.000000000000.{outputs_half}\n"
-    )
+#: The ONE builder for a valid `active_gates` tuple, shared with the In-Flight
+#: actor-axis tests (t1642). Aliased rather than re-defined so this module's ~20
+#: call sites are untouched.
+_active_tuple_fm = bf.active_tuple_fm
 
 
 def _body(status: str, extra_fm: str = "", ledger: str = "") -> str:
@@ -749,6 +734,89 @@ class LadderTotalityAndPrecedenceTests(WorkflowPhaseTestBase, unittest.TestCase)
                   _ledger(approved)))
         self.assertIn("review_approved", result.state.archive_pending)
         self.assertEqual(phase.phase, "plan_approved")
+
+
+# --- t1642: the two axes read the SAME predicates ----------------------------
+
+class TwoAxisAgreementTests(WorkflowPhaseTestBase, unittest.TestCase):
+    """Behavioural counterpart to `SharedGatePredicateContractTest`.
+
+    That test freezes the delegation in the SOURCE; this one drives one fixture
+    matrix through BOTH surfaces and requires them to answer identically, so the
+    contract does not rest on source shape alone. A re-derivation that drifts
+    fails here even if it somehow satisfied the AST scan.
+    """
+
+    def _matrix(self):
+        approved = _run("plan_approved", "pass", type="human")
+        gated = _active_tuple_fm(["plan_approved", "review_approved"],
+                                 ["plan_approved", "review_approved"], [])
+        machine = _active_tuple_fm(["plan_approved", "tests_pass"],
+                                   ["plan_approved", "tests_pass"], [])
+        skip_plus_machine = _active_tuple_fm(
+            ["plan_approved", "review_approved", "tests_pass"],
+            ["plan_approved", "review_approved", "tests_pass"], [])
+        return [
+            # A pending human gate: the phase axis must say `awaiting_review`.
+            ("t970_pending_human.md", _body("Implementing", gated, _ledger(approved))),
+            # A SKIPPED human gate alongside a pending machine gate — the case
+            # the shipped helper got wrong. Nothing is owed by a human.
+            ("t971_skip_plus_machine.md", _body(
+                "Implementing", skip_plus_machine,
+                _ledger(approved, _run("review_approved", "skip", type="human"),
+                        _run("tests_pass", "pending", type="machine")))),
+            # A historical failure of a gate in NEITHER list.
+            ("t972_ghost_fail.md", _body(
+                "Implementing", gated,
+                _ledger(approved, _run("review_approved", "pending", type="human"),
+                        _run("tests_pass", "fail", type="machine")))),
+            # An ACTIVE gate's failure — the failed set must be non-empty here.
+            ("t973_real_fail.md", _body(
+                "Implementing", machine,
+                _ledger(approved, _run("tests_pass", "fail", type="machine")))),
+            # An unreadable ledger: both predicates answer the empty set rather
+            # than raising or inventing a pending gate.
+            ("t974_unreadable.md", _body("Implementing", gated, _ledger(approved))),
+        ]
+
+    def test_both_surfaces_read_the_same_two_predicates(self):
+        mgr = _manager(self.ab)
+        registry = mgr.gate_registry()
+        saw_pending, saw_failed = False, False
+
+        for name, body in self._matrix():
+            broken = name == "t974_unreadable.md"
+            with self.subTest(fixture=name):
+                phase, result = self._derive(name, body, break_ledger_read=broken)
+
+                shared_pending = self.ab._pending_human_gates(result.state, registry)
+                shared_failed = self.ab._failed_active_gates(result.state)
+                saw_pending = saw_pending or bool(shared_pending)
+                saw_failed = saw_failed or bool(shared_failed)
+
+                # The actor axis (TaskManager) must not have its own answer.
+                self.assertEqual(
+                    self.ab.TaskManager._human_pending_gates(mgr, result),
+                    shared_pending)
+                self.assertEqual(
+                    self.ab.TaskManager._has_failed_gate(mgr, result),
+                    bool(shared_failed))
+
+                # The phase axis must be reading the same pending-human set. The
+                # `awaiting_review` rung fires on `pending_human or failed or
+                # stale_signed`, so this is a genuine consequence of the
+                # predicate rather than a restatement of it — every fixture here
+                # is readable-and-`Implementing` except the error one, which the
+                # B0 rung claims first.
+                if phase is not None and phase.provenance == "ledger":
+                    stale = bool(result.state.stale_signed)
+                    expect_review = bool(shared_pending or shared_failed or stale)
+                    self.assertEqual(phase.phase == "awaiting_review", expect_review)
+
+        # Vacuity guard: the equalities above must not all hold merely by both
+        # sides being empty on every fixture.
+        self.assertTrue(saw_pending, "no fixture produced a pending human gate")
+        self.assertTrue(saw_failed, "no fixture produced a failed active gate")
 
 
 if __name__ == "__main__":

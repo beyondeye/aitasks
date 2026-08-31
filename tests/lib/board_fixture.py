@@ -140,9 +140,38 @@ for _p in (str(_BOARD), str(_LIB)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import gate_ledger  # noqa: E402
 from task_yaml import serialize_frontmatter  # noqa: E402
 
 BOARD_PATH = _BOARD / "aitask_board.py"
+
+
+def active_tuple_fm(gates: list[str], active: list[str],
+                    filtered: list[str]) -> str:
+    """Frontmatter for a VALID ``active_gates`` tuple (t1603_2, shared t1642).
+
+    The digest is computed with the production helpers rather than hardcoded, so
+    the fixture stays valid if the canonical digest inputs ever change — and so
+    it is genuinely the tuple `read_active_tuple_from_text` accepts, not a
+    look-alike that silently falls back to raw ``gates:``. The middle (profile)
+    half is unchecked without a profile in scope, so it is a placeholder.
+
+    Lives here rather than in one test module because BOTH the phase-axis tests
+    and the In-Flight actor-axis tests build these fixtures, and two copies would
+    drift exactly where the two surfaces are supposed to agree.
+    """
+    gates_line = "gates: [" + ", ".join(gates) + "]\n"
+    gates_half = gate_ledger._hash12(
+        gate_ledger._gates_half_input("---\n" + gates_line + "---\n"))
+    outputs_half = gate_ledger._hash12(
+        gate_ledger._outputs_half_input(active, filtered))
+    return (
+        gates_line
+        + "active_gates: [" + ", ".join(active) + "]\n"
+        + "active_gates_filtered: [" + ", ".join(filtered) + "]\n"
+        + "active_gates_profile: fast\n"
+        + f"active_gates_digest: {gates_half}.000000000000.{outputs_half}\n"
+    )
 
 #: Canonical shipped gate registry (t1147). Staged into every fixture tree as
 #: `metadata/gates.yaml`, because `GATES_REGISTRY_FILE` (aitask_board.py:77) is

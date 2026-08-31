@@ -244,6 +244,45 @@ class DigestInvalidationTest(_DigestFixture):
         self.assertIn("review_approved:pass (stale signature)", item.gate_summary)
         self.assertEqual(item.stale_signed, ["review_approved"])
 
+    def test_stale_signature_is_offered_for_re_sign(self):
+        """A stale signature is PENDING for the archival guard, so it must reach
+        `human_gates` and the card's sign-off ops (t1642).
+
+        Before t1642 the actor axis tested the raw ledger status, which reads
+        `pass` for a stale signature — so the card said "awaiting re-sign" while
+        offering no `[s sign-off]` op, and pressing `s` answered "No pending
+        human gate for this task." Deriving from `archive_pending` (in which the
+        stale signature is demoted) closes that. `next_action` is unchanged:
+        `_inflight_item_for`'s `stale_signed` rung still sits ahead of the
+        generic pending-human one, so the card keeps saying WHY a signature is
+        owed.
+        """
+        self._sign_all()
+        manager = self._new_manager()
+        self._refresh(manager)
+        self._mutate_code()
+        item = next(it for it in self._refresh(manager)
+                    if it.task_id == self.first_gated)
+        self.assertEqual(item.stale_signed, ["review_approved"])
+        self.assertEqual(item.human_gates, ["review_approved"])
+        self.assertEqual(item.next_action, "awaiting re-sign: review_approved")
+        ops = self.ab.InFlightTaskCard._ops_hint(item)
+        self.assertIn("[s sign-off]", ops)
+        self.assertIn("[f fail]", ops)
+
+    def test_a_fresh_signature_owes_nobody(self):
+        """NEGATIVE CONTROL for the row above: with the signature still binding,
+        the same task must offer NO sign-off op. Without this, the assertions
+        above would also pass against a `_human_pending_gates` that returned
+        every human gate unconditionally."""
+        self._sign_all()
+        manager = self._new_manager()
+        item = next(it for it in self._refresh(manager)
+                    if it.task_id == self.first_gated)
+        self.assertEqual(item.stale_signed, [])
+        self.assertEqual(item.human_gates, [])
+        self.assertNotIn("[s sign-off]", self.ab.InFlightTaskCard._ops_hint(item))
+
     def test_a_pinned_memo_would_be_caught(self):
         """Negative control for the invalidation tests.
 
@@ -262,6 +301,125 @@ class DigestInvalidationTest(_DigestFixture):
         self.assertEqual(actions[self.first_gated], "all gates pass — archive/re-enter",
                          "a pinned memo must produce the WRONG verdict here; if it "
                          "does not, the two-refresh tests are not discriminating")
+
+
+class SharedGatePredicateContractTest(unittest.TestCase):
+    """FROZEN: the two gate-decision predicates have exactly two consumers each,
+    and neither `TaskManager` helper re-derives one (t1642).
+
+    t1603_2's phase axis and the In-Flight actor axis disagreed because each
+    carried its own copy of "which human gates are pending" and "which gates
+    failed", and the two copies drifted. t1642 collapsed both onto
+    `_pending_human_gates` / `_failed_active_gates`. Outcome tests alone cannot
+    protect that: a re-implementation that DUPLICATES the corrected logic in both
+    places passes every behavior assertion today and silently restores the drift.
+    So the delegation itself is frozen here — a new consumer, a lost one, or gate
+    logic reappearing in a `TaskManager` helper must be a conscious edit to this
+    test.
+    """
+
+    #: function name -> the exact set of functions allowed to call it.
+    EXPECTED_CONSUMERS = {
+        "_pending_human_gates": {"derive_workflow_phase", "_human_pending_gates"},
+        "_failed_active_gates": {"derive_workflow_phase", "_has_failed_gate"},
+    }
+
+    #: The methods that must stay thin. `derive_workflow_phase` is deliberately
+    #: NOT here: it legitimately still reads `archive_pending` for the
+    #: `pending_procedure` set, which has no second consumer.
+    THIN_METHODS = ("_human_pending_gates", "_has_failed_gate")
+
+    #: Reading any of these off the gate state IS the gate logic that must live
+    #: in the shared predicates and nowhere else.
+    FORBIDDEN_ATTRS = {"archive_pending", "active_gates", "filtered_gates", "current"}
+
+    #: Gate-status / gate-type literals — the other half of a re-derivation.
+    FORBIDDEN_LITERALS = {"pass", "skip", "fail", "error", "human"}
+
+    def _tree(self):
+        return ast.parse(BOARD_SRC.read_text(encoding="utf-8"))
+
+    def _callers_of(self, name: str) -> set[str]:
+        """Enclosing functions that CALL ``name``.
+
+        Matches bare `ast.Name` calls, not only `ast.Attribute` as
+        `ClearGateCacheCallersTest` does: these are module-level functions, so a
+        call site is `_pending_human_gates(...)`, never `self._pending…(...)`.
+        """
+        found: set[str] = set()
+        stack: list[str] = []
+
+        class V(ast.NodeVisitor):
+            def visit_FunctionDef(self, node):
+                stack.append(node.name)
+                self.generic_visit(node)
+                stack.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Call(self, node):
+                fn = node.func
+                hit = (isinstance(fn, ast.Name) and fn.id == name) or (
+                    isinstance(fn, ast.Attribute) and fn.attr == name)
+                if hit and stack:
+                    found.add(stack[-1])
+                self.generic_visit(node)
+
+        V().visit(self._tree())
+        return found
+
+    def _method_body(self, class_name: str, method_name: str) -> ast.FunctionDef:
+        for node in ast.walk(self._tree()):
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                for sub in node.body:
+                    if (isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef))
+                            and sub.name == method_name):
+                        return sub
+        self.fail(f"{class_name}.{method_name} not found — the scan would pass "
+                  "vacuously")
+
+    def test_each_predicate_has_exactly_its_two_consumers(self):
+        for name, expected in self.EXPECTED_CONSUMERS.items():
+            with self.subTest(predicate=name):
+                callers = self._callers_of(name)
+                self.assertTrue(
+                    callers,
+                    f"no callers of {name} found — renamed or deleted, and this "
+                    "scan would otherwise pass vacuously")
+                self.assertEqual(callers, expected)
+
+    def test_taskmanager_helpers_carry_no_gate_logic_of_their_own(self):
+        for method in self.THIN_METHODS:
+            with self.subTest(method=method):
+                fn = self._method_body("TaskManager", method)
+                attrs = {n.attr for n in ast.walk(fn)
+                         if isinstance(n, ast.Attribute)}
+                offending_attrs = attrs & self.FORBIDDEN_ATTRS
+                self.assertEqual(
+                    offending_attrs, set(),
+                    f"TaskManager.{method} reads {sorted(offending_attrs)} off "
+                    "the gate state — that derivation belongs in the shared "
+                    "predicate, not here")
+                literals = {n.value for n in ast.walk(fn)
+                            if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+                offending_literals = literals & self.FORBIDDEN_LITERALS
+                self.assertEqual(
+                    offending_literals, set(),
+                    f"TaskManager.{method} compares against "
+                    f"{sorted(offending_literals)} — same re-derivation")
+
+    def test_the_forbidden_shapes_are_present_in_the_shared_predicates(self):
+        """NEGATIVE CONTROL for the row above: the logic did not vanish, it
+        MOVED. If neither shared predicate contained the forbidden attributes,
+        the thin-method assertion would be satisfied by a codebase that had
+        simply deleted the feature."""
+        for name in self.EXPECTED_CONSUMERS:
+            with self.subTest(predicate=name):
+                fn = next(n for n in ast.walk(self._tree())
+                          if isinstance(n, ast.FunctionDef) and n.name == name)
+                attrs = {n.attr for n in ast.walk(fn) if isinstance(n, ast.Attribute)}
+                self.assertTrue(attrs & self.FORBIDDEN_ATTRS,
+                                f"{name} reads no gate state at all")
 
 
 class ClearGateCacheCallersTest(unittest.TestCase):
