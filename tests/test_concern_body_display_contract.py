@@ -557,8 +557,8 @@ class GuardDiscriminationTests(unittest.TestCase):
         """AC #1 — _ConcernRow.render switched to .body."""
         got = self._variant(
             SHARED_SRC,
-            "escape(self._concern.display_body())",
-            "escape(self._concern.body)")
+            "self._concern.display_body()",
+            "self._concern.body")
         key = ("monitor_shared.py", "_ConcernRow.render", "self._concern")
         self.assertEqual(got[key], {"body"})
         self.assertIn("body", _FORBIDDEN[DISPLAY])
@@ -583,8 +583,8 @@ class GuardDiscriminationTests(unittest.TestCase):
         """``c[2]`` reads the canonical body straight past display_body()."""
         got = self._variant(
             SHARED_SRC,
-            "escape(self._concern.display_body())",
-            "escape(self._concern[2])")
+            "self._concern.display_body()",
+            "self._concern[2]")
         key = ("monitor_shared.py", "_ConcernRow.render", "self._concern")
         self.assertEqual(got[key], {f"[{BODY_INDEX}]"})
         self.assertIn(f"[{BODY_INDEX}]", _FORBIDDEN[DISPLAY])
@@ -603,7 +603,7 @@ class GuardDiscriminationTests(unittest.TestCase):
         """An Attribute-only scan would be blind to getattr()."""
         got = self._variant(
             SHARED_SRC,
-            "escape(self._concern.display_body())",
+            "self._concern.display_body()",
             "escape(getattr(self._concern, which))")
         self.assertTrue(
             any("UNANALYSABLE" in a for accessors in got.values()
@@ -635,7 +635,7 @@ class GuardDiscriminationTests(unittest.TestCase):
     def test_guard_sees_a_constant_getattr(self):
         got = self._variant(
             SHARED_SRC,
-            "escape(self._concern.display_body())",
+            "self._concern.display_body()",
             'escape(getattr(self._concern, "body"))')
         key = ("monitor_shared.py", "_ConcernRow.render", "self._concern")
         self.assertEqual(got[key], {"body"})
@@ -722,14 +722,14 @@ class EndToEndAcceptanceTests(unittest.TestCase):
 
         swaps = [
             ("monitor_shared.py",
-             "escape(self._concern.display_body())",
-             "escape(self._concern.body)"),
+             "self._concern.display_body()",
+             "self._concern.body"),
             ("concern_parser.py",
              'f"- [{c.priority} | {c.region}] {c.body}"',
              'f"- [{c.priority} | {c.region}] {c.display_body()}"'),
             ("monitor_shared.py",
-             "escape(self._concern.display_body())",
-             "escape(self._concern[2])"),
+             "self._concern.display_body()",
+             "self._concern[2]"),
         ]
 
         for index, (filename, old, new) in enumerate(swaps):

@@ -2731,6 +2731,47 @@ def _seg(plain: str, markup: str | None = None) -> "_Seg":
     return _Seg(plain, plain if markup is None else markup)
 
 
+def _escape_markup(text: str) -> str:
+    """Escape free text so **no** bracket can be read as markup (t1636_4).
+
+    ``rich.markup.escape`` is *tag-aware*: it escapes ``[dim]`` but leaves a bare
+    ``[`` alone, because on its own a bare bracket is harmless. It stops being
+    harmless the moment more markup follows on a later line — which is exactly
+    what the trade-profile line added. Rich then scans forward from the stray
+    ``[`` for a closing ``]``, swallows the profile's first tag, and the next
+    ``[/]`` has nothing to close::
+
+        MarkupError: auto closing tag ('[/]') has nothing to close
+
+    A concern body is free text from a shadow agent, so ``x[`` is reachable, and
+    the whole modal dies rather than one row rendering oddly. Same hazard class
+    as the block-meta and stale-detail escapes elsewhere in this file.
+
+    Applied to the region as well as the body. The region survives today only by
+    accident — its stray bracket happens not to match Rich's tag regex where it
+    sits — and "safe because of where it currently appears in the string" is not
+    a property worth relying on when the fix is this cheap.
+
+    Fidelity is identical to ``escape()`` on every input: the one shape neither
+    round-trips is a trailing backslash, which is Rich's own behaviour.
+    """
+    escaped = escape(text)
+    out, i = [], 0
+    while i < len(escaped):
+        char = escaped[i]
+        if char == "\\" and i + 1 < len(escaped) and escaped[i + 1] == "[":
+            out.append("\\[")          # already escaped by escape()
+            i += 2
+            continue
+        if char == "[":
+            out.append("\\[")          # bare bracket escape() left behind
+            i += 1
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
 #: Effort scalar tokens. Four cells each, including the unspecified `E:?` — a
 #: uniform width is what lets the packing bound be stated once rather than per
 #: effort value.
@@ -3073,7 +3114,7 @@ class _ConcernRow(Static):
         if budget >= 4 and cell_len(region) > budget:
             # set_cell_size truncates to a cell count, splitting no wide glyph.
             region = set_cell_size(region, budget - 1) + "…"
-        return _Seg(region, f"[dim]{escape(region)}[/]")
+        return _Seg(region, f"[dim]{_escape_markup(region)}[/]")
 
     def _region_label(self, budget: int) -> str:
         """Markup half of :meth:`_region_seg` (kept for callers that only render)."""
@@ -3152,7 +3193,10 @@ class _ConcernRow(Static):
         # is the mirror rule: always .body, so the trailer is forwarded intact.)
         # Frozen with a DISPLAY role in
         # tests/test_concern_body_display_contract.py (t1294).
-        body = escape(self._concern.display_body())
+        # Kept as PLAIN text until the very last step: the clip below is
+        # denominated in cells, and escaping first would both miscount (a
+        # backslash occupies no cell) and risk splitting a `\[` pair in half.
+        body_plain = self._concern.display_body()
         width = self.size.width or (28 if self._narrow else 0)
         profile = trade_profile(self._concern, max(0, width), allow_indent=True)
         if self._use_multiline(prefix.cells, trade_profile(
@@ -3162,22 +3206,23 @@ class _ConcernRow(Static):
             if not profile.markup:
                 # Legacy two-line row: body verbatim, exactly as before. Its
                 # overflow is clipped by `height: 2`, which is pre-existing.
-                return f"{line1}\n{_NARROW_INDENT}{body}"
+                return f"{line1}\n{_NARROW_INDENT}{_escape_markup(body_plain)}"
             # Three-line row: the body must occupy exactly ONE row, or its wrap
             # consumes the profile's line and the trade vector never renders at
             # all. Caught in a real 40x24 tmux pane, where a 36-cell body wrapped
             # and pushed `▲corr ▼simpl E:md` out of the `height: 3` box — every
             # composited test had used a body short enough to fit.
             body_budget = max(4, width - cell_len(_NARROW_INDENT))
-            if cell_len(body) > body_budget:
-                body = set_cell_size(body, body_budget - 1) + "…"
+            if cell_len(body_plain) > body_budget:
+                body_plain = set_cell_size(body_plain, body_budget - 1) + "…"
+            body = _escape_markup(body_plain)
             return f"{line1}\n{_NARROW_INDENT}{body}\n{profile.markup}"
         one_line_profile = trade_profile(
             self._concern, max(0, width), allow_indent=False
         )
         region = self._region_seg(_ONE_LINE_REGION_CELLS).markup
         middle = f"  {one_line_profile.markup}" if one_line_profile.markup else ""
-        return f"{prefix.markup}{region}{middle}  {body}"
+        return f"{prefix.markup}{region}{middle}  {_escape_markup(body_plain)}"
 
     def on_resize(self) -> None:
         """Re-derive the height class — the layout choice is measured now.

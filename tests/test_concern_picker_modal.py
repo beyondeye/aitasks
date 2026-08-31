@@ -2910,5 +2910,95 @@ class ConcernOneLineBoundaryTests(unittest.TestCase):
         self.assertIn("HIGH", flat)
 
 
+
+class ConcernRowMarkupSafetyTests(unittest.TestCase):
+    """Free text can never be read as markup by the row (t1636_4).
+
+    ``rich.markup.escape`` is tag-aware and leaves a **bare** ``[`` alone — safe
+    while the body was the last thing on the render string, fatal once the trade
+    profile added markup on a following line. Rich scans forward from the stray
+    bracket, swallows the profile's first tag, and the next ``[/]`` has nothing
+    to close::
+
+        MarkupError: auto closing tag ('[/]') has nothing to close
+
+    Reproduced in the real modal at 40, 30 and 24 columns before the fix, with a
+    body as ordinary as ``x[``. A shadow agent writes concern bodies as free
+    text, so this is reachable input, and the failure takes down the whole modal
+    rather than degrading one row.
+    """
+
+    HOSTILE = ("x[", "[", "a [ b", "[dim]", "[/]", "[bold]x[/]", "100[0]",
+               "unclosed [tag and more text", "[[", "\\")
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _vector(self, body, region="r.py:1"):
+        return Concern("high", region, body,
+                       improves=(("correctness", "high"),),
+                       worsens=(("simplicity", "low"),), effort="medium")
+
+    async def _screen(self, width, concern, narrow=True):
+        app = _Host([concern], narrow=narrow)
+        async with app.run_test(size=(width, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            return _flat_text(_screen_rows(app))
+
+    def test_a_hostile_body_never_crashes_a_vector_row(self):
+        for body in self.HOSTILE:
+            for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+                with self.subTest(body=body, width=width):
+                    self._run(self._screen(width, self._vector(body)))
+
+    def test_a_hostile_body_never_crashes_the_narrow_false_path(self):
+        """`narrow=False` goes multi-line below ~60 columns, so it is affected too."""
+        for body in self.HOSTILE:
+            for width in (100, 60, 40, 24):
+                with self.subTest(body=body, width=width):
+                    self._run(self._screen(width, self._vector(body), narrow=False))
+
+    def test_a_hostile_region_never_crashes_a_vector_row(self):
+        """The region survives today only by where it sits in the string.
+
+        It is escaped the same way regardless, so the safety does not depend on
+        Rich's tag regex happening not to match.
+        """
+        for region in self.HOSTILE:
+            for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+                with self.subTest(region=region, width=width):
+                    self._run(self._screen(width, self._vector("body", region)))
+
+    def test_a_bracket_landing_exactly_at_the_clip_boundary(self):
+        """The clip cuts PLAIN text, so it can never split an escape sequence.
+
+        Sweeps the bracket across the truncation point one cell at a time: if the
+        row escaped first and clipped second, some offset would cut a `\\[` pair
+        in half and leave a bare bracket behind.
+        """
+        for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+            for pad in range(0, 32):
+                body = "a" * pad + "[dim]" + "b" * 30
+                with self.subTest(width=width, pad=pad):
+                    self._run(self._screen(width, self._vector(body)))
+
+    def test_the_bracket_still_reaches_the_screen_as_a_literal(self):
+        """Escaping must hide the brackets from the parser, not from the user."""
+        flat = self._run(self._screen(40, self._vector("keep [ me")))
+        self.assertIn("keep [ me", flat)
+
+    def test_negative_control_the_tag_aware_escape_alone_would_crash(self):
+        """One mutation: fall back to `escape()`. The vector row must then die.
+
+        Without this the tests above could be passing because the composition
+        happens to be benign rather than because `_escape_markup` is doing work.
+        """
+        from rich.markup import escape as tag_aware
+        with unittest.mock.patch.object(monitor_shared, "_escape_markup", tag_aware):
+            with self.assertRaises(Exception):
+                self._run(self._screen(40, self._vector("x[")))
+
+
 if __name__ == "__main__":
     unittest.main()
