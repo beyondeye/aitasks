@@ -160,3 +160,37 @@ Required tests:
 4. Live CLEAR / CLEAR_CAVEATED / CONFLICT / UNCHECKABLE rates recorded in the
    Final Implementation Notes — they are the evidence for any later promotion of
    the default to `block`.
+
+## Coordination — threshold sensitivity (t1643)
+
+t1643 re-measured the threshold and **supersedes t1569_3's rates** as the input
+to this task's `warn` → `block` decision. The numbers, the method and their
+caveats are in `aiplans/archived/p1643_threshold_sensitivity_replay.md`
+(Final Implementation Notes); re-run them with:
+
+```bash
+./.aitask-scripts/aitask_parallel_admission.sh sweep --thresholds 8,10,20,50
+./.aitask-scripts/aitask_parallel_admission.sh replay --candidates auto \
+    --from plan --lock-freshness require-fresh --thresholds 8,10,20,50 --exclude-no-plan
+```
+
+**t1643 deliberately made no threshold decision — it is this task's.** What it
+established:
+
+- **Recall of `CONFLICT ∪ CLEAR_CAVEATED` is invariant in the hub threshold.** A
+  wrong threshold cannot cost recall, only grading. So the entry criterion above
+  should not be written in terms of recall.
+- **Grading is what moves, and this task is the reason it matters.** Because
+  `CONFLICT` stops and `CLEAR_CAVEATED` merely confirms, the threshold decides
+  which of the two a real collision gets. At the shipped `HUB_THRESHOLD = 10`
+  only **~32%** of true collisions hard-stop (59% downgrade); at 20 it is ~67%
+  (23%), costing ~20pp of precision. Any `block` criterion has to name an
+  acceptable point on that curve.
+- **The availability rate is not yet decidable.** The live population is still
+  ~96% UNCHECKABLE, driven entirely by tasks claimed but not yet planned. The
+  excluded figures t1643 reports are a **counterfactual** ("what if nobody were
+  mid-claim"), not an availability measurement — do not use them as one. t1643
+  spawned an `availability_timeseries` follow-up to sample the real distribution.
+
+Nothing here asks this task to change its plan; it replaces the stale reference
+to t1569_3's rates in the "Deviation, with evidence" note above.
