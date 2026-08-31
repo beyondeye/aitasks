@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: [t1210_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [web_site]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 implemented_with: claudecode/opus5
 created_at: 2026-07-22 16:17
-updated_at: 2026-08-31 17:54
+updated_at: 2026-08-31 18:16
+completed_at: 2026-08-31 18:16
 ---
 
 ## Context
@@ -72,3 +73,14 @@ documentation for the shipped feature.
 > **✅ gate:plan_approved** run=2026-08-31T14:54:20Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-31T15:13:50Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-31T15:16:20Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ef9138a3a5bae146
+
+> **✅ gate:risk_evaluated** run=2026-08-31T15:16:20Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1210_6/risk_evaluated_2026-08-31T15:16:20Z-risk_evaluated-a1.log`
