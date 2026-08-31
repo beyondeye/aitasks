@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [shadow, concern_format, documentation]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1636
 created_at: 2026-08-30 19:53
-updated_at: 2026-08-31 16:41
+updated_at: 2026-08-31 22:49
 ---
 
 ## Context
