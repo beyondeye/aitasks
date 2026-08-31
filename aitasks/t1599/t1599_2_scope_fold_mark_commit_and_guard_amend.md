@@ -3,12 +3,13 @@ priority: high
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness, task_metadata]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-08-25 12:48
-updated_at: 2026-08-25 12:48
+updated_at: 2026-08-31 22:48
 ---
 
 ## Context
