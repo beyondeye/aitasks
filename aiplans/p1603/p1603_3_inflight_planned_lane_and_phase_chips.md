@@ -566,11 +566,13 @@ Planned card.
   (c) the narrow-terminal answer is the status quo made deliberate, on measured
   evidence (181 columns, `min_width` never engages); (d) the eager `plan_exists`
   probe is deferred to **t1656** rather than patched in the caller (item 4).
-- **Upstream defects identified:** None. Nothing in another script, helper or
-  module is broken. The one cross-module finding — `derive_workflow_phase`
-  resolving `plan_exists` eagerly — is a cost, not a defect, and is already
-  owned by t1656 (item 4); it is deliberately not repeated here so Step 8b does
-  not offer to spawn a second task for it.
+- **Upstream defects identified:** None
+  <!-- Verbatim `None` on purpose: nothing in another script, helper or module
+  is broken. The one cross-module finding — `derive_workflow_phase` resolving
+  `plan_exists` eagerly — is an avoidable cost, not a defect, and is already
+  owned by t1656 (item 4 below), so it must not produce a second follow-up
+  offer here. -->
+- **Related work already scheduled:** t1656 (see item 4).
 - **Notes for sibling tasks:** t1603_4 should call `phase_chip_text(...)`
   **without** `compact=True` — the expanded form is exactly the spec its plan
   already writes (`Gate state unavailable: <error>`,
