@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [shadow, aitask_monitormini, aitask_monitor, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1037
 created_at: 2026-08-31 16:58
-updated_at: 2026-08-31 16:58
+updated_at: 2026-08-31 17:02
 ---
 
 ## Goal
