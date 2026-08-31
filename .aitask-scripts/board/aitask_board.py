@@ -3962,6 +3962,14 @@ class TrailColumn(VerticalScroll):
         self.manager = manager
         self.col_id = f"trail-w{self.wave.get('ordinal', 0)}"
 
+    def wave_entries(self) -> list:
+        """This wave's `TrailEntryView`s in `position` order (t1210_5).
+
+        The authoritative order — `compose` mounts the cards from this same
+        list — so the wave move reads it rather than walking the DOM.
+        """
+        return self.lane.entries
+
     def compose(self):
         title = f"W{self.wave.get('ordinal', '?')} · {self.wave.get('title', '')}"
         header = ColumnHeader(self.col_id, title, len(self.lane.entries),
@@ -8181,6 +8189,8 @@ class KanbanCommandProvider(Provider):
          "Expand a collapsed column to full width"),
         ("Move Tasks to Column", "action_move_to_column",
          "Move the marked task(s) — or the focused card — to a column"),
+        ("Move Wave to Column", "action_trail_move_wave",
+         "Move the focused By-Trail wave's tasks to a column, in wave order"),
         ("Clear Selection", "action_clear_marks",
          "Unmark every marked task"),
         ("Manage Columns", "action_column_manage",
@@ -8634,6 +8644,13 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # check_action still gates it: hidden actions must not dispatch in the
         # derived views either.
         Binding("m", "move_to_column", "Move to Col"),
+        # By-Trail wave move (t1210_5). Declared adjacent to its lowercase
+        # primary per the uppercase-sibling rule in tui_conventions.md.
+        # NOT a duplicate-key pair like the By-Trail `r`/`s`: `m` keeps ONE
+        # meaning in every view ("move the selected task(s) to a column") and
+        # its label is already truthful there, so only the wave command needs
+        # a key of its own.
+        Binding("M", "trail_move_wave", "Move Wave"),
         # Column Movement
         Binding("ctrl+right", "move_col_right", "Move Col >"),
         Binding("ctrl+left", "move_col_left", "< Move Col"),
@@ -8783,6 +8800,16 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         if action in ("commit_selected", "toggle_children", "pick_task",
                       "brainstorm_task", "open_cross_repo", "trail_task",
                       "work_report",
+                      # NOTE: the By-Trail move commands (`move_to_column`,
+                      # `trail_move_wave`) are deliberately NOT listed here
+                      # (t1210_5). This pre-gate calls `_focused_card()` for
+                      # every action in the tuple, unconditionally — which
+                      # would both double the call for `move_to_column` (its
+                      # own branch reads focus too) and defeat the marked-set
+                      # short-circuit that returns before any focus read.
+                      # Both are pinned by MoveGatingTests. They do their own
+                      # is_ghost check inside their branches instead, on the
+                      # `_focused_card()` they already fetch.
                       "move_task_right", "move_task_left", "move_task_up",
                       "move_task_down", "move_task_top", "move_task_bottom"):
             focused = self._focused_card()
@@ -8918,10 +8945,22 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
         elif action == "move_to_column":
-            # Hidden wherever movement is hidden — the derived views render
-            # non-reorderable lanes. (By-Trail move-to-column is t1210_5, which
-            # consumes this chain rather than duplicating it.)
-            if self.base_filter in ("inflight", "bytopic", "bytrail"):
+            # By-Trail is resolved ENTIRELY on focus, and deliberately BEFORE
+            # the marked-set early return below (t1210_5): `toggle_mark` is
+            # hidden in this view and `_set_base_filter` clears the set on
+            # entry, so a mark cannot exist here. Gating first STATES that
+            # invariant rather than depending on it holding forever. There is
+            # no column-placeholder fallback either — a wave lane is not a
+            # column. The ghost check rides on the SAME `_focused_card()` this
+            # branch already fetches, rather than on the pre-gate above, which
+            # would read focus a second time and on every view.
+            if self.base_filter == "bytrail":
+                focused = self._focused_card()
+                return (focused is not None and not focused.is_child
+                        and not getattr(focused, "is_ghost", False))
+            # Hidden wherever movement is hidden — the remaining derived views
+            # render non-reorderable lanes.
+            if self.base_filter in ("inflight", "bytopic"):
                 return False
             # Deliberately returns True EARLY on a non-empty marked set, unlike
             # every other gate here (which only ever return False): `m` acts on
@@ -8945,6 +8984,24 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             # No card, but a collapsed/empty column placeholder still names a
             # source column to scope the review to.
             return self._focused_placeholder() is not None
+        elif action == "trail_move_wave":
+            # `M` (t1210_5): live only in By-Trail, on a live card. Like the
+            # `move_to_column` branch above, the ghost check rides on this
+            # branch's own `_focused_card()` rather than on the pre-gate — one
+            # focus read, and none at all outside By-Trail.
+            #
+            # Deliberately NOT gated on `focused.is_child`, unlike `m`: `M`
+            # acts on the WAVE, and a focused child still names a wave whose
+            # parent entries are perfectly movable. The "wave holds nothing
+            # movable" case is reported BY THE ACTION, not hidden here — it
+            # needs the lane's entry list, and a DOM walk in check_action would
+            # undo the measured hot-path fix t1243_7 made (this runs once per
+            # binding on every refresh_bindings()).
+            if self.base_filter != "bytrail":
+                return False
+            focused = self._focused_card()
+            return (focused is not None
+                    and not getattr(focused, "is_ghost", False))
         elif action in ("move_col_right", "move_col_left", "toggle_column_collapsed"):
             if self.base_filter in ("inflight", "bytopic", "bytrail"):
                 return False
@@ -10641,30 +10698,58 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
         self.push_screen(MoveTaskSelectScreen(rows), on_tasks)
 
+    def _choose_move_destination(self, filenames) -> None:
+        """Offer the destination columns for `filenames`, then apply the move.
+
+        A METHOD, not the local closure it grew from (t1210_5):
+        `action_trail_move_wave` hands it to `_review_then` as the confirm
+        callback, and a closure defined inside `action_move_to_column` is not
+        reachable from there. Both move commands therefore drive ONE
+        implementation of the destination chain rather than two copies that
+        could drift.
+        """
+        # Built AFTER the review: the redundant-column filter depends on
+        # the confirmed target set, not on the pre-review one.
+        dests = self._move_destination_columns(filenames)
+        if not dests:
+            self.notify("Nowhere to move to — every other column is "
+                        "collapsed, and the selection already sits where "
+                        "it is.", severity="warning")
+            return
+        self.push_screen(
+            ColumnSelectScreen(self.manager, "Move to", columns=dests),
+            lambda col_id: self._apply_move_to_column(filenames, col_id),
+        )
+
     def action_move_to_column(self) -> None:
-        """`m`: move the marked task(s) — or the focused card — to a column."""
+        """`m`: move the marked task(s) — or the focused card — to a column.
+
+        In By-Trail (t1210_5) it acts on the focused card alone: no marks can
+        exist there, and a wave lane has no column placeholder to fall back to.
+        """
         if self._modal_is_active():
             return
         # Re-check the view gate INSIDE the action, not only in check_action:
         # the command palette invokes action_* directly and never consults it.
-        if self.base_filter in ("inflight", "bytopic", "bytrail"):
+        if self.base_filter in ("inflight", "bytopic"):
             return
 
-        def to_destination(filenames):
-            # Built AFTER the review: the redundant-column filter depends on
-            # the confirmed target set, not on the pre-review one.
-            dests = self._move_destination_columns(filenames)
-            if not dests:
-                self.notify("Nowhere to move to — every other column is "
-                            "collapsed, and the selection already sits where "
-                            "it is.", severity="warning")
-                return
-            self.push_screen(
-                ColumnSelectScreen(self.manager, "Move to", columns=dests),
-                lambda col_id: self._apply_move_to_column(filenames, col_id),
-            )
-
         focused = self._focused_card()
+        # Ghost guard — BEFORE any target derivation, and unconditional
+        # (is_ghost is False on every non-trail card, so this costs nothing
+        # elsewhere and cannot be missed if ghosts ever render in another
+        # view). check_action hides `m` on a ghost, but that is only the
+        # BINDING gate — the palette calls action_* directly, the same reason
+        # the view gate above is re-checked. Without this, `_GhostTaskStub`'s
+        # synthetic `trail-ghost-<ref>.md` flows into `_reject_stale`, which
+        # would blame a stale selection and tell the user to press `r` — about
+        # a member that is simply read-only, and that no refresh can ever make
+        # movable.
+        if focused is not None and getattr(focused, "is_ghost", False):
+            self.notify("Archived, missing and cross-repo trail members are "
+                        "read-only — there is no local task file to move.",
+                        severity="warning")
+            return
         if focused is not None and focused.is_child and not self.marked:
             # Refuse with a reason — never a silent nothing (t1243_6 idiom).
             self.notify("Child tasks move with their parent — move the parent instead.",
@@ -10674,16 +10759,28 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         if focused is not None and not focused.is_child else None)
         targets = self.marked.effective(focused_name)
 
+        if self.base_filter == "bytrail":
+            # Focused card only. The marked-set and column-placeholder paths
+            # below have no meaning in a wave lane, so this branch skips them
+            # rather than letting `targets` fall through into them.
+            if not focused_name:
+                return
+            if self._reject_stale([focused_name]):
+                return
+            self._choose_move_destination([focused_name])
+            return
+
         if self.marked:
             # Marks survive a filter pass (t1243_6), so a marked card may be
             # hidden right now. REVIEW before acting — never move what the user
             # cannot see. This is the hidden-but-marked risk t1243_6 left here.
-            self._review_then(self._board_order(targets), to_destination)
+            self._review_then(self._board_order(targets),
+                              self._choose_move_destination)
         elif targets:
             # One focused card: unambiguous, and visible by construction.
             if self._reject_stale(targets):
                 return
-            to_destination(targets)
+            self._choose_move_destination(targets)
         else:
             # A column placeholder is focused (collapsed, or every card hidden
             # by the filter). Scope the review to that column, read straight
@@ -10709,7 +10806,85 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 self.notify(f"No tasks in {self._column_title(col_id)}",
                             severity="warning")
                 return
-            self._review_then(names, to_destination)
+            self._review_then(names, self._choose_move_destination)
+
+    def action_trail_move_wave(self) -> None:
+        """`M`: move the focused wave's tasks to a column, in position order.
+
+        The By-Trail half of the passive t1162 report bridge (RFC §9.4/§10):
+        the user moves a whole wave into a board column, and the Work Report
+        reads that column unchanged. The trail artifact is never consulted or
+        modified by the move.
+        """
+        if self._modal_is_active():
+            return
+        # A binding gate is not an action guard — the palette calls action_*
+        # directly (same reason action_trail_summary_expand re-checks).
+        if self.base_filter != "bytrail":
+            return
+        focused = self._focused_card()
+        if focused is None:
+            return
+        # Same ghost guard as `m`, and for the same reason: check_action hides
+        # `M` on a ghost, but the palette dispatches straight here. Refuse with
+        # a reason rather than silently — RFC §9.1 gives ghosts no move action,
+        # so saying so beats looking broken.
+        if getattr(focused, "is_ghost", False):
+            self.notify("Read-only trail member — move the wave from a live "
+                        "card in it.", severity="warning")
+            return
+        lane = next((c for c in self.query(TrailColumn)
+                     if c.col_id == focused.column_id), None)
+        if lane is None:
+            return
+
+        names, ghosts, children, dupes, seen = [], [], [], [], set()
+        for view in lane.wave_entries():            # position order
+            ref = str(view.entry.get("task") or "?")
+            if view.task is None:
+                ghosts.append(ref)
+            elif "_" in (task_own_id(view.task) or ""):
+                children.append(ref)
+            elif view.task.filename in seen:
+                # Two entries, one task. `entry_id` is unique and `position`
+                # strictly increasing, but trail_schema enforces NOTHING on
+                # `entry.task` — the same ref may legally appear twice in a
+                # wave, and both render. `MoveTaskSelectScreen`'s row key must
+                # be unique (it is the SelectionList value), so dedup here, on
+                # FIRST occurrence, keeping the earliest position's slot.
+                dupes.append(ref)
+            else:
+                seen.add(view.task.filename)
+                names.append(view.task.filename)
+
+        # Which-item reports, never a bare count (the t1243_6 refusal idiom).
+        skipped = []
+        if ghosts:
+            skipped.append(f"{len(ghosts)} ghost: " + ", ".join(ghosts[:3]))
+        if children:
+            skipped.append(f"{len(children)} child: " + ", ".join(children[:3]))
+        if not names:
+            detail = (" — " + "; ".join(skipped)) if skipped else ""
+            self.notify(f"Nothing movable in this wave{detail}",
+                        severity="warning")
+            return
+        if skipped:
+            self.notify("Skipping " + "; ".join(skipped))
+        if dupes:
+            # Not a skip — the task still moves, once. Reported so a review
+            # dialog listing fewer rows than the wave shows is explained.
+            self.notify(f"{len(dupes)} task(s) appear twice in this wave "
+                        f"({', '.join(dupes[:3])}) — moving each once.")
+        # ALWAYS review: a wave is a bulk action and the search filter may have
+        # hidden some of its cards. `_review_then` preserves the order it is
+        # given and MoveTaskSelectScreen confirms in displayed order, which
+        # `move_tasks_to_column` consumes verbatim — so the destination
+        # sequence matches wave order. Deliberately NOT `_board_order()`: that
+        # re-sorts by column/boardidx and would destroy exactly that.
+        #
+        # The SAME destination method `action_move_to_column` uses — one chain,
+        # not a parallel one.
+        self._review_then(names, self._choose_move_destination)
 
     def _apply_move_to_column(self, filenames, col_id) -> None:
         """Run the batch move and repaint. K writes, input order, K files."""
@@ -10733,6 +10908,18 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # already-empty set drops nothing, so no spurious warning fires. Same
         # ordering rationale as _set_base_filter in t1243_6.
         self.marked.clear()
+        if self.base_filter == "bytrail":
+            # By-Trail mounts TrailColumns, not KanbanColumns, and `src_cols`
+            # names columns this view does not render — `refresh_columns` would
+            # be looking for widgets that are not there. Nor is a re-render
+            # needed: no By-Trail surface reads board_col/board_idx (the cards
+            # show classification, status and drift), so the lanes cannot
+            # change. `move_tasks_to_column` mutated the manager's Task objects
+            # in place, so a later view switch renders the move with no reload
+            # (t1210_5).
+            self.notify(f"Moved {len(result.moved)} task(s) to "
+                        f"{self._column_title(col_id)}")
+            return
         self.refresh_columns(src_cols | {col_id},
                              refocus_filename=result.moved[-1],
                              refocus_col_id=col_id)

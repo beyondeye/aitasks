@@ -497,6 +497,33 @@ class DigestStabilityTests(TrailGatherCase):
         trail = self.make_trail(self.base)
         self.assertEqual(self.drift(trail)["verdict"], "CURRENT")
 
+    def test_boardcol_does_not_drift(self):
+        """The negative control for the By-Trail move-to-column commands
+        (t1210_5, RFC par.8.1: "a move must NOT flip the trail to stale").
+
+        Distinct from the `boardidx` case above, and the one that actually
+        needed proving: `boardidx` is unrepresentable by the record contract,
+        but `boardcol` IS emitted — on the display-only `MEMBER:` line. Only
+        `INPUT:` records feed `input_digest`, so moving a member between board
+        columns must leave both the digest and the verdict untouched. Asserted
+        rather than argued, because the argument rests on a line-protocol
+        detail that a future MEMBER/INPUT refactor could quietly break.
+        """
+        base_member = self.base["members"][0]
+        self.repo.write_task("100", "root", gates=["risk_evaluated"],
+                             boardcol="now", boardidx=990)
+        snap = self.snapshot("--scope", "task", "100")
+        self.assertEqual(snap["digest"], self.base["digest"])
+        trail = self.make_trail(self.base)
+        self.assertEqual(self.drift(trail)["verdict"], "CURRENT")
+        # Positive control on the same run: the move IS observable in the
+        # snapshot, so the assertions above cannot be passing merely because
+        # the write never landed.
+        self.assertNotEqual(snap["members"][0], base_member,
+                            "the boardcol change must be visible on MEMBER: — "
+                            "otherwise this test proves nothing about the "
+                            "digest excluding it")
+
     def test_semantic_changes_move_the_digest(self):
         cases = {
             "status": lambda: self.repo.write_task(

@@ -638,6 +638,35 @@ class SemanticNegativeControls(unittest.TestCase):
             doc["waves"][0]["entries"][0]["entry_id"]
         self.assert_rule(doc, "duplicate_local_id")
 
+    def test_a_wave_may_legally_repeat_a_task_ref(self):
+        """The PREMISE behind the By-Trail wave-move dedup (t1210_5).
+
+        `entry_id` must be unique and `position` strictly increasing, but no
+        rule constrains `entry.task` — so one task may appear twice in a wave,
+        and `build_trail_lanes` renders a card for each. That is why
+        `action_trail_move_wave` dedups before handing rows to
+        `MoveTaskSelectScreen`, whose row key must be unique.
+
+        This is a POSITIVE control living beside its negatives on purpose: the
+        dedup test in `tests/test_board_move_command.py`
+        (`test_a_task_listed_twice_in_a_wave_is_reviewed_once`) asserts the
+        behaviour but cannot assert reachability from its stand-in objects. If
+        a future rule ever makes a repeated ref invalid, THIS test fails and
+        says so, instead of that one quietly guarding a case that can no longer
+        occur.
+        """
+        doc = fixture("cross_topic_multiple_trails.json")
+        entries = doc["waves"][0]["entries"]
+        self.assertGreaterEqual(len(entries), 2, "fixture wave too small")
+        twin = copy.deepcopy(entries[0])
+        twin["entry_id"] = entries[0]["entry_id"] + "-twin"   # unique id
+        twin["position"] = entries[-1]["position"] + 1        # increasing
+        self.assertEqual(twin["task"], entries[0]["task"])    # SAME task ref
+        entries.append(twin)
+        self.assertEqual(issues_for(doc), [],
+                         "a repeated `entry.task` must stay schema-valid — the "
+                         "wave-move dedup exists precisely because it is")
+
     def test_unresolved_evidence_ref(self):
         doc = fixture("shadow_review_loop.json")
         doc["waves"][0]["entries"][0]["evidence_refs"] = ["ev-ghost"]

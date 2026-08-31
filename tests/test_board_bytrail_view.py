@@ -62,6 +62,29 @@ def _load_fixture() -> dict:
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
 
 
+def _wave_doc(refs, *, ordinal=1) -> dict:
+    """One wave over `refs`, in the given order, as local `aitasks#<id>` members.
+
+    Position is the list index, so the caller's order IS the wave order — which
+    is what the t1210_5 move commands must preserve.
+    """
+    return {
+        "title": "Move trail", "trail_id": "trail-move",
+        "narrative": {"problem_statement": "ps",
+                      "recommendation_summary": "rs"},
+        "waves": [{
+            "wave_id": f"w{ordinal}", "ordinal": ordinal,
+            "title": f"Wave {ordinal}", "purpose": "p",
+            "entries": [{
+                "entry_id": f"e{i}", "task": f"aitasks#{ref}",
+                "topic": f"aitasks#{ref}", "position": i,
+                "classification": "core", "confidence": "high",
+                "rationale": "r", "snapshot": {"status": "Ready"},
+            } for i, ref in enumerate(refs, start=1)],
+        }],
+    }
+
+
 def _ghost_doc() -> dict:
     """Minimal two-wave doc whose members are all foreign (ghost-only)."""
     waves = []
@@ -4382,6 +4405,108 @@ class TrailDetailRevealKeyTests(ByTrailTestBase):
         screen.show_all = True
         self.assertTrue(screen.check_action("toggle_all", ()))
         self.assertTrue(screen.check_action("cancel", ()))
+
+
+class MoveToColumnTests(ByTrailTestBase):
+    """t1210_5: `m` / `M`, the passive t1162 report bridge (RFC par.9.4/10).
+
+    The unit-level gating and skip/dedup reporting live in
+    `tests/test_board_move_command.py`. This module owns the half only a live
+    board can prove: that the keys reach the footer, that a ghost withdraws
+    them, and that a wave move lands in the real columns in wave order.
+    """
+
+    ALPHA = "t9001_alpha.md"    # c1
+    GAMMA = "t9003_gamma.md"    # c3
+    DELTA = "t9004_delta.md"    # c4
+
+    def test_move_keys_are_offered_on_a_live_card(self):
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, _wave_doc(["9001", "9003"]))
+                card = app.query(ab.TrailTaskCard).first()
+                card.focus()
+                await pilot.pause()
+                actions = self._footer_actions(app)
+                for action in ("move_to_column", "trail_move_wave"):
+                    self.assertIs(app.check_action(action, None), True,
+                                  f"{action} must be live in bytrail")
+                    self.assertIn(action, actions)
+
+        self._run(go())
+
+    def test_a_focused_ghost_withdraws_both_move_keys(self):
+        """The binding half of the read-only ghost contract (RFC par.9.1). The
+        action half — palette dispatch — is pinned in test_board_move_command."""
+        ab = self.ab
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(app, pilot, _ghost_doc())
+                ghost = app.query(ab.TrailGhostCard).first()
+                ghost.focus()
+                await pilot.pause()
+                actions = self._footer_actions(app)
+                for action in ("move_to_column", "trail_move_wave"):
+                    self.assertIs(app.check_action(action, None), False,
+                                  f"{action} must be hidden on a ghost")
+                    self.assertNotIn(action, actions)
+
+        self._run(go())
+
+    def test_M_lands_the_wave_in_the_target_column_in_WAVE_order(self):
+        """The end-to-end check from the task file: `M`, then switch to the
+        normal view and read the destination column.
+
+        The wave order (delta, alpha, gamma) is deliberately NOT board order
+        (alpha c1, gamma c3, delta c4). A move that silently sorted by column
+        would produce alpha/gamma/delta and pass a weaker assertion — this is
+        the discriminating case for "wave order, not board order".
+        """
+        ab = self.ab
+        seen = {}
+
+        async def go():
+            app = ab.KanbanApp()
+            async with app.run_test(size=(160, 48)) as pilot:
+                await pilot.pause()
+                await self._enter_synthetic_bytrail(
+                    app, pilot, _wave_doc(["9004", "9001", "9003"]))
+                pushed = []
+                app.push_screen = lambda screen, cb=None: pushed.append((screen, cb))
+                app.query(ab.TrailTaskCard).first().focus()
+                await pilot.pause()
+
+                app.action_trail_move_wave()
+                review, on_tasks = pushed[0]
+                seen["rows"] = [row[0] for row in review.rows]
+                on_tasks(seen["rows"])
+                _, on_col = pushed[1]
+                on_col("c0")
+                await pilot.pause()
+
+                # Leave By-Trail: the moves must be visible in the real columns
+                # without any explicit reload (the manager's Task objects were
+                # mutated in place).
+                app._set_base_filter("all")
+                await pilot.pause()
+                seen["column"] = [t.filename
+                                  for t in app.manager.get_column_tasks("c0")]
+
+        self._run(go())
+        self.assertEqual(seen["rows"], [self.DELTA, self.ALPHA, self.GAMMA],
+                         "the review must present the wave in position order")
+        # c0 already holds the fixture's parent + numberless file; the wave is
+        # appended past the maximum, so it is the TAIL that must match.
+        self.assertEqual(seen["column"][-3:],
+                         [self.DELTA, self.ALPHA, self.GAMMA])
 
 
 if __name__ == "__main__":

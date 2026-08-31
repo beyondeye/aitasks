@@ -100,7 +100,7 @@ class _MoveTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
         cls.KanbanApp = cls.ab.KanbanApp
 
     def _mock_app(self, manager=None, *, marked=(), focused=None,
-                  focused_col=None, base_filter="all"):
+                  focused_col=None, base_filter="all", trail_lanes=None):
         """MagicMock app with the real move methods bound to it.
 
         Same construction-spy shape as `test_board_work_report.py`: the methods
@@ -128,9 +128,22 @@ class _MoveTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
             if focused is None and focused_col is not None else None)
         app.push_screen = MagicMock()
         app.notify = MagicMock()
+        # `action_trail_move_wave` locates its lane with `query(TrailColumn)`.
+        # A bare MagicMock is not iterable, so the wave path would die on a
+        # TypeError rather than on the assertion under test.
+        app.query = MagicMock(return_value=list(trail_lanes or ()))
+        # Binding the REAL attribute is load-bearing, not bookkeeping: a
+        # MagicMock auto-creates any attribute asked of it, so a callback
+        # method that does not exist on KanbanApp would silently resolve to a
+        # no-op mock here and every test would pass while a real board raised
+        # AttributeError — after the user had already confirmed the review
+        # dialog. `getattr` on the class is what makes a missing or renamed
+        # method fail the suite (t1210_5).
         for name in ("_move_destination_columns", "_column_title", "_board_order",
                      "_reject_stale", "_review_then", "_apply_move_to_column",
-                     "action_move_to_column", "action_clear_marks"):
+                     "_choose_move_destination",
+                     "action_move_to_column", "action_trail_move_wave",
+                     "action_clear_marks"):
             real = getattr(ab.KanbanApp, name)
             setattr(app, name, (lambda _r=real: (
                 lambda *a, **k: _r(app, *a, **k)))())
@@ -138,8 +151,17 @@ class _MoveTestBase(bf.FixtureBoardTestBase, unittest.TestCase):
 
     @staticmethod
     def _card(filename, *, is_child=False, col="c0"):
-        return SimpleNamespace(is_child=is_child, column_id=col,
+        return SimpleNamespace(is_child=is_child, column_id=col, is_ghost=False,
                                task_data=SimpleNamespace(filename=filename))
+
+    @staticmethod
+    def _ghost_card(ref="aitasks#9999", *, col="trail-w1"):
+        """A TrailGhostCard stand-in: is_ghost, and a synthetic filename that
+        deliberately does NOT resolve in `task_datas` — exactly the shape that
+        would reach `_reject_stale` without an action-level ghost guard."""
+        return SimpleNamespace(is_child=False, column_id=col, is_ghost=True,
+                               task_data=SimpleNamespace(
+                                   filename=f"trail-ghost-{ref}.md"))
 
     def _pushed(self, app, index=0):
         """(screen, callback) of the `index`-th push_screen call."""
@@ -661,12 +683,39 @@ class MoveGatingTests(_MoveTestBase):
         app = self._mock_app(**kw)
         return self.KanbanApp.check_action(app, "move_to_column", None)
 
-    def test_hidden_in_every_derived_view(self):
-        for view in ("inflight", "bytopic", "bytrail"):
+    def test_hidden_in_the_inflight_and_bytopic_views(self):
+        """By-Trail is deliberately NOT in this list since t1210_5 — it gets
+        its own positive coverage below. These two stay asserted explicitly so
+        narrowing the tuple cannot silently unhide `m` in them as well."""
+        for view in ("inflight", "bytopic"):
             with self.subTest(view=view):
                 self.assertIs(
                     self._check(base_filter=view, focused=self._card(PARENT)),
                     False, "must be False (hidden), not None (greyed)")
+
+    def test_visible_in_bytrail_on_a_live_parent_card(self):
+        self.assertIs(
+            self._check(base_filter="bytrail",
+                        focused=self._card(PARENT, col="trail-w1")), True)
+
+    def test_hidden_in_bytrail_on_a_ghost_card(self):
+        self.assertIs(
+            self._check(base_filter="bytrail", focused=self._ghost_card()),
+            False)
+
+    def test_hidden_in_bytrail_on_a_child_card(self):
+        self.assertIs(
+            self._check(base_filter="bytrail",
+                        focused=self._card(CHILD, is_child=True,
+                                           col="trail-w1")),
+            False)
+
+    def test_hidden_in_bytrail_with_nothing_focused(self):
+        """No column-placeholder fallback in a wave lane: `m` needs a card."""
+        self.assertIs(
+            self._check(base_filter="bytrail", focused=None,
+                        focused_col="trail-w1"),
+            False)
 
     def test_visible_with_a_parent_card_focused(self):
         self.assertIs(self._check(focused=self._card(PARENT)), True)
@@ -829,12 +878,22 @@ class MoveActionGuardTests(_MoveTestBase):
     """A binding gate is not an action guard."""
 
     def test_the_view_gate_is_re_checked_inside_the_action(self):
-        for view in ("inflight", "bytopic", "bytrail"):
+        """By-Trail is excluded since t1210_5 — see the positive case below.
+        The other two stay asserted so the narrowing cannot leak into them."""
+        for view in ("inflight", "bytopic"):
             with self.subTest(view=view):
                 app = self._mock_app(base_filter=view,
                                      focused=self._card(PARENT))
                 app.action_move_to_column()
                 app.push_screen.assert_not_called()
+
+    def test_bytrail_reaches_the_destination_picker(self):
+        """The positive half: `m` in By-Trail must actually run the chain."""
+        app = self._mock_app(base_filter="bytrail",
+                             focused=self._card(PARENT, col="trail-w1"))
+        app.action_move_to_column()
+        screen, _cb = self._pushed(app)
+        self.assertIsInstance(screen, self.ab.ColumnSelectScreen)
 
     def test_an_active_modal_blocks_the_action(self):
         app = self._mock_app(focused=self._card(PARENT))
@@ -952,6 +1011,188 @@ class MoveWriteTests(bf.FixtureBoardTestBase, bf.PristineTreeMixin,
         out = self._drive([NUMBERLESS], "c4")
         self.assertEqual(out["cols"][NUMBERLESS], "c4")
         self.assertEqual(out["diff"]["changed"], {f"aitasks/{NUMBERLESS}"})
+
+
+# --------------------------------------------------------------------------
+# 9. By-Trail (t1210_5): ghost action guards + the `M` wave move
+# --------------------------------------------------------------------------
+
+
+def _entry(ref, position, *, task=None):
+    """A TrailEntryView stand-in: `entry` dict + resolved task (None = ghost)."""
+    return SimpleNamespace(entry={"task": ref, "position": position},
+                           task=task)
+
+
+def _live(filename):
+    """A live local task as `build_trail_lanes` resolves one."""
+    return SimpleNamespace(filename=filename,
+                           metadata={}, filepath=None, archived=False)
+
+
+class _FakeLane:
+    """A TrailColumn stand-in exposing the two attributes the action reads."""
+
+    def __init__(self, col_id, entries):
+        self.col_id = col_id
+        self._entries = entries
+
+    def wave_entries(self):
+        return self._entries
+
+
+class TrailGhostActionGuardTests(_MoveTestBase):
+    """The palette / direct-dispatch path, NOT the binding gate.
+
+    `check_action` hides both move keys on a ghost, but the command palette
+    calls `action_*` directly and never consults it. Without an action-level
+    guard, `_GhostTaskStub`'s synthetic `trail-ghost-<ref>.md` reaches
+    `_reject_stale`, which blames a *stale selection* and tells the user to
+    press `r` — about a member that is simply read-only.
+    """
+
+    #: The wording that must NOT appear. Asserting its absence is what makes
+    #: these tests fail if the guard is removed: the unguarded path also
+    #: pushes no screen, so "did not push" alone passes either way.
+    STALE_WORDING = "no longer on the board"
+
+    def test_m_on_a_ghost_refuses_without_the_stale_diagnosis(self):
+        app = self._mock_app(base_filter="bytrail", focused=self._ghost_card())
+        app.action_move_to_column()
+        app.push_screen.assert_not_called()
+        app.manager.move_tasks_to_column.assert_not_called()
+        said = self._notified(app)
+        self.assertIn("read-only", said)
+        self.assertNotIn(self.STALE_WORDING, said,
+                         "a ghost is read-only, not a stale selection — and no "
+                         "refresh can ever make it movable")
+
+    def test_M_on_a_ghost_refuses_without_the_stale_diagnosis(self):
+        lane = _FakeLane("trail-w1", [_entry("aitasks#1", 1, task=_live(ALPHA))])
+        app = self._mock_app(base_filter="bytrail", focused=self._ghost_card(),
+                             trail_lanes=[lane])
+        app.action_trail_move_wave()
+        app.push_screen.assert_not_called()
+        app.manager.move_tasks_to_column.assert_not_called()
+        said = self._notified(app)
+        self.assertIn("Read-only", said)
+        self.assertNotIn(self.STALE_WORDING, said)
+
+
+class TrailWaveMoveTests(_MoveTestBase):
+    """`M`: the focused wave's tasks, in `position` order, to one column."""
+
+    def _drive(self, entries, *, focused=None, col="trail-w1"):
+        """Run `M` over `entries`; return the app plus the reviewed rows."""
+        lane = _FakeLane(col, entries)
+        app = self._mock_app(
+            base_filter="bytrail",
+            focused=focused if focused is not None else self._card(PARENT, col=col),
+            trail_lanes=[lane])
+        app.action_trail_move_wave()
+        return app
+
+    @staticmethod
+    def _reviewed(app):
+        """Filenames listed by MoveTaskSelectScreen, in displayed order."""
+        screen, _cb = app.push_screen.call_args_list[0].args
+        return [row[0] for row in screen.rows]
+
+    def test_wave_order_is_preserved_through_the_review(self):
+        app = self._drive([_entry("aitasks#1", 1, task=_live(GAMMA)),
+                           _entry("aitasks#2", 2, task=_live(ALPHA)),
+                           _entry("aitasks#3", 3, task=_live(BETA))])
+        # The EXACT list, not its length: order is the whole contract here.
+        self.assertEqual(self._reviewed(app), [GAMMA, ALPHA, BETA])
+
+    def test_ghosts_and_children_are_skipped_and_named(self):
+        app = self._drive([_entry("aitasks#1", 1, task=_live(ALPHA)),
+                           _entry("aitasks#9990", 2),                 # ghost
+                           _entry("aitasks#9000_1", 3, task=_live(CHILD)),
+                           _entry("aitasks#2", 4, task=_live(BETA))])
+        self.assertEqual(self._reviewed(app), [ALPHA, BETA])
+        said = self._notified(app)
+        self.assertIn("aitasks#9990", said, "ghosts must be named, not counted")
+        self.assertIn("aitasks#9000_1", said,
+                      "skipped children must be named, not counted")
+
+    def test_an_all_ghost_wave_refuses_and_writes_nothing(self):
+        app = self._drive([_entry("aitasks#9990", 1),
+                           _entry("aitasks#9991", 2)])
+        app.push_screen.assert_not_called()
+        app.manager.move_tasks_to_column.assert_not_called()
+        self.assertIn("Nothing movable", self._notified(app))
+
+    def test_a_task_listed_twice_in_a_wave_is_reviewed_once(self):
+        """`MoveTaskSelectScreen`'s row key must be unique (it is the
+        SelectionList value), so a repeated task is deduped on FIRST
+        occurrence, keeping the earliest position's slot.
+
+        **Reachability is proved elsewhere, executably:** these are stand-in
+        entry objects, so this module cannot show that a repeated `entry.task`
+        is schema-valid — asserting it in a docstring here would be a claim
+        nothing checks. `tests/test_trail_schema.py::SemanticNegativeControls::
+        test_a_wave_may_legally_repeat_a_task_ref` runs the real validator over
+        a real fixture and fails if a future rule ever outlaws the case this
+        test guards.
+        """
+        app = self._drive([_entry("aitasks#1", 1, task=_live(GAMMA)),
+                           _entry("aitasks#2", 2, task=_live(ALPHA)),
+                           _entry("aitasks#1", 3, task=_live(GAMMA)),  # repeat
+                           _entry("aitasks#3", 4, task=_live(BETA))])
+        reviewed = self._reviewed(app)
+        self.assertEqual(reviewed.count(GAMMA), 1)
+        # Kept at the FIRST entry's slot, surrounding order unchanged.
+        self.assertEqual(reviewed, [GAMMA, ALPHA, BETA])
+        self.assertIn("twice", self._notified(app))
+
+    def test_M_works_when_a_CHILD_card_holds_focus(self):
+        """The action-level half of the deliberate gate divergence: `M` acts on
+        the WAVE, so a focused child must still move the wave's parents. Without
+        this, the tests would only prove the footer advertises `M` there, and a
+        later child guard in the action would leave the key advertised but
+        inert."""
+        app = self._drive([_entry("aitasks#1", 1, task=_live(ALPHA)),
+                           _entry("aitasks#2", 2, task=_live(BETA))],
+                          focused=self._card(CHILD, is_child=True,
+                                             col="trail-w1"))
+        self.assertEqual(self._reviewed(app), [ALPHA, BETA])
+
+
+class TrailWaveGatingTests(_MoveTestBase):
+    """`check_action("trail_move_wave", …)`."""
+
+    def _check(self, **kw):
+        app = self._mock_app(**kw)
+        return self.KanbanApp.check_action(app, "trail_move_wave", None)
+
+    def test_hidden_outside_bytrail(self):
+        for view in ("all", "locked", "free", "inflight", "bytopic"):
+            with self.subTest(view=view):
+                self.assertIs(
+                    self._check(base_filter=view, focused=self._card(PARENT)),
+                    False)
+
+    def test_hidden_on_a_ghost(self):
+        self.assertIs(
+            self._check(base_filter="bytrail", focused=self._ghost_card()),
+            False)
+
+    def test_hidden_with_nothing_focused(self):
+        self.assertIs(
+            self._check(base_filter="bytrail", focused=None), False)
+
+    def test_shown_on_a_live_card(self):
+        self.assertIs(
+            self._check(base_filter="bytrail",
+                        focused=self._card(PARENT, col="trail-w1")), True)
+
+    def test_shown_on_a_focused_CHILD(self):
+        """Deliberately divergent from `m`: `M` acts on the enclosing wave."""
+        self.assertIs(
+            self._check(base_filter="bytrail",
+                        focused=self._card(CHILD, is_child=True,
+                                           col="trail-w1")), True)
 
 
 if __name__ == "__main__":
