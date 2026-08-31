@@ -793,3 +793,125 @@ and validating a real document proves the encoding *shape*, not that the
 verdict→lane mapping matches intent. The scoring-quality bullet is unmitigated by
 design — there is no oracle for "the right order", which is why every component is
 shown per entry.
+
+---
+
+## Final Implementation Notes
+
+Landed as planned. Seven things are worth recording, six of them deviations or
+measurements the plan could not have contained.
+
+### What the post-phase mitigation actually caught
+
+`encode_a_real_document` earned its place immediately. The first complete
+document failed validation with `relation_endpoint: endpoint 'aitasks#900' not
+referenced anywhere else in the document` — a `coordinates_with` relation may
+only point at a task the document already mentions, and an in-flight task has no
+entry of its own. The fix is semantically right rather than a workaround: the
+`in_flight_conflict` observation now carries **both** ends in `affects`, which is
+true (the collision affects the in-flight task too) and is one of the four places
+the validator resolves an endpoint against. Without the mitigation this would
+have surfaced inside t1569_6, in prose, one slice later — exactly the risk the
+`## Risk` section named.
+
+### Deviations from the approved plan
+
+1. **`REASONS` split into `BASELINE_REASONS` + `PATH_REASONS`** (union kept as
+   `REASONS`). Two of the reasons describe why no *baseline* exists and two
+   describe why one *path* could not be checked; one flat bag made the record
+   protocol ambiguous about which field a reason belonged to.
+2. **`PATH_REASONS` gained `no_index_history`** beside `absent_at_baseline`. "The
+   path has no commit row at all" and "rows exist, but none at or before the
+   baseline" are genuinely different states with different remedies. Both drive
+   the verdict, as `UNKNOWN` must.
+3. **The risk reduction includes the candidate's own axis** alongside its
+   origins'. The parent task's signal is "`risk_code_health:` on the task **or**
+   its origin", and folding both into the same `max` keeps the rule symmetric and
+   monotone instead of needing a precedence tie-break.
+4. **The collector emits a row plus a stderr warning for a named-but-missing task
+   id.** Returning silence would have made "no origin facts", "no such task" and
+   "filtered out" indistinguishable — the infer-from-an-absent-line hazard the
+   record format exists to prevent. The row carries the fact; stderr carries the
+   caller bug, so the line protocol stays clean.
+5. **Verification #12 lives in its own module**, `tests/test_roadmap_integration.py`,
+   because it is pure; #14 and #15 live in `tests/test_roadmap_origin_facts.py`,
+   the one roadmap module that shells out.
+
+### A measurement that changed nothing, recorded so it is not re-litigated
+
+Task-data paths (a plan file, a task file) are inside the checked scope, so plan
+churn can register as premise drift. Measured over the live corpus: of 169
+follow-ups with a resolvable origin and file set, **zero** are `ASK_STALE` *only*
+because of task-data churn — every stale verdict has real code churn behind it.
+Narrowing the checked scope to code paths was therefore considered, measured and
+**not** done. The `data_prefixes` parameter still governs the *baseline* rule,
+where it is load-bearing.
+
+Separately: 153 of those 169 land on `ASK_STALE` and 14 on `SKIP`, so the premise
+band is nearly constant across today's corpus and contributes almost nothing to
+*ordering*. Its value is the per-entry hedge — the confidence ceiling and the
+caveat — not discrimination. Recorded in the design record as a dated
+"what this does not buy".
+
+### Suite status
+
+`bash tests/run_all_python_tests.sh --test-dir tests` → `PYTHON SUITE: PASSED
+(runner=pytest, exit=0)`, 6144 passed.
+
+One run in four failed on
+`tests/test_minimonitor_startup_input_latency.py::MountWindowProbeTests::test_mount_returns_while_the_window_probe_is_still_blocked`.
+It is a **pre-existing load flake, not a regression**: it passes 3/3 in
+isolation, references nothing this task touched, and asserts a mount-latency
+bound that a loaded worker pool invalidates. Another agent was actively editing
+board code in the same checkout throughout (t1603_3), which is the contention.
+
+### Concurrency note
+
+The working tree carried a concurrent session's changes to
+`.aitask-scripts/board/aitask_board.py`, `tests/test_board_dialog_run_dispatch.py`,
+`tests/test_board_gate_digest_budget.py` and `tests/test_board_inflight_planned_lane.py`
+(t1603_3). Every commit for this task was made path-scoped so none of it was
+swept in; the five whitelist config files were diff-checked to confirm they
+carried only this task's entry.
+
+### Post-review fixes (four confirmed defects)
+
+A review round after implementation found four real defects. All were reproduced
+before being fixed, and each now has a test that fails without the fix.
+
+1. **`counterfactual_rank_delta` measured a proxy while claiming the metric.**
+   It ignored its ranking argument entirely and counted *file-set inequality*,
+   which overstates the effect — two different surfaces routinely leave every
+   position and lane untouched — and the enhancement threshold for a persisted
+   direct-origin field keys off that number. Rewritten to compare each
+   dual-signal task's **actual position and lane** across two real policy runs,
+   with `dual_signal_refs()` as its companion. `CounterfactualTests` pins the
+   discriminating fixture: **sets differ, ranking does not → 0**. That test reads
+   1 if the metric ever regresses to the proxy.
+2. **A resolved baseline over an empty file surface returned `FRESH`** — "all 0
+   origin file(s) unchanged", which reads as verified and lifted the confidence
+   ceiling to `high` for a task whose premise was never examined. That is exactly
+   the false all-clear the module's own `UNKNOWN`-drives-the-verdict rule
+   forbids, and it is reachable (a candidate whose batch-map status is
+   `NO_FILES`). Now `SKIP` with a new `SCOPE_REASONS` value `empty_scope`, an
+   `UNCHECKED:empty_scope` record, and `PremiseResult.reason`. Deliberately not
+   `ASK_STALE`: there is no evidence the premise moved, only nothing to check.
+3. **`to_trail` emitted `waves: []` for a zero-candidate scope**, an artifact
+   that can never validate, while the function's docstring promised a complete
+   document. Now raises `EmptyRoadmapError` — what a zero-candidate run means is
+   the caller's decision, not the encoder's to guess.
+4. **The design record's opening contradicted the implemented contract**: it said
+   "two-lane" (there are three) and "safe to start" (the contract is "no known
+   conflict at check time", and the run-summary rules forbid the word "safe").
+   Since this is the document t1569_6 implements against, it could have
+   propagated both a missing lane and an unsafe guarantee. Rewritten, and the
+   three fixes above are now documented there too.
+
+Recovered from one self-inflicted error along the way: a scripted edit sliced the
+policy module from `counterfactual_rank_delta` to EOF, deleting the trail
+encoder. Restored from a scratch backup and re-applied both later fixes; the 60
+unrelated tests passing immediately afterwards confirmed the restore was faithful
+before the two counterfactual tests were rewritten.
+
+Full suite re-run after all four fixes: `PYTHON SUITE: PASSED (runner=pytest,
+exit=0)`.

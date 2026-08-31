@@ -204,6 +204,60 @@ speculatively.
 
 ---
 
+## Pre-phase results and the amendment they forced (measured 2026-08-31)
+
+**Pre-phase 1 — hazard 2 CONFIRMED.** An anchored `VerticalScroll` that stops
+overflowing holds `scroll_y = -8` with `max_scroll_y = 0` (`total_region.bottom`
+4 minus container height 12), and recovers to `max_scroll_y` on regrowth. The
+Step 3 degenerate-range guard ships, and it must clamp WITHOUT releasing.
+
+**Pre-phase 2 — the approved arming design was FALSIFIED.** The live fixture
+works (real pty, real SGR drag, a `grab` event proving the press hits the thumb)
+and reproduces the reported bug against unchanged code:
+
+```
+tick=  2 y= 20.98 max= 50 GAP= 29.02 vh= 80
+tick=  3 y= 40.98 max=130 GAP= 89.02 vh=160
+tick= 17 y= 15.98 max=108 GAP= 92.02 vh=138
+tick= 20 y=  2.98 max= 70 GAP= 67.02 vh=100
+```
+
+Two findings, and the second invalidates the plan as approved:
+
+1. **The one-row `at_bottom` window is not the trigger.** With card-height churn
+   SYNCHRONISED to the rebuild, the unchanged code held
+   `max_scroll_y - scroll_y == 0` across 15+ consecutive ticks — including a drag
+   deliberately stopped one screen row short of the trough end, because the
+   7-row thumb absorbs it. The drift appears only once card heights change **out
+   of band with the refresh cycle**, which is what production does (gate rows,
+   concern rows, marks arriving between ticks). That also explains the
+   reporter's "larger on a longer list": the gap tracks the content-height swing.
+
+2. **Textual's anchor would never ARM under those conditions.**
+   `Widget._check_anchor` requires `scroll_y >= max_scroll_y`, and when
+   `max_scroll_y` moves between 44 and 156 several times a second, no gesture
+   lands on it — measured: the drag ended at 20.98 of 50. The plan as approved
+   would have shipped and left the reported symptom in place. Step 1b's
+   quantum-sized tolerance does not close a 29-row gap either.
+
+**Amendment (user-approved).** Textual's anchor still does the *pinning* — it is
+the only thing that recomputes the offset at arrange time. What changes is the
+**arming**: "the user is pinned to the bottom" becomes an INTENT recorded at the
+gesture, not a position compared against a `max_scroll_y` that is already stale
+by the time the comparison runs.
+
+- `MiniPaneList._on_scroll_to` records, **at request time**, whether the thumb
+  drag asked for a position at or beyond the then-current `max_scroll_y` — i.e.
+  whether it was clamped at the end. That is the geometry the user was actually
+  looking at, and it is the only moment the question has a stable answer.
+- `MiniPaneScrollBar._on_mouse_release` (the app-owned seam from Step 1b) marks
+  the release, and `MiniPaneList._check_anchor` arms on that flag rather than on
+  a numeric tolerance. Step 1b's `quantum` predicate is **dropped** — it was
+  designed against the wrong root cause.
+- The `_locked()` / `max_scroll_y <= 0` refusal stays, but applies only to the
+  `watch_scroll_y` path it was written for (the degenerate `0 >= 0` mid-rebuild).
+  A real end-of-drag gesture is never refused by it.
+
 ## Implementation steps
 
 ### Step 1 — `MiniPaneList` (`.aitask-scripts/monitor/minimonitor_app.py:426`)
