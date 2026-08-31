@@ -22,7 +22,8 @@ REPO_ROOT = os.path.dirname(TESTS_DIR)
 LIB_DIR = os.path.join(REPO_ROOT, ".aitask-scripts", "lib")
 sys.path.insert(0, LIB_DIR)
 
-PURE_MODULES = ("parallel_admission", "parallel_admission_vocab")
+PURE_MODULES = ("parallel_admission", "parallel_admission_vocab",
+                "parallel_admission_sweep")
 PURE_SOURCES = tuple(os.path.join(LIB_DIR, m + ".py") for m in PURE_MODULES)
 
 # The impure half is allowed all of these; the pure half is allowed none.

@@ -11,7 +11,23 @@
 #   check  --candidate <id> --from plan|origin|auto [--plan <path>]
 #          --lock-freshness require-fresh|allow-cached
 #          [--max-lock-age <s>] [--max-claim-age <s>] [--hub-threshold <n>]
-#   replay --candidates <file|-> [same flags]   -> RATES:/CAUSE_RATE: over a population
+#   replay --candidates <file|-|auto> [same flags]  -> RATES:/CAUSE_RATE: over a
+#          population. [--thresholds <csv>] sweeps SEVERAL hub thresholds within
+#          ONE collected snapshot -- re-invoking per threshold would re-collect,
+#          and the in-flight population moves between collections, so the rates
+#          would not be comparable. [--exclude <ids>] / [--exclude-no-plan] drop
+#          claims from the comparison and report BOTH populations.
+#   sweep  [--thresholds <csv>] [--plan-scope full|pre-implementation] (t1643)
+#          -> SWEEP:/SWEEP_METRIC: precision, recall and the hard-stop/caveat
+#          composition over ARCHIVED task pairs, graded against the ground truth
+#          `decide` cannot see: did the two tasks' landed file sets intersect?
+#
+# MEASUREMENT FLAGS ARE REFUSED ON `check` (exit 2). `--exclude*` hides an
+# in-flight task, which at an admission point hides a real collision; `check` is
+# the only verb that renders an admission decision, so it is the one verb that
+# may not be talked out of one. `sweep` refuses them too, for a different reason
+# it states separately: its population is archived pairs and has no claim set to
+# filter, so accepting the flag would silently measure the full archive.
 #
 # EXIT STATUS: every *content* state exits 0 -- CLEAR, CLEAR_CAVEATED, CONFLICT
 # and UNCHECKABLE are all answers, and the caller reads VERDICT:. CLI misuse
