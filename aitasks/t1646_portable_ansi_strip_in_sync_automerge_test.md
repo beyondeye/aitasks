@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-08-31 10:59
-updated_at: 2026-08-31 11:14
+updated_at: 2026-08-31 17:34
 ---
 
 ## Origin
@@ -51,3 +52,8 @@ escape and GNU and BSD behave identically. See `tests/test_task_lock.sh:592` for
 same fix with its explanatory comment. While there, re-run the sweep
 (`grep -rnE "(sed|awk)[^|]*\\\\x[0-9a-fA-F]{2}" --include="*.sh" .`) to confirm no
 third site has appeared.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-31T14:35:01Z status=pass attempt=1 type=human
