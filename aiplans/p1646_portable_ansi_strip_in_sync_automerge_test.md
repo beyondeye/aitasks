@@ -73,7 +73,9 @@ anywhere in `*.sh`, plus every `sed …[0-9;]*m` expression) confirms no fourth:
 Every other `\xNN` hit is inside a Python heredoc or bash `$'…'` ANSI-C quoting,
 where `\xNN` is interpreted by Python/bash and is correct. The mandated grep also
 false-positives on the word "par**sed**" (`tests/test_applink_content.sh:124`);
-the guard below fixes that by anchoring `sed` to a word boundary.
+the guard below fixes that by requiring `sed` to be in a shell **command
+position** (see Change Request 1 — a word-boundary anchor alone was not enough,
+because it still flagged the expression quoted inside ordinary prose).
 
 ## Implementation
 
@@ -139,7 +141,7 @@ real-tree scan, then negative controls proving the guard can fail).
 re-tests each candidate precisely. Both stages validated against the live tree.
 
 ```bash
-PATTERN='(^|[^A-Za-z0-9_])(sed|awk|tr)[[:space:]][^|]*\\x[0-9a-fA-F]{2}'
+PATTERN='(^[[:space:]]*|[;&|(`{!][[:space:]]*|\$\([[:space:]]*|(exec|eval|then|else|do|if|elif|while|until|time|nohup)[[:space:]]+)(sed|awk|tr)[[:space:]][^|]*\\x[0-9a-fA-F]{2}'
 ```
 
 Stage 2 applies two suppressions:
@@ -285,3 +287,124 @@ validated against the live tree before being written into this plan.
 
 Standard: commit, merge to `main` (current-branch mode — nothing is forked),
 archive `t1646` and this plan.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-31 17:49)
+
+- **Requested by user:** The guard's stage-1 `PATTERN` was not command-position
+  anchored despite the header claiming "command-position-ish". A harmless prose
+  string such as `echo "Example: sed 's/\x1b//'"` was flagged, so an unrelated
+  diagnostic or help-text change could fail the repo-wide guard. Tighten the
+  detection to real shell command positions (or narrow the documented scope
+  honestly), and add the prose case as a negative control.
+
+- **Verified:** Reproduced exactly — the original pattern returns 1 hit for
+  `echo "Example: sed 's/\x1b//'"`. The concern is valid and was blocking. The
+  header's "command-position-ish" wording overclaimed: the anchor was only a
+  word boundary (`[^A-Za-z0-9_]`), which excludes the word "par*sed*" but not
+  prose.
+
+- **Changes made:**
+  1. `PATTERN` replaced with a real command-position anchor modelled on
+     `tests/test_no_raw_tmux.sh`'s `SH_PATTERN`: line start, or after
+     `;` `&` `|` `(` `{` `!` `` ` `` `$(`, or after
+     `exec`/`eval`/`if`/`elif`/`then`/`else`/`while`/`until`/`do`/`time`/`nohup`.
+  2. Header rewritten to describe the anchor accurately, and the NOT-DETECTED
+     list extended with "a `sed` reached through a lead-in outside the set
+     (e.g. `xargs sed …`)".
+  3. Negative controls added: `prose.sh`, `prose_mid.sh`, and `piped.sh` (the
+     latter pins the documented pipe boundary as a tested fact rather than an
+     accident of the regex).
+  4. **Positive controls added to catch the tightening's own risk** —
+     `piped_sed.sh` (the exact t1646 shape: `… | sed 's/\x1b…'` inside a command
+     substitution), `subst_sed.sh`, `indented_sed.sh`, and `brace_body.sh`.
+
+- **Defect found while applying the fix (and fixed):** the first tightened
+  pattern introduced a **false negative on the primary defect shape**. The
+  t1646 fix site is a one-line helper body, `strip_ansi() { sed …; }`, and `{`
+  was not in the lead-in set — so the guard **passed against a deliberately
+  broken tree**, silently failing at exactly the job it exists to do. Caught by
+  re-running the end-to-end regression check after tightening, not by the unit
+  fixtures. `{` and `!` were added to the character class, the keyword set was
+  widened, and `brace_body.sh` now pins the case permanently. The header calls
+  the `{` out as load-bearing so it cannot be "simplified" away.
+
+- **Files affected:** `tests/test_no_sed_hex_escape.sh` (pattern, header, 7 new
+  fixtures), `aiplans/p1646_portable_ansi_strip_in_sync_automerge_test.md`
+  (stale `PATTERN` in the P2 section updated to the shipped one).
+
+- **Re-verification:** guard 18 passed / 0 failed (was 11); `shellcheck`
+  SC1091-only (house baseline); end-to-end regression check re-run — restoring
+  the `\x1b` form at line 154 is now flagged with the exact line and an
+  actionable message; `test_sync_branch_mode_automerge.sh` unchanged at 17/17.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  1. `tests/test_sync_branch_mode_automerge.sh` — the t1646 fix. Added a single
+     `strip_ansi()` helper (`sed $'s/\033\[[0-9;]*m//g'`) beside
+     `setup_branch_mode_repos()`, shared by the real call site (line 342) and
+     its portability control so the expression has one definition. Added two
+     assertions: a synthetic ANSI probe (the real portability guard) and an
+     ESC-survival check on `$int_clean`. 15 → 17 assertions.
+  2. `tests/test_no_sed_hex_escape.sh` (new, 216 lines) — repo-wide guard for
+     the whole `\xNN`-in-`sed`/`awk`/`tr` class, modelled on
+     `tests/test_no_raw_tmux.sh`. Two-stage scan (fast per-file `grep`, then a
+     precise re-test), command-position anchoring, comment suppression, and
+     segment-scoped `$'…'` suppression. 18 assertions over 16 fixtures.
+  3. `aidocs/framework/sed_macos_issues.md` — the `\xNN` class is now enforced
+     by that test rather than by the manual sweep the guide mandated.
+  4. `aitasks/t1646_*.md` — corrected the `## Upstream defect` impact claim
+     (see "Key decisions").
+
+- **Deviations from plan:**
+  - **Added `aidocs/framework/sed_macos_issues.md` to the change set** (not in
+    the approved plan). The guide still instructed a manual sweep for the very
+    class the new test now enforces; leaving it would have let doc and
+    enforcement drift immediately. The other footgun classes there remain
+    manual sweeps and are marked as such.
+  - **P1 was reshaped during planning, before implementation.** The first draft
+    asserted `$int_out` carries an ANSI wrapper, coupling this
+    conflict-resolution test to `ait sync`'s presentation policy. Replaced with
+    a synthetic probe, which is presentation-independent and non-vacuous.
+  - **The guard's detection pattern was tightened post-review** — see Change
+    Request 1.
+
+- **Issues encountered:**
+  1. **Self-scan hazard.** The guard's own negative-control fixtures would have
+     matched its own pattern once the file became tracked, and only *after* the
+     commit that verified clean. Solved by assembling the forbidden sequence at
+     runtime from a split token (`X='x'; BAD="\\${X}1b"`) rather than
+     allowlisting the file, plus a self-scan test that pins the invariant. The
+     guard is now verified with the file tracked.
+  2. **`scrub_ansic()` infinite loop.** The first version replaced each `$'…'`
+     segment with `$''`, which re-matches the loop condition forever. It must
+     substitute a plain space; the code carries a comment saying so.
+  3. **False negative introduced by the command-position tightening.** Omitting
+     `{` from the lead-in set made the guard miss `strip_ansi() { sed …; }` —
+     the exact shape of this task's own fix site — so it passed against a
+     deliberately broken tree. Caught only by re-running the end-to-end
+     regression check, not by the unit fixtures. Fixed and pinned by
+     `brace_body.sh`.
+
+- **Key decisions:**
+  - **The task's premise was wrong, and the record was corrected.** t1646 claimed
+    the un-stripped string makes assertions "fail against correct code". Checked
+    empirically against the real captured bytes of `$int_out`: all three
+    assertions at the site tolerate the colour wrapper (the two `grep -c … == 0`
+    checks are negative; `assert_contains` matches because the ESC codes sit
+    outside the phrase). Running the suite under simulated BSD semantics
+    confirms it — 15 of 17 pass. Nothing observable failed on macOS. The real
+    defect is a *silent no-op* leaving a latent trap. The task file now says so.
+  - **Verification is byte-level, not platform-level.** No macOS box was
+    available, so correctness was established by emulating what BSD sed actually
+    sees (`s/x1b\[[0-9;]*m//g`) against real captured bytes, and by a negative
+    control that swaps the helper for that form and confirms both new assertions
+    fail while the three pre-existing ones still pass.
+  - **Fixture encoding over allowlisting.** Allowlisting the guard's own file
+    would blind it to a real defect introduced there later.
+  - **Documented boundaries are tested, not just asserted in prose.** The pipe
+    boundary has its own control (`piped.sh`) so the limitation is a known fact.
+
+- **Upstream defects identified:** None
