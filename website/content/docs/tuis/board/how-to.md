@@ -216,7 +216,9 @@ status, and a short pane underneath carries the trail's summary.
 
 1. Press **z** to enter the view, then **s** to pick which trail to show. If you
    have no trails yet, create one first: from a kanban or By-Topic view, focus a
-   task and press **T** (it is unavailable in In-Flight and in By-Trail itself).
+   task and press **T** (it is unavailable in In-Flight and in By-Trail itself),
+   or run [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}) in your
+   coding agent.
 2. Read the summary pane under the columns — it is the trail's prose answer to
    "what should land next, and why". Press **v** to open it in a scrollable
    dialog if it is longer than the pane. The subtitle states the trail's
@@ -229,7 +231,8 @@ status, and a short pane underneath carries the trail's summary.
    state, **S** runs a remote sync first, and **R** hands the trail to an agent
    to be re-authored. **R** re-authors at the cheaper `lite` depth; on a trail
    authored at `deep` it says what that discards and asks first, and the previous
-   version stays retrievable. Run the trail skill with `--deep` yourself when you
+   version stays retrievable. Run the
+   [trail skill]({{< relref "/docs/skills/aitask-trail" >}}) with `--deep` yourself when you
    want the full analysis back.
 5. Move the work onto the board when you are ready to act on it: **m** moves the
    focused entry's task to a column, **M** moves the whole focused wave. **M**

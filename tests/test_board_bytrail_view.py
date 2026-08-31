@@ -4509,5 +4509,65 @@ class MoveToColumnTests(ByTrailTestBase):
                          [self.DELTA, self.ALPHA, self.GAMMA])
 
 
+class RunSummaryBoardPointerTests(ByTrailTestBase):
+    """t1644: the trail skill's board pointer must name the LIVE bindings.
+
+    The `/aitask-trail` run summary ends with a line telling the user the trail
+    is also viewable on the board, naming four keys. Those four letters are
+    owned by this module's App-level BINDINGS, so the prose is a second copy
+    that would go stale silently the moment a key is rebound -- the user would
+    be told to press a key that does something else, or nothing.
+
+    This reads the keys out of BINDINGS by ACTION name (the stable identity;
+    the key is the thing that moves) and asserts the rendered skill golden
+    names exactly those. It deliberately reads the golden rather than the
+    template: the golden is what every profile actually ships.
+    """
+
+    # action -> how the pointer labels it. The label is asserted too, because a
+    # correct key with a wrong description is just as misleading.
+    POINTER_ACTIONS = {
+        "view_bytrail": "By-Trail",
+        "trail_select": "choose trail",
+        "trail_summary_expand": "full summary",
+        "view_details": "member detail",
+    }
+
+    def _app_binding_key(self, action):
+        """The key bound to `action` in the board App's own BINDINGS list."""
+        for binding in self.ab.KanbanApp.BINDINGS:
+            if getattr(binding, "action", None) == action:
+                return binding.key
+        self.fail("no App-level binding for action %r -- it was renamed or "
+                  "removed, so the trail skill's board pointer is now wrong"
+                  % action)
+
+    def test_pointer_names_the_live_bindings(self):
+        golden = (REPO_ROOT / "tests" / "golden" / "skills" / "aitask-trail"
+                  / "SKILL-default-claude.md").read_text()
+        pointer = [line for line in golden.splitlines()
+                   if line.startswith("Also viewable in ")]
+        self.assertEqual(
+            len(pointer), 1,
+            "the run summary's board pointer must appear exactly once in the "
+            "rendered skill; found %d candidate line(s)" % len(pointer))
+        line = pointer[0]
+
+        for action, label in self.POINTER_ACTIONS.items():
+            key = self._app_binding_key(action)
+            # A single-character binding is case-SIGNIFICANT: this board binds
+            # `s` (trail_select) and `S` (trail_sync) to different actions, so
+            # folding case would let the pointer name the wrong one. A named
+            # key ("enter") is a lowercase Textual identifier that user-facing
+            # prose conventionally capitalizes, so only there is case free.
+            expected = "%s (%s)" % (key, label)
+            haystack, needle = ((line, expected) if len(key) == 1
+                                else (line.lower(), expected.lower()))
+            self.assertIn(
+                needle, haystack,
+                "the board pointer must name %r as %r (%s), but reads: %s"
+                % (action, key, label, line))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -60,6 +60,8 @@ Everything the agent asserts is separated from what it observed: observations ci
 
 The flow is the same either way: the agent gathers task and plan state read-only, analyses it, shows you the proposed waves with their reasoning, and writes **once** after you confirm. Nothing is stored until you approve it, and analysis never modifies a task.
 
+The run ends by printing the trail it wrote — the depth and overview, each wave with its entries in order, the recorded relations, and a pointer to the By-Trail view — so a trail created from your agent can be read without switching to the board.
+
 If the analysis turns up a blocker outside the scope you asked for — the classic case being a broken test baseline that has nothing to do with your topic — it proposes widening the scope and lets you decide. It does not quietly expand on its own.
 
 ### Lite and Deep

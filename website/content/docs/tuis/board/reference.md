@@ -243,7 +243,8 @@ affecting teammates.
 
 An **implementation trail** is a durable, wave-structured record of how a group
 of tasks should be sequenced, with the evidence behind that ordering. Trails are
-created and re-authored by the `/aitask-trail` skill — on the board, focus a task
+created and re-authored by the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}})
+skill — on the board, focus a task
 in a kanban or By-Topic view and press `T` to start one (`T` is hidden in In-Flight
 and in By-Trail itself). The By-Trail view is a **read-only projection** of a stored
 trail: it never writes the trail itself.
@@ -305,7 +306,8 @@ renders here with full lanes, badges, landed marks and drift markers. Because
 the depths differ in what they store, pressing `R` on a trail authored at `deep`
 replaces it with a lite version; the agent lists exactly what that discards and
 asks before writing, and the previous version stays retrievable from the
-artifact's history. To re-author at full depth, run the trail skill directly
+artifact's history. To re-author at full depth, run the
+[trail skill]({{< relref "/docs/skills/aitask-trail" >}}) directly
 with its `--deep` flag rather than using `R`.
 
 If the scan cannot read one of your task files — a task being rewritten at that

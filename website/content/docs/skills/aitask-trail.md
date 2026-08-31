@@ -21,6 +21,8 @@ For the end-to-end workflow, including the board's By-Trail view and how a trail
 /aitask-trail 312 --deep
 ```
 
+You do not have to type the command. Asking your coding agent for an implementation trail in plain language — "work out what order these tasks should land in and record it" — reaches the same skill and the same flow, including the confirmation before the single write. The slash form is simply the direct way to reach it, and the only way to pass flags such as `--deep`.
+
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 
 ## Modes
@@ -60,6 +62,17 @@ Given a bare handle with no mode flag, the skill asks whether you meant show or 
 
 Refresh follows the same shape, beginning from the recorded drift rather than a fresh scope.
 
+### The run summary
+
+Create and refresh end by printing a compact account of the trail that was just written, so a trail authored from your agent can be read without opening the board:
+
+- the authoring depth (`lite`, `deep`, or `unrecorded` for a trail written before depth was recorded), and the trail's prose overview;
+- each wave in order as `W<n> · <title>`, with its entries listed in position order by task reference;
+- the recorded relations, grouped by type and by whether each is a **fact** read out of the repository or an **advisory** recommendation the trail is making — a distinction that matters, because only some relation types are constrained to one or the other. A lite trail stores no relations at all, and says so rather than showing an empty list, which would read as "these tasks are independent";
+- a closing pointer to the [By-Trail view]({{< relref "/docs/tuis/board/reference" >}}#by-trail) and the keys that open it.
+
+`--show` prints the depth, the overview and the board pointer, but not the wave-and-relation recap — it has already rendered the whole document, in full, immediately above.
+
 ## Invariants
 
 - **At most one write per run**, and only after explicit confirmation. Show writes nothing at all.
@@ -76,6 +89,6 @@ There is no `ait trail` command: trails are reached through this skill and throu
 ## Related
 
 - [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) — the end-to-end workflow
-- [Board reference]({{< relref "/docs/tuis/board/reference" >}}) — the By-Trail view and its keys
+- [Board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — the By-Trail view and its keys
 - [`/aitask-work-report`]({{< relref "/docs/skills/aitask-work-report" >}}) — reporting on a column a trail wave was moved into
 - [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}) — how topics and trails differ

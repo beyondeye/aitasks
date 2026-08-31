@@ -296,9 +296,12 @@ picks refresh, and falls under the `--show` note above if they pick show.
    and report the live verdict: `CURRENT`, or `STALE` with the named
    `DRIFT:` reasons, or the `ERROR:` outcome verbatim. On `STALE`, suggest
    `/aitask-trail --refresh <handle>`.
-4. **Print the run summary** — see **Run summary print** below. Show states
-   the artifact's **stored** depth (a document with no `rendering_hints.depth`
-   states "unrecorded", never "deep").
+4. **Print the run summary** — see **Run summary print** below. Show prints
+   **parts 1 and 3 only** (the depth and summary core, then the board pointer);
+   part 2, the structural recap, is skipped because step 2 above already
+   rendered the whole document in full. Show states the artifact's **stored**
+   depth (a document with no `rendering_hints.depth` states "unrecorded", never
+   "deep").
 5. Stop. Do not offer to write anything from the show flow.
 
 ### Step 2: Create Flow
@@ -485,7 +488,8 @@ this step) / "Discard" (stop; nothing was written).
    create flow. Any other failure → surface and stop.
 
 5. **Print the run summary** after the `HANDLE:` line — see **Run summary
-   print** below. This is what removes the board round-trip from the loop.
+   print** below, **all three parts**. This is what removes the board
+   round-trip from the loop.
 
 ### Step 3: Refresh Flow (`--refresh <handle>`)
 
@@ -670,12 +674,34 @@ this step) / "Discard" (stop; nothing was written).
    comparable via `versions` / `get --version sha256:<hash>`.
 
 7. **Print the run summary** after the write — see **Run summary print**
-   below. Refresh prints it exactly as create does.
+   below. Refresh prints it exactly as create does, **all three parts**
+   included: step 4 above showed only what *changed*, so this is the run's only
+   picture of the resulting trail.
 
 ## Run summary print
 
 Printed at the end of **every** flow — create (2e.5), refresh (3.7) and show
 (1.4) — so the user can decide what to pick next without opening the board.
+It has **three parts, printed in this order**:
+
+| Part | Printed by | Content |
+|---|---|---|
+| 1. Core | all three flows | the depth line, then the summary line |
+| 2. Structural recap | create and refresh only | waves, entries, relations |
+| 3. Board pointer | all three flows, always last | the `ait board` line |
+
+Part 3 is its own part, **not** a trailing item of part 2: show omits the recap
+and still prints the pointer, which is the whole point of telling a show user
+the artifact has a board view.
+
+Everything below is read back from the trail JSON this run already has on disk
+— the authored tmpfile on create and refresh, the `get --out` tmpfile on show.
+No flow gains a new command, and the anti-fabrication invariant applies
+unchanged: print what the document records, never a re-derivation or an
+embellishment.
+
+### Part 1 — Core (all three flows)
+
 Two lines, in this order:
 
 1. **The depth**, stated plainly (`lite` / `deep`; `unrecorded` when the
@@ -691,7 +717,84 @@ That resolution order and that stripping are not a local choice — they are
 exactly what the board's `trail_summary_text()` does for the By-Trail summary
 pane. The two surfaces read the same field on the same artifact, so they must
 render it identically; do not print the raw value, and do not reorder the
-fallback.
+fallback. Parts 2 and 3 are printed **around** this line, never folded into it.
+
+### Part 2 — Structural recap (create and refresh only)
+
+1. **`Waves (<N>):`** then one block per wave in `ordinal` order —
+   `W<ordinal> · <title>` followed by that wave's entries in `position` order
+   as `<position>. <task>`. The wave's `title` only: `purpose`, `why_now` and
+   `consequence_of_delay` belong to the full render, not to a recap.
+2. **`Relations (<N>):`** — first a per-type count line for the types present,
+   then the endpoint pairs `<from> → <to>` for **every** type present, one
+   labelled group per `(type, provenance)` pair headed `<type> · <provenance>:`,
+   in schema order (`hard_depends`, `advisory_precedes`, `coordinates_with`,
+   `verifies`, `informs`) with `fact` before `advisory` inside a type. Pairs
+   wrap within their group rather than taking a line each.
+
+   **No type is reduced to a count alone.** A `verifies` or `informs` edge is
+   as much a recorded relation as a `hard_depends` one — `verifies` is how a
+   manual-verification task's coverage is recorded — and a reader cannot see
+   the affected tasks of a group that was collapsed to a number.
+
+   **`provenance` is read from the record, never inferred from the type.** It
+   is required on every relation, and only two of the five types have it pinned
+   by the authoring rules above (`hard_depends` → `fact`, `advisory_precedes` →
+   `advisory`); `coordinates_with`, `verifies` and `informs` each carry either
+   in practice, and a single document can hold both for one type. Printing type
+   and endpoints alone would let a reader take the trail's own recommendation
+   for a recorded constraint — exactly what anti-fabrication forbids. Label
+   every group, including the two the rules pin, so there is no conditional to
+   get wrong.
+
+   Two degradations, which state **different** things and must not share
+   wording:
+   - **the `relations` key is absent** →
+     `Relations: none recorded at this depth (lite trails omit them).`
+     A lite trail is *required* to omit the key (rule `lite_shape`), so absence
+     means this depth carries none — never that the members are independent of
+     one another.
+   - **the key is present and empty** (possible only at deep) →
+     `Relations (0): none recorded.`
+
+   Never print a bare `Relations (0):` heading for a lite trail, and never let
+   either wording imply the other.
+
+**Refs are printed exactly as stored** — `aitasks#635_27`, never `635_27`. A
+task ref is an identity key (`<project>#<id>`); dropping the project segment
+collides a cross-repo member with a local one.
+
+**The recap carries wave titles and task refs — not classification, confidence,
+status or drift.** Those are per-card board material, shown all at once by the
+By-Trail view, and on create they were rendered in full at 2d moments earlier;
+repeating them would make the recap the size of the proposal it recaps. The
+classification glyph vocabulary in particular is owned by the board — restating
+it here would be a second copy that drifts.
+
+**Why create and refresh, and not show.** Show's Step 1.2 already renders every
+wave, entry, observation, exclusion and the document narrative in full; a recap
+after it would print the same structure twice in one reply. Create and refresh
+need it for the opposite reason: create's 2d render is of the *proposal*, and
+refresh's 3.4 summary is a **diff** of what changed. Neither is a picture of the
+artifact as it now stands on disk.
+
+**Headless needs no rule here.** Create and refresh STOP before their write in a
+headless session (see the headless guard in the Overview), so neither ever
+reaches this recap; `--show` runs normally headless and prints parts 1 and 3 as
+it does attended. The recap is interactive-only by construction — do not add a
+profile check for it.
+
+### Part 3 — Board pointer (all three flows, always last)
+
+Print this line verbatim:
+
+```
+Also viewable in `ait board`: press z (By-Trail), s (choose trail), v (full summary), Enter (member detail).
+```
+
+These are the live By-Trail bindings: `z` enters the view, `s` chooses which
+trail is shown, `v` opens the full summary (offered only while the trail has
+one), and `Enter` opens the focused member's detail.
 
 ## Trail JSON authoring rules
 
@@ -754,6 +857,11 @@ copy):
 - Board integration (By-Trail view, refresh launch key) is a separate
   surface; this skill is also its dispatch target via
   `ait codeagent invoke trail <args>`.
+- The run summary's board pointer (part 3) names the live By-Trail bindings —
+  the `view_bytrail`, `trail_select`, `trail_summary_expand` and `view_details`
+  actions declared in the board's App-level `BINDINGS` and scoped by its
+  `check_action`. A test asserts the prose and those bindings agree, so a
+  rebound key fails rather than silently making this line wrong.
 - One trail per handle; a task may own several trails under distinct slugs.
 - Cross-repo members are supported through the gatherer (`proj#id` refs);
   cross-repo TOPIC roots are not (`ERROR:cross_repo_topic_unsupported`).

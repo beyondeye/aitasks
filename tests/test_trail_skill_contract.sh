@@ -228,6 +228,66 @@ for profile in "${PROFILES[@]}"; do
     assert_contains "$profile: summary is stripped, not raw" \
         "surrounding whitespace stripped" "$skill"
 
+    # (s2) The structural recap (t1644). The two-line core alone told the user
+    # nothing about the structure the run just authored, so create and refresh
+    # additionally print the waves, their entries and the recorded relations.
+    assert_contains "$profile: structural recap exists" \
+        "Structural recap (create and refresh only)" "$skill"
+    assert_contains "$profile: recap prints waves in ordinal order" \
+        'one block per wave in `ordinal` order' "$skill"
+    assert_contains "$profile: recap prints entries in position order" \
+        "entries in \`position\` order" "$skill"
+
+    # (s3) A lite trail is REQUIRED to omit `relations`, so an absent key means
+    # "this depth carries none", never "these tasks are independent". The two
+    # degradations are different claims and are pinned separately, because a
+    # single shared wording is exactly how the misreading gets reintroduced.
+    assert_contains "$profile: absent relations degrade honestly" \
+        "none recorded at this depth (lite trails omit them)" "$skill"
+    assert_contains "$profile: an empty relations list reads differently" \
+        'Relations (0): none recorded.' "$skill"
+    assert_contains "$profile: no bare empty heading on a lite trail" \
+        'Never print a bare `Relations (0):` heading for a lite trail' "$skill"
+
+    # (s4) EVERY relation type gets endpoint pairs. Listing only the two
+    # sequencing types would silently reduce half of a real trail -- including
+    # every `verifies` edge, which is how a manual-verification task's coverage
+    # is recorded -- to an aggregate number the reader cannot expand.
+    assert_contains "$profile: no type is collapsed to a count" \
+        "No type is reduced to a count alone" "$skill"
+    for rel_type in hard_depends advisory_precedes coordinates_with verifies informs; do
+        assert_contains "$profile: recap names relation type '$rel_type'" \
+            "$rel_type" "$skill"
+    done
+
+    # (s5) `provenance` is read, not inferred. Only two of the five types have
+    # it pinned by the authoring rules; the other three carry either, and one
+    # document can hold both for a single type. Without the label a reader
+    # cannot separate a recorded constraint from the trail's own advice, which
+    # is the anti-fabrication line.
+    assert_contains "$profile: relation groups carry provenance" \
+        '<type> · <provenance>:' "$skill"
+    assert_contains "$profile: provenance is read, not inferred" \
+        "read from the record, never inferred from the type" "$skill"
+
+    # (s6) The board pointer is its OWN part, printed by show too. Folding it
+    # back into the create/refresh-only recap would leave a show user -- the
+    # one reading a stored trail -- never told the board renders it.
+    assert_contains "$profile: board pointer is part 3" \
+        "Board pointer (all three flows, always last)" "$skill"
+    assert_contains "$profile: pointer names the By-Trail keys" \
+        'press z (By-Trail), s (choose trail), v (full summary), Enter (member detail)' "$skill"
+
+    # (s7) The --show and headless decisions are stated, not left implicit:
+    # show already renders the whole document, and the create/refresh writes
+    # never happen headless, so the recap is interactive-only by construction.
+    assert_contains "$profile: show skips the recap, with a reason" \
+        "Why create and refresh, and not show" "$skill"
+    assert_contains "$profile: show still prints parts 1 and 3" \
+        "Show prints" "$skill"
+    assert_contains "$profile: headless needs no profile check" \
+        "Headless needs no rule here" "$skill"
+
     # (t) The deep->lite refresh downgrade names EVERY discarded dimension.
     # A bare "sections will be dropped" hides the two largest losses (the
     # evidence records and their citations), so each is pinned by name.
