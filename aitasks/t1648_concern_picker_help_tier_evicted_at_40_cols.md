@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, concern_format]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1636
 followup_kind: risk_mitigation
 created_at: 2026-08-31 12:11
-updated_at: 2026-08-31 12:11
+updated_at: 2026-08-31 12:15
 ---
 
 ## Problem
