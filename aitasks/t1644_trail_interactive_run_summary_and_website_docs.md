@@ -160,3 +160,8 @@ overridden with a stated reason) during planning:
 - `website/content/docs/tuis/board/reference.md:242+` — the §By-Trail section and
   its single `/aitask-trail` sentence; `:61` (`T` key) and `:215` (`z`).
 - `aidocs/implementation_trail_design.md` — wave / entry / relation model.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-31T15:29:13Z status=pass attempt=1 type=human
