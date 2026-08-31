@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [skills, documentation, artifacts, web_site]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-08-31 09:48
-updated_at: 2026-08-31 09:48
+updated_at: 2026-08-31 09:55
 ---
 
 ## Problem
