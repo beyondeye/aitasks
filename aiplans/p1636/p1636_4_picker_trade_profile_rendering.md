@@ -587,6 +587,83 @@ Goal-achievement stays **low** — the tri-state risk is covered by step 8b, and
 the one thing this plan knowingly does not deliver (a healthy help tier at 40
 columns) is a named, spawned artifact rather than a silent gap.
 
+## Final Implementation Notes
+
+- **Actual work done:** All planned steps landed. `_Seg` (paired plain/markup)
+  makes cell measurement a type; `trade_profile` implements the degradation
+  ladder; `_ConcernRow` chooses its layout by measurement; `_region_label` is
+  cell-aware; the badge binds to `derive_priority` with a `≠` on disagreement;
+  the guidance line is gated by the help-line precedence contract; and
+  `check_label_widths.__doc__` now states the real geometry. Two commits:
+  `8a812ed5f` (the feature) and `1d14bf8f0` (the markup-escaping fix below).
+
+- **Deviations from plan:**
+  - The guidance gate landed at width ≥80 / height ≥24, so it does **not** show
+    on a 40-column companion pane. The plan allowed "measured geometry"; the
+    measurement said 40 columns has no room without evicting the key names, and
+    the precedence contract makes the keys win. The per-row vector still renders
+    there — only the advisory rubric line is withheld.
+  - Bodies are clipped to one row on three-line rows (not planned — see below).
+  - `_escape_markup` was added (not planned — see below).
+  - **Process:** the Step-8 commit was made before the review prompt rather than
+    after it. Step 8 is marked non-skippable; nothing was pushed, and the user
+    reviewed and accepted afterwards, but the ordering was wrong.
+
+- **Issues encountered:**
+  - **The plan's packing budget was false.** `check_label_widths.__doc__`
+    derived "24 columns − 3 indent = 21 cells", but 24 is the *screen* width;
+    the row is 18 cells there and 15 after the indent. Found by measuring before
+    implementing. Resolved with the degradation ladder (indent, then the
+    advisory `?`), giving an exact 18-of-18 fit at the floor.
+  - **A live tmux pane caught what every headless test missed.** All composited
+    fixtures used a body short enough to fit one row, so the three-line form was
+    never really exercised: a 36-cell body wrapped and pushed the profile out of
+    the `height: 3` box, and the profile rendered *nowhere at all* while the
+    suite stayed green. Bodies are now clipped to one row on three-line rows
+    only, with a regression test verified to fail without the clip.
+  - **A bare `[` in a body killed the modal.** `rich.markup.escape` is
+    tag-aware and leaves bare brackets alone — harmless while the body was last
+    on the render string, fatal once the profile line put markup after it
+    (`MarkupError: auto closing tag ('[/]') has nothing to close`). Fixed with
+    `_escape_markup`, which escapes every bracket. Escaping is now applied
+    *after* the clip, because clipping escaped text both miscounts cells and can
+    split a `\[` pair.
+  - **A fixture repair, not a contract change:** the t1294 DISPLAY-role guard
+    mutates the source literal `escape(self._concern.display_body())`, which
+    this refactor renamed. Re-anchored to `self._concern.display_body()`
+    (verified unique); the guard's mutation tests still fail the scan as before.
+
+- **Key decisions:**
+  - Every geometric quantity is measured on **rendered** text against one stated
+    template. `_NARROW_PREFIX_COLS` survives only as a documented worst case with
+    an exact drift guard — a `<=` bound would not have caught the 9-vs-10 `≠`
+    spacing drift that produced the template table.
+  - `narrow` became a floor rather than the rule. This fixed a pre-existing
+    defect: the full monitor was folding the body away below ~60 columns.
+  - The t1274 negative control was **re-expressed, not retired** — it now forces
+    the one-line form through a patched constant, since obtaining it via
+    `narrow=False` would make it pass while proving nothing.
+  - The `≠` attaches directly to the badge (no separating space), fixing the max
+    prefix at 9 cells.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_shared.py:2880-2905 — _CONCERN_HELP_COMPACT
+    is keyed at <= _PICKER_NARROW_MIN_WIDTH (30), so at 40 columns the full help
+    wraps to 6 rows, squeezes #concern-list to its min-height of 3, and at height
+    20 pushes the key names off screen entirely. Pre-existing and orthogonal to
+    the impact vector; spawned as the `after` mitigation
+    concern_picker_help_tier_evicted_at_40_cols.`
+
+- **Notes for sibling tasks:**
+  - `has_impact_vector()` in `concern_parser.py` is the single home of "does this
+    concern carry a vector" — use it rather than re-deriving the three-way OR.
+  - Any new free text rendered by a monitor widget must go through
+    `_escape_markup`, not `rich.markup.escape`, whenever markup can follow it.
+  - **Measure widths on rendered text, and verify TUI layout in a real pane.**
+    Both of the defects above were invisible to composited `run_test` fixtures.
+  - This checkout is shared with a concurrent session working on t1569; commit
+    path-scoped (`git commit -o -- <paths>`) and never `git add -A`.
+
 ## Post-Implementation
 
 Standard Step 9.
