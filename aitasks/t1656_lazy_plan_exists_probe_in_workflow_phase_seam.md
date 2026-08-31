@@ -3,13 +3,14 @@ priority: low
 effort: low
 depends: []
 issue_type: performance
-status: Ready
+status: Implementing
 labels: [board, gates, performance]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: review_finding
 created_at: 2026-08-31 22:39
-updated_at: 2026-08-31 22:39
+updated_at: 2026-08-31 23:14
 ---
 
 ## Context
