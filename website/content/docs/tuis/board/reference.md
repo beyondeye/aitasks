@@ -50,7 +50,9 @@ depth: [advanced]
 | `Shift+Down` | Swap task with one below | Board (parent cards only) |
 | `Ctrl+Up` | Move task to top of column | Board (parent cards only) |
 | `Ctrl+Down` | Move task to bottom of column | Board (parent cards only) |
-| `m` | Move the marked task(s) — or the focused card — to a column | Board (parent cards only; hidden in In-Flight, By-Topic and By-Trail views) |
+| `m` | Move the marked task(s) — or the focused card — to a column | Board (parent cards only; hidden in In-Flight and By-Topic views) |
+| `m` | Move the focused entry's task to a column | By-Trail view (focused card; not a child, not a ghost) |
+| `M` | Move the focused wave's tasks to a column, in wave order | By-Trail view (focused live card) |
 | `n` | Create a new task | Board |
 | `x` | Toggle expand/collapse child tasks | Board (parent or child card) |
 | `x` | Expand / collapse the focused task group | Board (focused group header) |
@@ -242,8 +244,9 @@ affecting teammates.
 An **implementation trail** is a durable, wave-structured record of how a group
 of tasks should be sequenced, with the evidence behind that ordering. Trails are
 created and re-authored by the `/aitask-trail` skill — on the board, focus a task
-in any other view and press `T` to start one. The By-Trail view is a **read-only
-projection** of a stored trail: it never writes the trail itself.
+in a kanban or By-Topic view and press `T` to start one (`T` is hidden in In-Flight
+and in By-Trail itself). The By-Trail view is a **read-only projection** of a stored
+trail: it never writes the trail itself.
 
 Press `z` to enter the view and `s` to choose which trail it shows. Each wave
 becomes a column headed `W1 · <title>`, and each card shows the member's
@@ -323,21 +326,57 @@ complete list is in the detail screen. Common reasons are `status_changed`,
 `dependency_changed`, `gate_state_changed`, and `plan_changed`. Drift is a signal
 that the trail's sequencing advice may be out of date — `R` re-authors it.
 
+##### Moving a wave into a column
+
+The By-Trail view is read-only about the *trail*, but it can move the underlying
+tasks onto the board. `m` moves the focused entry's task; `M` moves every task in
+the focused wave.
+
+`M` always shows the review dialog first, listing the tasks in **wave order** — not
+board order — and that order is preserved through the move, so a wave dropped into
+an empty column lands in the sequence the trail recommends. `m` on a single focused
+card skips the review and goes straight to the destination picker.
+
+Both report what they leave behind rather than a bare count:
+
+- **Ghost members** — archived, cross-repo, or missing tasks — cannot move; there is
+  no local task file behind them. `m` refuses outright on a ghost card, and `M` names
+  the ghosts it skipped while moving the rest of the wave.
+- **Child tasks** move with their parent, so `M` skips them and names them. `m` is
+  withheld entirely on a focused child, while `M` stays available — a focused child
+  still identifies a wave whose parents can move.
+- A task appearing twice in one wave moves once, and the duplicate is reported.
+
+If nothing in the wave can move, the board says so instead of opening a picker. The
+move never writes to the trail: board column and position are not part of a trail's
+freshness, so moving cards cannot make one stale.
+
 **Keys that behave differently here.** The footer relabels itself per view, so it
 always shows what the keys actually do. In By-Trail it reads:
 
 ```
-r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync   v Summary
+r Refresh   R Agent Refresh   d Freshness   s Select Trail   S Sync   v Summary   m Move to Col   M Move Wave
 ```
 
 `v Summary` is listed only while the shown trail actually has a summary — the
 footer advertises the key when there is something behind it, not before.
+`m Move to Col` and `M Move Wave` are gated differently, and the difference shows on
+a focused **child** card: `M` needs any focused live card, while `m` additionally
+requires that card not be a child — a child moves with its parent, but it still
+identifies a wave whose parents can move. Both are withheld on a ghost card, which
+has no local task file behind it.
 
 `C` (commit all modified tasks) is **hidden** in this view. A trail is a reading
 projection rather than a set of tasks you own, while "commit all" acts on every
 modified task in the repository — so the key is withheld rather than silently
-doing something wider than the view suggests. `T`, `w`, and the card-move keys
-are hidden for the same reason.
+doing something wider than the view suggests. `T`, `w`, the reordering keys and
+marking (`Space`) are hidden for the same reason: a wave lane is not a column, so
+there is no position within it to reorder into.
+
+**Moving tasks out of a trail is the exception**, because it is the one action
+whose target *is* an ordinary board column. `m` moves the focused entry's task and
+`M` moves the whole focused wave — see [Moving a wave into a column](#moving-a-wave-into-a-column)
+below.
 
 #### Add-on filters (toggle)
 
@@ -467,7 +506,7 @@ For details on the underlying lock mechanism, see the [`ait lock` command refere
 | **Column Multi-Select (Merge from)** | "Merge" in Column Manage / command palette "Merge Columns" | Pick one or more source columns to merge (Unsorted / Inbox is offered only when it holds tasks) |
 | **Column Select (Merge into)** | Confirming the merge sources | Pick the destination column (the chosen sources are omitted; Unsorted / Inbox is offered unless it is a source) |
 | **Merge Confirm** | Confirming the destination | Names the source columns, the destination, and how many tasks will move |
-| **Move Tasks to Column** | `m` with tasks marked / command palette "Move Tasks to Column" | Review which marked tasks will move, in board order, before a destination is chosen |
+| **Move Tasks to Column** | `m` with tasks marked / `M` in By-Trail / command palette "Move Tasks to Column" or "Move Wave to Column" | Review which tasks will move before a destination is chosen — in board order for a marked set, in wave order for `M` |
 | **Column Select (Move to)** | Confirming the review, or `m` on a single focused card | Pick the destination column (collapsed columns and the column the whole selection already occupies are omitted) |
 | **Delete Column Confirm** | After selecting column to delete | Confirm column deletion; warns about task count |
 | **Commit Message** | `c` or `C` key | Enter commit message for modified task(s) |

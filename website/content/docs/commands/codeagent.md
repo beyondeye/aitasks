@@ -55,6 +55,7 @@ Each operation maps to a different use case with its own default model:
 | `explore` | Exploring the codebase | `claudecode/opus5` |
 | `explore-relay` | Chat-relayed exploration for bug-report intake (Claude Code only) | `claudecode/opus5` |
 | `work-report` | Drafting a manager-facing work report from board columns | `claudecode/sonnet5` |
+| `trail` | Creating, refreshing, and showing implementation trails | `claudecode/opus5` |
 | `batch-review` | Batch code review | `claudecode/sonnet5` |
 | `qa` | Test coverage analysis | `claudecode/sonnet5` |
 | `shadow` | Advisory companion agent for a followed session | `codex/gpt5_6_terra` |

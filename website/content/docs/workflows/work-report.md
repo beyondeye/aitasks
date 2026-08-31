@@ -32,7 +32,9 @@ ait board
 
 **2. Press `w`**
 
-The Work Report action is column-scoped, so it is available in the persistent kanban views whenever a focused card or column placeholder identifies a column. It is hidden in the In-Flight and By-Topic views, which render derived lanes rather than columns.
+The Work Report action is column-scoped, so it is available in the persistent kanban views whenever a focused card or column placeholder identifies a column. It is hidden in the In-Flight, By-Topic and By-Trail views, which render derived lanes rather than columns.
+
+> **Reporting on a planned sequence.** If you maintain an [implementation trail](../implementation-trails/), press `M` in the By-Trail view to move a whole wave into a column — in wave order — and then report on that column. The trail never changes what a report contains; its influence reaches the report only through that move, which you perform and can see on the board first.
 
 **3. Choose the columns**
 

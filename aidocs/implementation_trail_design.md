@@ -1,8 +1,10 @@
 # Implementation Trails — durable "what lands next, and why" (design RFC)
 
-Status: **proposed design** (t1210 deliverable). Current-state document: describes
-the design as decided, plus the shipped seams it builds on. The implementation
-decomposition is in §14; nothing in this document is shipped code yet.
+Status: **shipped** (t1210). This document describes the implemented system and the
+reasoning behind it. The schema library and validator, the gatherer and drift
+helper, the `/aitask-trail` skill, the board By-Trail view, and the By-Trail
+move-to-column commands are all in the tree — §14 maps each component to its files.
+User-facing documentation lives at `website/content/docs/workflows/implementation-trails.md`.
 
 Companion artifacts:
 
@@ -73,7 +75,7 @@ and refreshes it and the board view that displays and acts on it.
 The name **Implementation Trail** was chosen (over roadmap / execution plan /
 priority waves) because it is distinct from `aiplan` files, avoids the
 umbrella-roadmap-task connotation, and reads naturally as "the trail we follow
-to land this effort". The term is unused in the repo today.
+to land this effort".
 
 ## 3. User journeys and invocation matrix
 
@@ -403,21 +405,19 @@ sessions refreshing the same trail from different read states) would
 last-write-win. v1 accepts this with a guard: the refresh flow re-reads the
 manifest's `current` immediately before writing and warns if it moved since
 analysis started (lost-update window shrinks to seconds; all versions remain
-recoverable). A real `update --expect-current sha256:<hash>` CLI extension is
-scoped as a **conditional follow-up** (§14, D-list): create it when concurrent
-refreshers become a practiced workflow, not before.
+recoverable). A real `update --expect-current sha256:<hash>` CLI extension does
+not exist — see the compare-and-swap limitation in §14.
 
 ## 9. Board integration — the By-Trail view
 
-**Decision: a dedicated By-Trail view ships in v1** (user decision; the
-overlay-only alternative is recorded in §13-A5). Grounded against the current
-board architecture: views are branches of `refresh_board()` keyed off the
-`base_filter` radio (`all|locked|free|inflight|bytopic`), with widget models
-`TopicColumn`/`InFlightColumn` and footer gating via `check_action()`.
+A dedicated By-Trail view ships as its own base filter (the overlay-only
+alternative is recorded in §13-A5). Views are branches of `refresh_board()` keyed
+off the `base_filter` radio (`all|locked|free|inflight|bytopic|bytrail`), with
+widget models `TopicColumn`/`InFlightColumn`/`TrailColumn` and footer gating via
+`check_action()`.
 
-**9.1 Structure.** A new `base_filter` value `bytrail` with its own binding
-(concrete key chosen at implementation time via the shortcut manifest — the
-board's key surface is crowded and t1162 is concurrently claiming `w`):
+**9.1 Structure.** The `base_filter` value `bytrail`, bound to `z` in the shortcut
+manifest:
 
 - **Trail selection**: entering the view with no active trail (or pressing the
   selection key) opens a modal listing discovered trails — title, owner task,
@@ -527,15 +527,14 @@ Consequences, stated explicitly:
   user can see on the board before launching the report.
 - Trails remain durable artifacts; reports remain ephemeral drafts. Neither
   implies the other.
-- A future explicit "report from trail" mode (`--trail <handle>`) is
-  **documented-only** (§14 D-list): if ever built, it must be a separate
-  user-selected mode that names the trail as its membership/order source and
-  leaves column mode byte-identical. The passive bridge covers the practiced
-  workflow without it.
-- Coordination note: t1162's children are in flight; the only shared surface
-  is the board binding/action region (both add bindings + `check_action`
-  gates), so the By-Trail child is sequenced after t1162's board child
-  (§14 coordination).
+- There is no explicit "report from trail" mode. Were one ever added, it would
+  have to be a separate user-selected mode naming the trail as its
+  membership/order source, leaving column mode byte-identical. The passive
+  bridge covers the practiced workflow without it.
+- Coordination note (historical): the only surface shared with t1162 is the
+  board binding/action region — both add bindings and `check_action` gates — so
+  the By-Trail work was sequenced after t1162's board child rather than run
+  alongside it.
 
 ## 11. Lifecycle and concurrency analysis
 
@@ -590,67 +589,53 @@ Consequences, stated explicitly:
 | A9 (D) | Input digest + named drift reasons + targeted refresh subskill | TTL staleness (noisy both directions); manual-only (defeats the dynamic-trail requirement); every-board-change invalidation (repaints are not drift) |
 | A10 | Duplicating cards across topic lanes — rejected outright | Reintroduces the ambiguity `anchor` exists to prevent; trails project ordering in their own view instead |
 
-**B. Explicitly rejected for v1, with disposition** (every exclusion carries
-one): see §14's D-list — each is either *conditional* (create when a named
-trigger occurs) or *documented-only*.
+**B. Excluded from the shipped scope.** Three of those exclusions are still
+observable as behavior and are recorded as current limitations in §14: no
+compare-and-swap on artifact writes, no conversion of trail ordering into task
+metadata, and refresh proposing follow-ups rather than creating them. The rest —
+By-Topic overlay badges, an explicit `--trail` report mode, and project-qualified
+cross-repo handles — are covered by A5, §10 and §11 respectively.
 
-## 14. Implementation decomposition (copy-ready)
+## 14. Shipped components
 
-Sequenced child tasks (create under t1210 after design approval; each child
-owns its tests). Coordination constraint: **T4/T5 touch the board
-bindings/`check_action` surface that t1162_4 also edits — land them after
-t1162_4 merges** (serialize, don't parallelize, shared-surface collisions).
+Each design element below names the files that implement it. Coordination note kept
+for the record: the board work was sequenced after t1162's board child because both
+edit the bindings / `check_action` surface.
 
-- **T1 — Trail schema library and validator** (`lib/trail_schema.py`,
-  `tests/test_trail_schema.py`). Load/validate/canonicalize trail JSON
-  (structural validation equivalent to the design-contract checks, plus the
-  schema patterns); adopt the fixtures as test data; export the canonical
-  normalization used by the digest (versioned with the schema). Pure Python,
-  stdlib only. *No dependencies.*
-- **T2 — Gatherer + digest/drift helper**
-  (`.aitask-scripts/aitask_trail_gather.sh` → `lib/trail_gather.py`,
-  `tests/test_trail_gather.py`). Scope/owner resolution, input snapshot,
-  `input_digest`, and the `trail-drift` verb producing named drift reasons
-  from a stored trail vs live state. Line-protocol output; helper
-  whitelisted. This is the riskiest spike (digest normalization + drift
-  fidelity) — it lands **first among the behavioral pieces** and before any
-  UI. *Depends: T1.*
-- **T3 — `/aitask-trail` skill** (create + refresh flows). Claude Code
-  source-of-truth skill + stub/`.md.j2` per conventions; agent wrappers
-  suggested as separate follow-ups per the cross-agent porting rule.
-  Registers the `trail` codeagent operation **including `.defaults` entries in
-  both seed and live `codeagent_config.json`** (omitting them silently gets
-  the heavy fallback model). Read-only analysis → review → single confirmed
-  `ait artifact create/update`. *Depends: T2.*
-- **T4 — Board By-Trail view** (`bytrail` base filter, trail discovery scan,
-  selection modal, wave columns, badges, detail modal, drift check on entry,
-  `r` refresh launch via `AgentCommandScreen`). Binding registered in the
-  shortcut manifest; `check_action` gates move/sort actions per view.
-  Render-level tests (assert `widget.render().plain`) + Pilot tests.
-  *Depends: T3; land after t1162_4 (shared board surface).*
-- **T5 — Move-to-column commands** (`m`/`M` in By-Trail view) using
-  `move_task_to_column` / `move_tasks_to_column`; wave moves preserve
-  `position` order; ghost cards excluded. Unit tests over the manager mutators plus a
-  Pilot test. *Depends: T4.*
-- **T6 — Documentation.** Website workflow page (plus the hand-curated
-  bullet in workflows `_index.md`), board docs update (document the new view
-  alongside board/monitor/minimonitor/codebrowser/settings/brainstorm), and
-  aidocs current-state sync of this RFC. *Depends: T4/T5.*
-- **T7 — Manual verification (aggregate sibling).** Human-only checks: live
-  trail creation from a task/topic/By-Trail view, refresh after archiving a
-  member, stale badge appearance, wave move-to-column then a t1162 work
-  report from that column, error states (deleted blob). *Depends: all.*
+- **Trail schema library and validator** — `.aitask-scripts/lib/trail_schema.py`,
+  with the runtime schema copy `.aitask-scripts/lib/implementation_trail.schema.json`
+  (byte-identical to the `aidocs/` twin, pinned by a test, because `aidocs/` does not
+  ship to installed projects). Tests: `tests/test_trail_schema.py`. Validation is
+  fail-closed and the canonical normalization is versioned with the schema.
+- **Gatherer + digest/drift helper** — `.aitask-scripts/aitask_trail_gather.sh` over
+  `.aitask-scripts/lib/trail_gather.py`, with the board seam in
+  `.aitask-scripts/lib/topic_semantics.py`. Verbs `snapshot` and `drift`, line-protocol
+  output, staged `ERROR:` lines. Tests: `tests/test_trail_gather.py`. Deliberately not
+  wired into the `ait` dispatcher — it is a skill helper, not a user command.
+- **`/aitask-trail` skill** — `.claude/skills/aitask-trail/SKILL.md.j2` plus the
+  per-agent stubs, and the `trail` codeagent operation with its `.defaults` entries in
+  seed and live config. Create, refresh and show flows; read-only analysis followed by
+  at most one confirmed write.
+- **Depth resolver** — `.aitask-scripts/aitask_trail_depth.sh` owns the argument
+  grammar (mode × depth), pinned by `tests/test_trail_depth_resolve.sh`.
+- **Board By-Trail view** — the `bytrail` base filter, trail discovery, selection and
+  detail modals, wave columns, ghost cards and the summary pane, all in
+  `.aitask-scripts/board/aitask_board.py`. Tests: `tests/test_board_bytrail_view.py`.
+- **Move-to-column commands** — `m` (focused entry) and `M` (focused wave) in the
+  By-Trail view, over `move_task_to_column` / `move_tasks_to_column`; wave moves
+  preserve `position` order and ghost members are excluded. Tests:
+  `tests/test_board_move_command.py`.
+- **Documentation** — `website/content/docs/workflows/implementation-trails.md`,
+  `website/content/docs/skills/aitask-trail.md`, and the By-Trail sections of the
+  board reference and how-to pages.
 
-**D-list — deferred items with dispositions:**
+**Current limitations:**
 
-| Item | Disposition |
+| Limitation | Detail |
 |---|---|
-| CAS (`update --expect-current`) on the artifact CLI | **Conditional**: create the task when concurrent refreshes of one trail become a practiced workflow; v1 guard per §8.3 |
-| By-Topic overlay/badges | **Documented-only**: superseded by the dedicated view; revisit on user demand |
-| Explicit `--trail` report mode in t1162's skill | **Documented-only**: passive column bridge covers the need; any future mode per §10 rules |
-| Confirmed advisory→`depends`/priority conversion flow | **Conditional**: create when a trail consumer actually wants recorded ordering; must be per-change confirmed |
-| Cross-repo artifact resolution (project-qualified handles) | **Documented-only**: substrate limitation recorded in §11 |
-| Trail-aware auto-creation of follow-up tasks during refresh | **Documented-only**: refresh may *propose* candidates; task creation stays a user-confirmed action in the skill session |
+| No compare-and-swap on artifact writes | The artifact CLI has no `--expect-current`. Concurrent refreshes of one trail are serialized by the attach lock and bounded by the §8.3 pre-write re-read guard; all versions are retained. |
+| Trail ordering is never converted into task metadata | Nothing turns advisory order into `depends`, `priority`, `boardidx` or `anchor`. Acting on a trail means moving cards or editing tasks yourself. |
+| Refresh proposes, never creates | A refresh may surface candidate follow-up tasks; creating them stays a user-confirmed action inside the skill session. |
 
 ## 15. Wireframes (compact)
 
@@ -740,9 +725,9 @@ Refresh will re-evaluate waves 1 and 4 only. Proceed? [review diff / write v3 / 
   branches, `TopicColumn`/`InFlightColumn` widget models, `check_action`
   gating, `move_task_to_column`/`move_tasks_to_column`, and the
   Pick/Work-Report launch patterns.
-- t1162 claims (§10) walked against its approved plan: gatherer protocol,
-  exact-membership/ordering guarantee, ephemeral output, `w` binding and
-  By-Topic visibility rules, and child-task status (t1162_1 Implementing).
+- t1162 claims (§10) walked against its plan: gatherer protocol,
+  exact-membership/ordering guarantee, ephemeral output, and the `w` binding's
+  per-view visibility rules.
 - Schema and fixtures validated by `tests/test_implementation_trail_design.py`
   (23 checks, including the cross-topic/multiple-trail and no-anchor pins),
   with a verified failing negative control.

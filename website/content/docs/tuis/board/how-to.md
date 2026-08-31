@@ -215,8 +215,8 @@ Each wave is a column; each card carries its classification, confidence, and
 status, and a short pane underneath carries the trail's summary.
 
 1. Press **z** to enter the view, then **s** to pick which trail to show. If you
-   have no trails yet, create one first: from any other view, focus a task and
-   press **T**.
+   have no trails yet, create one first: from a kanban or By-Topic view, focus a
+   task and press **T** (it is unavailable in In-Flight and in By-Trail itself).
 2. Read the summary pane under the columns — it is the trail's prose answer to
    "what should land next, and why". Press **v** to open it in a scrollable
    dialog if it is longer than the pane. The subtitle states the trail's
@@ -231,6 +231,13 @@ status, and a short pane underneath carries the trail's summary.
    authored at `deep` it says what that discards and asks first, and the previous
    version stays retrievable. Run the trail skill with `--deep` yourself when you
    want the full analysis back.
+5. Move the work onto the board when you are ready to act on it: **m** moves the
+   focused entry's task to a column, **M** moves the whole focused wave. **M**
+   reviews the list first and preserves wave order, so the wave lands in the
+   sequence the trail recommends — which is what makes a
+   [work report](../../workflows/work-report/) drafted from that column read as a
+   plan. Read-only members (archived, cross-repo, missing) cannot move and are
+   named rather than silently dropped.
 
 An amber `⚠` line on a card means that member has **drifted** — its live state no
 longer matches what the trail recorded (its status changed, it was archived, its

@@ -17,6 +17,13 @@ An anchor is not a dependency, a label, or a parent-child relationship. It is a
 grouping key for work that belongs near the same subject but does not need the
 strict lifecycle of a decomposed parent task.
 
+Topic membership is also distinct from
+[implementation trail]({{< relref "/docs/workflows/implementation-trails" >}})
+membership, and the two differ in both directions: a task resolves to exactly one
+topic, but it may appear in any number of trails, and a single trail may span
+several topics. A trail is a projection of recommended ordering, not a regrouping —
+referencing a task in one never changes its anchor.
+
 ## How the key is stored
 
 A topic root omits the `anchor:` line. Its own task id is its topic key.
@@ -126,3 +133,4 @@ when a task starts as standalone and later becomes part of a broader topic.
 - [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) - the stricter decomposition relationship
 - [Task File Format]({{< relref "/docs/development/task-format" >}}) - the frontmatter schema
 - [Board reference]({{< relref "/docs/tuis/board/reference" >}}) - By-Topic view details
+- [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) - recommended landing order across tasks, projected separately from topics

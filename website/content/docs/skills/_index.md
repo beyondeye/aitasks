@@ -47,6 +47,7 @@ Create, organize, and wrap tasks.
 | [`/aitask-create`](aitask-create/) | Create tasks interactively via code agent prompts |
 | [`/aitask-explore`](aitask-explore/) | Explore the codebase interactively, then create a task from findings |
 | [`/aitask-fold`](aitask-fold/) | Identify and merge related tasks into a single task |
+| [`/aitask-trail`](aitask-trail/) | Create, refresh, or show an implementation trail — which tasks should land next, in what waves, and why |
 | [`/aitask-revert`](aitask-revert/) | Revert changes associated with completed tasks — fully or partially |
 | [`/aitask-wrap`](aitask-wrap/) | Wrap uncommitted changes into an aitask with retroactive documentation |
 
