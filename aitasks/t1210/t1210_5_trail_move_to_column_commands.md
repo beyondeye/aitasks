@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t1210_4, t1243_3, t1243_7]
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/opus5
 created_at: 2026-07-22 16:17
-updated_at: 2026-08-31 11:26
+updated_at: 2026-08-31 12:33
 ---
 
 ## Context
@@ -116,3 +119,8 @@ By-Trail-specific.
 
 Ghost-entry exclusion and the "trail artifact is never consulted or modified by
 the move" contract are unchanged by t1243.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-31T09:33:27Z status=pass attempt=1 type=human
