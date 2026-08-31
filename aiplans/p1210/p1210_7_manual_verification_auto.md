@@ -200,6 +200,56 @@ Performed:
 - scratch files confined to the session scratchpad — nothing written under
   `aitasks/` or `aiplans/` except this record and the checklist itself
 
+## Final Implementation Notes
+
+**Work done.** All ten checklist items reached `pass`. Items 3–10 were verified
+by this autonomous run against real repository state; items 1 and 2 were
+verified manually by the user, who had already exercised the interactive
+`/aitask-trail` create and refresh flows before this session.
+
+**Verdict per child under verification:**
+
+| child | items | result |
+|---|---|---|
+| t1210_2 (gatherer / drift) | 3 | pass — drift is idempotent and byte-read-only; `boardidx` provably outside the digest |
+| t1210_3 (`/aitask-trail` skill) | 1, 2 | pass — user-verified interactively |
+| t1210_4 (By-Trail view) | 4, 5, 6 | pass — waves, badges, strike-through, stale banner, fail-closed error card, all three launch seams |
+| t1210_5 (move commands) | 7, 8 | pass — `m` and `M`, wave-order preservation, ghost/child exclusion, report bridge |
+| t1210_6 (docs) | 9, 10 | pass — five glyphs render distinctly in a real browser; anchor and cross-links resolve |
+
+**Issues encountered and resolutions.**
+
+- *No live browser.* The Claude-in-Chrome extension was not connected, so items 9
+  and 10 could not use it. Resolved by driving local Chromium directly: headless
+  `--screenshot` (plus ImageMagick magnification) for the glyph render, and the
+  **DevTools protocol over Node 25's built-in `WebSocket`** — no external
+  dependency — for scroll and layout measurement. Headless `--screenshot` does
+  **not** capture post-fragment-scroll state (it returns a blank page), which is a
+  capture-mode artifact, not a docs defect; CDP is the right instrument there.
+- *Hugo dev server timeout.* The first `hugo server` was launched under
+  `timeout 300` and died mid-run, which surfaced as "This site can't be reached"
+  in the middle of a link sweep. Relaunched with a longer budget and the sweep
+  re-run.
+- *TUI focus is racy to drive.* `tmux capture-pane` immediately after
+  `send-keys` frequently reads a pre-render frame, so both the focused card and
+  the footer's binding list lag. Two fixes made the By-Trail items tractable and
+  are worth reusing: (1) poll until the focused-card label is **stable across
+  three consecutive reads** before deciding anything, and (2) poll in a tight
+  in-shell loop to catch Textual toasts, which expire well inside one tool
+  round-trip (`Skipping 12 ghost: …` was caught on poll 45).
+- *`M` appeared to do nothing.* It is binding-gated off while a **ghost** card is
+  focused, and the shadow and gates trails both open on a ghost. Not a defect —
+  it is `check_action` behaving as documented, and it doubles as evidence for
+  item 7's ghost-exclusion assertion.
+
+**Concurrency note for sibling tasks.** `t1644` (*trail interactive run summary
+and website docs*, anchor 1210) was `Implementing` in another session
+throughout this run and edited `aitasks/t1644_*.md`. Restores here were therefore
+done **by content snapshot, never by `git checkout`**, and a full tree re-diff
+was used to confirm that the only file differing from the pre-run snapshot was
+`t1644` — which was deliberately left untouched. Any later re-verification of
+items 1–2 should run against the post-t1644 run-summary surface.
+
 ## Follow-up
 
 None outstanding — all ten items are `pass`.
