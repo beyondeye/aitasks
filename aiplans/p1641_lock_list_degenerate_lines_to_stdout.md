@@ -294,3 +294,83 @@ Board smoke: `ait board` still shows lock badges for any currently locked task
 Standard closure: commit as `bug: Keep ait lock --list stdout records-only
 (t1641)`, run the `risk_evaluated` gate (materialized active set for this task),
 then merge/archive per Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned, in the planned order.
+  - `.aitask-scripts/aitask_lock.sh` — added `_list_note()` (`info "$1" >&2`) above
+    `list_locks()` and routed all four degenerate messages through it (now lines
+    426/431/437/447). Added a `STDOUT CONTRACT` comment to `check_lock()`
+    (records-only, no prose) and extended the `--list` / `--check` rows of
+    `show_help()` with the record shape and the stream split.
+  - `website/content/docs/commands/lock.md` — new `### Output of --list` section
+    documenting the record shape, the stdout/stderr split with runnable examples,
+    and the "empty means no *recognized* records" caveat; `--check` row updated.
+  - `aidocs/framework/sed_macos_issues.md` — new "Hex escapes `\xNN`" row in the
+    incompatibility table plus a short note, documenting that BSD sed does not
+    recognize `\x1b` and that the portable form is bash's `$'\033'`.
+  - `tests/test_task_lock.sh` — 80 → 93 assertions. Test 13b rewritten to the
+    stream split; new Tests 13e (`git fetch` failure path) and 13f (`rev-parse`
+    failure path); Test 13 gained a positive control; Test 22 split; Tests 13c
+    and 6 gained contract pins.
+  - Post-phase: per-verb `STDOUT CONTRACT` comments on `lock_task()`,
+    `init_lock_branch()` and `cleanup_locks()`. **No behaviour changed** in any of
+    the three.
+- **Deviations from plan:** Three, all tightening:
+  - Test 13c's pin was planned as exact text equality. `lock_task` authors a live
+    timestamp, so the record is not reproducible — replaced with an equivalent
+    deterministic pin: line *cardinality* (exactly 1) plus "no non-record line".
+  - Test 13f's stderr assertion was planned as `contains "No locks"`, which is a
+    prefix of `"No locks (branch not initialized)"` and so would have stayed green
+    if the fixture ever degraded into the 13e path. Changed to exact equality
+    against ANSI-stripped stderr, which is what proves 13f pins the `rev-parse`
+    branch and not its neighbour.
+  - Test 13f's ANSI strip was first written as `sed 's/\x1b\[[0-9;]*m//g'`. GNU sed
+    accepts `\x1b`; **BSD sed (macOS) does not** — it would match a literal `x1b`,
+    leave the color wrapper in place, and fail the exact assertion against a
+    correct implementation. Rewritten as `sed $'s/\033\[[0-9;]*m//g'`, which makes
+    *bash* emit the ESC byte so sed never interprets an escape. The rule was added
+    to `aidocs/framework/sed_macos_issues.md`, which the test comment cites.
+  - The `lock_task` contract comment says "only PROGRAMMATIC consumer" rather than
+    "sole consumer": a sweep of `.aitask-scripts/` confirmed `aitask_pick_own.sh`
+    is the only script caller, but humans invoking `ait lock <id>` are consumers
+    too — and that is precisely why the phase stayed documentation-only.
+- **Issues encountered:**
+  - The `rev-parse` degenerate path had no test and no obvious trigger. Reachability
+    was established empirically rather than argued: with `remote.origin.fetch`
+    unset, `git fetch origin <branch>` exits 0 while `origin/<branch>` no longer
+    resolves (nothing updates the remote-tracking ref), and `has_remote()` —
+    `git remote get-url origin` — still passes. That recipe became Test 13f.
+  - The pre-phase negative control worked exactly as intended: the new assertion
+    failed against the unfixed script with `expected '', got '<ESC>[0;34mNo active
+    locks<ESC>[0m'` — the ANSI-wrapped prose on the data channel, shown verbatim.
+- **Key decisions:**
+  - Chose the task's "route through stderr" option over "emit nothing": it
+    satisfies the same stdout contract while keeping `ait lock --list` readable
+    for a human running it interactively.
+  - Published the *weaker, true* contract everywhere ("empty means no recognized
+    records"), because `list_locks()` silently skips a `*_lock.yaml` blob with no
+    `task_id:`. Publishing "empty means no locks" would have invited the next
+    consumer to treat empty output as proof the lock branch is clean.
+  - Kept `_list_note()` as one named helper rather than four bare `>&2` redirects,
+    so the four sites share a single documented decision.
+  - `check_lock()` reviewed and deliberately left unchanged — its stdout is already
+    the lock record with no prose; the contract was written down and pinned instead.
+- **Verification performed:** `tests/test_task_lock.sh` 93/93 and
+  `tests/test_pick_own_scoped_commit.sh` 103/103 pass. `shellcheck` findings are
+  byte-identical to the pre-change baseline (4×SC1091, 2×SC2086 — all pre-existing).
+  Negative control run per path: each of the four redirects was reverted
+  individually and each failed **only** its own test, proving the four fixtures are
+  distinct and none is vacuous. Live consumer check: the board's own
+  `refresh_lock_map` regex, read out of `aitask_board.py`, parses all 7 records
+  from the narrowed stdout of this repo.
+- **Upstream defects identified:**
+  - `tests/test_sync_branch_mode_automerge.sh:334` — same BSD-sed portability defect
+    as the one fixed here, in an unrelated suite:
+    `int_clean=$(printf '%s' "$int_out" | sed 's/\x1b\[[0-9;]*m//g')`. On macOS the
+    escape is not recognized, so the ANSI wrapper survives the strip and whatever
+    `$int_clean` is asserted against fails against correct code. Portable form:
+    `sed $'s/\033\[[0-9;]*m//g'`. Found by the class sweep that
+    `aidocs/framework/sed_macos_issues.md` mandates after fixing one instance;
+    left out of this commit because it belongs to a different suite and t1641's
+    scope is the lock CLI.
