@@ -300,3 +300,76 @@ Step 9 applies as normal: commit on the current branch (profile `fast`,
 Note: the working tree carries unrelated uncommitted `parallel_admission` work
 from another session. **Commit only this task's paths** (`git commit -o -- <paths>`),
 never the index.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. `ConcernPickerModal` gained an
+  `xshort` tier (`max-height: 100%`) applied by a new
+  `_apply_measured_height_tier`, which sums the **laid-out** children (the list
+  contributing its declared `min-height`) against
+  `screen.height * _PICKER_MAX_HEIGHT_PCT // 100`.
+  `_apply_measured_width_tier` now returns whether it swapped the help text, and
+  `_apply_size_tier` runs width tier → guidance gate → fit tier, deferring the
+  fit tier one refresh when the help text changed. Added
+  `ConcernVerticalFitTierTests` (16 tests), rewrote the two existing tests that
+  pinned the defect, corrected the stale `_GUIDANCE_MIN_WIDTH` prose, and added a
+  qualified sentence to `website/content/docs/tuis/minimonitor/how-to.md`.
+  `_PICKER_NARROW_MIN_WIDTH`, the width tier's derivation guard and
+  `ConcernPayloadEditModal` are untouched.
+
+- **Deviations from plan:** Three, all forced by measurement.
+  1. `on_mount` needed **no** `call_after_refresh`. The plan said to add one only
+     if a probe confirmed it; the headline acceptance test asserts after mount
+     with no resize and passes, so it was not added.
+  2. The `call_after_refresh` negative control was **reframed**. The plan assumed
+     skipping the hop would leave the settled state wrong; measured, it does not
+     — swapping the help dirties the layout, which schedules another pass that
+     self-corrects. Asserting otherwise would have been a false control. The test
+     (`test_the_deferral_makes_the_first_decision_after_a_swap_correct`) now pins
+     what the hop genuinely buys: every fit decision during a 30→31 resize is
+     made from the settled height, whereas making the hop immediate produces at
+     least one stale decision. The hop was kept — publishing a wrong tier for a
+     frame is a real defect — but its value is stated honestly.
+  3. `test_a_long_context_line_is_counted` was re-anchored from 60 to 80 columns:
+     at 60 both the plain and round-suffixed context wrap to 2 rows, so that
+     width could not detect a miscount. It now also pins the premise directly —
+     the context measures ≥2 rows at 40 columns.
+
+- **Issues encountered:**
+  - The first plan draft derived a fixed `_PICKER_FIXED_CHROME_ROWS = 13` from a
+    named decomposition. Review challenged it; measurement showed
+    `#concern-context` is **3** rows at 40 columns, not the 1 the decomposition
+    assumed — the constant had merely fitted the sampled geometries and would
+    have understated the requirement for a longer context line or `stale_detail`.
+    It was dropped for the measured-children sum, along with the Rich wrap model
+    that supported it. **Do not reintroduce a chrome-rows constant.**
+  - `ConcernGuidanceContractTests.test_negative_control_forcing_guidance_on_breaks_40x24`
+    stopped discriminating: the fit tier now absorbs the forced-on guidance at
+    40x24. Re-anchored to 40x20 (where no headroom remains even at full height)
+    rather than deleted, per the plan's instruction.
+
+- **Key decisions:** The tier changes `max-height` and nothing else. Dropping the
+  buttons or compacting the help buys no additional concern row at 40x20
+  (measured, markers = 1 either way), so the cap is the whole fix.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_shared.py:3816 — ConcernPickerModal cannot
+    seat its content at ~31–50 columns × 20 rows, nor at any width with BOTH the
+    stale and unparsed banners composed in 20 rows; the keys stay evicted even at
+    `max-height: 100%`. Pre-existing and verified against HEAD (31/32/35 × 20
+    were already broken; this task fixes 31x24 and regresses nothing). Needs a
+    precedence decision — which of banner / help / concern rows yields — not more
+    CSS. Spawned as the "after" risk mitigation below.
+
+## Verification performed
+
+- `python3 -m pytest tests/test_concern_picker_modal.py tests/test_monitor_concern_action.py -q` — **263 passed**.
+- `bash tests/run_all_python_tests.sh` — last line `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+- Render-level sweep, vector-bearing and legacy blocks at 40x20 / 40x24 / 40x30 /
+  30x24 / 24x20 (plus 60x20, 80x24, 80x24+stale, 100x30): every key token on the
+  composited strips, `_clipped_rows` empty everywhere, and the `xshort` class
+  consistent with `needed > available` at every geometry.
+- Live, in a real 40x20 tmux pane on an isolated socket, before vs after:
+  before, the help line was cut after `forward  [r] reject  [t] spin`; after, the
+  full line renders (`[e] edit payload`, `[R] rejected list`, `[u] unparsed`,
+  `[Enter/OK] confirm`, `[Esc] cancel`) with both borders intact.
