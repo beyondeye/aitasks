@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: high
 depends: [t1636_3]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [shadow, aitask_monitormini, concern_format]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1636
 implemented_with: claudecode/opus5
 created_at: 2026-08-30 14:54
-updated_at: 2026-08-31 10:57
+updated_at: 2026-08-31 12:12
+completed_at: 2026-08-31 12:12
 ---
 
 ## Context
@@ -111,3 +112,14 @@ producer's within-partition order stay authoritative (render, don't re-sort);
 > **✅ gate:plan_approved** run=2026-08-31T07:58:08Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-31T09:09:04Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-31T09:12:02Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1ba74e5d12385bf0
+
+> **✅ gate:risk_evaluated** run=2026-08-31T09:12:02Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1636_4/risk_evaluated_2026-08-31T09:12:02Z-risk_evaluated-a1.log`
