@@ -69,12 +69,22 @@ The task names Board, Monitor, Minimonitor, Codebrowser, Settings and Brainstorm
 the surrounding TUI surface. By-Trail is a **board base view, not a TUI**, so most of
 that list needs no edit — but that is recorded as evidence, not assumed:
 
+Expressed as an **inverted assertion**: a bare `grep` exits 1 when it correctly finds
+nothing, so "no hits" would read as a failed check (and would abort under `set -e`).
+This form exits 0 only when the surfaces are genuinely clean, and says so:
+
 ```bash
+fail=0
 for d in monitor minimonitor codebrowser settings brainstorm; do
-  grep -rn "By-Topic\|By-Trail\|base view\|base filter\|implementation trail" \
-    website/content/docs/tuis/$d/
-done            # → zero hits in all five
+  if grep -rqE "By-Topic|By-Trail|base view|base filter|implementation trail" \
+       "website/content/docs/tuis/$d/"; then
+    echo "UNEXPECTED HITS in $d"; fail=1
+  fi
+done
+[ "$fail" -eq 0 ] && echo "OK: no board-view/trail references in the five surfaces"
 ```
+
+Verified today: all five are clean (`fail=0`).
 
 | Surface | Required edit | Evidence |
 |---|---|---|
@@ -109,10 +119,22 @@ problem, one bolded key insight, then a numbered walkthrough):
    ordering without being members) and exclusions (work deliberately not blocking).
    Name the five classifications with their board glyphs. **Do not reproduce the full
    enum tables** — describe the five classifications a reader acts on, and carry an
-   HTML-comment drift note naming the schema file for maintainers (the same device
-   `workflows/_index.md` already uses for its t594_7 note). This satisfies the task's
-   "derive, don't duplicate" rule without citing a framework-internal `aidocs/` path
-   in reader-visible prose.
+   HTML-comment drift note for maintainers (the same device `workflows/_index.md`
+   already uses for its t594_7 note). This satisfies the task's "derive, don't
+   duplicate" rule without citing a framework-internal `aidocs/` path in
+   reader-visible prose.
+
+   **The note must name two sources, because the page documents two things that live
+   apart** — verified: the schema files contain zero glyph characters.
+
+   | Documented | Canonical source |
+   |---|---|
+   | the five classification names | `.aitask-scripts/lib/implementation_trail.schema.json` (`entry.classification` enum) |
+   | the `◆ ▲ ● ⇄ ○` glyph mapping | `TRAIL_CLASSIFICATION_GLYPHS`, `.aitask-scripts/board/aitask_board.py:889` |
+
+   A schema-only note would read as satisfied while a board glyph change silently
+   falsified the page. If naming both sources proves unwieldy, the fallback is to
+   drop the glyph column from the page rather than leave it half-guarded.
 3. **Creating one** — board `T` on a focused task (By-Topic resolves the lane root),
    or `/aitask-trail` / `/aitask-trail <task_id>` / `--topics <csv>`. Read-only
    analysis → review → **one confirmed write**.
@@ -230,8 +252,10 @@ Grep checks:
 - new page linked from `workflows/_index.md`; skill page linked from `skills/_index.md`
 - no `../aitasks/` sibling-directory paths, no `aidocs/` paths in reader-visible prose
 - no `ait trail` string anywhere in the new pages (the command does not exist)
-- re-run the acceptance-map grep over the five non-Board TUI doc dirs and confirm the
-  "None required" rows still hold
+- re-run the acceptance-map assertion (inverted-grep form above) over the five
+  non-Board TUI doc dirs; it must print `OK:` and exit 0
+- the workflow page's drift comment names both the schema enum and
+  `TRAIL_CLASSIFICATION_GLYPHS`
 - no `Conditional` / `Documented-only` disposition vocabulary left in the RFC
 
 Baseline note: capture `tests/test_website_doc_lists.sh` failing **before** the
@@ -246,6 +270,9 @@ codeagent.md edit, so the fix is demonstrated rather than assumed.
   (verified by reading `tests/test_implementation_trail_design.py`). · severity: low · → mitigation: none needed
 - Restating schema enumerations in prose would create a second source of truth that
   drifts. · severity: medium · → mitigation: inline post-phase `enum_drift_note`
+- The classification names and their board glyphs have **different** canonical homes
+  (schema enum vs `TRAIL_CLASSIFICATION_GLYPHS`), so a single-source drift note would
+  guard only half of what the page states. · severity: medium · → mitigation: inline post-phase `enum_drift_note` (two-source form)
 
 ### Goal-achievement risk: medium
 - Highest risk in a docs task is asserting behavior the code does not have — the
@@ -284,4 +311,8 @@ Run after the drafting steps, before the verification block:
      (`aitask_board.py`) and the `scope.kind` enum, per the trace table in step 6.
      If any clause cannot be traced to source, drop that clause rather than soften it.
 - **`enum_drift_note`** — confirm the workflow page names only the five
-  classifications in reader-visible prose and carries the maintainer drift comment.
+  classifications in reader-visible prose, and that its maintainer drift comment names
+  **both** canonical sources: the schema's `entry.classification` enum *and*
+  `TRAIL_CLASSIFICATION_GLYPHS` in `aitask_board.py`. Assert the glyph half is not
+  self-satisfying — grep the schema for the glyph characters and confirm zero hits, so
+  the note is provably guarding something the schema does not define.
