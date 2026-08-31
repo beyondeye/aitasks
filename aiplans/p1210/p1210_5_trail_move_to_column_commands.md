@@ -133,8 +133,22 @@ test covers:
 
 ### 2. `check_action` gating (~`:8779`–`:8945`)
 
-- Add `"move_to_column"` and `"trail_move_wave"` to the **ghost pre-gate**
-  tuple, so neither is advertised while a ghost holds focus.
+> **Deviation (implementation).** The plan put `"move_to_column"` and
+> `"trail_move_wave"` in the **ghost pre-gate** tuple. That was wrong and two
+> existing tests caught it: the pre-gate calls `_focused_card()` for every
+> action in the tuple *unconditionally*, which (a) made `move_to_column` read
+> focus twice — its own branch reads it too — failing
+> `test_the_gate_issues_AT_MOST_ONE_dom_query`, and (b) ran a focus read before
+> the marked-set early return, failing
+> `test_a_marked_set_short_circuits_before_any_dom_query`. Both pin t1243_7's
+> measured hot-path fix (`check_action` runs once per binding on every
+> `refresh_bindings()`), so they are real contracts, not fixture noise.
+>
+> **Landed instead:** neither action joins the pre-gate; each does its own
+> `is_ghost` check inside its own branch, riding the `_focused_card()` it
+> already fetches. Same hiding behaviour, one focus read, and none at all
+> outside By-Trail. The action-level ghost guards below are unaffected — they
+> were always the real safety.
 - In the `move_to_column` branch, narrow the derived-view hide list to
   `("inflight", "bytopic")` and insert a By-Trail branch **before** the
   `if self.marked: return True` early return:
@@ -387,10 +401,15 @@ deliberately changes it:
   pattern);
 - `M` then switch to the normal view → the wave's tasks are in the target
   column in wave order (the task file's Pilot check);
-- **negative control:** run `trail_gather.py` drift over the fixture trail
-  before and after a move and assert the verdict stays `CURRENT` and the
-  `DIGEST:` line is byte-identical — this is the "boardcol/boardidx excluded
-  from the digest" claim, asserted rather than assumed.
+**`tests/test_trail_gather.py`** — the negative control landed **here** rather
+than in the board module (deviation, for the better): `DigestStabilityTests`
+already owns a synthetic repo plus `snapshot()` / `make_trail()` / `drift()`
+helpers, and already carries `test_boardidx_and_updated_at_do_not_drift`.
+`boardcol` was the uncovered half — and the one that needed proving, since
+unlike `boardidx` it *is* emitted, on the display-only `MEMBER:` line. Added
+`test_boardcol_does_not_drift`: digest unchanged, verdict still `CURRENT`, plus
+a **positive control** asserting the `MEMBER:` line *did* change, so the test
+cannot pass merely because the write never landed.
 
 Run: `bash tests/run_all_python_tests.sh --test-dir tests` (read the **last**
 line for the verdict; use `set -o pipefail` if piping).
@@ -398,12 +417,55 @@ line for the verdict; use `set -o pipefail` if piping).
 ## Docs
 
 No website docs here — `t1210_6` (`depends: [t1210_5]`) owns the workflow page
-and "board docs for the new view + keybindings". One in-scope correction: the
-RFC wireframe at `aidocs/implementation_trail_design.md:672` shows
-`[m] move task [M] move wave` on the **card hint line**, which t1268 reduced to
-card-scoped keys only (`[enter details]`, pinned by
-`test_hint_line_names_only_card_scoped_keys`). These are view-scoped keys and
-belong in the footer; the wireframe line moves accordingly.
+and "board docs for the new view + keybindings".
+
+**Deviation (implementation):** the planned RFC correction was **not made, and
+is not needed.** The plan claimed the wireframe at
+`aidocs/implementation_trail_design.md:672` put `[m] move task [M] move wave`
+on the *card hint line*. Re-reading the mock in place, that row sits below the
+summary panel and spans the full frame — it **is** the footer, which is exactly
+where these keys land. The wireframe was already correct; only its illustrative
+labels differ from the real strings ("move task" vs "Move to Col"), and
+polishing those belongs to t1210_6's RFC sweep rather than to a gratuitous edit
+here.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-08-31 09:55)
+
+- **Requested by user:** The duplicate-wave test's docstring asserted the
+  repeated-task shape is schema-valid, but the test builds `SimpleNamespace`
+  stand-ins and never calls `trail_schema.load_trail` — despite the approved
+  plan explicitly requiring that assertion. A future schema rule could outlaw
+  duplicate task refs while the test kept passing and kept claiming the case is
+  reachable. Add a validated fixture, or record the deviation.
+
+- **Verified:** Confirmed. The claim was load-bearing (it is the whole
+  justification for the dedup) and nothing executed it — a self-declared marker
+  gating its own premise.
+
+- **Changes made:** Added the assertion rather than recording a deviation, and
+  put it where the schema's contract belongs:
+  `tests/test_trail_schema.py::SemanticNegativeControls::
+  test_a_wave_may_legally_repeat_a_task_ref` — a **positive** control among the
+  negatives. It takes the shipped `cross_topic_multiple_trails.json` fixture,
+  appends a twin entry (fresh `entry_id`, increasing `position`, **same**
+  `entry.task`) and asserts `issues_for(doc) == []` through the real validator.
+  Using a real fixture beats a hand-built minimal doc: it cannot drift out of
+  sync with the schema's required shape.
+
+  Falsified before accepting it: corrupting the twin's `classification` yields
+  `$.waves[0].entries[2].classification:enum`, proving the validator actually
+  inspects the appended entry, so the `VALID` verdict is a real answer rather
+  than the twin being ignored.
+
+  The behaviour test in `test_board_move_command.py` no longer asserts
+  schema-validity from stand-in objects — its docstring now names the
+  executable premise test instead, so the two are linked and the claim lives
+  where it can fail.
+
+- **Files affected:** `tests/test_trail_schema.py`,
+  `tests/test_board_move_command.py`.
 
 ## Coordination
 
@@ -486,3 +548,98 @@ None.
 
 Cleanup, archival and merge follow the shared task-workflow Step 9. The
 `risk_evaluated` gate is active for this task.
+
+## Final Implementation Notes
+
+- **Actual work done:** `m` now works in the By-Trail view and `M` moves a whole
+  wave, both landing through the existing t1243_7 chain rather than a second
+  one. In `.aitask-scripts/board/aitask_board.py`: the `M` binding (declared
+  adjacent to `m`) plus a `_COMMANDS` palette entry; a By-Trail branch in
+  `check_action("move_to_column")` and a new `trail_move_wave` gate; the
+  `to_destination` closure lifted to the method `_choose_move_destination` and
+  all four call sites rewired; unconditional `is_ghost` guards at the top of
+  both move actions; `action_trail_move_wave` (position order, ghost/child skip
+  with which-item reports, first-occurrence dedup, always-review);
+  `TrailColumn.wave_entries()`; and a By-Trail branch in
+  `_apply_move_to_column`. Tests across four modules — see below.
+
+- **Deviations from plan:**
+  1. **The ghost pre-gate was the wrong home** (caught by two existing tests,
+     not by review). The plan added both move actions to `check_action`'s ghost
+     pre-gate tuple. That tuple calls `_focused_card()` *unconditionally* for
+     every action in it, which (a) made `move_to_column` read focus twice — its
+     own branch reads it too — failing `test_the_gate_issues_AT_MOST_ONE_dom_query`,
+     and (b) put a focus read ahead of the marked-set early return, failing
+     `test_a_marked_set_short_circuits_before_any_dom_query`. Both pin t1243_7's
+     measured hot-path fix, so they were preserved as real contracts rather than
+     updated. **Landed instead:** neither action joins the pre-gate; each does
+     its own `is_ghost` check inside its own branch, on the `_focused_card()` it
+     already fetches. Same hiding behaviour, one focus read, none outside
+     By-Trail.
+  2. **The planned RFC edit was dropped as unnecessary.** The plan claimed
+     `aidocs/implementation_trail_design.md:672` put `[m]`/`[M]` on the card
+     hint line (which t1268 reduced to `[enter details]`). Read in place, that
+     row spans the full frame below the summary — it **is** the footer, exactly
+     where these keys land. The wireframe was already correct; only its
+     illustrative labels differ from the real strings, and that belongs to
+     t1210_6's RFC sweep.
+  3. **The drift negative control landed in `tests/test_trail_gather.py`**, not
+     the board module. `DigestStabilityTests` already owns a synthetic repo plus
+     `snapshot()` / `make_trail()` / `drift()`, and already carried
+     `test_boardidx_and_updated_at_do_not_drift`. `boardcol` was the uncovered
+     half — and the one worth proving, since unlike `boardidx` it *is* emitted,
+     on the display-only `MEMBER:` line.
+  4. **Post-review (CR 1):** the duplicate-wave premise moved from a docstring
+     claim to an executable test in `tests/test_trail_schema.py`. See
+     Post-Review Changes.
+
+- **Issues encountered:**
+  - The two hot-path failures above. Diagnosis: `check_action` runs once per
+    binding on every `refresh_bindings()`, so anything added to the shared
+    pre-gate costs a focus read on *every* view, not just the one being taught
+    a new trick. Resolved by scoping each check to its own branch.
+  - `MoveTaskSelectScreen`'s row key must be unique, but a schema-valid wave may
+    repeat a task ref (`entry_id` is unique, `entry.task` is unconstrained).
+    Resolved with first-occurrence dedup plus a reported repeat count; the write
+    was never at risk (`_resolve_parents` dedups too) — the review dialog was.
+
+- **Key decisions:**
+  - **One `m`, not a duplicate-key pair.** t1268 needed `r`/`s` pairs because
+    By-Trail wanted *different footer labels*; "Move to Col" is already truthful
+    there, so widening the existing gate beats a second binding.
+  - **No re-render after a By-Trail move.** No trail surface reads
+    `board_col`/`board_idx`, so the lanes cannot change;
+    `move_tasks_to_column` mutates the manager's `Task` objects in place, so a
+    later view switch shows the move with no reload. `refresh_columns` would
+    have been actively wrong (By-Trail mounts `TrailColumn`s, and `src_cols`
+    names columns this view does not render).
+  - **`M` stays visible on a focused child, `m` does not.** `M` acts on the
+    enclosing wave, so a focused child still names movable parents. Pinned at
+    the action level, not just the gate, so a later child guard cannot leave the
+    key advertised but inert.
+  - **Ghost refusals live in the actions, not only the gate.** The palette
+    dispatches `action_*` directly; without the guard `_GhostTaskStub`'s
+    synthetic filename reached `_reject_stale` and produced a wrong diagnosis
+    ("no longer on the board — press r") about a member that is merely
+    read-only. The tests assert the *absence* of that wording, because the
+    unguarded path also pushes no screen and a "did not push" assertion would
+    pass either way.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **`_choose_move_destination` is the single destination chain.** Any future
+    view that gains a move command should call it (or pass it to
+    `_review_then`), never re-open the closure it replaced.
+  - **`_mock_app` in `tests/test_board_move_command.py` binds real methods by
+    name.** A callback missing from that list resolves to an auto-created
+    MagicMock and the suite passes while production raises `AttributeError`.
+    Add any new action/helper you drive to that tuple.
+  - **Do not add anything to `check_action`'s ghost pre-gate without checking
+    the DOM-query budget** — `MoveGatingTests` pins it, and the pre-gate reads
+    focus on every view.
+  - **The passive t1162 bridge is now usable end-to-end:** a wave moved with `M`
+    lands in the target column in wave order, and the Work Report reads that
+    column with no code coupling. t1210_6 documents the workflow and the
+    keybindings; the RFC wireframe at `:672` already shows `[m]`/`[M]` in the
+    footer, only with illustrative labels.
