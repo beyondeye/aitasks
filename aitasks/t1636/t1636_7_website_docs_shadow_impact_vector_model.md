@@ -5,10 +5,14 @@ depends: []
 issue_type: documentation
 status: Implementing
 labels: [shadow, concern_format, documentation]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1636
 created_at: 2026-08-30 19:53
-updated_at: 2026-08-31 22:49
+updated_at: 2026-08-31 22:50
 ---
 
 ## Context
