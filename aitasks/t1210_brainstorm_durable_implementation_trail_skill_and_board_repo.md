@@ -12,10 +12,10 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1210_5, t1210_6, t1210_7]
+children_to_implement: [t1210_6, t1210_7]
 implemented_with: claudecode/fable5
 created_at: 2026-07-22 10:14
-updated_at: 2026-07-26 00:19
+updated_at: 2026-08-31 16:41
 boardidx: 119808
 ---
 
