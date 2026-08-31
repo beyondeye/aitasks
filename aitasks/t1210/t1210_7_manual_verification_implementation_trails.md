@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [t1210_6]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
 verifies: [t1210_2, t1210_3, t1210_4, t1210_5, t1210_6]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 followup_kind: manual_verification
 created_at: 2026-07-22 16:17
-updated_at: 2026-08-13 23:06
+updated_at: 2026-08-31 18:26
 ---
 
 ## Manual Verification Task
