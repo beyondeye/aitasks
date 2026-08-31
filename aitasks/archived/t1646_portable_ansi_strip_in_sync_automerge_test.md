@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [macos, tests]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 1569
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-31 10:59
-updated_at: 2026-08-31 17:35
+updated_at: 2026-08-31 18:05
+completed_at: 2026-08-31 18:05
 ---
 
 ## Origin
@@ -79,3 +80,14 @@ third site has appeared.
 > **✅ gate:plan_approved** run=2026-08-31T14:35:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-31T14:55:53Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-31T15:05:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:bac4b51ffe27e77d
+
+> **✅ gate:risk_evaluated** run=2026-08-31T15:05:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1646/risk_evaluated_2026-08-31T15:05:39Z-risk_evaluated-a1.log`
