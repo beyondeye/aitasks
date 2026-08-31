@@ -1,0 +1,1981 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-shadow-review-loop",
+  "title": "Shadow review-loop automation: landing order",
+  "owner": "aitasks#1159",
+  "scope": {
+    "kind": "ad_hoc",
+    "initiating_task": "aitasks#1159",
+    "topics": [
+      "aitasks#1159"
+    ],
+    "selection_note": "Invoked on t1159 and widened from topic aitasks#1159, whose topic group had exactly one member at creation time, so a topic trail would have been a single entry with no sequencing value. Membership is pinned by generation.inputs, and only LIVE members ever sit there -- the gatherer resolves ids against the active tree only (a snapshot naming an archived id returns ERROR:unknown_task), and keeping a completed task in inputs would make the drift check report task_completed for it forever. Landed members keep their wave entries as a record; they leave inputs. Generations: creation pinned t1116, t1159 plus t1289/t1293/t1294/t1319; the 2026-08-05 refresh retired those four and added t1420 and t1427; 2026-08-09 auto-pulled t1427_4 and t1427_5; 2026-08-10 was the first refresh where membership SHRANK; v5 (2026-08-16) admitted t1159's four active children plus nine anchor:1159 tasks by explicit user decision. This v6 (2026-08-31, DEEP) is the first refresh driven by the ARCHIVED-tree anchor sweep rather than by the drift helper alone, and it corrects the largest recorded gap in the trail's history: eleven archived anchor:1159 tasks were recorded nowhere in v5. Six of them were admitted as landed entries by user decision (t1474, t1530, t1540, t1557, t1562, t1606), creating two new waves -- 7 (the Claude half of native-dialog detection) and 8 (loop self-stability). Eight active follow-ups were admitted as sequenced members (t1531, t1535, t1541, t1542, t1554, t1556, t1564, t1618), taking generation.inputs to 19 task_file refs, the largest it has been. The worktree/setup cluster (t1616, t1624, t1627, t1631 and the active t1625) was excluded by the same decision: it carries the anchor by provenance inheritance and touches no shadow code. A lite refresh of this artifact was authored first and DISCARDED unwritten at the user's direction, because the downgrade would have dropped v5's observations, relations, exclusions and evidence and, by erasing the exclusion records, resurrected six already-adjudicated tasks as fresh drift."
+  },
+  "generation": {
+    "generated_at": "2026-08-31T06:52:10Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "fe9b43e63208bff5",
+    "inputs": [
+      {
+        "kind": "plan_file",
+        "ref": "aitasks:aiplans/p1159_shadow_review_loop_automation.md"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1116"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1159"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1159_5"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1159_6"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1159_7"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1448"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1503"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1506"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1522"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1524"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1529"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1531"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1535"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1541"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1542"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1554"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1556"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1564"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#1618"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-08-31T06:52:10Z",
+    "drift_reasons": [],
+    "refresh_recommended_because": "Refresh when t1159_7 lands -- five members hold a recorded edge on it or behind it, and its landing is the one event that changes what to pick next. Refresh after EACH of the five unrun manual verifications (t1618, t1529, t1541, t1556, t1564) rather than after all of them: every live check ever run in this topic has failed an item and each failure has added a member, so treat each as a likely membership event. Five standing cautions, the first two learned at this refresh. (1) THE DRIFT SCAN ENUMERATES ACTIVE TASKS ONLY, so anything created and archived between two refreshes is invisible to it -- eleven such tasks had accumulated by v6, including t1606, which rewrote the loop. Run the anchor:1159 sweep across BOTH aitasks/ and aitasks/archived/ every time, and note that lite depth skips it. (2) anchor 1159 is now a provenance chain rather than a topic, so judge membership by subject; see obs-anchor-is-provenance-not-topic. (3) A CURRENT drift verdict does not hash task-file content, so a member's reasoning can change under a clean verdict. (4) The drift scan cannot see a decomposition, so check for new children under every parent member explicitly -- t1159 still has exactly seven. (5) t1636 (shadow_concern_impact_vector_model) is a live neighbouring topic editing monitor_shared.py and minimonitor_app.py, the files four members here touch."
+  },
+  "narrative": {
+    "problem_statement": "For four generations this trail answered one question: what should already be true about the shadow agent, the concern block and minimonitor before the review loop is built on them? That question is answered and consumed -- every predecessor landed, t1159 was decomposed into seven children, the controller shipped, and the loop is now armed for all three agents on both sides of the pane pair. This version answers a different question, and it had to correct the record before it could: eleven tasks carrying this topic's anchor had landed without ever entering the trail, including one that rewrote the loop's own state machine. With those folded in, the question is what the shortest path is from 'the loop runs' to 'the loop is verified, it stops disarming itself, and a user can see it working'.",
+    "recommendation_summary": "Take t1618 and t1159_7, in that order, and treat everything else as parallel capacity. t1618 is Ready, boardcol now, unblocked, and it is the live verification of t1606 -- the change that rewrote the loop's auto-disarm and hold paths on 2026-08-26; running it first gives t1159_7 a verified baseline to refactor against, and running it after means a failure cannot be attributed between the two. t1159_7 is then the chokepoint: five members hold a recorded hard edge on it or behind it (t1159_5, t1159_6, t1503, t1535, t1542), and nothing else in wave 4 can start first. Alongside that chain, four unblocked verifications (t1529, t1541, t1556, t1564) and one live monitor bug (t1554) can absorb any spare capacity in any order; t1554 is low effort and degrades ait monitor for every user whether or not they run the loop. t1116 stays last and Postponed.",
+    "overview": "THE CORRECTION FIRST. This refresh found eleven archived tasks carrying anchor 1159 that were recorded nowhere in the trail -- not as entries, not as exclusions. The cause is structural: the drift helper's new_related_task scan enumerates ACTIVE tasks only, so anything created and archived between two refreshes is invisible to it, and four consecutive refreshes described a loop that had changed underneath them. Six of the eleven are review-loop work and now appear as landed entries, creating two new waves. The most important is t1606 (2026-08-26): the loop was auto-disarming almost immediately after arming, non-deterministically, and the user could not tell why. Its fix shipped a decoded event log, a HOLD-on-dialog state that retries instead of disarming, and per-cause messages for four disarm sites that had been collapsed into three ambiguous strings. That is the module t1159_7 is queued to refactor and t1503 is queued to instrument.\n\nWHAT TO PICK NEXT. t1618 first -- Ready, boardcol now, no unsatisfied dependency, and the only planned live evidence for t1606's rewrite. Its checklist is the broadest in the trail and ends by re-running t1523's end-to-end delivery item against a real Codex pane. Then t1159_7, the chokepoint: unblocked, medium effort, and five members sit behind it. Note t1159_5's verifies list predates t1606 and does not cover it, so t1618 and t1159_5 do not substitute for one another.\n\nWHAT BLOCKS WHAT. One chain carries almost all the coupling: t1159_7 -> t1159_5 -> t1159_6, with t1503 needing both t1159_6 and t1159_7, t1535 needing the same pair, and t1542 needing t1159_7. Everything else is free-standing: five manual verifications whose dependencies are all satisfied (t1529, t1541, t1556, t1564, t1618), three unblocked tasks with no edges at all (t1506, t1522, t1524, plus t1531 and t1554), and t1448, whose hard edges are t1420 (Done) and t1159 -- the decomposed parent, which stays Ready until its children close, so it is gated on the same chain in practice.\n\nWHAT THE SHAPE OF THE WORK NOW IS. The open work is dominated by verification debt rather than construction: five manual verifications are Ready with every dependency satisfied, none of them blocks anything, and every one verifies code already shipped to users. Against this topic's own record that is the largest standing risk here -- every live check ever run in it has failed at least one item that the unit suite passed, and each failure has added a member (t1498 -> t1499, t1523 -> t1525, t1540's review -> t1557). Refresh after each verification rather than after all of them.\n\nWHAT IS IN FLIGHT. t1636_4 holds a lock and its plan resolves .aitask-scripts/monitor/monitor_shared.py and minimonitor_app.py -- the same files t1159_6, t1448, t1503 and t1524 edit. It belongs to a neighbouring topic (shadow_concern_impact_vector_model) with no depends edge to anything here, so nothing sequences the two; whichever lands second should re-check the other's rows.\n\nWHAT WAS DELIBERATELY LEFT OUT. The worktree/setup cluster -- t1616, t1624, t1627, t1631 and the active t1625 -- carries anchor 1159 purely by provenance inheritance (t1616 was spawned from t1606's Step 8b review and says its defects are not in review-loop code) and touches no shadow surface. It is recorded as exclusions so it stops re-surfacing as drift. That cluster is also the clearest sign that this topic's anchor has become a provenance chain rather than a subject, which future refreshes must account for when judging membership.",
+    "method_note": "Membership, status, priority, effort, boardcol, depends and pending gates for the 19 live members come solely from `aitask_trail_gather.sh snapshot --scope task --owner 1159 ...` (DIGEST fe9b43e63208bff5); the drift verdict from `aitask_trail_gather.sh drift --trail art:trail-shadow-review-loop`, which returned STALE with 17 reasons. Four previously-pinned ids (1159_4, 1499, 1518, 1525) returned ERROR:unknown_task, confirming they had archived; their files were then read directly from aitasks/archived/. The belt-and-braces follow-up sweep was run in BOTH directions for each of those four -- outgoing risk_mitigation_tasks: by reading each archived file, incoming verifies: by the prefilter-plus-confirmation loop, which exited 0 on all four runs and whose candidates were each confirmed by reading the actual verifies: list (t1468_7 and t1508 matched the prefilter and were rejected). An anchor:1159 sweep was run across BOTH the active and archived trees, and the child listing under t1159 was checked directly. In-flight state came from the same snapshot re-run with --with-inflight.\n\nWHAT WAS NOT VERIFIED. Nothing here was executed, built or tested; no ordering claim was validated by running anything, and no member's implementation was reviewed for correctness. Effort and priority are copied from task metadata, not estimated -- this document contains no time estimates and no completion forecasts. The six newly-admitted landed entries carry only status Done in their snapshots: their priority, effort and boardcol at archive time were not recoverable from the gatherer, which resolves active tasks only, and were not reconstructed from git history. Archive dates come from `ait git log -1` on each file and are the date the file last moved, not necessarily the date work finished. The eleven-task gap was found by the anchor sweep, which only sees tasks whose anchor field is literally 1159 -- a landed task in this subject anchored elsewhere would still be invisible, and obs-single-member-topic records that accepted cost. One drift reason is expected to persist and was not treated as a defect: `unverifiable content inputs` on the parent plan, whose cause (a parent's plan glob matching its child's plan) was itself fixed by t1532 on 2026-08-17.",
+    "caveats": [
+      "Every ordering edge this trail authors is advisory. Twenty-three hard_depends relations are recorded facts copied from task metadata and are topologically binding; the four advisory_precedes edges (notably t1618 before t1159_7) have no enforcement behind them and are this analysis's judgement.",
+      "This trail changes no task metadata. Wave positions are not board positions, membership does not reassign any task's anchor, and t1116's Postponed status is untouched.",
+      "Waves 1-3 are landed history and their entry rationales are preserved as written; they are no longer advice. Waves 7 and 8 are new in v6 and consist mostly of landed work being recorded for the first time -- they are a correction to the record, not newly recommended work.",
+      "The six landed entries admitted at v6 were judged from their task files as read on 2026-08-31, not from the plans or diffs of the work itself."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-contract-and-seam",
+      "ordinal": 1,
+      "title": "Lock the concern contract and the minimonitor seam (LANDED)",
+      "purpose": "Land the two low-effort structural cleanups while the surfaces they guard still had a single consumer. Both were invariant-only work with no user-visible change, and both would have become materially harder once t1159 added a second forward surface and a large block of new minimonitor code. COMPLETE: t1294 archived Done 2026-08-02, t1289 archived Done 2026-08-03, in the order this wave recommended. Later waves now modify surfaces whose rules are enforced structurally rather than remembered — t1294 shipped an AST guard over the whole `monitor/` package (t1426's task text describes it scanning for unclassified `Concern.body` reads), so any new display surface must register itself there rather than rely on reviewer attention.",
+      "why_now": "t1289's own scope note said 'Do not start until t1216_2 and t1216_3 have landed'; both were archived, so it was unblocked for the first time. t1294 said to prefer a guard that 'keeps working when t1216_3 lands the full monitor's copy of the picker — that second consumer is exactly the scenario this guard exists for'; writing the guard before t1159's further consumers was the intended sequence rather than a retrofit.",
+      "consequence_of_delay": "Avoided. Had t1159 landed first, its concern-forwarding path would have been written against a rule enforced only by prose, and its new minimonitor call sites would have bound to the transitional delegators — realizing exactly the risk t1289 was created to prevent, and enlarging t1289's migration to cover t1159's call sites as well.",
+      "entries": [
+        {
+          "entry_id": "e-1294",
+          "task": "aitasks#1294",
+          "topic": "aitasks#1037",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1159 introduces both a new forward surface (minimonitor pasting picked concerns directly into the followed pane) and a new display surface (concern rows carrying round and timestamp metadata). t1294's guard exists precisely so that a newly added surface cannot silently reach for the wrong accessor. The coupling is tighter for t1159 than it was for the original t1274 split: t1159's steerability requirement routes each concern to 'address in plan now' / 'spin off as a separate task' / 'dismiss', and that disposition travels in the same trailer that `Concern.body` preserves verbatim and `display_body()` strips.",
+          "expected_outcome": "A structural guard — source-level enumeration or behavioural drive of every surface — that fails when a display surface reads `.body` or a forward surface reads `display_body()`, so t1159's injection path is covered by construction rather than by reviewer attention.",
+          "why_order_matters": "Both failure modes are silent by design of the split. If t1159's forwarding path picks the wrong accessor before the guard exists, the `Disposition:` metadata is dropped from what the followed agent receives and no test fails — which is the exact loss t1274 avoided and t1294 was created to make impossible.",
+          "confidence": "high",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-02, implemented_with claudecode/opus5, risk_code_health low). It shipped `tests/test_concern_body_display_contract.py`, an AST guard over the `monitor/` package that surfaces any unclassified `Concern.body` read — so the obligation it created now falls on every later surface, including t1159's and t1426's.",
+            "This rationale is preserved as written on 2026-08-02. The forward surface it leans on most (direct injection into the followed pane) was demoted by the 2026-08-05 scope clarification recorded in obs-loop-direction-reweighted; the display-surface half of the argument is unaffected."
+          ]
+        },
+        {
+          "entry_id": "e-1289",
+          "task": "aitasks#1289",
+          "topic": "aitasks#1111",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1159 will add substantial new code to minimonitor around the shadow helpers — pane capture, staleness reads, concern picking and forwarding. Removing the four transitional delegators now means that new code is written against the shared `monitor_core` / `monitor_shared` functions directly. Doing it afterwards means migrating t1159's fresh call sites too, on top of the five test classes across four test files that t1289 already has to move onto the shared seam.",
+          "expected_outcome": "No MiniMonitorApp method whose body is solely a call to a shared function, and the shadow test suite bound to the shared names — so t1159 has exactly one name per implementation to build against.",
+          "why_order_matters": "Order here is a cost preference rather than a correctness constraint: t1289 is a pure de-duplication that must not change behaviour, so nothing breaks if it runs later. What changes is scope — every t1159 call site written against a delegator is another site t1289 must migrate, and the more sites exist the likelier the seams simply stay.",
+          "confidence": "high",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-03, implemented_with claudecode/opus5, risk_code_health low). Its cost-avoidance argument is now realized rather than predicted: t1159 and t1420 both add minimonitor call sites and neither had delegators to bind to — t1420 in particular added a shared `refresh_shadow_phase_stamp` called from three per-tick sites across both TUIs, exactly the shape t1289 made possible.",
+            "It named `tests/test_minimonitor_concern_smoke.py` as needing the most care because it deliberately drives the real capture path unstubbed; that test remains the closest existing harness to what t1159 will need."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-harden-driven-surfaces",
+      "ordinal": 2,
+      "title": "Harden what the loop will drive (LANDED)",
+      "purpose": "Make the shadow-to-followed pane binding authoritative and give the concern picker a way to show what a malformed block lost, before an automated loop starts producing concern blocks unattended and moving keystrokes between panes. This wave converted two surfaces from 'works when a human is watching' to 'diagnosable when nobody is'. COMPLETE: t1319 archived Done 2026-08-04, t1293 archived Done 2026-08-05, in the order this wave recommended. Both spawned Step 8d risk-mitigation follow-ups that are still live (t1411, t1426) and t1293 also spawned a manual-verification task (t1425); all three remain Ready and were deliberately excluded, so this wave's guarantees are landed-and-unverified.",
+      "why_now": "Both members touched surfaces t1159 rewrites — the capture helper's pane resolution and `ConcernPickerModal` — so landing them first meant t1159 builds on the hardened version instead of racing them in the same files. Both were also low effort and unblocked.",
+      "consequence_of_delay": "Avoided for the loop's two worst failure modes: a mis-bound pane and an unreadable parse failure. Each would have been far harder to diagnose once it occurred inside an automated round, where the user sees a result rather than the sequence of actions that produced it.",
+      "entries": [
+        {
+          "entry_id": "e-1319",
+          "task": "aitasks#1319",
+          "topic": "aitasks#1307",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1319 records a concrete constraint that an automated loop meets far more often than a human-paced workflow does: `minimonitor_app.py::_spawn_shadow` stamps `@aitask_shadow_target` after `launch_in_tmux()` returns, so a very early capture races the stamp. A loop that issues its first challenge immediately after spawning the shadow sits directly on that race. Its second mitigation — warn or refuse when an explicit pane id conflicts with the pane's own binding — is also the only check that catches a truncated id which happens to name a live pane, because that path produces a successful capture and no error.",
+          "expected_outcome": "An argument-free capture path that resolves the followed pane from `@aitask_shadow_target` (so the id never crosses the model's token stream), a loud conflict warning on the explicit-argument path, and a clean degradation when the option is unset — with each guard proven able to fail, not merely proven not to regress.",
+          "why_order_matters": "In the manual workflow a wrong-pane capture surfaces immediately because the user is reading the shadow's output against the agent they are watching. Inside a loop the same mis-binding produces a plausible-looking review of another agent's work, and the recheck round then forwards that review's concerns into a pane, compounding the error before anyone reads it.",
+          "confidence": "medium",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-04, implemented_with claudecode/opus5, risk_code_health medium — the highest of the four). Per t1411's origin section it closed the hazard on the capture path only: the shadow's Step 1 and every `--deep` sub-procedure now run argument-free and refuse a contradicting explicit id with exit 2, and `aidocs/framework/shadow_agent.md` now carries the rule 'the validated pane binding, not the argument, is the source of truth'.",
+            "The spawn-stamp race it identified recurred in a new form during t1420: `spawn_shadow` initially did not stamp `@aitask_shadow_phase` at spawn at all, leaving a window where a shadow read `--phase` before the first tick and missed the checkpoint it was launched for. Caught in t1420's Step 8b review and fixed by stamping before `schedule_refresh`, with the ordering asserted. The same class of defect, on a sibling pane option, one wave later.",
+            "Two open items were carried out of it: t1411 (the learner-spawn path still has no argument-free form) and t1410, a manual verification that is itself archived Done. t1411 is excluded from this trail — the learner path is not the loop's path.",
+            "t1319 instructed verifying the `_spawn_shadow` stamp ordering before designing; whether that verification happened is not established here (no source was read in any generation of this trail)."
+          ]
+        },
+        {
+          "entry_id": "e-1293",
+          "task": "aitasks#1293",
+          "topic": "aitasks#1037",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1159 extends the concern block with round number and review timestamp — a parser-aware change to a format whose fence literals are exact. t1293 adds the affordance behind the 'N line(s) in this block could not be parsed' banner that shows the offending lines, which is the tool needed to tell an over-bound split from a producer typo when the producer has just started emitting a new field, once per round, without supervision. t1293 also settles the picker's contract below 40 columns, and the loop turns the picker into a recurring surface rather than an occasional one.",
+          "expected_outcome": "A raw-block inspection path reachable both beside the banner and in the all-malformed no-rows case, plus a decided and tested layout contract at 30 and 24 columns — so a round-metadata parse regression is visible and attributable rather than a silent row loss.",
+          "why_order_matters": "Today an unparsed line costs one manual re-read. Once rounds are automatic, the same defect repeats every round and the user sees only a count; without the inspection affordance there is no way to attribute it to the new metadata field rather than to the shadow's prose.",
+          "confidence": "medium",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-05, implemented_with claudecode/opus5, risk_code_health low; commit e2db6e3f6 'Show what a concern block's parse lost, down to 24 columns'). Per t1426's origin section it shipped `ConcernBlockInspectModal`, a scrollable `markup=False` read-only viewer reachable with `u` via `action_inspect_unrecovered`, pushed over the picker so the selection survives underneath.",
+            "It closed the lost-lines half only. t1426 records the measured residue: `_ConcernRow` renders a fixed-height row, so a long PARSED body is silently truncated at every width (a 43-character body shows as 'The picker drops the body' at 40 columns and 'The picker' at 24). A user deciding whether to forward a finding still chooses from a preview they cannot expand. t1426 and the manual verification t1425 are both excluded from this trail by the user, and both are still Ready as of 2026-08-10."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2b-loop-inputs",
+      "ordinal": 3,
+      "title": "Build the two things the loop is written to consume (LANDED)",
+      "purpose": "Land the substrate and the signal that t1159's own text delegates to other tasks: a durable per-task concern-rejection store with a producer-side suppression rule (t1427), and an advisory workflow-phase seam that also sharpens the live completion detection (t1420). This wave was qualitatively different from waves 1 and 2, which hardened surfaces the loop merely touches. These two owned scope the loop is explicitly told not to re-implement, so the wave boundary was about avoiding duplicate implementations, not about de-risking a shared file. COMPLETE as of 2026-08-10: t1427's five children and the parent all archived Done by 2026-08-09 12:23 — including t1427_5, the aggregate manual verification, making t1427 the only member of this trail whose acceptance was actually confirmed — and t1420 archived Done 2026-08-10 16:22. Both duplication costs this wave existed to avoid are now permanently avoided rather than merely deferred.",
+      "why_now": "t1427 and t1420 both arrived after this trail was created and both landed in the trail's own topic. Each was placed before t1159 on a preference t1159 itself records: for t1427, 'this loop consumes it rather than re-implementing rejection … t1427's store layout must not be duplicated here'; for t1420, 'if t1420 lands first, consume its phase seam instead of adding a second phase derivation here'. The 2026-08-05 re-weighting added a second argument for t1420 specifically — the loop's critical direction is auto-recheck, whose trigger is 'the followed agent has finished addressing the concerns', and t1420's blind spot 3 put sharpening that detection (`prompt_patterns.py`) inside its scope. That argument proved stronger than written: t1420's live measurement found `AskUserQuestion` was matched by NOTHING, so `awaiting_input` was False for every agent parked at a workflow checkpoint. The sharpening was not an optional nicety attached to a phase feature — it was the precondition for the loop's trigger existing at all.",
+      "consequence_of_delay": "Avoided, and the avoidance is now demonstrable rather than predicted. Taken after t1159, the dismiss arm of the loop's triage would have shipped with nowhere durable to persist to or grown a private store that t1427 then had to reconcile with, and the loop would have derived a second phase inside loop code rather than behind a `lib/` seam the board, monitor and shell can all reach. Both duplicates would have sat in the same files the real implementations targeted. The sharper counterfactual is the trigger: a loop built before t1420 would have keyed 'the agent has finished' off an `awaiting_input` that was False at every workflow checkpoint, and would have appeared simply not to work.",
+      "entries": [
+        {
+          "entry_id": "e-1427",
+          "task": "aitasks#1427",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "high",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "This was the strongest ordering claim in the trail among live work, the only one asserted by both task files rather than inferred, and it is now fully discharged. All five children landed: t1427_1 (rejection store helper), t1427_2 (picker tri-state reject action, RejectedStoreModal, ConcernPickResult), t1427_3 (producer-side suppression rule inlined in all four concern producers), t1427_4 (documentation) and t1427_5 (aggregate manual verification), with the parent archived 2026-08-09 12:23. t1159's coordination note says the loop 'consumes it rather than re-implementing rejection', drawing the line as 't1427 owns where per-round concern state lives, this task owns when a round starts and how it is driven' — that store layout, its locking discipline (`registry_lock.sh` + atomic-write RMW) and the picker's dismiss-contract shape (`ConcernPickResult`) are now shipped, documented and verified code that t1159 reads and builds against. t1159's dismiss triage is not optional — it is a first-class acceptance criterion folded in from t1017 — so t1159's plan has a concrete, confirmed contract to consume.",
+          "expected_outcome": "DELIVERED IN FULL: a per-row tri-state in the picker (`☐`/`[bold yellow]☑[/]`/`[red]✗[/]`) replacing `_selected`, with the `a`/`A` bulk shortcuts removed entirely; a rejection store at `.aitask-shadow/<task_id>/rejected.md` mirroring `.aitask-gates/`, git-ignored, written through `lib/registry_lock.sh` plus `ait_atomic_render`; a suppression rule the shadow applies semantically before emitting a block, reporting `Suppressed N previously-rejected concern(s).` and keeping anything it is unsure about (fail-open); a reversible un-reject path via the `R` rejected-store view; `ConcernPickResult(forwarded, rejected, unrejected)` replacing the bare list on modal dismiss; documentation across four surfaces; and a thirteen-item manual verification covering all of it.",
+          "why_order_matters": "The loop's triage arm and the rejection store are the same feature seen from two ends. This risk is retired, not merely mitigated: t1427 shipped first, so t1159's plan reads a real store layout and a real dismiss contract instead of inventing a provisional one that would need migrating. That is a stronger position than any ordering argument in waves 1 and 2, all of which were behaviour-preserving or additive rather than substrate t1159 directly consumes.",
+          "confidence": "high",
+          "caveats": [
+            "FULLY LANDED. Children: t1427_1 (Done 2026-08-05 23:48, risk_code_health medium), t1427_2 (Done 2026-08-06 09:28, risk_code_health medium), t1427_3 (Done 2026-08-07 16:11, risk_code_health low, risk_mitigation_tasks [1460] — excluded, still Ready), t1427_4 (Done 2026-08-09 10:45, risk_code_health low) and t1427_5 (Done 2026-08-09 12:23). None of the newly-landed children declares a risk_mitigation_tasks entry.",
+            "UNIQUE IN THIS TRAIL: t1427_5's manual verification actually ran to terminal states, so t1427 is the only member whose acceptance is confirmed rather than inferred from an archived Done status. Every other landed member in this trail — the four in waves 1 and 2, and t1420 — carries the weaker claim recorded in obs-waves-1-2-landed.",
+            "One further follow-up landed silently: t1464 (Done 2026-08-09 11:48, anchor 1159), spawned from t1427_4's Step 8b review, fixing `aitask_shadow_rejected.sh:61` whose header comment documented the machine format as `REJECTED:<id>|…` while `cmd_list` emits an `r`-prefixed id (`REJECTED:r<id>|…`). Caught by t1427_4's own `keys_match_source` post-phase check, which re-derived the format from the emitter rather than the comment. Relevant to t1159 only if its loop ever consumes the machine-format list; recorded because it is one of the two archived follow-ups no automated check in this trail surfaced (obs-archived-followups-invisible).",
+            "It shares `ConcernPickerModal` and `_ConcernRow` with the excluded t1426 (picker full-body view) — t1427_2's landing means t1426, if ever taken up, must build against the shipped `ConcernPickResult`/`RejectedStoreModal` contract rather than the pre-t1427 modal.",
+            "Independence was stated explicitly on both sides — 'a loop can run without rejection' — so this was a preferred predecessor, not a hard prerequisite, throughout."
+          ]
+        },
+        {
+          "entry_id": "e-1427_4",
+          "task": "aitasks#1427_4",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "high",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [
+              "aitasks#1427_3"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Documentation for the concern-rejection feature: the website's shadow-agent and TUI how-to/reference pages, plus `aidocs/framework/shadow_agent.md`'s new 'Concern rejection store' section, framed explicitly as producer-side filtering rather than a gate (the doc's own no-gating principle). Recorded as a member only because it is a pinned child of t1427, which this trail's `--scope task` resolution always included while it was active; it never gated t1159's build in either direction.",
+          "expected_outcome": "DELIVERED (Done 2026-08-09 10:45, risk_code_health low, risk_goal_achievement low): four pages updated and re-read for coherence with the landed behaviour, plus a repo-wide sweep for the removed `a`/`A` picker shortcuts. Its 'document current source, not the plan' constraint proved load-bearing — the post-phase `keys_match_source` check re-derived the store's machine format from the emitter and caught a mismatch against the helper's own header comment, which became t1464.",
+          "why_order_matters": "None, in the end. Documentation drifting behind landed code is a user-facing gap, not a build-order risk for t1159 — nothing in t1159's plan reads these pages as a source of truth.",
+          "confidence": "medium",
+          "caveats": [
+            "LANDED 2026-08-10 refresh; had been added as an entry one refresh earlier via the parent-pulls-children mechanic. Now dropped from generation.inputs for the standard reason (obs-landed-members-not-in-inputs).",
+            "Its own warning to document CURRENT SOURCE rather than the plan was heeded and produced a real finding (t1464). This trail did not read the resulting docs or the diff — the claim rests on t1464's origin section."
+          ]
+        },
+        {
+          "entry_id": "e-1427_5",
+          "task": "aitasks#1427_5",
+          "topic": "aitasks#1159",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [
+              "aitasks#1427_4"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Aggregate manual-verification checklist covering all four implemented t1427 children end to end: store round-trips and archive-time pruning, the picker's reject/un-reject flow in both minimonitor and monitor, the no-task-id refusal notice, live two-round suppression with the 'Suppressed N' report, and the docs build. It verifies t1427's own children, not t1159 — but it is the single most consequential landing in this refresh for the trail's own epistemics, because it is the only place anywhere in this trail where a member's behaviour was confirmed rather than assumed from an archived Done status.",
+          "expected_outcome": "DELIVERED (Done 2026-08-09 12:23): all thirteen checklist items reached terminal states, closing out t1427 with actual confirmation. No carry-over task was created (the parent archived the same minute), and it declares no risk_mitigation_tasks.",
+          "why_order_matters": "None for t1159's build order. Its value is epistemic: it converts t1427's entry from 'archived Done' to 'verified', and it is the standing counterexample to the caveat this trail repeats about every other member.",
+          "confidence": "medium",
+          "caveats": [
+            "LANDED 2026-08-10 refresh; added as an entry one refresh earlier via the parent-pulls-children mechanic. Now dropped from generation.inputs.",
+            "What it verified is t1427_1 through t1427_4, per its `verifies:` list. It says nothing about t1420, t1159, or the four wave-1/wave-2 members."
+          ]
+        },
+        {
+          "entry_id": "e-1420",
+          "task": "aitasks#1420",
+          "topic": "aitasks#1159",
+          "position": 4,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "t1420 built the input the loop needs and nothing else: a phase-derivation seam under `lib/` returning phase (`PLAN`/`IMPLEMENT`/`POSTIMPL`/`UNKNOWN`) plus provenance plus whether the agent appears to be waiting, wired into the shadow's tier-resolution ladder as its middle rung (explicit user wording > detected phase > ask). Two things made it a predecessor rather than a peer, and the second turned out to be understated. First, t1159's coordination note explicitly prefers consuming its seam over adding a second phase derivation. Second, t1420 owned the signals the loop's critical auto-recheck direction rides on — and its pre-phase live measurement discovered that `AskUserQuestion` was matched by no pattern at all, so `awaiting_input` was False for every agent parked at a workflow checkpoint. `claude_askuserquestion` was therefore load-bearing, not the optional sharpening this trail described. A loop built before it would have keyed its 'the agent has finished' trigger off a signal that was never true at the moment it mattered.",
+          "expected_outcome": "DELIVERED IN FULL (all five deliverables): `lib/workflow_phase.py`, stdlib-only beside `gate_ledger.py`, returning a frozen `PhaseSignal` (phase / waiting / source / consulted / recording / detail) over one canonical vocabulary validated by both formatter and parser, with a `|`-delimited wire format sanitized at the write site; two promoted public `gate_ledger` functions plus an AST contract test instead of reaching into private helpers; `aitask_gate.sh workflow-phase` registered at all four sites; `GateSummaryCache` extended rather than re-parsed; phase rendered on full-monitor agent cards, minimonitor list rows and the docked followed-agent panel (whose static contract was deliberately amended); `@aitask_shadow_phase` stamped inside `spawn_shadow` and re-stamped per tick from BOTH TUIs via a shared `refresh_shadow_phase_stamp`; `aitask_shadow_capture.sh --phase` ladder; the shadow skill's phase-driven default on the `explicit > phase > ask` ladder with 3 goldens regenerated; and `shadow_agent.md`'s 'Phase detection (deferred)' section rewritten as a live advisory-only constraint.",
+          "why_order_matters": "Order here was a preference, not a constraint — t1159 states plainly that it must not wait on t1420 — but the preference fired, and what t1159 avoids is now concrete rather than hypothetical: a second phase derivation in loop code, a loop built on detection that could not see a workflow checkpoint at all, and a re-litigation of the argv-versus-pane-option channel question that t1420 settled with a reason (argv freezes at spawn while the shadow skill re-evaluates on every refetch).",
+          "confidence": "medium",
+          "caveats": [
+            "LANDED (archived Done, completed_at 2026-08-10 16:22, implemented_with claudecode/opus5, risk_code_health medium, risk_goal_achievement low). Confidence stays medium as recorded — it describes the strength of the ordering claim at the time, not the outcome.",
+            "THREE DEVIATIONS from its plan, all forced by measurement or review, all of which t1159's planner should read rather than trust the plan body: (1) `prompt_patterns.py` gained TWO patterns, not one — `claude_askuserquestion` was mandatory, not sharpening; (2) `claude_plan_approval` is bottom-anchored on the dialog's footer/option wording, not question-anchored, because `classify_content` matches only the last 6 lines and the ExitPlanMode question renders ~7 lines up; (3) the stale-anchor currency rule is structural, not a distance bound — both a fixed line bound and a 'no intervening prompt marker' rule were shown defeatable in review, and the shipped rule locates the widget's header chip (`☐ <Header>`) and requires the anchor to sit below it.",
+            "TWO defects were caught late and are worth knowing before building on this seam: a helper script aborted before its file write so `SHADOW_PHASE_OPTION` was never defined, and a broad `except Exception` in `refresh_shadow_phase_stamp` turned the resulting `NameError` into a silent `False` — every test stayed green while the feature was dead (the guard is now narrowed to the tmux transport only); and `spawn_shadow` did not stamp at spawn, leaving a window where a shadow read `--phase` before the first tick and missed the checkpoint it was launched for. The second is the same spawn-stamp race class as t1319's, on a sibling pane option.",
+            "NOT VERIFIED: t1475, its manual verification, has not been run. Its checklist covers precisely the claims this entry now rests on — that the docked panel repaints rather than freezing, that the pane option updates after a checkpoint advance, that `--phase` returns `VIA:pane-option` immediately after spawn from BOTH TUIs, and that an agent parked at an AskUserQuestion now reads as awaiting input. Recorded as an observation only (obs-t1475-unverified), by user decision.",
+            "SCOPE LIMIT: live phase detection is Claude-only. Tier A's anchor table is agent-neutral but its currency detection is not — both `awaiting_input` and the current-prompt-block index come from `prompt_patterns.PROMPT_PATTERNS_BY_AGENT`, whose `opencode` list is empty — so an OpenCode pane is permanently ledger-only until t1467 lands. See obs-cross-agent-phase-gap.",
+            "Its follow-on t1474 (archived Done 2026-08-10 18:43) fixed three defects t1420's measurement exposed but deliberately left alone: `claude_proceed` matched no current Claude dialog and was dead, the workspace-trust dialog matched nothing so a blocked agent read as idle, and `strip_ansi` left OSC 8 hyperlinks polluting `compare_value` and idle detection. See obs-prompt-detection-hardened."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w3-the-loop",
+      "ordinal": 4,
+      "title": "The loop -- decomposed, four children shipped, three open",
+      "purpose": "Build the review-loop automation itself on top of a guarded concern accessor contract, a de-duplicated minimonitor, an authoritative pane binding, an inspectable parse surface, a durable rejection store, an advisory phase signal, and prompt detection that can see a workflow checkpoint. Construction is finished and documented: t1159_1 (round metadata), t1159_2 (the controller), t1159_3 (the spin-off arm) and t1159_4 (docs and integration) have all landed. What remains is consolidation -- refactor the accreted controller, verify the whole thing live, then give it a status line. The wave is a boundary because five members spread across four later waves depend on its two remaining code children.",
+      "why_now": "Because the wave has collapsed onto a single unblocked task, and that task is the trail's only real chokepoint. At v5 three fronts were live; t1159_4 and t1518 have since landed, leaving t1159_7 as the sole unsatisfied edge in t1159_5's depends. t1159_7 now gates FIVE members by recorded fact -- t1159_5, t1159_6 (transitively), t1503, t1535 and t1542 -- where v5 showed it gating two. Nothing else here can start first.",
+      "consequence_of_delay": "Every week t1159_7 waits, the module it refactors accretes further: t1606 rewrote its auto-disarm and hold paths after v5 was authored, and t1618 will verify that rewrite. A refactor deferred past more such fixes is a larger, riskier refactor of a module whose test surface keeps moving.",
+      "entries": [
+        {
+          "entry_id": "e-1159",
+          "task": "aitasks#1159",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "coordination_only",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "boardcol": "now",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "DECOMPOSED 2026-08-11 into seven children. The parent no longer carries implementable scope of its own -- its plan (`aiplans/p1159_shadow_review_loop_automation.md`) is now the shared design every child reads, and the three architectures it was created to weigh were settled there in favour of the minimonitor-orchestrated one. It stays a member and a wave entry because it is the trail's owner and the anchor every child and follow-on hangs from, but it is coordination, not work.",
+          "expected_outcome": "The parent archives when children_to_implement empties. Everything this entry predicted about the design -- that the plan would have to choose an architecture and author a pane-injection safety contract -- happened inside the children rather than in the parent, which is why the entry's classification changed rather than its rationale being retired.",
+          "why_order_matters": "First in the wave as the design anchor its children read; no longer an ordering claim about implementation.",
+          "confidence": "high",
+          "caveats": [
+            "This entry's original medium-confidence caveats were about which architecture the plan would pick. That is now decided (minimonitor-orchestrated) and shipped in t1159_2, so the caveats are history, not open questions."
+          ]
+        },
+        {
+          "entry_id": "e-1159_1",
+          "task": "aitasks#1159_1",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-11. Added round metadata to the shadow concern block -- grammar, parser accessor, producer wording, the auto-offer dedup lift and picker display. This is the piece the previous refresh named as the concrete cost of delay: without round metadata the auto-offer dedup suppressed a round-2 review whose concerns matched round 1, which would have made the loop's second round invisible.",
+          "expected_outcome": "ACHIEVED. The per-round suppression key-space t1427 was designed around (t1159's round number) is now actually populated, closing the gap between t1427's shipped rejection store and its intended consumer.",
+          "why_order_matters": "First child, and correctly so: the loop in t1159_2 sends 'recheck round N', which is meaningless if the block cannot record N.",
+          "confidence": "high",
+          "caveats": []
+        },
+        {
+          "entry_id": "e-1159_2",
+          "task": "aitasks#1159_2",
+          "topic": "aitasks#1159",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "high",
+            "effort": "high",
+            "boardcol": "unknown",
+            "depends": [
+              "aitasks#1159_1"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-12, and the critical seam of the whole trail: a pure state-machine module plus minimonitor wiring that, when armed, sends 'refetch and recheck round N' into the SHADOW pane once the followed agent settles at a prompt after new output. This is the followed-agent-to-shadow direction the 2026-08-05 user clarification named as the critical path, built exactly as the re-weighting asked and leaving concern forwarding as today's confirmed pick-and-paste.",
+          "expected_outcome": "ACHIEVED, and then some -- but at a cost the trail should record. The implementation went through seven adversarial review rounds (2 at plan time, 5 post-implementation), which is what spawned both t1159_7 (the refactor) and t1503 (make non-convergence visible). The loop works; the process of getting there is itself now a documented finding.",
+          "why_order_matters": "The wave's centre. Everything in waves 5, 6 and 7 exists because this landed and is running.",
+          "confidence": "high",
+          "caveats": [
+            "Its own review history is the origin of two open members (t1159_7, t1503) and one excluded upstream defect (t1502) -- an unusually high follow-up yield for a single child, and the reason wave 5 exists."
+          ]
+        },
+        {
+          "entry_id": "e-1159_3",
+          "task": "aitasks#1159_3",
+          "topic": "aitasks#1159",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-13. Added the 'spin off as separate task' triage arm to the concern picker: a fourth per-row state that, on confirm, creates a draft aitask per spun-off concern via `aitask_create.sh --batch`. Closes the folded-t1017 steerability requirement that came into t1159 at fold time.",
+          "expected_outcome": "ACHIEVED. It also created the surface t1506 now wants to make useful -- the decision of whether to park a concern as a follow-up exists, but the signal that would inform it (the terminal free-text disposition) is not yet surfaced at the decision point.",
+          "why_order_matters": "After t1159_2 because the triage arm acts on concerns the loop produces; before t1159_4 so the docs sweep documents a complete picker.",
+          "confidence": "high",
+          "caveats": []
+        },
+        {
+          "entry_id": "e-1159_4",
+          "task": "aitasks#1159_4",
+          "topic": "aitasks#1159",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [
+              "aitasks#1159_2",
+              "aitasks#1159_3"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-16. The documentation and integration sweep for everything the first three children shipped: the review-loop section of aidocs/framework/shadow_agent.md carrying the controller states and the full safety contract, the concern round-header cross-links, and the minimonitor website pages for the L and t keys. It was IN FLIGHT at v5. It declares risk_mitigation_tasks: [1535] -- the re-sweep of that same prose once t1159_6 and t1159_7 move the surfaces it pinned -- which is now a member in wave 10.",
+          "expected_outcome": "The loop, the triage arm and the round metadata documented in `aidocs/framework/shadow_agent.md` and `aidocs/framework/monitor_idle_and_prompt_detection.md`, with the integration points named rather than left to be re-derived from review_loop.py.",
+          "why_order_matters": "Now, and in parallel with t1159_7: it is Implementing, it blocks t1159_5, and every cross-agent member in wave 6 edits the files it documents -- the longer it waits, the more it has to describe retroactively.",
+          "confidence": "high",
+          "caveats": [
+            "It is one of the two edges into t1159_5, so a stall here stalls the aggregate verification and, through it, t1159_6 and the whole of wave 7."
+          ]
+        },
+        {
+          "entry_id": "e-1159_7",
+          "task": "aitasks#1159_7",
+          "topic": "aitasks#1159",
+          "position": 6,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "review_finding",
+            "depends": [
+              "aitasks#1159_2"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "Spawned at the user's request after t1159_2 archived, because that implementation went through seven adversarial review rounds -- 2 at plan time and 5 post-implementation -- and the shipped module is the accreted result of all of them rather than a designed whole. It depends only on t1159_2 (Done), so it is unblocked. THIS IS THE CHOKEPOINT OF THE WHOLE TRAIL: five members hold a recorded hard edge on it or on something behind it (t1159_5, t1159_6, t1503, t1535, t1542). Its premise has also strengthened since v5 rather than decayed -- t1606 landed on 2026-08-26 and rewrote the same module's auto-disarm and hold paths, adding a fourth accretion layer on top of the seven review rounds. Take it next.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1606",
+            "ev-anchor-sweep"
+          ]
+        },
+        {
+          "entry_id": "e-1159_5",
+          "task": "aitasks#1159_5",
+          "topic": "aitasks#1159",
+          "position": 7,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "manual_verification",
+            "depends": [
+              "aitasks#1159_4",
+              "aitasks#1159_7",
+              "aitasks#1518"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The aggregate manual verification for the whole t1159 decomposition, and the only member that can establish that the loop works end to end rather than per-module. Its depends grew to three edges since v5 (t1159_4, t1159_7, t1518); t1159_4 and t1518 are both Done, leaving t1159_7 as the sole blocker. The ordering judgement v5 argued for is now enforced by a real edge rather than by preference: the refactor lands before the verification, so the verification does not certify code about to be rewritten. Its verifies list ([t1159_1, t1159_2, t1159_3, t1159_4, t1518]) does NOT include t1606's rewrite, so running it does not discharge t1618.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1159_5",
+            "ev-sweep-incoming"
+          ]
+        },
+        {
+          "entry_id": "e-1159_6",
+          "task": "aitasks#1159_6",
+          "topic": "aitasks#1159",
+          "position": 8,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1159_5"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "An always-shown minimonitor concern status line: the shadow's current concern round and review timestamp, a glyph for the staleness state, and the loop's armed/disarmed state. It is the persistent surface for state the user can otherwise only discover by opening the picker. Its value rose since v5: t1606 added a HOLD state and per-cause disarm reasons, so there is materially more loop state worth showing than when this task was written -- and t1606's own remedy for the same problem was an after-the-fact event log (--loop-log), not a live surface.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1606"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w5-loop-verification-debt",
+      "ordinal": 5,
+      "title": "Close the verification debt the shipped loop has already produced",
+      "purpose": "Two live checks ran against the shipped loop and both failed an item the full unit suite passed -- t1498 (the round positive control) on the staleness banner, and t1523 (the Codex shadow recheck loop) on delivery. Both fix tasks have now landed. What remains here is the verification of the fix itself (t1564) plus t1506. The wave stays in the trail as the record of the pattern it established: in this topic, a live check has found a real defect every single time it has been run.",
+      "why_now": "The repair half is closed and the evidence half is not. t1499 landed on 2026-08-18 and resurrected two minimonitor banners that never composited, which removes the precondition it held over wave 9; its verification t1564 is unblocked and unrun. t1506 is a preferred predecessor rather than a blocker and can be taken whenever there is capacity.",
+      "entries": [
+        {
+          "entry_id": "e-1498",
+          "task": "aitasks#1498",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-12. The live positive control for the round mechanism: confirm in a real multi-pane session that a recheck round re-emits a concern block, and that before it does the picker reports the previous round as stale rather than current. A risk-mitigation follow-up, and the first thing in this topic to test the loop rather than its parts.",
+          "expected_outcome": "ACHIEVED for the picker half; the `#mini-shadow-stale` half FAILED and became t1499. That split is the wave's whole justification -- a positive control that passes everywhere is not evidence, and this one did its job by failing in exactly one place.",
+          "why_order_matters": "Landed before the fix it produced, by construction.",
+          "confidence": "high",
+          "caveats": []
+        },
+        {
+          "entry_id": "e-1499",
+          "task": "aitasks#1499",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "high",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [
+              "aitasks#1498"
+            ],
+            "gates_pending": [],
+            "followup_kind": "verification_failure"
+          },
+          "rationale": "LANDED 2026-08-18. Repaired the minimonitor surface that was dead in production: #mini-shadow-stale and #mini-session-bar never rendered in any state, because MiniMonitorApp.compose yielded three widgets all docked to the same edge and only the last in DOM order (#mini-own-agent) was composited. This was v5's headline pick. It declares no risk_mitigation_tasks, but the incoming sweep found t1564 verifying it.",
+          "expected_outcome": "Both hidden widgets rendering, with the compositor dump as the regression anchor rather than a state-machine assertion -- the state machine was already correct and would have kept passing.",
+          "why_order_matters": "First open item in the trail. High priority, low effort, and a precondition for two later members (t1159_6, t1503) that both add surfaces to the same edge. Nothing else in the trail has that combination.",
+          "confidence": "high",
+          "caveats": [
+            "Explicitly NOT a t1493 regression: t1493 added a new signal to an already-dead surface. The overlap dates from whenever `#mini-own-agent` became the third `dock: top` sibling (the t1382/t1383 followed-agent panel), so the fix must not be scoped as 'revert t1493'.",
+            "The correct assertion is on the LOSER of the dock contest, not on the survivor -- a test that checks `#mini-own-agent` renders would have passed throughout the defect's entire lifetime."
+          ]
+        },
+        {
+          "entry_id": "e-1564",
+          "task": "aitasks#1564",
+          "topic": "aitasks#1159",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "manual_verification",
+            "depends": [
+              "aitasks#1499"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The manual verification of t1499 (verifies: [1499], depends: [1499] -- satisfied), admitted by the belt-and-braces incoming sweep and by the user's membership decision. It is unblocked and unrun. It matters more than its followup_kind suggests: t1499 fixed a compositor-level docking defect that no unit test had caught, and the two banners it restored are exactly the surfaces wave 9's t1448 and t1503 will render into.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1564",
+            "ev-sweep-incoming"
+          ]
+        },
+        {
+          "entry_id": "e-1506",
+          "task": "aitasks#1506",
+          "topic": "aitasks#1159",
+          "position": 4,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "review_finding",
+            "depends": [
+              "aitasks#1159_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Builds on t1159_3's spin-off triage arm by making the existing terminal free-text disposition metadata -- blocking, follow-up, informational -- the single deferral-safety signal at the moment the user decides whether to park a concern as a separate task. Kept explicitly separate from concern priority: a high-impact concern may still be safe to defer. Unblocked (t1159_3 is Done) and nothing waits on it.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "ev-snapshot"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w6-cross-agent-arming",
+      "ordinal": 6,
+      "title": "Arm the loop for Codex and OpenCode, on both sides of the pane pair",
+      "purpose": "The loop shipped Claude-only on both sides. This wave closed that in the order the surfaces actually depend on each other: phase detection first (t1467), then the shadow half (t1509 for Codex, t1520 for OpenCode), then the delivery fix the first live check demanded (t1525), then the followed half (t1518). All five have landed, so the capability is complete. What is left is evidence and durability rather than capability -- three verifications, two risk mitigations for version-pinned literals, and one prompt-detection defect in the layer the loop's settle trigger depends on.",
+      "why_now": "Because the capability is complete and mostly unverified, and its foundations are pinned to vendor UI builds that move. Of the four links in the arming chain only the Codex shadow half has ever had a live check (t1523) and it failed; t1530 then verified the fix. t1541 (the followed half) and t1529 (the OpenCode shadow half) are both unblocked and unrun. Meanwhile t1531 and t1542 record that a Codex drain constant and a set of native-dialog boundary literals will silently rot on the next vendor UI change.",
+      "entries": [
+        {
+          "entry_id": "e-1467",
+          "task": "aitasks#1467",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-13. Extended the advisory workflow-phase signal after t1420 so native Codex and OpenCode prompts have phase-aware detection comparable to Claude, by inventorying real current prompt surfaces and adding narrowly scoped ordered patterns only where wording is distinctive. This DISCHARGES obs-cross-agent-phase-gap, which the previous two refreshes carried as a live constraint on t1159's design.",
+          "expected_outcome": "ACHIEVED. Phase detection is no longer Claude-only, which is what makes the rest of this wave coherent rather than speculative.",
+          "why_order_matters": "Before everything else here: arming a loop for an agent whose prompts cannot be phase-classified would have had nothing to trigger on.",
+          "confidence": "high",
+          "caveats": []
+        },
+        {
+          "entry_id": "e-1509",
+          "task": "aitasks#1509",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-14. Extended the auto-recheck loop's shadow-readiness detection beyond Claude so the loop can arm when the SHADOW pane runs Codex -- generalizing `SHADOW_READY_DETECTORS` (previously `{'claude': _claude_ready}`) and lifting minimonitor's refusal to arm on a non-Claude shadow.",
+          "expected_outcome": "ACHIEVED for arming, NOT for delivery. Its manual verification (t1523) passed the arming items and failed the delivery one, producing t1525. It also spawned t1524 as a Step-8d risk mitigation.",
+          "why_order_matters": "The generic seam had to exist before any second agent could be added; t1520 is its sibling for OpenCode.",
+          "confidence": "high",
+          "caveats": [
+            "Its patterns are pinned to codex-cli 0.146.0, with 0.147.0 already advertised at capture time -- the durability problem t1524 addresses."
+          ]
+        },
+        {
+          "entry_id": "e-1523",
+          "task": "aitasks#1523",
+          "topic": "aitasks#1159",
+          "position": 3,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-16. The manual verification of the Codex shadow recheck loop, and the reason this wave is ordered the way it is: it is the only thing that looked at the loop end to end on a non-Claude shadow, and it found the delivery defect that every unit test passed.",
+          "expected_outcome": "ACHIEVED as a verification: item 4 failed and produced t1525 with a measured, reproducible characterization rather than a symptom report.",
+          "why_order_matters": "Before the fix it produced and before the two lane extensions that would have inherited the defect.",
+          "confidence": "high",
+          "caveats": []
+        },
+        {
+          "entry_id": "e-1525",
+          "task": "aitasks#1525",
+          "topic": "aitasks#1159",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [
+              "aitasks#1509"
+            ],
+            "gates_pending": [],
+            "followup_kind": "verification_failure"
+          },
+          "rationale": "LANDED 2026-08-16. Fixed the delivery defect t1523 measured: _deliver_recheck issued its two send_keys calls with no delay and Codex swallowed the Enter that arrived in the same input burst as the literal text, so the loop believed it had fired a round that never reached the shadow. Characterized as a flip table against live codex-cli panes on an isolated tmux socket through the real TmuxMonitor.send_keys gateway. It declares risk_mitigation_tasks: [1531] for the residual it shipped with.",
+          "expected_outcome": "The recheck prompt actually submitted on a Codex shadow, with the delay (or whatever mechanism is chosen) justified by the measured table rather than picked by feel -- and a regression anchor that would fail at 0s.",
+          "why_order_matters": "First open item in this wave. Both t1520 and t1518 extend the same delivery primitive to further lanes; fixing it once here is strictly cheaper than fixing it three times, and shipping either extension first would propagate a known-broken primitive.",
+          "confidence": "high",
+          "caveats": [
+            "A timing-derived fix needs the right instrument: the flip table bounds the behaviour of one CLI version on one machine, so the fix should not encode 0.25s as a magic constant without saying what it is a proxy for.",
+            "It is Implementing as of this refresh, and its working tree touches `review_loop.py` and `prompt_patterns.py` -- the same files t1520 (also Implementing) and t1518 edit. Two in-flight members on one surface is the only shared-surface collision live in this trail."
+          ]
+        },
+        {
+          "entry_id": "e-1530",
+          "task": "aitasks#1530",
+          "topic": "aitasks#1159",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "depends": [
+              "aitasks#1525"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-16. The manual verification of t1525 (verifies: [1525]). It is the reason the belt-and-braces sweep exists and the single clearest justification for running it at deep depth: it was already ARCHIVED, so the drift scan -- which enumerates active tasks only -- could never have surfaced it, and t1525 does not record who verifies it, so re-reading the landed member could not have found it either. Only the incoming verifies: sweep did.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-sweep-incoming",
+            "ev-t1530",
+            "ev-anchor-sweep"
+          ]
+        },
+        {
+          "entry_id": "e-1520",
+          "task": "aitasks#1520",
+          "topic": "aitasks#1159",
+          "position": 6,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "high",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-16 13:03 -- while this very refresh was being authored, which is why the pre-write validation caught it as drift rather than the opening analysis. Added an `opencode` entry to `SHADOW_READY_DETECTORS` / `SHADOW_STATE_DETECTORS`, the second consumer of the generic seam t1509 shipped, so the loop can arm when the SHADOW pane runs OpenCode.",
+          "expected_outcome": "ACHIEVED for arming. Its manual verification (t1529) has NOT run, so this is precisely the state t1509 was in before t1523 ran and found the delivery defect -- arming confirmed, delivery unproven.",
+          "why_order_matters": "Landed ahead of t1525 rather than after it, inverting this trail's advice. That advice is not retroactively wrong and it is not moot: t1529's checklist is where it now applies, because an arming verification that passes over a delivery primitive known not to submit is the false pass t1523 already caught once on the Codex lane.",
+          "confidence": "high",
+          "caveats": [
+            "It landed concurrently with this refresh, so nothing here was verified against its shipped code -- only against its task file and the fact of its archival."
+          ]
+        },
+        {
+          "entry_id": "e-1529",
+          "task": "aitasks#1529",
+          "topic": "aitasks#1159",
+          "position": 7,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "manual_verification",
+            "depends": [
+              "aitasks#1520"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The manual verification of t1520 (verifies: [1520], depends: [1520] -- satisfied). It is the cheapest way to put live evidence under the OpenCode shadow half, which is the only link in the now-complete arming chain that has never been checked end to end. Every other link that has had a live check failed it.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-sweep-incoming"
+          ]
+        },
+        {
+          "entry_id": "e-1518",
+          "task": "aitasks#1518",
+          "topic": "aitasks#1159",
+          "position": 8,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [
+              "aitasks#1509"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-17. Closed the FOLLOWED half of cross-agent loop support: widened REVIEW_LOOP_AGENTS per agent behind live evidence and added NATIVE_DIALOG_BOUNDARIES rows so work classification does not degrade to UNKNOWN when Codex or OpenCode sits at a native dialog. With t1509, t1520 and t1525 landed, this completed the arming chain on both sides -- the goal this wave was formed to reach. It also deliberately did NOT close the same gap for Claude, listing three Claude kinds in DELIBERATELY_UNANCHORED_KINDS, which is what spawned the whole of wave 7. It declares risk_mitigation_tasks: [1542].",
+          "expected_outcome": "A Codex- or OpenCode-followed pane able to arm the loop, with the widening justified per agent by captured evidence rather than by symmetry with Claude.",
+          "why_order_matters": "After both shadow-side entries. The followed side is where the settle-detection lives, so it inherits every prompt-detection weakness the shadow side has already surfaced -- including t1522's.",
+          "confidence": "high",
+          "caveats": [
+            "Its `NATIVE_DIALOG_BOUNDARIES` work overlaps t1522's surface (`PROMPT_PATTERNS_BY_AGENT` for codex); whichever lands second should re-check the other's rows rather than assume they compose."
+          ]
+        },
+        {
+          "entry_id": "e-1541",
+          "task": "aitasks#1541",
+          "topic": "aitasks#1159",
+          "position": 9,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "manual_verification",
+            "depends": [
+              "aitasks#1518"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The manual verification of t1518 (verifies: [1518], depends: [1518] -- satisfied), found by the incoming sweep. Unblocked and unrun. It is the only planned live evidence for the FOLLOWED half of the arming chain; t1159_5 also lists t1518 in its verifies, so these two overlap and whichever runs first should reduce the other's checklist rather than duplicate it.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1541",
+            "ev-sweep-incoming"
+          ]
+        },
+        {
+          "entry_id": "e-1531",
+          "task": "aitasks#1531",
+          "topic": "aitasks#1159",
+          "position": 10,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Step-8d risk mitigation of t1525, taking its goal-achievement risk head on: COMPOSER_DRAIN_SECONDS = 0.5 was tuned against codex-cli 0.146.0 at n=2, and a later Codex input-handling change makes it wrong again -- the same class of failure t1525 just fixed. Bracketed-paste delivery replaces the timing guess with a protocol guarantee. Optional because the loop works today; it is insurance against a vendor release, not a blocker.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1531",
+            "ev-sweep-outgoing"
+          ]
+        },
+        {
+          "entry_id": "e-1542",
+          "task": "aitasks#1542",
+          "topic": "aitasks#1159",
+          "position": 11,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "risk_mitigation",
+            "depends": [
+              "aitasks#1159_7"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Step-8d risk mitigation of t1518, addressing its code-health risk: the native-dialog boundary literals are version-sensitive TUI strings, and when one stops anchoring the failure is SILENT in production -- classification returns UNKNOWN and the loop simply never fires. This task makes that failure observable. It declares depends: [t1159_7], so it sits behind the chokepoint; ordering it here rather than in wave 4 reflects that its subject is this wave's boundary literals, not the refactor itself.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1542",
+            "ev-sweep-outgoing"
+          ]
+        },
+        {
+          "entry_id": "e-1522",
+          "task": "aitasks#1522",
+          "topic": "aitasks#1159",
+          "position": 12,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "`ait monitor` / `ait minimonitor` do not flag a followed Codex pane parked on the startup update-available prompt as awaiting user input. The pane is genuinely blocked -- it will not proceed until the user picks an option -- but no `codex` entry in `PROMPT_PATTERNS_BY_AGENT` matches it, so it reads as idle. An upstream defect in the same detection layer the loop's settle trigger depends on.",
+          "expected_outcome": "A narrowly scoped codex pattern for the update prompt, plus the generic lesson recorded: a startup-time prompt is a distinct class from an in-conversation one and neither implies the other.",
+          "why_order_matters": "Alongside t1518 rather than strictly before it -- both edit the codex detection rows, and doing them in one pass avoids the whichever-lands-second re-check that this wave already owes twice.",
+          "confidence": "high",
+          "caveats": [
+            "Low effort and independent (`depends: []`), so it can be pulled forward freely if a Codex pane is already in hand for t1525's verification."
+          ]
+        },
+        {
+          "entry_id": "e-1524",
+          "task": "aitasks#1524",
+          "topic": "aitasks#1159",
+          "position": 13,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "unknown",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Step-8d risk-mitigation follow-up of t1509, addressing its goal-achievement risk directly: the Codex composer/working patterns are pinned to codex-cli 0.146.0 and 0.147.0 was already advertised at capture time, so a UI change silently turns 'ready' into 'never ready'. The mitigation is to surface a shadow that never settles instead of waiting forever.",
+          "expected_outcome": "A never-settled shadow made visible to the user rather than manifesting as a loop that quietly stops firing.",
+          "why_order_matters": "Last in the wave. It is a durability property of everything the wave ships, so it is worth the most once the lanes it protects all exist -- but it protects against a failure mode (silent non-firing) that the wave has already demonstrated is real, so it should not be dropped.",
+          "confidence": "medium",
+          "caveats": [
+            "Optional in classification but not in value: t1523's failure was exactly a silent non-firing, found only because a human watched a live pane. This is the mitigation that would have surfaced it automatically."
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w-claude-dialog-detection",
+      "ordinal": 7,
+      "title": "Close the Claude half of native-dialog detection",
+      "purpose": "t1518 armed Codex and OpenCode for native dialogs and deliberately left Claude's own three prompt kinds unanchored, which meant a Claude pane parked at a tool-permission dialog classified UNKNOWN and the loop silently never fired -- for the agent the loop was originally built for. This wave is the cluster that closed it: measure the boundaries (t1540), tighten the pattern that measurement exposed (t1557), verify it (t1562), on top of the earlier pattern repair (t1474). It exists as a wave in this trail only from v6 onward: all four landed without ever being trail members.",
+      "why_now": "The code half is done and the evidence half is not, and one defect in the cluster is still open. t1556 verifies t1540 through the real TUI keypress path that t1540's own live check did not exercise, and t1554 reports that claude_trust_folder no longer matches Claude Code 2.1.233 -- so an agent genuinely blocked on the workspace-trust gate still reads as IDLE today. Both are unblocked.",
+      "consequence_of_delay": "This cluster is the clearest evidence in the trail that prompt-detection literals rot on a vendor release cadence rather than a project one: t1474, t1540, t1557 and t1554 are four separate repairs of the same class in eighteen days. Every week t1554 stays open is a week a trust-gated Claude agent is invisible to both monitors.",
+      "entries": [
+        {
+          "entry_id": "e-1474",
+          "task": "aitasks#1474",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Done",
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-10. Repaired stale Claude prompt patterns in the same detection layer the loop's settle trigger reads. The earliest member of this cluster and the first sign of the rot cadence the rest of the wave documents.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "ev-t1474",
+            "ev-anchor-sweep"
+          ]
+        },
+        {
+          "entry_id": "e-1540",
+          "task": "aitasks#1540",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-17, spawned from t1518's Step 8b review, and the task that gives this wave its name. claude_help_bar, claude_proceed and claude_trust_folder had no measured boundary, so review_loop.py listed them in DELIBERATELY_UNANCHORED_KINDS and a Claude pane at a tool-permission dialog classified UNKNOWN -- the loop silently never fired. It was found because t1518's completeness guard forced every armed agent kind to either resolve to a boundary or be listed with a written reason.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-t1540",
+            "ev-t1518",
+            "ev-anchor-sweep"
+          ]
+        },
+        {
+          "entry_id": "e-1557",
+          "task": "aitasks#1557",
+          "topic": "aitasks#1159",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-18, identified during t1540's post-implementation review. claude_proceed matched 'Do you want to proceed?' anywhere on a line; because Claude renders option 1 as editable, a user typing that phrase into the amend box put a second copy inside the detection window, the reported kind flipped mid-dialog, and classify_followed_change returned WORK on the prev_kind != curr_kind short-circuit -- firing a spurious recheck round while the user was mid-edit. The kind flip was the sole cause.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-t1557",
+            "ev-t1540"
+          ]
+        },
+        {
+          "entry_id": "e-1562",
+          "task": "aitasks#1562",
+          "topic": "aitasks#1159",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-18. The manual verification of t1557, and the one link in this cluster that did get its live evidence promptly.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-t1562"
+          ]
+        },
+        {
+          "entry_id": "e-1556",
+          "task": "aitasks#1556",
+          "topic": "aitasks#1159",
+          "position": 5,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "followup_kind": "manual_verification",
+            "depends": [
+              "aitasks#1540"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The manual verification of t1540 (verifies: [1540], depends: [1540] -- satisfied). Unblocked and unrun. Its checklist is specific about the gap it closes: t1540's own live check drove MiniMonitorApp programmatically, so nothing has yet exercised the real TUI keypress path, the same-window shadow split at halved pane height, or the short-pane claude_proceed regime.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1556"
+          ]
+        },
+        {
+          "entry_id": "e-1554",
+          "task": "aitasks#1554",
+          "topic": "aitasks#1159",
+          "position": 6,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "upstream_defect",
+            "depends": [],
+            "gates_pending": []
+          },
+          "rationale": "The only OPEN defect in this cluster, and the one live bug in the trail: claude_trust_folder no longer matches Claude Code 2.1.233's workspace-trust dialog, for two independently fatal reasons -- the confirm/cancel options now render as a numbered list the adjacency pattern cannot match. An agent blocked on the trust gate therefore reads as IDLE in both ait monitor and ait minimonitor. Low effort, no dependencies, and it degrades the monitors for every user regardless of whether they run the loop.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1554",
+            "ev-t1540"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w-loop-self-stability",
+      "ordinal": 8,
+      "title": "Stop the loop disarming itself, and make the reason knowable",
+      "purpose": "The shipped loop auto-disarmed almost immediately after arming, non-deterministically, destroying the feature's usefulness with no way for the user to tell why. t1606 fixed it in the right order -- make the reason knowable first, then change behaviour -- shipping a decoded event log, a HOLD-on-dialog state that retries instead of disarming, and per-cause messages for four disarm call sites that had been collapsed into three ambiguous strings. This wave exists in the trail only from v6: t1606 landed on 2026-08-26 and was never a member.",
+      "why_now": "Because it is landed but unverified, and it changed the module two later members are queued to work on. t1618 is Ready, boardcol now, unblocked (depends: [1606] satisfied), and its checklist is the broadest live exercise of the loop anywhere in the trail -- it re-runs t1523's end-to-end delivery item as its last step.",
+      "consequence_of_delay": "t1159_7 refactors the module t1606 just rewrote. Running t1618 before that refactor gives the refactor a verified baseline to preserve; running it after means a failure cannot be attributed between the two.",
+      "entries": [
+        {
+          "entry_id": "e-1606",
+          "task": "aitasks#1606",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Done",
+            "gates_pending": []
+          },
+          "rationale": "LANDED 2026-08-26, and the single most consequential change to the loop since v5 was authored -- yet it was never a trail member, so four consecutive refreshes described a controller that no longer matched the code. Reported live on 2026-08-25: the loop auto-disarmed almost immediately after arming, non-deterministically, and re-arming usually worked. Its first deliverable was deliberately diagnostic rather than behavioural, on the stated grounds that every hypothesis was unfalsifiable in production because the cause was recorded nowhere and the toast faded.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-t1606",
+            "ev-anchor-sweep",
+            "ev-t1618"
+          ]
+        },
+        {
+          "entry_id": "e-1618",
+          "task": "aitasks#1618",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "boardcol": "now",
+            "followup_kind": "manual_verification",
+            "depends": [
+              "aitasks#1606"
+            ],
+            "gates_pending": []
+          },
+          "rationale": "The manual verification of t1606 (verifies: [1606], depends: [1606] -- satisfied), Ready and boardcol now. The broadest live checklist in the trail: --loop-log decoded output, session files at mode 0600 in a 0700 directory, the dialog HOLD banner and its unattended recovery, re-arm surviving a delivery drain, per-cause pane-gone messages for each half of the pair, the hold banner fitting two rows at 40 columns, and a re-run of t1523 item #4 end to end against a real Codex pane. Note it verifies t1606 only -- t1159_5's verifies list predates t1606 and does not cover it, so these two do not substitute for one another.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1618",
+            "ev-t1159_5"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w7-visibility-and-course-correction",
+      "ordinal": 9,
+      "title": "Make the running loop's state and its non-convergence visible",
+      "purpose": "The loop runs, but it tells the user almost nothing about its own health. Two members close that: t1448 makes the shadow-concern badge reflect whether the concerns are still relevant (and renders it in minimonitor as well as monitor), and t1503 makes non-convergence visible and actionable.",
+      "why_now": "Its gating moved and its subject grew. t1499 landed, so the dead banner surface both members render into is repaired and no longer a precondition. t1503 remains blocked by t1159_6 and t1159_7, putting it at the far end of the chokepoint chain; t1448's hard edges are t1420 (Done) and t1159, the decomposed parent that stays Ready until its children close, so it is gated on the same chain in practice. Separately, t1606 shipped an after-the-fact event log for loop state -- which is evidence FOR this wave, not a substitute: a log you must run a command to read is not the live surface either member is about.",
+      "consequence_of_delay": "Rounds accumulate with no signal that the loop has stopped converging, so no course correction is ever triggered. The observed trajectory -- real defects, then regressions introduced by the previous round's own fix, then scope expansion into repo hygiene and pre-existing flakes, all still labelled `blocking` -- is exactly what the automation makes cheap to repeat and expensive to notice.",
+      "entries": [
+        {
+          "entry_id": "e-1448",
+          "task": "aitasks#1448",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#1159",
+              "aitasks#1420"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Two separable defects with one shared root: the shadow-concern badge (`!` appended to the shadow `◆`) only ever clears when the user opens the picker, so it says 'there are concerns' rather than 'the concerns are still relevant'; and it renders in `ait monitor` but not in `ait minimonitor`. It declares hard dependencies on both t1159 and t1420, and both are now satisfied -- t1420 landed at the previous refresh and t1159's decomposition supplies the round metadata a currency judgement needs.",
+          "confidence": "high",
+          "evidence_refs": [
+            "ev-snapshot"
+          ]
+        },
+        {
+          "entry_id": "e-1503",
+          "task": "aitasks#1503",
+          "topic": "aitasks#1159",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "high",
+            "effort": "high",
+            "boardcol": "now",
+            "depends": [
+              "aitasks#1159_6",
+              "aitasks#1159_7"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Make review-loop non-convergence visible and actionable. Explicitly NOT in scope: changing the from-scratch adversarial review at every round -- that is not the problem. The problem is that nothing tells the user the loop has stopped converging, or why. High priority, high effort, `boardcol: now`, and it declares hard dependencies on t1159_6 and t1159_7, both of which are wave-4 members. Since v5 its evidence base widened: t1606 established that the loop's own state transitions were unknowable in production and shipped a decoded event log to fix that, which is the same argument this task makes one level up -- non-convergence of the review itself, rather than of the arming state machine.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1606"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w-docs-resweep",
+      "ordinal": 10,
+      "title": "Re-sweep the documentation once the surfaces stop moving",
+      "purpose": "t1159_4 documented the loop against the source as it stood on 2026-08-16 and spawned its own risk mitigation for the fact that two queued members would move exactly those surfaces. This wave is that re-sweep, placed last among the code waves because documentation that lands before its subject settles is documentation that has to be written twice.",
+      "why_now": "It is deliberately NOT now. t1535 declares depends: [t1159_6, t1159_7] and both are open, so it is topologically blocked; the point of giving it a wave is to record that the docs debt is already tracked and does not need re-discovering when the chain clears.",
+      "consequence_of_delay": "Low, and that is why it sits here. The cost of delay lands on readers of aidocs/framework/shadow_agent.md and the minimonitor website pages, which describe banner, keybinding and controller prose that t1159_6 and t1159_7 will move. Note the scope has grown beyond what t1535 was written for: t1606 also changed the disarm and hold banners, so the re-sweep should cover that too.",
+      "entries": [
+        {
+          "entry_id": "e-1535",
+          "task": "aitasks#1535",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "followup_kind": "risk_mitigation",
+            "depends": [
+              "aitasks#1159_6",
+              "aitasks#1159_7"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The documentation re-sweep t1159_4 spawned as its own risk mitigation, on the recorded ground that banner, keybinding and controller prose goes stale when t1159_6 adds the status line and t1159_7 refactors the loop. It declares depends: [t1159_6, t1159_7], so it sits directly behind the chokepoint chain and cannot be pulled forward. One thing to carry into it that its own text does not know: t1606 landed after it was written and changed the disarm and hold banners as well, so the re-sweep is wider than the task states.",
+          "confidence": "medium",
+          "evidence_refs": [
+            "ev-snapshot",
+            "ev-t1535",
+            "ev-t1159_4",
+            "ev-t1606"
+          ]
+        }
+      ]
+    },
+    {
+      "wave_id": "w4-stale-instance-drift",
+      "ordinal": 11,
+      "title": "After the loop exists: stale-instance drift",
+      "purpose": "Revisit stale minimonitor code drift once minimonitor sends keys and once its prompt patterns have been sharpened, at the point where an outdated running process stops being a display inconsistency and starts being a question about which code is authorized to act in a pane.",
+      "why_now": "Placed last deliberately, and the nuance the previous refresh predicted has now materialized. A minimonitor instance that predates t1159 cannot run the loop at all — the keybinding does not exist in its code — so before t1159 a stale instance can mis-report a pane but cannot act on that verdict. What has changed is the mis-reporting half: t1420 and t1474 between them added `claude_askuserquestion`, `claude_plan_approval` and `claude_trust_folder`, retired the dead `claude_proceed`, and extended `strip_ansi` to drop OSC sequences. A minimonitor started before 2026-08-10 has none of that, so it reports a checkpoint-parked agent as IDLE while a current one reports it as awaiting input — the exact divergence t1116 was created about, now arriving one wave earlier than this trail originally assumed. It is still not a blocker for either.",
+      "entries": [
+        {
+          "entry_id": "e-1116",
+          "task": "aitasks#1116",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Postponed",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Included so the connection to the loop is recorded rather than rediscovered. t1116 is not about the prompt-detection algorithm — its own evidence shows the checked-in code classifies the disputed pane correctly — but about already-running minimonitor processes continuing on older code until restarted. That framing is now much stronger than when it was written: the checked-in patterns changed substantially on 2026-08-10, so the gap between a running instance and HEAD is no longer hypothetical drift but a specific, enumerable set of four pattern changes plus an ANSI-stripping fix.",
+          "confidence": "low",
+          "evidence_refs": [
+            "ev-snapshot"
+          ]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "aitasks#1159_1",
+      "to": "aitasks#1159_2",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1159_2"
+    },
+    {
+      "from": "aitasks#1159_2",
+      "to": "aitasks#1159_7",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1159_7 -- its only edge, and it is satisfied"
+    },
+    {
+      "from": "aitasks#1159_4",
+      "to": "aitasks#1159_5",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1159_5; satisfied 2026-08-16"
+    },
+    {
+      "from": "aitasks#1159_7",
+      "to": "aitasks#1159_5",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1159_5 -- the ONLY unsatisfied edge left"
+    },
+    {
+      "from": "aitasks#1518",
+      "to": "aitasks#1159_5",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1159_5; satisfied 2026-08-17"
+    },
+    {
+      "from": "aitasks#1159_5",
+      "to": "aitasks#1159_6",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1159_6"
+    },
+    {
+      "from": "aitasks#1159_3",
+      "to": "aitasks#1506",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1506; satisfied"
+    },
+    {
+      "from": "aitasks#1159",
+      "to": "aitasks#1448",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1448; the parent stays Ready until its children close"
+    },
+    {
+      "from": "aitasks#1420",
+      "to": "aitasks#1448",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1448; satisfied"
+    },
+    {
+      "from": "aitasks#1159_6",
+      "to": "aitasks#1503",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1503"
+    },
+    {
+      "from": "aitasks#1159_7",
+      "to": "aitasks#1503",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1503"
+    },
+    {
+      "from": "aitasks#1159_6",
+      "to": "aitasks#1535",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1535"
+    },
+    {
+      "from": "aitasks#1159_7",
+      "to": "aitasks#1535",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1535"
+    },
+    {
+      "from": "aitasks#1159_7",
+      "to": "aitasks#1542",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1542"
+    },
+    {
+      "from": "aitasks#1509",
+      "to": "aitasks#1525",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1525; satisfied"
+    },
+    {
+      "from": "aitasks#1520",
+      "to": "aitasks#1529",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1529; satisfied"
+    },
+    {
+      "from": "aitasks#1518",
+      "to": "aitasks#1541",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1541; satisfied"
+    },
+    {
+      "from": "aitasks#1540",
+      "to": "aitasks#1556",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1556; satisfied"
+    },
+    {
+      "from": "aitasks#1499",
+      "to": "aitasks#1564",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1564; satisfied"
+    },
+    {
+      "from": "aitasks#1606",
+      "to": "aitasks#1618",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1618; satisfied"
+    },
+    {
+      "from": "aitasks#1525",
+      "to": "aitasks#1530",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1530; satisfied"
+    },
+    {
+      "from": "aitasks#1498",
+      "to": "aitasks#1499",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "recorded depends of t1499; satisfied"
+    },
+    {
+      "from": "aitasks#1159_5",
+      "to": "aitasks#1159_4",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies of t1159_5"
+    },
+    {
+      "from": "aitasks#1159_5",
+      "to": "aitasks#1518",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies of t1159_5"
+    },
+    {
+      "from": "aitasks#1564",
+      "to": "aitasks#1499",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies; found by the incoming sweep"
+    },
+    {
+      "from": "aitasks#1541",
+      "to": "aitasks#1518",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies; found by the incoming sweep"
+    },
+    {
+      "from": "aitasks#1530",
+      "to": "aitasks#1525",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies; ARCHIVED, so only the incoming sweep could find it"
+    },
+    {
+      "from": "aitasks#1556",
+      "to": "aitasks#1540",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies"
+    },
+    {
+      "from": "aitasks#1618",
+      "to": "aitasks#1606",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies -- and t1159_5 does NOT cover t1606"
+    },
+    {
+      "from": "aitasks#1529",
+      "to": "aitasks#1520",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies"
+    },
+    {
+      "from": "aitasks#1523",
+      "to": "aitasks#1509",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies"
+    },
+    {
+      "from": "aitasks#1562",
+      "to": "aitasks#1557",
+      "type": "verifies",
+      "provenance": "fact",
+      "note": "recorded verifies"
+    },
+    {
+      "from": "aitasks#1618",
+      "to": "aitasks#1159_7",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Verify t1606's rewrite BEFORE refactoring the module it rewrote, so a later failure can be attributed between the two. No recorded edge enforces this."
+    },
+    {
+      "from": "aitasks#1554",
+      "to": "aitasks#1556",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "t1554 repairs claude_trust_folder; t1556's checklist exercises Claude dialog detection. Verifying before the known-broken pattern is fixed spends a live session confirming a defect already diagnosed."
+    },
+    {
+      "from": "aitasks#1541",
+      "to": "aitasks#1159_5",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Both verify t1518. Running the narrow one first lets the aggregate verification reduce its checklist instead of duplicating the work."
+    },
+    {
+      "from": "aitasks#1159_7",
+      "to": "aitasks#1542",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "Also a recorded fact edge; kept here to mark that t1542's boundary-observability work should be designed against the refactored module rather than retrofitted twice."
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-landed-cluster-invisible",
+      "kind": "stale_premise",
+      "statement": "ELEVEN archived tasks carrying anchor 1159 were recorded nowhere in this trail -- not as entries, not as exclusions: t1474, t1530, t1532, t1540, t1557, t1562, t1606, t1616, t1624, t1627 and t1631. The cause is structural, not an authoring slip: the drift helper's new_related_task scan enumerates ACTIVE tasks only, so any task that is created and archived between two refreshes is invisible to every automated check this trail runs. Four consecutive refreshes therefore described a review loop that had materially changed underneath them. Only the archived-tree anchor sweep -- which v5 itself prescribed in refresh_recommended_because and which lite depth skips -- surfaces them.",
+      "evidence_refs": [
+        "ev-anchor-sweep",
+        "ev-drift",
+        "ev-t1606",
+        "ev-t1530"
+      ],
+      "affects": [
+        "aitasks#1159",
+        "aitasks#1159_7",
+        "aitasks#1503"
+      ]
+    },
+    {
+      "observation_id": "obs-t1606-moved-the-refactor-target",
+      "kind": "stale_premise",
+      "statement": "t1606 landed 2026-08-26 and rewrote the auto-disarm and hold paths of review_loop.py / minimonitor_app.py -- the module t1159_7 is queued to refactor and t1503 is queued to instrument. It replaced four disarm call sites collapsed into three ambiguous messages with per-cause reporting, added a HOLD-on-dialog state that retries instead of disarming, and added a decoded event log. This does not invalidate t1159_7: it strengthens it, because the module has now accreted a fourth layer on top of the seven adversarial review rounds that motivated the task. It does mean t1159_7's scope is larger than its own text describes, and that t1618 should run first so the refactor has a verified baseline.",
+      "evidence_refs": [
+        "ev-t1606",
+        "ev-t1618",
+        "ev-anchor-sweep"
+      ],
+      "affects": [
+        "aitasks#1159_7",
+        "aitasks#1503",
+        "aitasks#1159_6",
+        "aitasks#1535"
+      ]
+    },
+    {
+      "observation_id": "obs-anchor-is-provenance-not-topic",
+      "kind": "other",
+      "statement": "The anchor 1159 group has stopped being a topic and become a provenance chain. t1616 was spawned from t1606's Step 8b review and states in its own text that both its defects were hit while working in a task worktree and neither is in the review-loop code t1606 changed; it carries labels [worktree, git, testing]. Its own follow-ups t1624, t1627, t1631 and t1625 inherited the anchor in turn. Four landed and one active task in this group therefore have no shadow or review-loop surface at all. Consequence for this trail: scope.topics drives a topic-wide new-task scan, so drift over-reports, and any future refresh must judge membership by subject rather than by anchor.",
+      "evidence_refs": [
+        "ev-anchor-sweep",
+        "ev-t1616",
+        "ev-t1625"
+      ],
+      "affects": [
+        "aitasks#1159"
+      ]
+    },
+    {
+      "observation_id": "obs-verification-backlog-dominates",
+      "kind": "other",
+      "statement": "The open work in this trail is now dominated by unblocked verification debt rather than by construction. FIVE manual verifications are Ready with every recorded dependency satisfied -- t1529 (verifies t1520), t1541 (t1518), t1556 (t1540), t1564 (t1499) and t1618 (t1606) -- and not one of them blocks anything else in the trail. Every one verifies work that has already shipped to the user. Against this topic's own record that is the largest standing risk here: every live check ever run in it has failed at least one item.",
+      "evidence_refs": [
+        "ev-snapshot",
+        "ev-t1618",
+        "ev-t1556",
+        "ev-t1564",
+        "ev-t1541"
+      ],
+      "affects": [
+        "aitasks#1529",
+        "aitasks#1541",
+        "aitasks#1556",
+        "aitasks#1564",
+        "aitasks#1618"
+      ]
+    },
+    {
+      "observation_id": "obs-live-checks-always-fail",
+      "kind": "baseline_risk",
+      "statement": "Every live check run in this topic has failed at least one item that the full unit suite passed, and each failure has added a member: t1498 failed on the staleness banner and spawned t1499; t1523 failed on Codex delivery and spawned t1525; t1540's post-implementation review found the claude_proceed whole-line defect and spawned t1557. The five unrun verifications should therefore be treated as likely membership events rather than as status changes, and the trail should be refreshed after each one rather than after all of them.",
+      "evidence_refs": [
+        "ev-t1540",
+        "ev-t1557",
+        "ev-drift",
+        "ev-t1530"
+      ],
+      "affects": [
+        "aitasks#1159_5",
+        "aitasks#1618",
+        "aitasks#1556"
+      ]
+    },
+    {
+      "observation_id": "obs-detection-literals-rot-on-vendor-cadence",
+      "kind": "external_dependency",
+      "statement": "Prompt-detection and dialog-boundary literals in this topic rot on the vendors' release cadence, not the project's, and the evidence is now a pattern rather than an anecdote: t1474 (2026-08-10), t1540 (08-17), t1557 (08-18) and the still-open t1554 are four repairs of the same class in eighteen days, and t1554 names Claude Code 2.1.233 specifically. Two members exist solely to blunt this -- t1531 (a Codex drain constant tuned at n=2 against codex-cli 0.146.0) and t1542 (make a boundary-anchor failure observable instead of silently returning UNKNOWN). The failure mode is what makes it serious: it is silent, so the loop simply stops firing and nothing reports why.",
+      "evidence_refs": [
+        "ev-t1474",
+        "ev-t1540",
+        "ev-t1557",
+        "ev-t1554",
+        "ev-t1531",
+        "ev-t1542"
+      ],
+      "affects": [
+        "aitasks#1554",
+        "aitasks#1531",
+        "aitasks#1542",
+        "aitasks#1522"
+      ]
+    },
+    {
+      "observation_id": "obs-archived-followup-backstop-paid-off",
+      "kind": "other",
+      "statement": "The belt-and-braces incoming verifies: sweep found t1530, the manual verification of t1525, which no other check in this flow could have surfaced: it is already ARCHIVED so the active-task drift scan cannot see it, and t1525 does not record who verifies it so re-reading the landed member cannot find it either. This is the concrete payoff of the deep-only sweep, and the reason the equivalent lite refresh of this same artifact would have shipped with a hole in wave 6's evidence chain. All four sweep runs exited 0, so the candidate lists are complete rather than merely non-empty; t1468_7 and t1508 matched the prefilter and were rejected by reading their actual verifies lists.",
+      "evidence_refs": [
+        "ev-sweep-incoming",
+        "ev-t1530",
+        "ev-sweep-outgoing"
+      ],
+      "affects": [
+        "aitasks#1525",
+        "aitasks#1518",
+        "aitasks#1499"
+      ]
+    },
+    {
+      "observation_id": "obs-t1636-shared-surface",
+      "kind": "shared_surface_collision",
+      "statement": "t1636_4 holds a lock and its plan resolves tracked paths including .aitask-scripts/monitor/monitor_shared.py alongside minimonitor_app.py -- the same files t1159_6, t1448, t1503 and t1524 all edit. t1636 (shadow_concern_impact_vector_model) is a neighbouring topic, not a member here, and no recorded depends edge connects the two, so nothing sequences them. Whichever lands second should re-check the other's rows rather than assume they compose. Five further tasks hold locks (t259, t1555_2, t1576, t1641, t1643) with no reported path overlap.",
+      "evidence_refs": [
+        "ev-snapshot-inflight"
+      ],
+      "affects": [
+        "aitasks#1159_6",
+        "aitasks#1448",
+        "aitasks#1503",
+        "aitasks#1524"
+      ]
+    },
+    {
+      "observation_id": "obs-chokepoint-concentration",
+      "kind": "other",
+      "statement": "Five members now hold a recorded hard edge on t1159_7 or on something behind it -- t1159_5, t1159_6, t1503, t1535 and t1542 -- where v5 showed two. The trail's open work has concentrated onto one medium-effort task rather than spreading out, which is why the recommendation is unusually unambiguous. The counterpart risk is the same fact read the other way: a single task now carries the schedule risk for two high-priority boardcol:now members (t1503 and, indirectly, the verification chain).",
+      "evidence_refs": [
+        "ev-snapshot",
+        "ev-t1159_5",
+        "ev-t1535",
+        "ev-t1542"
+      ],
+      "affects": [
+        "aitasks#1159_7"
+      ]
+    },
+    {
+      "observation_id": "obs-single-member-topic",
+      "kind": "other",
+      "statement": "Carried forward and still true. scope.topics lists only aitasks#1159, so the topic-wide new-task scan runs against that root alone. The landed members' canonical roots -- aitasks#1037 (t1293, t1294), aitasks#1111 (t1289) and aitasks#1307 (t1319) -- stay out of scope.topics deliberately: listing three large unrelated topics would drown the signal. The accepted cost is that a new task anchored to one of those roots is invisible to drift. obs-landed-cluster-invisible now records a second, structurally different blind spot in the same scan, and obs-anchor-is-provenance-not-topic a third.",
+      "evidence_refs": [
+        "ev-drift",
+        "ev-anchor-sweep"
+      ],
+      "affects": [
+        "aitasks#1159"
+      ]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#1425",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. Manual verification of t1293 (issue_type manual_verification, depends [1293], verifies [1293], still Ready as of 2026-08-10). Its nine-item checklist is precisely wave 2's claim made testable: the '[u] inspect' banner rendering with brackets intact, the all-malformed direct-raw-view path in both minimonitor and the full monitor, the picker's 30- and 24-column contract including live re-application on resize, and that a normal block still forwards its Disposition trailers. Offered as a member and declined. Not blocking — t1159 can be planned against what t1293 shipped — but until it runs, wave 2's 'diagnosable when nobody is watching' guarantee is asserted rather than confirmed."
+    },
+    {
+      "task": "aitasks#1426",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. Step 8d risk-mitigation follow-up of t1293 (still Ready, low effort, anchor 1037): the picker still shows no concern's full body at any width, so a user deciding what to forward chooses from a preview they cannot expand. It shares `ConcernPickerModal` with t1159 and must register any new display surface against t1294's AST guard — and, since t1427_2 landed, must target the shipped `ConcernPickResult`/`RejectedStoreModal` contract. Offered as a member and declined. Its relevance is reduced — though not removed — by the 2026-08-05 re-weighting, which makes forwarding the non-critical direction."
+    },
+    {
+      "task": "aitasks#1411",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. Step 8d risk-mitigation follow-up of t1319 (still Ready, low effort, anchor 1307): closes the same transcribed-pane-id hazard on the learner-spawn path (`aitask_shadow_spawn_learner.py`) that t1319 closed on the capture path, and notes the asymmetry that the spawner creates an agent rather than reading a pane. Offered as a member and declined — the learner path is not the loop's path. Whoever takes it should reuse `shadow_self_target()`'s four-state classification rather than reinventing it."
+    },
+    {
+      "task": "aitasks#1477",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. verify_trust_dialog_live (Ready, manual_verification, depends [1474], verifies [1474], followup_kind risk_mitigation, created 2026-08-10 18:42): the risk-mitigation follow-up of t1474, confirming that `claude_trust_folder` fires against a real first-run workspace-trust dialog — which cannot be reproduced in an implementing session, so the pattern shipped unverified against the real widget, and its regex was additionally tightened (line anchor, `❯`-only marker, paired adjacent cancel label) in a way that trades away tolerance. Offered and excluded: the workspace-trust dialog appears only on first run in an untrusted folder and never during a review loop, so it is off t1159's critical path. Note it is the ONLY part of t1474 left unconfirmed — the two changes that do matter to the loop, the dead-`claude_proceed` retirement and the OSC strip, are not what t1477 verifies."
+    },
+    {
+      "task": "aitasks#1118",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. Mobile shadow-agent driving over applink, with children t1118_1 through t1118_5 (all still active). t1118_4 adds the `shadow_concerns` RPC and a `send_keys` paste mode — a second consumer of concern forwarding over a different transport. Offered as a scope expansion at creation and declined; re-confirmed since. The 2026-08-05 re-weighting lowers the urgency of the overlap, since forwarding is now the explicitly non-critical direction, but whichever lands second should still re-check the other's assumptions about how a concern payload reaches a pane. Note t1420 touched the applink wire indirectly: `awaiting_input_kind` reaches `applink/pusher.py:420-421`, and both t1420 and t1474 changed the values that field can take."
+    },
+    {
+      "task": "aitasks#1347",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. Concern-signature reflow soak (still Ready; its dependency t1216_3 is archived, so it is unblocked). It verifies existing concern-signature behaviour under reflow rather than gating t1159, though t1159's round metadata changes what a signature covers — worth reconsidering at t1159's planning time."
+    },
+    {
+      "task": "aitasks#1288",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. Shadow refresh concurrency soak (still Ready; its dependency t1216_2 is archived, so it is unblocked). It exercises concurrent refresh behaviour, which an automated loop will exercise harder, but it verifies rather than blocks."
+    },
+    {
+      "task": "aitasks#1350",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. Monitor modal binding guard audit (still Ready) — adjacent to the picker modal bindings t1159 extends with round display and triage routing, and to whatever key t1426 would add, but an audit of existing bindings rather than a prerequisite for new ones."
+    },
+    {
+      "task": "aitasks#1203",
+      "reason_code": "non_blocking",
+      "reason": "Still Ready as of 2026-08-31. Shadow default-tier recall reassessment (still Ready): it concerns the content and volume of a review's findings, not the mechanics of the review loop. t1159 explicitly draws the same line against t1158 ('t1158 reworks review content; this task reworks loop mechanics')."
+    },
+    {
+      "task": "aitasks#1158",
+      "reason_code": "already_landed",
+      "reason": "Named in t1159's first coordination note; archived, so the constraint is discharged. Retained here so a refresh does not re-open it as a candidate."
+    },
+    {
+      "task": "aitasks#1311",
+      "reason_code": "already_landed",
+      "reason": "Named in t1159's second coordination note (impl-review gate premise plus profile tier default); archived, so the constraint is discharged, but its landed behaviour is what t1159's plan must read — and t1420 cited its removed gate as the scar defining its own advisory-only shape constraint, shipping a negative control that forces a wrong phase and asserts nothing is refused."
+    },
+    {
+      "task": "aitasks#1434",
+      "reason_code": "non_blocking",
+      "reason": "Still Ready as of 2026-08-31. evaluate_aitask_gates_pruning (still Ready, chore, anchor 1159): a standalone follow-up requested during t1427's planning, using t1427_1's archive-time `.aitask-shadow/` prune as prior art to decide a pruning policy for the unrelated `.aitask-gates/` directory. Tangential to the loop's landing order — it neither blocks nor is blocked by t1159. Offered as a member and declined."
+    },
+    {
+      "task": "aitasks#1460",
+      "reason_code": "deferred_by_user",
+      "reason": "Still Ready as of 2026-08-31. producer_manifest_independent_discovery (still Ready, test, anchor 1159): Step 8d risk-mitigation follow-up of the landed t1427_3, closing a pre-existing gap where a new concern-producer skill lacking the marker phrase is invisible to `test_producer_set_is_the_known_set`. Same shape as the already-excluded t1426/t1411, and the same disposition: offered as a member and declined. Not blocking t1159 — it hardens a test guard, not the suppression rule's runtime behaviour."
+    },
+    {
+      "task": "aitasks#1502",
+      "reason_code": "non_blocking",
+      "reason": "Still Ready as of 2026-08-31. Anchored to 1159 and spawned from t1159_2's Step-8b review, but it is a test-infrastructure defect, not shadow-loop behaviour: the t1395 attribution-tier negative-control bound in `tests/test_board_movement.py` is contention-marginal under the parallel lane and flaked in ~4 of 10 full suite runs. It orders against nothing in this trail and blocks nothing here, so it is recorded as an exclusion rather than a member. Excluded by analysis, not by the user -- surfaced here so a later refresh does not re-litigate it as a missed anchor:1159 member."
+    },
+    {
+      "task": "aitasks#1475",
+      "reason_code": "non_blocking",
+      "reason": "Still Ready as of 2026-08-31. Manual verification of t1420 (the advisory workflow-phase signal), which landed before v5. It surfaces in drift because it depends on a landed member, not because it constrains anything here: t1420's consumers in this trail (t1448, and the phase work t1467 extended) are all either landed or sequenced independently of it. Recorded so it stops re-surfacing."
+    },
+    {
+      "task": "aitasks#1616",
+      "reason_code": "unrelated",
+      "reason": "Excluded by explicit user decision at the v6 refresh, with the rest of the worktree/setup cluster. It carries anchor 1159 only through provenance inheritance -- t1616 was spawned from t1606's Step 8b review and says so in its own text -- and touches no shadow, minimonitor or review-loop surface; its labels are [worktree, git]. See obs-anchor-is-provenance-not-topic. Landed 2026-08-26: task-worktree gitignore and data symlinks."
+    },
+    {
+      "task": "aitasks#1624",
+      "reason_code": "unrelated",
+      "reason": "Excluded by explicit user decision at the v6 refresh, with the rest of the worktree/setup cluster. It carries anchor 1159 only through provenance inheritance -- t1616 was spawned from t1606's Step 8b review and says so in its own text -- and touches no shadow, minimonitor or review-loop surface; its labels are [worktree, git]. See obs-anchor-is-provenance-not-topic. Landed 2026-08-26: init_data bare invocation inside a task worktree."
+    },
+    {
+      "task": "aitasks#1627",
+      "reason_code": "unrelated",
+      "reason": "Excluded by explicit user decision at the v6 refresh, with the rest of the worktree/setup cluster. It carries anchor 1159 only through provenance inheritance -- t1616 was spawned from t1606's Step 8b review and says so in its own text -- and touches no shadow, minimonitor or review-loop surface; its labels are [worktree, git]. See obs-anchor-is-provenance-not-topic. Landed 2026-08-26: setup remedy for an impossible worktree add."
+    },
+    {
+      "task": "aitasks#1631",
+      "reason_code": "unrelated",
+      "reason": "Excluded by explicit user decision at the v6 refresh, with the rest of the worktree/setup cluster. It carries anchor 1159 only through provenance inheritance -- t1616 was spawned from t1606's Step 8b review and says so in its own text -- and touches no shadow, minimonitor or review-loop surface; its labels are [worktree, git]. See obs-anchor-is-provenance-not-topic. Landed 2026-08-27: setup data-branch silent failure swallowing."
+    },
+    {
+      "task": "aitasks#1625",
+      "reason_code": "unrelated",
+      "reason": "Excluded by explicit user decision at the v6 refresh, with the rest of the worktree/setup cluster. It carries anchor 1159 only through provenance inheritance -- t1616 was spawned from t1606's Step 8b review and says so in its own text -- and touches no shadow, minimonitor or review-loop surface; its labels are [worktree, git]. See obs-anchor-is-provenance-not-topic. Still Ready as of 2026-08-31 and the only ACTIVE member of that cluster, so this exclusion is the one that stops the group re-surfacing as drift. Its checklist is entirely worktree linking, ait git branch mode and aitask_init_data.sh."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 1159 1116 1159 1159_5 1159_6 1159_7 1448 1503 1506 1522 1524 1529 1531 1535 1541 1542 1554 1556 1564 1618",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Gatherer snapshot over the expanded v6 membership: 19 live members with status, priority, effort, boardcol, labels, followup_kind, created_at and anchor; 20 INPUT records (1 plan_file, 19 task_file); DIGEST fe9b43e63208bff5."
+    },
+    {
+      "evidence_id": "ev-drift",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh drift --trail art:trail-shadow-review-loop",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "STALE with 17 reasons against stored v5: 4 task_completed (1159_4, 1499, 1518, 1525), 1 dependency_changed (1159_5), 1 input_missing (the archived child plan), 1 other (unverifiable content inputs on the parent plan), 9 new_related_task."
+    },
+    {
+      "evidence_id": "ev-snapshot-inflight",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot ... --with-inflight",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "In-flight probe: gate and lock sources both ok (source_status both_enumeration_ok, lock cache age 1171s), tracked source ok, corpus extractable, 6 tasks holding locks. t1636_4's plan resolves tracked paths .aitask-scripts/monitor/monitor_shared.py plus four test modules."
+    },
+    {
+      "evidence_id": "ev-sweep-outgoing",
+      "source_type": "command_output",
+      "ref": "grep '^risk_mitigation_tasks:' over the archived task files of 1159_4, 1499, 1518, 1525",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Outgoing half of the belt-and-braces sweep: t1159_4 -> [1535], t1518 -> [1542], t1525 -> [1531]; t1499 declares none."
+    },
+    {
+      "evidence_id": "ev-sweep-incoming",
+      "source_type": "command_output",
+      "ref": "grep -rl --include='t*.md' '^verifies:' aitasks | per-file confirmation loop (exit 0)",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Incoming half of the belt-and-braces sweep, run per landed member and confirmed by reading each candidate's verifies: list. Exit 0 on all four runs, so the sweep is complete. Confirmed verifiers: 1159_4 <- 1159_5; 1499 <- 1564; 1518 <- 1541 and 1159_5; 1525 <- 1530 (archived). t1468_7 and t1508 matched the prefilter but verify other tasks -- rejected by reading."
+    },
+    {
+      "evidence_id": "ev-anchor-sweep",
+      "source_type": "command_output",
+      "ref": "grep -rl --include='t*.md' '^anchor: 1159$' aitasks (active) and aitasks/archived",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Anchor sweep across BOTH trees: 21 active and 24 archived tasks carry anchor 1159. Cross-check against the stored v5 entry and exclusion refs identified 11 archived tasks recorded nowhere in the trail: 1474, 1530, 1532, 1540, 1557, 1562, 1606, 1616, 1624, 1627, 1631."
+    },
+    {
+      "evidence_id": "ev-children",
+      "source_type": "command_output",
+      "ref": "ls aitasks/t1159/ and aitasks/archived/t1159/",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Child check for the decomposed parent: exactly seven children (1159_1..1159_7), four archived and three active. No child appeared since v5 -- the decomposition is stable."
+    },
+    {
+      "evidence_id": "ev-p1159",
+      "source_type": "plan_file",
+      "ref": "aitasks:aiplans/p1159_shadow_review_loop_automation.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "The parent design plan, still readable; content hash e985fb391a82dbc6. Its child plan p1159/p1159_4_docs_and_integration.md moved to aiplans/archived/ with t1159_4."
+    },
+    {
+      "evidence_id": "ev-t1159_4",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1159/t1159_4_docs_and_integration.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Docs and integration sweep; status Done, risk_mitigation_tasks: [1535]. Documented the controller states and safety contract in aidocs/framework/shadow_agent.md plus the minimonitor website pages for the L and t keys."
+    },
+    {
+      "evidence_id": "ev-t1499",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1499_fix_failed_verification_t1498_item5.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, followup_kind verification_failure. Three widgets docked to the same edge meant #mini-shadow-stale and #mini-session-bar never composited."
+    },
+    {
+      "evidence_id": "ev-t1518",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1518_arm_review_loop_for_codex_opencode_followed_panes.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, risk_mitigation_tasks: [1542]. Widened REVIEW_LOOP_AGENTS and added NATIVE_DIALOG_BOUNDARIES rows for Codex and OpenCode; explicitly left the three Claude kinds in DELIBERATELY_UNANCHORED_KINDS."
+    },
+    {
+      "evidence_id": "ev-t1525",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1525_fix_failed_verification_t1523_item4.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, risk_mitigation_tasks: [1531]. Fixed the Codex Enter-swallow with a drain delay characterized against live codex-cli panes."
+    },
+    {
+      "evidence_id": "ev-t1530",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1530_manual_verification_fix_failed_verification_t1523_item4_foll.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, verifies: [1525], depends: [1525]. Archived, and therefore invisible to the drift scan's active-task enumeration."
+    },
+    {
+      "evidence_id": "ev-t1540",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1540_measure_claude_native_dialog_boundaries.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, anchor 1159, spawned from t1518's Step 8b review. Claude's claude_help_bar, claude_proceed and claude_trust_folder had no measured boundary, so a Claude pane at a tool-permission dialog classified UNKNOWN and the loop silently never fired."
+    },
+    {
+      "evidence_id": "ev-t1557",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1557_tighten_claude_proceed_pattern_to_whole_line.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, identified during t1540's post-implementation review. claude_proceed matched the phrase anywhere on a line; typing it into Claude's editable option 1 flipped the reported kind mid-dialog and classify_followed_change returned WORK on the kind-flip short-circuit, firing a spurious recheck."
+    },
+    {
+      "evidence_id": "ev-t1562",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1562_manual_verification_tighten_claude_proceed_pattern_to_.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done. The manual verification of t1557."
+    },
+    {
+      "evidence_id": "ev-t1606",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1606_stop_spurious_review_loop_auto_disarm.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, labels [shadow, aitask_monitormini, review_loop]. The loop auto-disarmed almost immediately after arming, non-deterministically. Deliverable 1 was making the reason knowable: 4 auto-disarm call sites collapsed into 3 messages, two ambiguous across at least five causes."
+    },
+    {
+      "evidence_id": "ev-t1474",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1474_fix_stale_claude_prompt_patterns.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, labels [aitask_monitormini, monitor]. Earliest member of the Claude-side prompt-detection cluster."
+    },
+    {
+      "evidence_id": "ev-t1616",
+      "source_type": "task_file",
+      "ref": "aitasks/archived/t1616_task_worktree_gitignore_and_data_symlinks.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Status Done, labels [worktree, git, testing], anchor 1159. Spawned from t1606's Step 8b review; its own text states both defects were hit while working in a task worktree and neither is in the review-loop code t1606 changed."
+    },
+    {
+      "evidence_id": "ev-t1159_5",
+      "source_type": "task_file",
+      "ref": "aitasks/t1159/t1159_5_manual_verification_shadow_review_loop_automation.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready. verifies: [t1159_1, t1159_2, t1159_3, t1159_4, t1518]; depends: [t1159_4, t1159_7, t1518] -- two of three now satisfied."
+    },
+    {
+      "evidence_id": "ev-t1535",
+      "source_type": "task_file",
+      "ref": "aitasks/t1535_resweep_shadow_docs_after_status_line_and_refactor.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, depends: [t1159_6, t1159_7], followup_kind risk_mitigation. Re-sweeps the prose t1159_4 pinned, once t1159_6 and t1159_7 move those surfaces."
+    },
+    {
+      "evidence_id": "ev-t1542",
+      "source_type": "task_file",
+      "ref": "aitasks/t1542_boundary_anchor_failure_is_observable.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, depends: [t1159_7]. Addresses t1518's code-health risk: a boundary literal that stops anchoring returns UNKNOWN and the failure is silent in production."
+    },
+    {
+      "evidence_id": "ev-t1531",
+      "source_type": "task_file",
+      "ref": "aitasks/t1531_bracketed_paste_delivery.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, followup_kind risk_mitigation. COMPOSER_DRAIN_SECONDS = 0.5 is tuned against codex-cli 0.146.0 at n=2 and will rot on a Codex UI change."
+    },
+    {
+      "evidence_id": "ev-t1554",
+      "source_type": "task_file",
+      "ref": "aitasks/t1554_fix_stale_claude_trust_folder_detection.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, followup_kind upstream_defect, spawned from t1540. claude_trust_folder no longer matches Claude Code 2.1.233's workspace-trust dialog, so an agent blocked on the trust gate reads as IDLE in monitor and minimonitor."
+    },
+    {
+      "evidence_id": "ev-t1556",
+      "source_type": "task_file",
+      "ref": "aitasks/t1556_manual_verification_measure_claude_native_dialog_boundaries_.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, verifies: [1540], depends: [1540] -- satisfied. Its checklist drives the real TUI keypress path, which t1540's own live check did not."
+    },
+    {
+      "evidence_id": "ev-t1564",
+      "source_type": "task_file",
+      "ref": "aitasks/t1564_manual_verification_fix_failed_verification_t1498_item5_foll.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, verifies: [1499], depends: [1499] -- satisfied."
+    },
+    {
+      "evidence_id": "ev-t1541",
+      "source_type": "task_file",
+      "ref": "aitasks/t1541_manual_verification_arm_review_loop_for_codex_opencode_follo.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, verifies: [1518], depends: [1518] -- satisfied."
+    },
+    {
+      "evidence_id": "ev-t1618",
+      "source_type": "task_file",
+      "ref": "aitasks/t1618_manual_verification_stop_spurious_review_loop_auto_disarm_fo.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, boardcol now, verifies: [1606], depends: [1606] -- satisfied. Its checklist covers --loop-log decoded output, the 0600/0700 session files, the dialog HOLD banner and its self-recovery, re-arm during a delivery drain, and per-cause pane-gone messages."
+    },
+    {
+      "evidence_id": "ev-t1625",
+      "source_type": "task_file",
+      "ref": "aitasks/t1625_manual_verification_task_worktree_gitignore_and_data_symlink.md",
+      "observed_at": "2026-08-31T06:52:10Z",
+      "summary": "Ready, verifies/depends 1616, anchor 1159. Its checklist is entirely about worktree linking, ait git branch mode and aitask_init_data.sh -- no shadow or review-loop surface."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "deep",
+    "collapse_landed_waves": true
+  }
+}
