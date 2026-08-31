@@ -3,14 +3,14 @@ priority: medium
 effort: low
 depends: [t1210_4, t1243_3, t1243_7]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [aitask_board, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-07-22 16:17
-updated_at: 2026-08-05 09:03
+updated_at: 2026-08-31 11:26
 ---
-
 
 ## Context
 
