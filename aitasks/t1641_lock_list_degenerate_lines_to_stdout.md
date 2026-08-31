@@ -16,7 +16,7 @@ anchor: 1569
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-08-30 19:32
-updated_at: 2026-08-31 10:22
+updated_at: 2026-08-31 10:23
 ---
 
 ## Origin
@@ -58,3 +58,5 @@ is a separate but related shape question.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-08-31T07:23:04Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-08-31T07:57:40Z status=pass attempt=1 type=human
