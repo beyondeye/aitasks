@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task-workflow, execution_profiles, gates]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 created_at: 2026-08-25 10:16
-updated_at: 2026-08-25 10:16
+updated_at: 2026-08-31 23:52
 ---
 
 # Pluggable pre-implementation resource admission hook in task-workflow
