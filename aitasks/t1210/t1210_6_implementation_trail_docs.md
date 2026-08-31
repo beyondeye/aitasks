@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: [t1210_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [web_site]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1210
 created_at: 2026-07-22 16:17
-updated_at: 2026-07-22 16:17
+updated_at: 2026-08-31 16:53
 ---
 
 ## Context
