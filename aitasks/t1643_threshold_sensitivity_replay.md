@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: test
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-08-30 19:44
-updated_at: 2026-08-30 22:42
+updated_at: 2026-08-31 11:37
 ---
 
 ## Origin
@@ -63,3 +66,8 @@ t1569_4.
 - `.aitask-scripts/lib/parallel_admission.py` — `HUB_THRESHOLD`, `MAX_CLAIM_AGE_S`
 - `aiplans/archived/p1569/p1569_3_shared_parallel_admission_checker.md` — the
   original measurement, its method, and the volatility warning
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-31T08:37:44Z status=pass attempt=1 type=human
