@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [macos, tests]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 followup_kind: upstream_defect
 created_at: 2026-08-31 10:59
-updated_at: 2026-08-31 10:59
+updated_at: 2026-08-31 11:14
 ---
 
 ## Origin
