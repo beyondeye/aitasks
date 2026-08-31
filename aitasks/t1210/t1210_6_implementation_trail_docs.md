@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: [t1210_5]
 issue_type: documentation
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1210
+implemented_with: claudecode/opus5
 created_at: 2026-07-22 16:17
-updated_at: 2026-08-31 16:53
+updated_at: 2026-08-31 17:54
 ---
 
 ## Context
@@ -62,3 +65,8 @@ documentation for the shipped feature.
 - `cd website && hugo build --gc --minify` clean.
 - Grep checks: new page linked from `_index.md`; no sibling-path references;
   no framework-internal aidocs paths cited in user-facing prose.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-08-31T14:54:20Z status=pass attempt=1 type=human
