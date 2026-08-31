@@ -439,8 +439,8 @@ step 8.
 
 ## Deferred, with a named artifact
 
-**`concern_picker_help_tier_evicted_at_40_cols`** — spawn as an `after`
-follow-up at Step 8d. `_apply_measured_width_tier` keys the compact help at
+**`concern_picker_help_tier_evicted_at_40_cols`** — spawned at Step 8d as
+**t1648**. `_apply_measured_width_tier` keys the compact help at
 ≤ `_PICKER_NARROW_MIN_WIDTH` (30), so at the real minimonitor companion width
 of 40 the full help wraps to 6 rows, squeezes `#concern-list` to its
 `min-height` floor of 3, and at height 20 pushes the key names off-screen
@@ -569,7 +569,7 @@ hands it to its own task rather than widening scope.
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_legacy_row_render | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — every edit sits on the shared row path, so a vector-only feature can regress every legacy plan-review block | desc: pin a no-vector row's render() string, composited output at all SUPPORTED_WIDTHS, and its two-line class, with a negative control, before __init__/render/CSS are touched
-- timing: after | name: concern_picker_help_tier_evicted_at_40_cols | type: bug | priority: medium | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health — the compact help tier is keyed at ≤30, so 40 columns (the real companion width) wraps the full help to 6 rows and evicts the key names at height 20 | desc: retune or extend _apply_measured_width_tier so the compact help covers 40 columns, re-deriving the threshold contract pinned by test_tier_threshold_is_derived_from_the_declared_min_width
+- timing: after | name: concern_picker_help_tier_evicted_at_40_cols | type: bug | priority: medium | effort: low | inline_risk: medium | added_complexity: medium | addresses: code-health — the compact help tier is keyed at ≤30, so 40 columns (the real companion width) wraps the full help to 6 rows and evicts the key names at height 20 | desc: retune or extend _apply_measured_width_tier so the compact help covers 40 columns, re-deriving the threshold contract pinned by test_tier_threshold_is_derived_from_the_declared_min_width | created: t1648
 - timing: pre-phase | name: pin_narrow_row_width_budget | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the t1274 render surface, now under a zero-slack 18-cell budget | desc: two-stage composited assertion (steps 1 and 8) plus a row-geometry drift guard pinning the measured row widths (28/24/18) at SUPPORTED_WIDTHS
 
 **Reassessed after inlining and after eight shadow findings widened scope:**

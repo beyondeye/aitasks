@@ -5,6 +5,8 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [aitask_monitormini, concern_format]
+anchor: 1636
+followup_kind: risk_mitigation
 created_at: 2026-08-31 12:11
 updated_at: 2026-08-31 12:11
 ---
