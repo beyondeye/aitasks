@@ -5,11 +5,15 @@ depends: []
 issue_type: bug
 status: Implementing
 labels: [aitask_monitormini, concern_format]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1636
 followup_kind: risk_mitigation
 created_at: 2026-08-31 12:11
-updated_at: 2026-08-31 12:15
+updated_at: 2026-08-31 12:16
 ---
 
 ## Problem
