@@ -13,7 +13,12 @@ plan_verified: []
 Autonomous auto-verification run (strategy: `autonomous`) of the Implementation
 Trails checklist. This file is the retroactive record of what was actually run.
 
-**Outcome: 8 pass, 2 defer, 0 fail, 0 pending.**
+**Outcome: 10 pass, 0 fail, 0 pending.**
+
+Items 3–10 were verified by this autonomous run. Items 1 and 2 were **verified
+manually by the user**, who had already checked them before this run; the
+autonomous pass had deferred them as interactive-only (rationale retained
+below).
 
 Everything was exercised against the **real repository state** — the four trails
 already stored in `.aitask-data/artifacts/` — never a fixture replica. Every
@@ -24,9 +29,11 @@ mutation made to reach a verdict was reverted and the revert verified.
 ### Item 1 — interactive create via /aitask-trail
 
 - Item text: Create a trail interactively via `/aitask-trail` on a real task: scope question offered, proposal rendered with full narrative, single confirmed write; `ait artifact ls <owner>` shows the `art:trail-*` handle
-- Approach: **not automatable** — no execution attempted
-- Verdict: **defer**
-- Reason: the assertions *are* the human-in-the-loop UX (scope question, single
+- Approach: **not automatable** — no execution attempted by this run
+- Verdict: **pass — verified manually by the user**, who had already checked this
+  flow before this run. The autonomous pass had marked it `defer`; that rationale
+  is kept below because it still explains why automation cannot own this item.
+- Deferral rationale (retained): the assertions *are* the human-in-the-loop UX (scope question, single
   **confirmed** write). Observing them autonomously would also mean creating a
   real trail artifact on a real task. Separately, **t1644** (`status:
   Implementing`, anchor 1210) is rewriting exactly this run-summary surface, so
@@ -38,10 +45,11 @@ mutation made to reach a verdict was reverted and the revert verified.
 ### Item 2 — refresh flow
 
 - Item text: Archive one member task, run `/aitask-trail --refresh <handle>`; drift reasons named, diff-style summary shown, new version in `ait artifact versions`
-- Approach: **not automatable** — no execution attempted
-- Verdict: **defer**
-- Reason: requires archiving a real member task plus a confirmed interactive
-  write; the assertions are again interactive rendering. Same t1644 caveat.
+- Approach: **not automatable** — no execution attempted by this run
+- Verdict: **pass — verified manually by the user**, who had already checked this
+  flow before this run. The autonomous pass had marked it `defer`.
+- Deferral rationale (retained): requires archiving a real member task plus a
+  confirmed interactive write; the assertions are again interactive rendering.
 - Indirect evidence: `art:trail-shadow-review-loop` already carries **6 recorded
   versions** (one create + five refreshes), and its `freshness` block holds named
   `drift_reasons` and a `refresh_recommended_because`.
@@ -194,6 +202,9 @@ Performed:
 
 ## Follow-up
 
-Items 1 and 2 are deferred, not failed. Re-run them interactively once **t1644**
-(`trail interactive run summary and website docs`) lands, since that task is
-rewriting the run-summary surface item 1 asserts on.
+None outstanding — all ten items are `pass`.
+
+Worth knowing for future runs: **t1644** (`trail interactive run summary and
+website docs`) is in flight and is rewriting the run-summary surface that items
+1 and 2 exercise. A later re-verification of those two should be run against the
+post-t1644 surface, and items 1–2 remain human-only by nature.
