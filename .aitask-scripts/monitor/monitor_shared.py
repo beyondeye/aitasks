@@ -60,15 +60,27 @@ from rich.markup import escape  # noqa: E402
 # and this import sits at module scope, so getting it wrong takes down every
 # monitor TUI at startup rather than just the column picker (t1377_2).
 from rich.color import Color, ColorParseError  # noqa: E402
+# Terminal-cell measurement. EVERY width budget in the concern row is denominated
+# in cells and measured with these — never `len()` (a CJK region is 12 chars and
+# 18 cells) and never on a markup string (the `HIGH`+`\u2260` prefix is 42 raw and
+# 9 rendered). See `_Seg` below, which makes that a type rather than a habit.
+from rich.cells import cell_len, set_cell_size  # noqa: E402
 
 try:
     from monitor.concern_parser import (
-        build_clipboard_payload, concern_marker_line, needs_addressing,
+        build_clipboard_payload, concern_marker_line, has_impact_vector,
+        needs_addressing,
     )
 except ImportError:  # imported flat (tests may put MONITOR_DIR on sys.path)
     from concern_parser import (  # noqa: E402
-        build_clipboard_payload, concern_marker_line, needs_addressing,
+        build_clipboard_payload, concern_marker_line, has_impact_vector,
+        needs_addressing,
     )
+
+try:
+    from monitor.concern_dimensions import derive_priority, label_for
+except ImportError:  # imported flat, as above
+    from concern_dimensions import derive_priority, label_for  # noqa: E402
 
 try:
     from monitor.ansi_utils import strip_ansi
@@ -2643,10 +2655,232 @@ _CONCERN_MARKS = {
     "spinoff": "[bold cyan]»[/]",
 }
 
+#: Plain-text mirror of :data:`_CONCERN_MARKS`, for measurement only. Derived
+#: from the markup rather than written twice, so the two cannot drift: a second
+#: hand-maintained table is exactly how a glyph change would silently move every
+#: width budget. Every entry is single-width (asserted by
+#: `test_every_mark_is_single_width`).
+_MARK_PLAIN = {
+    state: Text.from_markup(markup).plain for state, markup in _CONCERN_MARKS.items()
+}
+
 
 #: Columns line 1 of a narrow row spends before the region: mark, spaces, the
 #: widest badge (`HIGH`), and the separating space.
+#:
+#: **This is a documented worst case, not the value the row budgets with (t1636_4).**
+#: The impact-vector badge appends a `\u2260` when the derived priority disagrees with
+#: the marker, which makes the widest prefix **9**, not 8. `_ConcernRow` therefore
+#: MEASURES its assembled prefix (`_prefix_seg`) and budgets with that; this
+#: constant survives only as the bound `_PrefixTemplateTests` pins every state
+#: against. Budgeting with it directly would admit a one-line row that renders a
+#: cell wider than it measured, and Rich folds the overflowing segment whole.
 _NARROW_PREFIX_COLS = 8
+
+#: The mismatch marker: the derived priority disagrees with the emitted marker
+#: priority. Appended **directly to the badge**, no separating space — it
+#: The one-line form's region cap — the legacy `_region_label(40)` budget, kept
+#: so a row that stays on one line renders exactly as it always has.
+_ONE_LINE_REGION_CELLS = 40
+
+#: Cells the one-line form reserves for the body before it gives up and goes
+#: multi-line. **Measured, not chosen:** 12 is what keeps an 80-column monitor
+#: (a 48-cell row) on one line for a legacy concern — the width `P1` pins as
+#: unchanged — while sending the ~60-column case (a 34-cell row, where the body
+#: was being folded away entirely) to the multi-line form.
+_MIN_BODY_CELLS = 12
+
+#: Floor for a truncated region. Below this the region is noise rather than a
+#: label, so the row goes multi-line instead.
+_MIN_REGION_CELLS = 12
+
+#: annotates the badge rather than standing beside it, and that spacing is the
+#: layout contract every prefix budget derives from. `\u2260` (U+2260) is
+#: East-Asian-Width Ambiguous, i.e. width 1 outside CJK — the same class as the
+#: `\u00bb` spin-off mark, so it does not disturb single-width assumptions.
+_PRIORITY_MISMATCH_MARK = "[dim]\u2260[/]"
+
+
+class _Seg(NamedTuple):
+    """A rendered segment: what it *looks like* and what it *measures* (t1636_4).
+
+    Every width budget in this row is denominated in terminal cells, but every
+    string the row assembles is Rich **markup**: `_CONCERN_MARKS["none"]` is
+    `'[#6272A4]\u25a1[/]'` and `_CONCERN_BADGE["high"]` is `'[bold red]HIGH[/]'`.
+    Measuring those raw gives 42 cells for a prefix that renders as 9, which
+    would classify almost every row as too wide and collapse the layout
+    threshold entirely. `escape()` compounds it, adding backslashes that exist in
+    the markup and never on screen.
+
+    So the two halves travel together and are never re-derived from each other:
+    **render joins `.markup`, measure sums `.plain`.** This is a type rather
+    than a convention on purpose — a convention is something a later edit can
+    forget, and the failure is silent.
+    """
+
+    plain: str
+    markup: str
+
+    @property
+    def cells(self) -> int:
+        return cell_len(self.plain)
+
+
+def _seg(plain: str, markup: str | None = None) -> "_Seg":
+    """A `_Seg` whose markup defaults to its (unstyled) plain text."""
+    return _Seg(plain, plain if markup is None else markup)
+
+
+#: Effort scalar tokens. Four cells each, including the unspecified `E:?` — a
+#: uniform width is what lets the packing bound be stated once rather than per
+#: effort value.
+_EFFORT_TOKENS = {"high": "E:hi", "medium": "E:md", "low": "E:lo", "": "E:?"}
+
+#: Improve / worsen arrows. Both East-Asian-Width Ambiguous (width 1 outside
+#: CJK), the same class as the existing concern marks.
+_IMPROVE_ARROW = "\u25b2"
+_WORSEN_ARROW = "\u25bc"
+
+#: `Worsens: nothing.` — the cost was **priced and is zero**. Rendered as a
+#: visible token because "priced as nothing" and "never priced" are different
+#: facts, and the second is exactly what the mandatory-Worsens rule exists to
+#: expose. An absent side renders no token at all.
+_PRICED_NOTHING = "\u2013"
+
+#: Cells the narrow layout indents its continuation lines by.
+_NARROW_INDENT = "   "
+
+
+def _magnitude_markup(arrow: str, magnitude: str) -> str:
+    """Weight the arrow by magnitude — bold high, plain medium, dim low.
+
+    The magnitude is carried by *style*, not by extra cells, which is what keeps
+    the packing bound independent of it. The one exception is an **unspecified**
+    magnitude, which gets a real `?` character (see `_entry_seg`): "not stated"
+    is a fact about the concern that no styling can convey, and
+    `concern_dimensions.normalize_magnitude` refuses to degrade it to `low`.
+    """
+    if magnitude == "high":
+        return f"[bold]{arrow}[/]"
+    if magnitude == "low":
+        return f"[dim]{arrow}[/]"
+    return arrow
+
+
+def _entry_seg(entry, arrow: str) -> "_Seg":
+    """One impact entry as `\u25b2label` (+ a single `?` when unspecified)."""
+    dimension, magnitude = entry[0], entry[1]
+    label = label_for(dimension) or str(dimension)[:MAX_PROFILE_LABEL_CELLS]
+    suffix = "?" if not magnitude else ""
+    return _Seg(
+        f"{arrow}{label}{suffix}",
+        f"{_magnitude_markup(arrow, magnitude)}{label}{suffix}",
+    )
+
+
+#: Mirrors `concern_dimensions.MAX_LABEL_CELLS`; used only to clamp an unknown
+#: dimension name, which the closed vocabulary should already have refused.
+MAX_PROFILE_LABEL_CELLS = 5
+
+
+def _side_segs(entries, arrow: str) -> "list[_Seg]":
+    """Rendered entries for one side of the vector, in producer order."""
+    if entries is None:
+        return []
+    if not entries:  # `Worsens: nothing.` — priced, and the price is zero
+        return [_Seg(f"{arrow}{_PRICED_NOTHING}", f"[dim]{arrow}{_PRICED_NOTHING}[/]")]
+    return [_entry_seg(entry, arrow) for entry in entries]
+
+
+def _join_segs(parts: "list[_Seg]", indent: str) -> "_Seg":
+    plain = indent + " ".join(part.plain for part in parts)
+    markup = indent + " ".join(part.markup for part in parts)
+    return _Seg(plain, markup)
+
+
+def trade_profile_rungs(concern: "Concern") -> "list[_Seg]":
+    """Candidate profile lines, **strongest first** — the degradation ladder.
+
+    A concern is a proposed delta in a shared quality space (t1636); this line is
+    that delta, compressed to fit a companion pane. What may be sacrificed, and
+    in what order, is the whole design:
+
+    1. the 2nd improve entry (folded into `+N`);
+    2. the `+N` overflow markers;
+    3. the 2nd worsen entry;
+    4. the 3-space indent — alignment is cosmetic, the arrows lead the line;
+    5. the `?` unspecified-magnitude markers — magnitudes are *documented as
+       advisory* (`concern_dimensions.MAGNITUDES`), the named dimension is the
+       load-bearing part.
+
+    **The core is never a rung.** First improve entry, first worsen entry and the
+    effort scalar are what the ladder protects: they are the trade, and a row
+    that shows an improvement without its price is the pure demand this whole
+    mechanism exists to stop.
+
+    Worst case per measured row width, all three cores intact:
+
+        row 28 (screen 40)   `   \u25b2robus? \u25bcsimpl? E:lo`   23 of 28
+        row 24 (screen 30)   `   \u25b2maint? \u25bcsimpl? E:hi`   23 of 24
+        row 18 (screen 24)   `\u25b2maint \u25bcsimpl E:hi`        18 of 18  (rungs 4+5)
+
+    The last is an **exact** fit, which is why `ConcernRowVectorPackingTests`
+    pins the row geometry and `ConcernTradeProfilePackingTests` sweeps every
+    combination rather than one lucky pair.
+    """
+    improves = _side_segs(concern.improves, _IMPROVE_ARROW)
+    worsens = _side_segs(concern.worsens, _WORSEN_ARROW)
+    effort = _seg(_EFFORT_TOKENS.get(concern.effort, _EFFORT_TOKENS[""]))
+    if not improves and not worsens and not concern.effort:
+        return []
+
+    def build(max_per_side: int, show_overflow: bool, indent: str,
+              drop_unspecified: bool) -> "_Seg":
+        parts: "list[_Seg]" = []
+        for side in (improves, worsens):
+            head = side[:max_per_side]
+            if drop_unspecified:
+                head = [
+                    _Seg(seg.plain.rstrip("?"), seg.markup.replace("?", "", 1))
+                    if seg.plain.endswith("?") else seg
+                    for seg in head
+                ]
+            parts.extend(head)
+            extra = len(side) - len(head)
+            if extra > 0 and show_overflow:
+                parts.append(_seg(f"+{extra}", f"[dim]+{extra}[/]"))
+        parts.append(effort)
+        return _join_segs(parts, indent)
+
+    return [
+        build(2, True, _NARROW_INDENT, False),   # full
+        build(1, True, _NARROW_INDENT, False),   # 1. drop the 2nd improve/worsen
+        build(1, False, _NARROW_INDENT, False),  # 2. drop the +N markers
+        build(1, False, "", False),              # 4. drop the indent
+        build(1, False, "", True),               # 5. drop the `?` markers
+    ]
+
+
+def trade_profile(concern: "Concern", budget: int, *, allow_indent: bool = True) -> "_Seg":
+    """The widest profile rung that fits `budget` **cells**; empty when no vector.
+
+    Measured on `.plain` — see `_Seg`. Returns the last (most degraded) rung
+    rather than raising when even that overflows: the caller is a `render()`, and
+    a row that shows a clipped profile is better than a TUI that crashes. The
+    packing tests are what guarantee the fallback is unreachable at every
+    supported width.
+    """
+    rungs = trade_profile_rungs(concern)
+    if not rungs:
+        return _Seg("", "")
+    if not allow_indent:
+        rungs = [
+            _Seg(rung.plain.lstrip(" "), rung.markup.lstrip(" ")) for rung in rungs
+        ]
+    for rung in rungs:
+        if rung.cells <= budget:
+            return rung
+    return rungs[-1]
 
 
 class _ConcernRow(Static):
@@ -2666,15 +2900,27 @@ class _ConcernRow(Static):
     The four marks are all **single-width**, so :data:`_NARROW_PREFIX_COLS`
     still describes the narrow layout's prefix budget.
 
-    **Two layouts (t1274).** The wide variant is one line,
-    ``□ BADGE region body``. The narrow variant — the minimonitor companion pane,
-    where the laid-out row gets ~28 columns — is **two** lines, region on the
-    first and body on the second. One line does not fit there: Rich's fold drops
-    an overflowing segment whole rather than truncating it, so a region past ~19
-    characters erased the region *and* the body and the row rendered as a bare
-    priority badge. A 21-char region like ``authoring-conv.md:103`` is both real
-    and fully compliant with the producer's ≤30-char rule, which is why this was
-    hit routinely.
+    **Two layouts (t1274), chosen by MEASUREMENT (t1636_4).** The one-line
+    variant is ``□ BADGE region [profile] body``. The multi-line variant — the
+    minimonitor companion pane, where the laid-out row gets ~28 columns — is two
+    lines (region, then body), or **three** when the concern carries an impact
+    vector and the trade profile gets its own line. One line does not fit there:
+    Rich's fold drops an overflowing segment whole rather than truncating it, so
+    a region past ~19 characters erased the region *and* the body and the row
+    rendered as a bare priority badge. A 21-char region like
+    ``authoring-conv.md:103`` is both real and fully compliant with the
+    producer's ≤30-char rule, which is why this was hit routinely.
+
+    ``narrow`` forces the multi-line form, but does not own the choice: the row
+    also falls back to it whenever its **measured** width cannot seat the prefix,
+    a usable region, the profile core and :data:`_MIN_BODY_CELLS` of body. That
+    is what fixed the same failure on the full monitor's ``narrow=False`` path,
+    where the body was folded away below ~60 columns.
+
+    **Every width here is in terminal cells, measured on rendered text.** See
+    :class:`_Seg` — the prefix, the region and the profile are markup strings
+    whose raw length is unrelated to what they occupy, and the region is free
+    text that may contain wide characters.
     """
 
     can_focus = True
@@ -2686,6 +2932,12 @@ class _ConcernRow(Static):
     }
     _ConcernRow.two-line {
         height: 2;
+    }
+    /* A vector-bearing row in the multi-line layout: mark+badge+region, body,
+       then the trade profile (t1636_4). Legacy concerns carry no vector and so
+       stay two-line — every pre-existing block renders exactly as before. */
+    _ConcernRow.three-line {
+        height: 3;
     }
     /* Informational: the shadow is NOT asking for action — recede, don't hide. */
     _ConcernRow.informational {
@@ -2720,10 +2972,29 @@ class _ConcernRow(Static):
         self._narrow = narrow
         self._original_index = original_index
         self._state = "none"
-        if narrow:
-            self.add_class("two-line")
+        self._sync_layout_classes()
         if not needs_addressing(concern):
             self.add_class("informational")
+
+    def _sync_layout_classes(self) -> None:
+        """Apply the height class matching this row's CURRENT layout choice.
+
+        Three states, and exactly one class may be on at a time: `three-line` for
+        a multi-line vector-bearing row, `two-line` for a multi-line row without
+        a vector, and neither for a one-line row (the default `height: 1`).
+
+        Called from `__init__` — where `size` is still 0, so the caller's
+        `narrow` hint decides — and again from `on_resize` once the real width is
+        known. A legacy no-vector row is unaffected either way: it lands on
+        `two-line` under `narrow`, exactly as before.
+        """
+        width = self.size.width or 0
+        prefix_cells = self._prefix_seg().cells
+        profile = trade_profile(self._concern, max(0, width), allow_indent=False)
+        multiline = self._use_multiline(prefix_cells, profile)
+        vector = has_impact_vector(self._concern)
+        self.set_class(multiline and vector, "three-line")
+        self.set_class(multiline and not vector, "two-line")
 
     @property
     def concern(self) -> "Concern":
@@ -2785,28 +3056,138 @@ class _ConcernRow(Static):
         """``t``: spinoff ⇄ none. Clears any other disposition."""
         self.set_state("none" if self._state == "spinoff" else "spinoff")
 
-    def _region_label(self, budget: int) -> str:
-        """The region, ellipsized to ``budget`` columns, or a visible placeholder."""
+    def _region_seg(self, budget: int) -> "_Seg":
+        """The region, ellipsized to ``budget`` **cells**, or a visible placeholder.
+
+        Measured with `cell_len` / `set_cell_size`, never `len()` (t1636_4). The
+        marker grammar accepts any character but `]`, so a region is free text:
+        `插件配置模块.py:12` is 12 characters and **18 cells**, and a
+        character-denominated check passed it through unellipsized, overflowed
+        line 1 and folded the body away — the t1274 failure, on parser-valid
+        input. `escape()` is applied only to the markup half, after truncation:
+        its backslashes exist in the markup and never on screen.
+        """
         region = self._concern.region
         if not region:
-            return "[dim italic](no region)[/]"
-        if budget >= 4 and len(region) > budget:
-            region = region[: budget - 1] + "…"
-        return f"[dim]{escape(region)}[/]"
+            return _Seg("(no region)", "[dim italic](no region)[/]")
+        if budget >= 4 and cell_len(region) > budget:
+            # set_cell_size truncates to a cell count, splitting no wide glyph.
+            region = set_cell_size(region, budget - 1) + "…"
+        return _Seg(region, f"[dim]{escape(region)}[/]")
+
+    def _region_label(self, budget: int) -> str:
+        """Markup half of :meth:`_region_seg` (kept for callers that only render)."""
+        return self._region_seg(budget).markup
+
+    def _badge_seg(self) -> "_Seg":
+        """Priority badge, plus the `≠` when the derived priority is disputed.
+
+        For a vector-bearing concern the badge shows
+        `concern_dimensions.derive_priority(improves)` — the derived value is
+        authoritative (`concern-format.md`). A disagreeing marker priority is
+        **flagged, never silently reconciled**: the two facts stay visible, which
+        is the whole reason the picker is where a human decides. Legacy concerns
+        keep their marker priority exactly as before.
+
+        Template — `≠` attached directly to the badge, no separating space. This
+        is the layout contract every prefix budget derives from; see
+        `_PRIORITY_MISMATCH_MARK` and `_PrefixTemplateTests`.
+        """
+        concern = self._concern
+        if not has_impact_vector(concern):
+            priority = concern.priority
+            mismatch = False
+        else:
+            priority = derive_priority(concern.improves)
+            mismatch = priority != concern.priority
+        markup = _CONCERN_BADGE.get(priority, "[dim]LOW[/]")
+        plain = {"high": "HIGH", "medium": "MED"}.get(priority, "LOW")
+        if mismatch:
+            return _Seg(f"{plain}≠", f"{markup}{_PRIORITY_MISMATCH_MARK}")
+        return _Seg(plain, markup)
+
+    def _prefix_seg(self) -> "_Seg":
+        """Everything on line 1 before the region: mark, badge, `≠`, separator.
+
+        **Measured, never assumed.** `_NARROW_PREFIX_COLS` describes the widest
+        *legacy* prefix (8); with the mismatch marker `HIGH≠ ` makes it 9, and
+        budgeting the constant would admit a one-line row that renders one cell
+        wider than it measured — Rich then folds the reserved profile or body
+        away whole. One measurement feeds the layout decision AND both region
+        budgets, so the three can never disagree.
+        """
+        mark = _CONCERN_MARKS[self._state]
+        badge = self._badge_seg()
+        return _Seg(
+            f"{_MARK_PLAIN[self._state]}  {badge.plain} ",
+            f"{mark}  {badge.markup} ",
+        )
+
+    def _use_multiline(self, prefix_cells: int, profile: "_Seg") -> bool:
+        """Whether this row needs the multi-line layout at its measured width.
+
+        `narrow` (the caller's hint) still forces it, but it is no longer the
+        only thing that can: the full monitor passes `narrow=False` and
+        `ConcernPickerWidthTierTests` proves it reaches 24 columns, where the
+        one-line form folded region *and* body away. Measured, the one-line row
+        lost the body from ~60 columns down — the t1274 failure, still live on
+        that path (t1636_4). The hint is a floor, measurement is the truth; this
+        is the same rule the modal already applies to its own chrome.
+        """
+        if self._narrow:
+            return True
+        width = self.size.width or 0
+        if not width:
+            return False  # unmeasured: keep the caller's hint (one line)
+        region = min(_ONE_LINE_REGION_CELLS, self._region_seg(10**6).cells)
+        needed = prefix_cells + region + 2 + _MIN_BODY_CELLS
+        if profile.cells:
+            needed += profile.cells + 1
+        return width > 0 and needed > width
 
     def render(self) -> str:
-        mark = _CONCERN_MARKS[self._state]
-        badge = _CONCERN_BADGE.get(self._concern.priority, "[dim]LOW[/]")
+        prefix = self._prefix_seg()
         # display_body(), never .body — the Disposition:/Verified: trailer is
         # metadata for the receiving agent, not for this row. (The clipboard path
         # is the mirror rule: always .body, so the trailer is forwarded intact.)
         # Frozen with a DISPLAY role in
         # tests/test_concern_body_display_contract.py (t1294).
         body = escape(self._concern.display_body())
-        if self._narrow:
-            budget = max(6, (self.size.width or 28) - _NARROW_PREFIX_COLS)
-            return f"{mark}  {badge} {self._region_label(budget)}\n   {body}"
-        return f"{mark}  {badge} {self._region_label(40)}  {body}"
+        width = self.size.width or (28 if self._narrow else 0)
+        profile = trade_profile(self._concern, max(0, width), allow_indent=True)
+        if self._use_multiline(prefix.cells, trade_profile(
+                self._concern, max(0, width), allow_indent=False)):
+            budget = max(6, width - prefix.cells)
+            line1 = f"{prefix.markup}{self._region_seg(budget).markup}"
+            if not profile.markup:
+                # Legacy two-line row: body verbatim, exactly as before. Its
+                # overflow is clipped by `height: 2`, which is pre-existing.
+                return f"{line1}\n{_NARROW_INDENT}{body}"
+            # Three-line row: the body must occupy exactly ONE row, or its wrap
+            # consumes the profile's line and the trade vector never renders at
+            # all. Caught in a real 40x24 tmux pane, where a 36-cell body wrapped
+            # and pushed `▲corr ▼simpl E:md` out of the `height: 3` box — every
+            # composited test had used a body short enough to fit.
+            body_budget = max(4, width - cell_len(_NARROW_INDENT))
+            if cell_len(body) > body_budget:
+                body = set_cell_size(body, body_budget - 1) + "…"
+            return f"{line1}\n{_NARROW_INDENT}{body}\n{profile.markup}"
+        one_line_profile = trade_profile(
+            self._concern, max(0, width), allow_indent=False
+        )
+        region = self._region_seg(_ONE_LINE_REGION_CELLS).markup
+        middle = f"  {one_line_profile.markup}" if one_line_profile.markup else ""
+        return f"{prefix.markup}{region}{middle}  {body}"
+
+    def on_resize(self) -> None:
+        """Re-derive the height class — the layout choice is measured now.
+
+        Fixing the class at construction was safe while `narrow` decided the
+        layout alone. It no longer does, so a row that is re-measured into (or
+        out of) the multi-line form must move its class with it, or the widget
+        renders three lines into a one-line box.
+        """
+        self._sync_layout_classes()
 
     def on_key(self, event) -> None:
         if event.key == "space":
@@ -2900,6 +3281,33 @@ _CONCERN_HELP_COMPACT = (
     "[dim]↑↓ move · spc fwd · r rej · t spin · e edit · R list · u raw · "
     "↵ ok · esc[/]"
 )
+
+
+#: Decision guidance for a block carrying impact vectors (t1636_4). The picker
+#: has had `forward` / `reject` / `spinoff` since t1427_2; what the user lacked
+#: was the basis for choosing between them, which the vector now supplies.
+_CONCERN_GUIDANCE = (
+    "[dim]fwd: obligation or pure win · spin: net-positive or costly · "
+    "rej: worsens ≥ improves[/]"
+)
+
+#: Geometry floors for showing :data:`_CONCERN_GUIDANCE`.
+#:
+#: **The help line's key names outrank the guidance.** Once the OK/Cancel buttons
+#: are dropped, the help line is the only place `r` / `t` / `R` / `u` / Esc are
+#: named; the guidance is advisory and the per-row vector is the real data. So
+#: guidance is shown only where it cannot cost the keys.
+#:
+#: Both numbers are MEASURED, not chosen. At 40 columns `_CONCERN_HELP_FULL`
+#: wraps to **6** rows (the compact swap is keyed at ≤30, so the widest companion
+#: width is the worst-served one) and the dialog has ~4 rows of headroom — adding
+#: a wrapped guidance line there evicts the keys outright, which is exactly what
+#: `ConcernGuidanceContractTests` pins. By 80 columns the help is 3 rows and the
+#: room is real. `ConcernPickerNarrowLayoutTests` and the contract tests are the
+#: enforcement; if a future edit lengthens the help, they fail rather than the
+#: keys silently vanishing.
+_GUIDANCE_MIN_WIDTH = 80
+_GUIDANCE_MIN_HEIGHT = 24
 
 
 def _apply_measured_width_tier(
@@ -3363,9 +3771,10 @@ class RejectedStoreModal(ModalScreen):
 class ConcernPickerModal(ModalScreen):
     """Modal letting the user forward or reject shadow concerns.
 
-    Lives here (rather than in minimonitor) because the full monitor is due to
-    push it too — see t1216_3; today minimonitor is the only caller. It carries
-    its own ``DEFAULT_CSS`` per the TUI conventions for multi-App modals.
+    Lives here rather than in minimonitor because **both** apps push it:
+    minimonitor with ``narrow=True`` and the full monitor with ``narrow=False``
+    (t1216_3, since landed). It carries its own ``DEFAULT_CSS`` per the TUI
+    conventions for multi-App modals.
 
     **Disposition partition (t1274).** Concerns the shadow marked
     ``informational`` — real, but explicitly *not* a request for action — are
@@ -3383,10 +3792,19 @@ class ConcernPickerModal(ModalScreen):
     as hard — a spin-off writes a file — so no bulk key may be reintroduced.
 
     **Two independent size knobs (t1293) — neither is derived from the other.**
-    ``narrow`` is the *caller's* hint and owns only the two-line ``_ConcernRow``
-    layout. The ``xnarrow`` class is derived from the modal's own **measured**
-    width (:data:`_PICKER_NARROW_MIN_WIDTH`) and owns only the dialog chrome, so a
-    full-width monitor running in a 24-column terminal gets it too.
+    ``narrow`` is the *caller's* hint; the ``xnarrow`` class is derived from the
+    modal's own **measured** width (:data:`_PICKER_NARROW_MIN_WIDTH`) and owns the
+    dialog chrome, so a full-width monitor running in a 24-column terminal gets
+    it too.
+
+    **The hint is a floor, not the whole rule (t1636_4).** ``narrow`` still
+    *forces* the multi-line row, but it no longer decides alone: ``_ConcernRow``
+    measures its own width and switches to the multi-line form whenever the
+    one-line form cannot seat region, profile and body. That closed a live gap on
+    the ``narrow=False`` path — the full monitor reaches 24 columns (pinned by
+    :class:`ConcernPickerWidthTierTests`), and below ~60 columns the one-line row
+    was folding the body away entirely, the same t1274 failure the narrow layout
+    was built to fix.
 
     **Dismiss contract (t1427_2; supersedes the t1037_4 list contract):**
     dismisses with a :class:`ConcernPickResult` on confirm (OK / Enter) and with
@@ -3438,6 +3856,7 @@ class ConcernPickerModal(ModalScreen):
     #concern-stale-unknown { color: $warning; text-style: bold; margin: 0 0 1 0; }
     #concern-unrecovered { color: $warning; text-style: bold; margin: 0 0 1 0; }
     #concern-context { color: $text-muted; margin: 0 0 1 0; }
+    #concern-guidance { color: $text-muted; margin: 0 0 1 0; }
     .concern-section { text-style: bold; color: $accent; height: 1; }
     #concern-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
     #concern-help { color: $text-muted; margin: 0 0 1 0; }
@@ -3585,6 +4004,12 @@ class ConcernPickerModal(ModalScreen):
                     id="concern-unrecovered",
                 )
             yield Static(self._context_line(), id="concern-context")
+            # Only for a block that actually carries vectors: a legacy
+            # plan-review block has nothing to decide with, so it renders
+            # exactly as it did before (t1636_4). Visibility is then gated on
+            # measured geometry by `_apply_size_tier`.
+            if any(has_impact_vector(concern) for concern in self._concerns):
+                yield Static(_CONCERN_GUIDANCE, id="concern-guidance")
             with VerticalScroll(id="concern-list"):
                 # Headers only when both partitions exist — a single-partition
                 # block (every plan-review block) looks exactly as it did before.
@@ -3596,7 +4021,7 @@ class ConcernPickerModal(ModalScreen):
                         yield _ConcernRow(
                             concern, narrow=self._narrow, original_index=index
                         )
-            # Swapped for the compact variant by _apply_width_tier() once the
+            # Swapped for the compact variant by _apply_size_tier() once the
             # modal knows its measured width.
             yield Static(_CONCERN_HELP_FULL, id="concern-help")
             with Container(id="concern-buttons"):
@@ -3604,16 +4029,20 @@ class ConcernPickerModal(ModalScreen):
                 yield Button("Cancel", variant="default", id="btn-cancel")
 
     def on_mount(self) -> None:
-        self._apply_width_tier()
+        self._apply_size_tier()
         rows = list(self.query(_ConcernRow))
         if rows:
             rows[0].focus()
 
     def on_resize(self) -> None:
-        self._apply_width_tier()
+        self._apply_size_tier()
 
-    def _apply_width_tier(self) -> None:
-        """Pick the dialog chrome from the modal's MEASURED width (t1293).
+    def _apply_size_tier(self) -> None:
+        """Pick the dialog chrome from the modal's MEASURED size.
+
+        Renamed from ``_apply_width_tier`` at t1636_4: it reads **height** as
+        well as width now, because the decision-guidance line competes for
+        vertical room with the help line and the concern list.
 
         Keyed on ``self.size.width`` — never on ``self._narrow``, which is the
         caller's row-layout hint and says nothing about the real terminal. Textual
@@ -3635,6 +4064,30 @@ class ConcernPickerModal(ModalScreen):
             "concern-help",
             _CONCERN_HELP_FULL,
             _CONCERN_HELP_COMPACT,
+        )
+
+        self._apply_guidance_visibility()
+
+    def _apply_guidance_visibility(self) -> None:
+        """Show the guidance only where it cannot cost the help line's keys.
+
+        The precedence is explicit and one-directional: **the key names outrank
+        the guidance.** They are the only place `r` / `t` / `R` / `u` / Esc are
+        named once the buttons are dropped, whereas the guidance restates a
+        rubric the per-row vector already encodes.
+
+        Gated on measured geometry rather than the ``xnarrow`` width class,
+        because that class is the wrong predicate here: 40 columns is *not*
+        xnarrow yet is the tier where the full help wraps to six rows and the
+        list is already pinned to its ``min-height``. See
+        :data:`_GUIDANCE_MIN_WIDTH`.
+        """
+        widgets = list(self.query("#concern-guidance"))
+        if not widgets:
+            return  # a legacy block: no guidance was composed at all
+        widgets[0].display = (
+            self.size.width >= _GUIDANCE_MIN_WIDTH
+            and self.size.height >= _GUIDANCE_MIN_HEIGHT
         )
 
     def action_inspect_unrecovered(self) -> None:

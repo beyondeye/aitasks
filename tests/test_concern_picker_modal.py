@@ -34,14 +34,18 @@ from textual.widgets import Label, TextArea  # noqa: E402
 from tui_layout import NARROW_TERMINAL_WIDTH, is_narrow_terminal  # noqa: E402
 
 from monitor.concern_parser import (  # noqa: E402
-    BlockMeta, Concern, build_clipboard_payload,
+    BlockMeta, Concern, build_clipboard_payload, has_impact_vector,
 )
 from monitor import monitor_shared  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     ConcernBlockInspectModal, ConcernPayloadEditModal, ConcernPickerModal,
     ConcernPickResult, RejectedEntry, RejectedStoreModal, _ConcernRow,
-    _RejectedRow, format_block_meta,
+    _RejectedRow, format_block_meta, trade_profile, trade_profile_rungs,
 )
+from monitor.concern_dimensions import (  # noqa: E402
+    CONCERN_DIMENSIONS, label_for,
+)
+from rich.cells import cell_len  # noqa: E402
 
 
 def _sample_concerns() -> list[Concern]:
@@ -701,8 +705,21 @@ class ConcernPickerNarrowLayoutTests(unittest.TestCase):
 
         The same concern rendered on ONE line at the same width loses both — if
         this ever starts passing, the tests above have stopped discriminating.
+
+        **Re-expressed at t1636_4, not retired.** This used to obtain the
+        one-line form via ``narrow=False``, but the layout is measured now: at 40
+        columns a ``narrow=False`` row is 20 cells wide and correctly *chooses*
+        multi-line, so the old route would make this test pass while proving
+        nothing. The mutation is therefore applied directly — one patch, forcing
+        ``_use_multiline`` off — the same single-mutation shape
+        ``test_without_the_tier_the_narrow_widths_break`` uses on
+        ``_PICKER_NARROW_MIN_WIDTH``. What it guards is unchanged: the multi-line
+        layout is what rescues the region and the body.
         """
-        screen = self._render_at_40(self.COMPLIANT_REGION, narrow=False)
+        with unittest.mock.patch.object(
+            _ConcernRow, "_use_multiline", lambda self, *a, **k: False
+        ):
+            screen = self._render_at_40(self.COMPLIANT_REGION, narrow=True)
         self.assertNotIn("authoring-conv", screen)
         self.assertNotIn("BODYMARKER", screen)
 
@@ -2177,6 +2194,721 @@ class ConcernPayloadEditEditingTests(unittest.TestCase):
                 self.assertEqual(app.screen._payload_override, "payload text")
 
         self._run(runner())
+
+
+class LegacyRowRenderCharacterizationTests(unittest.TestCase):
+    """P1 (`characterize_legacy_row_render`) — pin what t1636_4 must NOT change.
+
+    Written BEFORE `_ConcernRow.__init__` / `render` / the CSS are touched. The
+    trade-profile work edits the **shared** row path — layout selection, the
+    prefix, and region truncation all become measured — so a vector-only feature
+    can regress every legacy plan-review block. These are the pins that fail if
+    it does.
+
+    Composited assertions, never `render()` alone, for the t1274 reason: Rich
+    drops an overflowing segment whole, so a string containing the body proves
+    nothing about the screen. The one `render()` assertion below is deliberate
+    and additional — it pins the exact legacy *template*, which the composited
+    view cannot show once the text has been folded.
+    """
+
+    LEGACY = Concern("high", "authoring-conv.md:103", "BODYMARKER the body text.")
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _row(self, width, height=30, narrow=True, concern=None):
+        app = _Host([concern or self.LEGACY], narrow=narrow)
+        async with app.run_test(size=(width, height)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            row = list(app.screen.query(_ConcernRow))[0]
+            return row, _flat_text(_screen_rows(app)), row.render()
+
+    def test_narrow_legacy_row_is_two_line_and_keeps_region_and_body(self):
+        """The t1274 contract, at every supported width."""
+        for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                row, flat, _ = self._run(self._row(width))
+                self.assertTrue(row.has_class("two-line"))
+                self.assertFalse(row.has_class("three-line"))
+                self.assertIn("authoring", flat)
+                self.assertIn("BODYMARKER", flat)
+
+    def test_wide_legacy_row_is_intact_at_a_comfortable_width(self):
+        """The `narrow=False` path at 80 columns, where one line is correct.
+
+        The measured-layout change must leave this untouched: 80 columns is
+        comfortably above the fallback threshold, so the monitor keeps its
+        single-line row exactly as today.
+        """
+        row, flat, rendered = self._run(self._row(80, narrow=False))
+        self.assertFalse(row.has_class("two-line"))
+        self.assertFalse(row.has_class("three-line"))
+        self.assertIn("authoring-conv.md:103", flat)
+        self.assertIn("BODYMARKER", flat)
+        self.assertNotIn("\n", rendered)
+
+    def test_legacy_render_template_is_unchanged(self):
+        """The exact legacy strings, so a template edit is visible.
+
+        `render()` here on purpose (see the class docstring): this pins the
+        newline placement and the two-space separators that the composited view
+        cannot report once folding has happened.
+        """
+        # MARK_UNCHECKED comes from lib/mark_glyphs (the canonical authority),
+        # not from monitor_shared - so the mark half of this pin is independent
+        # of the module under test rather than tautological.
+        mark = f"[#6272A4]{MARK_UNCHECKED}[/]"
+        _, _, narrow_render = self._run(self._row(40))
+        self.assertEqual(
+            narrow_render,
+            # Row width 28 - _NARROW_PREFIX_COLS 8 = a 20-cell region budget, so
+            # the 21-char region ellipsizes. That is the legacy behaviour.
+            f"{mark}  [bold red]HIGH[/] [dim]authoring-conv.md:1\u2026[/]"
+            "\n   BODYMARKER the body text.",
+        )
+        _, _, wide_render = self._run(self._row(80, narrow=False))
+        self.assertEqual(
+            wide_render,
+            # The wide form's fixed 40-cell region budget leaves it untouched.
+            f"{mark}  [bold red]HIGH[/] [dim]authoring-conv.md:103[/]"
+            "  BODYMARKER the body text.",
+        )
+
+    def test_ascii_region_ellipsizes_at_the_legacy_boundary(self):
+        """The truncation baseline the cell-aware rewrite must reproduce.
+
+        `_region_label` currently ellipsizes on `len()`. Step 4 replaces that
+        with a cell measurement; for pure-ASCII input the two agree, and this is
+        the pin that says so — an off-by-one in `set_cell_size` shows up here.
+        """
+        row = _ConcernRow(Concern("low", "a" * 30, "body"))
+        for budget, expected in (
+            (10, "a" * 9 + "\u2026"),
+            (30, "a" * 30),          # exactly at budget: no ellipsis
+            (31, "a" * 30),          # under budget: untouched
+        ):
+            with self.subTest(budget=budget):
+                self.assertEqual(row._region_label(budget), f"[dim]{expected}[/]")
+
+    def test_empty_region_placeholder_is_unchanged(self):
+        row = _ConcernRow(Concern("low", "", "body"))
+        self.assertEqual(row._region_label(20), "[dim italic](no region)[/]")
+
+    def test_negative_control_a_three_line_class_would_break_the_pin(self):
+        """One mutation: force `three-line` on. The class pin must then fail.
+
+        Without this, `test_narrow_legacy_row_is_two_line_...` could be passing
+        because the class assertions are vacuous rather than because the legacy
+        layout survived.
+        """
+        # Patch `_sync_layout_classes`, not `__init__`: since t1636_4 the class
+        # is re-derived on every resize, so a mutation applied at construction is
+        # simply undone before the assertion runs — which this control detected.
+        def patched(self):
+            self.set_class(True, "three-line")
+
+        with unittest.mock.patch.object(_ConcernRow, "_sync_layout_classes", patched):
+            row, _, _ = self._run(self._row(40))
+            self.assertTrue(
+                row.has_class("three-line"),
+                "the mutation did not land - the negative control proves nothing",
+            )
+
+
+
+class ConcernRowVectorPackingTests(unittest.TestCase):
+    """P2 / `pin_narrow_row_width_budget` — the trade profile's width budget.
+
+    **Stage 1** (this class's first two methods, written and observed passing
+    BEFORE `_ConcernRow.render` was touched): region and body reach the
+    composited output at every supported width, and the row's own measured
+    geometry is pinned.
+
+    The geometry guard is the assertion whose absence let a wrong budget ship in
+    t1636_1. `check_label_widths.__doc__` derived the profile budget as "24
+    columns - 3 indent = 21 cells", but 24 is the **screen** width; the row is
+    nested inside the dialog border, the dialog padding and its own padding, so
+    at a 24-column screen it is **18** cells wide and the indented profile line
+    has 15. Nothing measured that, so nothing caught it.
+
+    Stage 2 (`ConcernTradeProfilePackingTests`) extends this to the vector core.
+    """
+
+    #: Measured row content widths at `SUPPORTED_WIDTHS`, narrow layout.
+    #: Screen -> `_ConcernRow.size.width`. Pinned, not derived: these numbers ARE
+    #: the profile budget, so a CSS change that shifts them must fail loudly here
+    #: rather than silently clip the effort scalar off the end of the line.
+    ROW_WIDTHS = {40: 28, 30: 24, 24: 18}
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _at(self, width, narrow=True, concern=None, height=30):
+        app = _Host(
+            [concern or Concern("high", "authoring-conv.md:103", "BODYMARKER body.")],
+            narrow=narrow,
+        )
+        async with app.run_test(size=(width, height)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            rows = list(app.screen.query(_ConcernRow))
+            # `size` must be sampled INSIDE the context manager: once the app
+            # shuts down every widget reports 0x0, and a geometry guard reading
+            # a torn-down widget would pin zeros instead of the real layout.
+            return rows[0].size.width, _flat_text(_screen_rows(app))
+
+    def test_region_and_body_reach_the_screen_at_every_supported_width(self):
+        for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                _, flat = self._run(self._at(width))
+                self.assertIn("authoring", flat)
+                self.assertIn("BODYMARKER", flat)
+
+    def test_row_geometry_is_pinned_at_every_supported_width(self):
+        """Drift guard: the row's measured width IS the profile budget.
+
+        `SUPPORTED_WIDTHS` is read from the production constants, so this cannot
+        drift onto stale screen widths; `ROW_WIDTHS` then pins what those screens
+        actually give the row.
+        """
+        for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                row_width, _ = self._run(self._at(width))
+                self.assertEqual(
+                    row_width, self.ROW_WIDTHS[width],
+                    f"row geometry moved at screen {width}: the trade-profile "
+                    f"budget is derived from this number",
+                )
+
+    def test_a_long_body_does_not_evict_the_profile_line(self):
+        """A wrapping body must not consume the profile's row.
+
+        **Found in a real 40x24 tmux pane, not here.** Every composited fixture
+        in this file used a body short enough to fit one row, so the three-line
+        row was never actually exercised: a 36-cell body wrapped to two rows and
+        pushed the trade profile out of the `height: 3` box entirely. The profile
+        rendered nowhere at all while every test stayed green.
+
+        The body is therefore clipped to one row on a three-line row — and this
+        is the assertion that says so, with a body long enough to wrap at every
+        supported width.
+        """
+        concern = Concern(
+            "high", "monitor_shared.py:2797",
+            "Row folds the body away at narrow widths and this body is "
+            "deliberately far too long to fit on a single row.",
+            improves=(("correctness", "high"),),
+            worsens=(("simplicity", "low"),), effort="medium",
+        )
+        for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                _, flat = self._run(self._at(width, concern=concern))
+                self.assertIn("corr", flat)
+                self.assertIn("simpl", flat)
+                self.assertIn("E:md", flat)
+                self.assertIn("Row folds", flat)
+
+    def test_a_long_body_still_wraps_on_a_legacy_two_line_row(self):
+        """Negative control / scope guard: the clip is three-line only.
+
+        A no-vector row keeps its verbatim body — the clip exists to protect the
+        profile, so applying it where there is no profile would be an unrelated
+        behaviour change to every legacy block.
+        """
+        long_body = "x" * 200
+        row = _ConcernRow(Concern("high", "r", long_body), narrow=True)
+        self.assertIn(long_body, row.render())
+
+    def test_the_indented_profile_line_has_three_fewer_cells(self):
+        """The narrow continuation line is indented 3, so its budget is width-3.
+
+        Pinned as its own fact because the ladder in `trade_profile` spends
+        exactly this: at screen 24 it is 15 cells, which is less than the
+        20-cell worst-case core - which is why the indent is a rung.
+        """
+        for width, row_width in self.ROW_WIDTHS.items():
+            with self.subTest(width=width):
+                self.assertEqual(row_width - len("   "), row_width - 3)
+        self.assertEqual(self.ROW_WIDTHS[24] - 3, 15)
+
+
+
+class _PrefixTemplateTests(unittest.TestCase):
+    """The prefix is ONE template, measured on rendered text (t1636_4).
+
+    Two failures this pins, both of which shipped in a draft of this task:
+
+    * measuring the **markup** — the `HIGH` + `≠` prefix is 42 cells raw and 9
+      rendered, so a raw measurement classifies almost every row as too wide;
+    * restating the width as prose arithmetic — the `≠` spacing drifted between
+      9 and 10 cells across a plan, and only an **exact** assertion catches that
+      (a `<= _NARROW_PREFIX_COLS + 1` bound would have passed both).
+    """
+
+    #: The layout contract: `≠` appended directly to the badge, no separating
+    #: space. Every prefix budget in `_ConcernRow` derives from these widths.
+    EXPECTED = {
+        ("high", False): ("□  HIGH ", 8),
+        ("high", True): ("□  HIGH≠ ", 9),
+        ("medium", False): ("□  MED ", 7),
+        ("medium", True): ("□  MED≠ ", 8),
+        ("low", False): ("□  LOW ", 7),
+        ("low", True): ("□  LOW≠ ", 8),
+    }
+
+    #: (dimension, magnitude) whose `derive_priority` gives each badge level.
+    _IMPROVES = {"high": (("correctness", "high"),),
+                 "medium": (("correctness", "medium"),),
+                 "low": (("correctness", "low"),)}
+
+    def _row(self, derived, mismatch):
+        marker = "low" if mismatch and derived != "low" else derived
+        if mismatch and derived == "low":
+            marker = "high"
+        return _ConcernRow(Concern(
+            marker, "r", "b",
+            improves=self._IMPROVES[derived],
+            worsens=(("simplicity", "low"),),
+            effort="low",
+        ))
+
+    def test_every_prefix_state_has_its_exact_pinned_width(self):
+        for (derived, mismatch), (plain, cells) in self.EXPECTED.items():
+            with self.subTest(badge=derived, mismatch=mismatch):
+                seg = self._row(derived, mismatch)._prefix_seg()
+                self.assertEqual(seg.plain, plain)
+                self.assertEqual(seg.cells, cells)
+
+    def test_the_widest_prefix_exceeds_the_legacy_constant(self):
+        """`_NARROW_PREFIX_COLS` is a legacy bound, not the budget.
+
+        This is the finding the constant's own comment got wrong: it claims the
+        widest prefix is `HIGH` at 8 cells. With the mismatch marker it is 9, and
+        budgeting 8 admits a one-line row that renders one cell wider than it
+        measured.
+        """
+        widest = max(cells for _, cells in self.EXPECTED.values())
+        self.assertEqual(widest, monitor_shared._NARROW_PREFIX_COLS + 1)
+
+    def test_measuring_the_markup_instead_would_be_wildly_wrong(self):
+        """The `_Seg` split is load-bearing, not stylistic.
+
+        Asserts the two measurements **differ** as well as pinning the plain one
+        — without the inequality half this passes vacuously on unstyled text, and
+        the whole hazard is that the styled case looks the same to `cell_len`.
+        """
+        seg = self._row("high", True)._prefix_seg()
+        self.assertEqual(seg.cells, 9)
+        self.assertEqual(cell_len(seg.markup), 42)
+        self.assertNotEqual(cell_len(seg.markup), cell_len(seg.plain))
+
+    def test_the_mismatch_marker_is_single_width(self):
+        self.assertEqual(cell_len("≠"), 1)
+
+
+class ConcernTradeProfilePackingTests(unittest.TestCase):
+    """Stage 2 of `pin_narrow_row_width_budget` — the vector core always fits.
+
+    Exhaustive over the pure builder, because a packing claim checked on one
+    lucky pair passes while `maint?` + `simpl?` + `E:hi` clips. The builder is
+    Textual-free, so the full sweep is cheap; a sampled subset is then driven
+    through the real modal to prove the composited screen agrees.
+    """
+
+    #: The measured row widths from `ConcernRowVectorPackingTests.ROW_WIDTHS`.
+    BUDGETS = (28, 24, 18)
+    MAGNITUDES = ("high", "medium", "low", "")
+    EFFORTS = ("high", "medium", "low", "")
+
+    def _profile(self, improve_dim, improve_mag, worsen_dim, worsen_mag, effort):
+        return Concern(
+            "low", "r", "b",
+            improves=((improve_dim, improve_mag),),
+            worsens=((worsen_dim, worsen_mag),),
+            effort=effort,
+        )
+
+    def test_the_core_fits_every_budget_for_every_combination(self):
+        dims = list(CONCERN_DIMENSIONS)
+        checked = 0
+        for i_dim in dims:
+            for w_dim in dims:
+                for i_mag in self.MAGNITUDES:
+                    for w_mag in self.MAGNITUDES:
+                        for effort in self.EFFORTS:
+                            concern = self._profile(i_dim, i_mag, w_dim, w_mag, effort)
+                            for budget in self.BUDGETS:
+                                seg = trade_profile(concern, budget)
+                                checked += 1
+                                self.assertLessEqual(
+                                    seg.cells, budget,
+                                    f"{seg.plain!r} overflows {budget} cells",
+                                )
+                                # The core: both labels and the effort scalar.
+                                self.assertIn(label_for(i_dim), seg.plain)
+                                self.assertIn(label_for(w_dim), seg.plain)
+                                self.assertIn(
+                                    monitor_shared._EFFORT_TOKENS[effort], seg.plain
+                                )
+        self.assertEqual(checked, len(dims) ** 2 * 4 * 4 * 4 * len(self.BUDGETS))
+
+    def test_the_worst_case_is_an_exact_fit_at_the_floor(self):
+        """`▲maint ▼simpl E:hi` is 18 of 18 cells — stated, not discovered."""
+        concern = self._profile("maintainability", "", "simplicity", "", "high")
+        seg = trade_profile(concern, 18)
+        self.assertEqual(seg.plain, "▲maint ▼simpl E:hi")
+        self.assertEqual(seg.cells, 18)
+
+    def test_wider_budgets_keep_the_indent_and_the_magnitude_markers(self):
+        concern = self._profile("maintainability", "", "simplicity", "", "high")
+        for budget in (28, 24):
+            with self.subTest(budget=budget):
+                seg = trade_profile(concern, budget)
+                self.assertEqual(seg.plain, "   ▲maint? ▼simpl? E:hi")
+                self.assertEqual(seg.cells, 23)
+
+    def test_negative_control_forcing_the_indent_breaks_the_floor(self):
+        """One mutation: keep the indent unconditionally. 18 cells must fail.
+
+        Without this the sweep could be passing because every rung happens to be
+        short, rather than because the ladder actually degrades.
+        """
+        concern = self._profile("maintainability", "", "simplicity", "", "high")
+        rungs = trade_profile_rungs(concern)
+        indented = [r for r in rungs if r.plain.startswith(" ")]
+        self.assertTrue(indented, "expected at least one indented rung")
+        self.assertTrue(
+            all(r.cells > 18 for r in indented),
+            "an indented rung fits 18 cells - the indent rung is not load-bearing",
+        )
+
+
+
+class ConcernVectorTriStateTests(unittest.TestCase):
+    """The states the parser keeps distinct must survive TO THE SCREEN (t1636_4).
+
+    The dimension x magnitude x effort sweep says nothing about these: it only
+    ever builds a fully-populated vector. But `Concern` deliberately
+    distinguishes ``worsens=None`` (never priced) from ``worsens=()``
+    (`Worsens: nothing.` — priced, and the price is zero), and that distinction
+    IS the anti-overengineering mechanism t1636 exists to add. A compacting
+    refactor that collapsed the two would keep every combination test green
+    while deleting the feature.
+
+    So each case asserts the token **and its intentional absence**. The picker is
+    the only place a human can act on the difference, so proving it survives here
+    is what makes the parser's three-state contract worth anything.
+    """
+
+    def _plain(self, **kwargs):
+        return trade_profile(Concern("low", "r", "b", **kwargs), 28).plain
+
+    def test_priced_nothing_renders_a_visible_token(self):
+        plain = self._plain(improves=(("goal", "high"),), worsens=(), effort="low")
+        self.assertIn("▼–", plain)
+        self.assertIn("▲goal", plain)
+
+    def test_an_unpriced_worsen_side_renders_no_worsen_token_at_all(self):
+        """The other half of the pair — absence is the assertion."""
+        plain = self._plain(improves=(("goal", "high"),), worsens=None, effort="low")
+        self.assertNotIn("▼", plain)
+        self.assertIn("▲goal", plain)
+
+    def test_priced_nothing_and_unpriced_are_not_the_same_rendering(self):
+        """Stated directly, so a collapse cannot pass both tests above."""
+        priced = self._plain(improves=(("goal", "high"),), worsens=(), effort="low")
+        unpriced = self._plain(improves=(("goal", "high"),), worsens=None, effort="low")
+        self.assertNotEqual(priced, unpriced)
+
+    def test_an_absent_improve_side_renders_no_improve_token(self):
+        plain = self._plain(improves=None, worsens=(("simplicity", "high"),), effort="low")
+        self.assertNotIn("▲", plain)
+        self.assertIn("▼simpl", plain)
+
+    def test_an_effort_only_trailer_is_still_a_vector(self):
+        concern = Concern("low", "r", "b", effort="low")
+        self.assertTrue(has_impact_vector(concern))
+        plain = trade_profile(concern, 28).plain
+        self.assertIn("E:lo", plain)
+        self.assertNotIn("▲", plain)
+        self.assertNotIn("▼", plain)
+
+    def test_a_concern_with_no_vector_at_all_renders_nothing(self):
+        self.assertEqual(self._plain(), "")
+        self.assertFalse(has_impact_vector(Concern("low", "r", "b")))
+
+    def test_unspecified_effort_renders_the_question_token(self):
+        plain = self._plain(improves=(("goal", "high"),), worsens=(), effort="")
+        self.assertIn("E:?", plain)
+
+    def test_the_question_mark_marks_only_an_unspecified_magnitude(self):
+        known = self._plain(improves=(("goal", "high"),), worsens=(), effort="low")
+        self.assertNotIn("goal?", known)
+        unknown = self._plain(improves=(("goal", ""),), worsens=(), effort="low")
+        self.assertIn("goal?", unknown)
+
+    def test_a_worsen_only_concern_derives_low_and_flags_the_mismatch(self):
+        """`derive_priority(None)` is `low`, so a `high` marker disagrees.
+
+        The badge shows the derived value and the disagreement is flagged — never
+        silently reconciled, which is the consumer-side rule `concern-format.md`
+        states.
+        """
+        row = _ConcernRow(Concern(
+            "high", "r", "b", worsens=(("simplicity", "high"),), effort="low",
+        ))
+        seg = row._prefix_seg()
+        self.assertEqual(seg.plain, "□  LOW≠ ")
+
+    def test_a_legacy_concern_keeps_its_marker_priority_untouched(self):
+        row = _ConcernRow(Concern("high", "r", "b"))
+        self.assertEqual(row._prefix_seg().plain, "□  HIGH ")
+
+
+class ConcernRegionCellWidthTests(unittest.TestCase):
+    """Region truncation is measured in CELLS, not characters (t1636_4).
+
+    The marker grammar is ``[^\\]]*``, so a region is free text and wide
+    characters are parser-valid. ``插件配置模块.py:12`` is 12 characters and **18
+    cells**: under the old ``len()`` check it passed the budget unellipsized,
+    overflowed line 1 and folded the body away at screens 30 and 24 — the t1274
+    failure, on input the producer is entitled to emit.
+
+    Every case is paired with an ASCII control of the same ``len()``. The control
+    passed before this fix and the wide-character case did not, which is what
+    proves these fixtures measure cells rather than characters.
+    """
+
+    WIDE = "插件配置模块.py:12"      # len 12, 18 cells
+    ASCII = "authoring-con"          # len 13, 13 cells
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _flat(self, width, region, narrow=True):
+        app = _Host([Concern("high", region, "BODYMARKER the body.")], narrow=narrow)
+        async with app.run_test(size=(width, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            return _flat_text(_screen_rows(app))
+
+    def test_the_measurement_itself_disagrees_with_len(self):
+        """The premise, stated — otherwise the fixtures below prove nothing."""
+        self.assertEqual(len(self.WIDE), 12)
+        self.assertEqual(cell_len(self.WIDE), 18)
+
+    def test_a_wide_region_keeps_the_body_at_every_supported_width(self):
+        for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                flat = self._run(self._flat(width, self.WIDE))
+                self.assertIn("BODYMARKER", flat)
+                self.assertIn("插件", flat)
+
+    def test_the_ascii_control_behaves_the_same(self):
+        for width in ConcernPickerNarrowLayoutTests.SUPPORTED_WIDTHS:
+            with self.subTest(width=width):
+                flat = self._run(self._flat(width, self.ASCII))
+                self.assertIn("BODYMARKER", flat)
+                self.assertIn("authoring", flat)
+
+    def test_a_wide_region_survives_the_responsive_one_line_path(self):
+        flat = self._run(self._flat(100, self.WIDE, narrow=False))
+        self.assertIn("插件", flat)
+        self.assertIn("BODYMARKER", flat)
+
+    def test_truncation_never_splits_a_wide_glyph(self):
+        """`set_cell_size` cuts on a cell boundary, so the result fits exactly."""
+        row = _ConcernRow(Concern("low", self.WIDE, "b"))
+        for budget in range(4, 20):
+            with self.subTest(budget=budget):
+                self.assertLessEqual(cell_len(row._region_seg(budget).plain), budget)
+
+
+
+def _vector_concerns():
+    """Three vector-bearing concerns — every row is the taller three-line form."""
+    return [
+        Concern("high", "x.py:12", "AAA a blocking one.", "blocking", "CONFIRMED",
+                improves=(("correctness", "high"),),
+                worsens=(("simplicity", "low"),), effort="low"),
+        Concern("low", "accepted risk", "BBB an informational one.",
+                "informational", "CONFIRMED",
+                improves=(("maintainability", "low"),), worsens=(), effort="low"),
+        Concern("medium", "y.py:34", "CCC a follow-up one.", "follow-up", "PLAUSIBLE",
+                improves=(("verification", "medium"),),
+                worsens=(("simplicity", "medium"),), effort="medium"),
+    ]
+
+
+class ConcernGuidanceContractTests(unittest.TestCase):
+    """The help line's key names outrank the decision guidance (t1636_4).
+
+    The precedence is one-directional and absolute: once the OK/Cancel buttons
+    are dropped the help line is the ONLY place `r` / `t` / `R` / `u` / Esc are
+    named, whereas the guidance restates a rubric the per-row vector already
+    encodes.
+
+    **Why this is pinned per geometry rather than as one blanket "no worse".**
+    At 40x20 the keys are already evicted before this task touches anything —
+    `_CONCERN_HELP_FULL` wraps to six rows at 40 columns because the compact swap
+    is keyed at <=30 — so that geometry *cannot* detect a regression. At 40x24
+    the baseline does show them, and four extra rows of chrome removes all three.
+    Only the second geometry can hold the contract, so it is asserted there and
+    the first gets a weaker, honest guard.
+    """
+
+    #: Named on the help line and nowhere else once the buttons are gone. The
+    #: wording differs by tier — `_CONCERN_HELP_COMPACT` applies only at or below
+    #: `_PICKER_NARROW_MIN_WIDTH` (30), so 40 columns renders the FULL line. A
+    #: single token set would silently test the wrong string at one of the two
+    #: geometries this contract cares about.
+    KEY_TOKENS_FULL = ("esc", "reject", "spin off", "rejected list", "unparsed")
+    KEY_TOKENS_COMPACT = ("esc", "r rej", "t spin", "R list", "u raw")
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    async def _at(self, width, height, concerns=None, narrow=True):
+        app = _Host(concerns or _vector_concerns(), narrow=narrow)
+        async with app.run_test(size=(width, height)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            guidance = list(app.screen.query("#concern-guidance"))
+            visible = bool(guidance) and guidance[0].display
+            return (_flat_text(_screen_rows(app)),
+                    visible,
+                    app.screen.has_class("xnarrow"))
+
+    def _keys_visible(self, flat, xnarrow):
+        tokens = self.KEY_TOKENS_COMPACT if xnarrow else self.KEY_TOKENS_FULL
+        lowered = flat.lower()
+        return all(token.lower() in lowered for token in tokens)
+
+    def test_baseline_shows_the_keys_at_40x24(self):
+        """The premise this contract rests on — measured, not assumed."""
+        flat, _, xn = self._run(self._at(40, 24, concerns=_mixed_concerns()))
+        self.assertTrue(self._keys_visible(flat, xn))
+
+    def test_keys_survive_at_40x24_with_vector_rows(self):
+        flat, guidance, xn = self._run(self._at(40, 24))
+        self.assertTrue(
+            self._keys_visible(flat, xn),
+            "three-line vector rows evicted the help line's key names",
+        )
+        self.assertFalse(guidance, "guidance must yield to the keys at 40 columns")
+
+    def test_keys_survive_at_40x30_with_vector_rows(self):
+        flat, guidance, xn = self._run(self._at(40, 30))
+        self.assertTrue(self._keys_visible(flat, xn))
+        self.assertFalse(guidance)
+
+    def test_40x20_is_no_worse_than_its_baseline(self):
+        """The keys are already gone here before this task — so guard the rest.
+
+        Claiming the contract at this geometry would be false; claiming nothing
+        would miss a real regression. What is actually assertable is that the
+        vector row still renders and the guidance stays out of the way.
+        """
+        base_flat, _, xn = self._run(self._at(40, 20, concerns=_mixed_concerns()))
+        self.assertFalse(self._keys_visible(base_flat, xn))  # pre-existing, not ours
+        flat, guidance, _ = self._run(self._at(40, 20))
+        self.assertFalse(guidance)
+        self.assertIn("AAA", flat)
+        self.assertIn("corr", flat)          # the profile core still reaches the screen
+        self.assertIn("E:lo", flat)
+
+    def test_guidance_appears_where_there_is_genuinely_room(self):
+        flat, guidance, xn = self._run(self._at(100, 30, narrow=False))
+        self.assertTrue(guidance)
+        self.assertIn("fwd:", flat)
+        self.assertIn("rej:", flat)
+        self.assertTrue(self._keys_visible(flat, xn))
+
+    def test_a_legacy_block_composes_no_guidance_at_all(self):
+        _, guidance, _ = self._run(self._at(100, 30, concerns=_mixed_concerns(),
+                                            narrow=False))
+        self.assertFalse(guidance)
+
+    def test_negative_control_forcing_guidance_on_breaks_40x24(self):
+        """One mutation: show the guidance unconditionally.
+
+        Without this, `test_keys_survive_at_40x24_with_vector_rows` could be
+        passing because the gate happens to hide guidance for an unrelated
+        reason rather than because the precedence rule works.
+        """
+        with unittest.mock.patch.object(
+            monitor_shared, "_GUIDANCE_MIN_WIDTH", 0
+        ), unittest.mock.patch.object(
+            monitor_shared, "_GUIDANCE_MIN_HEIGHT", 0
+        ):
+            flat, guidance, xn = self._run(self._at(40, 24))
+        self.assertTrue(guidance, "the mutation did not land")
+        self.assertFalse(
+            self._keys_visible(flat, xn),
+            "forcing the guidance on did NOT cost the keys - the contract test "
+            "at 40x24 is not discriminating",
+        )
+
+
+class ConcernOneLineBoundaryTests(unittest.TestCase):
+    """The measured prefix decides the layout, at the exact boundary (t1636_4).
+
+    A `narrow=False` row with a priority mismatch renders a **9**-cell prefix
+    (`□  HIGH≠ `) where the legacy constant reserves 8. At a width where one
+    extra cell decides the layout, budgeting the constant admits a one-line row
+    that renders wider than it measured — and Rich folds the overflowing segment
+    whole rather than truncating it.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    #: Marker `low` while `Improves: correctness(high)` derives `high` — so the
+    #: badge reads HIGH and carries the mismatch marker.
+    MISMATCH = Concern("low", "authoring-conv.md:103", "BODYMARKER the body.",
+                       improves=(("correctness", "high"),),
+                       worsens=(("simplicity", "low"),), effort="low")
+    CONTROL = Concern("high", "authoring-conv.md:103", "BODYMARKER the body.",
+                      improves=(("correctness", "high"),),
+                      worsens=(("simplicity", "low"),), effort="low")
+
+    async def _at(self, width, concern):
+        app = _Host([concern], narrow=False)
+        async with app.run_test(size=(width, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            return _flat_text(_screen_rows(app))
+
+    def test_the_two_fixtures_differ_only_by_one_prefix_cell(self):
+        """The discriminating fact, pinned before it is relied on."""
+        self.assertEqual(_ConcernRow(self.MISMATCH)._prefix_seg().cells, 9)
+        self.assertEqual(_ConcernRow(self.CONTROL)._prefix_seg().cells, 8)
+
+    def test_region_profile_core_and_body_all_survive_a_mismatched_row(self):
+        for width in (100, 120):
+            with self.subTest(width=width):
+                flat = self._run(self._at(width, self.MISMATCH))
+                self.assertIn("authoring-conv", flat)
+                self.assertIn("corr", flat)
+                self.assertIn("simpl", flat)
+                self.assertIn("E:lo", flat)
+                self.assertIn("BODYMARKER", flat)
+
+    def test_the_control_survives_at_the_same_widths(self):
+        for width in (100, 120):
+            with self.subTest(width=width):
+                flat = self._run(self._at(width, self.CONTROL))
+                self.assertIn("authoring-conv", flat)
+                self.assertIn("E:lo", flat)
+                self.assertIn("BODYMARKER", flat)
+
+    def test_the_mismatch_marker_reaches_the_screen(self):
+        flat = self._run(self._at(120, self.MISMATCH))
+        self.assertIn("≠", flat)
+        self.assertIn("HIGH", flat)
+
 
 if __name__ == "__main__":
     unittest.main()

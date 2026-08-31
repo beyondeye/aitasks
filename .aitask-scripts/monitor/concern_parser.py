@@ -353,6 +353,27 @@ def needs_addressing(concern: Concern) -> bool:
     return concern.disposition != "informational"
 
 
+def has_impact_vector(concern: Concern) -> bool:
+    """True when the concern priced itself on **any** axis (t1636_4).
+
+    The single home of "this concern carries an impact vector", so display
+    surfaces never re-derive it — the same role :func:`needs_addressing` plays
+    for the actionable/not rule.
+
+    Deliberately a three-way OR rather than a check on ``improves`` alone: a
+    trailer that priced only the cost (``Worsens: simplicity(low).``) or only
+    the effort is still a priced concern, and rendering it as a legacy row would
+    silently discard exactly the anti-overengineering signal t1636 exists to
+    add. Note ``worsens=()`` — ``Worsens: nothing.`` — is truthy *as a state*
+    though falsy as a value, which is why the test is ``is not None``.
+    """
+    return (
+        concern.improves is not None
+        or concern.worsens is not None
+        or bool(concern.effort)
+    )
+
+
 def _norm_priority(raw: str) -> str:
     p = raw.strip().lower()
     return p if p in _VALID else "low"

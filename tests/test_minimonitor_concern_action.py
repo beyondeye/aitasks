@@ -64,6 +64,19 @@ _CLOSED_BLOCK = (
     "- [medium | parser] Multi-block accumulation is undefined.\n"
     "===END-CONCERNS===\n"
 )
+# A vector-bearing block (t1636_4): the impact trailer the four producers now
+# emit. The minimonitor is the narrow companion-pane caller, so this is what
+# actually reaches the picker in the surface the trade profile was built for.
+_VECTOR_BLOCK = (
+    "===AITASK-CONCERNS===\n"
+    "- [high | monitor_shared.py:2797] The row folds the body away at narrow "
+    "widths. Improves: correctness(high), verification(medium). "
+    "Worsens: simplicity(low). Effort: medium. Disposition: blocking.\n"
+    "- [low | concern_dimensions.py] The label bound is stated but not derived. "
+    "Improves: maintainability(low). Worsens: nothing. Effort: low. "
+    "Disposition: follow-up.\n"
+    "===END-CONCERNS===\n"
+)
 # Opening fence but no closing fence — a still-streaming block.
 _UNCLOSED_BLOCK = (
     "===AITASK-CONCERNS===\n"
@@ -403,6 +416,31 @@ class ActionPickConcernsTests(unittest.TestCase):
         modal, _ = app.spy_pushed[0]
         self.assertEqual(modal._block_meta, parse_block_meta(_ROUND2_BLOCK))
         self.assertIsNotNone(modal._block_meta)
+
+    def test_pushed_modal_carries_the_impact_vectors(self):
+        """Caller wiring (t1636_4): the vectors survive capture -> parse -> modal.
+
+        The trade profile is only worth rendering if the fields reach the modal
+        on the *minimonitor* path, which is the narrow companion pane the whole
+        layout ladder exists for. Parser and modal tests both stay green if this
+        caller drops them, so this inspects the pushed instance.
+        """
+        app = _mk_app(_FakeMon(async_list="%5\t%1"))
+        app._find_own_agent_snapshot = lambda: _snap("%1")
+        _stub_capture(self, _async_return(_VECTOR_BLOCK))
+        asyncio.run(app.action_pick_concerns())
+
+        modal, _ = app.spy_pushed[0]
+        self.assertTrue(modal._narrow)  # the companion-pane surface
+        first, second = modal._concerns
+        self.assertEqual(first.improves,
+                         (("correctness", "high"), ("verification", "medium")))
+        self.assertEqual(first.worsens, (("simplicity", "low"),))
+        self.assertEqual(first.effort, "medium")
+        # `Worsens: nothing.` is priced-empty, NOT absent — the distinction the
+        # picker renders as `▼–` rather than as no token at all.
+        self.assertEqual(second.worsens, ())
+        self.assertIsNotNone(second.worsens)
 
     def test_pushed_modal_meta_is_none_for_a_headerless_block(self):
         app = _mk_app(_FakeMon(async_list="%5\t%1"))

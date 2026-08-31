@@ -103,24 +103,42 @@ def check_label_widths(dimensions) -> None:
 
     **Where the bound comes from.** The concern picker's narrow layout
     (minimonitor's companion pane) renders a vector-bearing row's trade profile
-    on its own line, indented to line up with the body. Two constants in
-    ``monitor_shared.py`` fix the space available:
+    on its own line, indented to line up with the body.
 
-    * ``_NARROW_PREFIX_COLS = 8`` — the columns line 1 spends before the region;
-    * ``_ConcernRow.render`` emits the narrow continuation line as
-      ``"\\n   {body}"`` — a **3-space** indent.
+    **The budget is the ROW's width, not the screen's** — the row sits inside the
+    dialog border, the dialog padding and its own padding, so the two are not the
+    same number. This is where the original derivation went wrong (t1636_4): it
+    read "24 columns" as the row width and computed ``24 - 3 = 21`` cells at the
+    narrowest supported pane. Measured through ``App.run_test``:
 
-    At the narrowest supported pane (24 columns, ``concern_parser``'s
-    ``_SENTINEL_SAFE_COLS``) the profile line therefore has ``24 - 3 = 21``
-    cells, and its mandatory core is one improve token, one worsen token and the
-    effort scalar — ``▲label? ▼label? E:hi``::
+    ====== ========= ==========================
+    screen row width cells after the 3-space indent
+    ====== ========= ==========================
+    40     28        25
+    30     24        21
+    24     18        15
+    ====== ========= ==========================
+
+    So 21 cells is really screen **30**; the true floor (24 columns,
+    ``concern_parser``'s ``_SENTINEL_SAFE_COLS``) leaves **15** indented, or
+    **18** with the indent dropped. The mandatory core is one improve token, one
+    worsen token and the effort scalar::
 
         2 * (1 + W + 1)  arrow + label + optional unspecified '?'
       +  2               the two separating spaces
       +  4               the effort token ('E:hi')
-      <= 21          =>  W <= 5
+      = 20 cells at W = 5
 
-    If that geometry ever changes, this is the constant to re-derive.
+    20 does not fit 15, and not even 18. ``W <= 5`` therefore holds **only via
+    the degradation ladder** in ``monitor_shared.trade_profile``, whose last two
+    rungs drop the indent and then the ``?`` markers, giving
+    ``▲maint ▼simpl E:hi`` = ``2 * (1 + W) + 2 + 4 = 18`` — an exact fit at the
+    floor, and where ``W <= 5`` actually comes from.
+
+    If that geometry ever changes, this is the constant to re-derive — and
+    ``ConcernRowVectorPackingTests.test_row_geometry_is_pinned_at_every_supported_width``
+    is what makes the change fail loudly instead of silently clipping the effort
+    scalar off the end of the line.
 
     **Two properties, not one.** ``len()`` counts *characters* while the bound is
     stated in *cells*, so the labels are also pinned as ASCII — that is what
