@@ -142,6 +142,17 @@ TASKEOF
     echo "$tmpdir"
 }
 
+# Portable ANSI strip. Single definition, shared by the real call site and its
+# portability control below, so the two cannot drift.
+#
+# NOTE: $'\033[' — NOT 's/\x1b\[...' . GNU sed understands \x1b, but BSD sed
+# (macOS) does not: it matches a literal `x`, `1`, `b`, so that form silently
+# no-ops and the colour wrapper survives with no error at all. The $'...'
+# quoting makes BASH emit the literal ESC byte, so sed never has to interpret
+# an escape and the expression behaves identically on both.
+# See aidocs/framework/sed_macos_issues.md.
+strip_ansi() { sed $'s/\033\[[0-9;]*m//g'; }
+
 # Install a `git` shim that passes everything through EXCEPT `add`, and only
 # while a rebase is in progress in the data worktree. That scoping is required:
 # `ait sync` runs `git add` during its auto-commit step BEFORE the pull, and a
@@ -331,7 +342,19 @@ TMP5b="$(setup_branch_mode_repos)"
 
 # EDITOR=true makes the interactive resolution loop a no-op we can observe.
 int_out=$(cd "$TMP5b/local" && EDITOR=true ./ait sync 2>/dev/null || true)
-int_clean=$(printf '%s' "$int_out" | sed 's/\x1b\[[0-9;]*m//g')
+int_clean=$(printf '%s' "$int_out" | strip_ansi)
+
+# Portability control for strip_ansi, deliberately INDEPENDENT of whether
+# `ait sync` colours its output: asserting that $int_out carries a wrapper would
+# couple this conflict-resolution test to presentation policy. With the
+# non-portable \x1b form this synthetic probe comes back untouched on BSD sed,
+# so this assertion is what actually pins the platform behaviour.
+assert_eq "strip_ansi removes ESC sequences (BSD/GNU portability control)" \
+    "Editing: x" "$(printf '%s' $'\033[0;34mEditing: x\033[0m' | strip_ansi)"
+# Cheap integration sanity check on the real output. Vacuous if the output is
+# ever uncoloured — harmless, because the probe above carries the guard duty.
+assert_eq "No ESC survives into int_clean" \
+    "0" "$(printf '%s' "$int_clean" | grep -c $'\033' || true)"
 
 assert_eq "No 'Auto-merged' progress prose reaches stdout" \
     "0" "$(printf '%s' "$int_clean" | grep -c 'Auto-merged' || true)"

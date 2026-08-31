@@ -200,6 +200,20 @@ grep -rnE "sed '[^']*\\\\[?+|]" .aitask-scripts --include='*.sh' | grep -vE 'sed
 grep -rnE "match\([^,]+,[^,]+,[^)]+\)" .aitask-scripts --include='*.sh'
 ```
 
+**The `\xNN` class is enforced, not swept.** That family recurred twice despite
+this instruction (t1641, t1646 — each caught only because someone remembered to
+sweep), so it now has a guard test instead of a grep you have to run:
+
+```bash
+bash tests/test_no_sed_hex_escape.sh
+```
+
+It scans every tracked `*.sh` for a `sed`/`awk`/`tr` expression carrying a `\xNN`
+escape, suppressing pure comments and — segment-scoped, not line-scoped — any
+`\xNN` inside bash `$'…'` quoting, where bash expands it and it is correct. Add
+new sites to nothing: just use the `$'…'` form. The remaining classes above are
+still manual sweeps.
+
 ## The `portable_date()` Helper
 
 macOS BSD `date` does not support `date -d` (GNU coreutils). The `ait setup` script installs `coreutils` via brew (which provides `gdate`). Use the `portable_date()` wrapper from `terminal_compat.sh`:
