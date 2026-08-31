@@ -348,3 +348,80 @@ them `verifies`) confirms a non-sequencing type is listed rather than counted.
 
 Standard: commit, merge to `main` (current-branch mode under profile `fast`),
 archive `t1644` and its plan.
+
+## Final Implementation Notes
+
+- **Actual work done:** Rewrote `## Run summary print` in
+  `.claude/skills/aitask-trail/SKILL.md.j2` into three parts (core / structural
+  recap / board pointer), updated the three call sites (1.4, 2e.5, 3.7), added a
+  `## Notes` bullet recording the pointer↔BINDINGS coupling, extended
+  `tests/test_trail_skill_contract.sh` block (s) with 57 new per-profile
+  assertions, regenerated all three goldens, added the
+  `RunSummaryBoardPointerTests` drift guard to
+  `tests/test_board_bytrail_view.py`, and made the four docs edits.
+
+- **Deviations from plan:** Part B was rescoped mid-plan and re-verified after
+  `t1210_6` landed (commit `27102e76e`) — it had already created the skill page,
+  the `_index.md` row, the `codeagent.md` `trail` row and the workflow page, so
+  three of the four originally planned Part B items were dropped as done and two
+  new ones were added (describing the enriched summary on both landed pages).
+  The `trail_workflow_page_footer` "after" mitigation was dropped for the same
+  reason: the workflow page it was waiting on now exists and is already linked.
+
+- **Issues encountered:**
+  - The first golden regeneration used `aitask_skill_render.sh` output, which is
+    not byte-identical to what `test_skill_render_aitask_trail.sh` compares
+    against (that test renders via `lib/skill_template.py` to stdout). Three
+    golden diffs failed until the goldens were regenerated with the test's own
+    renderer. **The renderer that writes a golden must be the renderer the test
+    reads it with.**
+  - The `Relations: none recorded at this depth (lite trails omit them).`
+    literal initially wrapped across two lines in the template, so its contract
+    pin matched nothing. Reflowed the bullet so the whole literal sits on one
+    rendered line — a wrapped pin guards nothing.
+  - The board-pointer guard failed on its first run against `view_details`:
+    Textual's key name is `enter` but user-facing prose capitalises it. Resolved
+    by comparing single-character keys case-sensitively (this board binds `s`
+    and `S` to *different* actions, so folding case there would let the pointer
+    name the wrong one) and named keys case-insensitively.
+  - The full Python suite reports 2 failures in
+    `tests/test_board_dialog_run_dispatch.py::ResumeBranchTests`. These are
+    **not** from this task: another concurrent session has ~289 uncommitted
+    lines in `.aitask-scripts/board/aitask_board.py`, and its diff is squarely
+    about `resume_point` / gate-resume — exactly what those tests cover. This
+    task touched no board source. Commit was made with `git commit -o --` over
+    an explicit path list so that session's work was left untouched.
+
+- **Key decisions:**
+  - **All five relation types get endpoint groups, not just the sequencing
+    pair.** Measured on `art:trail-gates-framework-landing` (56 relations):
+    listing only `hard_depends`/`advisory_precedes` would have reduced 28 of 56
+    edges — including every `verifies` edge, which is how a manual-verification
+    task's coverage is recorded — to a bare count. Full listing costs 30 lines
+    on that worst case versus 21, so compactness survives.
+  - **Groups are keyed on `(type, provenance)`, not type alone.** Provenance is
+    schema-required but only pinned by the authoring rules for two of the five
+    types; the same document holds `informs` 16 fact / 1 advisory and `verifies`
+    4 fact / 1 advisory. Type alone therefore cannot be used to infer it, and an
+    unlabelled pair lets a reader take the trail's own recommendation for a
+    recorded constraint. Cost: one extra line on the worst case.
+  - **Refs print verbatim.** A task ref is an identity key (`<project>#<id>`);
+    shortening it would collide a cross-repo member with a local one.
+  - **The board pointer is its own part, printed by `--show` too.** Only the
+    structural recap is create/refresh-only. Folding the pointer into the recap
+    would leave the show user — the one reading a stored trail — never told the
+    board renders it.
+  - **No profile check for headless.** Create and refresh stop before their
+    write in a headless session, so neither reaches the recap by construction.
+  - **The recap carries no classification glyphs.** That vocabulary is owned by
+    `TRAIL_CLASSIFICATION_GLYPHS` in the board; restating it in skill prose
+    would be a second copy that drifts.
+  - **No Codex/OpenCode port task needed.** The rendered variants under
+    `.agents/` and `.opencode/` are not committed, the template has no
+    `{% if agent %}` gate, and Test 1b pins renders byte-identical across the
+    three agents — so the `.j2` edit reaches every agent for free.
+
+- **Upstream defects identified:** None
+
+- **Follow-ups created:** t1654 (manual verification of the enriched run summary
+  and the board pointer keys).
