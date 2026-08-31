@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini, concern_format]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,7 +17,8 @@ anchor: 1636
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5
 created_at: 2026-08-31 12:11
-updated_at: 2026-08-31 18:29
+updated_at: 2026-08-31 18:30
+completed_at: 2026-08-31 18:30
 ---
 
 ## Problem
@@ -94,3 +95,14 @@ deleting it — it is what stops the threshold becoming a magic number again.
 > **✅ gate:plan_approved** run=2026-08-31T14:50:52Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-08-31T15:28:19Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-08-31T15:30:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ffcd8d473bc7accf
+
+> **✅ gate:risk_evaluated** run=2026-08-31T15:30:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1648/risk_evaluated_2026-08-31T15:30:13Z-risk_evaluated-a1.log`
