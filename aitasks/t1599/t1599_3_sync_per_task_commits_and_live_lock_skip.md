@@ -280,3 +280,8 @@ inside a `( … )` subshell, opt into the file-backed counters
 Also run `shellcheck .aitask-scripts/aitask_sync.sh .aitask-scripts/aitask_lock.sh`
 and `bash tests/run_all_python_tests.sh --test-dir tests` for the
 `sync_action_runner` Python tests.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T14:32:37Z status=pass attempt=1 type=human
