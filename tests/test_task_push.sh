@@ -891,6 +891,444 @@ assert_contains "the consequence is named" "LOCK_FAILED for a task nobody is wor
 rm -f "$TEST_REMOTE/hooks/pre-receive"
 popd > /dev/null || exit 1
 
+# =====================================================================
+# task_data_converge — state matrix (t1658_1)
+#
+# The seam is `fetch` + `merge --ff-only`, chosen over `pull --rebase`
+# because the rebase refuses (exit 128) BEFORE it fetches whenever the
+# shared data worktree is dirty. Each behind-state test below carries the
+# negative control that pins that difference.
+# =====================================================================
+
+# Stderr sink for converge calls. task_data_converge reports through GLOBALS,
+# so it must never be wrapped in $( ) — a subshell discards the verdict, which
+# is the exact defect this feature removes. Redirect stderr to a file instead.
+converge_err_file="$(mktemp "${TMPDIR:-/tmp}/ait_converge_err_XXXXXX")"
+CLEANUP_DIRS+=("$converge_err_file")
+
+# Seed a dirty (unstaged, uncommitted) file in the data worktree.
+seed_dirty_file() {
+    local dir="$1" name="$2" content="$3"
+    echo "$content" > "$dir/$name"
+    git -C "$dir" add "$name"
+    git -C "$dir" commit -m "seed $name" --quiet
+    git -C "$dir" push --quiet 2>/dev/null
+    printf 'LOCAL EDIT\n' >> "$dir/$name"
+}
+
+# --- Test 26: converge clean + behind -> fast-forwarded (legacy mode) ---
+echo "--- Test 26: converge clean + behind -> fast-forwarded (legacy) ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+advance_remote "remote_only.txt"
+remote_sha=$(git ls-remote "$TEST_REMOTE" HEAD | awk '{print $1}')
+
+task_data_converge "test"
+conv_rc=$?
+
+assert_success "task_data_converge returns 0" "$conv_rc"
+assert_eq "clean+behind is fast-forwarded" "fast-forwarded" "$TASK_CONVERGE_STATUS"
+assert_eq_trim "behind is 0 after the ff" "0" "$TASK_CONVERGE_BEHIND"
+git merge-base --is-ancestor "$remote_sha" HEAD 2>/dev/null
+assert_success "the remote commit is an ancestor of local HEAD" "$?"
+
+popd > /dev/null || exit 1
+
+# --- Test 27: converge clean + behind -> fast-forwarded (branch mode) ---
+echo "--- Test 27: converge clean + behind -> fast-forwarded (branch mode) ---"
+
+setup_remote_and_clone
+setup_branch_mode
+pushd "$TEST_MAIN_DIR" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE=".aitask-data"
+
+advance_remote "remote_only.txt"
+remote_sha=$(git ls-remote "$TEST_REMOTE" HEAD | awk '{print $1}')
+
+task_data_converge "test"
+
+assert_eq "clean+behind is fast-forwarded (branch mode)" "fast-forwarded" "$TASK_CONVERGE_STATUS"
+git -C .aitask-data merge-base --is-ancestor "$remote_sha" HEAD 2>/dev/null
+assert_success "remote commit is an ancestor of local HEAD (branch mode)" "$?"
+
+popd > /dev/null || exit 1
+
+# --- Test 28: converge dirty NON-overlapping + behind -> still fast-forwarded ---
+echo "--- Test 28: converge dirty non-overlapping + behind -> fast-forwarded ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_dirty_file "$TEST_LOCAL" "mine.txt" "mine"
+dirty_before="$(cat mine.txt)"
+advance_remote "theirs.txt"
+
+# NEGATIVE CONTROL, in this exact fixture state: the seam the old code used
+# refuses outright, which is the whole reason for the replacement.
+rebase_out="$(git pull --rebase --quiet 2>&1)"
+rebase_rc=$?
+assert_eq "control: pull --rebase exits 128 while dirty" "128" "$rebase_rc"
+assert_contains "control: git names the unstaged changes" "unstaged changes" "$rebase_out"
+
+task_data_converge "test"
+
+assert_eq "dirty non-overlapping + behind is fast-forwarded" "fast-forwarded" "$TASK_CONVERGE_STATUS"
+assert_eq "the dirty file survives the merge byte-for-byte" "$dirty_before" "$(cat mine.txt)"
+
+popd > /dev/null || exit 1
+
+# --- Test 29: converge dirty OVERLAPPING + behind -> blocked / ff_blocked ---
+echo "--- Test 29: converge dirty overlapping + behind -> blocked/ff_blocked ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+seed_dirty_file "$TEST_LOCAL" "shared.txt" "shared"
+dirty_before="$(cat shared.txt)"
+head_before="$(git rev-parse HEAD)"
+
+# Advance the remote on the SAME file the worktree is dirty on.
+other_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_overlap_XXXXXX")"
+CLEANUP_DIRS+=("$other_tmp")
+git clone --quiet "$TEST_REMOTE" "$other_tmp/other" 2>/dev/null
+git -C "$other_tmp/other" config user.email "other@test.com"
+git -C "$other_tmp/other" config user.name "Other"
+echo "their version" > "$other_tmp/other/shared.txt"
+git -C "$other_tmp/other" add shared.txt
+git -C "$other_tmp/other" commit -m "other edits shared.txt" --quiet
+git -C "$other_tmp/other" push --quiet 2>/dev/null
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+
+assert_eq "dirty overlapping + behind is blocked" "blocked" "$TASK_CONVERGE_STATUS"
+assert_eq "the blocked ff is reported as ff_blocked" "ff_blocked" "$TASK_CONVERGE_REASON"
+assert_contains "a warning is emitted" "not converged" "$converge_err"
+assert_contains "the hint names the real recovery" "./ait sync" "$converge_err"
+assert_eq "the local ref did not move" "$head_before" "$(git rev-parse HEAD)"
+assert_eq "the dirty file is untouched" "$dirty_before" "$(cat shared.txt)"
+
+popd > /dev/null || exit 1
+
+# --- Test 30: converge ahead only -> pushed ---
+echo "--- Test 30: converge ahead only -> pushed ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+echo "local only" > ahead.txt
+git add ahead.txt
+git commit -m "local ahead commit" --quiet
+local_sha="$(git rev-parse HEAD)"
+
+task_data_converge "test"
+
+assert_eq "ahead only is pushed" "pushed" "$TASK_CONVERGE_STATUS"
+assert_eq_trim "ahead is 0 after the push" "0" "$TASK_CONVERGE_AHEAD"
+assert_eq_trim "the remote now has the commit" "$local_sha" \
+    "$(git -C "$TEST_REMOTE" rev-parse HEAD)"
+
+popd > /dev/null || exit 1
+
+# --- Test 31: converge ahead AND behind -> diverged / local_diverged ---
+echo "--- Test 31: converge ahead and behind -> diverged/local_diverged ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+echo "local only" > mine.txt
+git add mine.txt
+git commit -m "local ahead commit" --quiet
+head_before="$(git rev-parse HEAD)"
+advance_remote "theirs.txt"
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+
+assert_eq "ahead+behind is diverged" "diverged" "$TASK_CONVERGE_STATUS"
+assert_eq "the reason comes from the counts" "local_diverged" "$TASK_CONVERGE_REASON"
+assert_contains "a warning is emitted" "not converged" "$converge_err"
+assert_eq "no ref moved" "$head_before" "$(git rev-parse HEAD)"
+
+popd > /dev/null || exit 1
+
+# --- Test 32: converge with no upstream -> failed / no_upstream ---
+echo "--- Test 32: converge no upstream -> failed/no_upstream ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+git branch --unset-upstream 2>/dev/null
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+
+assert_eq "no upstream is failed" "failed" "$TASK_CONVERGE_STATUS"
+assert_eq "no upstream reason" "no_upstream" "$TASK_CONVERGE_REASON"
+assert_contains "a warning is emitted" "not converged" "$converge_err"
+# Both probes print nothing without an upstream. The warning must say the
+# counts are UNAVAILABLE, not claim a concrete "0 local unpushed, 0 remote
+# unpulled" — that would be a false report on the state.
+assert_contains "the warning says the counts are unavailable" \
+    "commit counts unavailable" "$converge_err"
+assert_not_contains "and does not claim a concrete zero count" \
+    "0 local unpushed" "$converge_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 33: converge with no remote -> no-remote, silent ---
+echo "--- Test 33: converge no remote -> no-remote, silent ---"
+
+no_remote_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_noremote_XXXXXX")"
+CLEANUP_DIRS+=("$no_remote_tmp")
+git init --quiet "$no_remote_tmp/solo"
+git -C "$no_remote_tmp/solo" config user.email "test@test.com"
+git -C "$no_remote_tmp/solo" config user.name "Test"
+echo init > "$no_remote_tmp/solo/init.txt"
+git -C "$no_remote_tmp/solo" add init.txt
+git -C "$no_remote_tmp/solo" commit -m init --quiet
+
+pushd "$no_remote_tmp/solo" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+
+assert_eq "no remote is no-remote" "no-remote" "$TASK_CONVERGE_STATUS"
+assert_eq "no remote is silent" "" "$converge_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 34: converge success paths are silent ---
+echo "--- Test 34: converge success paths are silent ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+assert_eq "already-converged is converged" "converged" "$TASK_CONVERGE_STATUS"
+assert_eq "already-converged is silent" "" "$converge_err"
+
+advance_remote "quiet.txt"
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+assert_eq "fast-forward is silent" "" "$converge_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 35: converge loses the push race -> diverged, not failed ---
+echo "--- Test 35: converge loses the push race -> diverged/local_diverged ---"
+
+# The ahead-only arm fetches, sees ahead=1/behind=0, then pushes. If another
+# writer advances origin in between, git rejects non-fast-forward and the
+# classifier says "diverged" — but the TRUE state is ahead-and-behind. Without
+# the pass-2 rule this returns failed; the assertion below is what pins it.
+#
+# The race is injected deterministically through a pre-push hook on the bare
+# remote: the hook advances origin from a second clone on the FIRST push only,
+# so no sleeping and no wall-clock dependency.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+echo "local only" > mine.txt
+git add mine.txt
+git commit -m "local ahead commit" --quiet
+head_before="$(git rev-parse HEAD)"
+
+race_helper="$TEST_TMPDIR/race_advance.sh"
+cat > "$race_helper" <<RACEEOF
+#!/usr/bin/env bash
+# Advance origin once, from a clone, to simulate a competing writer landing
+# between our fetch and our push.
+flag="$TEST_TMPDIR/race_fired"
+[ -f "\$flag" ] && exit 0
+touch "\$flag"
+tmp="\$(mktemp -d)"
+git clone --quiet "$TEST_REMOTE" "\$tmp/other" >/dev/null 2>&1
+git -C "\$tmp/other" config user.email other@test.com
+git -C "\$tmp/other" config user.name Other
+echo racer > "\$tmp/other/racer.txt"
+git -C "\$tmp/other" add racer.txt
+git -C "\$tmp/other" commit -m "competing writer" --quiet
+git -C "\$tmp/other" push --quiet origin HEAD:master >/dev/null 2>&1 \
+  || git -C "\$tmp/other" push --quiet origin HEAD:main >/dev/null 2>&1
+rm -rf "\$tmp"
+RACEEOF
+chmod +x "$race_helper"
+
+# Wrap _task_push_once so the competing push lands immediately before ours.
+eval "$(declare -f _task_push_once | sed '1s/^_task_push_once/_task_push_once_orig/')"
+_task_push_once() {
+    "$race_helper"
+    _task_push_once_orig
+}
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+
+assert_eq "a lost push race is diverged, not failed" "diverged" "$TASK_CONVERGE_STATUS"
+assert_eq "a lost push race reports local_diverged" "local_diverged" "$TASK_CONVERGE_REASON"
+assert_eq_trim "the ahead count is real" "1" "$TASK_CONVERGE_AHEAD"
+assert_eq_trim "the behind count is real" "1" "$TASK_CONVERGE_BEHIND"
+assert_contains "a warning is emitted" "not converged" "$converge_err"
+assert_eq "no local ref moved" "$head_before" "$(git rev-parse HEAD)"
+
+unset -f _task_push_once
+eval "$(declare -f _task_push_once_orig | sed '1s/^_task_push_once_orig/_task_push_once/')"
+unset -f _task_push_once_orig
+
+popd > /dev/null || exit 1
+
+# --- Test 36: a NON-race push failure still terminates as failed ---
+echo "--- Test 36: non-race push failure terminates failed (negative control) ---"
+
+# Negative control for Test 35: if the pass rule retried on ANY push failure,
+# this would loop and misreport too. Only a non-fast-forward rejection may
+# consume pass 2.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+echo "local only" > mine.txt
+git add mine.txt
+git commit -m "local ahead commit" --quiet
+
+# A push that fails for a reason that is NOT a race: the remote is gone.
+git remote set-url origin "$TEST_TMPDIR/definitely_not_a_repo"
+
+task_data_converge "test" 2>"$converge_err_file"
+converge_err="$(cat "$converge_err_file")"
+
+assert_eq "an unreachable remote is failed, not diverged" "failed" "$TASK_CONVERGE_STATUS"
+assert_not_contains "and it is not classified as a race" "local_diverged" "$TASK_CONVERGE_REASON"
+assert_contains "a warning is emitted" "not converged" "$converge_err"
+
+popd > /dev/null || exit 1
+
+# --- Test 37: the documented recovery actually converges a diverged branch ---
+echo "--- Test 37: './ait sync' recovery converges from diverged ---"
+
+# task_data_converge REPORTS diverged rather than resolving it, and hands
+# ownership to './ait sync'. That hand-off is a claim about another program, so
+# it is EXECUTED here rather than asserted in prose.
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+# aitask_sync.sh's auto_commit runs `git add aitasks/ aiplans/`, which fails
+# WHOLESALE (staging nothing) when either directory is absent. A real project
+# always has both, so seed both here or the recovery silently no-ops.
+mkdir -p aitasks aiplans
+printf 'local line\n' > aitasks/t1_local.md
+: > aiplans/.keep
+git add aitasks/t1_local.md aiplans/.keep
+git commit -m "local task" --quiet
+advance_remote "aitasks_remote.txt"
+
+task_data_converge "test"
+assert_eq "precondition: the branch is diverged" "diverged" "$TASK_CONVERGE_STATUS"
+
+# No pipeline here on purpose: `x="$(cmd | tail -n1)"` followed by
+# ${PIPESTATUS[0]} reads the ASSIGNMENT's status in this shell (always 0), so
+# the exit assertion would be vacuous. Take $? from the substitution itself,
+# then trim to the verdict line.
+sync_raw="$("$PROJECT_DIR/.aitask-scripts/aitask_sync.sh" --batch 2>/dev/null)"
+sync_rc=$?
+sync_out="$(printf '%s\n' "$sync_raw" | tail -n1)"
+
+assert_success "the recovery exits 0" "$sync_rc"
+case "$sync_out" in
+    SYNCED|AUTOMERGED|PUSHED|PULLED) recovery_ok=0 ;;
+    *) recovery_ok=1 ;;
+esac
+assert_eq "the recovery reports convergence (got: $sync_out)" "0" "$recovery_ok"
+assert_eq_trim "nothing left unpushed" "0" "$(git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+assert_eq_trim "nothing left unpulled" "0" "$(git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+# The recovery rebases, which rewrites the commit hash, so the original sha is
+# deliberately NOT the invariant — the surviving WORK is.
+assert_contains "the local work survived the recovery (no work lost)" "local line" \
+    "$(git show HEAD:aitasks/t1_local.md 2>/dev/null || true)"
+assert_file_exists "the pulled remote file is present too" "aitasks_remote.txt"
+
+popd > /dev/null || exit 1
+
+# --- Test 38: the documented recovery converges from ff_blocked ---
+echo "--- Test 38: './ait sync' recovery converges from ff_blocked ---"
+
+setup_remote_and_clone
+pushd "$TEST_LOCAL" > /dev/null || exit 1
+reload_task_utils
+_AIT_DATA_WORKTREE="."
+
+# A file both sides touch, on DIFFERENT lines: enough for merge --ff-only to
+# refuse (it is a path-level check), but cleanly 3-way mergeable on rebase.
+# aitask_sync.sh's auto_commit runs `git add aitasks/ aiplans/`, which fails
+# WHOLESALE (staging nothing) when either directory is absent. A real project
+# always has both, so seed both here or the recovery silently no-ops.
+mkdir -p aitasks aiplans
+printf 'header\nb\nc\nd\ne\nf\ng\nmine\nfooter\n' > aitasks/t2_shared.md
+: > aiplans/.keep
+git add aitasks/t2_shared.md aiplans/.keep
+git commit -m "seed shared task" --quiet
+git push --quiet 2>/dev/null
+
+other_tmp="$(mktemp -d "${TMPDIR:-/tmp}/ait_push_ffrec_XXXXXX")"
+CLEANUP_DIRS+=("$other_tmp")
+git clone --quiet "$TEST_REMOTE" "$other_tmp/other" 2>/dev/null
+git -C "$other_tmp/other" config user.email "other@test.com"
+git -C "$other_tmp/other" config user.name "Other"
+printf 'HEADER CHANGED\nb\nc\nd\ne\nf\ng\nmine\nfooter\n' > "$other_tmp/other/aitasks/t2_shared.md"
+git -C "$other_tmp/other" add aitasks/t2_shared.md
+git -C "$other_tmp/other" commit -m "other edits the header" --quiet
+git -C "$other_tmp/other" push --quiet 2>/dev/null
+
+# Dirty the same path locally, on a different line.
+printf 'header\nb\nc\nd\ne\nf\ng\nMINE CHANGED\nfooter\n' > aitasks/t2_shared.md
+
+task_data_converge "test"
+assert_eq "precondition: the fast-forward is blocked" "blocked" "$TASK_CONVERGE_STATUS"
+assert_eq "precondition: reported as ff_blocked" "ff_blocked" "$TASK_CONVERGE_REASON"
+
+sync_raw="$("$PROJECT_DIR/.aitask-scripts/aitask_sync.sh" --batch 2>/dev/null)"
+sync_rc=$?
+sync_out="$(printf '%s\n' "$sync_raw" | tail -n1)"
+assert_success "the ff_blocked recovery exits 0" "$sync_rc"
+
+case "$sync_out" in
+    SYNCED|AUTOMERGED|PUSHED|PULLED) recovery_ok=0 ;;
+    *) recovery_ok=1 ;;
+esac
+assert_eq "the recovery reports convergence (got: $sync_out)" "0" "$recovery_ok"
+assert_eq_trim "nothing left unpushed" "0" "$(git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+assert_eq_trim "nothing left unpulled" "0" "$(git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+assert_contains "the previously-dirty edit survived into a commit" "MINE CHANGED" \
+    "$(git show HEAD:aitasks/t2_shared.md 2>/dev/null || cat aitasks/t2_shared.md)"
+
+popd > /dev/null || exit 1
+
 # --- Summary ---
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed, $TOTAL total ==="

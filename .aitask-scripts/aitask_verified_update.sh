@@ -47,6 +47,17 @@ Options:
   --date YYYY-MM-DD   Override current date for month/week period calculation
   --silent            Print only the structured success result
   -h, --help          Show this help
+
+Result tokens and exit status:
+  UPDATED:<agent>:<skill>:<score>              exit 0
+      The score is recorded AND the commit reached the local data branch.
+  UPDATED_REMOTE_ONLY:<agent>:<skill>:<score>  exit 3
+      The score is recorded on origin, but the local data branch does not have
+      the commit yet (a blocked fast-forward or an already-diverged branch).
+      The value is still correct; recover with './ait sync'. This is a PARTIAL
+      result, not a failure — callers should report it and continue.
+  The local-only (no remote) path always reports UPDATED: / 0.
+  The two tokens are disjoint under a plain `grep 'UPDATED:'`.
 EOF
 }
 
@@ -276,14 +287,31 @@ main() {
     _AIT_COMMIT_PREFIX="ait: Update verified score"
 
     local new_score
+    AIT_METADATA_VALUE=""
+    AIT_METADATA_LOCAL_CONVERGED=""
+
     if has_remote_tracking; then
-        new_score="$(commit_metadata_update "$models_file" "$AGENT_STRING" "$SKILL_NAME" "$PARSED_MODEL" "$SCORE")"
+        # No command substitution: the convergence verdict is an out-param
+        # global and would not survive a subshell.
+        commit_metadata_update "$models_file" "$AGENT_STRING" "$SKILL_NAME" "$PARSED_MODEL" "$SCORE"
+        new_score="$AIT_METADATA_VALUE"
     else
         if [[ "$SILENT" == "false" ]]; then
             warn "No remote configured for task data; using local-only verified score update without concurrency protection."
         fi
+        # update_model_file is a pure jq value producer that sets no globals, so
+        # its substitution stays; commit_metadata_update_local must not clobber
+        # the value it just produced.
         new_score="$(update_model_file "$models_file" "$PARSED_MODEL" "$SKILL_NAME" "$SCORE")"
         commit_metadata_update_local "$models_file" "$AGENT_STRING" "$SKILL_NAME"
+    fi
+
+    if [[ "${AIT_METADATA_LOCAL_CONVERGED:-1}" != "1" ]]; then
+        if [[ "$SILENT" == "false" ]]; then
+            warn "Verified score for ${AGENT_STRING} ${SKILL_NAME} is ${new_score} on origin, but the local data branch does not have it yet."
+        fi
+        echo "UPDATED_REMOTE_ONLY:${AGENT_STRING}:${SKILL_NAME}:${new_score}"
+        return 3
     fi
 
     if [[ "$SILENT" == "false" ]]; then

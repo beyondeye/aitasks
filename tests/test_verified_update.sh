@@ -15,6 +15,10 @@ TOTAL=0
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
+# Shared metadata fixtures (legacy-mode remote + real branch-mode worktree).
+# shellcheck source=lib/metadata_update_fixture.sh
+. "$PROJECT_DIR/tests/lib/metadata_update_fixture.sh"
+
 setup_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
@@ -434,6 +438,305 @@ assert_eq "trail verified persisted without explain partner" "80" "$(json_get "$
 assert_eq "trail all-time runs = 1" "1" "$(json_get "$TMPDIR_20" '.models[0].verifiedstats.trail.all_time.runs')"
 assert_eq "accumulator did NOT fabricate an explain key" "false" "$(json_get "$TMPDIR_20" '.models[0].verified | has("explain")')"
 rm -rf "$TMPDIR_20"
+
+# =====================================================================
+# Local-ref invariant and the partial-result contract (t1658_1)
+#
+# The metadata commit is built in a throwaway clone and pushed straight to
+# origin, so "the update succeeded" and "the commit is on the LOCAL data
+# branch" are two different claims. Everything below asserts the second one.
+# =====================================================================
+
+echo "--- Test 21: successful remote update reaches the LOCAL branch ---"
+TMPDIR_21="$(setup_remote_repo)"
+WORK_21="$TMPDIR_21/work"
+out21=$(cd "$WORK_21" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc21=$?
+assert_eq "remote update reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out21"
+assert_eq "remote update exits 0" "0" "$rc21"
+assert_eq "nothing left unpulled — the commit is local" "0" \
+    "$(cd "$WORK_21" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+origin_sha_21="$(cd "$WORK_21" && git rev-parse '@{u}')"
+(cd "$WORK_21" && git merge-base --is-ancestor "$origin_sha_21" HEAD 2>/dev/null)
+assert_eq "the pushed commit is an ancestor of local HEAD" "0" "$?"
+rm -rf "$TMPDIR_21"
+
+echo "--- Test 22: an unrelated dirty file no longer strands the commit ---"
+# This is the reported bug: a dirty data worktree made the compensating
+# `pull --rebase` refuse before it even fetched, so the commit stayed on origin.
+TMPDIR_22="$(setup_remote_repo)"
+WORK_22="$TMPDIR_22/work"
+printf 'unrelated local edit\n' > "$WORK_22/unrelated.txt"
+out22=$(cd "$WORK_22" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc22=$?
+assert_eq "dirty-but-unrelated still reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out22"
+assert_eq "dirty-but-unrelated still exits 0" "0" "$rc22"
+assert_eq "dirty-but-unrelated: commit reached the local branch" "0" \
+    "$(cd "$WORK_22" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+assert_eq "the unrelated dirty file is untouched" "unrelated local edit" \
+    "$(cat "$WORK_22/unrelated.txt")"
+rm -rf "$TMPDIR_22"
+
+echo "--- Test 23: divergence prevention — a local unpushed commit is published first ---"
+TMPDIR_23="$(setup_remote_repo)"
+WORK_23="$TMPDIR_23/work"
+printf 'local work\n' > "$WORK_23/local_only.txt"
+(cd "$WORK_23" && git add local_only.txt && git commit -m "local unpushed" --quiet)
+out23=$(cd "$WORK_23" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc23=$?
+assert_eq "pre-converge keeps the result a full success" "UPDATED:claudecode/opus4_6:pick:80" "$out23"
+assert_eq "pre-converge keeps exit 0" "0" "$rc23"
+assert_eq "not left ahead" "0" "$(cd "$WORK_23" && git rev-list --count '@{u}..HEAD' 2>/dev/null)"
+assert_eq "not left behind" "0" "$(cd "$WORK_23" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+rm -rf "$TMPDIR_23"
+
+echo "--- Test 24: partial result — dirty metadata file yields UPDATED_REMOTE_ONLY / exit 3 ---"
+TMPDIR_24="$(setup_remote_repo)"
+WORK_24="$TMPDIR_24/work"
+# Dirty the very file the update touches: the fast-forward then fails closed,
+# so the commit is on origin but cannot reach the local branch.
+printf '\n' >> "$WORK_24/aitasks/metadata/models_claudecode.json"
+set +e
+out24=$(cd "$WORK_24" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc24=$?
+set -e
+# The exit status is captured SEPARATELY and asserted to be exactly 3 — not
+# merely non-zero, and not inferred from the stdout token: the whole point is
+# that the verdict crossed the function boundary into main().
+assert_eq "partial result exit status is exactly 3" "3" "$rc24"
+assert_eq "partial result token" "UPDATED_REMOTE_ONLY:claudecode/opus4_6:pick:80" "$out24"
+assert_eq "the value is still correct on origin" "80" \
+    "$(cd "$TMPDIR_24" && git --git-dir=origin.git show main:aitasks/metadata/models_claudecode.json | jq -r '.models[0].verified.pick')"
+# The warning must be on stderr only — stdout stays a clean machine channel.
+assert_not_contains "no warning text on stdout" "local data branch" "$out24"
+rm -rf "$TMPDIR_24"
+
+echo "--- Test 25: positive control — the same run with a clean file is UPDATED / 0 ---"
+# Paired with Test 24: the dirty overlap is the ONLY discriminator between them.
+TMPDIR_25="$(setup_remote_repo)"
+WORK_25="$TMPDIR_25/work"
+set +e
+out25=$(cd "$WORK_25" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc25=$?
+set -e
+assert_eq "control: clean file exits 0" "0" "$rc25"
+assert_eq "control: clean file reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out25"
+rm -rf "$TMPDIR_25"
+
+echo "--- Test 26: the out-param boundary itself ---"
+TMPDIR_26="$(setup_remote_repo)"
+WORK_26="$TMPDIR_26/work"
+boundary_out="$(cd "$WORK_26" && bash -c '
+set -uo pipefail
+SCRIPT_DIR="$PWD/.aitask-scripts"
+SILENT=true
+source .aitask-scripts/lib/terminal_compat.sh
+source .aitask-scripts/lib/task_utils.sh
+source .aitask-scripts/lib/verified_update_lib.sh
+update_model_file() {
+    jq -r --arg m "$2" ".models[] | select(.name==\$m) | .verified[\"$3\"]" "$1"
+}
+ensure_model_exists() { :; }
+_AIT_UPDATE_MODEL_FILE_FN=update_model_file
+_AIT_COMMIT_PREFIX="ait: Update verified score"
+
+# DIRECT call — not inside $( ). This is the shape production uses.
+AIT_METADATA_LOCAL_CONVERGED="PRECALL"
+commit_metadata_update aitasks/metadata/models_claudecode.json \
+    claudecode/opus4_6 pick opus4_6 4 >/dev/null 2>&1
+echo "direct_value=${AIT_METADATA_VALUE:-UNSET}"
+echo "direct_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
+
+# NEGATIVE CONTROL — the identical call wrapped in $( ). A subshell discards
+# the assignment, so a future refactor back to a substitution fails HERE
+# instead of silently reporting every partial update as a success.
+AIT_METADATA_LOCAL_CONVERGED="PRECALL"
+_discard="$(commit_metadata_update aitasks/metadata/models_claudecode.json \
+    claudecode/opus4_6 pick opus4_6 5 2>/dev/null)"
+echo "subshell_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
+')"
+assert_contains "direct call sets AIT_METADATA_VALUE in the caller scope" "direct_value=80" "$boundary_out"
+assert_contains "direct call sets AIT_METADATA_LOCAL_CONVERGED in the caller scope" \
+    "direct_converged=1" "$boundary_out"
+assert_contains "control: a \$( ) wrapper leaves the verdict at its pre-call value" \
+    "subshell_converged=PRECALL" "$boundary_out"
+rm -rf "$TMPDIR_26"
+
+echo "--- Test 27: non-silent value integrity (no git summary spliced in) ---"
+# git commit writes its summary to STDOUT, and run_git_quiet leaves it
+# unredirected when SILENT=false. Under the old substitution that text became
+# the value.
+TMPDIR_27="$(setup_remote_repo)"
+WORK_27="$TMPDIR_27/work"
+out27=$(cd "$WORK_27" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 2>/dev/null | grep '^UPDATED:')
+value27="${out27##*:}"
+assert_contains_re "non-silent value field is a bare integer" '^[0-9]+$' "$value27"
+rm -rf "$TMPDIR_27"
+
+echo "--- Test 28: the local (no-remote) path reports the correct count ---"
+# main() bypasses commit_metadata_update entirely without a remote, so every
+# assertion above leaves this route uncovered — and it is exactly the route the
+# out-param contract can corrupt. The COUNT is the discriminator: a helper that
+# clobbers AIT_METADATA_VALUE still prints UPDATED:, just with an empty value.
+TMPDIR_28="$(setup_repo)"
+set +e
+out28=$(cd "$TMPDIR_28" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc28=$?
+set -e
+assert_eq "no-remote path exits 0" "0" "$rc28"
+assert_eq "no-remote path carries the correct value" "UPDATED:claudecode/opus4_6:pick:80" "$out28"
+rm -rf "$TMPDIR_28"
+
+echo "--- Test 29: commit_metadata_update_local preserves the value on BOTH returns ---"
+# The early `diff --cached --quiet` return is unreachable from main() —
+# update_model_file always stages a change first — so the contract "sets the
+# verdict, never touches the value" is pinned here, at helper level.
+TMPDIR_29="$(setup_repo)"
+helper_out="$(cd "$TMPDIR_29" && bash -c '
+set -uo pipefail
+SCRIPT_DIR="$PWD/.aitask-scripts"
+SILENT=true
+source .aitask-scripts/lib/terminal_compat.sh
+source .aitask-scripts/lib/task_utils.sh
+source .aitask-scripts/lib/verified_update_lib.sh
+_AIT_COMMIT_PREFIX="ait: Update verified score"
+f=aitasks/metadata/models_claudecode.json
+
+# (a) clean index -> the EARLY return
+AIT_METADATA_VALUE="SENTINEL_A"
+AIT_METADATA_LOCAL_CONVERGED="PRECALL"
+commit_metadata_update_local "$f" claudecode/opus4_6 pick >/dev/null 2>&1
+echo "early_value=${AIT_METADATA_VALUE:-UNSET}"
+echo "early_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
+
+# (b) a real staged change -> the COMMITTING return
+printf "\n" >> "$f"
+AIT_METADATA_VALUE="SENTINEL_B"
+AIT_METADATA_LOCAL_CONVERGED="PRECALL"
+commit_metadata_update_local "$f" claudecode/opus4_6 pick >/dev/null 2>&1
+echo "commit_value=${AIT_METADATA_VALUE:-UNSET}"
+echo "commit_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
+')"
+assert_contains "early return preserves the caller's value" "early_value=SENTINEL_A" "$helper_out"
+assert_contains "early return still sets the verdict" "early_converged=1" "$helper_out"
+assert_contains "committing return preserves the caller's value" "commit_value=SENTINEL_B" "$helper_out"
+assert_contains "committing return sets the verdict" "commit_converged=1" "$helper_out"
+rm -rf "$TMPDIR_29"
+
+echo "--- Test 30: [post-phase branch_mode_metadata_fixture] the seam in branch mode ---"
+# Every assertion above runs in LEGACY mode, where _ait_data_git is plain `git`
+# in the cwd — so a mode-specific defect in the converge seam would be
+# invisible. This runs the same invariant and outcome assertions through a real
+# .aitask-data worktree with aitasks/ and aiplans/ symlinks, the shape
+# production actually uses.
+TMPDIR_30="$(setup_branch_mode_metadata_repo aitask_verified_update.sh)"
+WORK_30="$TMPDIR_30/work"
+DATA_30="$WORK_30/.aitask-data"
+
+set +e
+out30=$(cd "$WORK_30" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc30=$?
+set -e
+assert_eq "branch mode: reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out30"
+assert_eq "branch mode: exits 0" "0" "$rc30"
+assert_eq "branch mode: nothing left unpulled on the DATA branch" "0" \
+    "$(git -C "$DATA_30" rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+origin_sha_30="$(git -C "$DATA_30" rev-parse '@{u}')"
+git -C "$DATA_30" merge-base --is-ancestor "$origin_sha_30" HEAD 2>/dev/null
+assert_eq "branch mode: the pushed commit is an ancestor of the local data HEAD" "0" "$?"
+# DISCRIMINATING assertions. `verified.pick` stays 80 either way (the seed
+# value equals the average of one score-4 run), and the ancestry check passes
+# trivially on an untouched branch — so if the fixture silently degraded to
+# legacy mode both would pass vacuously. These two cannot:
+#   - the data branch must have GAINED a commit;
+#   - verifiedstats is absent from the seed, so runs==1 proves the write landed
+#     on the data branch and not on the code checkout.
+assert_eq "branch mode: the data branch gained the metadata commit" "2" \
+    "$(git -C "$DATA_30" rev-list --count HEAD)"
+assert_eq "branch mode: the update wrote verifiedstats on the DATA branch" "1" \
+    "$(jq -r '.models[0].verifiedstats.pick.all_time.runs' "$DATA_30/aitasks/metadata/models_claudecode.json")"
+assert_eq "branch mode: the code checkout has no aitasks/ of its own" "1" \
+    "$([ -L "$WORK_30/aitasks" ] && echo 1 || echo 0)"
+
+# And the partial outcome, in branch mode too.
+printf '\n' >> "$DATA_30/aitasks/metadata/models_claudecode.json"
+set +e
+out30b=$(cd "$WORK_30" && ./.aitask-scripts/aitask_verified_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+rc30b=$?
+set -e
+assert_eq "branch mode: partial result exits 3" "3" "$rc30b"
+assert_contains "branch mode: partial result token" "UPDATED_REMOTE_ONLY:" "$out30b"
+rm -rf "$TMPDIR_30"
+
+echo "--- Test 31: [post-phase converge_race_stress] a competing pusher never strands silently ---"
+# Drives the update against a competing writer injected through the DOCUMENTED
+# AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK seam — deterministic, no sleeping.
+# Every run must end EITHER UPDATED:/0 with the local-ref invariant holding,
+# OR UPDATED_REMOTE_ONLY:/3. Never a silent strand, and never UPDATED: while
+# the commit is missing locally.
+TMPDIR_31="$(setup_remote_metadata_repo aitask_verified_update.sh)"
+WORK_31="$TMPDIR_31/work"
+ORIGIN_31="$TMPDIR_31/origin.git"
+
+cat > "$TMPDIR_31/race_hook.sh" <<'HOOKEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+# Land a competing commit on origin on the first attempt only.
+[[ "${AITASK_VERIFIED_UPDATE_ATTEMPT:-}" != "1" ]] && exit 0
+[[ -f "${AITASK_VERIFIED_UPDATE_HOOK_FLAG:-}" ]] && exit 0
+touch "$AITASK_VERIFIED_UPDATE_HOOK_FLAG"
+tmp="$(mktemp -d)"
+git clone --quiet "$AITASK_VERIFIED_UPDATE_TEST_ORIGIN" "$tmp/repo" >/dev/null 2>&1
+(
+    cd "$tmp/repo"
+    git config user.email "racer@test.com"
+    git config user.name "Racer"
+    echo "competing" > competing.txt
+    git add competing.txt
+    git commit -m "competing writer" --quiet
+    git push --quiet origin HEAD:main
+)
+rm -rf "$tmp"
+HOOKEOF
+chmod +x "$TMPDIR_31/race_hook.sh"
+
+for round in 1 2; do
+    flag_31="$TMPDIR_31/hook_fired_$round"
+    set +e
+    out31=$(cd "$WORK_31" && \
+        AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK="$TMPDIR_31/race_hook.sh" \
+        AITASK_VERIFIED_UPDATE_HOOK_FLAG="$flag_31" \
+        AITASK_VERIFIED_UPDATE_TEST_ORIGIN="$ORIGIN_31" \
+        ./.aitask-scripts/aitask_verified_update.sh \
+        --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+    rc31=$?
+    set -e
+
+    behind_31="$(cd "$WORK_31" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+    case "$out31" in
+        UPDATED:*)
+            assert_eq "race round $round: UPDATED implies exit 0" "0" "$rc31"
+            # The load-bearing half: UPDATED may NEVER be reported while the
+            # commit is missing from the local branch.
+            assert_eq "race round $round: UPDATED implies the invariant holds" "0" "$behind_31" ;;
+        UPDATED_REMOTE_ONLY:*)
+            assert_eq "race round $round: partial implies exit 3" "3" "$rc31" ;;
+        *)
+            assert_eq "race round $round: outcome is one of the two contract tokens" \
+                "UPDATED|UPDATED_REMOTE_ONLY" "$out31" ;;
+    esac
+    assert_contains "race round $round: the value field is present" ":pick:" "$out31"
+done
+rm -rf "$TMPDIR_31"
 
 echo ""
 echo "==============================="

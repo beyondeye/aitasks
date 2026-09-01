@@ -559,6 +559,13 @@ _task_push_reason_hint() {
     case "$1" in
         dirty_worktree)
             echo "data worktree has unstaged changes blocking rebase; reconcile with 'ait syncer'" ;;
+        # The two converge-only codes below name './ait sync' — the
+        # non-interactive converger the recovery tests actually drive — rather
+        # than the 'ait syncer' TUI the older arms suggest.
+        ff_blocked)
+            echo "local edits to the same file(s) block the fast-forward; commit them or reconcile with './ait sync'" ;;
+        local_diverged)
+            echo "local data branch has both unpushed and unpulled commits; reconcile with './ait sync'" ;;
         rebase_conflict)
             echo "rebase stopped on conflicts; recover with './ait git rebase --abort' (or resolve and './ait git rebase --continue')" ;;
         no_upstream)
@@ -592,6 +599,177 @@ _task_push_warn() {
     elif [[ "$TASK_PUSH_UNPUSHED" != "0" ]]; then
         warn "${TASK_PUSH_UNPUSHED} commit(s) not pushed${upstream} — ${hint}${detail}"
     fi
+}
+
+# --- Task data convergence (best-effort, but never silent) ---
+#
+# task_data_converge() reconciles the LOCAL data branch with its upstream in
+# both directions, without ever stashing or committing. It exists because the
+# metadata updaters push straight to origin from a throwaway clone, leaving the
+# local ref behind: the compensating `pull --rebase` refuses (exit 128) BEFORE
+# it fetches whenever the shared .aitask-data worktree is dirty, so nothing
+# converges and the next local commit creates real divergence.
+#
+# The reconcile seam is `fetch` + `merge --ff-only`, NOT `pull --rebase`
+# (measured on git 2.55.0 with the worktree dirty): the rebase refuses in every
+# dirty case, while the fast-forward succeeds when the dirty paths do not
+# overlap and fails closed ("would be overwritten by merge ... Aborting") when
+# they do. `--autostash` and a wholesale auto-commit are both rejected: each
+# would touch OTHER live sessions' uncommitted aitasks/ / aiplans/ edits in the
+# shared worktree. This function never stashes and never commits anything.
+#
+# Same contract as task_push(): always returns 0, outcome in globals, one
+# warn() on stderr, silent on success. It calls _ait_data_git / _task_push_once
+# directly rather than task_push(), so it inherits no die() pre-flight.
+TASK_CONVERGE_STATUS=""   # converged|fast-forwarded|pushed|diverged|blocked|no-remote|failed
+TASK_CONVERGE_REASON=""   # classifier code when blocked/diverged/failed
+TASK_CONVERGE_AHEAD=""    # local commits not on upstream (post-cycle)
+TASK_CONVERGE_BEHIND=""   # upstream commits not on HEAD (post-cycle)
+
+# A race can turn ahead-only into ahead-and-behind between our fetch and our
+# push. Two passes bound the retry; see the push arm below for the single
+# trigger that consumes the second one.
+_AIT_CONVERGE_MAX_PASSES=2
+
+task_data_converge() {
+    local context="${1:-}"
+    TASK_CONVERGE_STATUS=""
+    TASK_CONVERGE_REASON=""
+    TASK_CONVERGE_AHEAD=""
+    TASK_CONVERGE_BEHIND=""
+
+    # No remote at all (solo / offline-only repo): nothing to reconcile.
+    if ! _task_push_has_remote; then
+        TASK_CONVERGE_STATUS="no-remote"
+        return 0
+    fi
+
+    local upstream
+    upstream="$(_task_push_upstream)"
+    if [[ -z "$upstream" ]]; then
+        TASK_CONVERGE_STATUS="failed"
+        TASK_CONVERGE_REASON="no_upstream"
+        _task_converge_warn "$context"
+        return 0
+    fi
+
+    local pass fetch_err ahead behind ff_err push_err reason
+    for (( pass=1; pass<=_AIT_CONVERGE_MAX_PASSES; pass++ )); do
+        # A plain fetch never touches the worktree. This is the step the old
+        # `pull --rebase` never reached, because it refused first.
+        if ! fetch_err="$(_ait_data_git fetch --quiet 2>&1)"; then
+            TASK_CONVERGE_STATUS="failed"
+            TASK_CONVERGE_REASON="$(_task_push_classify "$fetch_err" "")"
+            TASK_CONVERGE_AHEAD="$(_task_push_unpushed_count)"
+            TASK_CONVERGE_BEHIND="$(_task_sync_unpulled_count)"
+            _task_converge_warn "$context"
+            return 0
+        fi
+
+        ahead="$(_task_push_unpushed_count)"
+        behind="$(_task_sync_unpulled_count)"
+        TASK_CONVERGE_AHEAD="$ahead"
+        TASK_CONVERGE_BEHIND="$behind"
+
+        # Both counts diverged: resolving needs a rebase, and a rebase needs the
+        # shared worktree. Report it and hand ownership to './ait sync'.
+        if [[ "${ahead:-0}" != "0" && "${behind:-0}" != "0" ]]; then
+            TASK_CONVERGE_STATUS="diverged"
+            TASK_CONVERGE_REASON="local_diverged"
+            _task_converge_warn "$context"
+            return 0
+        fi
+
+        if [[ "${behind:-0}" != "0" ]]; then
+            if ff_err="$(_ait_data_git merge --ff-only --quiet "$upstream" 2>&1)"; then
+                TASK_CONVERGE_STATUS="fast-forwarded"
+                TASK_CONVERGE_AHEAD="$(_task_push_unpushed_count)"
+                TASK_CONVERGE_BEHIND="$(_task_sync_unpulled_count)"
+                return 0
+            fi
+            # Terminal and fails closed: the worktree is still dirty, so another
+            # pass cannot change the answer. The classifier already maps git's
+            # "local changes ... would be overwritten by merge" to
+            # dirty_worktree; remap it so the hint names a merge, not a rebase.
+            reason="$(_task_push_classify "" "$ff_err")"
+            [[ "$reason" == "dirty_worktree" ]] && reason="ff_blocked"
+            TASK_CONVERGE_STATUS="blocked"
+            TASK_CONVERGE_REASON="$reason"
+            _task_converge_warn "$context"
+            return 0
+        fi
+
+        if [[ "${ahead:-0}" != "0" ]]; then
+            if push_err="$(_task_push_once 2>&1)"; then
+                TASK_CONVERGE_STATUS="pushed"
+                TASK_CONVERGE_AHEAD="$(_task_push_unpushed_count)"
+                TASK_CONVERGE_BEHIND="$(_task_sync_unpulled_count)"
+                return 0
+            fi
+            reason="$(_task_push_classify "$push_err" "")"
+            # A non-fast-forward rejection here means another writer advanced
+            # origin between our fetch and our push. That is a LOST RACE, not a
+            # failure: the true state is now ahead-and-behind. Re-fetch and
+            # re-sample so it gets classified from the COUNTS as
+            # diverged/local_diverged. This `continue` is the ONLY thing that
+            # consumes a second pass — every other arm returns.
+            if [[ "$reason" == "diverged" ]]; then
+                continue
+            fi
+            # Not a race (remote_unreachable / no_upstream / unknown): another
+            # pass buys nothing.
+            TASK_CONVERGE_STATUS="failed"
+            TASK_CONVERGE_REASON="$reason"
+            _task_converge_warn "$context"
+            return 0
+        fi
+
+        TASK_CONVERGE_STATUS="converged"
+        return 0
+    done
+
+    # Passes exhausted: reached only when the last pass's push also lost the
+    # race. The final counts are the truth, not the push's error string — the
+    # same rule the ahead-and-behind arm above follows.
+    TASK_CONVERGE_AHEAD="$(_task_push_unpushed_count)"
+    TASK_CONVERGE_BEHIND="$(_task_sync_unpulled_count)"
+    if [[ "${TASK_CONVERGE_AHEAD:-0}" != "0" && "${TASK_CONVERGE_BEHIND:-0}" != "0" ]]; then
+        TASK_CONVERGE_STATUS="diverged"
+        TASK_CONVERGE_REASON="local_diverged"
+    else
+        TASK_CONVERGE_STATUS="failed"
+        TASK_CONVERGE_REASON="diverged"
+    fi
+    _task_converge_warn "$context"
+    return 0
+}
+
+# Internal: emit the user-facing warning for a non-success converge cycle.
+# Mirrors _task_sync_warn (:354). Success statuses emit nothing.
+_task_converge_warn() {
+    local context="${1:-}" upstream hint
+    upstream="$(_task_push_upstream)"
+    if [[ -n "$upstream" ]]; then
+        upstream=" with ${upstream}"
+    fi
+    hint="$(_task_push_reason_hint "$TASK_CONVERGE_REASON" "./ait sync")"
+    if [[ -n "$context" ]]; then
+        context=" (${context})"
+    fi
+
+    # Both probes print nothing when the branch has no upstream, so a default of
+    # 0 would report "0 unpushed, 0 remote unpulled" — a concrete, false claim
+    # about a state where the counts are simply UNKNOWN. Say so instead, exactly
+    # as _task_sync_warn does.
+    if [[ -z "$TASK_CONVERGE_AHEAD" && -z "$TASK_CONVERGE_BEHIND" ]]; then
+        warn "task data not converged [${TASK_CONVERGE_STATUS}]${upstream} (unreconciled commit counts unavailable) — ${hint}${context}"
+        return 0
+    fi
+
+    # Name the status: unlike _task_sync_warn, which only ever reports "failed",
+    # this one line carries three distinct non-success outcomes (blocked /
+    # diverged / failed) and the hint alone does not separate them.
+    warn "task data not converged [${TASK_CONVERGE_STATUS}]${upstream}: ${TASK_CONVERGE_AHEAD:-0} local unpushed, ${TASK_CONVERGE_BEHIND:-0} remote unpulled — ${hint}${context}"
 }
 
 # --- YAML List Parsing ---

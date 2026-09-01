@@ -15,6 +15,10 @@ TOTAL=0
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
+# Shared metadata fixtures (legacy-mode remote + real branch-mode worktree).
+# shellcheck source=lib/metadata_update_fixture.sh
+. "$PROJECT_DIR/tests/lib/metadata_update_fixture.sh"
+
 setup_repo() {
     local tmpdir
     tmpdir="$(mktemp -d)"
@@ -223,6 +227,84 @@ TMPDIR_11="$(setup_repo)"
 output11=$(cd "$TMPDIR_11" && ./.aitask-scripts/aitask_usage_update.sh --agent-string claudecode/opus4_6 --skill pick --silent 2>&1)
 assert_eq "Silent output is structured only" "UPDATED:claudecode/opus4_6:pick:1" "$output11"
 rm -rf "$TMPDIR_11"
+
+
+# =====================================================================
+# Local-ref invariant and the partial-result contract (t1658_1)
+# =====================================================================
+
+echo "--- Test 12: successful remote update reaches the LOCAL branch ---"
+TMPDIR_12="$(setup_remote_metadata_repo aitask_usage_update.sh)"
+WORK_12="$TMPDIR_12/work"
+set +e
+output12=$(cd "$WORK_12" && ./.aitask-scripts/aitask_usage_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --silent 2>/dev/null)
+rc12=$?
+set -e
+assert_eq "remote usage update reports UPDATED" "UPDATED:claudecode/opus4_6:pick:1" "$output12"
+assert_eq "remote usage update exits 0" "0" "$rc12"
+assert_eq "nothing left unpulled — the commit is local" "0" \
+    "$(cd "$WORK_12" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+origin_sha_12="$(cd "$WORK_12" && git rev-parse '@{u}')"
+(cd "$WORK_12" && git merge-base --is-ancestor "$origin_sha_12" HEAD 2>/dev/null)
+assert_eq "the pushed commit is an ancestor of local HEAD" "0" "$?"
+rm -rf "$TMPDIR_12"
+
+echo "--- Test 13: an unrelated dirty file no longer strands the commit ---"
+TMPDIR_13="$(setup_remote_metadata_repo aitask_usage_update.sh)"
+WORK_13="$TMPDIR_13/work"
+printf 'unrelated local edit\n' > "$WORK_13/unrelated.txt"
+set +e
+output13=$(cd "$WORK_13" && ./.aitask-scripts/aitask_usage_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --silent 2>/dev/null)
+rc13=$?
+set -e
+assert_eq "dirty-but-unrelated still reports UPDATED" "UPDATED:claudecode/opus4_6:pick:1" "$output13"
+assert_eq "dirty-but-unrelated still exits 0" "0" "$rc13"
+assert_eq "dirty-but-unrelated: commit reached the local branch" "0" \
+    "$(cd "$WORK_13" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+rm -rf "$TMPDIR_13"
+
+echo "--- Test 14: partial result — dirty metadata file yields UPDATED_REMOTE_ONLY / exit 3 ---"
+TMPDIR_14="$(setup_remote_metadata_repo aitask_usage_update.sh)"
+WORK_14="$TMPDIR_14/work"
+printf '\n' >> "$WORK_14/aitasks/metadata/models_claudecode.json"
+set +e
+output14=$(cd "$WORK_14" && ./.aitask-scripts/aitask_usage_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --silent 2>/dev/null)
+rc14=$?
+set -e
+# Exit status captured separately and asserted to be exactly 3 — the point is
+# that the verdict crossed the function boundary into main().
+assert_eq "partial result exit status is exactly 3" "3" "$rc14"
+assert_eq "partial result token" "UPDATED_REMOTE_ONLY:claudecode/opus4_6:pick:1" "$output14"
+rm -rf "$TMPDIR_14"
+
+echo "--- Test 15: positive control — the same run with a clean file is UPDATED / 0 ---"
+TMPDIR_15="$(setup_remote_metadata_repo aitask_usage_update.sh)"
+set +e
+output15=$(cd "$TMPDIR_15/work" && ./.aitask-scripts/aitask_usage_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --silent 2>/dev/null)
+rc15=$?
+set -e
+assert_eq "control: clean file exits 0" "0" "$rc15"
+assert_eq "control: clean file reports UPDATED" "UPDATED:claudecode/opus4_6:pick:1" "$output15"
+rm -rf "$TMPDIR_15"
+
+echo "--- Test 16: the local (no-remote) path reports the correct count ---"
+# main() bypasses commit_metadata_update entirely without a remote, so the
+# assertions above leave this route uncovered. The COUNT is the discriminator:
+# a helper that clobbers AIT_METADATA_VALUE still prints UPDATED:, with an
+# empty value.
+TMPDIR_16="$(setup_repo)"
+set +e
+output16=$(cd "$TMPDIR_16" && ./.aitask-scripts/aitask_usage_update.sh \
+    --agent-string claudecode/opus4_6 --skill pick --silent 2>/dev/null)
+rc16=$?
+set -e
+assert_eq "no-remote path exits 0" "0" "$rc16"
+assert_eq "no-remote path carries the correct value" "UPDATED:claudecode/opus4_6:pick:1" "$output16"
+rm -rf "$TMPDIR_16"
 
 echo ""
 echo "==============================="

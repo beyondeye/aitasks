@@ -38,7 +38,8 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
    ./.aitask-scripts/aitask_usage_update.sh --agent-string "<detected_agent_string>" --skill "<skill_name>" --silent
    ```
 
-   - On success (`UPDATED:<agent>/<model>:<skill>:<runs>` line): continue.
+   - On success (`UPDATED:<agent>/<model>:<skill>:<runs>` line, exit 0): continue.
+   - On `UPDATED_REMOTE_ONLY:<agent>/<model>:<skill>:<runs>` (exit 3): the run **is** recorded on origin, but the local data branch does not have that commit yet. Tell the user the count is recorded remotely and that `./ait sync` brings it local, then **continue** — a partial metadata update must not fail the workflow.
    - On failure: warn the user `usage update failed: <error>` and continue. Do NOT abort the workflow — usage tracking is best-effort.
 
 ## Step 1 — Satisfaction question and verified-score update
@@ -94,6 +95,7 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
    The script resolves the agent string internally — no need to call `aitask_resolve_detected_agent.sh` separately.
 
    Parse the structured result:
-   - `UPDATED:<agent>/<model>:<skill>:<new_score>` — Display: `Updated <skill> verified score for <agent>/<model>: <new_score>`
+   - `UPDATED:<agent>/<model>:<skill>:<new_score>` (exit 0) — Display: `Updated <skill> verified score for <agent>/<model>: <new_score>`
+   - `UPDATED_REMOTE_ONLY:<agent>/<model>:<skill>:<new_score>` (exit 3) — the score **is** recorded on origin, but the local data branch does not have that commit yet. Display: `Updated <skill> verified score for <agent>/<model>: <new_score> — recorded on origin; run './ait sync' to bring it to the local data branch.` Then **continue**: this is a partial result, not a failure, and it must not fail the workflow.
 
 5. If the user skips or dismisses the question, continue without updating.
