@@ -3445,5 +3445,1388 @@ class ConcernVerticalFitTierTests(unittest.TestCase):
         self.assertNotIn("xshort", ConcernPayloadEditModal.DEFAULT_CSS)
 
 
+class ConcernSizeTierOrderTests(unittest.TestCase):
+    """`_apply_size_tier` runs its `self.size`-only gates BEFORE the fit tier.
+
+    t1648 made this ordering load-bearing and said why: `_apply_fit_tier` sums
+    `needed` over every **displayed** child, so a visibility gate that has not
+    run yet charges rows for a widget that will never render, and the cap gets
+    lifted at a geometry that did not need it. The gates read only `self.size`,
+    never the `xshort` class the fit tier sets, so running them first is
+    deterministic and non-circular.
+
+    Written as the t1651 pre-phase mitigation `pin_size_tier_gate_order` and
+    observed passing on unmodified HEAD **before** the detail panel existed, so
+    it characterises the order rather than describing the change that follows.
+    Its negative control therefore mutates only `_apply_guidance_visibility`,
+    which is the sole `self.size`-only gate at that point; the matching
+    assertion for the later `_apply_detail_visibility` gate is
+    `test_the_detail_gate_runs_before_the_fit_tier` in
+    `ConcernDetailGateOrderTests`, which can only exist once that gate does.
+    """
+
+    SRC = (
+        REPO_ROOT / ".aitask-scripts" / "monitor" / "monitor_shared.py"
+    )
+
+    #: The three statements whose relative order this pins, as they appear in
+    #: `_apply_size_tier`. Anchors, not regexes: each must occur exactly once in
+    #: the file, which `_offsets` asserts — a control that substitutes the wrong
+    #: site proves nothing.
+    GUIDANCE_CALL = "self._apply_guidance_visibility()"
+    DEFER_CALL = "self.call_after_refresh(self._apply_fit_tier)"
+    INLINE_CALL = "self._apply_fit_tier()"
+
+    def _offsets(self, src: str) -> "dict[str, int]":
+        """Character offset of each anchor, asserting each is unique."""
+        out = {}
+        for name in ("GUIDANCE_CALL", "DEFER_CALL", "INLINE_CALL"):
+            anchor = getattr(self, name)
+            self.assertEqual(
+                src.count(anchor), 1,
+                f"anchor is not unique: {anchor!r} — an ordering claim built "
+                f"on an ambiguous anchor is not measuring the call site",
+            )
+            out[name] = src.index(anchor)
+        return out
+
+    def _guidance_precedes_fit(self, src: str) -> bool:
+        off = self._offsets(src)
+        return off["GUIDANCE_CALL"] < min(off["DEFER_CALL"], off["INLINE_CALL"])
+
+    # ---- source-level pin ---------------------------------------------------
+
+    def test_the_guidance_gate_precedes_the_fit_tier_in_source(self):
+        self.assertTrue(
+            self._guidance_precedes_fit(self.SRC.read_text(encoding="utf-8")),
+            "_apply_guidance_visibility must run before _apply_fit_tier — see "
+            "_apply_size_tier's docstring for why the order is load-bearing",
+        )
+
+    def test_the_order_check_fails_on_a_reordered_source(self):
+        """Negative control: without it the check above could be vacuous.
+
+        Mutates ONLY `_apply_guidance_visibility`, which exists at the commit
+        this test was written against. A control naming a symbol that is not in
+        the file yet would substitute nothing and still "pass".
+        """
+        src = self.SRC.read_text(encoding="utf-8")
+        self.assertIn(self.GUIDANCE_CALL, src, "control anchor vanished")
+        # Move the guidance call after the whole fit-tier dispatch.
+        moved = src.replace(self.GUIDANCE_CALL + "\n", "", 1)
+        moved = moved.replace(
+            self.INLINE_CALL + "\n",
+            self.INLINE_CALL + "\n        " + self.GUIDANCE_CALL + "\n",
+            1,
+        )
+        self.assertNotEqual(moved, src, "the control mutated nothing")
+        self.assertFalse(
+            self._guidance_precedes_fit(moved),
+            "the reordered source still reports the gate first — the check "
+            "is not measuring order",
+        )
+
+    # ---- behavioural pin ----------------------------------------------------
+
+    def _recorded_order(self, width, height):
+        """The real runtime call sequence, via method instrumentation."""
+        calls: "list[str]" = []
+        real_guidance = ConcernPickerModal._apply_guidance_visibility
+        real_fit = ConcernPickerModal._apply_fit_tier
+
+        def guidance(inner_self):
+            calls.append("guidance")
+            return real_guidance(inner_self)
+
+        def fit(inner_self):
+            calls.append("fit")
+            return real_fit(inner_self)
+
+        async def runner():
+            app = _Host(_vector_concerns(), narrow=True)
+            async with app.run_test(size=(width, height)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                await pilot.pause()
+
+        with unittest.mock.patch.object(
+            ConcernPickerModal, "_apply_guidance_visibility", guidance
+        ), unittest.mock.patch.object(
+            ConcernPickerModal, "_apply_fit_tier", fit
+        ):
+            asyncio.run(runner())
+        return calls
+
+    def test_the_runtime_order_matches_the_source_order(self):
+        """Source order is necessary but not sufficient — observe it running.
+
+        Asserted at two geometries on opposite sides of the 30-column help
+        breakpoint, because that is what decides whether the fit tier is
+        deferred a refresh or called inline: both dispatch paths must still put
+        the gate first.
+        """
+        for width, height in ((40, 30), (24, 30)):
+            with self.subTest(width=width, height=height):
+                calls = self._recorded_order(width, height)
+                self.assertIn("guidance", calls)
+                self.assertIn("fit", calls)
+                self.assertLess(
+                    calls.index("guidance"), calls.index("fit"),
+                    f"at {width}x{height} the fit tier ran before the gate: "
+                    f"{calls}",
+                )
+
+
+# --- composited-colour helpers -------------------------------------------
+# The repo idiom (test_markup_colour_contract.py, test_board_followup_glyph.py,
+# test_monitor_session_divider.py) is a LOCAL copy per suite rather than a
+# cross-test import. Kept minimal and ordered, because the two arrows share a
+# glyph and a dict keyed on segment text would collapse them.
+
+def _ordered_segments(app):
+    """Every non-blank (text, style) pair on screen, IN ORDER, with duplicates."""
+    out = []
+    for strip in app.screen._compositor.render_strips():
+        for segment in strip:
+            text = segment.text.strip()
+            if text and segment.style is not None:
+                out.append((text, segment.style))
+    return out
+
+
+def _hex_of(style):
+    """Resolved foreground truecolor, or None when the style carries no colour.
+
+    **A composited `dim` segment is not None.** `Style.parse("dim").color` is
+    None — `dim` names no colour — but by the time it reaches the compositor it
+    has been blended against the inherited foreground and reports a real hex
+    (measured: #999999 on the default background). So this returning a colour
+    proves the segment was painted; it does NOT prove the style chose that
+    colour. That distinction is why `low` is a colour rather than a weight —
+    see `test_dim_is_a_weight_whose_colour_is_inherited_not_chosen`.
+    """
+    if style is None or style.color is None:
+        return None
+    return style.color.get_truecolor().hex.lower()
+
+
+class _RampHost(App):
+    """Mounts one Static per markup string, in the given order."""
+
+    def __init__(self, markups) -> None:
+        super().__init__()
+        self._markups = list(markups)
+
+    def compose(self) -> ComposeResult:
+        for markup in self._markups:
+            yield Label(markup)
+
+
+class ConcernMagnitudeRampTests(unittest.TestCase):
+    """Magnitude is colour-encoded, and every state is separable (t1651).
+
+    Replaces a weight-only encoding — `[bold]` high, bare medium, `[dim]` low —
+    that the bug report called close to unreadable on a single glyph, and in
+    which **medium and unspecified were byte-identical** once
+    `trade_profile_rungs`' last rung dropped the `?` marker.
+
+    Asserted on RESOLVED TRUECOLOR HEXES, never on style names: Rich's `red` and
+    `yellow` are #800000 / #808000 while Textual's are #FF0000 / #FFFF00, so a
+    name-level assertion would pin the wrong thing (the task's own warning).
+    """
+
+    ARROWS = (monitor_shared._IMPROVE_ARROW, monitor_shared._WORSEN_ARROW)
+    MAGNITUDES = ("high", "medium", "low", "")
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _arrow_styles(self, markups):
+        """Resolved styles for one arrow per mounted markup, in mount order."""
+        result = []
+
+        async def runner():
+            app = _RampHost(markups)
+            async with app.run_test(size=(80, 16)) as pilot:
+                await pilot.pause()
+                for text, style in _ordered_segments(app):
+                    if text in self.ARROWS:
+                        result.append(style)
+
+        self._run(runner())
+        return result
+
+    # ---- the ramp itself ----------------------------------------------------
+
+    def test_every_magnitude_paints_a_distinct_colour_for_both_arrows(self):
+        """The headline: four states, four colours, on the up AND down glyph."""
+        for arrow in self.ARROWS:
+            with self.subTest(arrow=arrow):
+                styles = self._arrow_styles(
+                    monitor_shared._magnitude_markup(arrow, m)
+                    for m in self.MAGNITUDES
+                )
+                self.assertEqual(len(styles), len(self.MAGNITUDES))
+                hexes = [_hex_of(st) for st in styles]
+                self.assertNotIn(
+                    None, hexes,
+                    f"a magnitude painted no colour at all ({hexes})",
+                )
+                self.assertEqual(
+                    len(set(hexes)), len(self.MAGNITUDES),
+                    f"magnitudes collide on {arrow!r}: "
+                    f"{dict(zip(self.MAGNITUDES, hexes))}",
+                )
+
+    #: The ramp AS IT COMPOSITES, measured in a real Textual app and confirmed
+    #: in a real tmux pane. Pinned as literals because the task's own warning is
+    #: that a style NAME is not a colour here: `red` / `yellow` reach the screen
+    #: as Textual's #FF0000 / #FFFF00, while `rich.style.Style.parse` reports
+    #: #800000 / #808000 for the same names in isolation. An assertion written
+    #: against the bare-Rich values would pin a colour no user ever sees.
+    RESOLVED = {
+        "high": ("#ff0000", True),
+        "medium": ("#ffff00", True),
+        "low": ("#808080", False),
+        "": ("#6272a4", False),
+    }
+
+    def test_the_resolved_colours_are_pinned(self):
+        """Pin the rendered colour, not the style name."""
+        for arrow in self.ARROWS:
+            styles = self._arrow_styles(
+                monitor_shared._magnitude_markup(arrow, m)
+                for m in self.MAGNITUDES
+            )
+            for magnitude, style in zip(self.MAGNITUDES, styles):
+                with self.subTest(arrow=arrow, magnitude=magnitude):
+                    expected_hex, expected_bold = self.RESOLVED[magnitude]
+                    self.assertEqual(_hex_of(style), expected_hex)
+                    self.assertEqual(bool(style.bold), expected_bold)
+
+    def test_the_named_values_are_not_the_bare_rich_colours(self):
+        """The trap this ramp fell into once, kept visible.
+
+        If a future edit makes the named entries resolve to Rich's #800000 /
+        #808000, the ramp is being rendered somewhere other than a Textual
+        widget — which would mean the surface moved, not that the colour changed.
+        """
+        from rich.style import Style as _Style
+
+        for name in ("red", "yellow"):
+            with self.subTest(name=name):
+                bare = _Style.parse(name).color.get_truecolor().hex.lower()
+                self.assertIn(bare, ("#800000", "#808000"))
+        self.assertNotEqual(self.RESOLVED["high"][0], "#800000")
+        self.assertNotEqual(self.RESOLVED["medium"][0], "#808000")
+
+    def test_the_ramp_survives_every_row_state_that_recolours_its_text(self):
+        """CSS `color:` on the ROW must never win over a magnitude arrow.
+
+        `.informational` and `.rejected` both set `color: $text-muted`, and the
+        four disposition states each re-render the row. If the row's colour ever
+        reached the arrows, magnitude would silently stop being encoded on
+        exactly the rows a reviewer skims fastest — the dimmed ones.
+
+        Swept over **state x row-class**, not a single sample: the risk is that
+        one combination behaves differently, which a one-case test cannot see.
+        Driven through the real modal, because the overriding style is the row's
+        own CSS and a bare `Label` would not carry it.
+        """
+        concerns = [
+            Concern("high", "a.py:1", "actionable.", "blocking", "",
+                    improves=(("correctness", "high"),),
+                    worsens=(("simplicity", "low"),), effort="low"),
+            Concern("low", "b.py:2", "informational.", "informational", "",
+                    improves=(("correctness", "high"),),
+                    worsens=(("simplicity", "low"),), effort="low"),
+        ]
+        high_hex = self.RESOLVED["high"][0]
+        low_hex = self.RESOLVED["low"][0]
+
+        for state in ("none", "forward", "rejected", "spinoff"):
+            with self.subTest(state=state):
+                seen = {}
+
+                async def runner():
+                    app = _Host(concerns, narrow=True)
+                    async with app.run_test(size=(100, 40)) as pilot:
+                        for _ in range(4):
+                            await pilot.pause()
+                        rows = list(app.screen.query(_ConcernRow))
+                        self.assertEqual(len(rows), 2)
+                        # One row carries `.informational`, the other does not —
+                        # the discriminating pair for this contract.
+                        self.assertNotEqual(
+                            rows[0].has_class("informational"),
+                            rows[1].has_class("informational"),
+                        )
+                        for row in rows:
+                            row.set_state(state)
+                        for _ in range(3):
+                            await pilot.pause()
+                        for text, style in _ordered_segments(app):
+                            if text in self.ARROWS:
+                                seen.setdefault(text, []).append(_hex_of(style))
+
+                self._run(runner())
+                # One per row, PLUS the detail panel's own copy for the
+                # focused concern — so the sweep covers both surfaces.
+                self.assertGreaterEqual(
+                    len(seen.get(monitor_shared._IMPROVE_ARROW, [])), 2,
+                    f"expected at least one improve arrow per row in state "
+                    f"{state!r}",
+                )
+                for got in seen[monitor_shared._IMPROVE_ARROW]:
+                    self.assertEqual(
+                        got, high_hex,
+                        f"an improve arrow was recoloured by the row in state "
+                        f"{state!r}: {got} (magnitude stops being encoded)",
+                    )
+                for got in seen[monitor_shared._WORSEN_ARROW]:
+                    self.assertEqual(got, low_hex)
+
+    def test_the_closest_pair_low_and_unspecified_are_distinct(self):
+        """Called out in the plan as the pair most at risk of reading alike."""
+        for arrow in self.ARROWS:
+            with self.subTest(arrow=arrow):
+                low, unspecified = self._arrow_styles(
+                    [monitor_shared._magnitude_markup(arrow, "low"),
+                     monitor_shared._magnitude_markup(arrow, "")]
+                )
+                self.assertNotEqual(_hex_of(low), _hex_of(unspecified))
+
+    def test_the_ramp_encodes_intensity_not_direction(self):
+        """A high improve and a high worsen must read as the SAME strength.
+
+        Ordered segments, never `painted()`: that helper is a dict keyed on
+        segment text, and the two arrows would collapse into one entry.
+        """
+        for magnitude in self.MAGNITUDES:
+            with self.subTest(magnitude=magnitude):
+                up, down = self._arrow_styles(
+                    [monitor_shared._magnitude_markup(a, magnitude)
+                     for a in self.ARROWS]
+                )
+                self.assertEqual(
+                    _hex_of(up), _hex_of(down),
+                    f"{magnitude!r} paints the improve and worsen arrows "
+                    f"differently — the glyph already carries direction",
+                )
+                self.assertEqual(bool(up.bold), bool(down.bold))
+
+    def test_direction_is_still_distinguishable_by_glyph(self):
+        """Scope guard: same colour must not mean the two sides are confusable."""
+        self.assertNotEqual(*self.ARROWS)
+
+    # ---- the rung-5 case that is broken today -------------------------------
+
+    def test_unspecified_stays_distinct_at_the_rung_that_drops_the_marker(self):
+        """The ladder's last rung strips `?`, leaving colour the only carrier.
+
+        Before t1651 medium and unspecified were both a bare arrow, so at this
+        rung they were byte-identical and the "not priced" fact was lost.
+        """
+        def profile(magnitude):
+            concern = Concern(
+                "low", "r", "b",
+                improves=(("maintainability", magnitude),),
+                worsens=(("simplicity", magnitude),), effort="high",
+            )
+            return trade_profile_rungs(concern)[-1]
+
+        unspecified, medium = profile(""), profile("medium")
+        self.assertNotIn("?", unspecified.plain, "rung 5 must drop the marker")
+        self.assertEqual(
+            unspecified.plain, medium.plain,
+            "precondition: with the marker gone the two are identical TEXT, "
+            "which is why the colour has to differ",
+        )
+        self.assertNotEqual(
+            unspecified.markup, medium.markup,
+            "unspecified collapsed into a real magnitude at the rung where "
+            "`?` is dropped",
+        )
+
+    def test_no_ramp_value_contains_the_unspecified_marker(self):
+        """`trade_profile_rungs` does a POSITIONAL `replace("?", "", 1)`.
+
+        A ramp value containing `?` would be struck instead of the marker,
+        silently corrupting the markup. Guard, not documentation.
+        """
+        for magnitude, style in monitor_shared._MAGNITUDE_RAMP.items():
+            with self.subTest(magnitude=magnitude):
+                self.assertNotIn("?", style)
+
+    def test_rung_five_strikes_the_marker_and_not_the_ramp_markup(self):
+        """Negative control for the guard above: seed a `?` and watch it break.
+
+        The corruption is a **markup/plain divergence**, not a plain-text one,
+        and that distinction is the whole point. `build`'s two sides are
+        independent — `seg.plain.rstrip("?")` versus
+        `seg.markup.replace("?", "", 1)` — so a `?` inside the style tag is
+        struck *there*, the real markers survive in the markup, and `.plain`
+        drops them anyway. `_Seg.cells` measures `.plain`, so the row would then
+        budget for 18 cells and render 20.
+        """
+        from rich.text import Text as _Text
+
+        concern = Concern(
+            "low", "r", "b",
+            improves=(("maintainability", ""),),
+            worsens=(("simplicity", ""),), effort="high",
+        )
+        clean = trade_profile_rungs(concern)[-1]
+        self.assertNotIn("?", clean.plain, "rung 5 must drop the marker")
+        self.assertEqual(
+            _Text.from_markup(clean.markup).plain, clean.plain,
+            "markup and plain must agree — the cell budget is measured on "
+            "`.plain` but the user sees `.markup`",
+        )
+
+        poisoned = dict(monitor_shared._MAGNITUDE_RAMP)
+        poisoned[""] = poisoned[""] + "?"
+        with unittest.mock.patch.object(
+            monitor_shared, "_MAGNITUDE_RAMP", poisoned
+        ):
+            broken = trade_profile_rungs(concern)[-1]
+        self.assertNotEqual(
+            _Text.from_markup(broken.markup).plain, broken.plain,
+            "the control did not reproduce the corruption — the positional "
+            "replace no longer strikes the style tag, so the guard above is "
+            "vacuous",
+        )
+
+    # ---- zero-cell contract -------------------------------------------------
+
+    def test_the_ramp_adds_no_cells(self):
+        """`check_label_widths.__doc__`'s MAX_LABEL_CELLS=5 rests on this."""
+        for arrow in self.ARROWS:
+            for magnitude in self.MAGNITUDES:
+                with self.subTest(arrow=arrow, magnitude=magnitude):
+                    from rich.text import Text as _Text
+                    markup = monitor_shared._magnitude_markup(arrow, magnitude)
+                    self.assertEqual(_Text.from_markup(markup).plain, arrow)
+
+    # ---- harness self-check -------------------------------------------------
+
+    def test_the_harness_distinguishes_styled_from_unstyled(self):
+        """Without this every colour assertion above could be vacuous.
+
+        Proves the measurement is actually sensitive to the markup: an unstyled
+        arrow and a ramp-styled one must paint different colours. If they agreed,
+        `_arrow_styles` would be reading something other than the applied style
+        and every distinctness assertion here would pass for any ramp.
+        """
+        arrow = monitor_shared._IMPROVE_ARROW
+        plain, styled = self._arrow_styles(
+            [arrow, monitor_shared._magnitude_markup(arrow, "high")]
+        )
+        self.assertIsNotNone(_hex_of(styled))
+        self.assertNotEqual(
+            _hex_of(plain), _hex_of(styled),
+            "a ramp-styled arrow paints the same as an unstyled one — the "
+            "harness is not observing the applied style",
+        )
+
+    def test_dim_is_a_weight_whose_colour_is_inherited_not_chosen(self):
+        """Why `low` is `#808080` rather than the badge's `dim` (t1651).
+
+        `Style.parse("dim").color is None` — `dim` names no colour at all. What
+        reaches the screen is a *blend* of whatever foreground it inherits, so
+        it is not a stable point on a ramp: the same `dim` arrow resolves
+        differently on a normal row and on an `.informational` row, whose CSS
+        already sets `color: $text-muted`. A ramp value has to be a colour, not
+        a modifier applied to someone else's colour.
+        """
+        from rich.style import Style as _Style
+
+        self.assertIsNone(
+            _Style.parse("dim").color,
+            "`dim` gained a colour of its own — re-evaluate whether the badge "
+            "vocabulary can be reused verbatim for the ramp",
+        )
+        self.assertNotIn(
+            "dim", set(monitor_shared._MAGNITUDE_RAMP.values()),
+            "a magnitude is encoded by weight again",
+        )
+
+
+def _detail_concerns():
+    """A vector-bearing block whose first concern outruns the row at every width."""
+    return [
+        Concern(
+            "high", "monitor_shared.py:2795",
+            "DETAILBODY the ramp reuses the badge vocabulary and a reader may "
+            "misread a red improve arrow as a negative signal until they learn "
+            "it encodes magnitude rather than valence.",
+            "blocking", "CONFIRMED",
+            improves=(("correctness", "high"), ("verification", "medium")),
+            worsens=(("simplicity", "low"),), effort="low",
+        ),
+        Concern(
+            "medium", "second.py:3", "SECONDBODY the next one.", "optional", "",
+            improves=(("robustness", "medium"),),
+            worsens=(("simplicity", ""),), effort="medium",
+        ),
+    ]
+
+
+class ConcernDetailPanelTests(unittest.TestCase):
+    """The focused concern's impact vector, inline in the picker (t1651).
+
+    The row cannot show the vector: `trade_profile_rungs` degrades to one
+    improve entry, one worsen entry and the effort scalar, with 5-cell labels.
+    This panel is where every entry and every full name survives.
+
+    **Geometries are MEASURED, not chosen.** The gate compares the rows the
+    laid-out children need against the DECLARED 80% budget, so the panel appears
+    only where the ordinary cap can seat it — see `_apply_detail_visibility`.
+    """
+
+    #: Measured on the real modal. `SHOWN` / `HIDDEN` are two halves of one
+    #: sweep: a gate asserted only where it says yes is half-tested.
+    SHOWN = ((24, 30), (30, 24), (30, 30), (40, 40), (80, 30), (100, 40))
+    HIDDEN = ((24, 20), (40, 20), (40, 24), (40, 30), (80, 24))
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _at(self, width, height, concerns=None, narrow=True):
+        out = {}
+
+        async def runner():
+            app = _Host(concerns if concerns is not None else _detail_concerns(),
+                        narrow=narrow)
+            async with app.run_test(size=(width, height)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                panels = list(app.screen.query("#concern-detail"))
+                out["panel"] = panels[0] if panels else None
+                out["display"] = bool(panels and panels[0].display)
+                out["text"] = (
+                    panels[0].render().plain if out["display"] else "")
+                out["height"] = (
+                    int(panels[0].styles.height.value) if out["display"] else 0)
+                out["rows"] = _screen_rows(app)
+                out["flat"] = _flat_text(out["rows"])
+                out["xshort"] = app.screen.has_class("xshort")
+
+        self._run(runner())
+        return out
+
+    # ---- visibility gate ----------------------------------------------------
+
+    def test_the_panel_is_shown_where_the_budget_can_seat_it(self):
+        for width, height in self.SHOWN:
+            with self.subTest(width=width, height=height):
+                got = self._at(width, height)
+                self.assertTrue(got["display"], "panel refused")
+                self.assertEqual(
+                    _clipped_rows(got["rows"], width), [],
+                    "the panel pushed a dialog row off the right edge",
+                )
+
+    def test_the_panel_is_refused_where_it_would_not_fit(self):
+        """The other half of the sweep — a gate that never says no is not a gate."""
+        for width, height in self.HIDDEN:
+            with self.subTest(width=width, height=height):
+                self.assertFalse(self._at(width, height)["display"])
+
+    def test_a_legacy_block_composes_no_panel_at_all(self):
+        """AC: a vector-less block renders exactly as it did before t1651."""
+        for width, height in self.SHOWN:
+            with self.subTest(width=width, height=height):
+                self.assertIsNone(
+                    self._at(width, height, concerns=_sample_concerns())["panel"])
+
+    def test_the_panel_works_on_the_full_monitor_push_path_too(self):
+        """`ait monitor` pushes with `narrow=False`, minimonitor with `True`.
+
+        That flag owns the ROW's line layout, so a panel verified under only one
+        of them is verified against half the production surface.
+        """
+        got = self._at(100, 40, narrow=False)
+        self.assertTrue(got["display"])
+        self.assertIn("correctness", got["text"])
+        self.assertEqual(_clipped_rows(got["rows"], 100), [])
+
+    def test_the_panel_never_costs_the_help_lines_key_names(self):
+        """The precedence rule, asserted where the panel actually renders."""
+        for width, height in self.SHOWN:
+            with self.subTest(width=width, height=height):
+                flat = self._at(width, height)["flat"].lower()
+                tokens = (
+                    ConcernVerticalFitTierTests.KEY_TOKENS_COMPACT
+                    if width <= monitor_shared._PICKER_NARROW_MIN_WIDTH
+                    else ConcernVerticalFitTierTests.KEY_TOKENS_FULL
+                )
+                for token in tokens:
+                    self.assertIn(token.lower(), flat)
+
+    def test_forcing_the_panel_on_where_it_is_refused_costs_the_keys(self):
+        """Negative control: proves the refusals above are load-bearing."""
+        real = ConcernPickerModal._apply_detail_visibility
+
+        def forced(inner_self):
+            result = real(inner_self)
+            panels = list(inner_self.query("#concern-detail"))
+            if panels:
+                panels[0].display = True
+                panels[0].styles.height = monitor_shared._DETAIL_MAX_ROWS
+            return result
+
+        with unittest.mock.patch.object(
+            ConcernPickerModal, "_apply_detail_visibility", forced
+        ):
+            flat = self._at(40, 20)["flat"].lower()
+        missing = [
+            token for token in ConcernVerticalFitTierTests.KEY_TOKENS_FULL
+            if token.lower() not in flat
+        ]
+        self.assertTrue(
+            missing,
+            "forcing an 8-row panel on at 40x20 cost no key token — the "
+            "refusal this controls for is not doing any work",
+        )
+
+    # ---- the height contract ------------------------------------------------
+
+    def test_the_declared_height_is_a_fixed_cell_value_not_auto(self):
+        """One authoritative mechanism: an explicit height, never `auto`.
+
+        `auto` would make the panel track the focused concern's content, which
+        would let a focus event move the vertical budget `_apply_fit_tier` sums.
+        """
+        declared = re.search(
+            r"#concern-detail\s*\{([^}]*)\}", ConcernPickerModal.DEFAULT_CSS)
+        self.assertIsNotNone(declared, "#concern-detail must declare a rule")
+        body = declared.group(1)
+        self.assertRegex(body, r"height:\s*\d+")
+        self.assertNotRegex(body, r"height:\s*auto")
+        self.assertNotIn("max-height", body)
+
+    def test_the_height_never_exceeds_what_the_panel_draws(self):
+        """It must not hoard rows the concern list can use.
+
+        Asserted as invariants rather than an exact recomputation of the gate's
+        arithmetic: the guidance line can YIELD to the panel between the gate
+        running and the layout settling, so `needed` measured afterwards is not
+        what the gate saw. Re-deriving it post-hoc would pin the wrong number
+        and fail for the right implementation.
+        """
+        wanted = 3  # _detail_concerns()[0] prices 2 improves + 1 worsen
+        for width, height in self.SHOWN:
+            with self.subTest(width=width, height=height):
+                got = self._at(width, height)
+                self.assertTrue(got["display"])
+                self.assertGreaterEqual(got["height"], 1)
+                self.assertLessEqual(
+                    got["height"], monitor_shared._DETAIL_MAX_ROWS)
+                self.assertLessEqual(
+                    got["height"], wanted,
+                    "the panel reserved more rows than it has lines to draw",
+                )
+                self.assertEqual(
+                    len(got["text"].split("\n")), got["height"],
+                    "rendered line count and declared height disagree",
+                )
+
+    def test_at_a_roomy_geometry_every_line_is_seated(self):
+        """The exact case, where the arithmetic is unambiguous."""
+        got = self._at(100, 40)
+        self.assertEqual(got["height"], 3)
+        self.assertEqual(len(got["text"].split("\n")), 3)
+        self.assertNotIn("+", got["text"])
+
+    def test_the_panel_cannot_by_itself_flip_the_vertical_fit_tier(self):
+        """It is sized inside the 80% cap, so `xshort` keeps its meaning.
+
+        t1648 pins 24x30 as narrow-but-NOT-short. An earlier revision used the
+        raw screen height as its denominator, grew the panel to 8 rows there,
+        and flipped `xshort` — making the dialog full-height wherever it appears.
+        """
+        got = self._at(24, 30)
+        self.assertTrue(got["display"], "precondition: the panel shows here")
+        self.assertFalse(got["xshort"])
+
+    # ---- focus behaviour ----------------------------------------------------
+
+    def test_the_panel_is_populated_on_open_before_any_arrow_key(self):
+        """`Widget.focus()` is DEFERRED — the seed in `on_mount` is the fix.
+
+        Relying on `on_descendant_focus` for the initial focus leaves the panel
+        blank until the user presses up/down. Asserted with no key sent.
+        """
+        got = self._at(100, 40)
+        self.assertTrue(got["display"])
+        self.assertIn("correctness", got["text"])
+
+    def test_the_panel_follows_focus(self):
+        out = {}
+
+        async def runner():
+            app = _Host(_detail_concerns(), narrow=True)
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                panel = app.screen.query_one("#concern-detail")
+                out["first"] = panel.render().plain
+                await pilot.press("down")
+                for _ in range(3):
+                    await pilot.pause()
+                out["second"] = panel.render().plain
+
+        self._run(runner())
+        self.assertIn("correctness", out["first"])
+        self.assertIn("robustness", out["second"])
+        self.assertNotIn(
+            "correctness", out["second"],
+            "the previous concern's vector survived the focus move",
+        )
+
+    def test_a_focus_move_does_not_change_the_vertical_budget(self):
+        """Geometry-derived height: the fit verdict must not move on focus."""
+        out = {}
+
+        async def runner():
+            app = _Host(_detail_concerns(), narrow=True)
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                out["xshort1"] = app.screen.has_class("xshort")
+                await pilot.press("down")
+                for _ in range(3):
+                    await pilot.pause()
+                out["xshort2"] = app.screen.has_class("xshort")
+
+        self._run(runner())
+        self.assertEqual(out["xshort1"], out["xshort2"])
+
+    def test_a_focused_vector_less_concern_gets_the_no_vector_line(self):
+        """`has_impact_vector` is PER CONCERN, so a mixed block is reachable.
+
+        Both directions, because a stale vector left over from the previous row
+        is the failure mode — invisible to a one-way test.
+        """
+        mixed = [
+            _detail_concerns()[0],
+            Concern("medium", "plain.py:7", "no vector here."),
+        ]
+        out = {}
+
+        async def runner():
+            app = _Host(mixed, narrow=True)
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                panel = app.screen.query_one("#concern-detail")
+                out["vector"] = panel.render().plain
+                await pilot.press("down")
+                for _ in range(3):
+                    await pilot.pause()
+                out["legacy"] = panel.render().plain
+                await pilot.press("up")
+                for _ in range(3):
+                    await pilot.pause()
+                out["back"] = panel.render().plain
+
+        self._run(runner())
+        self.assertIn("correctness", out["vector"])
+        self.assertIn(monitor_shared._DETAIL_NO_VECTOR, out["legacy"])
+        self.assertNotIn(
+            "correctness", out["legacy"],
+            "the previous concern's vector survived the move",
+        )
+        self.assertIn("correctness", out["back"])
+        self.assertNotIn(monitor_shared._DETAIL_NO_VECTOR, out["back"])
+
+    # ---- content ------------------------------------------------------------
+
+    def test_the_panel_shows_what_the_row_had_to_drop(self):
+        """The point of the surface: the entries and names the ladder drops.
+
+        The negative control is the ROW — if it still showed everything, this
+        test would be measuring nothing.
+        """
+        out = {}
+
+        async def runner():
+            app = _Host(_detail_concerns(), narrow=True)
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                out["panel"] = app.screen.query_one(
+                    "#concern-detail").render().plain
+                out["row"] = list(app.screen.query(_ConcernRow))[0].render()
+
+        self._run(runner())
+        # Full dimension names, not the 5-cell short labels.
+        self.assertIn("correctness", out["panel"])
+        self.assertIn("verification", out["panel"])
+        self.assertIn("(high)", out["panel"])
+        # Negative control: the ROW dropped the second improve entry entirely.
+        self.assertNotIn("verification", out["row"])
+
+
+class ConcernDetailContentContractTests(unittest.TestCase):
+    r"""What the panel promises is what it shows, at every width it shows at.
+
+    The panel is **dimensions only**: one line per impact-vector entry, with the
+    full dimension name and — where the width allows — the magnitude as a word.
+    No body preview, no region, no effort or disposition line, no inline rubric.
+    That scope was settled by visual review: the row directly above already
+    carries the region and disposition, and repeating them here read as
+    duplication rather than detail, while a rubric on every entry buried the
+    names being looked up.
+
+    What remains is exactly what the row cannot show. It degrades to ONE improve
+    entry, ONE worsen entry and 5-cell labels (`▲corr ▼simpl E:lo`), so every
+    entry and every full name is missing from it by construction.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _concern(self):
+        return Concern(
+            "high", "monitor_shared.py:2795", "body text.", "blocking",
+            "CONFIRMED",
+            improves=(("correctness", "high"), ("verification", "medium")),
+            worsens=(("simplicity", "low"), ("performance", "")),
+            effort="low",
+        )
+
+    def _panel_text(self, width, height, concern=None):
+        out = {}
+
+        async def runner():
+            app = _Host([concern or self._concern()], narrow=True)
+            async with app.run_test(size=(width, height)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                panels = list(app.screen.query("#concern-detail"))
+                out["shown"] = bool(panels and panels[0].display)
+                out["text"] = panels[0].render().plain if out["shown"] else ""
+                out["rows"] = (
+                    int(panels[0].styles.height.value) if out["shown"] else 0)
+
+        self._run(runner())
+        return out
+
+    #: Every geometry at which the panel is displayed, narrow and wide.
+    SHOWN = ((24, 30), (30, 24), (30, 30), (40, 40), (80, 30), (100, 40))
+
+    def test_a_dimension_name_is_never_clipped_mid_word(self):
+        """The full name is the promise: below its width the panel drops the
+        magnitude word, and below that whole entries with a `+N` — but it never
+        truncates a name.
+
+        Asserted as "no clipped prefix appears", not "every name appears": an
+        entry the budget could not seat is legitimately absent and announced by
+        the marker, which is a different thing from a mangled one.
+        """
+        for width, height in self.SHOWN:
+            with self.subTest(width=width, height=height):
+                text = self._panel_text(width, height)["text"]
+                for name in ("correctness", "verification", "simplicity",
+                             "performance"):
+                    for cut in range(4, len(name)):
+                        self.assertNotIn(
+                            name[:cut] + "…", text,
+                            f"{name!r} was clipped at {width}x{height}",
+                        )
+                self.assertIn("correctness", text)
+
+    def test_the_panel_carries_no_body_region_or_disposition(self):
+        """The scope decision, pinned so it cannot creep back silently."""
+        for width, height in self.SHOWN:
+            with self.subTest(width=width, height=height):
+                text = self._panel_text(width, height)["text"]
+                self.assertNotIn("body text", text)
+                self.assertNotIn("monitor_shared.py:2795", text)
+                self.assertNotIn("blocking", text)
+                self.assertNotIn("CONFIRMED", text)
+                self.assertNotIn("E:lo", text)
+                # …and no rubric text.
+                self.assertNotIn("right behavior on reachable inputs", text)
+
+    def test_the_compact_tier_drops_the_magnitude_word_not_the_name(self):
+        """Rung 2, asserted where it applies (a 24-column pane).
+
+        The magnitude is not lost there — the arrow's colour carries it, which
+        is the other half of this task.
+        """
+        narrow = self._panel_text(24, 30)["text"]
+        self.assertIn("correctness", narrow)
+        self.assertNotIn("(high)", narrow)
+
+        wide = self._panel_text(100, 40)["text"]
+        self.assertIn("correctness (high)", wide)
+
+    def test_every_entry_on_both_sides_reaches_the_panel(self):
+        """The row shows ONE per side; the panel is where the rest live."""
+        text = self._panel_text(100, 40)["text"]
+        for name in ("correctness", "verification", "simplicity", "performance"):
+            self.assertIn(name, text)
+
+    def test_an_unstated_magnitude_reads_as_a_word_not_a_blank(self):
+        self.assertIn("performance (unspecified)",
+                      self._panel_text(100, 40)["text"])
+
+    def test_the_panel_takes_only_the_rows_it_draws(self):
+        """It must not hoard spare rows the concern list can use.
+
+        Four entries is four rows, even at 100x40 where far more were free.
+        """
+        got = self._panel_text(100, 40)
+        self.assertEqual(got["rows"], 4)
+        self.assertEqual(len(got["text"].split("\n")), 4)
+
+    def test_entries_that_do_not_fit_are_announced_with_a_marker(self):
+        """A dropped entry is announced, never silently absent."""
+        got = self._panel_text(80, 30)
+        self.assertTrue(got["shown"])
+        self.assertRegex(
+            got["text"], r"\+\d",
+            "the vector was truncated with no `+N` marker — silent loss is "
+            "the defect this surface exists to fix",
+        )
+
+    #: Orderings that put the LONGEST dimension name in each position, because
+    #: the truncation defects only appear when the long name is the last entry
+    #: that survives. A single fixture ordering misses them.
+    ORDERINGS = (
+        ("maintainability", "goal", "correctness", "simplicity", "performance"),
+        ("goal", "maintainability", "correctness", "simplicity", "performance"),
+        ("goal", "correctness", "maintainability", "simplicity", "performance"),
+        ("goal", "correctness", "verification", "maintainability", "performance"),
+        ("goal", "correctness", "verification", "simplicity", "maintainability"),
+    )
+
+    def _crowded(self, order):
+        return Concern(
+            "high", "r.py:1", "body.",
+            improves=tuple((name, "") for name in order[:3]),
+            worsens=tuple((name, "") for name in order[3:]), effort="low",
+        )
+
+    def test_the_truncated_panel_holds_all_four_invariants(self):
+        """Width, row count, whole names, and an honest marker — together.
+
+        Each of these was broken on its own by a fix for one of the others, so
+        they are asserted as one set:
+
+        1. no line exceeds the panel width (a marker bolted onto an
+           already-full-width line rendered 33 cells at width 30, and Rich folds
+           that onto a second row — silently breaking the declared height that
+           `_apply_measured_height_tier` sums);
+        2. no more lines than the declared height;
+        3. **no dimension name is ever abbreviated** — reserving the marker's
+           cells by re-rendering the last entry produced `▲maintainabi… +3` at
+           16x2, trading the width defect for a broken core promise;
+        4. when entries are dropped the `+N` marker is still present, so the fix
+           for (3) cannot be "achieved" by dropping the marker instead.
+
+        Swept over orderings x width x rows: the failures only appear when the
+        long name lands on the last surviving line.
+        """
+        from rich.text import Text as _Text
+
+        for order in self.ORDERINGS:
+            concern = self._crowded(order)
+            modal = ConcernPickerModal([concern])
+            total = len(concern.improves) + len(concern.worsens)
+            for width in range(16, 60, 3):
+                for rows in range(1, 6):
+                    with self.subTest(order=order[1], width=width, rows=rows):
+                        lines = modal._detail_text(
+                            concern, width, rows).split("\n")
+                        plains = [_Text.from_markup(x).plain for x in lines]
+                        self.assertLessEqual(len(lines), rows)          # (2)
+                        for plain in plains:
+                            self.assertLessEqual(cell_len(plain), width)  # (1)
+                            self.assertNotIn("…", plain)                  # (3)
+                        if total > rows:                                  # (4)
+                            self.assertTrue(
+                                any("+" in plain for plain in plains),
+                                "entries were dropped with no marker",
+                            )
+                        # (5) a marker-only row is only legitimate when the
+                        # entry could not have been kept in EITHER rung.
+                        if rows >= 2 and plains[-1].strip().startswith("+"):
+                            part = modal._detail_lines(concern)[rows - 1]
+                            reduced = width - cell_len(f" +{total - rows}")
+                            self.assertIsNone(
+                                monitor_shared._detail_form(part, reduced),
+                                "an entry was dropped although its compact form "
+                                "fitted beside the marker",
+                            )
+
+    def test_the_marker_line_falls_back_a_rung_rather_than_dropping_an_entry(self):
+        """The rung is re-picked against the REDUCED budget on the marker line.
+
+        Choosing the rung once from the panel width and reusing it on the line
+        that shares its row with `+N` hid a whole entry that would have fitted:
+        at width 30 with five entries in two rows it rendered one
+        `▲maintainability (unspecified)` and `+4`, when `▲maintainability +3`
+        fits in 19 of the 30 cells. The panel exists to recover exactly those
+        names, so it keeps the entry in its compact form instead.
+        """
+        from rich.text import Text as _Text
+
+        concern = Concern(
+            "high", "r.py:1", "body.",
+            improves=(("maintainability", ""),) * 3,
+            worsens=(("maintainability", ""),) * 2, effort="low",
+        )
+        plains = [
+            _Text.from_markup(line).plain
+            for line in ConcernPickerModal([concern])
+            ._detail_text(concern, 30, 2).split("\n")
+        ]
+        self.assertEqual(len(plains), 2)
+        self.assertEqual(plains[0], "▲maintainability (unspecified)")
+        self.assertEqual(plains[1], "▲maintainability +3")
+        self.assertNotRegex(
+            plains[1], r"^\s*\+",
+            "the entry was dropped for a marker-only row that had room for it",
+        )
+
+    def test_ordinary_lines_all_use_the_same_rung(self):
+        """A per-line rung would make a missing magnitude word ambiguous.
+
+        `(unspecified)` is a real value here, so `▲verification` rendered beside
+        `▲correctness (high)` cannot be told from a genuinely unpriced
+        dimension. The panel therefore picks ONE rung for its ordinary lines;
+        only the marker line may differ, and the `+N` beside it explains why.
+        """
+        from rich.text import Text as _Text
+
+        concern = Concern(
+            "high", "r.py:1", "body.",
+            improves=(("correctness", "high"), ("verification", "medium")),
+            worsens=(("simplicity", "low"), ("performance", "")), effort="low",
+        )
+        modal = ConcernPickerModal([concern])
+        for width in range(16, 60):
+            with self.subTest(width=width):
+                body = [
+                    _Text.from_markup(line).plain
+                    for line in modal._detail_text(concern, width, 4).split("\n")
+                    if "+" not in line
+                ]
+                if len(body) > 1:
+                    self.assertEqual(
+                        len({"(" in line for line in body}), 1,
+                        f"mixed rungs at width {width}: {body}",
+                    )
+
+    def test_the_marker_goes_on_its_own_row_when_it_cannot_share_one(self):
+        """The (3)-vs-(4) tie-break, pinned as behaviour rather than luck.
+
+        At 16x2 with `maintainability` second, the marker cannot sit beside it
+        without abbreviating the name — so that entry is dropped too and the
+        marker takes the row alone. Fewer names, every one of them whole.
+        """
+        from rich.text import Text as _Text
+
+        concern = self._crowded(self.ORDERINGS[1])
+        modal = ConcernPickerModal([concern])
+        plains = [
+            _Text.from_markup(line).plain
+            for line in modal._detail_text(concern, 16, 2).split("\n")
+        ]
+        self.assertEqual(len(plains), 2)
+        self.assertIn("goal", plains[0])
+        self.assertNotIn("…", plains[0])
+        self.assertRegex(plains[1].strip(), r"^\+\d+$")
+
+    def test_the_marker_shares_a_row_when_it_does_fit(self):
+        """The other side of the tie-break — it must not always take a row."""
+        from rich.text import Text as _Text
+
+        concern = self._crowded(self.ORDERINGS[0])
+        modal = ConcernPickerModal([concern])
+        plains = [
+            _Text.from_markup(line).plain
+            for line in modal._detail_text(concern, 40, 2).split("\n")
+        ]
+        self.assertEqual(len(plains), 2)
+        self.assertRegex(
+            plains[1], r"\w.*\+\d+",
+            "the marker took a whole row where it had room to share one",
+        )
+
+    def test_a_concern_that_priced_nothing_says_so(self):
+        """A mixed block can focus an unpriced concern; it must not read blank.
+
+        A block with NO priced concern composes no panel at all, so the fixture
+        has to be mixed — a lone unpriced concern would test the wrong thing.
+        """
+        out = {}
+
+        async def runner():
+            app = _Host(
+                [self._concern(), Concern("medium", "plain.py:1", "no vector.")],
+                narrow=True,
+            )
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                await pilot.press("down")
+                for _ in range(3):
+                    await pilot.pause()
+                out["text"] = app.screen.query_one(
+                    "#concern-detail").render().plain
+
+        self._run(runner())
+        self.assertIn(monitor_shared._DETAIL_NO_VECTOR, out["text"])
+        self.assertNotIn("correctness", out["text"])
+
+    def test_the_width_floors_are_derived_from_the_dimension_vocabulary(self):
+        """Not chosen numbers: a longer dimension name must move them."""
+        longest = max(len(name) for name in CONCERN_DIMENSIONS)
+        self.assertEqual(
+            monitor_shared._DETAIL_MIN_CONTENT_CELLS, 1 + longest)
+        self.assertEqual(
+            monitor_shared._DETAIL_FULL_CONTENT_CELLS,
+            1 + longest + len(" (unspecified)"))
+
+
+class ConcernDetailMarkupSafetyTests(unittest.TestCase):
+    r"""Hostile producer text must not crash the panel at any width.
+
+    The panel renders only dimension names, but a name reaching it is NOT
+    guaranteed to be from the closed vocabulary: `concern_parser` keeps what the
+    producer wrote, and `_entry_seg` / `_detail_vector_lines` both fall back to
+    the raw string for an unknown one. A bare `[` took the whole modal down at
+    t1636_4, so that fallback is escaped — and the escape is applied AFTER the
+    cell-measured clip, because escaping first and cutting after splits a `\[`
+    pair and leaves the next line opening with a live `[/]`.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _render(self, width, height, dimension):
+        out = {}
+        concern = Concern(
+            "high", "r.py:1", "body.", "blocking", "CONFIRMED",
+            improves=((dimension, "high"),),
+            worsens=(("simplicity", "low"),), effort="low",
+        )
+
+        async def runner():
+            app = _Host([concern], narrow=True)
+            async with app.run_test(size=(width, height)) as pilot:
+                for _ in range(5):
+                    await pilot.pause()
+                panels = list(app.screen.query("#concern-detail"))
+                out["shown"] = bool(panels and panels[0].display)
+                out["text"] = panels[0].render().plain if out["shown"] else ""
+
+        self._run(runner())
+        return out
+
+    GEOMETRIES = ((24, 30), (30, 30), (40, 40), (100, 40))
+
+    def test_a_markup_bearing_dimension_name_does_not_crash(self):
+        for width, height in self.GEOMETRIES:
+            with self.subTest(width=width, height=height):
+                self.assertTrue(
+                    self._render(width, height, "[dim]evil[/]")["shown"])
+
+    def test_a_bare_bracket_at_every_clip_boundary(self):
+        """Sweep the cut point rather than guessing where it lands."""
+        for length in range(1, 40):
+            with self.subTest(length=length):
+                self.assertTrue(
+                    self._render(24, 30, "[" * length + "]abc")["shown"])
+
+    def test_the_name_renders_literally_rather_than_as_markup(self):
+        text = self._render(100, 40, "[dim]evil[/]")["text"]
+        self.assertIn("[dim]evil[/]", text)
+
+    def test_escaping_before_clipping_loses_visible_text(self):
+        r"""Negative control for the escape-LAST ordering.
+
+        Clipping an already-escaped string does not raise the way *wrapping*
+        one did — a truncation can orphan an opening tag but not a closing one.
+        What it does instead is **miscount**: `_escape_markup` inserts a
+        backslash per bracket, those backslashes occupy cells in the string
+        being measured and none on screen, so the clip cuts real text early.
+
+        Stated as the measurable difference rather than a crash, because
+        claiming a crash that does not happen would be the same
+        verification theatre this task has been avoiding.
+        """
+        from rich.text import Text as _Text
+
+        hostile = "[dim]abcdefghijk[/]"
+        wrong = _Text.from_markup(monitor_shared._clip_cells(
+            monitor_shared._escape_markup(hostile), 18)).plain
+        right = _Text.from_markup(monitor_shared._escape_markup(
+            monitor_shared._clip_cells(hostile, 18))).plain
+
+        self.assertLess(
+            len(wrong.rstrip("…")), len(right.rstrip("…")),
+            "escaping first did not cost visible text — then the ordering "
+            "rule this pins is not doing anything",
+        )
+        self.assertLessEqual(cell_len(right), 18)
+
+    def test_the_row_survives_a_hostile_unknown_dimension_name(self):
+        """Regression for a PRE-EXISTING crash found while building the panel.
+
+        `_entry_seg` falls back to the producer's own string when a dimension is
+        outside the closed vocabulary, and interpolated it into markup
+        unescaped. Measured on the unfixed code: a name of five or more `[`
+        truncates to `[[[[[`, whose dangling tag swallows the arrow's `[/]` and
+        raises MarkupError — the picker goes down on producer input. Swept,
+        because the failure only starts at the truncation length.
+        """
+        for length in range(1, 12):
+            with self.subTest(length=length):
+                self.assertTrue(
+                    self._render(24, 30, "[" * length + "]abc")["shown"])
+
+
+class ConcernDetailGateOrderTests(unittest.TestCase):
+    """The detail gate runs before the fit tier, and is `xshort`-invariant.
+
+    The post-phase half of the t1651 ordering pin. Its sibling
+    `ConcernSizeTierOrderTests` characterises the order that existed BEFORE this
+    task and could only control on `_apply_guidance_visibility`; this one
+    controls on `_apply_detail_visibility`, which exists only now.
+    """
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    SRC = REPO_ROOT / ".aitask-scripts" / "monitor" / "monitor_shared.py"
+    DETAIL_CALL = "self._apply_detail_visibility()"
+    DEFER_CALL = "self.call_after_refresh(self._apply_fit_tier)"
+    INLINE_CALL = "self._apply_fit_tier()"
+
+    def _precedes(self, src: str) -> bool:
+        for anchor in (self.DETAIL_CALL, self.DEFER_CALL, self.INLINE_CALL):
+            self.assertEqual(src.count(anchor), 1, f"ambiguous anchor {anchor!r}")
+        return src.index(self.DETAIL_CALL) < min(
+            src.index(self.DEFER_CALL), src.index(self.INLINE_CALL)
+        )
+
+    def test_the_detail_gate_runs_before_the_fit_tier(self):
+        self.assertTrue(self._precedes(self.SRC.read_text(encoding="utf-8")))
+
+    def test_the_order_check_fails_on_a_reordered_source(self):
+        src = self.SRC.read_text(encoding="utf-8")
+        moved = src.replace(self.DETAIL_CALL + "\n", "", 1)
+        moved = moved.replace(
+            self.INLINE_CALL + "\n",
+            self.INLINE_CALL + "\n        " + self.DETAIL_CALL + "\n", 1,
+        )
+        self.assertNotEqual(moved, src, "the control mutated nothing")
+        self.assertFalse(self._precedes(moved))
+
+    def test_the_runtime_order_matches(self):
+        calls = []
+        real_detail = ConcernPickerModal._apply_detail_visibility
+        real_fit = ConcernPickerModal._apply_fit_tier
+
+        def detail(inner):
+            calls.append("detail")
+            return real_detail(inner)
+
+        def fit(inner):
+            calls.append("fit")
+            return real_fit(inner)
+
+        async def runner():
+            app = _Host(_detail_concerns(), narrow=True)
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(3):
+                    await pilot.pause()
+
+        with unittest.mock.patch.object(
+            ConcernPickerModal, "_apply_detail_visibility", detail
+        ), unittest.mock.patch.object(
+            ConcernPickerModal, "_apply_fit_tier", fit
+        ):
+            self._run(runner())
+        self.assertLess(calls.index("detail"), calls.index("fit"))
+
+    # ---- the oscillation invariant -----------------------------------------
+
+    def _verdict_with_xshort(self, forced: bool):
+        """Panel visibility + height with `xshort` pinned on or off."""
+        out = {}
+
+        async def runner():
+            app = _Host(_detail_concerns(), narrow=True)
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(4):
+                    await pilot.pause()
+                app.screen.set_class(forced, "xshort")
+                for _ in range(2):
+                    await pilot.pause()
+                app.screen._apply_detail_visibility()
+                await pilot.pause()
+                panel = app.screen.query_one("#concern-detail")
+                out["display"] = panel.display
+                out["height"] = int(panel.styles.height.value)
+
+        self._run(runner())
+        return out
+
+    def test_the_gate_is_invariant_under_the_fit_tier_class(self):
+        """t1648's "cannot oscillate" proof depends on exactly this.
+
+        The gate's denominator is the DECLARED budget (a constant times the
+        screen height), never the dialog's resolved `max-height` — which is the
+        only thing `xshort` rewrites. Forcing the class either way must not move
+        the verdict.
+        """
+        self.assertEqual(
+            self._verdict_with_xshort(True), self._verdict_with_xshort(False)
+        )
+
+    def test_a_gate_reading_the_resolved_cap_would_not_be_invariant(self):
+        """Negative control: the rejected design must be shown to differ.
+
+        Without this the invariance assertion above passes for any gate that
+        happens to ignore height entirely.
+        """
+        src = self.SRC.read_text(encoding="utf-8")
+        self.assertIn(
+            "budget = height * _PICKER_MAX_HEIGHT_PCT // 100", src,
+            "the gate no longer derives its budget from the constant",
+        )
+        # The resolved style is what `xshort` rewrites; the constant is not.
+        out = {}
+
+        async def runner():
+            app = _Host(_detail_concerns(), narrow=True)
+            async with app.run_test(size=(100, 40)) as pilot:
+                for _ in range(4):
+                    await pilot.pause()
+                dialog = app.screen.query_one("#concern-dialog")
+                app.screen.set_class(False, "xshort")
+                for _ in range(2):
+                    await pilot.pause()
+                out["off"] = str(dialog.styles.max_height)
+                app.screen.set_class(True, "xshort")
+                for _ in range(2):
+                    await pilot.pause()
+                out["on"] = str(dialog.styles.max_height)
+
+        self._run(runner())
+        self.assertNotEqual(
+            out["off"], out["on"],
+            "`xshort` did not move the resolved max-height — then the "
+            "invariance test above is not controlling for anything",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

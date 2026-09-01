@@ -78,9 +78,13 @@ except ImportError:  # imported flat (tests may put MONITOR_DIR on sys.path)
     )
 
 try:
-    from monitor.concern_dimensions import derive_priority, label_for
+    from monitor.concern_dimensions import (
+        CONCERN_DIMENSIONS, derive_priority, label_for,
+    )
 except ImportError:  # imported flat, as above
-    from concern_dimensions import derive_priority, label_for  # noqa: E402
+    from concern_dimensions import (  # noqa: E402
+        CONCERN_DIMENSIONS, derive_priority, label_for,
+    )
 
 try:
     from monitor.ansi_utils import strip_ansi
@@ -2567,6 +2571,50 @@ _CONCERN_BADGE = {
     "low": "[dim]LOW[/]",
 }
 
+#: Magnitude -> rich style for a trade-profile arrow (t1651). The single site to
+#: retune the ramp; :func:`_magnitude_markup` is only the lookup.
+#:
+#: **Deliberately the same vocabulary as** :data:`_CONCERN_BADGE`, which sits
+#: three cells to its left on the one-line layout. That is not a collision:
+#: `derive_priority` DEFINES the badge as the max improve magnitude, so a red
+#: HIGH badge beside a red improve arrow is the same fact rendered twice.
+#:
+#: **The ramp encodes INTENSITY, never direction.** The glyph (up / down) already
+#: carries direction, so a high improve and a high worsen are the SAME colour on
+#: purpose — re-encoding direction here would leave high/medium/low
+#: indistinguishable, which is the defect this replaces.
+#:
+#: **`low` gets a real colour, unlike the badge's `dim`.** The report that opened
+#: t1651 is that bold-vs-plain-vs-dim on a single glyph is close to unreadable,
+#: and `dim` resolves to no colour at all (`Style.parse("dim").color is None`) —
+#: it is a weight, not a colour. The badge can keep `dim` because it renders a
+#: WORD, where weight is legible; a single arrow is not. So the ramp is
+#: hot -> warm -> cold. For the values it ACTUALLY renders — #ff0000, #ffff00,
+#: #808080 — see the Textual-palette note below the mapping; the bare-Rich
+#: numbers for these names are NOT what reaches the screen.
+#:
+#: **`""` (unspecified) is deliberately OFF that ramp.** `normalize_magnitude`
+#: refuses to degrade it to `low`, and `trade_profile_rungs`' last rung drops the
+#: `?` character that otherwise carries it — so at that rung the colour is its
+#: ONLY carrier and must not collapse into a real magnitude. #6272A4 is this
+#: codebase's existing "inactive / unset" blue (`mark_glyphs`).
+#:
+#: **No value may contain `?`**: that same rung does a positional
+#: `markup.replace("?", "", 1)`, which would strike ramp markup instead of the
+#: unspecified marker. Pinned by `ConcernMagnitudeRampTests`.
+#: **The two named values resolve through TEXTUAL's palette, not Rich's.** This
+#: markup is rendered inside a Textual ``Static``, so `red` is #FF0000 and
+#: `yellow` is #FFFF00 — NOT the #800000 / #808000 that `rich.style.Style.parse`
+#: reports for the same names in isolation. Measuring the bare Rich style is the
+#: wrong context and gives the wrong answer; `ConcernMagnitudeRampTests` pins the
+#: values as they actually composite.
+_MAGNITUDE_RAMP = {
+    "high": "bold red",       # -> #ff0000 + bold  (Textual's `red`)
+    "medium": "bold yellow",  # -> #ffff00 + bold  (Textual's `yellow`)
+    "low": "#808080",         # -> grey; NOT `dim`, which carries no colour
+    "": "#6272A4",            # -> unspecified, off the heat ramp
+}
+
 
 class RejectedEntry(NamedTuple):
     """One row of the per-task rejection store, as pre-fetched by the caller.
@@ -2793,29 +2841,167 @@ _NARROW_INDENT = "   "
 
 
 def _magnitude_markup(arrow: str, magnitude: str) -> str:
-    """Weight the arrow by magnitude — bold high, plain medium, dim low.
+    """Colour the arrow by magnitude, from :data:`_MAGNITUDE_RAMP` (t1651).
 
     The magnitude is carried by *style*, not by extra cells, which is what keeps
-    the packing bound independent of it. The one exception is an **unspecified**
-    magnitude, which gets a real `?` character (see `_entry_seg`): "not stated"
-    is a fact about the concern that no styling can convey, and
+    the packing bound independent of it — see `check_label_widths.__doc__` for
+    the derivation that rests on it. The one exception is an **unspecified**
+    magnitude, which also gets a real `?` character (see `_entry_seg`): "not
+    stated" is a fact about the concern, and
     `concern_dimensions.normalize_magnitude` refuses to degrade it to `low`.
+    That `?` is dropped by the ladder's last rung, which is exactly why
+    unspecified carries its own colour rather than sharing one.
+
+    Replaces a weight-only encoding (bold / plain / dim) that was unreadable on a
+    single glyph, and in which **medium and unspecified were both a bare arrow** —
+    byte-identical once the `?` was dropped.
+
+    An unrecognised magnitude falls back to the unspecified style rather than
+    raising: this is a `render()` path, and `normalize_magnitude` already maps
+    everything it does not recognise to `""`.
     """
-    if magnitude == "high":
-        return f"[bold]{arrow}[/]"
-    if magnitude == "low":
-        return f"[dim]{arrow}[/]"
-    return arrow
+    return f"[{_MAGNITUDE_RAMP.get(magnitude, _MAGNITUDE_RAMP[''])}]{arrow}[/]"
+
+
+def _clip_cells(text: str, budget: int) -> str:
+    """``text`` truncated to ``budget`` **cells**, ellipsized when it did not fit.
+
+    Cells, never ``len()``: a region like ``插件配置模块.py:12`` is 12 characters
+    and 18 cells, and a character-denominated clip overflows the line (t1274).
+    """
+    if budget <= 0:
+        return ""
+    if cell_len(text) <= budget:
+        return text
+    if budget < 2:
+        return set_cell_size(text, budget)
+    return set_cell_size(text, budget - 1) + "…"
+
+
+def _ellipsize_lines(lines: "list[str]", rows: int) -> "list[str]":
+    """At most ``rows`` lines, with a visible marker when any were dropped."""
+    if len(lines) <= rows:
+        return lines
+    kept = lines[:rows]
+    if kept:
+        kept[-1] = kept[-1] + " [dim]…[/]"
+    return kept
+
+
+def _detail_parts(entries, arrow: str) -> "list[tuple[str, int, str, str]]":
+    """One ``(prefix_markup, prefix_cells, full_text, compact_text)`` per entry.
+
+    Deliberately returns BOTH forms as raw text rather than a finished line, and
+    picks neither: the rung is a per-line, per-budget decision made by
+    :func:`_detail_form`, because the last line of a truncated panel has less
+    room than the others (it shares with a ``+N`` marker). Choosing once from
+    the panel width — the first implementation — hid a whole entry that would
+    have fitted: at width 30 with five entries in two rows it rendered one
+    ``▲maintainability (unspecified)`` and ``+4``, when
+    ``▲maintainability +3`` fits in 19 of the 30 cells.
+
+    Raw, because re-clipping an assembled markup string would cut a tag; and
+    because the cell budget is measured on what reaches the screen, not on the
+    escaped form. Escape last — the same rule the rest of this surface follows.
+
+    **The two forms, widest first:**
+
+    - ``correctness (high)`` — the name and the magnitude as a word;
+    - ``correctness`` — the name alone. The magnitude is not lost: the arrow's
+      colour carries it, which is the other half of t1651.
+
+    A name is **never** abbreviated. When even the compact form does not fit,
+    the caller drops the whole entry and says so with the marker, exactly as
+    ``trade_profile_rungs`` drops whole tokens rather than truncating one.
+
+    **No inline rubric.** The one-line definition of each dimension was rendered
+    here at first and removed after visual review: repeated on every entry it
+    dominated the panel and pushed the names — the thing being looked up — into
+    the noise. The vocabulary is documented in ``concern-format.md``.
+    """
+    if entries is None:
+        return [(_magnitude_markup(arrow, ""), 1, "not priced", "not priced")]
+    if not entries:  # `Worsens: nothing.` — priced, and the price is zero
+        return [(_magnitude_markup(arrow, ""), 1, "nothing", "nothing")]
+    out = []
+    for entry in entries:
+        dimension, magnitude = entry[0], entry[1]
+        compact = str(dimension)
+        out.append((
+            _magnitude_markup(arrow, magnitude), 1,
+            f"{compact} ({magnitude or 'unspecified'})", compact,
+        ))
+    return out
+
+
+def _detail_form(part, budget: int) -> "str | None":
+    """The widest form of ``part`` that fits ``budget`` cells, or ``None``.
+
+    ``None`` means "not even the name fits" — the caller must drop the entry
+    rather than abbreviate it. Returning a clipped name here is what the two
+    rungs exist to prevent.
+    """
+    _prefix_markup, prefix_cells, full_text, compact_text = part
+    room = budget - prefix_cells
+    if cell_len(full_text) <= room:
+        return full_text
+    if cell_len(compact_text) <= room:
+        return compact_text
+    return None
+
+
+def _detail_uses_full_form(width: int) -> bool:
+    """Whether the panel renders the magnitude word at ``width``.
+
+    **One rung for the whole panel, not per line.** Letting each line take the
+    widest form that fits was tried and is worse than it looks: it renders
+    ``▲correctness (high)`` beside ``▲verification``, and a reader has no way to
+    tell the second from a genuinely unpriced dimension — ``(unspecified)`` is a
+    real value on this surface, so a missing parenthetical must not be able to
+    mean two different things. The one exception is the line that shares its row
+    with a ``+N`` marker; there the degradation is local and the marker itself
+    explains why that line is shorter.
+    """
+    return max(1, width - 1) >= _DETAIL_FULL_CONTENT_CELLS - 1
+
+
+def _detail_render(part, budget: int, form: "str | None" = None) -> str:
+    """Render one part into markup, at ``form`` or the widest form that fits.
+
+    The dimension name can be an **unknown** one — the parser keeps what the
+    producer wrote — so the text is escaped, and only after the cell-measured
+    fit. The clip on the last branch is defensive: the visibility gate refuses
+    the panel below :data:`_DETAIL_MIN_CONTENT_CELLS`, so a name that cannot fit
+    at the panel's own width does not reach here.
+    """
+    text = form if form is not None else _detail_form(part, budget)
+    if text is None:
+        text = _clip_cells(part[3], max(1, budget - part[1]))
+    return part[0] + _escape_markup(text)
 
 
 def _entry_seg(entry, arrow: str) -> "_Seg":
-    """One impact entry as `\u25b2label` (+ a single `?` when unspecified)."""
+    """One impact entry as `\u25b2label` (+ a single `?` when unspecified).
+
+    **The label is escaped on the markup half only** (t1651). `label_for`
+    returns "" for a dimension outside the closed vocabulary, and the fallback
+    is then the producer's own string — free text on a markup-enabled surface.
+    Measured before the fix: a name of five or more `[` characters truncates to
+    `[[[[[`, whose dangling tag swallows the arrow's `[/]` and raises
+    `MarkupError: auto closing tag ('[/]') has nothing to close`, taking the
+    whole picker down. Pre-existing since t1636_4 and the same failure class
+    t1636_4 itself fixed for the body and region.
+
+    The **plain** half stays raw, exactly as `_region_seg` does it: `_Seg.cells`
+    measures `.plain`, and an escaped string counts backslashes that never reach
+    the screen. Escape late, measure raw.
+    """
     dimension, magnitude = entry[0], entry[1]
     label = label_for(dimension) or str(dimension)[:MAX_PROFILE_LABEL_CELLS]
     suffix = "?" if not magnitude else ""
     return _Seg(
         f"{arrow}{label}{suffix}",
-        f"{_magnitude_markup(arrow, magnitude)}{label}{suffix}",
+        f"{_magnitude_markup(arrow, magnitude)}{_escape_markup(label)}{suffix}",
     )
 
 
@@ -3378,6 +3564,58 @@ _CONCERN_GUIDANCE = (
 #: the help, they fail rather than the keys silently vanishing.
 _GUIDANCE_MIN_WIDTH = 80
 _GUIDANCE_MIN_HEIGHT = 24
+
+#: Row budget for the focused-concern detail panel (t1651): the floor below
+#: which it is not worth showing, and the ceiling it never exceeds.
+#:
+#: The panel renders **one line per impact-vector entry and nothing else**, so
+#: two rows is a real floor rather than a token one — it seats the one improve
+#: and one worsen entry that every priced concern has, which is also exactly
+#: what the row itself degrades to. The ceiling covers a concern that priced
+#: several dimensions per side; beyond it the surplus entries are dropped with
+#: a `+N` marker.
+#:
+#: **MEASURED against the post-t1648 dialog**, using the same `needed` sum
+#: :func:`_apply_measured_height_tier` computes, with the panel excluded. A
+#: **width**-only floor (the shape `_GUIDANCE_MIN_WIDTH` uses) cannot express
+#: this: a tall narrow pane has more vertical room than a short wide one, so a
+#: `>= 80` rule would hide the panel exactly where the row drops the most.
+_DETAIL_MIN_ROWS = 2   # one improve entry + one worsen entry
+_DETAIL_MAX_ROWS = 8   # a concern that priced several dimensions per side
+
+#: Content-width floor, **derived from the closed dimension vocabulary** rather
+#: than chosen: the panel's entire justification is that it shows the FULL
+#: dimension name and the magnitude as a word, where the row can only afford a
+#: 5-cell label and a coloured glyph. Below this width it cannot, and a panel
+#: rendering `verification (medi…` is worse than no panel — it occupies rows
+#: the concern list needs while breaking the promise it exists to keep.
+#:
+#: ``1`` for the arrow + the longest dimension name + the longest magnitude
+#: word in parentheses. Recomputed from :data:`CONCERN_DIMENSIONS`, so adding a
+#: longer dimension moves the floor instead of silently clipping.
+_DETAIL_FULL_CONTENT_CELLS = (
+    1
+    + max(len(name) for name in CONCERN_DIMENSIONS)
+    + len(" (unspecified)")
+)
+
+#: Floor for the COMPACT variant, and the panel's absolute minimum: the arrow
+#: plus the longest dimension name, with the magnitude carried by the arrow's
+#: colour instead of a word. Below this the full name itself cannot fit, and a
+#: clipped name is exactly what the row already gives you.
+#:
+#: The two together are a degradation ladder, deliberately the same shape as
+#: ``trade_profile_rungs``': spend width on the most informative thing that
+#: fits, and drop whole items rather than truncating one mid-word. Rung 1 is
+#: name + magnitude word; rung 2 is the name alone. (An inline rubric was a
+#: third rung at first and was removed after visual review — see
+#: `_detail_parts`.)
+_DETAIL_MIN_CONTENT_CELLS = 1 + max(len(name) for name in CONCERN_DIMENSIONS)
+
+#: Shown when the focused concern carries no impact vector. A mixed block can
+#: hold both kinds (`has_impact_vector` is per concern), so the panel must say
+#: "this one is unpriced" rather than leave the previous row's vector on screen.
+_DETAIL_NO_VECTOR = "no impact vector"
 
 
 def _apply_measured_width_tier(
@@ -4001,6 +4239,14 @@ class ConcernPickerModal(ModalScreen):
     #concern-guidance { color: $text-muted; margin: 0 0 1 0; }
     .concern-section { text-style: bold; color: $accent; height: 1; }
     #concern-list { height: 1fr; min-height: 3; margin: 0 0 1 0; }
+    /* Focused-concern detail (t1651). The height here is a FIXED FALLBACK in
+       cells, never `auto` and never `max-height`: `_apply_detail_visibility` is
+       the sole writer and overwrites it from measured geometry. `auto` would
+       make the height track the focused concern's content, which would let a
+       focus event move the vertical budget `_apply_measured_height_tier` sums —
+       and would make the truncation point vary per row instead of being a known
+       row count. Content is clipped to the budget with a visible ellipsis. */
+    #concern-detail { height: 4; color: $text-muted; margin: 0 0 1 0; }
     #concern-help { color: $text-muted; margin: 0 0 1 0; }
     #concern-buttons { width: 100%; height: auto; layout: horizontal; }
     #concern-buttons Button { margin: 0 1; }
@@ -4174,6 +4420,13 @@ class ConcernPickerModal(ModalScreen):
                         yield _ConcernRow(
                             concern, narrow=self._narrow, original_index=index
                         )
+            # Focused-concern detail (t1651). Composed for a vector-bearing
+            # block only — the same gate the guidance line uses — so a legacy
+            # block renders exactly as it did before. Seeded in `on_mount` and
+            # kept current by `on_descendant_focus`; visibility and height are
+            # set from measured geometry by `_apply_detail_visibility`.
+            if any(has_impact_vector(concern) for concern in self._concerns):
+                yield Static("", id="concern-detail", markup=True)
             # Swapped for the compact variant by _apply_size_tier() once the
             # modal knows its measured width.
             yield Static(_CONCERN_HELP_FULL, id="concern-help")
@@ -4186,9 +4439,33 @@ class ConcernPickerModal(ModalScreen):
         rows = list(self.query(_ConcernRow))
         if rows:
             rows[0].focus()
+            # SEED THE PANEL EXPLICITLY (t1651). `Widget.focus()` is deferred —
+            # the same caveat already documented at `monitor_app.py` and
+            # `minimonitor_app.py` — so `on_descendant_focus` has NOT fired for
+            # this first focus by the time `on_mount` returns. Relying on the
+            # event here leaves the panel blank until the user presses up/down.
+            self._sync_detail(rows[0].concern)
 
     def on_resize(self) -> None:
         self._apply_size_tier()
+
+    def on_descendant_focus(self, event) -> None:
+        """Follow focus with the detail panel (t1651).
+
+        `on_descendant_focus` is the established pattern for this in the repo
+        (`monitor_app.py`, `minimonitor_app.py`, `stats/stats_app.py`,
+        `lib/section_viewer.py`) — preferred over inventing a per-row message,
+        which would put focus knowledge in `_ConcernRow` where none exists today.
+
+        Deliberately does **not** touch visibility or height: those are
+        geometry-derived and owned by `_apply_detail_visibility`. If a focus
+        change could resize the panel it would move the vertical budget
+        `_apply_measured_height_tier` sums, and a focus event would be able to
+        flip the `xshort` cap.
+        """
+        widget = getattr(event, "widget", None)
+        if isinstance(widget, _ConcernRow):
+            self._sync_detail(widget.concern)
 
     def _apply_size_tier(self) -> None:
         """Pick the dialog chrome from the modal's MEASURED size.
@@ -4221,11 +4498,17 @@ class ConcernPickerModal(ModalScreen):
         at healthy vector-bearing geometries. The gate reads only ``self.size``,
         never ``xshort``, so running it first is deterministic and non-circular.
 
-        *Height tier after a help swap has settled.* When the width tier changes
-        the help text, the new text is not laid out yet and its reported height
+        *Detail gate with the guidance, before the height tier* (t1651). It is
+        another ``self.size``-only gate, and it may take the guidance's rows —
+        the precedence is `list > help line > detail panel > guidance`. Running
+        it after the fit tier would charge rows for a panel that never renders.
+
+        *Height tier after every geometry change has settled.* When the width
+        tier changes the help text, or the detail gate moves the panel's display
+        or height, the new geometry is not laid out yet and the reported height
         is stale in both directions, so the fit check is deferred one refresh.
-        This cannot loop: on the deferred pass the text is already correct, the
-        width tier returns ``False``, and the check runs inline.
+        This cannot loop: on the deferred pass both are already correct, both
+        report ``False``, and the check runs inline.
         """
         help_changed = _apply_measured_width_tier(
             self,
@@ -4236,8 +4519,9 @@ class ConcernPickerModal(ModalScreen):
         )
 
         self._apply_guidance_visibility()
+        detail_changed = self._apply_detail_visibility()
 
-        if help_changed:
+        if help_changed or detail_changed:
             self.call_after_refresh(self._apply_fit_tier)
         else:
             self._apply_fit_tier()
@@ -4275,6 +4559,261 @@ class ConcernPickerModal(ModalScreen):
             self.size.width >= _GUIDANCE_MIN_WIDTH
             and self.size.height >= _GUIDANCE_MIN_HEIGHT
         )
+
+    def _rows_needed_excluding(self, *skip) -> int:
+        """Rows the dialog's laid-out children need, ignoring ``skip``.
+
+        The same sum :func:`_apply_measured_height_tier` computes — including
+        the reason `#concern-list` contributes its declared ``min-height``
+        rather than its measured height, which is the *result* of the cap and
+        so would be circular.
+        """
+        dialogs = list(self.query("#concern-dialog"))
+        lists = list(self.query("#concern-list"))
+        if not dialogs or not lists:
+            return 0
+        dialog, concern_list = dialogs[0], lists[0]
+        needed = dialog.gutter.height
+        for child in dialog.children:
+            if not child.display or child in skip:
+                continue
+            margin = child.styles.margin
+            rows = (
+                int(concern_list.styles.min_height.value or 0)
+                if child is concern_list
+                else child.size.height
+            )
+            needed += rows + margin.top + margin.bottom
+        return needed
+
+    def _apply_detail_visibility(self) -> bool:
+        """Show and size the detail panel from MEASURED geometry (t1651).
+
+        **The denominator is the DECLARED budget — ``screen height *
+        _PICKER_MAX_HEIGHT_PCT``— never the dialog's resolved ``max-height``.**
+        The distinction is the whole design:
+
+        - the resolved style is what `xshort` rewrites, so reading it would feed
+          this panel's size back into the class that sets the cap and break
+          t1648's stated "cannot oscillate" property;
+        - the declared budget is computed from a **constant** and the screen
+          size, both invariant under `xshort`. This method never reads the class.
+
+        So the panel is sized to fit *within* the ordinary 80% cap, and
+        therefore **cannot by itself flip `xshort`**. That is deliberate and not
+        merely conservative: `xshort` means "the cap cannot seat this dialog's
+        content", and letting advisory chrome inflate the content until that
+        became true would grow the dialog to full screen height wherever the
+        panel appears and hollow the tier out — `ConcernVerticalFitTierTests`
+        pins 24x30 as narrow-but-NOT-short, and it stays that way.
+
+        The consequence is honest and measured: the panel is refused at some
+        geometries that have raw screen rows to spare (40x30) because the cap
+        withholds them. Those are t1652's bands.
+
+        **The width floor protects the dimension NAME, and only the name.**
+        Between the two floors the panel degrades rather than disappearing —
+        :func:`_detail_parts` drops the magnitude word and keeps
+        ``▲correctness``, because the arrow's colour still carries the magnitude.
+        The gate here enforces the lower floor,
+        :data:`_DETAIL_MIN_CONTENT_CELLS`: below it the full name itself cannot
+        fit, and a panel rendering ``verification…`` would occupy rows the
+        concern list needs while breaking the one thing it is for. Only there
+        does it yield entirely — the row's own coloured glyph is the better
+        answer at that width.
+
+        **Runs BEFORE `_apply_fit_tier`** for the reason that method's docstring
+        gives: the fit tier charges rows for every *displayed* child, so a panel
+        left displayed when it should not be would lift the cap at a healthy
+        geometry. Pinned by `ConcernSizeTierOrderTests` and
+        `ConcernDetailGateOrderTests`.
+
+        **Precedence.** `concern list > help line > detail panel > guidance`.
+        The panel outranks `_CONCERN_GUIDANCE` — the guidance restates a rubric
+        the vector already encodes, whereas the panel shows data the row
+        actually dropped — so it may take the guidance's rows. It never outranks
+        the help line's key names or the list.
+
+        **Returns whether it moved the panel's display or height**, for the same
+        reason :func:`_apply_measured_width_tier` reports its help swap: the new
+        geometry is NOT laid out by the time this returns, so a caller that goes
+        on to *measure* the children must wait a refresh. Measured at 24x30, the
+        fit tier reading the stale height summed 2 rows too many, concluded the
+        cap could not seat the dialog, and set `xshort` on a geometry t1648 pins
+        as narrow-but-NOT-short.
+        """
+        widgets = list(self.query("#concern-detail"))
+        if not widgets:
+            return False  # a legacy block: no panel was composed at all
+        panel = widgets[0]
+        before = (panel.display, str(panel.styles.height))
+        width, height = self.size.width, self.size.height
+        if width <= 0 or height <= 0:
+            return False  # pre-layout: children report 0; wait rather than latch
+
+        guidance = list(self.query("#concern-guidance"))
+
+        budget = height * _PICKER_MAX_HEIGHT_PCT // 100
+
+        def spare() -> int:
+            return budget - self._rows_needed_excluding(panel)
+
+        room = spare()
+        # The panel outranks the guidance: if hiding the advisory line is what
+        # buys the room, do it. Bounded — one retry, never a loop.
+        if room < _DETAIL_MIN_ROWS + 1 and guidance and guidance[0].display:
+            guidance[0].display = False
+            room = spare()
+            if room < _DETAIL_MIN_ROWS + 1:
+                guidance[0].display = True  # it bought nothing; give it back
+                room = spare()
+
+        # The width the panel would actually get to draw in — the dialog's own
+        # content box, which is laid out whether or not the panel is displayed
+        # (the panel's `size.width` is 0 while it is hidden, so it cannot be
+        # the input to the decision that unhides it).
+        dialogs = list(self.query("#concern-dialog"))
+        content_width = (
+            dialogs[0].size.width - dialogs[0].gutter.width if dialogs else 0
+        )
+        show = (
+            content_width >= _DETAIL_MIN_CONTENT_CELLS
+            and room >= _DETAIL_MIN_ROWS + 1
+        )
+        panel.display = show
+        target = 0
+        if show:
+            # Size to what the panel will actually DRAW, not to every spare row:
+            # the content is one line per impact entry, a small known count. The
+            # `- 1` is the panel's own bottom margin, which `spare` counted
+            # against it. Explicit cell height, never `auto` — see the CSS.
+            focused = self._focused_concern()
+            wanted = (
+                len(self._detail_lines(focused))
+                if focused is not None else _DETAIL_MIN_ROWS
+            )
+            target = max(1, min(wanted, _DETAIL_MAX_ROWS, room - 1))
+            panel.styles.height = target
+            self._sync_detail(focused)
+        changed = before != (panel.display, str(panel.styles.height))
+        # **Also defer while the LAID-OUT height still disagrees with the
+        # target.** The style is set here; the size the fit tier actually reads
+        # catches up a refresh later, and `changed` alone does not cover the
+        # pass where this method rewrote nothing but layout had not yet applied
+        # the previous pass's value. Measured at 24x30: the gate converged
+        # 8 -> 6 -> 6 while every fit-tier call still saw 6 as 8, summed 26
+        # against a budget of 24, and set `xshort` on a geometry t1648 pins as
+        # not-short. Cannot spin: this only defers the fit tier (never re-runs
+        # this gate), and layout converges on its own.
+        pending = show and panel.size.height != target
+        return changed or pending
+
+    def _focused_concern(self):
+        """The focused row's concern, or the first row's when nothing is focused."""
+        rows = list(self.query(_ConcernRow))
+        if not rows:
+            return None
+        for row in rows:
+            if row.has_focus:
+                return row.concern
+        return rows[0].concern
+
+    def _sync_detail(self, concern) -> None:
+        """Rewrite the panel for ``concern``; a no-op when there is no panel."""
+        widgets = list(self.query("#concern-detail"))
+        if not widgets or concern is None:
+            return
+        panel = widgets[0]
+        rows = int(panel.styles.height.value or _DETAIL_MIN_ROWS)
+        width = max(1, panel.size.width or self.size.width or _DETAIL_MIN_WIDTH)
+        panel.update(self._detail_text(concern, width, rows))
+
+    def _detail_text(self, concern: "Concern", width: int, rows: int) -> str:
+        """Rich markup for the focused concern's impact vector, in ``rows`` lines.
+
+        **Dimensions only.** One line per improve / worsen entry — coloured
+        arrow, full dimension name, magnitude as a word — and nothing else. No
+        body preview, no region, no effort or disposition line, and no inline
+        rubric: the row directly above already carries the region and the
+        disposition, and repeating them here read as duplication rather than
+        detail.
+
+        What the panel is for is the part the row genuinely cannot show: the row
+        degrades to ONE improve entry, ONE worsen entry and 5-cell labels
+        (``▲corr ▼simpl E:lo``), so every additional entry and every full name is
+        exactly what is missing.
+
+        **A ``+N`` marker reserves its own cells.** Entries that do not fit are
+        announced, never dropped silently — but the announcement is appended to
+        a line that may already be exactly ``width`` cells wide, so the final
+        surviving entry is RE-RENDERED against ``width - marker`` rather than
+        having the marker bolted on. Measured before the fix: five entries at
+        width 30 in one row produced ``▲maintainability (unspecified) +4`` at 33
+        cells, which Rich folds to a second row — silently breaking the declared
+        height this panel's whole geometry contract rests on.
+
+        Width is spent by the two-rung ladder in :func:`_detail_parts`, which
+        drops the magnitude word rather than ever truncating a name.
+        """
+        parts = self._detail_lines(concern)
+        # One rung for the whole panel — see `_detail_uses_full_form` for why a
+        # per-line choice is misleading rather than merely inconsistent.
+        full = _detail_uses_full_form(width)
+
+        def render(part, budget=width):
+            return _detail_render(part, budget, part[2] if full else part[3])
+
+        if len(parts) <= rows:
+            return "\n".join(render(part) for part in parts)
+
+        # Inline the marker when the last surviving entry fits beside it IN
+        # EITHER RUNG. `_detail_form` re-picks the form against the reduced
+        # budget, so an entry whose full form does not fit can still be kept in
+        # its compact one rather than dropped: at width 30 that is the
+        # difference between `▲maintainability (unspecified)` + `+4` and
+        # `▲maintainability (unspecified)` / `▲maintainability +3`, which shows
+        # one more of exactly the names this panel exists to recover.
+        if rows >= 1:
+            marker = f" +{len(parts) - rows}"
+            reduced = width - cell_len(marker)
+            if _detail_form(parts[rows - 1], reduced) is not None:
+                lines = [render(part) for part in parts[: rows - 1]]
+                # This ONE line may fall back a rung — `_detail_form` re-picks
+                # against the reduced budget, so an entry whose full form does
+                # not fit beside the marker is kept compact rather than dropped.
+                lines.append(
+                    _detail_render(parts[rows - 1], reduced)
+                    + f"[dim]{marker}[/]"
+                )
+                return "\n".join(lines)
+
+        # Not even the name fits beside the marker: drop that entry too and give
+        # the marker its own row. Fewer names, but every name shown is whole —
+        # and the count stays honest about what was dropped.
+        keep = max(0, rows - 1)
+        lines = [render(part) for part in parts[:keep]]
+        lines.append(f"[dim]+{len(parts) - keep}[/]")
+        return "\n".join(lines)
+
+    def _detail_lines(self, concern) -> "list[tuple[str, int, str, str]]":
+        """Every entry the panel would draw, unrendered and width-independent.
+
+        Split out so :meth:`_apply_detail_visibility` can size the panel to what
+        it will actually draw instead of greedily taking every spare row, and so
+        :meth:`_detail_text` can pick each line's rung against that line's own
+        budget. Carries no width: the entry COUNT does not depend on it, and the
+        form does not depend on the panel width either — only on the room the
+        individual line gets.
+        """
+        if not has_impact_vector(concern):
+            return [("[dim]", 0, _DETAIL_NO_VECTOR, _DETAIL_NO_VECTOR)]
+        parts: "list[tuple[str, int, str, str]]" = []
+        for entries, arrow in (
+            (concern.improves, _IMPROVE_ARROW),
+            (concern.worsens, _WORSEN_ARROW),
+        ):
+            parts.extend(_detail_parts(entries, arrow))
+        return parts
 
     def action_inspect_unrecovered(self) -> None:
         """Show the marker lines this block lost, over the still-open picker.

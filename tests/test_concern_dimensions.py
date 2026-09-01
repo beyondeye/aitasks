@@ -232,6 +232,15 @@ class TestVocabularyContent(unittest.TestCase):
         self.assertRegex("robustness", f"^(?:{pipe})$")
 
     def test_accessors_are_total(self):
+        """Both accessors, including `rubric_for`, which has NO caller.
+
+        `rubric_for` exists for symmetry with `label_for`; the rubric text is
+        consumed by humans and agents out of `concern-format.md`, not through
+        this accessor. t1651 rendered it inline in the concern picker's detail
+        panel and removed it again after visual review — repeated on every entry
+        it buried the dimension names the panel exists to show. Recorded so the
+        next reader does not mistake the absence of callers for an oversight.
+        """
         self.assertEqual(label_for("robustness"), "robus")
         self.assertEqual(rubric_for("simplicity"), CONCERN_DIMENSIONS["simplicity"][1])
         # An unknown or absent name yields "" rather than raising.

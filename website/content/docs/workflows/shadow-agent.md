@@ -113,11 +113,46 @@ Where a concern priced itself, the picker renders that impact vector as a compac
 
 Three things the row encodes without spending characters on them:
 
-- **Magnitude is carried by the arrow's weight**, not by extra text: bold for high, plain for medium, dim for low. A `?` after a label means something different — that the magnitude was never stated — and it is never quietly read as `low`. The dimensions are what to act on; the magnitudes only refine them.
+- **Magnitude is carried by the arrow's colour**, not by extra text: red for high, yellow for medium, grey for low, and a muted blue when the magnitude was never stated. The colour is a scale of *how much*, not of good-versus-bad — direction is already the glyph's job, so a high improve and a high worsen are the same colour on purpose. A `?` after a label also marks an unstated magnitude, and it is never quietly read as `low`; at the narrowest widths that `?` is the first thing dropped, which is why "unstated" has a colour of its own rather than sharing one. The dimensions are what to act on; the magnitudes only refine them.
 - **`▲–` or `▼–` means that side was priced and the price is nothing.** A side the shadow never priced renders no token at all. "Priced as nothing" and "never priced" are different facts, and keeping them apart is the entire point of making the worsen side mandatory.
 - **`+N` counts entries that did not fit.** What is dropped as space runs short is ordered so the first improve entry, the first worsen entry and the effort always survive — a row can never show you an improvement without its price.
 
 In a wide picker the profile sits between the region and the body on one line. In a narrow companion pane the row grows to three lines: region, body, then the profile on its own. **A concern that priced nothing on any axis has no trade profile and renders exactly as it always has** — pricing only a cost, or only an effort, is still pricing.
+
+### See the whole impact vector
+
+The row cannot show all of it. As space runs short the trade profile degrades to
+one improve entry, one worsen entry and the effort — with five-character labels —
+so a concern that priced four dimensions shows two of them, abbreviated.
+
+Where the dialog has the rows to spare, a **detail panel** below the list spells
+out the focused concern's vector: one line per entry, with the full dimension
+name and, where the width allows, the magnitude as a word.
+
+```text
+▲correctness (high)
+▲verification (medium)
+▼simplicity (low)
+▼performance (unspecified)
+```
+
+The panel follows the selection — move with ↑/↓ and it re-fills for whichever
+concern is focused — and it is populated as soon as the picker opens, before you
+press anything. There is no key to press: it appears wherever there is room and
+steps aside where there is not, taking only as many rows as it has entries to
+draw. In a short pane (a 40x20 companion, for instance) it does not appear at
+all, and the row's compact profile remains the data.
+
+It shows the vector and nothing else — no body, no region, no disposition. Those
+are already on the row directly above it, and repeating them there reads as
+duplication rather than detail.
+
+Two things it will not do. It never cuts a dimension name in half: where the
+magnitude word does not fit it drops the word and keeps the name, and below the
+width where the name itself fits, the panel steps aside entirely. And it never
+drops an entry silently — anything that did not fit is counted with a `+N`. If
+the focused concern priced nothing, the panel says so rather than leaving the
+previous concern's vector on screen.
 
 **The priority badge.** For a concern that priced itself, the badge shows a priority derived from its improve side rather than the one the shadow typed. Where the two disagree a `≠` appears beside the badge: both facts stay visible, because the picker is where you decide and quietly reconciling them would hide the disagreement. A concern that priced nothing keeps its stated priority and never shows a `≠`.
 
