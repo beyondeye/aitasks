@@ -339,3 +339,122 @@ fixture.
 
 Post-implementation cleanup, archival, and merge follow the shared
 `task-workflow` Step 9.
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven planned changes landed, across 35 modified
+  files plus two new ones. The canonical table gained four rows (`xdeprepo`,
+  `xdeps`, `artifacts`, `attachments`), a worked nested-field example with its
+  own heading, the `--also-blocks-dependents` flag on the
+  `also_blocks_dependents` row, and a "Fields the workflow writes for you"
+  subsection recording the workflow-written-flag policy. Its "Customizing Task
+  Types" block went from 8 defaults to 10. Five more website pages, `CLAUDE.md`,
+  the seed, the three generated instruction mirrors, five skill sources, the six
+  tracked `-remote-` closures and twelve goldens were brought into line. The new
+  guard is `tests/test_docs_vocabulary_coverage.sh` driving
+  `tests/lib/docs_vocabulary_scan.py`.
+
+- **Deviations from plan:** Two, both additive and both flagged before
+  implementation rather than discovered after.
+  - **`attachments` is a fourth undocumented field.** The task's ACs named
+    three. Deriving the field set from the *writers* rather than the corpus (see
+    Key decisions) surfaced `attachments`, written by `ait attach add`, with zero
+    on-disk instances and no coverage anywhere in `website/content/docs`. It is
+    documented here. This also falsifies the task body's claim that `artifacts`
+    is "the header's only nested field" — there are two.
+  - **`.claude/skills/aitask-changelog/SKILL.md:57` is a tenth enumerating
+    site** the task's exploration missed, and it was the worst of them: 8 values,
+    missing both `enhancement` and `manual_verification`. Corrected to `FULL`.
+
+  One correction to the task body rather than a deviation: `artifacts` entries
+  carry only `handle`, `kind` and optional `name`
+  (`aitask_artifact.sh:270`), not the nine-key `FIELD_ORDER` in
+  `frontmatter_patch.py:47` — that list is a shared *emission ordering* spanning
+  both nested fields, and `attachments` uses a different six of its keys.
+
+- **Issues encountered:**
+  - **A concurrent session held 7 of the 26 target files.** The pre-phase
+    `baseline_generated_surfaces` mitigation caught it on its first run: a
+    resource-admission feature (t1597) was mid-flight across
+    `task-workflow/SKILL.md`, its three `-remote-` closures and its three
+    goldens. Committing those paths would have swept that work into this task's
+    commit. Reported and paused rather than working around it; the user landed
+    t1597, the tree went clean, and the baseline was re-run from scratch and
+    came back zero-diff across all four generated surfaces. Every line in the
+    final generated diff is therefore provably attributable to this task.
+  - **Three extraction bugs in the first scanner draft**, all found by running
+    it rather than by inspection: `plain_paren` did not strip an in-place
+    `defaults:` introducer; `backtick_list` did not handle a **line-wrapped**
+    enumeration (`CLAUDE.md` and the seed both wrap theirs); and the
+    `frontmatter_patch.py` caller detection matched a passing mention in an
+    `aitask_board.py` docstring. Fixed by adding a `_join_wrapped` helper, a
+    label-prefix strip, and requiring an actual `append|remove|set` invocation.
+
+- **Key decisions:**
+  - **The guard's field source of truth is the writers, not the corpus.** A
+    corpus-derived required-set fails open on exactly the case this task exists
+    to prevent: a field that exists in code but has not yet been written to any
+    task file has zero instances, so the check stays green while the table is
+    already wrong. `attachments` was that case, live in the repo. The writer set
+    is the `echo "<field>: "` emissions of `aitask_update.sh` / `aitask_create.sh`,
+    plus `completed_at` from `aitask_archive.sh`, plus the field argument passed
+    to `frontmatter_patch.py` by its callers, minus the named draft-envelope keys
+    `draft` / `parent`. Because "documented but no writer" is empty, the
+    assertion is **bidirectional** — strictly stronger than the one-way check a
+    corpus source would have forced. The corpus scan survives, demoted to a
+    separate supplemental diagnostic (`E/corpus`).
+  - **Per-site checks extract the enumeration, then compare sets.** A "no
+    excluded value appears in the slice" assertion is unusable here, because
+    every `NO_MV` site must *state why* `manual_verification` is absent and the
+    rationale sentence necessarily contains the token. Five declared shapes
+    (`pipe`, `pipe_wrapped`, `table_cell`, `backtick_list`, `plain_paren`,
+    `fenced_lines`) carve out the enumeration span; prose outside it is
+    invisible. Test 5 and Test 6 together pin both halves: adding the value to
+    the *enumeration* fails, naming it in the *rationale* does not.
+  - **`manual_verification:` is not a valid commit type.** Evidence: 0 of the
+    last 3000 commits use it; a manual-verification task records its outcome as
+    `ait: Record verification state for t<id>`; any code change a failed
+    checklist item triggers lands on a spawned follow-up under that follow-up's
+    own type. The two commit-type sites and `aitask-wrap`'s suggestion list stay
+    9-valued (`NO_MV`) with the reason stated in place, and the reason is encoded
+    in `NO_MV_EXCLUDES` so it is enforced, not just asserted.
+  - **`issue-tracker.md` is `DETECTED` (8), not `FULL`.** It describes what
+    `github_detect_type()` can infer from an issue label. That function emits
+    bug/refactor/test/style/chore/documentation/performance and otherwise falls
+    back to `feature` — so the page was **over**-claiming `enhancement`, a
+    second error in the opposite direction from the one the task reported.
+    `enhancement` was removed and the `feature` fallback named.
+  - **Workflow-written flags stay undocumented, as recorded policy.** The seven
+    absent flags all write fields already marked "Framework-derived — never
+    hand-edit" or "written by the workflow only". Where a field *is* meant to be
+    set by a person the flag is named in its own row (`verification_baseline`,
+    `boardgroup`), and that contrast is now stated explicitly so the omission
+    reads as a decision.
+  - **The tracked `-remote-` closures are guard sites.** `.gitignore` excludes
+    `.claude/skills/*-/`, but the `-remote-` trees are committed anyway and ship
+    to users. Listing their six enumerating files in `SITES` turns "edited the
+    source, forgot `aitask_skill_rerender.sh remote`" into a failing test.
+  - **Goldens are deliberately *not* guard sites.** They are byte-compared
+    against a live render by `tests/test_skill_render_*.sh`, so they cannot drift
+    from their sources independently; adding them would only double-report.
+
+- **What the guard does not buy** (recorded in the scanner header and in
+  `aidocs/issue_type_vocabulary_duplication.md`): a field is visible only once a
+  writer the scanner knows about can emit it. A brand-new script writing
+  frontmatter directly stays invisible. The gap is narrowed, not closed, by
+  asserting `PATCH_CALLERS` is exactly the set of `frontmatter_patch.py` callers
+  that exist — so adding a nested-field writer fails the guard instead of
+  slipping past it. For a genuinely new field, the checklist in
+  `aidocs/framework/aitasks_extension_points.md` §5 remains the mechanism.
+
+- **Verification:** new guard 25/25 (10 negative controls, each proven to flip
+  its own check to FAIL against an unmutated-and-passing fixture baseline);
+  `test_agent_instructions.sh` 146/146; `test_skill_render_task_workflow.sh`
+  204/204; `test_skill_render_aitask_wrap.sh` 96/96;
+  `test_skill_render{,_uniform}.sh`, `_rerender`, `_verify`, `_parity`,
+  `_dispatch_contract`, `change_surface`, `serial_carveout` all pass;
+  `aitask_skill_verify.sh` clean; `hugo build --gc --minify` 240 pages with
+  `id=nested-fields-artifacts-and-attachments` confirmed by hand in the built
+  HTML (a dead `#fragment` does not fail the build).
+
+- **Upstream defects identified:** None
