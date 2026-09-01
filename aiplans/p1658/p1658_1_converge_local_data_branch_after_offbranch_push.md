@@ -515,3 +515,98 @@ Step 9 (Post-Implementation) covers cleanup, archival and merge.
 ### Planned mitigations
 - timing: post-phase | name: branch_mode_metadata_fixture | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement risk 2 | desc: build `tests/lib/metadata_update_fixture.sh` :: `setup_branch_mode_metadata_repo` (real `.aitask-data` worktree, the `aitasks`/`aiplans` symlinks, seeded models file, `ait` shim) and re-run the convergence and outcome assertions through it, so the seam is exercised in the shape production runs and t1658_2 can reuse the fixture
 - timing: post-phase | name: converge_race_stress | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement risk 1 | desc: drive two metadata updates plus a competing pusher against one origin and assert every run ends either `UPDATED:`/`0` with the local-ref invariant holding, or `UPDATED_REMOTE_ONLY:`/`3` with `diverged`/`local_diverged` and correct counts — never a silent strand
+
+## Final Implementation Notes
+
+- **Actual work done:** All of steps 1–7 as planned, including both inline
+  post-phases. `task_data_converge()` + `_task_converge_warn()` +
+  `ff_blocked`/`local_diverged` hint arms in `task_utils.sh`; pre-converge,
+  the `sync_current_repo_from_remote` → `converge_current_repo_with_remote`
+  rename, the pushed-sha capture and the `merge-base --is-ancestor` invariant
+  check in `verified_update_lib.sh`; the out-param conversion across the chain
+  and both `main()`s; `UPDATED_REMOTE_ONLY:` / exit 3 documented in both
+  `--help`s; the third outcome taught to `satisfaction-feedback.md` (rerendered,
+  3 goldens regenerated). Tests: 56 new assertions in `test_task_push.sh`
+  (182 total), 43 in `test_verified_update.sh` (135), 13 in
+  `test_usage_update.sh` (49), plus the shared
+  `tests/lib/metadata_update_fixture.sh`.
+
+- **Deviations from plan:** Three, all approved during plan verification and
+  recorded in the body above rather than only here.
+  1. The plan's "all three functions set both globals" bullet was **wrong** for
+     `commit_metadata_update_local` — `main()` already holds the value on the
+     local path — and was replaced with a single contract table (only the remote
+     path produces a value).
+  2. The two-pass loop had no specified trigger, and its ahead-only arm
+     terminated `failed` on the racing case, making `converge_race_stress`'s
+     `diverged`/`local_diverged` assertion unreachable. A lost non-fast-forward
+     push is now the one thing that consumes pass 2.
+  3. The Verification block gained `tests/test_skill_render_task_workflow.sh`:
+     `aitask_skill_verify.sh` runs **no** golden assertions, so it cannot catch
+     a stale golden.
+
+  Two further deviations came out of review:
+  4. `_task_converge_warn` gained an undeterminable-counts arm mirroring
+     `_task_sync_warn` — without it the `no_upstream` warning claimed a concrete
+     "0 local unpushed, 0 remote unpulled" for a state where both probes print
+     nothing.
+  5. The recovery tests' exit assertions were vacuous: `out="$(cmd | tail -n1)"`
+     followed by `${PIPESTATUS[0]}` reads the assignment's status (always 0).
+     Both now capture `$?` from the substitution with no pipeline, and the
+     ff_blocked case gained the exit assertion it was missing.
+
+- **Issues encountered:**
+  - `shellcheck` SC2034 on the last `TASK_CONVERGE_STATUS` assignment: the
+    sibling `TASK_*_STATUS` globals escape it only because each has an in-file
+    reader. Resolved by making `_task_converge_warn` name the status — which is
+    independently justified, since that one function emits three distinct
+    non-success statuses where `_task_sync_warn` emits one. The lib's
+    `AIT_METADATA_*` out-params, which genuinely have no in-file reader, carry a
+    narrow `disable=SC2034` with the reason.
+  - The first draft of the converge tests captured `task_data_converge` in
+    `$( )` — the exact defect this task removes — so every global read back
+    empty. The tests now redirect stderr to a file and read the globals in the
+    caller.
+  - Two fixture facts: the recovery **rebases** (so an original-sha ancestry
+    assertion is wrong; assert surviving content), and `auto_commit`'s
+    `git add aitasks/ aiplans/` fails wholesale when either directory is
+    missing, silently no-opping the recovery.
+  - A concurrent session was active in this worktree throughout (resource-
+    admission and gate-ledger work). All commits here are path-scoped; no file
+    belonging to that stream was staged.
+
+- **Key decisions:**
+  - The local-ref invariant is evaluated as a **runtime fact**
+    (`merge-base --is-ancestor "$pushed_sha" HEAD`), never inferred from
+    `TASK_CONVERGE_STATUS` — a status token describes the mechanism, the
+    ancestry check describes whether the commit is actually present.
+  - `blocked` is terminal and fails closed; `diverged` is reported, not
+    resolved, with ownership handed to `./ait sync` — and that hand-off is
+    **executed** by two recovery tests rather than asserted in prose.
+  - Every new test carries a negative control: `pull --rebase` exiting 128 in
+    the same fixture state where `merge --ff-only` returns 0; a `$( )` wrapper
+    leaving the verdict at its pre-call value; a non-race push failure still
+    terminating `failed`; a clean-file run yielding `UPDATED:`/0. Four mutation
+    probes confirmed the load-bearing assertions fail on the pre-fix behaviour.
+  - The branch-mode assertions were made **discriminating** — `verified.pick`
+    stays 80 either way, so the test asserts the data branch gained a commit and
+    that `verifiedstats` (absent from the seed) was written there.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - `tests/lib/metadata_update_fixture.sh` is the shared fixture t1658_2 should
+    reuse: `setup_remote_metadata_repo <script>` (legacy origin+work) and
+    `setup_branch_mode_metadata_repo <script>` (a real `.aitask-data` worktree
+    with `aitasks/`/`aiplans/` symlinks and a data-branch-routing `ait` shim).
+    Both take the script basename, so t1658_2 can point them at whatever entry
+    point it exercises.
+  - **`task_data_converge` reports through globals — never call it inside
+    `$( )`.** Same for the `AIT_METADATA_*` pair. The unit test in
+    `test_verified_update.sh` has a `$( )` negative control that fails loudly on
+    a refactor back to a substitution.
+  - A branch-mode fixture assertion must be chosen so it cannot pass in legacy
+    mode. Prefer "the data branch gained a commit" / "a key absent from the seed
+    now exists" over any value that is equal in both modes.
+  - t1658_2 owns the cwd / data-worktree-resolution hazard (parent AC5);
+    `_ait_detect_data_worktree()` was deliberately left untouched here.
