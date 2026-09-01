@@ -62,6 +62,7 @@ documentation
 execution_profiles
 fold
 framework
+frontmatter
 gates
 geminicli
 git
@@ -104,6 +105,7 @@ sanboxing
 scheduling
 script-performance
 scroll
+seed
 shadow
 shadow-concern
 shell
