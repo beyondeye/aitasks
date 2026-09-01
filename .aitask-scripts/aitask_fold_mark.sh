@@ -592,13 +592,129 @@ _fold_rollback() {
     task_git checkout -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
 }
 
+# _fold_task_id_of_path -- task/plan id owning a repo path, empty when the path
+# is not a task/plan file.
+#
+# Only the CANONICAL direct locations count -- `<TASK_DIR>/t<N>_*.md` and
+# `<TASK_DIR>/t<P>/t<P>_<C>_*.md` (same for `<PLAN_DIR>`/`p`). Matching on the
+# basename alone was too loose: `aitasks/metadata/t10_unrelated.md` and
+# `aitasks/archived/t10_old.md` both parsed as task 10 and would have been
+# ACCEPTED by the guard when folding into t10 -- exactly the unknown-metadata
+# class default-deny exists to refuse. A child's filename id must also agree
+# with its enclosing directory, so `aitasks/t99/t10_2_x.md` is not task 10_2.
+# Anything outside these shapes returns empty and falls to the deny branch.
+_fold_task_id_of_path() {
+    local p="$1" root pfx rest dir base pnum
+    case "$p" in
+        "$TASK_DIR"/*) root="$TASK_DIR"; pfx=t ;;
+        "$PLAN_DIR"/*) root="$PLAN_DIR"; pfx=p ;;
+        *) return 0 ;;
+    esac
+    rest="${p#"$root"/}"
+    # Deeper than <dir>/<file> is never a canonical task/plan location.
+    case "$rest" in */*/*) return 0 ;; esac
+    if [[ "$rest" == */* ]]; then
+        dir="${rest%%/*}"
+        base="${rest#*/}"
+        [[ "$dir" =~ ^${pfx}([0-9]+)$ ]] || return 0
+        pnum="${BASH_REMATCH[1]}"
+        [[ "$base" =~ ^${pfx}${pnum}_([0-9]+)_.*\.md$ ]] || return 0
+        printf '%s_%s' "$pnum" "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    [[ "$rest" =~ ^${pfx}([0-9]+)_.*\.md$ ]] && printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+}
+
+# Refusal reason set by _fold_amend_guard; read by the amend arm.
+_fold_amend_refusal=""
+
+# _fold_amend_guard -- decide whether HEAD is this fold's commit to rewrite.
+# 0 = safe to amend, 1 = refuse (reason in _fold_amend_refusal).
+#
+# DEFAULT-DENY. Every path in HEAD must match one of three accept branches;
+# anything else refuses. There is deliberately no "warn and proceed" bucket: a
+# warn-only branch would wave through the foreign `aitasks/metadata/gates.yaml`
+# that commit 21219b0b4 actually swallowed, which is the failure this exists to
+# stop.
+#
+# It never die()s. Steps 3-5b have already written every fold mutation to disk
+# by the time Step 6 runs, so a bare die() here would leave the primary and
+# folded task files dirty -- and a dirty task-file set is exactly what the next
+# unscoped commit sweeps up, re-creating this task's own defect. The caller
+# runs _fold_rollback first, matching the other two failure exits in this block.
+_fold_amend_guard() {
+    local ups="" head_short="" p pid
+    local -A owned_ids=()
+    local -a foreign=()
+
+    # Ids whose task/plan files this fold legitimately touches.
+    local _oid
+    for _oid in "$primary_id" ${folded_ids[@]+"${folded_ids[@]}"} \
+                ${transitive_ids[@]+"${transitive_ids[@]}"}; do
+        _oid="${_oid#t}"
+        owned_ids["$_oid"]=1
+        # A child id also legitimises its parent: aitask_create.sh co-commits
+        # the parent file when it creates a child (:861-862), and fold marking
+        # edits it via --remove-child.
+        [[ "$_oid" =~ ^([0-9]+)_[0-9]+$ ]] && owned_ids["${BASH_REMATCH[1]}"]=1
+    done
+
+    # The fold's own file set, including the attachment-meta rebinds, which are
+    # not .md paths and would otherwise fall through to the deny branch.
+    local -A own_paths=()
+    for p in "${rollback_paths[@]}"; do own_paths["$p"]=1; done
+
+    local labels_path
+    labels_path="$(labels_file_path)"
+
+    while IFS= read -r p; do
+        [[ -n "$p" ]] || continue
+        [[ -n "${own_paths[$p]:-}" ]] && continue
+        pid="$(_fold_task_id_of_path "$p")"
+        if [[ -n "$pid" ]]; then
+            [[ -n "${owned_ids[$pid]:-}" ]] && continue
+        elif [[ "$p" == "$labels_path" ]]; then
+            # The one non-task path an amend-preceding step legitimately
+            # co-commits: aitask_create.sh stages the label vocabulary at every
+            # commit site. Refusing it would break the fold step of
+            # aitask-explore / aitask-pr-import on their normal path.
+            warn "amend will also carry ${p} (co-committed label vocabulary)"
+            continue
+        fi
+        foreign+=( "$p" )
+    done < <(task_git show --name-only --format='' HEAD 2>/dev/null || true)
+
+    head_short="$(task_git rev-parse --short HEAD 2>/dev/null || echo "HEAD")"
+
+    if (( ${#foreign[@]} > 0 )); then
+        _fold_amend_refusal="refusing --commit-mode amend: HEAD (${head_short}) carries paths outside this fold:
+$(printf '  %s\n' "${foreign[@]}")
+Re-run with --commit-mode fresh."
+        return 1
+    fi
+
+    # Rewriting a published commit changes its SHA under everyone who has it,
+    # and aitask_sync.sh pushes non-force, so the next sync fails outright.
+    #
+    # ACCEPTED RESIDUAL: this reads the LOCAL remote-tracking ref and
+    # deliberately does not fetch (a fold has no business doing network I/O).
+    # A push made elsewhere since the last fetch is therefore missed. It can
+    # under-detect a published commit; it can never wrongly refuse an
+    # unpublished one.
+    ups="$(task_git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true)"
+    if [[ -n "$ups" ]] && task_git merge-base --is-ancestor HEAD "$ups" 2>/dev/null; then
+        _fold_amend_refusal="refusing --commit-mode amend: HEAD (${head_short}) is already published on ${ups}; amending would rewrite pushed history and break the next sync.
+Re-run with --commit-mode fresh."
+        return 1
+    fi
+
+    return 0
+}
+
 # Step 6: commit
 case "$commit_mode" in
     fresh)
-        task_git add aitasks/ >/dev/null 2>&1 || true
-        if (( ${#fold_meta_relpaths[@]} > 0 )); then
-            task_git add -- "${fold_meta_relpaths[@]}" >/dev/null 2>&1 || true
-        fi
         joined=""
         for fid in "${folded_ids[@]}"; do
             fid="${fid#t}"
@@ -608,23 +724,43 @@ case "$commit_mode" in
                 joined="t${fid}"
             fi
         done
-        if task_git commit -m "ait: Fold tasks into t${primary_id}: merge ${joined}" --quiet >/dev/null 2>&1; then
-            hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
-            echo "COMMITTED:${hash}"
-        elif task_git diff --cached --quiet >/dev/null 2>&1; then
-            # Nothing was staged (no real change) — benign no-op, not a failure.
-            echo "NO_COMMIT"
-        else
-            _fold_rollback
-            die "fold commit failed — rolled back the whole fold transaction"
-        fi
+        # task_git_commit_scoped (lib/task_utils.sh) is the canonical scoped
+        # commit: it stages only these paths, treats a failed `git status` as
+        # unverified rather than clean, guards the empty pathspec, and passes
+        # `-o` so an empty one is fatal instead of silently committing the whole
+        # index. rollback_paths is already exactly this fold's file set, so no
+        # separate derivation -- or separate fold_meta_relpaths add -- is needed.
+        crc=0
+        task_git_commit_scoped \
+            "ait: Fold tasks into t${primary_id}: merge ${joined}" \
+            "${rollback_paths[@]}" || crc=$?
+        case "$crc" in
+            0)
+                hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
+                echo "COMMITTED:${hash}"
+                ;;
+            2)
+                # Verified nothing to commit for these paths -- benign no-op.
+                echo "NO_COMMIT"
+                ;;
+            *)
+                _fold_rollback
+                die "fold commit failed — rolled back the whole fold transaction"
+                ;;
+        esac
         ;;
     amend)
-        task_git add aitasks/ >/dev/null 2>&1 || true
-        if (( ${#fold_meta_relpaths[@]} > 0 )); then
-            task_git add -- "${fold_meta_relpaths[@]}" >/dev/null 2>&1 || true
+        # Guard BEFORE staging, and roll back on refusal: the fold's on-disk
+        # mutations are already written, and leaving them dirty hands the next
+        # unscoped commit exactly the bystander this task removes.
+        if ! _fold_amend_guard; then
+            _fold_rollback
+            die "$_fold_amend_refusal"
         fi
-        if task_git commit --amend --no-edit --quiet >/dev/null 2>&1; then
+        (( ${#rollback_paths[@]} )) || die "internal: empty fold path set"
+        # `add` only so an untracked path can be named by the pathspec.
+        task_git add -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
+        if task_git commit --amend --no-edit -o --quiet -- "${rollback_paths[@]}" >/dev/null 2>&1; then
             echo "AMENDED"
         else
             _fold_rollback

@@ -8,6 +8,15 @@
 #   - --commit-mode none: no new commit created
 #   - Transitive: folding A (which has folded_tasks: [X, Y]) updates X and Y's
 #     folded_into to point at the primary
+#   - t1599_2: the commit is path-scoped to the fold's own file set (both
+#     swallow mechanisms: the broad `add aitasks/` AND the pathspec-less
+#     commit), and --commit-mode amend refuses to rewrite a HEAD that is not
+#     this fold's to rewrite (foreign task file, unknown metadata, or already
+#     published) -- rolling the fold back rather than leaving it dirty.
+#
+# Partial-commit semantics inherited from t1599_1: `commit -o -- <paths>`
+# commits those paths' WORKTREE content and ignores their index entry, and
+# leaves every other staged path staged. Verified empirically for --amend too.
 #
 # Run: bash tests/test_fold_mark.sh
 
@@ -230,6 +239,537 @@ test_transitive() {
     teardown
 }
 
+# --- t1599_2 helpers ---------------------------------------------------------
+
+# assert_not_in_head <desc> <path>   — path absent from HEAD's file list.
+assert_not_in_head() {
+    local desc="$1" path="$2" files
+    files=$(git show --name-only --pretty=format: HEAD | grep -v '^$' || true)
+    TOTAL=$((TOTAL + 1))
+    if echo "$files" | grep -qxF -- "$path"; then
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $desc — '$path' IS in HEAD (files: $(echo "$files" | tr '\n' ' '))"
+    else
+        PASS=$((PASS + 1))
+    fi
+}
+
+# assert_in_head <desc> <path>
+assert_in_head() {
+    local desc="$1" path="$2" files
+    files=$(git show --name-only --pretty=format: HEAD | grep -v '^$' || true)
+    TOTAL=$((TOTAL + 1))
+    if echo "$files" | grep -qxF -- "$path"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: $desc — '$path' NOT in HEAD (files: $(echo "$files" | tr '\n' ' '))"
+    fi
+}
+
+# assert_status_code <desc> <expected two-char porcelain code> <path>
+assert_status_code() {
+    local desc="$1" want="$2" path="$3" got
+    got=$(git status --porcelain -- "$path" | head -1 | cut -c1-2)
+    assert_eq "$desc" "$want" "$got"
+}
+
+# The fold set touched by `fold_mark <primary> <folded...>` in these fixtures.
+# Used by the three-way no-residue check.
+FOLD_PATHS=()
+
+# assert_no_fold_residue <desc-prefix> <before_head>
+# A refusal must UNDO the fold, not merely decline to commit it:
+#   1. HEAD unchanged, 2. index clean, 3. worktree clean — AND the frontmatter
+# values actually restored. (3) alone is vacuous: it would also hold if the
+# guard had refused before any mutation, and the mutations demonstrably run
+# first, so assert the restored VALUES, not just the absence of a diff.
+assert_no_fold_residue() {
+    local desc="$1" before="$2" p
+    assert_eq "$desc: HEAD unchanged" "$before" "$(git rev-parse HEAD)"
+    for p in "${FOLD_PATHS[@]}"; do
+        assert_eq "$desc: no residue on $p" "" "$(git status --porcelain -- "$p")"
+    done
+}
+
+test_fresh_dirty_bystander_not_swept() {
+    echo "=== Test: fresh — dirty bystander under aitasks/ not swept ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    write_task aitasks/t99_bystander.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Another session mid-edit: dirty, unstaged, under aitasks/.
+    printf '\nconcurrent edit\n' >> aitasks/t99_bystander.md
+
+    local output
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode fresh 10 20 2>&1)
+    assert_contains "committed" "COMMITTED:" "$output"
+
+    assert_in_head "primary in commit" "aitasks/t10_primary.md"
+    assert_in_head "folded task in commit" "aitasks/t20_a.md"
+    assert_not_in_head "bystander NOT swept" "aitasks/t99_bystander.md"
+    assert_status_code "bystander still dirty+unstaged" " M" aitasks/t99_bystander.md
+
+    teardown
+}
+
+test_fresh_prestaged_foreign_not_swept() {
+    echo "=== Test: fresh — pre-STAGED path outside aitasks/ not swept ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Outside aitasks/, so `add aitasks/` cannot be what carries it — only the
+    # pathspec-less commit can. This is the SECOND swallow mechanism.
+    mkdir -p aiplans
+    printf 'unrelated plan\n' > aiplans/p999_unrelated.md
+    git add aiplans/p999_unrelated.md
+
+    local output
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode fresh 10 20 2>&1)
+    assert_contains "committed" "COMMITTED:" "$output"
+
+    assert_not_in_head "pre-staged foreign plan NOT swept" "aiplans/p999_unrelated.md"
+    assert_status_code "pre-staged foreign plan still staged" "A " aiplans/p999_unrelated.md
+
+    teardown
+}
+
+# Build a HEAD shaped like an `ait create` commit, then fold into it with
+# --commit-mode amend. `extra_paths` are co-committed into that HEAD.
+_setup_amend_fixture() {
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    FOLD_PATHS=( aitasks/t10_primary.md aitasks/t20_a.md )
+
+    # The "task creation" commit that --commit-mode amend is meant to amend.
+    printf '\ncreated\n' >> aitasks/t10_primary.md
+    git add aitasks/t10_primary.md
+    local p
+    for p in "$@"; do
+        git add "$p"
+    done
+    git commit -m "ait: Add task t10: primary" --quiet
+}
+
+test_amend_dirty_bystander_not_swept() {
+    echo "=== Test: amend — dirty bystander not swept ==="
+    _setup_amend_fixture
+
+    write_task aitasks/t99_bystander.md
+    git add aitasks/t99_bystander.md
+    git commit -m "add bystander" --quiet
+    printf '\nconcurrent edit\n' >> aitasks/t99_bystander.md
+
+    # HEAD is now the bystander commit, which carries a foreign task file — so
+    # rebuild a clean amend target on top of it.
+    printf '\nmore\n' >> aitasks/t10_primary.md
+    git add aitasks/t10_primary.md
+    git commit -m "ait: Add task t10: primary" --quiet
+
+    local output
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1)
+    assert_contains "amended" "AMENDED" "$output"
+
+    assert_not_in_head "bystander NOT swept" "aitasks/t99_bystander.md"
+    assert_status_code "bystander still dirty+unstaged" " M" aitasks/t99_bystander.md
+
+    teardown
+}
+
+test_amend_prestaged_foreign_not_swept() {
+    echo "=== Test: amend — pre-STAGED path outside aitasks/ not swept ==="
+    _setup_amend_fixture
+
+    mkdir -p aiplans
+    printf 'unrelated plan\n' > aiplans/p999_unrelated.md
+    git add aiplans/p999_unrelated.md
+
+    local output
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1)
+    assert_contains "amended" "AMENDED" "$output"
+
+    assert_not_in_head "pre-staged foreign plan NOT swept" "aiplans/p999_unrelated.md"
+    assert_status_code "pre-staged foreign plan still staged" "A " aiplans/p999_unrelated.md
+
+    teardown
+}
+
+test_amend_refuses_foreign_task_in_head() {
+    echo "=== Test: amend REFUSES a foreign task file in HEAD ==="
+    _setup_amend_fixture
+
+    # HEAD acquires a foreign task file — the 8664a6a76 shape.
+    write_task aitasks/t77_foreign.md
+    git add aitasks/t77_foreign.md
+    git commit --amend --no-edit --quiet
+
+    local before rc=0 output
+    before=$(git rev-parse HEAD)
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error names the offending path" "aitasks/t77_foreign.md" "$output"
+    assert_contains "error points at fresh mode" "--commit-mode fresh" "$output"
+    assert_no_fold_residue "foreign-HEAD refusal" "$before"
+    # The load-bearing half: the fold's mutations were actually rolled back.
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_eq "folded task has no folded_into" "" \
+        "$(read_frontmatter_field aitasks/t20_a.md folded_into)"
+    assert_eq "primary has no folded_tasks" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+
+    teardown
+}
+
+test_amend_refuses_unknown_metadata_in_head() {
+    echo "=== Test: amend REFUSES unknown metadata in HEAD ==="
+    _setup_amend_fixture
+
+    # The 21219b0b4 shape: a foreign metadata file, not a task file.
+    printf 'gates: []\n' > aitasks/metadata/gates.yaml
+    git add aitasks/metadata/gates.yaml
+    git commit --amend --no-edit --quiet
+
+    local before rc=0 output
+    before=$(git rev-parse HEAD)
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error names the offending path" "aitasks/metadata/gates.yaml" "$output"
+    assert_no_fold_residue "metadata-HEAD refusal" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+
+    teardown
+}
+
+test_amend_refuses_task_like_metadata_filename() {
+    echo "=== Test: amend REFUSES a task-LIKE filename outside a canonical location ==="
+    _setup_amend_fixture
+
+    # Basename parses as "task 10" -- the very id being folded into -- but it
+    # lives under metadata/, not at a canonical task location. A basename-only
+    # classifier accepted this; default-deny must refuse it.
+    printf 'not a task\n' > aitasks/metadata/t10_unrelated.md
+    git add aitasks/metadata/t10_unrelated.md
+    git commit --amend --no-edit --quiet
+
+    local before rc=0 output
+    before=$(git rev-parse HEAD)
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error names the offending path" "aitasks/metadata/t10_unrelated.md" "$output"
+    assert_no_fold_residue "task-like-metadata refusal" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+
+    teardown
+}
+
+test_amend_refuses_archived_and_misfiled_lookalikes() {
+    echo "=== Test: amend REFUSES archived / directory-mismatched lookalikes ==="
+    _setup_amend_fixture
+
+    # aitasks/archived/t10_old.md parses as "10" by basename; aitasks/t99/…
+    # holds a file whose filename id (10_2) disagrees with its t99 directory.
+    mkdir -p aitasks/archived aitasks/t99
+    printf 'archived\n' > aitasks/archived/t10_old.md
+    printf 'misfiled\n' > aitasks/t99/t10_2_misfiled.md
+    git add aitasks/archived/t10_old.md aitasks/t99/t10_2_misfiled.md
+    git commit --amend --no-edit --quiet
+
+    local before rc=0 output
+    before=$(git rev-parse HEAD)
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error names the archived lookalike" "aitasks/archived/t10_old.md" "$output"
+    assert_contains "error names the misfiled child" "aitasks/t99/t10_2_misfiled.md" "$output"
+    assert_no_fold_residue "lookalike refusal" "$before"
+
+    teardown
+}
+
+test_amend_permits_labels_file_in_head() {
+    echo "=== Test: amend PERMITS labels.txt in HEAD (accept-branch 3) ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Exactly what aitask_create.sh stages: the task file + the label vocabulary.
+    printf '\ncreated\n' >> aitasks/t10_primary.md
+    printf 'newlabel\n' >> aitasks/metadata/labels.txt
+    git add aitasks/t10_primary.md aitasks/metadata/labels.txt
+    git commit -m "ait: Add task t10: primary" --quiet
+
+    local output rc=0
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits zero" "0" "$rc"
+    assert_contains "amended" "AMENDED" "$output"
+    assert_in_head "labels.txt retained" "aitasks/metadata/labels.txt"
+
+    teardown
+}
+
+test_amend_permits_child_primary_parent_file() {
+    echo "=== Test: amend PERMITS a child primary's own parent file (branch 2) ==="
+    setup_project
+
+    # Primary is a CHILD; HEAD is a child-creation commit carrying the child,
+    # its parent, and labels.txt — exactly aitask_create.sh:859-866.
+    write_task aitasks/t30_orig_parent.md "children_to_implement: [t30_1]"
+    write_task aitasks/t30/t30_1_child.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    printf '\ncreated\n' >> aitasks/t30/t30_1_child.md
+    printf '\ntouched\n' >> aitasks/t30_orig_parent.md
+    printf 'newlabel\n' >> aitasks/metadata/labels.txt
+    git add aitasks/t30/t30_1_child.md aitasks/t30_orig_parent.md aitasks/metadata/labels.txt
+    git commit -m "ait: Add child task t30_1: child" --quiet
+
+    local output rc=0
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 30_1 20 2>&1) || rc=$?
+
+    assert_eq "exits zero" "0" "$rc"
+    assert_contains "amended" "AMENDED" "$output"
+    assert_in_head "child primary's own parent retained" "aitasks/t30_orig_parent.md"
+
+    teardown
+}
+
+test_amend_refuses_published_head() {
+    echo "=== Test: amend REFUSES an already-published HEAD ==="
+    _setup_amend_fixture
+
+    # Publish HEAD, so amending it would rewrite pushed history.
+    git push -u origin HEAD --quiet 2>/dev/null
+
+    local before rc=0 output
+    before=$(git rev-parse HEAD)
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 2>&1) || rc=$?
+
+    assert_eq "exits non-zero" "1" "$rc"
+    assert_contains "error says published" "already published" "$output"
+    assert_no_fold_residue "published-HEAD refusal" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+
+    teardown
+}
+
+test_child_fold_commits_parent_file() {
+    echo "=== Test: fresh — child fold still commits the parent file ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t30_orig_parent.md "children_to_implement: [t30_1]"
+    write_task aitasks/t30/t30_1_child.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    local output
+    output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode fresh 10 30_1 2>&1)
+    assert_contains "committed" "COMMITTED:" "$output"
+    assert_contains "child removed from parent" "CHILD_REMOVED:30:1" "$output"
+
+    # A legitimate co-change: the --remove-child edit. Scoping must NOT drop it.
+    assert_in_head "folded child's parent IS committed" "aitasks/t30_orig_parent.md"
+    assert_in_head "folded child IS committed" "aitasks/t30/t30_1_child.md"
+
+    teardown
+}
+
+# --- Negative controls -------------------------------------------------------
+#
+# Rebuild the fixture's copy of aitask_fold_mark.sh with the PRE-FIX Step 6
+# block, then re-run the discriminating assertions and require them to FAIL.
+# The pre-fix code has TWO independent swallow mechanisms and each control
+# targets one:
+#   `task_git add aitasks/`        — sweeps DIRTY files under aitasks/
+#   pathspec-less `task_git commit`— sweeps anything already STAGED, anywhere
+#
+# install_prefix_commit_block asserts the substitution actually landed. A
+# control that silently patched nothing would "pass" while proving nothing.
+install_prefix_commit_block() {
+    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+# Start at the guard helpers, not just the case block: a faithful pre-fix
+# build has none of this code, and leaving the guard defined would make the
+# "did the injection land" check below unable to tell the two apart.
+start = s.index('# _fold_task_id_of_path -- task/plan id owning a repo path')
+end = s.index('esac\n', s.index('die "invalid --commit-mode: $commit_mode"')) + len('esac\n')
+pre = '''# Step 6: commit
+case "$commit_mode" in
+    fresh)
+        task_git add aitasks/ >/dev/null 2>&1 || true
+        joined=""
+        for fid in "${folded_ids[@]}"; do
+            fid="${fid#t}"
+            if [[ -n "$joined" ]]; then joined="${joined}, t${fid}"; else joined="t${fid}"; fi
+        done
+        if task_git commit -m "ait: Fold tasks into t${primary_id}: merge ${joined}" --quiet >/dev/null 2>&1; then
+            hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
+            echo "COMMITTED:${hash}"
+        else
+            echo "NO_COMMIT"
+        fi
+        ;;
+    amend)
+        task_git add aitasks/ >/dev/null 2>&1 || true
+        if task_git commit --amend --no-edit --quiet >/dev/null 2>&1; then
+            echo "AMENDED"
+        else
+            die "fold amend-commit failed"
+        fi
+        ;;
+    none)
+        echo "NO_COMMIT"
+        ;;
+    *)
+        die "invalid --commit-mode: $commit_mode"
+        ;;
+esac
+'''
+open(p, 'w').write(s[:start] + pre + s[end:])
+PY
+    # Prove the injection landed — both mechanisms must be back.
+    grep -q 'task_git add aitasks/' .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: negative control did not install pre-fix broad add"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -qE 'task_git commit -m "ait: Fold tasks into .*" --quiet' .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: negative control did not install pathspec-less commit"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -q '_fold_amend_guard' .aitask-scripts/aitask_fold_mark.sh \
+        && { echo "FAIL: negative control left the amend guard in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+    return 0
+}
+
+# assert_defect_present <desc> <condition-cmd...> — the control INVERTS: the
+# defect must be observable against the pre-fix build.
+assert_defect_present() {
+    local desc="$1"; shift
+    TOTAL=$((TOTAL + 1))
+    if "$@"; then
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: negative control — $desc (pre-fix build did NOT exhibit the defect; the test above proves nothing)"
+    fi
+}
+
+_head_contains() { git show --name-only --pretty=format: HEAD | grep -qxF -- "$1"; }
+
+test_negative_control_fresh() {
+    echo "=== Negative control: pre-fix fresh mode DOES swallow (both mechanisms) ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    write_task aitasks/t99_bystander.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    install_prefix_commit_block || { teardown; return; }
+
+    printf '\nconcurrent edit\n' >> aitasks/t99_bystander.md      # dirty, under aitasks/
+    mkdir -p aiplans
+    printf 'unrelated plan\n' > aiplans/p999_unrelated.md
+    git add aiplans/p999_unrelated.md                              # staged, outside aitasks/
+
+    bash .aitask-scripts/aitask_fold_mark.sh --commit-mode fresh 10 20 >/dev/null 2>&1 || true
+
+    assert_defect_present "broad add sweeps the dirty bystander" \
+        _head_contains aitasks/t99_bystander.md
+    assert_defect_present "pathspec-less commit sweeps the pre-staged plan" \
+        _head_contains aiplans/p999_unrelated.md
+
+    teardown
+}
+
+test_negative_control_amend_sweeps() {
+    echo "=== Negative control: pre-fix amend DOES swallow (both mechanisms) ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    write_task aitasks/t99_bystander.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # A clean amend target: HEAD carries only the primary, so the FIXED build
+    # would permit the amend. Any sweeping here is the pre-fix defect alone.
+    printf '\ncreated\n' >> aitasks/t10_primary.md
+    git add aitasks/t10_primary.md
+    git commit -m "ait: Add task t10: primary" --quiet
+
+    install_prefix_commit_block || { teardown; return; }
+
+    printf '\nconcurrent edit\n' >> aitasks/t99_bystander.md      # dirty, under aitasks/
+    mkdir -p aiplans
+    printf 'unrelated plan\n' > aiplans/p999_unrelated.md
+    git add aiplans/p999_unrelated.md                              # staged, outside aitasks/
+
+    bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 >/dev/null 2>&1 || true
+
+    assert_defect_present "pre-fix amend: broad add sweeps the dirty bystander" \
+        _head_contains aitasks/t99_bystander.md
+    assert_defect_present "pre-fix amend: pathspec-less amend takes the pre-staged plan" \
+        _head_contains aiplans/p999_unrelated.md
+
+    teardown
+}
+
+test_negative_control_amend() {
+    echo "=== Negative control: pre-fix amend DOES rewrite a foreign HEAD ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    write_task aitasks/t77_foreign.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    printf '\ncreated\n' >> aitasks/t10_primary.md
+    printf '\nforeign edit\n' >> aitasks/t77_foreign.md
+    git add aitasks/t10_primary.md aitasks/t77_foreign.md
+    git commit -m "ait: Add task t10: primary" --quiet
+
+    install_prefix_commit_block || { teardown; return; }
+
+    local before
+    before=$(git rev-parse HEAD)
+    bash .aitask-scripts/aitask_fold_mark.sh --commit-mode amend 10 20 >/dev/null 2>&1 || true
+
+    assert_defect_present "bare amend rewrites HEAD despite the foreign file" \
+        test "$before" != "$(git rev-parse HEAD)"
+    assert_defect_present "foreign file is silently retained in the rewritten commit" \
+        _head_contains aitasks/t77_foreign.md
+
+    teardown
+}
+
 teardown_all() {
     local d
     for d in "${CLEANUP_DIRS[@]}"; do
@@ -241,6 +781,25 @@ trap teardown_all EXIT
 test_fresh_mode_full_flow
 test_none_mode_no_commit
 test_transitive
+
+# t1599_2 — path-scoped commit + amend guard
+test_fresh_dirty_bystander_not_swept
+test_fresh_prestaged_foreign_not_swept
+test_amend_dirty_bystander_not_swept
+test_amend_prestaged_foreign_not_swept
+test_amend_refuses_foreign_task_in_head
+test_amend_refuses_unknown_metadata_in_head
+test_amend_refuses_task_like_metadata_filename
+test_amend_refuses_archived_and_misfiled_lookalikes
+test_amend_permits_labels_file_in_head
+test_amend_permits_child_primary_parent_file
+test_amend_refuses_published_head
+test_child_fold_commits_parent_file
+
+# Negative controls (must observe the defect against the pre-fix build)
+test_negative_control_fresh
+test_negative_control_amend_sweeps
+test_negative_control_amend
 
 echo ""
 echo "=========================="
