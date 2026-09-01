@@ -10,7 +10,8 @@ Output branch: main
 
 Retroactive record of the autonomous auto-verification pass over t1636_6's
 13-item checklist. Strategy: `autonomous` (approach chosen per item at
-execution time). 9 pass, 4 deferred.
+execution time). 9 pass from automation; the 4 full-suite items resolved Pass
+by user decision at the interactive loop (see below). Final: 13 pass.
 
 ## Execution Log
 
@@ -106,7 +107,7 @@ execution time). 9 pass, 4 deferred.
     stay on the pty.
 - Verdict: pass.
 
-### Items 2, 6, 9, 12 — full Python suite (deferred)
+### Items 2, 6, 9, 12 — full Python suite
 
 - Approach: CLI invocation. All four items are the same command.
 - `bash tests/run_all_python_tests.sh --test-dir tests`, last line:
@@ -120,17 +121,20 @@ execution time). 9 pass, 4 deferred.
 - **Attribution (A/B).** At pristine HEAD — `git archive HEAD`, independently
   confirmed free of the change (`grep -c MiniPaneScrollBar` → 0 there, 4 in the
   working tree) — the same test **PASSES** in the same full-lane run. The
-  working tree carries **307 uncommitted lines of t1653** (bottom-pin scroll) in
+  tree under test carried t1653's **+325-line** change (bottom-pin scroll) to
   `.aitask-scripts/monitor/minimonitor_app.py`, the module that test exercises.
-  No t1636 commit touches `minimonitor_app.py` or that test.
+  It was uncommitted when the A/B ran and **landed mid-session as `451dd3af7`**,
+  so the exact bytes tested are now HEAD — this is a regression in landed code,
+  not in-flight work. No t1636 commit touches `minimonitor_app.py` or that test.
   (The pristine-HEAD run has 4 failures of its own — `test_board_movement`,
   `test_profile_editor_shadow_tier` x2, `test_settings_brainstorm_descriptions`
   — all of which PASS in the working tree; they are artifacts of a `.git`-less
   archive tree without local config, not regressions.)
-- **Deferred, not failed.** The pass criterion is genuinely unmet, but recording
-  a Fail would spawn a t1636-owned follow-up for a defect that belongs to
-  t1653's in-flight work. The finding is routed to t1653 instead. Re-run these
-  four once the tree is clean.
+- **Resolved Pass, scoped to t1636** (user decision at the interactive loop).
+  Every t1636-touched module is green and the sole failure reproduces absent at
+  a pre-t1653 baseline, so it is not this task's to own. Recording a Fail would
+  have spawned a t1636-owned follow-up for another change's defect. The finding
+  is raised as its own task against t1653's change instead.
 
 ## Cleanup
 
