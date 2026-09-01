@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1603_4]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [docs, web_site, board]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 created_at: 2026-08-30 13:29
-updated_at: 2026-08-30 13:29
+updated_at: 2026-09-01 16:05
 ---
 
 ## Context
