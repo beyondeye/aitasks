@@ -189,12 +189,12 @@ echo "=== Serial carve-out doc drift guard ==="
 # --- Derivation sanity: the parse finds something, in canonical form ---
 src="$(source_set)"
 assert_contains "T0a: source set is non-empty" "tests/test_" "$src"
-assert_eq "T0a: source set has 3 entries" "3" "$(printf '%s\n' "$src" | wc -l | tr -d ' ')"
+assert_eq "T0a: source set has 4 entries" "4" "$(printf '%s\n' "$src" | wc -l | tr -d ' ')"
 assert_contains "T0b: source entries are canonicalized to tests/<name>.py" \
     "tests/test_board_header_row_live.py" "$src"
 
 doc="$(doc_set "$REAL_DOC")"
-assert_eq "T0c: doc set has 3 entries" "3" "$(printf '%s\n' "$doc" | wc -l | tr -d ' ')"
+assert_eq "T0c: doc set has 4 entries" "4" "$(printf '%s\n' "$doc" | wc -l | tr -d ' ')"
 
 # --- POSITIVE CONTROL: the real doc and the real runner agree ---
 # This is what proves canon() is neither over- nor under-normalizing on live

@@ -103,6 +103,7 @@ from textual.containers import VerticalScroll  # noqa: E402
 from textual.css.query import NoMatches  # noqa: E402
 from textual.geometry import Offset  # noqa: E402
 from textual.screen import ModalScreen  # noqa: E402
+from textual.scrollbar import ScrollBar, ScrollTo  # noqa: E402
 from textual.timer import Timer  # noqa: E402
 from textual.widgets import Static  # noqa: E402
 
@@ -403,11 +404,23 @@ def list_layout_pending(card_tops: list[int]) -> bool:
     the write to 0, which is the bug being fixed.
 
     Detecting the state from the *card offsets* rather than from ``max_scroll_y``
-    is what makes one predicate serve both restore paths. A range comparison
-    cannot: for a bottom-pinned list the target IS ``max_scroll_y``, so
-    ``target > max_scroll_y`` is vacuously false; and for an anchored list the
-    anchor's own offset reads 0 here, so the target collapses to ~0 and the
-    comparison is false again. Both would commit a bogus restore.
+    is what makes this usable at all: for an anchored list the anchor's own
+    offset reads 0 in this window, so a ``target > max_scroll_y`` comparison
+    collapses to ~0 and reads false, and the restore commits a bogus offset.
+
+    Only the MID-LIST restore reaches this predicate now (t1653). A
+    bottom-pinned list returns from ``_restore_list_scroll`` before the gate,
+    because Textual's anchor has the compositor recompute the offset inside the
+    arrange pass — there is no non-final ``max_scroll_y`` left to wait for. The
+    caveat this docstring used to carry, that ``target > max_scroll_y`` is
+    "vacuously false" when the target IS ``max_scroll_y``, described that
+    now-unreachable path.
+
+    ``card_tops`` samples ``MiniPaneCard``s only, while the container also mounts
+    session dividers and the ``other (N)`` header. That subset is sound rather
+    than merely convenient: a divider is a fixed-height ``Static`` mounted BEFORE
+    its group's first card, so it cannot make "every card reports 0" false while
+    the layout has in fact landed.
 
     ``len > 1`` because a single card legitimately sits at 0 and a one-card list
     has nothing to scroll anyway.
@@ -421,6 +434,58 @@ class MiniPaneCard(Static, can_focus=True):
     def __init__(self, pane_id: str, text: str, **kwargs) -> None:
         super().__init__(text, **kwargs)
         self.pane_id = pane_id
+
+
+class MiniPaneScrollBar(ScrollBar):
+    """The list's own vertical scrollbar, so "a thumb drag just ended" is a state
+    this app OWNS rather than one it has to infer (t1653).
+
+    ``Widget._check_anchor()`` takes **no arguments** and is called from two
+    places that need opposite treatment:
+
+    * ``Widget.watch_scroll_y`` — after EVERY scroll change. Mid-rebuild the
+      container is childless, so ``max_scroll_y`` is 0 and the clamp has already
+      put ``scroll_y`` at 0; Textual's ``scroll_y >= max_scroll_y`` is then
+      trivially true and would re-pin a mid-list reader on every tick.
+    * ``ScrollBar._on_mouse_release`` — once, at the end of a thumb drag. This
+      one IS a deliberate "take me to the bottom" gesture, and it must arm the
+      pin even when the position it produced is nowhere near ``max_scroll_y``.
+
+    That last case is not hypothetical. Measured on the live fixture, with card
+    heights changing out of band with the refresh tick: a drag past the trough
+    end settled at ``scroll_y = 43.745`` against a ``max_scroll_y`` that had
+    since grown to 50, and the list then drifted for every one of the following
+    18 ticks. Textual's own re-arm sometimes fires mid-drag and sometimes does
+    not, purely on timing — which is why the arming cannot be left to a position
+    comparison.
+
+    And the obvious ambient discriminator does not work: ``_on_mouse_release``
+    executes ``self.grabbed = None`` on the line BEFORE calling
+    ``self.parent._check_anchor()``, so ``Widget.is_vertical_scrollbar_grabbed``
+    already reads False by the time the check runs. Owning the scrollbar is what
+    makes the release site explicit instead of guessed.
+    """
+
+    def _pane_list(self) -> "MiniPaneList | None":
+        parent = self.parent
+        return parent if isinstance(parent, MiniPaneList) else None
+
+    def _on_mouse_capture(self, event) -> None:
+        # A new drag starts with no claim about where it will end.
+        owner = self._pane_list()
+        if owner is not None and self.vertical:
+            owner._thumb_drag_reached_end = False
+        super()._on_mouse_capture(event)
+
+    def _on_mouse_release(self, event) -> None:
+        owner = self._pane_list()
+        if owner is not None and self.vertical:
+            owner._thumb_release_pending = True
+        try:
+            super()._on_mouse_release(event)    # calls parent._check_anchor()
+        finally:
+            if owner is not None and self.vertical:
+                owner._thumb_release_pending = False
 
 
 class MiniPaneList(VerticalScroll):
@@ -453,7 +518,206 @@ class MiniPaneList(VerticalScroll):
     just did. The scrollbar thumb drag is the sharpest case, because
     ``_on_scroll_to`` gates on ``_allow_scroll``, which a vertical-only scroller
     makes false the moment ``allow_vertical_scroll`` is.
+
+    **A THIRD class of write exists, and it is deliberately let through (t1653).**
+    When the bottom pin is armed, Textual's compositor recomputes the offset from
+    ``total_region.bottom`` inside the arrange pass and writes it with
+    ``set_reactive`` (``_compositor.py:609``), which bypasses both overrides
+    above, ``validate_scroll_y``, and ``_list_scroll_lock``. That is wanted, not
+    an oversight: under the anchor, the compositor's write IS the restore, and it
+    happens at the one moment the new geometry is final. The lock exists to
+    refuse scrolls that would fight a pending restore — never the restore itself.
+
+    One consequence has to be handled by the app rather than by Textual: the
+    container branch of that write is unclamped (the non-container branch at
+    ``:693`` uses the reactive setter and does clamp), so a pinned list that
+    stops overflowing holds a NEGATIVE ``scroll_y``. Measured: ``scroll_y = -8``
+    at ``max_scroll_y = 0``. ``_reconcile_anchor`` suspends the anchor for the
+    duration rather than fighting it, keeping the user's request so the list
+    re-pins by itself when content regrows.
     """
+
+    # Bottom-pin state (t1653). A CLASS attribute for the same reason as the
+    # app's scroll state below: test modules build widgets and hand-set only what
+    # the case touches.
+    #
+    # `_pin_suspended` records that `_reconcile_anchor` turned Textual's anchor
+    # OFF for a degenerate range — the list is shorter than its viewport — while
+    # the user's request to be at the bottom still stands. It is the one state
+    # where "pinned" and Textual's `_anchor_released` legitimately disagree.
+    _pin_suspended = False
+    # `_thumb_release_pending` is true only for the duration of ONE
+    # `ScrollBar._on_mouse_release` call. `_thumb_drag_reached_end` records, at
+    # REQUEST time, whether the drag asked to go at or past the end — see
+    # `_on_scroll_to`.
+    _thumb_release_pending = False
+    _thumb_drag_reached_end = False
+
+    @property
+    def vertical_scrollbar(self) -> ScrollBar:
+        """`Widget.vertical_scrollbar`, but building our own subclass (t1653).
+
+        Mirrors the base property exactly — including the lazy cache and the
+        `_start_widget` registration — so only the class differs. This is the
+        seam that lets the app own the drag-release site; see
+        `MiniPaneScrollBar`.
+        """
+        if self._vertical_scrollbar is not None:
+            return self._vertical_scrollbar
+        self._vertical_scrollbar = scroll_bar = MiniPaneScrollBar(
+            vertical=True, name="vertical", thickness=self.scrollbar_size_vertical
+        )
+        scroll_bar.display = False
+        self.app._start_widget(self, scroll_bar)
+        return scroll_bar
+
+    def on_mount(self) -> None:
+        """Arm Textual's bottom anchor ONCE, then release it (t1653).
+
+        `anchor()` is what makes `_anchored` true, and `_anchored` is the switch
+        `watch_scroll_y` tests before it will even call `_check_anchor`. Without
+        this the list could never re-arm from any gesture. `release_anchor()`
+        immediately after is what makes the list OPEN AT THE TOP rather than
+        tailing like a log; from here on the pin is armed only by a real user
+        gesture. The container is still empty at this point, so the `scroll_end`
+        inside `anchor()` is a no-op.
+        """
+        self.anchor()
+        self.release_anchor()
+
+    @property
+    def is_bottom_pinned(self) -> bool:
+        """True while the user has asked to be held at the bottom.
+
+        `is_anchored` is public; the released flag is not, so the private read is
+        encapsulated HERE and nowhere else (`aitask_setup.sh` pins
+        `textual>=8.2.7,<9`, which floats within major 8).
+
+        A suspended pin still counts: `_reconcile_anchor` turns the anchor off
+        while the list is shorter than its viewport, and the user's request has
+        to outlive that.
+        """
+        return self.is_anchored and (
+            not self._anchor_released or self._pin_suspended)
+
+    def release_anchor(self) -> None:
+        """Textual's release, plus forgetting any suspension (t1653).
+
+        This is the ONE seam every "the user scrolled away" path already funnels
+        through — `_scroll_to(release_anchor=True)` for wheel and key gestures,
+        `scroll_to()` for programmatic scrolls, and
+        `ScrollBar._on_mouse_capture` when a thumb drag begins. Clearing the
+        suspension here keeps the two in lockstep without enumerating those
+        paths, which is the mistake the class docstring above warns about.
+
+        `_reconcile_anchor` deliberately calls `super().release_anchor()`
+        instead: suspending the anchor for a degenerate range is the app pausing
+        the mechanism, not the user changing their mind.
+        """
+        self._pin_suspended = False
+        super().release_anchor()
+
+    def _reconcile_anchor(self) -> None:
+        """Hold Textual's anchor engaged exactly while it is safe to (t1653).
+
+        The compositor's *container* branch writes
+        `total_region.bottom - container_height` through `set_reactive`
+        (`_compositor.py:609`), bypassing `validate_scroll_y` — unlike the
+        non-container branch at `:693`, which uses the reactive setter and does
+        clamp. A pinned list whose content has shrunk below its viewport
+        therefore holds a NEGATIVE offset. Measured on a bare `VerticalScroll`:
+        `scroll_y = -8` at `max_scroll_y = 0`.
+
+        A one-shot correction cannot win that fight — measured: assigning 0 from
+        a post-refresh callback was observed being rewritten to -2 by the next
+        arrange, because the compositor reasserts it on EVERY layout. So the
+        anchor is suspended for the duration instead, and re-engaged when the
+        list overflows again.
+
+        Runs after the layout has settled: from the app's post-rebuild callback,
+        and from `on_resize` for the pane-resize path, which re-arranges with no
+        rebuild at all.
+        """
+        if self.max_scroll_y <= 0:
+            if not self._anchor_released:
+                self._pin_suspended = True
+                # NOT self.release_anchor(): this pauses the mechanism, it does
+                # not revoke the user's request.
+                super().release_anchor()
+            if self._pin_suspended and self.scroll_y != 0:
+                self.scroll_y = 0
+        elif self._pin_suspended:
+            self._pin_suspended = False
+            self.anchor()
+
+    def on_resize(self, event) -> None:
+        # A terminal resize re-arranges without any rebuild, so the app's
+        # per-tick reconcile is not enough on its own: shrinking the pane under
+        # a pinned list reaches the same unclamped write.
+        self.call_after_refresh(self._reconcile_anchor)
+
+    def _on_scroll_to(self, message: ScrollTo) -> None:
+        """Record the drag's INTENT at request time (t1653).
+
+        This is the thumb-drag path and only it — every user gesture reaches
+        `_scroll_to`, but a `ScrollTo` message is posted by
+        `ScrollBar._on_mouse_move` alone.
+
+        "Did this drag ask for the bottom?" has a stable answer only HERE,
+        against the geometry the user was actually looking at. By the time the
+        mouse is released the number the drag was aimed at is gone: measured, a
+        drag past the trough end settled at 43.745 while `max_scroll_y` had grown
+        to 50.
+
+        **The comparison is made in the SCROLLBAR's coordinate space, not the
+        container's**, and that is the whole point rather than a detail.
+        `ScrollBar._on_mouse_move` computes `y` from its own
+        `window_virtual_size / window_size` (`scrollbar.py:384-392`), which are
+        refreshed on layout and are therefore a snapshot of the geometry the
+        thumb was rendered against. Comparing that `y` against the container's
+        `max_scroll_y` mixes two clocks: when content grows between the layout
+        that sized the thumb and this message, a drag that genuinely reached the
+        end of the thumb's travel scores as "did not reach the end", the pin is
+        not armed, and the list drifts for the rest of the session. Measured: a
+        1-in-8 flake in the live fixture with exactly that signature.
+
+        The container's value is the fallback for the case the scrollbar has no
+        usable geometry yet, where it is the only number available.
+        """
+        if message.y is not None:
+            bar = self._vertical_scrollbar
+            if bar is not None and bar.window_size:
+                travel_end = max(0, bar.window_virtual_size - bar.window_size)
+            else:
+                travel_end = self.max_scroll_y
+            self._thumb_drag_reached_end = message.y >= travel_end
+        super()._on_scroll_to(message)
+
+    def _check_anchor(self) -> None:
+        """Arm on gesture INTENT; refuse Textual's degenerate mid-rebuild re-arm.
+
+        Two callers, two treatments — see `MiniPaneScrollBar` for why they cannot
+        be told apart without owning the scrollbar.
+        """
+        if self._thumb_release_pending:
+            # A real end-of-drag gesture. Deliberately NOT subject to the
+            # rebuild-lock refusal below: that guard exists to reject Textual's
+            # own degenerate comparison, not the user's input, and `_scroll_to`
+            # has already retired any pending restore for us.
+            if self._thumb_drag_reached_end:
+                self._thumb_drag_reached_end = False
+                self._pin_suspended = False
+                # anchor() re-arms AND scroll_end()s: `scroll_end` clears
+                # `_anchor_released` itself when the widget is anchored.
+                self.anchor()
+            return
+        if self._locked() or self.max_scroll_y <= 0:
+            # Mid-rebuild the container is childless, so `max_scroll_y` is 0 and
+            # `validate_scroll_y` has already clamped `scroll_y` to 0 — Textual's
+            # `0 >= 0` would silently re-pin a mid-list reader on EVERY tick. A
+            # list with nothing to scroll cannot be a gesture either.
+            return
+        super()._check_anchor()
 
     def _owner(self):
         """The owning app, or None. Both overrides run during teardown too, when
@@ -592,7 +856,9 @@ class MiniMonitorApp(
     # `__init__`-only default would `AttributeError` the moment `_refresh_data`
     # or `MiniPaneList` read one.
     _list_scroll_lock = False
-    # (at_bottom, anchor_id, delta, order) captured before the rebuild, or None.
+    # (pinned, anchor_id, delta, order) captured before the rebuild, or None.
+    # `pinned` is `MiniPaneList.is_bottom_pinned` — a live mode read, not the
+    # `scroll_y >= max_scroll_y - 1` geometry snapshot it replaced (t1653).
     _pending_scroll_state: tuple[bool, str, float, list[str]] | None = None
     _scroll_restore_gen = 0
     _scroll_lock_timer: Timer | None = None
@@ -1582,9 +1848,16 @@ class MiniMonitorApp(
         ]
         if not cards:
             return
-        max_y = container.max_scroll_y
+        # The bottom pin is read as a LIVE MODE, not measured from geometry
+        # (t1653). The old `at_bottom = max_y <= 0 or scroll_y >= max_y - 1` was a
+        # snapshot of a number that is stale by construction: card heights change
+        # out of band with the tick, so `max_scroll_y` had already moved by the
+        # time the comparison ran. Once the position drifted more than a row the
+        # test read False for ever and the anchor branch faithfully froze the
+        # wrong offset. The mode below is set by the user's own gesture and
+        # cleared by their next scroll, so it cannot go stale.
         scroll_y = container.scroll_y
-        at_bottom = max_y <= 0 or scroll_y >= max_y - 1
+        pinned = container.is_bottom_pinned
         anchor = pick_scroll_anchor(
             [(card.pane_id, card.virtual_region.y) for card in cards], scroll_y
         )
@@ -1592,7 +1865,7 @@ class MiniMonitorApp(
             return
         anchor_id, delta = anchor
         self._pending_scroll_state = (
-            at_bottom, anchor_id, delta, [card.pane_id for card in cards]
+            pinned, anchor_id, delta, [card.pane_id for card in cards]
         )
 
     def _restore_list_scroll(self, gen: int, attempt: int = 0) -> None:
@@ -1607,7 +1880,27 @@ class MiniMonitorApp(
         except NoMatches:
             self._abandon_scroll_restore(gen)
             return
-        at_bottom, anchor_id, delta, order = state
+        pinned, anchor_id, delta, order = state
+
+        if pinned:
+            # Nothing to restore: the compositor owns the offset while the anchor
+            # is armed, and recomputes it from `total_region.bottom` inside the
+            # arrange pass — the one moment the new geometry is final. That is
+            # why this returns BEFORE the readiness gate below: the retry ladder
+            # exists to wait for a settled `max_scroll_y`, and an anchored list
+            # never needs to.
+            #
+            # The one thing the app still owns is the degenerate range, and it is
+            # DEFERRED rather than done here: the compositor's unclamped write
+            # happens in the arrange pass that follows this callback, so a
+            # correction applied inline is simply overwritten (measured: -2
+            # survived an inline clamp). See `MiniPaneList._reconcile_anchor`.
+            self.call_after_refresh(container._reconcile_anchor)
+            self._pending_scroll_state = None
+            self._stop_scroll_lock_timer()
+            self.call_after_refresh(self._release_list_scroll_lock, gen)
+            return
+
         live = {
             card.pane_id: card.virtual_region.y
             for card in container.query(MiniPaneCard)
@@ -1626,10 +1919,9 @@ class MiniMonitorApp(
             return
 
         target: float | None = None
-        if not at_bottom:
-            anchor_top = resolve_anchor_target(order, anchor_id, live)
-            if anchor_top is not None:
-                target = anchor_top + delta
+        anchor_top = resolve_anchor_target(order, anchor_id, live)
+        if anchor_top is not None:
+            target = anchor_top + delta
 
         # Second gate: the range may be laid out but still short of the target
         # for a frame. Falling through the budget restores what fits, which is
@@ -1640,10 +1932,7 @@ class MiniMonitorApp(
             return
 
         try:
-            if at_bottom:
-                # Keeps a bottom-pinned list pinned as agents come and go.
-                container.scroll_end(animate=False, immediate=True, force=True)
-            elif target is not None:
+            if target is not None:
                 container.scroll_to(
                     y=target, animate=False, immediate=True, force=True
                 )

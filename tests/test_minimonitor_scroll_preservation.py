@@ -7,7 +7,23 @@ mouse-wheel / scrollbar position is discarded. Measured live in a real 40-column
 tmux pane before the fix — `scroll_y` went `8.0 -> 0` between the
 `remove_children()` and the end of `mount_all()`, on EVERY tick.
 
-The fix has three parts, and this module covers each:
+THIS MODULE COVERS THE t1539 MECHANISM, WHICH IS NOW THE MID-LIST HALF (t1653).
+The bottom pin moved to Textual's own anchor: `MiniPaneList` arms it, the
+compositor recomputes the offset from `total_region.bottom` inside the arrange
+pass, and `_restore_list_scroll` returns before the readiness gate for a pinned
+list. So the anchor-id + delta path, the readiness gate and the retry ladder
+exercised here all belong to the MID-LIST restore, where they are still
+load-bearing. The bottom pin's own contract lives in
+`tests/test_minimonitor_bottom_pin.py` and, for the parts nothing headless can
+prove, `tests/test_minimonitor_bottom_pin_live.py`.
+
+One more consequence worth stating, because it is what keeps this module's cases
+meaningful: `_capture_list_scroll`'s first tuple element is now `pinned`, a live
+read of `MiniPaneList.is_bottom_pinned`, not the `scroll_y >= max_scroll_y - 1`
+geometry snapshot it replaced. The literals below that pass `False` for it are
+therefore selecting the mid-list path deliberately.
+
+The t1539 fix has three parts, and this module covers each:
 
 * `pick_scroll_anchor` / `resolve_anchor_target` — pure, so the anchor rules
   (topmost-visible, sub-card remainder, killed-anchor neighbour fallback) are
@@ -506,8 +522,20 @@ class EarlyRestoreCallbackTests(_RefreshCase):
     `max_scroll_y`, does not corrupt the scroll arithmetic Textual itself does
     against that property every frame.
 
-    The bottom-pinned path is the one that regressed: its readiness test compared
-    `max_scroll_y` against itself, which is vacuously false, so it never retried.
+    THE TWO CASES BELOW NO LONGER SHARE A MECHANISM (t1653). Only
+    `test_anchor_restore_survives_an_early_restore_callback` still exercises the
+    readiness gate and the retry ladder: they guard the MID-LIST restore, which
+    is the one that can still be issued against a non-final `max_scroll_y`.
+    `test_bottom_pin_survives_an_early_restore_callback` no longer reaches either
+    — `_restore_list_scroll` returns before the gate for a pinned list, because
+    Textual's anchor has the compositor recompute the offset inside the arrange
+    pass. It is kept as a characterization pin: an early callback must not be
+    able to disturb a pinned list either, and it passes for a different reason
+    than it used to.
+
+    Historically the bottom path WAS the regression this class was written for:
+    its readiness test compared `max_scroll_y` against itself, which is vacuously
+    false, so it never retried. That branch is gone.
     """
 
     def _with_early_first_restore(self, scenario):
@@ -531,6 +559,13 @@ class EarlyRestoreCallbackTests(_RefreshCase):
         return self._run(wrapped)
 
     def test_bottom_pin_survives_an_early_restore_callback(self):
+        """Characterization: the pin holds regardless of callback timing (t1653).
+
+        The opening `scroll_end(force=True)` arms Textual's anchor
+        (`widget.py:3072` clears `_anchor_released` for an anchored widget), so
+        the compositor — not this callback — is what holds the offset. Nothing
+        here goes through the retry ladder any more.
+        """
         async def scenario(app, container, pilot, state):
             container.scroll_end(animate=False, immediate=True, force=True)
             await _settle(pilot, 4)
@@ -544,9 +579,9 @@ class EarlyRestoreCallbackTests(_RefreshCase):
         self.assertGreater(max_y, 0)
         self.assertEqual(
             scroll_y, max_y,
-            "the bottom-pinned list was restored before the rebuilt list had a "
-            "scroll range, so scroll_end clamped it to 0 and the cleared "
-            "snapshot left nothing to re-pin it",
+            "an early restore callback disturbed a bottom-pinned list; the "
+            "compositor's anchored write is supposed to be independent of when "
+            "that callback runs",
         )
 
     def test_anchor_restore_survives_an_early_restore_callback(self):

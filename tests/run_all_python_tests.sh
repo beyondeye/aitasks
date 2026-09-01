@@ -81,6 +81,10 @@ export PYTHONUNBUFFERED=1
 # pane, under the same wall-clock budget. It runs against its own synthetic
 # project so it never touches the real .git/index.lock — but the budget half of
 # the rationale above applies unchanged, so it is carved out too.
+# test_minimonitor_bottom_pin_live.py boots the real MiniMonitorApp in a tmux
+# pane TWICE (the fix and its pre-fix negative control), drives each with real
+# SGR mouse gestures and compares their scroll traces, so it needs both a hard
+# boot budget and an undisturbed tick cadence.
 # test_codebrowser_startup_focus_live.py boots the real `ait codebrowser` in a
 # tmux pane under the same wall-clock budget, also against its own synthetic
 # project (a deliberately non-git one). Same budget rationale.
@@ -92,7 +96,8 @@ export PYTHONUNBUFFERED=1
 # Entries are BARE BASENAMES because is_carved() matches on "${1##*/}"; the doc
 # block shows them `tests/`-prefixed, and the guard normalizes both sides.
 SERIAL_CARVE_OUT=(test_board_header_row_live.py test_board_startup_focus_live.py
-                  test_codebrowser_startup_focus_live.py)
+                  test_codebrowser_startup_focus_live.py
+                  test_minimonitor_bottom_pin_live.py)
 
 is_carved() {
     local base="${1##*/}" c

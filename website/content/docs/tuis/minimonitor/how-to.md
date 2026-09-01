@@ -72,7 +72,15 @@ Minimonitor supports full mouse interaction in addition to the keyboard shortcut
 
 - **Click an agent card** — focus that card (alternative to **Up** / **Down**).
 - **Scroll wheel** — scroll the agent list.
+- **Drag the scrollbar** — drag the thumb to move through a list too long for the pane.
 - **Click dialog buttons** — buttons in the task-info dialog and TUI switcher overlay are clickable.
+
+**Scrolling to the bottom pins the list there.** Once you reach the end of the
+list — by wheel, or by dragging the scrollbar thumb to the end of its track —
+minimonitor keeps you at the bottom as the list refreshes, so agents
+appearing, disappearing, or growing an extra status row do not push the view
+away from the newest entries. Scrolling back up releases the pin and your
+position is held instead; reaching the bottom again re-engages it.
 
 All keyboard actions documented below remain available.
 
