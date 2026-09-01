@@ -959,6 +959,32 @@ All steps landed. Deviations from the approved plan, each deliberate:
    advanced HEAD, since that commit rewrote `_ait_detect_data_worktree`, which
    this sweep consumes via `_AIT_DATA_WORKTREE` and `_ait_data_gitdir`.
 
+9. **Delimiter losslessness (raised at Step-8 review) — CONFIRMED and fixed.**
+   The dirty scan was parsed NUL-safely and then immediately thrown back into
+   delimited strings, undoing the point of `-z`:
+   - the grouped path list was **newline-joined**, so a legal path such as
+     `aitasks/t60_line\nbreak.md` split into two bogus paths, missed in
+     `PATH_STATE`, and under `set -u` aborted the whole script — reproduced:
+     `STDOUT=[] rc=1`, `PATH_STATE[$p]: unbound variable`, file left dirty. That
+     is precisely the empty-stdout `ERROR` this sweep exists to avoid.
+   - the persisted quarantine record was `<path>|<blob>|<task>|<epoch>`, so a
+     `|` in a path corrupted it. Reproduced against the pre-fix build: run 2
+     **published the withheld commit** (`PUSHED`) — the unsafe release.
+
+   Fixes: the grouping now carries paths as **array elements** (parallel
+   `ent_path`/`ent_owner`, no delimiter — bash strings cannot hold NUL, so there
+   is no safe delimiter to pick), and the quarantine record percent-encodes
+   `%`, `|` and newline in the path (decoding `%25` last so an encoded literal
+   does not decode twice). Every `PATH_STATE` read is `:-` guarded so a future
+   miss degrades to "skip this group" instead of killing the script.
+
+   Regressions: `test_sync_auto_commit_scoping.sh` Test 14b (newline and pipe
+   filenames each committed under their own task, stdout a real token, nothing
+   left dirty) and `test_sync_deferral_and_quarantine.sh` Test 18b (the record
+   stores the encoded path, is exactly one line, and run 2 still holds it —
+   which can only pass if the decode side is right). Both verified to FAIL
+   against a rebuilt delimiter-joined control.
+
 ### Fixture work (tests/lib/sync_fixture.sh)
 
 Extracted so both suites share one definition. Beyond the two gaps the plan
@@ -978,8 +1004,8 @@ predicted (no lock branch, no `bin/hostname` shim), three more surfaced:
 
 ### Verification performed
 
-- `tests/test_sync_auto_commit_scoping.sh` — 32 assertions
-- `tests/test_sync_deferral_and_quarantine.sh` — 47 assertions
+- `tests/test_sync_auto_commit_scoping.sh` — 36 assertions
+- `tests/test_sync_deferral_and_quarantine.sh` — 52 assertions
 - `tests/test_sync_action_runner.py` — 29 (incl. the derived token contract
   and the fail-closed deferral-reason tests)
 - Regression: `test_sync.sh` (42), `test_sync_branch_mode_automerge.sh` (17),
@@ -1001,6 +1027,7 @@ behaved as the plan claimed):
 | cleanliness-only quarantine release | Test 10 fails — releases on run 1 and publishes |
 | age-based quarantine release | Test 13 fails — publishes the raced content |
 | `DEFERRED:` removed from the parser | the derived token-contract test fails |
+| newline-joined grouping + unencoded quarantine record | Test 14b and Test 18b fail; the record control **publishes the withheld commit** |
 
 Full Python suite: **6313 passed, 1 failed** at the time of the first run; the
 single failure was t1658_2's then-uncommitted work (`data_symlinks.sh` missing
