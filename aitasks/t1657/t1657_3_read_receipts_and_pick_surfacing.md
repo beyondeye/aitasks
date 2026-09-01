@@ -60,7 +60,10 @@ claim about a tree that may have moved. Surfacing must:
 
 - attribute it (`from=`, and render `from=` as **claimed** — `from_verified=yes`
   is the only verified variant, and its absence is not disproof);
-- show `base` / `at` / `dirty` so the reader can judge staleness — `dirty=yes`
+- show `base` / `at` / `dirty` so the reader can judge staleness. **Display may
+  abbreviate `base`** for readability — the stored and machine-emitted value is
+  always the full object id, so an abbreviation here is a rendering choice, never
+  a truncation of the record — `dirty=yes`
   specifically warns that a *moment-relative* claim (e.g. a `git status` reading)
   may already be stale in a way no SHA catches;
 - never auto-action the content, and never let a note bypass the recipient's own
@@ -70,7 +73,9 @@ claim about a tree that may have moved. Surfacing must:
 
 - `.aitask-scripts/aitask_query_files.sh` — new `inbox <task-id>` subcommand:
   `INBOX_UNREAD:<id>|<from>|<at>|<base>|<dirty>` lines, or `NO_INBOX` /
-  `NO_UNREAD`. Follow the existing `cmd_inflight` shape (line 512) — all
+  `NO_UNREAD`. `<base>` is emitted as the **full object id** stored in the entry —
+  this is a machine-readable channel, so it must not abbreviate. Only the
+  human-facing display does. Follow the existing `cmd_inflight` shape (line 512) — all
   subcommands exit 0; status is conveyed by output lines, not exit codes.
   Derivation must live in the shared lib from t1657_1 so writer and reader agree
   on ONE parse.

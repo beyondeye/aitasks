@@ -52,8 +52,16 @@ the only question `base` exists to answer.
 - query from the **code repo root** (`AIT_DIR`) — never the task-file path,
   `aitasks/`, or `.aitask-data`;
 - capture **before** the append and its commit;
-- `base=<short-sha>`, `base_branch=<abbrev-ref>`; `base_mergebase=<sha>` **only**
-  when HEAD is off the primary branch and a merge base exists;
+- `base=<full-oid>`, `base_branch=<abbrev-ref>`; `base_mergebase=<full-oid>`
+  **only** when HEAD is off the primary branch and a merge base exists.
+  **Full object id, never abbreviated**: `git rev-parse HEAD`, not `--short`,
+  with the width taken from `git rev-parse --show-object-format` rather than
+  hardcoded. `core.abbrev` is unset, so git auto-scales abbreviation to the
+  repo's current size (9 hex at 21 665 objects here); a prefix frozen into a
+  durable note keeps that width as the repo grows and can later resolve to more
+  than one object — defeating the exact-tree promise for the oldest notes, which
+  are the ones most likely to carry stale line numbers. **Presentation may
+  abbreviate; storage never does.**
 - sentinels, never empty or invented: `base=none` (no repo), `base=unknown`
   (HEAD unresolvable — unborn branch);
 - **`dirty` from the code repo too** — in the data worktree it would read `yes`
@@ -116,6 +124,9 @@ passing proves nothing about the other.
 - **`base` provenance**: equals code-repo HEAD, not `.aitask-data`'s; `dirty`
   from the code tree; off-primary HEAD emits `base_mergebase=`; degraded cases
   emit `none` / `unknown`
+- **abbreviated `base` is rejected**: `base` / `base_mergebase` must be full
+  object ids of the width from `git rev-parse --show-object-format`; a short
+  value fails the test
 - **concurrency**: parallel `ait note` to one task — all entries survive, none
   renumbered
 - `shellcheck .aitask-scripts/aitask_note.sh`

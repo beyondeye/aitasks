@@ -37,7 +37,8 @@ Must document — these are what a scripting user actually needs:
   after a successful append is a **success**;
 - **the `base` provenance contract**: which repository is queried (the code repo
   root, never the task-file path or `.aitask-data`), that capture happens before
-  the append, and what `none` / `unknown` mean;
+  the append, that `base` / `base_mergebase` are **full object ids** — storage is
+  exact, presentation may abbreviate — and what `none` / `unknown` mean;
 - **that `from=` is a claim**, and what `from_verified=` does and does not prove.
 
 ### 2. `website/content/docs/commands/_index.md`
@@ -66,6 +67,9 @@ lock record.
 - the merge contract for concurrent cross-PC appends;
 - the note-id scheme and why uniqueness is checked under the lock rather than
   merely improbable;
+- why `base` stores a **full** object id rather than a short one: `core.abbrev`
+  is unset, so git auto-scales abbreviation to the repo's current size, and a
+  prefix frozen into a durable note can later resolve to more than one object;
 - the trust posture, and the read-receipt decision (a note consumed on one PC
   does not resurface on another);
 - the known constraint that `aitask_update.sh --desc-file` replaces the body and

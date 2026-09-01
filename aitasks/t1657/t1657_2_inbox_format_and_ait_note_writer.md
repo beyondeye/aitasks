@@ -31,7 +31,7 @@ working on it. Live delivery (t1657_4) is an optimisation layered on top.
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
 
-> **✉ note:t349** id=<iso>.<24-hex> from=t349 from_verified=yes at=<iso> base=<sha> base_branch=main dirty=no host=<host>
+> **✉ note:t349** id=<iso>.<24-hex> from=t349 from_verified=yes at=<iso> base=<full-oid> base_branch=main dirty=no host=<host>
 >
 > | body line one
 > | body line two
@@ -67,8 +67,16 @@ working on it. Live delivery (t1657_4) is an optimisation layered on top.
    - queried from the **code repository root** (`AIT_DIR`), never from the task
      file path, `aitasks/`, or `.aitask-data`;
    - **captured before** the append and its commit;
-   - `base=<short-sha>`, `base_branch=<abbrev-ref>`, and `base_mergebase=<sha>`
-     **only** when HEAD is off the primary branch and a merge base exists;
+   - `base=<full-oid>`, `base_branch=<abbrev-ref>`, and
+     `base_mergebase=<full-oid>` **only** when HEAD is off the primary branch and
+     a merge base exists. **Full object id, never abbreviated** —
+     `git rev-parse HEAD`, not `--short`; width from
+     `git rev-parse --show-object-format`, not hardcoded. `core.abbrev` is unset,
+     so git auto-scales abbreviation to current repo size (9 hex at 21 665
+     objects here); a prefix frozen into a durable note stays that width while
+     the repo grows and can later become ambiguous — breaking the exact-tree
+     promise for exactly the oldest notes. Storage is exact; **presentation may
+     abbreviate**;
    - degraded cases get explicit sentinels — `base=none` (no repo),
      `base=unknown` (HEAD unresolvable) — never empty or invented, because a
      missing field reads as "fine" to a parser;
@@ -145,6 +153,10 @@ EOF-append path, so one backend passing proves nothing about the other.
 - **`base` provenance**: assert `base` equals the code-repo HEAD and NOT
   `.aitask-data`'s; `dirty` reflects the code tree; off-primary HEAD emits
   `base_mergebase=`; degraded cases emit `none` / `unknown`.
+- **Reject abbreviated `base`**: assert `base` and `base_mergebase` are full
+  object ids of the width reported by `git rev-parse --show-object-format`
+  (40 sha1 / 64 sha256) — a short value must fail the test, not merely be
+  tolerated.
 - **Concurrency**: parallel `ait note` calls to one task; every entry survives,
   none renumbered.
 - `shellcheck .aitask-scripts/aitask_note.sh`

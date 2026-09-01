@@ -36,6 +36,9 @@ NO_INBOX          # no ## Inbox section
 NO_UNREAD         # section present, everything acknowledged
 ```
 
+`<base>` carries the **full object id** as stored. This is a machine-readable
+channel and must never abbreviate; only human-facing display may.
+
 Add it to `show_help` and the header usage comment.
 
 ### 3. `ait note read`
@@ -66,7 +69,9 @@ is what makes this ambiguous.
 
 - attribute the sender, and render `from=` as **claimed**; `from_verified=yes` is
   the only verified variant, and its absence is not disproof;
-- show `base` / `at` / `dirty` so staleness is judgeable — `dirty=yes` warns that
+- show `base` / `at` / `dirty` so staleness is judgeable. **Display may
+  abbreviate `base`**; the stored and emitted value stays the full object id, so
+  abbreviation is a rendering choice rather than a truncated record — `dirty=yes` warns that
   a *moment-relative* claim may already be stale in a way no SHA catches;
 - never auto-action content; a note never bypasses the recipient's own planning,
   gates or review.

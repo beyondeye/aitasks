@@ -87,7 +87,7 @@ blockquotes, state derived back-to-front, machine-owned:
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
 
-> **✉ note:t349** id=2026-09-01T08:43:11Z.9f2c1a7be3d4085c6b1e2fa0 from=t349 from_verified=yes at=2026-09-01T08:43:11Z base=6169d645b base_branch=main dirty=no host=omg16
+> **✉ note:t349** id=2026-09-01T08:43:11Z.9f2c1a7be3d4085c6b1e2fa0 from=t349 from_verified=yes at=2026-09-01T08:43:11Z base=4965a9937ee77f92a3827c4e8b4272c8373a8932 base_branch=main dirty=no host=omg16
 >
 > | t357's line numbers are already stale; the blast radius is wider than the
 > | spawning bullet implied.
@@ -137,12 +137,23 @@ The algorithm, pinned:
 2. **Captured before** the durable append and its commit, so the value describes
    the tree the sender was looking at and is independent of write ordering.
 3. Fields, each true or absent — never fabricated:
-   - `base=<short-sha>` — code-repo `HEAD`, the exact tree the claim was made
-     against;
+   - `base=<full-oid>` — code-repo `HEAD`, the exact tree the claim was made
+     against. **Full object id, never abbreviated** (`git rev-parse HEAD`, not
+     `--short`): 40 hex for sha1, 64 for sha256, taken from
+     `git rev-parse --show-object-format` rather than hardcoded.
    - `base_branch=<abbrev-ref>` — context for the reader;
-   - `base_mergebase=<sha>` — written **only** when HEAD is not on the primary
-     branch and a merge base exists, so a recipient who cannot resolve a private
-     task-branch tip still has an ancestor they can.
+   - `base_mergebase=<full-oid>` — written **only** when HEAD is not on the
+     primary branch and a merge base exists, so a recipient who cannot resolve a
+     private task-branch tip still has an ancestor they can. Full oid, same rule.
+
+   **Why full, not short.** `core.abbrev` is unset here, so git auto-scales the
+   abbreviation to the repository's *current* size — measured: 9 hex at 21 665
+   objects. A prefix frozen into a durable note stays 9 hex while the repo grows,
+   so it can later resolve to more than one object. That breaks the exact-tree
+   promise precisely for **old** notes, which are the ones most likely to carry
+   stale line numbers. Storage is exact; **presentation may abbreviate** — pick-time
+   display and docs can show a short form, but the machine-readable field never
+   does.
 4. **Degraded cases get explicit sentinels, never an empty or invented value**,
    because a missing field would read as "fine" to a parser:
    `base=none` (no git repository) · `base=unknown` (git present but HEAD

@@ -47,8 +47,10 @@ It must document, because these are the parts a scripting user actually needs:
   failure;
 - **the `base` provenance contract** — which repository is queried (the code repo
   root, never the task-file path or `.aitask-data`), that capture happens before
-  the append, and what the `none` / `unknown` sentinels mean — so a reader knows
-  exactly what tree a note's claims can be checked against;
+  the append, that `base` / `base_mergebase` are **full object ids** (storage is
+  exact, presentation may abbreviate) and why, and what the `none` / `unknown`
+  sentinels mean — so a reader knows exactly what tree a note's claims can be
+  checked against;
 - **that `from=` is a claim**, and precisely what `from_verified=` does and does
   not prove.
 
@@ -82,6 +84,10 @@ reads the lock record.
 - the merge contract for concurrent cross-PC appends;
 - the note-id scheme and why uniqueness is checked under the lock rather than
   merely improbable;
+- why `base` stores a **full** object id: `core.abbrev` is unset, so git
+  auto-scales abbreviation to current repo size, and a prefix frozen into a
+  durable note can become ambiguous as the repository grows — breaking the
+  exact-tree promise for exactly the oldest notes;
 - the trust posture;
 - the known constraint that `aitask_update.sh --desc-file` replaces the body and
   would drop the section — a **pre-existing hazard `## Gate Runs` already
