@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1657
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 12:35
-updated_at: 2026-09-01 17:07
+updated_at: 2026-09-01 18:48
 ---
 
 # Durable lane: the `## Inbox` format and the `ait note` writer
@@ -165,3 +166,8 @@ EOF-append path, so one backend passing proves nothing about the other.
 - **Concurrency**: parallel `ait note` calls to one task; every entry survives,
   none renumbered.
 - `shellcheck .aitask-scripts/aitask_note.sh`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T15:48:17Z status=pass attempt=1 type=human
