@@ -54,7 +54,8 @@ the folded one. Complex feature — **decompose into child tasks at planning**.
 ## Invocation surfaces
 
 1. **Board By-Trail screen**: new command (free key; taken in By-Trail:
-   r R d s S v T z, and t1210_5 claims m/M) → dialog to pick the trail to merge
+   r R d s S v T z, plus m/M — t1210_5's move commands landed,
+   `aitask_board.py:9011`) → dialog to pick the trail to merge
    with (model on `TrailSelectScreen(ModalScreen)` at
    `.aitask-scripts/board/aitask_board.py:4218` + `PickerItem:4082`, excluding
    the active trail; the "pick survivor → confirm" pair
@@ -126,21 +127,31 @@ rationale). New helper scripts need their 5 whitelist entries
   note the Modal Dialogs Reference table L458-483 currently lists NO trail
   modals — gap to close when adding the merge dialog) and
   `website/content/docs/tuis/board/how-to.md` (By-Trail block L210-245).
-- Workflows: there is NO trail workflow page today — **t1210_6 (Ready) owns
-  creating `website/content/docs/workflows/implementation-trails.md` + its
-  hand-added `_index.md` bullet**. The merge workflow docs must link into /
-  extend that page: coordinate — either depend on t1210_6 or make the docs
-  child of this task explicitly cover the merge section of that page without
-  duplicating its scope.
+- Workflows: `website/content/docs/workflows/implementation-trails.md`
+  **exists** (t1210_6 landed 2026-09-01) — the docs child extends that page
+  with the merge workflow (linked from the existing trail flows) rather than
+  creating a new page; its `_index.md` bullet is already in place.
 - `aidocs/implementation_trail_design.md`: add the merge flow to the RFC
   (current-state prose per documentation_conventions).
 
-## Coordination (in-flight, verified at exploration time)
+## Coordination (re-verified 2026-09-01)
 
-- **t1210_5 (Ready)** claims `m`/`M` + the same `KanbanApp.BINDINGS` list and
-  By-Trail `check_action` branches — key choice and edit surface collide;
-  sequence or coordinate.
-- **t1210_6 (Ready)** owns the trail workflow website page (above).
+- **t1210 tree is Done and archived** (incl. t1210_5 move commands and the
+  t1210_6 workflow page) — the earlier key-collision and docs-dependency
+  constraints are gone; `m`/`M` are simply taken now, and line anchors in this
+  task may have drifted with the landed By-Trail changes.
+- **t1603_4 (Implementing)** edits `aitask_board.py` (task-detail gate fields,
+  ~L7039-7196 `_build_gate_fields`) — disjoint regions from this task's board
+  children (trail model layer L870-1320, modals ~L4200, By-Trail bindings
+  ~L9000), but same file: import/line churn, and the shared-helper promotion
+  child touches top-of-file imports. **Sequence the board children after
+  t1603_4 lands.** t1603_5 (Ready) will touch the website board docs pages —
+  order the docs children around it if picked concurrently.
+- **t1658_1/t1658_2 + t1599_3 (Implementing)** rework data-worktree/artifact
+  plumbing and sync commit scoping — no shared edit surface (this task only
+  *calls* `ait artifact`), but artifact-write verification may be flaky until
+  they land. **t1666 (Implementing)** documents `artifacts:`/xdeps frontmatter
+  on the website — different pages, trivial overlap.
 - **t1569_6 (Ready)** authors trails from the backlog-roadmap skill; t1634
   (Ready) does fold-candidate clustering for tasks (not trails) — related
   vocabulary, no overlap in scope.
@@ -161,4 +172,5 @@ precedent), `test_implementation_trail_design.py` (design-contract guard).
 Split at planning into children, e.g.: shared-helper promotion (+ board
 adoption), schema/provenance + merge-document rules, the
 `/aitask-merge-trails` skill + codeagent op, the board command + dialog,
-website/RFC docs (coordinated with t1210_6), and a manual-verification child.
+website/RFC docs (extending the existing implementation-trails workflow
+page), and a manual-verification child.
