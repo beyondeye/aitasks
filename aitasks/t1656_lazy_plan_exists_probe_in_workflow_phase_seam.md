@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: review_finding
+implemented_with: claudecode/opus5
 created_at: 2026-08-31 22:39
-updated_at: 2026-08-31 23:14
+updated_at: 2026-09-01 09:13
 ---
 
 ## Context
@@ -81,3 +82,8 @@ board with no signed witnesses. Do the same here:
   `tests/test_board_workflow_phase.py` matrix — this is a laziness change, not
   a semantics change.
 - `bash tests/run_all_python_tests.sh --test-dir tests` — read only the last line.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T06:13:47Z status=pass attempt=1 type=human
