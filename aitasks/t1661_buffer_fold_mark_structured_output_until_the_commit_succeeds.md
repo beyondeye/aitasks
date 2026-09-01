@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: [t1599_2]
 issue_type: enhancement
@@ -10,8 +12,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 10:28
-updated_at: 2026-09-01 12:40
+updated_at: 2026-09-01 14:17
 ---
 
 ## Context
@@ -66,3 +69,8 @@ sweep of the consumers before landing: `aitask_create.sh:1912`
   same order, so the buffering does not drop or reorder anything.
 - Extend `tests/test_fold_mark.sh` — its refusal cases already assert restored
   frontmatter and can carry the stdout assertions.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T11:17:57Z status=pass attempt=1 type=human
