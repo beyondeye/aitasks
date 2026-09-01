@@ -221,3 +221,47 @@ Step 9 of the task workflow (cleanup, archival, merge) applies as usual.
 ### Planned mitigations
 - timing: post-phase | name: cross_tui_order_parity | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — four sort sites can drift apart | desc: One shared fixture through both TUIs' _rebuild_pane_list, asserting the two mounted card orders are equal to each other.
 - timing: post-phase | name: discriminating_fixture_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a single-digit fixture would prove nothing | desc: Negative control asserting the pre-fix lexicographic key yields a different order for the same fixture.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `INDEX_RANK_NUMERIC` / `INDEX_RANK_NON_NUMERIC`,
+  `tmux_index_key()` and `pane_sort_key()` to
+  `.aitask-scripts/monitor/monitor_core.py` (between `TmuxPaneInfo` and
+  `PaneSnapshot`); re-exported all four through the `tmux_monitor.py` shim;
+  replaced `TmuxMonitor._PANE_SORT_KEY`'s lambda with
+  `staticmethod(pane_sort_key)`; swapped both lambdas in
+  `MonitorApp._rebuild_pane_list` and the `sort_key` in
+  `MiniMonitorApp._rebuild_pane_list` for `pane_sort_key(s.pane)`; and collapsed
+  `MiniMonitorApp._find_own_window_snapshot`'s hand-rolled numeric `min()` key
+  onto the shared `tmux_index_key`, deleting its local `1 << 30` literal. Added
+  `tests/test_monitor_pane_sort_order.py` — 17 cases across 8 classes.
+- **Deviations from plan:** None to the design. One test-harness correction
+  during implementation: `app.query("#pane-list").results(PaneCard)` filters the
+  *matched* node (the container) by type and therefore returns nothing; the
+  monitor's card order is read with
+  `app.query_one("#pane-list").query(PaneCard)` instead.
+- **Issues encountered:** The plan's first draft used a large-integer sentinel
+  (`1 << 30`, copied from the pre-existing `_find_own_window_snapshot` idiom) as
+  the non-numeric rank. That is not total: `1 << 30` is itself a legal decimal
+  index, so `"1073741824"` tied with non-numeric text and every larger index
+  sorted *ahead* of it. Caught in plan review and replaced with a category-first
+  key `(rank, int, text)`; `SentinelBoundaryTests` pins the boundary so the
+  sentinel shape cannot be reintroduced.
+- **Key decisions:**
+  - Scope widened from the two `_rebuild_pane_list` sites named in the task to
+    four: `TmuxMonitor._PANE_SORT_KEY` carries the identical defect and feeds the
+    same displayed order, and `_find_own_window_snapshot` was folded in so the
+    numeric idiom and its fallback exist exactly once.
+  - `isdecimal()` rather than `isdigit()` — it is the predicate that matches
+    exactly what `int()` accepts, so the key cannot raise on e.g. `"²"`.
+  - `tmux_index_key` accepts any object (`str(value)`, `None` → `""`) because
+    `tests/test_multi_session_minimonitor.sh` constructs a pane with an **int**
+    `pane_index=0`.
+  - Both inline risk mitigations landed as planned:
+    `CrossTuiOrderParityTests` drives one fixture through both TUIs and compares
+    the two rendered orders **to each other**;
+    `DiscriminatingFixtureControlTests` is the negative control proving the
+    fixture separates the new key from the old one.
+  - Test discrimination was verified by mutation: reverting `pane_sort_key` to
+    the pre-fix tuple made 7 of the 17 cases fail; restoring it made all 17 pass.
+- **Upstream defects identified:** None
