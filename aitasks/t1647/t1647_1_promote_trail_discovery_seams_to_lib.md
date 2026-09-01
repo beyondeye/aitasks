@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [trails, aitask_board, python]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1647
 created_at: 2026-09-01 18:49
-updated_at: 2026-09-01 18:49
+updated_at: 2026-09-01 22:35
 ---
 
 ## Context
