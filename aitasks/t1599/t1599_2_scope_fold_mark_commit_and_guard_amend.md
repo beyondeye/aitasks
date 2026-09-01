@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
@@ -8,8 +10,9 @@ labels: [git, bash_scripts, robustness, task_metadata]
 gates: [risk_evaluated]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5
 created_at: 2026-08-25 12:48
-updated_at: 2026-08-31 22:48
+updated_at: 2026-09-01 10:13
 ---
 
 ## Context
@@ -170,3 +173,8 @@ inside a `( … )` subshell, opt into the file-backed counters
 (`assert_counters_init` + `assert_counters_load`) per CLAUDE.md.
 
 Also run `shellcheck .aitask-scripts/aitask_fold_mark.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T07:13:47Z status=pass attempt=1 type=human
