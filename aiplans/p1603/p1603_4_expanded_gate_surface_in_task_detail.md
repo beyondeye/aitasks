@@ -433,3 +433,86 @@ check the plan already blocks on.
 
 Standard closure: commit, merge per the plan header (current-branch mode —
 nothing to merge), archive the task and plan.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved design. `_pending_procedure_gates`
+  extracted from `derive_workflow_phase` (which now delegates) with its inline
+  rationale comment updated; `TaskDetailScreen._build_gate_fields()` added
+  returning `(rows, fraction)`; the `Gates` collapsible mounted in `compose`
+  between Risk and Dependencies. `SharedGatePredicateContractTest`'s consumer
+  map grew the two named entries the extraction requires. New
+  `tests/test_board_detail_gates_section.py` (20 tests) covers every row of the
+  classification table, the filtered audit block, both degraded renderings,
+  section presence, escaping, the no-ledger title and cross-surface parity.
+
+- **Deviations from plan:** None in the design. Two fixture-level corrections,
+  both found by running the tests rather than by re-reading code:
+
+  1. **Staleness is driven by an on-disk witness, not by the ledger marker.**
+     The plan's stale fixture stamped `code_digest=` on the `## Gate Runs` line,
+     copying `test_board_workflow_phase.py`'s shape. That produced a clean
+     `pass`. `stale_signed_gates` pre-filters on `_has_stamped_witness`, which
+     reads `.aitask-gates/t<id>/<gate>.signed` (the registry's `signal_target`).
+     Two things were needed: a `_witness()` helper writing that file, **and** a
+     pinned digest — the fixture tree is a temp dir with no git repo, so the real
+     `code_digest()` answers `None` ("unverifiable"), which `witness_state`
+     resolves to `unstamped` (accept), making staleness unreachable. The pinned
+     `str` is state 3 of `_resolve_digest`'s documented four-state channel, i.e.
+     the same channel production fills — not a patch. The test went red → green
+     on adding both, which is its own evidence it drives the real mechanism.
+
+  2. **The error test was not discriminating, and the plan's reasoning about it
+     was half wrong.** Finding 12 was right that the round-1 *ordering* would
+     duplicate the row, and the shipped ordering avoids it. But `len(rows) == 1`
+     does not detect a regression: with `state is None` the builder returns
+     right after the phase row either way, and `phase_chip_text` renders `error`
+     provenance with the same opening words — so deleting the short-circuit
+     still yields exactly one row, just the bare label with the underlying error
+     silently dropped. A mutation run proved the original assertion passed
+     against that. The test now also asserts the diagnostic text reaches the
+     surface, and the module docstring was corrected: the row COUNT is not what
+     is at risk, the message is.
+
+- **Issues encountered:** Only the two above. The `_gate_progress` /
+  `phase_chip_text` / `_failed_active_gates` reuse worked as designed on first
+  run; the never-run gate, filtered block, escaping and parity tests passed
+  immediately.
+
+- **Key decisions:**
+  - **Every claim was mutation-tested rather than trusted green.** Dropping
+    `escape()` fails exactly the 2 escaping tests (`weird[b]name` renders as
+    `weirdname` — Rich eats the tag) and nothing else, confirming the docstring's
+    claim that they are the only guard; `current.get(g)` → `current[g]` fails 9;
+    recomputing the fraction unconditionally fails exactly the 2 intended tests.
+    The fourth mutation is what exposed the weak error assertion above.
+  - `NoLedgerTitleTests` carries an explicit negative control asserting
+    `_gate_progress` really does answer `(0, 2)` on that fixture — without it the
+    suppression test passes against a builder that has no fraction feature at all.
+  - Parity is asserted on the **rendered** title and chip strings, including the
+    cases where both show none, rather than by comparing two derivations.
+  - Real-repo spot check (not only fixtures): t1603_4's own file renders
+    `Gates (0/1)` with `· risk_evaluated — pending`, matching its chip — the
+    never-run case that would have crashed the detail screen under round 1.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **t1603_5 (docs):** the surface is a `Gates` collapsible on `TaskDetailScreen`,
+    between Risk and Dependencies, collapsed by default. Title is
+    `Gates (<satisfied>/<enforced>)`, or plain `Gates` when no fraction is
+    derivable. Glyphs: `✓` passed, `⊘` skipped (not applicable), `⚠` pass with a
+    stale signature, `✗` failed, `◈` pending/needs attended agent, `·` pending.
+    Filtered gates appear last under "filtered by profile (audit only)" and are
+    counted in nothing. Worth documenting explicitly: **a task with no ledger
+    shows no fraction at all**, not `0/N` — the same rule the card follows.
+  - **The three shared predicates are now a closed set with a frozen consumer
+    map.** Any future surface classifying gates must call
+    `_pending_human_gates` / `_failed_active_gates` / `_pending_procedure_gates`
+    and add itself to `EXPECTED_CONSUMERS` in
+    `tests/test_board_gate_digest_budget.py`; that test fails on
+    `assertEqual(callers, expected)` until you do, by design.
+  - **Fixture recipes worth reusing:** a stale signature needs
+    `_witness()` + a pinned digest (see above); an unreadable ledger needs
+    `break_ledger_read` (point the `Task` at a missing path while its in-memory
+    content keeps the markers) so the real `except` branch builds the result.
