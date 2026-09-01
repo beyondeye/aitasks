@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, tui, monitor]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1653
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 09:37
-updated_at: 2026-09-01 11:15
+updated_at: 2026-09-01 12:05
+completed_at: 2026-09-01 12:05
 ---
 
 ## Origin
@@ -65,3 +66,14 @@ comparison must stay total.
 > **✅ gate:plan_approved** run=2026-09-01T08:15:56Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-01T08:32:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-01T09:05:14Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:149ef74a76aee3a1
+
+> **✅ gate:risk_evaluated** run=2026-09-01T09:05:14Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1659/risk_evaluated_2026-09-01T09:05:14Z-risk_evaluated-a1.log`
