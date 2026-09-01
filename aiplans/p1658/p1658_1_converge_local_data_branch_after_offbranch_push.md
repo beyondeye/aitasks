@@ -392,13 +392,29 @@ with zero coverage today, asserted **on the local ref**:
 - **the local (no-remote) path, which no remote fixture reaches.** `main()`
   bypasses `commit_metadata_update` entirely there, so every assertion above
   leaves it uncovered — and it is exactly the path the out-param contract can
-  corrupt. On a repo with **no remote**, assert stdout is exactly
-  `UPDATED:<agent>:<skill>:<value>` carrying the **correct count/score** and the
-  exit status is `0`. Run both sub-states: a real change staged, and the no-op
-  state where `commit_metadata_update_local` takes its early `return`. **The
-  count is the discriminator, not the token** — a helper that clobbers
-  `AIT_METADATA_VALUE` still prints `UPDATED:`, just with an empty or stale
-  value, so asserting the token alone would miss the regression entirely.
+  corrupt. It needs **two tests at two different levels**, because the helper's
+  two returning paths are not both reachable from the script:
+
+  1. **End-to-end, no remote.** Run the script on a repo with no remote and
+     assert stdout is exactly `UPDATED:<agent>:<skill>:<value>` carrying the
+     **correct count/score**, exit `0`. **The count is the discriminator, not
+     the token** — a helper that clobbers `AIT_METADATA_VALUE` still prints
+     `UPDATED:`, just with an empty or stale value, so asserting the token alone
+     would miss the regression entirely.
+  2. **Helper-level, for the early return — which end-to-end cannot reach.**
+     `update_model_file` always increments a counter and `mv`s the result, so
+     `main()`'s local path **always** stages a model-file change and
+     `commit_metadata_update_local` can never take its `diff --cached --quiet`
+     branch from there. Driving it through the script is infeasible, so call the
+     helper **directly** (sourced lib, **not** inside `$( )`) with a clean index:
+     seed `AIT_METADATA_VALUE` to a sentinel, call
+     `commit_metadata_update_local`, then assert the sentinel is **unchanged**
+     and `AIT_METADATA_LOCAL_CONVERGED=1`. Repeat the same sentinel assertion
+     with a real staged change, so the "never touches the value / always sets
+     the verdict" rule is pinned on **both** of the helper's returning paths.
+
+  Test 1 alone would leave the early return unproven; test 2 alone would not
+  prove `main()` wires the globals together correctly. Both are required.
 
 Note: if any new test body runs inside a `( … )` subshell, opt into the
 file-backed counters (`assert_counters_init` / `assert_counters_load`) per
@@ -459,7 +475,7 @@ Step 9 (Post-Implementation) covers cleanup, archival and merge.
 ### Code-health risk: medium
 - `git merge --ff-only` is a **new write** to the shared `.aitask-data` worktree on a path that previously did nothing whenever it was blocked; it updates files a concurrent agent may be mid-read on · severity: medium · → mitigation: none — accepted; bounded by the `ff_blocked` fails-closed case and its recovery test in the state matrix
 - Converting the metadata chain from stdout returns to out-param globals rewrites the calling convention of four functions at once, and a missed `echo` / `$( )` would strand the verdict silently again · severity: medium · → mitigation: none — accepted; the unit test asserting the globals cross the boundary, with its `$( )` negative control, fails loudly on exactly that regression
-- `main()` bypasses `commit_metadata_update` on the local path and already holds the value before calling `commit_metadata_update_local`, so an out-param contract that has that helper set `AIT_METADATA_VALUE` corrupts the count/score on a route no remote fixture exercises · severity: medium · → mitigation: none — accepted; the contract table in step 3 states one rule (only the remote path produces a value) and the new no-remote **count** assertion in step 6 covers both sub-states including the early return
+- `main()` bypasses `commit_metadata_update` on the local path and already holds the value before calling `commit_metadata_update_local`, so an out-param contract that has that helper set `AIT_METADATA_VALUE` corrupts the count/score on a route no remote fixture exercises · severity: medium · → mitigation: none — accepted; the contract table in step 3 states one rule (only the remote path produces a value), and step 6 covers it at both levels — an end-to-end no-remote **count** assertion, plus a direct sentinel-preservation call on both of the helper's returning paths, since the early return is unreachable from the script
 - The pre-converge adds a `git push` inside a metadata update, publishing other sessions' *committed* data-branch commits earlier than they would otherwise leave the machine · severity: low · → mitigation: none — accepted; `ait sync` already publishes them the same way
 - A third exit status (3) and a second stdout token widen the metadata scripts' contract, and the consumer lives in a rendered skill surface across three agents · severity: low · → mitigation: none — accepted; the tokens are disjoint under `grep 'UPDATED:'`, the single Claude source rerenders to all agents, and `aitask_skill_verify.sh` plus `tests/test_skill_render_task_workflow.sh` gate the change — the latter is the one that fails on stale goldens, which `aitask_skill_verify.sh` does not check
 
