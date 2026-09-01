@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [git, bash_scripts, task_metadata, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1658
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 14:30
-updated_at: 2026-09-01 15:37
+updated_at: 2026-09-01 16:43
+completed_at: 2026-09-01 16:43
 ---
 
 ## Context
@@ -139,3 +140,14 @@ Do not change `_ait_detect_data_worktree()` here.
 > **✅ gate:plan_approved** run=2026-09-01T12:37:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-01T13:42:46Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-01T13:43:16Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:51b4cf2eaf2e5357
+
+> **✅ gate:risk_evaluated** run=2026-09-01T13:43:16Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1658_1/risk_evaluated_2026-09-01T13:43:16Z-risk_evaluated-a1.log`
