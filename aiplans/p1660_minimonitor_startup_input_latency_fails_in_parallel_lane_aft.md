@@ -579,3 +579,96 @@ attributed here. They belong to whoever is editing the gate-digest / merge code 
 
 **t1660's own acceptance was met independently of these two**: every t1660-touched
 module is green, and the failing assertions are in files this task never opened.
+
+### [contention_control] PASSED (exit=0)
+
+5 trials, 24 burners, 180 s budget, validator compared against `/tmp/idle.tsv`.
+`burners clean`, `CONTENTION CONTROL: PASSED`, `contention control exit=0`.
+
+| trial | test | turns | mount_elapsed |
+|---|---|---|---|
+| 1 | first_refresh / mount | 4 / 4 | — / 0.21 ms |
+| 2 | first_refresh / mount | 4 / 4 | — / 0.23 ms |
+| 3 | first_refresh / mount | 4 / 4 | — / 0.44 ms |
+| 4 | first_refresh / mount | 4 / 4 | — / 0.27 ms |
+| 5 | first_refresh / mount | 4 / 4 | — / 0.26 ms |
+
+Idle baseline for comparison: **turn 4** for both tests, `mount_elapsed` 0.47 ms
+(`nproc` 24; idle `uptime` 3.70, loaded run under 24 burners).
+
+**This is the invariance claim, demonstrated rather than asserted.** Module wall time
+inflated ~5x under the same load — 0.53 s idle vs 1.06 / 1.21 / 2.38 / 2.79 / 2.91 s —
+while the turn count did not move by one. A wall-clock budget is exactly what that 5x
+would have broken; the count is what it cannot touch. All 18 tests passed in every
+trial.
+
+### Full-suite runs — two consecutive clean passes
+
+| run | verdict | result |
+|---|---|---|
+| 1 (15:32) | `PYTHON SUITE: FAILED (exit=1)` | 2 failed, 6271 passed — both the concurrent session's, see `[report_residual_flakes]` above |
+| 2 (16:38) | **`PYTHON SUITE: PASSED (runner=pytest, exit=0)`** | no failures |
+| 3 (16:44) | **`PYTHON SUITE: PASSED (runner=pytest, exit=0)`** | 6310 passed, 2 skipped in 279.73s |
+
+Runs 2 and 3 are the two clean runs the acceptance criterion asks for, and they also
+**retire** run 1's failures: the same two assertions passed untouched once the
+concurrent edits settled, confirming the attribution above rather than leaving it as
+a claim.
+
+`bash tests/test_serial_carveout_doc_drift.sh` — **18 passed, 0 failed**. The
+carve-out was deliberately not touched (this is an `App.run_test` module; the
+carve-out exists for tmux-pane boot budgets).
+
+### Acceptance
+
+- **Mechanism identified and stated:** marginal assertion on the wrong instrument, not
+  a t1653 regression. Recorded in Context above with measurements from both directions
+  (harness attribution + two independent t1653 A/Bs).
+- **`bash tests/run_all_python_tests.sh --test-dir tests` reports `PYTHON SUITE:
+  PASSED`, repeatably:** runs 2 and 3.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned scope, in two test files and zero
+  production files. `tests/test_minimonitor_startup_input_latency.py` gained
+  `_DISPATCH_TURNS`, `_press_and_observe()` and the env-gated `_log_dispatch()`
+  seam; both `pilot.press`-timed regions were replaced by a turn-count observation;
+  the module docstring and the positive-control table were corrected; `INPUT_BUDGET_S`
+  now documents why the one surviving wall-clock budget (the synchronous
+  `on_mount()` region) is defensible. `tests/test_board_movement.py` got the
+  docstring-only correction of its false `pilot.press` rationale.
+
+- **Deviations from plan:** Two, both forced by verification and both recorded in
+  full under "Deviations from the approved plan" above. (1) The untimed
+  `await pilot.pause()` moved from *after* the `try/finally` to *inside* the
+  `finally`, and the turn assertion now precedes `assertIn` — without this a failing
+  positive control reported `ScreenStackError` from teardown instead of its own
+  message. (2) Positive-control row (b) (`set_timer(0, …)`) was corrected to state
+  its real failure point (`entered.wait()` timeout) rather than relabelled to turn
+  exhaustion, after measuring the same behaviour against the pre-t1660 test file.
+
+- **Issues encountered:** The plan's own instruction — "treat a control that fails for
+  the *other* reason as a failed verification" — fired on the first control run and is
+  what surfaced deviation 1. Separately, full-suite run 1 failed on two assertions in
+  files this task never opened; mtimes proved a concurrent session was writing
+  `aitask_merge.py` and `test_board_gate_digest_budget.py` mid-run, and runs 2 and 3
+  passed those same assertions untouched.
+
+- **Key decisions:**
+  - Count **event-loop turns**, not seconds. Load changes how long a turn takes, never
+    how many are needed — demonstrated, not asserted: 4 turns idle and 4 turns under
+    24-way load while module wall time inflated ~5x.
+  - **Kept** the `mount_elapsed` wall-clock budget rather than converting it. It wraps
+    a synchronous call with no event loop, no `Pilot` and no `wait_for_idle`, and the
+    measured margin is >=1000x under load (0.21-0.44 ms against 500 ms). The comment
+    at the call site records the numbers so the next reader can re-decide with data.
+  - **Did not** raise the budget, add retries, or move the module to the serial
+    carve-out — all three are rejected by existing precedent (t1510's plan;
+    `testing_conventions.md:35-38`; `test_stats_backlog_panes_live.py:16-20`, since
+    the carve-out is for tmux-pane boot budgets and this is an `App.run_test` module).
+  - The `_log_dispatch` seam is **off by default** (env-gated), so the suite is
+    unchanged, and it makes the contention control compare against a real baseline
+    instead of eyeballing prints.
+
+- **Upstream defects identified:**
+  - `tests/test_board_movement.py:693-698 — _sample() docstring claimed "pilot.press awaits _wait_for_screen(), which is event-driven with no sleep"; false in textual 8.2.7, where App._press_keys awaits wait_for_idle(0) twice per key. Corrected in this task's post-phase (docstring only; the benchmark's numbers were always sound because _floor() subtracts the harness cost).`
