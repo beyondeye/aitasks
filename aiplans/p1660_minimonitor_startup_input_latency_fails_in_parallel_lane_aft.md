@@ -489,3 +489,93 @@ echo "contention control exit=$rc"
 - timing: post-phase | name: contention_control | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the instrument's contention-invariance is only established from planning-time measurements | desc: re-run the module under 24 background CPU burners and record the loaded turn counts and mount_elapsed samples
 - timing: post-phase | name: report_residual_flakes | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — "full suite green" is a claim about every module, not just this one | desc: record any non-t1660 full-suite failure verbatim, hand it to its owning task, and state whether t1660's own criterion was met independently
 - timing: post-phase | name: correct_press_rationale_in_board_movement | type: documentation | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: code-health — the same false pilot.press rationale invites the defect to be reintroduced | desc: docstring-only correction of the "event-driven with no sleep" claim in tests/test_board_movement.py, changing no code or assertion
+
+---
+
+## Implementation notes (as-built)
+
+### Deviations from the approved plan
+
+1. **Assertion order swapped, and the key drain moved INTO the `finally`.** The plan
+   put `assertIn("j", handled)` first and the untimed `await pilot.pause()` *after*
+   the `try/finally`. Running positive control (a) proved both wrong:
+
+   > `textual.app.ScreenStackError: No screens on stack` — raised from
+   > `MiniMonitorApp.on_key` (`minimonitor_app.py:2528`, `isinstance(self.screen, …)`)
+
+   On the **failure** path the assertions raise before the plan's trailing `pause()`,
+   so the queued Key was still pending at `run_test` teardown; the pump then dispatched
+   it after the screen stack was gone, and `run_test`'s `raise self._exception` MASKED
+   the real assertion with a traceback nowhere near it — the exact
+   `testing_conventions.md:40-53` hazard. Fix: `await pilot.pause()` now lives inside
+   the `finally`, right after the gate release, so it drains on both paths. The turn
+   assertion also now precedes `assertIn`, so a control reports turn exhaustion **by
+   name** rather than the older, vaguer message. Both tests, symmetrically.
+
+2. **Positive-control row (b) corrected rather than relabelled.** The plan assumed
+   `set_timer(0, self._refresh_data)` would newly fail by turn exhaustion. Measured: it
+   fails at the `mon.entered.wait()` timeout — the first refresh does not run at all
+   within the 5 s window, so the test dies *before* the dispatch observation. Verified
+   this is **unchanged by t1660** by running the same mutation against the pre-t1660
+   test file recovered with `git show HEAD:…` (same `TimeoutError`, 5.49 s). The row
+   now states its true failure point instead of claiming a mode it never had.
+
+### Positive controls — all four run by hand, source restored (md5 verified)
+
+| control | observed failure | time |
+|---|---|---|
+| (a) `_start_monitoring` → `call_later(self._refresh_data)` | `AssertionError: unexpectedly None : … never reached App.on_event within 200 event-loop turns` | 0.06 s |
+| (b) `_start_monitoring` → `set_timer(0, …)` | `TimeoutError` at `mon.entered.wait()` (pre-existing; see deviation 2) | 5.29 s |
+| (c) `on_mount` probe → `subprocess.run` | `TimeoutError` at `_StalledTmuxClient.entered.wait()` **and** `test_on_mount_issues_no_synchronous_subprocess` by name (`['subprocess.run (line 1307)'] != []`) | 5 s |
+| (d) `on_mount` `run_worker` → `call_later(lambda: self._seed_own_window_info())` | `AssertionError: unexpectedly None : … within 200 event-loop turns while the mount probe was in flight` | 0.29 s |
+
+Each reverted from a scratchpad snapshot (never `git restore` — the tree is shared);
+`md5sum` confirmed `minimonitor_app.py` byte-identical to its pre-mutation state after
+every control.
+
+### Module results
+
+- `~/.aitask/venv/bin/python tests/test_minimonitor_startup_input_latency.py` — **18
+  tests OK in 0.53 s** (was 0.51 s for a subset; the `pilot.press` harness cost is gone).
+- Idle baseline `/tmp/idle.tsv`: both tests dispatch at **turn 4**;
+  `mount_elapsed = 0.47 ms`.
+- `pytest tests/test_board_movement.py -q` — **32 passed, 2 skipped** (the 2 are the
+  env-gated benchmarks) after the docstring-only post-phase edit.
+
+### [report_residual_flakes] Full-suite run 1 — 2 failures, neither t1660's
+
+`bash tests/run_all_python_tests.sh --test-dir tests` → `PYTHON SUITE: FAILED
+(runner=pytest, exit=1)`; `2 failed, 6271 passed, 2 skipped in 290.12s`. The serial
+carve-out phase passed (11 passed). Verbatim:
+
+```
+FAILED tests/test_board_gate_digest_budget.py::SharedGatePredicateContractTest::test_each_predicate_has_exactly_its_two_consumers
+  AssertionError: Items in the first set but not the second: '_build_gate_fields'
+FAILED tests/test_collection_parity.py::CollectionParityTests::test_backends_collect_the_same_per_file_counts
+  AssertionError: ['test_aitask_merge: unittest=96 pytest=0',
+                   'test_merge_union_characterization: unittest=5 pytest=0'] != []
+```
+
+**Attribution: a concurrent session editing this working tree mid-run — not t1660.**
+Evidence, not inference:
+
+- t1660 touches exactly two files, `tests/test_minimonitor_startup_input_latency.py`
+  and `tests/test_board_movement.py`. Neither appears in either failure.
+- mtimes: `.aitask-scripts/board/aitask_merge.py` **15:37:35**,
+  `tests/test_board_gate_digest_budget.py` **15:34:55**, `.aitask-scripts/aitask_gate.sh`
+  **15:34:02** — all *inside* the suite window (15:32-15:37). t1660's own files:
+  15:25.
+- `git status` shows ~20 uncommitted modifications absent at this session's start
+  (`aitask_gate.sh`, `aitask_board.py`, `aitask_merge.py`, `gate_ledger.py`,
+  `settings_app.py`, the `task-workflow` goldens, …).
+- Both failures are **not reproducible**: `pytest tests/test_board_gate_digest_budget.py
+  tests/test_collection_parity.py -q` → **18 passed**. `pytest=0` for
+  `test_aitask_merge` was a transient collection error while `aitask_merge.py` was
+  being written; it collects 96 now.
+
+Per this mitigation's own rule, these were **not** re-run until green and are **not**
+attributed here. They belong to whoever is editing the gate-digest / merge code — the
+`_build_gate_fields` predicate is new work in flight, not a regression.
+
+**t1660's own acceptance was met independently of these two**: every t1660-touched
+module is green, and the failing assertions are in files this task never opened.

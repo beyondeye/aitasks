@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -14,7 +16,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 implemented_with: claudecode/opus5
 created_at: 2026-08-25 10:16
-updated_at: 2026-09-01 15:24
+updated_at: 2026-09-01 15:25
 ---
 
 # Pluggable pre-implementation resource admission hook in task-workflow
