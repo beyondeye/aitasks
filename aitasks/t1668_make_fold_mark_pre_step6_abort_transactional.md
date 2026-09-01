@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 1661
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 15:38
-updated_at: 2026-09-01 17:57
+updated_at: 2026-09-01 17:58
 ---
 
 ## Origin
