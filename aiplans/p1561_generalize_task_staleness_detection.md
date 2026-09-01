@@ -87,3 +87,32 @@ No source code, skills, or tests change in this task — all mechanism work live
 
 ### Planned mitigations
 - timing: pre-phase | name: sample_live_backlog_prompt_rate | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: prompt-noise miscalibration (goal-achievement) | desc: measure live Ready-follow-up ASK_STALE rate and evidence quality with existing roadmap tooling before finalizing the record's coverage decision
+
+## Implementation progress (2026-09-01)
+
+- [x] Pre-phase `sample_live_backlog_prompt_rate` — **NO-GO**. Measured: 228 Ready follow-ups, 87 candidates with exact-quality origins; ASK_STALE 78/87 = 89.7%, SKIP 9 (`unknown_history`). Deterministic sample (stride over id-sorted pool, indices 0/15/31/46/62): t623_7, t1113, t1291, t1391, t1541 — **0/5 actionable** (every sample >10 distinct drift tasks; hot-file churn dominates). Go bar (≥3/5) missed → v1 narrowed per the binding rule: computed-baseline source deferred behind a profile key; derived origin scope + creation-time seeding retained.
+- [x] Step 1 — decision record written: `aidocs/framework/task_premise_staleness.md` (includes the dated measurement, sampled ids, no-go rationale); one-line cross-ref added to `aidocs/framework/manual_verification_staleness.md`.
+- [x] Step 2 — implementation tree created: parent **t1663** + sequential children t1663_1 (core engine + producer), t1663_2 (field end-to-end), t1663_3 (seeding + carryover), t1663_4 (workflow Check 6 + procedure), t1663_5 (website docs), t1663_6 (retrospective evaluation). Child descriptions carry the narrowed (no-go) design and their owned verification cases.
+- [x] Step 3 — t1655 `depends:` updated to `[1561, t1569_5, 1663]`.
+- [ ] Step 4 — docs commit pending Step 8 review (task-file commits already made by the creation/update helpers).
+
+No deviations from the approved plan; the no-go branch taken is the plan's own pre-registered rule.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-01 13:35)
+- **Requested by user:** t1663 was created with `depends: []`; `--followup-of 1561` only anchors (topic root 1538), it creates no execution dependency — another agent could pick t1663 before t1561's decision record lands on the code branch.
+- **Changes made:** `aitask_update.sh --batch 1663 --deps "1561" --commit` — t1663 now reads `depends: [1561]` and lists as `Blocked (by 1561)` until t1561 archives.
+- **Files affected:** `aitasks/t1663_advisory_task_premise_staleness.md` (committed via ait git).
+
+### Change Request 2 (2026-09-01 13:40)
+- **Requested by user:** parent-only `depends: [1561]` does not block direct child picks — t1663_1 had `depends: []` and was pickable before the decision record lands.
+- **Changes made:** `aitask_update.sh --batch 1663_1 --deps "1561" --commit` — t1663_1 now lists as `Blocked (by 1561)`; the sibling chain (t1663_2 → t1663_1, etc.) holds the remaining children.
+- **Files affected:** `aitasks/t1663/t1663_1_premise_core_engine_and_producer.md` (committed via ait git).
+
+## Final Implementation Notes
+- **Actual work done:** Wrote the decision record `aidocs/framework/task_premise_staleness.md` (accepted the generalization; fixed the design: `premise_baseline:` field, orthogonal scope/baseline axes, `BASELINE/CHECKED/FINGERPRINT/…/DECISION` protocol, pure `lib/task_premise.py` + `aitask_premise_stale.sh` split, Step 3 Check 6 four-option interaction, creation-time seeding). Ran the pre-registered `sample_live_backlog_prompt_rate` measurement (228 Ready follow-ups, 87 exact-origin candidates, 89.7% ASK_STALE, 0/5 sampled evidence sets actionable — samples t623_7, t1113, t1291, t1391, t1541) → **no-go** on computed origin-landing baselines; v1 narrowed to stored-baseline-only with the computed tier deferred behind a profile key. Created implementation tree t1663 (+ t1663_1…6, sequential) with self-contained child descriptions carrying the narrowed design; added cross-ref from `manual_verification_staleness.md`; rewired t1655 `depends:` to `[1561, t1569_5, 1663]`.
+- **Deviations from plan:** None — the no-go branch taken is the plan's own pre-registered rule. Post-review additions: `depends: [1561]` on t1663 AND t1663_1 (anchoring via `--followup-of` creates no execution dependency; parent-only depends does not block direct child picks).
+- **Issues encountered:** The live measurement contradicted the roadmap-corpus expectation in the useful direction: the 89.7% ASK_STALE rate was expected, but evidence actionability (0/5) was decisively below the bar — hot framework files (`aitask_setup.sh`, `minimonitor_app.py`) dominate origin surfaces over year-scale windows.
+- **Key decisions:** (1) New `premise_baseline:` field rather than reusing `verification_baseline:` (issue-type-scoped seam). (2) `CHECKED:` sha — baseline advances always write the revision the user saw, never write-time HEAD. (3) `FINGERPRINT:` digest over metadata inputs + post-lock re-check — a concurrent scope/origin/baseline mutation voids the prompted answer. (4) Empty scope → SKIP never FRESH; UNKNOWN drives the verdict. (5) Seeding only when scope is derivable; carryover inherits.
+- **Upstream defects identified:** None
