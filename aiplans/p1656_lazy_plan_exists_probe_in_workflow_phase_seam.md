@@ -335,3 +335,53 @@ task-workflow skill.
   pattern to follow, the call sites, and the verification shape. The only
   deviation (parameter name, callable-only rather than a union) is stated
   explicitly above and the task text leaves both open.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, all five sections.
+  `derive_workflow_phase` now takes `plan_exists_probe: Callable[[], bool]`
+  (keyword-only) and resolves it only inside the B1 no-ledger branch;
+  `_inflight_item_for` passes `lambda: _resolve_plan_path_for_task(task, self)
+  is not None`, so an admitted in-flight item in any other state pays no
+  `Path.exists()`. `_CountingProbe` + the `_derive` wrapper, the module-level
+  `_phase_matrix()` lift, `PlanExistsProbeLazinessTests` (3 tests) and
+  `PlanProbeCallerBoundaryTests` (2 tests) all landed as specified.
+  `import inspect` and `from typing import Callable` added.
+
+- **Deviations from plan:** None in approach. One expected-value correction
+  found while running: the plan predicted `("plan_approved", "ledger")` for the
+  `_implementing_twin_body()` boundary fixture, but that fixture has a PENDING
+  `review_approved`, so its true B2 answer is `("awaiting_review", "ledger")`.
+  The test now carries the expectation per row and the comment says why —
+  `awaiting_review` is reached only by running the ladder to its end, which
+  makes it a *stronger* fixture for "the full ladder costs no stat" than the
+  early-exit rung the plan assumed. The zero-call assertion was unaffected.
+
+- **Issues encountered:** None beyond the above.
+
+- **Key decisions:**
+  - **Parameter renamed `plan_exists` -> `plan_exists_probe`** (deliberate
+    deviation from the task text, recorded under "Deliberate deviation" above).
+    A callable bound to a boolean-sounding name makes the *existing* B1 ternary
+    silently always-truthy; keyword-only + the rename makes an un-updated call
+    site a `TypeError` rather than a wrong phase. Pinned by
+    `test_the_probe_parameter_is_keyword_only_and_named_for_its_laziness`.
+  - **Callable-only, no `bool | Callable` union.** At two call sites a union
+    only buys the four-state ambiguity `_resolve_digest` needs a load-bearing
+    ordering note to keep straight.
+  - **Both halves mutation-checked**, because a zero-call assertion can pass
+    vacuously. (a) Eager CALLER — `lambda v=<already evaluated>: v`, which still
+    passes a callable: **only** `PlanProbeCallerBoundaryTests` failed, 60 other
+    tests green. That is the seam-vs-caller blind spot the plan's §4 exists to
+    close, demonstrated rather than argued. (b) Eager SEAM — probe resolved at
+    the top of the function: both the seam laziness test and the boundary test
+    failed. Restored from backup and re-ran clean (61 passed).
+  - **The caller-side conditional was not written**, per the task's own
+    reasoning: it would restate the ladder's branch conditions in the caller.
+    Both the seam docstring and the call-site comment say so, so a future
+    reader does not "optimize" it back.
+
+- **Verification run:** `bash tests/run_all_python_tests.sh --test-dir tests` →
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+
+- **Upstream defects identified:** None
