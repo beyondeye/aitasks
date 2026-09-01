@@ -562,3 +562,196 @@ coupling to Textual under a floating `<9` pin is not addressed by either probe.*
 ### Planned mitigations
 - timing: pre-phase | name: probe_compositor_negative_anchor_offset | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 2 (compositor set_reactive bypasses validate_scroll_y) | desc: Headless probe measuring whether an anchored VerticalScroll that stops overflowing really holds a negative scroll_y, so the degenerate-range guard ships only if it is needed.
 - timing: pre-phase | name: measure_thumb_drag_arming_live | type: test | priority: high | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement risk 1 (arming needs the gesture to land exactly at max_scroll_y) | desc: Build the live tmux fixture first against unchanged code and measure what a real SGR thumb drag produces, deciding whether the arming design stands or whether the fully specified, app-owned Step 1b drag-release seam ships.
+
+
+---
+
+# Implementation record (deviations from the approved plan)
+
+The two pre-phases did what they were for: one confirmed a hazard, the other
+falsified the approved arming design, and a third finding during implementation
+falsified my first correction of it. Recorded here in the order it happened,
+because the order is the evidence.
+
+## 1. The compositor's unclamped write is real, and a one-shot correction loses
+
+Pre-phase 1 measured `scroll_y = -8` at `max_scroll_y = 0` on a bare anchored
+`VerticalScroll` that stopped overflowing (`total_region.bottom` 4 minus
+container height 12), recovering to `max_scroll_y` on regrowth.
+
+**Deviation:** the plan's Step 3 clamped it inline in `_restore_list_scroll`.
+That does not work — the compositor reasserts the value on EVERY arrange, so a
+correction applied before the arrange is simply overwritten, and one applied from
+a post-refresh callback was measured being rewritten to -2 by the next layout.
+The shipped fix is `MiniPaneList._reconcile_anchor`, which **suspends** Textual's
+anchor while the range is degenerate and re-engages it when content regrows,
+keeping the user's request in `_pin_suspended` across the suspension. It runs
+from the app's post-rebuild callback and from `on_resize` (a pane resize
+re-arranges with no rebuild at all).
+
+## 2. Arming cannot be a position comparison — but not for the reason the task gave
+
+The live fixture reproduces the reported bug against unchanged code. Getting it
+to do so took four corrections, each a real fault:
+
+| symptom | cause |
+|---|---|
+| app ran at 80x24 in a 40x40 pane | `split-window` had stdout redirected to a file, so Textual had no tty size and no SIGWINCH |
+| `virtual_h == container_h`, no overflow | with the task/gate caches stubbed a card renders ONE row, so 30 cards exactly filled a 30-row container |
+| geometry never published | it was sampled straight after `await _refresh_data()`, i.e. mid-rebuild, where `max_scroll_y` is 0 |
+| control reported a zero gap | the control undid only the app's capture/restore; `_anchored` was still set, so the compositor pinned it anyway and the comparison was vacuous |
+
+With those fixed, the control drifts exactly as reported — the view sticks and
+never returns to the bottom, the gap growing to 146 rows as content grows.
+
+**The task's stated trigger did not reproduce.** With card-height churn
+synchronised to the rebuild, the unchanged code held `max_scroll_y - scroll_y == 0`
+across 15+ ticks, including a drag deliberately stopped one screen row short of
+the trough end (the 7-row thumb absorbs it). The drift needs card heights to
+change **out of band with the refresh tick**, which is what production does. That
+is also what makes the gap grow with list length — the reporter's "larger on a
+longer list".
+
+**Deviation:** Step 1b was approved with a `quantum`-sized tolerance. That is not
+what shipped, and the quantum idea was wrong. What ships records, at REQUEST
+time, whether the drag asked to go at or past the end of the thumb's travel
+(`_on_scroll_to`), and arms on that at the release (`MiniPaneScrollBar`
++ `_check_anchor`).
+
+## 3. The intent seam was removed and then restored — on evidence both times
+
+Deleting it left every headless test AND two live runs passing, so it was removed
+as unproven complexity. The next live run failed with `scroll_y = 43.745` frozen
+against a `max_scroll_y` of 50: Textual's re-arm fires mid-drag *sometimes*,
+purely on timing, and when it does not the list drifts for the rest of the
+session. The seam went back in with that measurement attached.
+
+A further 1-in-8 flake then showed the comparison itself was wrong: the drag's
+`y` is computed by `ScrollBar._on_mouse_move` from the SCROLLBAR's
+`window_virtual_size / window_size`, so comparing it against the CONTAINER's
+`max_scroll_y` mixes two clocks and scores a genuine drag-to-the-end as short.
+The comparison now happens in the scrollbar's own coordinate space.
+
+## 4. What the headless tests can and cannot prove
+
+Stated in `tests/test_minimonitor_bottom_pin.py`'s docstring rather than left
+implicit, because two of the plan's four negative controls were measured PASSING
+against the fix: headlessly `App.run_test` settles layout synchronously, a drag
+always lands exactly on `max_scroll_y`, and Textual re-arms on its own. The
+capture-mode change and the whole arming mechanism are pinned only by the live
+module. The rebuild-lock guard and the degenerate-range suspension are pinned
+headlessly and both controls were confirmed failing.
+
+## 5. Fixture reliability is part of the deliverable
+
+`test_3b_the_gesture_actually_scrolled_the_list` exists because a gesture that
+does not land leaves the list exactly where it was, which is indistinguishable in
+the trace from a lost pin. Adding it turned an unexplained 1-in-10 "the fix
+failed" into an explicit "the fixture failed", and then into a diagnosis:
+
+| fixture fault | measured | fix |
+|---|---|---|
+| a single motion event lands mid-rebuild and is dropped outright — `Widget._on_scroll_to` gates on `_allow_scroll`, which on a `VerticalScroll` tracks `show_vertical_scrollbar`, False while the container is childless | 5 failures / 12 runs | send a STREAM of motion events, as a real drag does; whichever lands outside the rebuild window counts |
+| the press row was scaled by `thumb_size`, which the churn moves between 5 and 19 rows, so aiming at the middle of a 19-row thumb missed a 5-row one | 1 failure / 12 runs, on the grab | offset from `thumb_top` (0 while `scroll_y` is 0, which the test asserts) rather than from the size |
+| the gesture's own samples counted as steady state | — | the observation window starts at the RELEASE, so the discard count does not have to track the gesture's length |
+| pressing row 0 grabs but often does not scroll | 5 of 12 moved | avoid row 0; press one row below the thumb's top |
+| the app came up 80x24 inside a 40x40 pane, so every coordinate computed from the pane was wrong | 1 failure in the first full-suite run; then 6 errors, DETERMINISTICALLY, under `pytest` | `env -u COLUMNS -u LINES` on the pane command. Rich honours `COLUMNS`/`LINES` over the real pty size, pytest exports them for its own terminal writer, and the tmux server inherits the environment of the client that started it. My standalone runs used `python tests/…` (unittest) and never saw it; the suite runs pytest, which always does. |
+
+The first diagnosis of that last one was wrong and worth recording: I read "80x24"
+as Textual's no-tty fallback and added a repeating `resize-pane` nudge to force a
+SIGWINCH. It did nothing — 45s of nudging left the app at 80 columns — because
+stdout WAS a tty the whole time. Adding `app_size` / `stdout_isatty` / `term` /
+`columns_env` to the geometry the harness publishes turned a guess into a
+one-line answer, and the nudge was removed rather than left in as insurance for a
+cause that did not exist. `await_geometry` still waits for geometry matching the
+pane, because that wait is what caught it.
+
+Each is recorded in the test's own comments so the next person does not
+"simplify" it back. Rate after all four: 15 consecutive clean runs, against a
+5-in-12 baseline when the fixture was first written.
+
+## 6. Step 4's docstring sweep, completed at review
+
+Caught in review: `tests/test_minimonitor_scroll_preservation.py` still explained
+itself with the old mechanism, and its `EarlyRestoreCallbackTests` docstring
+still named the bottom path as "the one that regressed" via a readiness test that
+"compared `max_scroll_y` against itself". That case now passes for a completely
+different reason — `_restore_list_scroll` returns before the gate for a pinned
+list — so the text would have sent the next person investigating the retry ladder
+in the wrong direction. Step 4 of this plan required the update and it had only
+been done for the production file.
+
+Corrected: the module header now says the anchor-id path, the readiness gate and
+the retry ladder all belong to the MID-LIST restore, points at the two new
+modules for the bottom pin, and notes that the tuple literals passing `False`
+select the mid-list path deliberately now that the field is `pinned`. The class
+docstring separates the two cases, and
+`test_bottom_pin_survives_an_early_restore_callback` is relabelled a
+characterization pin with its own docstring explaining that `scroll_end` arms the
+anchor and the compositor is what holds the offset.
+
+## 7. Unchanged from the plan
+
+The retry ladder is kept (the bottom path simply no longer reaches it), the
+lexicographic `window_index` sort is split out as an upstream defect, and the
+card-only sampling of `list_layout_pending` is documented rather than widened.
+The task file's claim that `tests/test_no_raw_tmux.sh` forces the live fixture
+through the tmux gateway is wrong — that guard scopes itself to
+`.aitask-scripts/` and explicitly exempts `tests/`.
+
+
+## Final Implementation Notes
+
+- **Actual work done:** minimonitor's bottom-of-list pin moved from a per-tick
+  geometry snapshot to Textual's own anchor, with the app owning the ARMING.
+  `MiniPaneList` gains `on_mount` (arm then release, so the list opens at the top
+  but `_anchored` is true), `is_bottom_pinned`, a `release_anchor` override,
+  `_reconcile_anchor`, `on_resize`, `_on_scroll_to`, `_check_anchor`, and an
+  owned `vertical_scrollbar` returning the new `MiniPaneScrollBar`.
+  `_capture_list_scroll` records the live mode instead of measuring geometry and
+  `_restore_list_scroll` returns before the readiness gate for a pinned list.
+  New: `tests/test_minimonitor_bottom_pin.py` (8),
+  `tests/test_minimonitor_bottom_pin_live.py` (6) and
+  `tests/lib/minimonitor_live_harness.py`; the live module joins
+  `SERIAL_CARVE_OUT` and CLAUDE.md's marker block (both count pins bumped 3 → 4).
+  Docs: the bottom pin and scrollbar drag are described in
+  `website/content/docs/tuis/minimonitor/how-to.md`.
+
+- **Deviations from plan:** three, each forced by a measurement and each recorded
+  in full above. (1) The approved arming design — Textual's own
+  `scroll_y >= max_scroll_y` — was falsified: under out-of-band content churn no
+  gesture lands on a moving `max_scroll_y`, so arming became intent-based via an
+  app-owned drag-release seam, and Step 1b's `quantum` tolerance was dropped as
+  the wrong answer to the wrong root cause. (2) Step 3's inline degenerate-range
+  clamp does not work — the compositor reasserts the value on every arrange — so
+  the anchor is suspended for the duration instead (`_reconcile_anchor`).
+  (3) A docs change was added; it was not in the plan, but the behaviour is
+  user-visible.
+
+- **Issues encountered:** the task file's stated trigger did not reproduce — with
+  churn synchronised to the rebuild the pre-fix code held the pin across 15+
+  ticks, including a drag stopped a screen row short. The drift requires card
+  heights changing OUT OF BAND with the tick. Building a fixture that shows this
+  took six corrections, five of them caught by the two non-vacuity assertions
+  (`grab`, "the gesture actually scrolled"); the last, `COLUMNS=80` inherited
+  from pytest through the tmux server, made the app render 80x24 inside a 40x40
+  pane and was only findable after the harness started publishing
+  `stdout_isatty` / `app_size` / `columns_env`. My first diagnosis of it (a
+  missed SIGWINCH) was wrong and the `resize-pane` nudge built on it was removed
+  rather than kept as insurance.
+
+- **Key decisions:** the retry ladder and both readiness gates are KEPT — they
+  guard the mid-list restore, where t1539 measured them firing on 320 of 488
+  ticks; only the bottom path stops reaching them. Two of the plan's four
+  negative controls are documented as NOT discriminating (headlessly or live),
+  rather than left to look like coverage. The intent seam was removed and then
+  restored, both times on measurement.
+
+- **Upstream defects identified:**
+  - `monitor/monitor_core.py:866 — PaneSnapshot.window_index is a str, so both
+    MiniMonitorApp._rebuild_pane_list and MonitorApp._rebuild_pane_list sort
+    agents lexicographically (1, 10, 11, …, 2, 20) instead of numerically.
+    Affects agent ordering in two TUIs; needs its own tests.`
+  - `tests/test_parallel_admission_purity.py — unrelated to this task; it and the
+    roadmap_* files were modified by a concurrent session (t1569_5) and are
+    deliberately NOT part of this commit.`
