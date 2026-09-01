@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [task-workflow, verification]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 followup_kind: risk_mitigation
 created_at: 2026-09-01 18:08
-updated_at: 2026-09-01 18:08
+updated_at: 2026-09-01 18:33
 ---
 
 ## Origin
