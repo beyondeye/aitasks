@@ -488,3 +488,97 @@ through the prose, which no test can):
   `tests/test_resource_admission.sh`,
   `website/content/docs/skills/aitask-pick/resource-admission.md`,
   `seed/project_config.yaml`.
+
+## Final Implementation Notes
+
+- **Actual work done:** All nine plan sections landed as designed. New helper
+  `.aitask-scripts/aitask_resource_admission.sh`; new procedure
+  `.claude/skills/task-workflow/resource-admission.md` (profile-invariant); Step-7
+  dispatch + Re-entry Routing re-run + Procedures index + Project Configuration
+  row in `SKILL.md`; the third `stop_reason` in `plan-approved-stop.md`;
+  `PROJECT_CONFIG_SCHEMA` entry; seed documentation; the 5-touchpoint helper
+  whitelist; a new website page plus two cross-references; the marker-lifecycle
+  correction in `aidocs/gates/ledger-driven-reentry.md`; the coordination section
+  appended to t1569_4; and three test artifacts (one new pair, two extended).
+
+- **Deviations from plan:** Three, all tightenings, none reducing scope.
+  1. **Log allocation was inverted relative to the sibling helper.**
+     `aitask_run_project_command.sh` allocates the log *before* reading the key
+     and writes "(no X configured)" into it. Correct for a gate the project opted
+     into, wrong for a hook on the ordinary path: this runs at EVERY Step 7, so an
+     unconfigured project would collect a timestamped, audit-looking artifact per
+     pick. Config is resolved first; `none_configured` reports `LOG:(none)` and
+     creates nothing, not even under an explicit `--log`.
+  2. **`DIAG:` was added to the stdout contract** (exit 3 only, always on exit 3).
+     The procedure's prescribed capture form takes stdout only and must not merge
+     stderr (it would corrupt the `KEY:value` parse), so without `DIAG:` an
+     infrastructure outcome would leave the agent with nothing deterministic to
+     show. Written through the same sanitizer as `DETAIL:`.
+  3. **Scalar-only is enforced on YAML shape, not on a value count** (post-review;
+     see Change Request 1). `project_config_values()` is shape-agnostic, so a
+     count check admitted a one-element list.
+
+- **Issues encountered:**
+  - The first cut of the reason extractor handed back the log's own
+    `$ <command>` banner as the hook's "reason" for a silent hook — the framework
+    quoting the project's config at the user. Fixed by scanning from line 2, and
+    by giving admit and refuse different defaults (`admitted` vs
+    `no reason given`): "no reason given" is honest about a stop and reads as a
+    complaint about an admit.
+  - `aitask_audit_wrappers.sh apply-helper-whitelist` takes the helper name
+    **with** its `.sh` suffix; passing the bare stem wrote five entries missing
+    `.sh`. Reverting them with `git checkout --` was riskier than it looked —
+    those five files had shown pending edits in the session-start snapshot. HEAD
+    had advanced (`edd4872c0` → `35bad7aaa`) and those edits were already
+    committed in `4965a9937`, so only my own malformed lines were discarded, but
+    that was verified after the fact rather than before.
+  - A concurrent session was editing this repo throughout (`satisfaction-feedback.md`,
+    `aitask_gate.sh`, `gate_ledger.py`, `ledger_block.*`, `board/*.py`,
+    `task_utils.sh`, the usage/verified update scripts and their tests). Running
+    `aitask_skill_rerender.sh` propagated their in-progress source edit into the
+    rendered variants. Nothing was lost — a fresh render of the current source is
+    byte-identical to all six derived files — and the commit used an explicit
+    37-path allowlist so none of their work was swept in.
+
+- **Key decisions:**
+  - **Named `resource_admission_command`, not `admission_command`.** t1569_4
+    (Ready) wires a *parallel*-admission preflight into the same seam; a bare
+    "admission" name would be ambiguous from the day both exist. Every surface is
+    `resource_`-qualified, and the coordination is recorded in both directions.
+  - **One call site, at the top of Step 7, not two at the Checkpoint.** Both
+    routes that reach implementation converge there, and Re-entry Routing already
+    enumerates the Step-7 blocks it re-runs — so the seam needed one insertion and
+    one list edit, and "after the drift check" holds by construction.
+  - **Fail closed on a hook that cannot decide** (user-confirmed). A host that
+    cannot be probed is the one that OOMs. The availability objection that made
+    t1569_4 ship at `warn` does not transfer: this hook is opt-in and runs one
+    local command, so its availability is structural, not statistical.
+  - **Not a gate, and nothing on the ledger.** An admission decision at a workflow
+    seam. It also stays clear of `filter_gates_for_issue_type()`, which silently
+    strips gate names outside its allowlist.
+  - **`stop_reason` grew a third member rather than reusing `deferred`.** Reusing
+    it would have written a false `note=deferred` on the ledger entry, making
+    "the user deferred this" and "the host refused it" indistinguishable. The
+    marker disposition is now grouped by meaning (plan intact ⇒ stamp, plan
+    invalidated ⇒ clear) instead of enumerated per call site.
+  - **`_gate_config_values` → public `project_config_values`** rather than a
+    second YAML reader in the new helper.
+
+- **Verification evidence:** `test_resource_admission.sh` 136/136;
+  `test_resource_admission_stop.sh` 22/22; `test_plan_approved_marker_contract.sh`
+  33/33; `test_plan_approved_marker_drift.sh` 15/15; `test_gate_verifiers.sh`
+  149/149; `test_skill_render_task_workflow.sh` 204/204;
+  `test_skill_parity_runtime_vs_rendered.sh` 86/86; `test_seed_manifest_drift.sh`,
+  `test_skill_dispatch_contract.sh`, `test_no_raw_tmux.sh` pass;
+  `run_all_python_tests.sh` → `PYTHON SUITE: PASSED (runner=pytest, exit=0)`;
+  `aitask_skill_verify.sh` OK; shellcheck clean (SC1091-info only, matching the
+  sibling helper's baseline).
+
+  **Six mutation checks**, each confirming a new guard can fail: moving the
+  `resource_admission` clause onto the drift branch; moving the Step-7 block after
+  the fork; dropping `DIAG:` from the exit-3 branch; adding `2>&1` to the fenced
+  command; and disabling the shape check (reproduces the reviewed defect, 14
+  assertions fail). The pre-phase mitigation's baseline was recorded green before
+  any edit: 149/149, 30/30, 200/200.
+
+- **Upstream defects identified:** None
