@@ -395,42 +395,68 @@ Then:
   `tests/test_aitask_merge_boardgroup.sh` green.
 - `shellcheck .aitask-scripts/lib/ledger_block.sh .aitask-scripts/aitask_gate.sh`
 - The three pre-phase files green and **byte-unchanged** since the pre-phase
-  commit. Audit with **exactly** this, from the repo root:
+  baseline. This is audited with a **content manifest**, not with git.
+
+  **Why not git.** This repo is a shared worktree carrying unrelated uncommitted
+  work from concurrent sessions. Measured during planning: three modified test
+  files (`test_concern_dimensions.py`, `test_concern_picker_modal.py`,
+  `test_fold_mark.sh`), and the *set changed mid-session* — one of them was not
+  dirty when the session began. That breaks every git-based form of this audit:
+
+  - `git diff <commit> -- tests/` reports that pre-existing dirt as `M`, so the
+    allowlist fails on changes that predate this task — staged or not.
+  - `git add -A -- tests/` would additionally **stage another session's work**,
+    mutating index state this task does not own.
+  - `git diff <commit>.. -- tests/` resolves to `..HEAD` and silently omits
+    uncommitted edits entirely (measured: it missed an unstaged edit to a frozen
+    file while listing a committed one).
+
+  **Never run `git add`, `git checkout --`, `git restore` or `git stash` against
+  `tests/` in this worktree.** They act on paths this task does not own and
+  discard other sessions' uncommitted work irrecoverably — `checkout --` restores
+  from the index, which for an unstaged edit is HEAD, and the edit is then gone
+  from git entirely.
+
+  **Capture the baseline** immediately after the three pre-phase tests are green
+  and before the first production edit. `.git/` is never tracked, so the manifest
+  lives there — deterministic path, survives a resumed session, cannot be
+  committed:
 
   ```bash
-  git add -A -- tests/          # stage first: an untracked file is invisible to git diff
-  git diff --name-status "$PRE_PHASE_COMMIT" -- tests/
+  ait_tests_manifest() {
+      find tests -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -print0 \
+        | LC_ALL=C sort -z | xargs -0 sha256sum
+  }
+  ait_tests_manifest > .git/p1657_1_tests_baseline.sha256
   ```
 
-  Three details are load-bearing, each verified rather than assumed:
+  The `__pycache__` / `*.pyc` prune is required, not cosmetic: 299 of the 1052
+  files under `tests/` are bytecode that every test run rewrites. Verified during
+  planning — 756 real entries, byte-stable across consecutive runs, unaffected by
+  pycache churn, and it detects an edit and an addition (and, unlike a
+  commit-relative diff, a **deletion**).
 
-  - **No trailing `..`.** `<commit>..` resolves to `<commit>..HEAD`, so it
-    compares against HEAD and **silently omits uncommitted working-tree edits** —
-    a forbidden change to a frozen test sitting unstaged reports clean. Measured:
-    with an unstaged edit to a frozen file plus a committed plumbing change,
-    `--name-only <base>..` listed only the plumbing file; `<base>` listed both.
-  - **`--name-status`, not `--name-only`.** The audit distinguishes `A` from `M`;
-    `--name-only` cannot express that distinction at all.
-  - **Stage before auditing.** `git diff` never shows untracked paths in any
-    revision form, so the one permitted *addition* would be invisible and its
-    `A`-not-`M` check could never fire. `git add -A -- tests/` makes it appear as
-    `A`. (Equivalently, pair the diff with
-    `git status --short --untracked-files=all -- tests/`.)
+  **At completion**, compare and classify:
 
-  The output must be **exactly** this set, no more and no less:
+  ```bash
+  ait_tests_manifest | diff .git/p1657_1_tests_baseline.sha256 -
+  ```
 
-  | status | path | why it may appear |
+  Every differing path must appear in this allowlist, and no other:
+
+  | change | path | why it may appear |
   |---|---|---|
-  | `M` | `tests/lib/test_scaffold.sh` | step-5 plumbing |
-  | `M` | `tests/test_gate_guarded_archival.sh` | step-5 plumbing |
-  | `M` | `tests/test_create_manual_verification_gates.sh` | step-5 plumbing |
-  | `A` | `tests/test_ledger_block_multisection.py` | added by the post-phase |
+  | modified | `tests/lib/test_scaffold.sh` | step-5 plumbing |
+  | modified | `tests/test_gate_guarded_archival.sh` | step-5 plumbing |
+  | modified | `tests/test_create_manual_verification_gates.sh` | step-5 plumbing |
+  | added | `tests/test_ledger_block_multisection.py` | post-phase seam test |
 
-  Any other path is a failure, as is any status other than the one paired with
-  the path. In particular the three frozen pre-phase files —
-  `test_merge_union_characterization.py`,
+  Any other differing path is a failure, as is a deletion, as is a *modified*
+  entry for the added path or an *added* entry for a modified one. In particular
+  the three frozen pre-phase files — `test_merge_union_characterization.py`,
   `test_gate_ledger_build_characterization.py`, `test_ledger_block_reexport.py` —
-  must **not** appear at all.
+  must **not** differ at all. Files dirty from other sessions hash identically at
+  both ends and so never appear, which is the property git could not give.
 - `tests/test_ledger_block_multisection.py` green: the seam accepts a second
   spec whose validation, identity and ordering all differ from the gate spec.
 
