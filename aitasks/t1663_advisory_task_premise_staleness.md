@@ -6,6 +6,7 @@ issue_type: feature
 status: Ready
 labels: [task-workflow, planning, verification]
 gates: [risk_evaluated]
+children_to_implement: [t1663_1]
 anchor: 1538
 created_at: 2026-09-01 15:18
 updated_at: 2026-09-01 15:18
