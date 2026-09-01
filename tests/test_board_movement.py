@@ -695,8 +695,21 @@ async def _sample(pilot, probe: Probe, key: str) -> dict:
     `wait_for_idle(0)`, whose loop always sleeps at least one
     `SLEEP_GRANULARITY` (1/50 s) BEFORE any idle test — a ≥20 ms synthetic floor
     that would dominate a single-digit-ms keypress and dilute every ratio.
-    `pilot.press` awaits `_wait_for_screen()`, which is event-driven with no
-    sleep, and the region closes on an `asyncio.Event`.
+
+    **`pilot.press` is not free of that floor either** — this docstring used to
+    claim it "is event-driven with no sleep", and that is false (corrected in
+    t1660). `Pilot.press` → `App._press_keys` awaits `wait_for_idle(0)` TWICE
+    per key, plus `animator.wait_until_complete()` twice, and only then
+    `_wait_for_screen()`. So `press` carries strictly MORE of the same harness
+    cost than `pause` does, not less: ≥40 ms of floor per key, and up to 2 s
+    when the process is not idle (`max_sleep=1` per call). Measured on an idle
+    box in t1660: 208 ms of a 215 ms `press`.
+
+    What keeps these ratios honest is therefore `_floor()`, not any property of
+    `press` — see its docstring. `press` is still the right call here because
+    the floor control subtracts it; do not read this as licence to put a
+    wall-clock BUDGET around a `press` (that is exactly the defect t1660 removed
+    from `tests/test_minimonitor_startup_input_latency.py`).
     """
     probe.reset()
     probe.filter_event = asyncio.Event()
@@ -761,6 +774,11 @@ async def _floor(pilot, probe: Probe, key: str, n: int) -> list[float]:
     to the widget count and is pure test-harness bookkeeping, not board latency.
     Without this control an O(cards) harness cost is indistinguishable from
     O(cards) board work and would be attributed to `other`.
+
+    `_wait_for_screen()` is not the whole of it: `App._press_keys` also awaits
+    `wait_for_idle(0)` twice per key (a ≥20 ms floor each, 1 s cap each) — see
+    `_sample()` above (t1660). Both terms land in this floor sample, which is
+    why subtracting it is what makes the ratios meaningful.
     """
     out = []
     for _ in range(n):

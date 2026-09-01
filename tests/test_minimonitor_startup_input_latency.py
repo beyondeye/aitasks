@@ -38,24 +38,60 @@ loop-lag probe saw zero stalls above 150 ms, because the App pump is serialized
 independently of loop responsiveness. **Assert on input dispatch, never on loop
 lag.**
 
-The budget is a hard `asyncio.wait_for`, not a millisecond comparison: on the
-fixed code the key is handled in single-digit ms, and on the broken code the gate
-can only be released by this test, so the failure is a deterministic `TimeoutError`
-rather than something a loaded CI can lose.
+**Dispatch is asserted as a COUNT OF EVENT-LOOP TURNS, never as wall-clock time**
+(t1660). The wall-clock form did not survive: `assertLess(latency, 500ms)` around
+`pilot.press("j")` failed in the `-n 4 --dist loadfile` lane at 822 ms and 595 ms
+while passing standalone. It was never measuring input latency. Two harness terms
+dominated it, and neither is dispatch:
+
+* `Pilot.press` -> `App._press_keys` awaits `wait_for_idle(0)` **twice per key**
+  (textual 8.2.7), plus `animator.wait_until_complete()` twice. `wait_for_idle`
+  compares `process_time()` against wall clock in 20 ms sleep granules — a >=20 ms
+  floor per call and a `max_sleep=1` cap, so >=40 ms and up to **2 s** per key,
+  decided by the scheduler rather than by this code. Measured on an **idle** box:
+  208 ms of a 215 ms `press`.
+* `j` is not inert. It is bound to `action_tui_switcher`, which pushes a
+  **65-widget** `TuiSwitcherOverlay`; `Pilot._wait_for_screen()` then posts a
+  `call_later` to every one of them and waits. The timed region therefore included
+  mounting the screen the keypress opens.
+
+The property itself — `driver.send_message` reaching `App.on_event` — cost
+**0.23 ms**. So the budget was ~43 % consumed by the harness with zero contention,
+and any lane load tipped it over. A turn count cannot be tipped over: contention
+changes how long a turn takes, never how many are needed (measured identical, 3-4,
+idle and under 24-way CPU load). On the broken code the key never arrives at all,
+so the failure is turn exhaustion — deterministic, and in sub-millisecond time
+rather than after a 1 s timeout.
 
 Positive controls (run by hand; each must FAIL this suite):
 
 | mutation | must fail |
 |---|---|
-| `_start_monitoring` back to `self.call_later(self._refresh_data)` | `test_a_keypress_is_dispatched_while_the_first_refresh_is_stalled` |
-| `self.set_timer(0, self._refresh_data)` instead of `run_worker` | the same test — `set_timer` wraps the callback in `call_next`, which drains inline and JUMPS the queue, so it is strictly worse than `call_later` |
+| `_start_monitoring` back to `self.call_later(self._refresh_data)` | `test_a_keypress_is_dispatched_while_the_first_refresh_is_stalled`, by TURN EXHAUSTION |
+| `self.set_timer(0, self._refresh_data)` instead of `run_worker` | the same test, but at the `mon.entered.wait()` timeout — `set_timer` wraps the callback in `call_next`, which drains inline and JUMPS the queue, and under it the first refresh does not run at all within the 5 s window, so the test dies before the dispatch observation. Verified unchanged by t1660: it failed the same way against the pre-t1660 test file |
 | `_refresh_inflight` reset moved out of its `finally` | `test_a_failed_refresh_does_not_wedge_every_later_refresh` |
 | drop the `_backend_gen` guard in `start_control_client` | `test_a_teardown_during_a_blocked_start_installs_nothing` |
 | re-seed `_marks_purge_due_at = 0.0` | `test_the_first_purge_is_deferred_past_startup` |
-| `on_mount`'s window probe back to `subprocess.run` | `test_mount_returns_while_the_window_probe_is_still_blocked` (the fake is never consulted, so `entered` times out) **and** `test_on_mount_issues_no_synchronous_subprocess`, by name |
+| `on_mount`'s window probe back to `subprocess.run` | `test_mount_returns_while_the_window_probe_is_still_blocked` (the fake is never consulted, so `entered` times out — NOT turn exhaustion; the dispatch observation is never reached) **and** `test_on_mount_issues_no_synchronous_subprocess`, by name |
+| `on_mount`'s `run_worker(…, name="own_window_seed", …)` -> `self.call_later(lambda: self._seed_own_window_info())` | `test_mount_returns_while_the_window_probe_is_still_blocked`, by TURN EXHAUSTION — see below |
 | a bare `TmuxClient()` in `_seed_own_window_info` | `test_the_seed_queries_the_ambient_server_for_its_own_pane` |
 | drop the `is None` guards from `_seed_own_window_info` | `test_the_seed_never_overwrites_a_field_the_tick_already_set` |
 | re-merge the two `_find_sibling_pane_id` refusals | `test_the_sibling_refusal_names_the_real_reason` |
+
+**The two `on_mount` rows are not interchangeable, and neither is redundant.** The
+`subprocess.run` mutation never lets the stalled fake be consulted, so `entered` is
+never set and the test dies at `asyncio.wait_for(entered.wait(), timeout=5)` —
+*before* the dispatch observation is ever reached. It therefore cannot exercise the
+turn-count instrument at all. The `call_later` mutation is the one that can: it posts
+an `events.Callback` to the **App's own queue**, which `MessagePump.on_callback`
+awaits INLINE in the App's message loop, so the probe runs, sets `entered`, and then
+holds the pump while it awaits the gate. `entered.wait()` succeeds from the test's
+own task and the key is never dispatched. (The `lambda` is required: `call_later`
+takes a **callable**, not a coroutine — passing the coroutine directly raises
+`TypeError: the first argument must be callable`, which would be a control that
+fails for the wrong reason.) Reproduced while planning t1660: the fixed code
+dispatched at turn 3-4 in every trial; this mutation hit the 200-turn cap with
+`handled == []` in every trial.
 
 Run: python3 tests/test_minimonitor_startup_input_latency.py
 or:  bash tests/run_all_python_tests.sh
@@ -90,15 +126,78 @@ from monitor.monitor_shared import (  # noqa: E402
     _MARKS_PURGE_STARTUP_GRACE,
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
+from textual import events  # noqa: E402
 from tmux_exec import (  # noqa: E402
     AIT_DEDICATED_SOCKET, TMUX_SOCKET_ENV, tmux_socket_args,
 )
 
 SESSION = "demo"
 
-#: Hard ceiling for the whole press→handled region. The acceptance criterion is
-#: "well under 1s"; the fixed code lands in single-digit ms.
+#: Hard ceiling for the SYNCHRONOUS `on_mount()` region. The acceptance criterion
+#: is "well under 1s"; the fixed code lands in single-digit ms.
+#:
+#: This is the one wall-clock budget the suite keeps, and only because what it
+#: wraps is a plain synchronous call — no event loop, no `Pilot`, no
+#: `wait_for_idle`. Measured 0.18-0.26 ms idle and 0.47-8.8 ms under 24-way CPU
+#: load: a >=57x margin at the worst loaded sample. The press-side budget that
+#: used to share this constant is gone; see the module docstring (t1660).
 INPUT_BUDGET_S = 1.0
+
+
+#: Event-loop turns allowed for a key to reach `App.on_event`. A COUNT, not a
+#: duration: contention changes how long a turn takes, never how many are needed.
+#: Measured 3-4 turns identically on an idle box and under 24-way CPU load; with
+#: the probe awaited inline on the App pump the key never arrives at all, so the
+#: cap is exhausted instead. 200 is ~50x the observed cost.
+_DISPATCH_TURNS = 200
+
+#: Optional path; when set, each dispatch observation appends one TSV line
+#: `<test name>\t<turns or "EXHAUSTED">\t<mount_elapsed_ms or "">`. Off by
+#: default, so the suite is unchanged. The contention control in
+#: `aiplans/archived/p1660_*.md` sets it, and compares a loaded run's turn counts
+#: against an idle baseline captured the same way.
+_DISPATCH_LOG_ENV = "AIT_MINIMON_DISPATCH_LOG"
+
+
+def _log_dispatch(name: str, turn: int | None,
+                  mount_ms: float | None = None) -> None:
+    """Append one machine-readable observation, when the env var asks for it."""
+    path = os.environ.get(_DISPATCH_LOG_ENV)
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write(f"{name}\t{turn if turn is not None else 'EXHAUSTED'}\t"
+                 f"{'' if mount_ms is None else f'{mount_ms:.2f}'}\n")
+
+
+async def _press_and_observe(app, key: str, seen: list) -> int | None:
+    """Send `key` as Textual's own Pilot does, and count TURNS to dispatch.
+
+    Returns the 1-based event-loop turn on which `seen` became non-empty, or
+    `None` if it never did within `_DISPATCH_TURNS`.
+
+    Deliberately NOT `pilot.press()`. In textual 8.2.7 `Pilot.press` ->
+    `App._press_keys` awaits `wait_for_idle(0)` TWICE per key (a >=20 ms floor
+    each, capped at 1 s each) plus `animator.wait_until_complete()`, and then
+    `Pilot._wait_for_screen()` posts a `call_later` to every widget on screen and
+    waits for all of them — 65 of them once `j` pushes `TuiSwitcherOverlay`.
+    Measured on an IDLE box, that harness cost was 208 ms of a 215 ms `press`,
+    against what was then a 500 ms budget, while the property under test — send
+    to `App.on_event` — cost 0.23 ms. Timing `press` measured the harness (t1660).
+
+    `driver.send_message` is the same call `_press_keys` makes; only the idle
+    sampling around it is dropped. `asyncio.sleep(0)` yields one loop iteration,
+    so the loop count is the scheduler-invariant part of "how promptly was this
+    dispatched".
+    """
+    event = events.Key(key, key if len(key) == 1 else None)
+    event.set_sender(app)
+    app._driver.send_message(event)
+    for turn in range(1, _DISPATCH_TURNS + 1):
+        if seen:
+            return turn
+        await asyncio.sleep(0)
+    return None
 
 
 class _StalledMonitor:
@@ -184,30 +283,40 @@ class FirstRefreshDispatchTests(unittest.TestCase):
                 # rather than reporting — a hanging regression test is worse
                 # than no regression test.
                 try:
-                    t0 = time.perf_counter()
-                    # NEVER pilot.pause() in a timed region: Textual 8.2.7's
-                    # wait_for_idle(0) always sleeps at least one SLEEP_GRANULARITY
-                    # (1/50 s), a synthetic floor that would dominate the reading.
-                    await asyncio.wait_for(pilot.press("j"), timeout=INPUT_BUDGET_S)
-                    latency = time.perf_counter() - t0
+                    turn = await _press_and_observe(app, "j", handled)
+                    _log_dispatch(self.id().rsplit(".", 1)[-1], turn)
 
                     # `>= 1`, not `== 1`: a Key reaches `App.on_event` both on
                     # dispatch and again as it bubbles back up from the focused
                     # widget. The count is not the contract — reaching the App at
                     # all, while the first refresh is suspended, is.
+                    # The turn assertion goes FIRST so a positive control reports
+                    # turn exhaustion by name rather than the older, vaguer
+                    # "never reached App.on_event" — both describe the same
+                    # failure, but only this one names the instrument.
+                    self.assertIsNotNone(
+                        turn,
+                        f"the keypress never reached App.on_event within "
+                        f"{_DISPATCH_TURNS} event-loop turns while the first "
+                        f"refresh was in flight — it is back on the message pump",
+                    )
                     self.assertIn(
                         "j", handled,
                         "the keypress never reached App.on_event while the first "
                         "refresh was in flight — it is back on the message pump",
                     )
-                    self.assertLess(
-                        latency, INPUT_BUDGET_S / 2,
-                        f"key took {latency*1000:.1f}ms with the loop otherwise "
-                        f"idle; 'well under 1s' means nowhere near the budget",
-                    )
 
                 finally:
                     mon.gate.set()
+                    # Drain the queued key BEFORE this block can exit, on the
+                    # FAILURE path too — hence inside the `finally` (t1660).
+                    # `App.on_key` reads `self.screen`, so a Key still queued when
+                    # `run_test` tears the screen down raises `ScreenStackError`
+                    # from the pump, and `run_test`'s `raise self._exception`
+                    # then MASKS the real assertion with a traceback nowhere near
+                    # it. Measured: the `call_later` positive control reported
+                    # exactly that instead of its own message.
+                    await pilot.pause()
 
                 # Prove the refresh really did run, so the test cannot pass by
                 # never refreshing at all.
@@ -573,26 +682,42 @@ class MountWindowProbeTests(unittest.TestCase):
                 # STILL be released, or `run_test`'s teardown waits forever on
                 # the blocked worker and the suite hangs instead of failing.
                 try:
+                    # The one surviving wall-clock budget in this suite, and only
+                    # because `app.on_mount()` above is a plain SYNCHRONOUS call —
+                    # no event loop, no `Pilot`, no `wait_for_idle`. Measured
+                    # 0.18-0.26 ms idle and 0.47-8.8 ms under 24-way CPU load, so
+                    # the margin here is >=57x at the worst loaded sample. The
+                    # press-side budget had no such margin and is gone (t1660).
                     self.assertLess(
                         mount_elapsed, INPUT_BUDGET_S / 2,
                         f"on_mount took {mount_elapsed*1000:.1f}ms with the "
                         f"probe still blocked — it awaited it",
                     )
-                    t0 = time.perf_counter()
-                    await asyncio.wait_for(pilot.press("j"), timeout=INPUT_BUDGET_S)
-                    latency = time.perf_counter() - t0
+                    turn = await _press_and_observe(app, "j", handled)
+                    _log_dispatch(self.id().rsplit(".", 1)[-1], turn,
+                                  mount_elapsed * 1000)
+                    # Turn assertion first — see the sibling test for why.
+                    self.assertIsNotNone(
+                        turn,
+                        f"the keypress never reached App.on_event within "
+                        f"{_DISPATCH_TURNS} event-loop turns while the mount "
+                        f"probe was in flight — it is back on the message pump",
+                    )
                     self.assertIn(
                         "j", handled,
                         "the keypress never reached App.on_event while the "
                         "mount probe was in flight",
                     )
-                    self.assertLess(
-                        latency, INPUT_BUDGET_S / 2,
-                        f"key took {latency*1000:.1f}ms with the loop otherwise "
-                        f"idle",
-                    )
                 finally:
                     _StalledTmuxClient.gate.set()
+                    # Untimed settle, inside the `finally` so it runs on the
+                    # FAILURE path too. Two things need it: `j` pushes the
+                    # 65-widget `TuiSwitcherOverlay`, and the dispatch observation
+                    # returns as soon as the Key reaches `App.on_event` — long
+                    # before either finishes. A Key left queued at teardown reaches
+                    # `App.on_key`, which reads `self.screen` and raises
+                    # `ScreenStackError`, masking the real assertion (t1660).
+                    await pilot.pause()
 
         asyncio.run(scenario())
 
