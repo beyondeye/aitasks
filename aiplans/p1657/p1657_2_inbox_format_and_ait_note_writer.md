@@ -6,7 +6,7 @@ Archived Sibling Plans: aiplans/archived/p1657/p1657_1_promote_ledger_block_subs
 Base branch: main
 Output branch: main
 plan_verified:
-  - claudecode/opus5 @ 2026-09-01 22:42
+  - claudecode/opus5 @ 2026-09-01 23:13
 ---
 
 # p1657_2 — Durable lane: `## Inbox` format and the `ait note` writer
@@ -219,6 +219,27 @@ being fixed.
   unioned. Each variant now has an exact allowed key set, and `migrated` is
   keyed on **presence** rather than `== "yes"` — a block claiming the variant
   without satisfying it is malformed, not an ordinary note.
+
+### F21 — Silent-exit sweep (CONFIRMED and fixed, plus one found by sweeping)
+
+- **F21a (valueless flag).** Every value-taking option ran `shift 2`
+  unconditionally. Measured: `ait note 700 --from` exited **1 with empty
+  stdout** — `shift 2` fails with one argument left and `set -e` tears the
+  script down. That breaks the file's own "exactly ONE line on stdout, always"
+  contract and leaves a caller unable to tell malformed input from a died
+  process. Each flag now checks for its value first.
+- **F21b (lock exhaustion) — not reported; found by sweeping the surface for the
+  same shape.** Lock exhaustion produced the identical `rc=1` / empty-stdout
+  signature, because the seam's `ait_ledger_lock_acquire` calls `die`. `die`
+  cannot be caught in-process, so the locked append now runs in a **subshell**
+  whose status is inspected and converted to
+  `NOTE_ERROR:lock-unavailable:<key>`. The seam's diagnostic still reaches
+  stderr, and an inner typed error (collision exhaustion) still wins over the
+  generic one.
+
+  That subshell needs **two cleanup scopes**: its EXIT trap must not remove the
+  id/handoff files, because it fires exactly when the parent still needs them —
+  the first version of this fix broke the happy path that way.
 
 ### F4 — Concurrent session on the seam (no edit collision)
 
