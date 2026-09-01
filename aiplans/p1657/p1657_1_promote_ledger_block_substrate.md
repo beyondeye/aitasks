@@ -424,39 +424,53 @@ Then:
 
   ```bash
   ait_tests_manifest() {
-      find tests -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -print0 \
+      find tests -type f \
+           -not -path '*/__pycache__/*' -not -name '*.pyc' \
+           -not -path '*/.pytest_cache/*' -print0 \
         | LC_ALL=C sort -z | xargs -0 sha256sum
   }
   ait_tests_manifest > .git/p1657_1_tests_baseline.sha256
   ```
 
-  The `__pycache__` / `*.pyc` prune is required, not cosmetic: 299 of the 1052
-  files under `tests/` are bytecode that every test run rewrites. Verified during
-  planning — 756 real entries, byte-stable across consecutive runs, unaffected by
-  pycache churn, and it detects an edit and an addition (and, unlike a
-  commit-relative diff, a **deletion**).
+  The prunes are required, not cosmetic: 299 of the 1052 files under `tests/`
+  are bytecode, and `.pytest_cache/v/cache/lastfailed` is rewritten by every
+  run — including the audit's own verification runs, so leaving it in makes the
+  audit fail on its own side effect. Verified: ~756 real entries, byte-stable
+  across consecutive runs, and it detects an edit, an addition and — unlike a
+  commit-relative diff — a **deletion**.
 
-  **At completion**, compare and classify:
+  **At completion**, diff and classify in three parts. A flat allowlist is NOT
+  enough: this worktree has other agent sessions *actively editing* `tests/`
+  while the task runs, so their files do **not** hash identically at both ends
+  (measured: 21 unrelated paths moved during this task — task-workflow goldens,
+  a resource-admission feature, a metadata fixture). The audit must therefore
+  discriminate rather than simply demand an empty residual:
 
   ```bash
-  ait_tests_manifest | diff .git/p1657_1_tests_baseline.sha256 -
+  ait_tests_manifest | diff .git/p1657_1_tests_baseline.sha256 - \
+    | grep -E '^[<>]' | awk '{print $3}' | sort -u
   ```
 
-  Every differing path must appear in this allowlist, and no other:
+  1. **The three frozen pre-phase files must not appear at all** —
+     `test_merge_union_characterization.py`,
+     `test_gate_ledger_build_characterization.py`,
+     `test_ledger_block_reexport.py`. This is the proof; a hit here means the
+     production change was wrong.
+  2. **The four owned paths must appear, with the right kind of change:**
 
-  | change | path | why it may appear |
-  |---|---|---|
-  | modified | `tests/lib/test_scaffold.sh` | step-5 plumbing |
-  | modified | `tests/test_gate_guarded_archival.sh` | step-5 plumbing |
-  | modified | `tests/test_create_manual_verification_gates.sh` | step-5 plumbing |
-  | added | `tests/test_ledger_block_multisection.py` | post-phase seam test |
+     | change | path | why |
+     |---|---|---|
+     | modified | `tests/lib/test_scaffold.sh` | step-5 plumbing |
+     | modified | `tests/test_gate_guarded_archival.sh` | step-5 plumbing |
+     | modified | `tests/test_create_manual_verification_gates.sh` | step-5 plumbing |
+     | added (`>` only, never `<`) | `tests/test_ledger_block_multisection.py` | post-phase seam test |
 
-  Any other differing path is a failure, as is a deletion, as is a *modified*
-  entry for the added path or an *added* entry for a modified one. In particular
-  the three frozen pre-phase files — `test_merge_union_characterization.py`,
-  `test_gate_ledger_build_characterization.py`, `test_ledger_block_reexport.py` —
-  must **not** differ at all. Files dirty from other sessions hash identically at
-  both ends and so never appear, which is the property git could not give.
+  3. **Every residual path must be attributable to another session**, checked
+     rather than assumed: none of them may reference `ledger_block` or `t1657`.
+
+     ```bash
+     grep -l 'ledger_block\|t1657' <residual paths>   # must match nothing
+     ```
 - `tests/test_ledger_block_multisection.py` green: the seam accepts a second
   spec whose validation, identity and ordering all differ from the gate spec.
 
