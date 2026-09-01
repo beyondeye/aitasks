@@ -582,3 +582,4 @@ through the prose, which no test can):
   any edit: 149/149, 30/30, 200/200.
 
 - **Upstream defects identified:** None
+- **Manual-verification failure:** item "TODO: verify .aitask-scripts/settings/settings_app.py end-to-end in tmux - the new resource_admission_command row renders in `ait settings` -> Project Config, edits with the plain string editor, and saves back to project_config.yaml losslessly" failed; follow-up task t1672.
