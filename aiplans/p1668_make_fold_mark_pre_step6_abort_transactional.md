@@ -557,3 +557,112 @@ unchanged by adding tests. Goal-achievement stays **low**; the new
 failure-propagation bullet is a genuinely new risk introduced by addressing the
 review, added as its own bullet rather than by rewriting a linked one. No
 mitigation selection was reopened.)*
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-01 15:20)
+- **Requested by user:** `_fold_snap_add` turned a failed `task_git ls-files
+  --stage` into an empty `.idx` file via `|| :`. An index-read failure before
+  any mutation was therefore recorded as "path absent", so a later rollback's
+  `update-index --force-remove` would DELETE the caller's pre-existing index
+  entry instead of restoring it. The snapshot must fail loudly before Step 3,
+  while no fold mutation exists.
+- **Changes made:** Replaced the `|| :` truncation with
+  `|| die "fold: could not read the index entry for <path> — refusing to start
+  a transaction that could not be rolled back"`. Dying there is safe precisely
+  because it precedes the arm: nothing is mutated yet, so fail-closed costs
+  nothing. The comment now states why a non-zero exit is unambiguous —
+  `ls-files` exits 0 with empty output for a path merely absent from the index,
+  so non-zero can only mean the read failed.
+  Added `test_index_read_failure_aborts_before_mutating`, driven by a PATH
+  `git` shim that refuses `ls-files` and forwards everything else to the real
+  binary (the CLI boundary, not a source patch, so it exercises the real
+  unreadable/locked-index failure). It seeds a STAGED pre-fold edit and asserts
+  the abort message, that the staged index entry is byte-identical afterwards,
+  and that nothing was mutated. Mutation-tested: restoring the `|| :` makes the
+  staged entry disappear (`D `, empty `ls-files` output) and fails three of the
+  assertions.
+- **Files affected:** `.aitask-scripts/aitask_fold_mark.sh`,
+  `tests/test_fold_mark.sh`
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven plan steps plus the three inline mitigation
+  phases landed as designed, in three files:
+  - `.aitask-scripts/aitask_fold_mark.sh` — `--commit-mode` validated at
+    argument-parse time; the fold's file set hoisted above the first mutation
+    and renamed `rollback_paths` → `fold_paths` (it is the commit scope, not the
+    restore set); a snapshot registry that captures each path's working-tree
+    bytes *and* full index entry list before it can be mutated, restored via
+    `update-index --force-remove` + `--index-info`; an `EXIT` trap
+    (`_fold_abort_cleanup`) armed immediately after the snapshot and disarmed
+    only on a Step 6 terminal success; the whole `attachments/meta` tree
+    snapshotted as the first action inside the attach lock; the trap chained in
+    front of `registry_lock`'s handler in `_fold_attach_txn` and re-armed at an
+    explicit `with_attach_lock` failure branch; explicit failure propagation on
+    both `frontmatter_patch.py append` sites and on `attach_meta rebind`.
+  - `tests/test_fold_mark.sh` — the pinned residual test reworked
+    (`test_abort_mid_mutation_emits_no_records` →
+    `test_abort_mid_mutation_rolls_back`), 11 tests added, one negative control
+    added (`install_prefix_no_abort_rollback`), one injector added
+    (`install_attach_txn_returns_nonzero`), and `install_prefix_commit_block`'s
+    excision anchor retargeted from the `--commit-mode` die string (which Step 1
+    moved) to a column-0 `\nesac\n` search from `# Step 6: commit`.
+  - `.claude/skills/task-workflow/task-fold-marking.md` — the "what this does
+    not buy" paragraph replaced by the transaction guarantee, the pre-fold (not
+    HEAD) restore semantics, and the honest residual (a signal that bypasses the
+    trap).
+- **Deviations from plan:** Two, both from Step-8 review rounds and both
+  scope-preserving. (1) `_fold_snap_add`'s index read originally used `|| :`,
+  which turned a read failure into a recorded "absent" and would have made
+  rollback delete the caller's index entry; it now fails closed with `die`,
+  covered by `test_index_read_failure_aborts_before_mutating`. (2) The negative
+  control's "did the injection land" greps had to be tightened from bare name
+  matches to definition/arming-site matches, because the new transaction block
+  legitimately mentions `_fold_amend_guard` and the post-attach-lock re-arm
+  legitimately contains `trap '_fold_abort_cleanup' EXIT` — a bare grep read
+  both as "the excision failed".
+- **Issues encountered:**
+  - `${!arr[@]+"${!arr[@]}"}` is parsed as *indirection*, not the keys form, and
+    dies with "invalid variable name". Replaced with a `(( ${#arr[@]} ))` guard
+    plus a plain `"${!arr[@]}"`.
+  - The attach-window tests needed lib copies the shared scaffold does not
+    carry; added a local `_copy_attachment_libs` rather than widening
+    `tests/lib/test_scaffold.sh`, which every other suite pays for.
+- **Key decisions:**
+  - **Snapshot-restore, not HEAD-restore.** Extending the existing
+    `_fold_rollback` to pre-Step-6 aborts would have *introduced* a data-loss
+    path: the documented ad-hoc fold flow runs `aitask_fold_content.sh |
+    aitask_update.sh --desc-file -` immediately before this script and does not
+    commit, so the primary is routinely dirty (and may be staged) on entry.
+  - **Index snapshot covers every stage.** `ls-files --stage` emits three lines
+    for an unmerged path; parsing one `mode,sha` and writing a stage-0 entry
+    would silently resolve a user's conflict, and `ait syncer` rebases task
+    data, so that state is reachable.
+  - **Whole meta tree, not a predicted subset.** `cmd_rebind` walks every meta
+    file and rewrites those whose `refs` contain the folded id — a property of
+    the ledger, not of task frontmatter, so a frontmatter-derived prediction
+    could miss a drifted ref.
+  - **Chain the EXIT trap rather than replace it**, per the rule already stated
+    in `lib/stale_lock.sh`. Verified empirically first that `trap -p EXIT`
+    inside `$( )` reports the parent handler.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/attachment_lock.sh:39-45 — with_attach_lock runs its
+    callback as `"$@" || rc=$?`, which disables errexit for the whole callback;
+    every other consumer (`aitask_attach.sh`'s add/rm transactions) inherits
+    that, so any unchecked command inside one of those callbacks fails silently.
+    Fixed only at this script's own call sites; the shared seam still has no
+    guard rail and no test pinning the property.`
+- **Verification:** `bash tests/test_fold_mark.sh` → 216/216. All 13 adjacent
+  suites that copy or drive the script pass. `shellcheck` reports the same 6
+  pre-existing info findings as the baseline (no new ones). Six mutants were
+  injected and each was caught by a distinct assertion: no meta snapshot; no
+  trap chain; a chain that clobbers the lock-release handler; a bare
+  `with_attach_lock` call site; dropped index replay; and the restored `|| :`
+  fail-open index read. The manual end-to-end check confirms an aborted fold
+  leaves exactly the caller's pre-existing staged modification with no
+  `folded_tasks` residue.
