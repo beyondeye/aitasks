@@ -6,7 +6,7 @@ Archived Sibling Plans: aiplans/archived/p1657/p1657_1_promote_ledger_block_subs
 Base branch: main
 Output branch: main
 plan_verified:
-  - claudecode/opus5 @ 2026-09-01 18:36
+  - claudecode/opus5 @ 2026-09-01 18:46
 ---
 
 # p1657_2 — Durable lane: `## Inbox` format and the `ait note` writer
@@ -22,8 +22,8 @@ format and the `ait note` writer, built *on* that seam.
 This plan was re-verified against the tree on 2026-09-01. Every seam API it
 names exists as documented. Two findings came from the verification pass
 (F1, F3), five from the first plan review (F5–F9), four from the second
-(F10–F13), two from the third (F14–F15) and one from the fourth (F16); all
-fourteen changed the plan.
+(F10–F13), two from the third (F14–F15), one from the fourth (F16) and one from
+the fifth (F17); all fifteen changed the plan.
 
 ---
 
@@ -179,6 +179,19 @@ Both orders are now pinned, on both backends.
   fails but `git status --porcelain` still reports, so `dirty` is observable and
   `unknown` there would be a false disclaimer.
 
+### F17 — Fifth review round (verified; a gap the F12 fix introduced)
+
+- **F17 (recovery output channel).** Correct, and self-inflicted: F12 added a
+  path-scoped recovery command to the `_UNCOMMITTED` outcome but never assigned
+  it a channel. On stdout it would make a field-position-parsed record
+  multi-line; omitted, the outcome promises guidance it never gives. The
+  framework already resolves this exact tension — `warn()` → stderr
+  (`lib/terminal_compat.sh:21`), status word → stdout, and
+  `materialize-active`'s `MATERIALIZED_UNCOMMITTED` emits **both**
+  (`aitask_gate.sh:1081`). Adopted verbatim: one structured line on stdout, the
+  hint as a `warn`. `<reason>` is sanitized at the write site for the same
+  guarantee — it sits inside a `|`-delimited single line.
+
 ### F4 — Concurrent session on the seam (no edit collision)
 
 **t1669** ("Validate the ledger-block namespace before interpolating it into a
@@ -313,7 +326,7 @@ is always answerable from the output alone.
 **The recovery must stay path-scoped (F12).** Do not tell the caller a later
 commit of `aitasks/` picks it up: task data is a shared multi-writer branch, and
 a blanket add would sweep another session's uncommitted task-file edits into
-this note's commit — the exact thing the parent's non-negotiable forbids. Print
+this note's commit — the exact thing the parent's non-negotiable forbids. Emit
 the scoped command, naming only the returned `<path>`:
 
 ```
@@ -322,6 +335,24 @@ the scoped command, naming only the returned `<path>`:
 
 Both halves are `--`-scoped to the one file, so recovery commits the note and
 nothing else.
+
+**The hint goes on stderr; stdout stays exactly one line (F17).** stdout is the
+machine channel — `NOTE_APPENDED_UNCOMMITTED:<id>|<path>|<reason>` is parsed by
+field position, so printing a two-line recovery command after it turns a
+structured result into something no caller can read, while dropping the hint
+loses the guidance the outcome promises. Neither trade is necessary: the
+framework already splits these channels, and this is the same shape.
+`materialize-active` is the working precedent — `warn()` writes to stderr
+(`lib/terminal_compat.sh:21`) while the status word goes to stdout via `echo`,
+and its `MATERIALIZED_UNCOMMITTED` path emits **both** (`aitask_gate.sh:1081`).
+So: the recovery command is a `warn`, and the one structured line is the only
+thing on stdout.
+
+`<reason>` is part of that guarantee, not separate from it: it is interpolated
+into a `|`-delimited single line, so **sanitize it at the write site** — collapse
+newlines to spaces and replace `|` — or a reason carrying either character
+splits the record or forges a field. Same rule as §5's body sentinel, same
+reason: the write site is the only place that can enforce it.
 
 ### 2b. CLI contract — durable only, and authoritative
 
@@ -339,6 +370,12 @@ The first two are **id-bearing and terminal** — the note exists; do not retry.
 The last three mean no note and no id exist. The two sets are disjoint, so "was
 a note created?" is answerable from the output alone, which is what makes a
 caller's retry policy safe.
+
+**Exactly one of these lines reaches stdout, always (F17).** Every advisory —
+the F12 recovery command, any git noise, the `_UNCOMMITTED` explanation — goes
+to **stderr** via `warn`, per the `materialize-active` precedent. A caller may
+therefore treat stdout as a single parseable record without buffering or
+filtering, which is the whole point of a structured contract.
 
 The CLI emits **no** live-delivery outcome — a shell process cannot observe one
 (`SendMessage` / `ListAgents` are model-facing tools with no CLI). `LIVE_QUEUED`
@@ -610,6 +647,13 @@ Drive the **real registered** `INBOX_SPEC` (not the synthetic one) through
   and assert the output is `NOTE_APPENDED_UNCOMMITTED:<id>|<path>|<reason>` with
   a non-zero exit — id-bearing, and that the note is present on disk exactly
   once. Assert `NOTE_ERROR:` is **never** emitted once the append has landed
+- **output channels (F17)**: capture stdout and stderr **separately** on every
+  outcome. Assert stdout is **exactly one line** in all five cases (`wc -l` = 1,
+  and it matches the contract regex), that the path-scoped recovery command
+  appears on **stderr** and never on stdout, and that stdout survives
+  `2>/dev/null` as a complete parseable record. Include a `<reason>` containing a
+  newline and a `|` and assert the emitted line is still one field-correct
+  record — sanitized at the write site
 - **sender proof (F8)**: `from_verified=yes` appears only for a sender task
   locked by this very session; assert it is **absent** for an unlocked sender, a
   sender locked on another host, a sender locked by a different live session,
@@ -709,6 +753,11 @@ Cleanup, archival and merge per `task-workflow` Step 9.
 - A blanket-path recovery would commit other sessions' uncommitted task-file
   edits (F12) · severity: medium · → mitigation: `--`-scoped recovery command
   (§2b) + a test with unrelated dirt present
+- An advisory printed on stdout would break the structured contract callers
+  parse by field position (F17) · severity: medium · → mitigation: one line on
+  stdout / advisories via `warn` to stderr, per the `materialize-active`
+  precedent, with separate-channel assertions and `<reason>` sanitized at the
+  write site
 - New body content is dropped by `aitask_update.sh --desc-file` — a pre-existing
   hazard `## Gate Runs` already shares · severity: low · → mitigation: documented
   in `aidocs/` (t1657_6), no code change
