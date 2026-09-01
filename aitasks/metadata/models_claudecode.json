@@ -939,18 +939,18 @@
       "usagestats": {
         "pick": {
           "all_time": {
-            "runs": 56
+            "runs": 57
           },
           "prev_month": {
-            "period": "2026-07",
-            "runs": 48
-          },
-          "month": {
             "period": "2026-08",
             "runs": 6
           },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
           "week": {
-            "period": "2026-W35",
+            "period": "2026-W36",
             "runs": 1
           }
         },
