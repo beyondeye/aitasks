@@ -194,3 +194,35 @@ established:
 
 Nothing here asks this task to change its plan; it replaces the stale reference
 to t1569_3's rates in the "Deviation, with evidence" note above.
+
+## Coordination — resource admission (t1597)
+
+t1597 landed a **second, different** admission check at the same boundary: a
+project-pluggable `resource_admission_command` (project_config.yaml) consulted
+in `SKILL.md` **Step 7**, between the pre-implementation ownership guard and the
+deferred worktree fork. Procedure: `.claude/skills/task-workflow/resource-admission.md`;
+helper: `.aitask-scripts/aitask_resource_admission.sh`.
+
+Nothing here asks this task to change its plan. What it fixes is the vocabulary
+and the ordering, so the two checks cannot be confused for one:
+
+- **They are distinct and separately named.** *Parallel* admission asks whether
+  other in-flight tasks collide with this one (profile knob
+  `parallel_admission: block|warn|off`, `aitask_parallel_admission.sh`,
+  `parallel-admission.md`). *Resource* admission asks whether the host can
+  afford the phase (project key, one command, no profile knob). Neither may be
+  folded into the other, and neither may claim the bare name "admission".
+- **Ordering, if both are wired: correctness before capacity.** The parallel
+  preflight — which can stop-and-replan — runs first; the resource hook runs
+  last, immediately before the fork. This task's own call sites already satisfy
+  that: the planning Checkpoint precedes Step 7.
+- **Their dispositions differ on purpose.** A CONFLICT stops and replans; a
+  resource refusal **parks with the plan intact**
+  (`stop_reason=resource_admission`, which shares the `deferred` stop's marker
+  stamp in `plan-approved-stop.md`).
+- **`plan-approved-stop.md`'s `stop_reason` vocabulary is now closed at three**
+  (`deferred`, `drift`, `resource_admission`) with an exhaustiveness guard and a
+  contract test pinning which side of the marker disposition each one selects.
+  If the parallel preflight's stop-and-replan reuses that sequence, it must add
+  its reason to the table and say which side it belongs on — the guard refuses
+  an unlisted reason rather than guessing.
