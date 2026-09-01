@@ -395,21 +395,42 @@ Then:
   `tests/test_aitask_merge_boardgroup.sh` green.
 - `shellcheck .aitask-scripts/lib/ledger_block.sh .aitask-scripts/aitask_gate.sh`
 - The three pre-phase files green and **byte-unchanged** since the pre-phase
-  commit. Audit with `git diff --name-only <pre-phase-commit>.. -- tests/`; the
-  result must be **exactly** this set, no more and no less:
+  commit. Audit with **exactly** this, from the repo root:
 
-  | path | why it may appear |
-  |---|---|
-  | `tests/lib/test_scaffold.sh` | step-5 plumbing |
-  | `tests/test_gate_guarded_archival.sh` | step-5 plumbing |
-  | `tests/test_create_manual_verification_gates.sh` | step-5 plumbing |
-  | `tests/test_ledger_block_multisection.py` | **added** by the post-phase (status `A`) |
+  ```bash
+  git add -A -- tests/          # stage first: an untracked file is invisible to git diff
+  git diff --name-status "$PRE_PHASE_COMMIT" -- tests/
+  ```
 
-  Any other path is a failure. In particular the three frozen pre-phase files —
+  Three details are load-bearing, each verified rather than assumed:
+
+  - **No trailing `..`.** `<commit>..` resolves to `<commit>..HEAD`, so it
+    compares against HEAD and **silently omits uncommitted working-tree edits** —
+    a forbidden change to a frozen test sitting unstaged reports clean. Measured:
+    with an unstaged edit to a frozen file plus a committed plumbing change,
+    `--name-only <base>..` listed only the plumbing file; `<base>` listed both.
+  - **`--name-status`, not `--name-only`.** The audit distinguishes `A` from `M`;
+    `--name-only` cannot express that distinction at all.
+  - **Stage before auditing.** `git diff` never shows untracked paths in any
+    revision form, so the one permitted *addition* would be invisible and its
+    `A`-not-`M` check could never fire. `git add -A -- tests/` makes it appear as
+    `A`. (Equivalently, pair the diff with
+    `git status --short --untracked-files=all -- tests/`.)
+
+  The output must be **exactly** this set, no more and no less:
+
+  | status | path | why it may appear |
+  |---|---|---|
+  | `M` | `tests/lib/test_scaffold.sh` | step-5 plumbing |
+  | `M` | `tests/test_gate_guarded_archival.sh` | step-5 plumbing |
+  | `M` | `tests/test_create_manual_verification_gates.sh` | step-5 plumbing |
+  | `A` | `tests/test_ledger_block_multisection.py` | added by the post-phase |
+
+  Any other path is a failure, as is any status other than the one paired with
+  the path. In particular the three frozen pre-phase files —
   `test_merge_union_characterization.py`,
   `test_gate_ledger_build_characterization.py`, `test_ledger_block_reexport.py` —
-  must **not** appear at all, and the one permitted new path must appear with
-  git status `A`, never `M`.
+  must **not** appear at all.
 - `tests/test_ledger_block_multisection.py` green: the seam accepts a second
   spec whose validation, identity and ordering all differ from the gate spec.
 
