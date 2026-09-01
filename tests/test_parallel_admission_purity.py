@@ -1,11 +1,20 @@
-"""Purity guard for the parallel-admission core (t1569_3).
+"""Purity guard for the parallel-admission core and the roadmap policy layer.
 
-Inline post-phase risk mitigation `purity_guard`.
+Inline post-phase risk mitigation `purity_guard` (t1569_3) and
+`purity_and_whitelist_guard` (t1569_5).
 
 The pure/impure split IS the design: t1569_5 requires "no git, no subprocess,
 fully fixture-testable", while t1569_4 needs live state. If `decide` ever
 reaches for the filesystem, the clock or a subprocess, that requirement breaks
 and a second definition of "safe" grows back in the roadmap.
+
+The same guard covers t1569_5's own pure modules -- `roadmap_policy` and
+`roadmap_premise` -- because the machinery (an AST scan plus an import with the
+forbidden names poisoned) is generic and duplicating it would give two lists
+that can disagree about what "pure" means. The file keeps its
+parallel-admission name: renaming it would break every reference in the landed
+t1569_3 plan and its commit trail for no behavioural gain. Its scope is this
+docstring, not its filename.
 
 A docstring saying "no subprocess" decays. This poisons the namespace instead,
 so the constraint is enforced rather than asserted.
@@ -23,7 +32,8 @@ LIB_DIR = os.path.join(REPO_ROOT, ".aitask-scripts", "lib")
 sys.path.insert(0, LIB_DIR)
 
 PURE_MODULES = ("parallel_admission", "parallel_admission_vocab",
-                "parallel_admission_sweep")
+                "parallel_admission_sweep",
+                "roadmap_policy", "roadmap_premise")
 PURE_SOURCES = tuple(os.path.join(LIB_DIR, m + ".py") for m in PURE_MODULES)
 
 # The impure half is allowed all of these; the pure half is allowed none.
