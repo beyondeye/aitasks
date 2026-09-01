@@ -69,6 +69,10 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/stale_lock.sh
 source "$SCRIPT_DIR/lib/stale_lock.sh"
+# Generic marker-block ledger substrate (t1657_1): the per-task append
+# mutex, marker assembly and section ensure-and-append, shared with the
+# note ledger. Sourced at startup, so it is in test_scaffold.sh's list.
+source "$SCRIPT_DIR/lib/ledger_block.sh"
 # NOTE: lib/registry_lock.sh is sourced LAZILY inside cmd_sync_registry, not
 # here. Only that one verb needs it, and several tests scaffold a fake
 # .aitask-scripts/lib/ by hand-copying a subset of libs — an unconditional
@@ -122,51 +126,24 @@ is_terminal_status() {
     return 1
 }
 
-# Per-task mutex (shared helper, t1496; also used by aitask_create.sh's child
-# lock). Serializes concurrent appends to the same task file. The helper's
-# stale reclaim is single-winner (guarded observation+destruction) and never
-# displaces a live holder — see lib/stale_lock.sh for the invariants.
-_GATE_LOCK_DIR=""
-_GATE_LOCK_TOKEN=""
+# Per-task mutex. The implementation lives in lib/ledger_block.sh (t1657_1);
+# these wrappers bind this ledger's namespace and the label whose text
+# tests/test_gate_lock_characterization.sh pins. The names are kept because
+# cmd_append, cmd_materialize_active and cmd_begin_procedure all call them.
 acquire_gate_lock() {
-    local key="$1" lock_dir
-    lock_dir="$(ait_lock_dir "gate_${key}")" || \
-        die "Failed to resolve gate lock base for $key"
-    # Opts in to markerless guard reclaim (t1598): a gate-ledger append is a
-    # fixed handful of file ops under the guard in every shipped version.
-    if ! stale_lock_acquire "$lock_dir" 20 0.3 "gate lock for $key" \
-            "$_STALE_LOCK_GC_WINDOW_DEFAULT"; then
-        # The prefix is pinned by tests/test_gate_lock_characterization.sh
-        # (Test 2a); the describe suffix is the recovery hint (t1496).
-        die "Failed to acquire gate append lock for $key after 20 attempts$(stale_lock_describe "$lock_dir")"
-    fi
-    _GATE_LOCK_DIR="$lock_dir"
-    _GATE_LOCK_TOKEN="$STALE_LOCK_TOKEN"
+    ait_ledger_lock_acquire "gate" "$1" "gate lock" "gate append lock"
 }
 
 release_gate_lock() {
-    local rc=0
-    if [[ -n "$_GATE_LOCK_DIR" ]]; then
-        stale_lock_release "$_GATE_LOCK_DIR" "$_GATE_LOCK_TOKEN" || rc=1
-    fi
-    _GATE_LOCK_DIR=""
-    _GATE_LOCK_TOKEN=""
-    return "$rc"
+    ait_ledger_lock_release
 }
 
-# Explicit-release form: a genuinely retained lock (leaked guard, undeletable
-# dir) must surface as a command failure, never as silent success with the key
-# wedged (t1496 invariant 6).
 release_gate_lock_checked() {
     if ! release_gate_lock; then
         die "gate lock not released — the key stays wedged (see warning above)"
     fi
 }
 
-# EXIT-trap form: capture the incoming status, release errexit-safely, preserve
-# a meaningful nonzero status, and flip 0 -> 1 only when the release itself
-# failed (a bare `release_gate_lock` here could turn a die's status into a
-# generic 1 or a success into a spurious failure under set -e).
 _gate_lock_exit_trap() {
     local rc=$?
     if ! release_gate_lock; then
@@ -381,11 +358,14 @@ _gate_append_locked() {
     local icon
     icon="$(gate_icon "$status")"
 
-    # Build marker line.
-    local marker="> **${icon} gate:${gate}** run=${f_run} status=${status}"
-    [[ -n "$f_attempt" ]]  && marker="${marker} attempt=${f_attempt}"
-    [[ -n "$f_duration" ]] && marker="${marker} duration=${f_duration}"
-    [[ -n "$f_type" ]]     && marker="${marker} type=${f_type}"
+    # Build marker line. Key ORDER is this ledger's contract, not the seam's —
+    # ait_ledger_marker emits the pairs exactly as given (t1657_1).
+    local -a kv=("run=${f_run}" "status=${status}")
+    [[ -n "$f_attempt" ]]  && kv+=("attempt=${f_attempt}")
+    [[ -n "$f_duration" ]] && kv+=("duration=${f_duration}")
+    [[ -n "$f_type" ]]     && kv+=("type=${f_type}")
+    local marker
+    marker="$(ait_ledger_marker "gate" "$gate" "$icon" "${kv[@]}")"
 
     # Build body lines (fixed order: verifier, result, log, note).
     local body=""
@@ -395,29 +375,13 @@ _gate_append_locked() {
     [[ -n "$b_note" ]]     && body="${body}> Note: ${b_note}"$'\n'
     body="${body%$'\n'}"  # strip trailing newline
 
-    # Ensure section exists (created at EOF — Gate Runs is the terminal section).
-    local need_section=1
-    grep -qE '^##[[:space:]]+Gate Runs[[:space:]]*$' "$file" && need_section=0
-
-    local tmp
-    tmp="$(dirname "$file")/.aitask_gate.$$.tmp"
-    {
-        cat "$file"
-        # Ensure a trailing newline before appending.
-        [[ -n "$(tail -c1 "$file" 2>/dev/null)" ]] && echo
-        if [[ $need_section -eq 1 ]]; then
-            echo
-            echo "## Gate Runs"
-            echo "<!-- Appended by the gate framework. Do not edit by hand; use \`./.aitask-scripts/aitask_gate.sh append\` for corrections. -->"
-        fi
-        echo
-        echo "$marker"
-        if [[ -n "$body" ]]; then
-            echo ">"
-            printf '%s\n' "$body"
-        fi
-    } > "$tmp"
-    mv "$tmp" "$file"
+    # Ensure the section exists and append. create_before="" / append_at="eof"
+    # reproduce this ledger's historical placement exactly: Gate Runs is the
+    # file's terminal section, so both points are EOF (t1657_1).
+    ait_ledger_append_section "$file" \
+        "## Gate Runs" \
+        "<!-- Appended by the gate framework. Do not edit by hand; use \`./.aitask-scripts/aitask_gate.sh append\` for corrections. -->" \
+        "$marker" "$body" "" "eof"
 
     # Echo the appended block (marker + body) for caller confirmation.
     printf '%s\n' "$marker"

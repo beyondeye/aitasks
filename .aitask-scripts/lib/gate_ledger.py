@@ -66,6 +66,26 @@ import re
 import subprocess
 import sys
 
+# The generic marker-block substrate (t1657_1): marker grammar, block envelope,
+# section ensure-and-append, atomic write. Everything this module adds on top is
+# gate-specific — the status/icon vocabulary, attempt arithmetic, the body label
+# table, and the whole derivation / registry half. The dependency is one-way by
+# construction: ledger_block imports nothing from here.
+#
+# NOTE for test scaffolds: this import makes gate_ledger a non-leaf module. A
+# fixture that copies it must copy the closure (tests/lib/test_scaffold.sh's
+# copy_py_closure_from), not the single file.
+#
+# The sys.path insert is required, not defensive: gate_ledger is loaded three
+# different ways — as a script (`python gate_ledger.py append …` from
+# aitask_gate.sh's delegate_python), as an import by a consumer that already put
+# lib/ on sys.path (board/aitask_merge.py), and by absolute file path with NO
+# path setup at all (tests/test_gate_ledger_python_parser.py uses
+# spec_from_file_location). Only the third needs this, and it is the one that
+# would fail. Same idiom as lib/gate_orchestrator.py:50.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ledger_block  # noqa: E402
+
 SECTION_HEADER = "## Gate Runs"
 SECTION_COMMENT = (
     "<!-- Appended by the gate framework. Do not edit by hand; "
@@ -102,11 +122,14 @@ ICONS = {
     "error": "⚠",    # ⚠
 }
 
-# Marker line: "> **<icon> gate:<name>** key=val key=val ..."
-MARKER_RE = re.compile(r"^>\s*\*\*(\S+)\s+gate:([A-Za-z0-9_]+)\*\*(.*)$")
-MARKER_SEARCH_RE = re.compile(r"(?m)^>\s*\*\*\S+\s+gate:[A-Za-z0-9_]+\*\*")
-KV_RE = re.compile(r"(\w+)=(\S+)")
-BODY_FIELD_RE = re.compile(r"^>\s*([^:>\n][^:\n]*):\s*(.*?)\s*$")
+# This ledger's marker namespace: "> **<icon> gate:<name>** key=val key=val ..."
+NAMESPACE = "gate"
+
+# Marker line patterns, built from the namespace by the shared substrate.
+MARKER_RE = ledger_block.build_marker_re(NAMESPACE)
+MARKER_SEARCH_RE = ledger_block.build_marker_search_re(NAMESPACE)
+KV_RE = ledger_block.KV_RE
+BODY_FIELD_RE = ledger_block.BODY_FIELD_RE
 
 # Keys that live on the marker line, in this fixed order.
 MARKER_KEYS = ("run", "status", "attempt", "duration", "type")
@@ -189,28 +212,19 @@ class TaskGateState:
     stale_signed: list[str] = field(default_factory=list)
 
 
-def _normalize_body_key(label: str) -> str:
-    """Normalize a rendered blockquote label to a stable dict key."""
-    return re.sub(r"[^A-Za-z0-9]+", "_", label.strip().lower()).strip("_")
-
-
-def _strip_wrapping_backticks(value: str) -> str:
-    value = value.strip()
-    if len(value) >= 2 and value[0] == "`" and value[-1] == "`":
-        return value[1:-1]
-    return value
-
-
-def iso_now() -> str:
-    """Current UTC timestamp as ISO-8601-Z (second precision)."""
-    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+# Re-exported from the shared substrate. These are moved VERBATIM, so the names
+# here are the very same objects — gate_orchestrator.py calls gl.iso_now() and
+# gate_registry_sync.py calls gl._atomic_write(), and both must keep working.
+_normalize_body_key = ledger_block._normalize_body_key
+_strip_wrapping_backticks = ledger_block._strip_wrapping_backticks
+iso_now = ledger_block.iso_now
 
 
 # --- Parsing / derivation -------------------------------------------------
 
 def has_gate_markers(text: str) -> bool:
     """Cheap prefilter for task files that contain gate-run markers."""
-    return bool(MARKER_SEARCH_RE.search(text))
+    return ledger_block.has_markers(text, NAMESPACE, search_re=MARKER_SEARCH_RE)
 
 
 def parse_gate_run_blocks(text: str) -> list[GateRun]:
@@ -219,49 +233,14 @@ def parse_gate_run_blocks(text: str) -> list[GateRun]:
     This is the structured parser for Python consumers. It keeps the marker
     metadata and body summary fields together, while preserving the historical
     marker-only behavior through :func:`parse_gate_runs`.
+
+    A thin binding of the shared substrate to this ledger's namespace and record
+    type — NOT an alias: ``ledger_block.parse_blocks`` is namespace-agnostic, and
+    binding ``gate`` here is what keeps a ``note:`` marker from parsing as a gate
+    run.
     """
-    runs: list[GateRun] = []
-    lines = text.splitlines()
-    idx = 0
-    while idx < len(lines):
-        line = lines[idx]
-        m = MARKER_RE.match(line)
-        if not m:
-            idx += 1
-            continue
-
-        marker_line_number = idx + 1
-        raw_body: list[str] = []
-        body_fields: dict[str, str] = {}
-        idx += 1
-        while idx < len(lines):
-            nxt = lines[idx]
-            if MARKER_RE.match(nxt) or re.match(r"^##\s+", nxt):
-                break
-            if nxt.startswith(">"):
-                raw_body.append(nxt)
-                bm = BODY_FIELD_RE.match(nxt)
-                if bm:
-                    key = _normalize_body_key(bm.group(1))
-                    if key:
-                        body_fields[key] = _strip_wrapping_backticks(bm.group(2))
-                idx += 1
-                continue
-            if not nxt.strip():
-                idx += 1
-                continue
-            break
-
-        runs.append(GateRun(
-            name=m.group(2),
-            icon=m.group(1),
-            fields=dict(KV_RE.findall(m.group(3))),
-            body_fields=body_fields,
-            line_number=marker_line_number,
-            raw_marker=line,
-            raw_body_lines=tuple(raw_body),
-        ))
-    return runs
+    return ledger_block.parse_blocks(text, NAMESPACE, factory=GateRun,
+                                     marker_re=MARKER_RE)
 
 
 def derive_gate_runs(text: str) -> dict[str, GateRun]:
@@ -451,6 +430,13 @@ def build_block(text: str, gate: str, status: str, fields: dict) -> str:
     TERMINAL status as (terminal runs for this gate) + 1 — see
     :func:`next_attempt` — else omitted. ``run`` is taken from ``fields`` if
     present, else generated as an ISO-8601-Z stamp.
+
+    This is the GATE-SPECIFIC half of block building, and it stays here
+    deliberately (t1657_1): it resolves the run stamp, the attempt ordinal via
+    :func:`next_attempt` / :data:`TERMINAL_STATUSES`, the glyph via
+    :data:`ICONS`, and the body labels via :data:`BODY_KEYS` — none of which the
+    shared substrate knows about. Only the envelope concatenation is delegated,
+    to ``ledger_block.render_block``, which resolves nothing.
     """
     fields = dict(fields)
     run_id = fields.pop("run", None) or iso_now()
@@ -460,12 +446,12 @@ def build_block(text: str, gate: str, status: str, fields: dict) -> str:
         attempt = str(next_attempt(text, gate))
 
     icon = ICONS.get(status, "⚠")
-    marker = f"> **{icon} gate:{gate}** run={run_id} status={status}"
+    marker_kv: list[tuple[str, str]] = [("run", run_id), ("status", status)]
     if attempt is not None:
-        marker += f" attempt={attempt}"
+        marker_kv.append(("attempt", attempt))
     for key in ("duration", "type"):
         if fields.get(key):
-            marker += f" {key}={fields[key]}"
+            marker_kv.append((key, fields[key]))
 
     body_lines = []
     for key, label, backtick in BODY_KEYS:
@@ -474,44 +460,30 @@ def build_block(text: str, gate: str, status: str, fields: dict) -> str:
             val = f"`{val}`" if backtick else val
             body_lines.append(f"> {label}: {val}")
 
-    block = marker
-    if body_lines:
-        block += "\n>\n" + "\n".join(body_lines)
-    return block
+    return ledger_block.render_block(NAMESPACE, gate, icon, marker_kv, body_lines)
 
 
 def append_block(text: str, gate: str, status: str, fields: dict) -> tuple[str, str]:
-    """Return (new_text, rendered_block). Ensures the section exists at EOF."""
+    """Return (new_text, rendered_block). Ensures the section exists at EOF.
+
+    ``append_at="eof"`` and ``create_before=None`` reproduce this ledger's
+    historical placement exactly: ``## Gate Runs`` is the file's terminal
+    section, so both the creation point and the append point are EOF. A ledger
+    that is NOT terminal (t1657_2's ``## Inbox``, which lands above this one)
+    passes the other values.
+    """
     block = build_block(text, gate, status, fields)
-
-    out = text
-    if not out.endswith("\n"):
-        out += "\n"
-
-    if not re.search(r"(?m)^##\s+Gate Runs\s*$", out):
-        out += f"\n{SECTION_HEADER}\n{SECTION_COMMENT}\n"
-
-    out += f"\n{block}\n"
+    out = ledger_block.append_to_section(
+        text, block,
+        header=SECTION_HEADER, comment=SECTION_COMMENT,
+        create_before=None, append_at="eof",
+    )
     return out, block
 
 
-def _atomic_write(path: str, content: str) -> None:
-    """Write content to path atomically via an adjacent tempfile + os.replace.
-
-    The task file lives under the ``aitasks/`` *directory* symlink but is itself
-    a regular file, so replacing it in place keeps the data-worktree layout
-    intact. The tempfile is created in the same directory to keep the rename on
-    one filesystem (truly atomic).
-    """
-    d = os.path.dirname(path) or "."
-    tmp = os.path.join(d, f".aitask_gate.{os.getpid()}.tmp")
-    try:
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        os.replace(tmp, path)
-    finally:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+#: Re-exported verbatim from the substrate. ``gate_registry_sync.py`` calls
+#: ``gl._atomic_write`` directly, so this must stay resolvable under this name.
+_atomic_write = ledger_block.atomic_write
 
 
 # --- Registry (minimal, stdlib-only 2-level parse) ------------------------

@@ -128,7 +128,11 @@ setup_archive_project() {
     cp "$PROJECT_DIR/.aitask-scripts/aitask_lock.sh" .aitask-scripts/ 2>/dev/null || true
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.sh" .aitask-scripts/ 2>/dev/null || true
     cp "$PROJECT_DIR/.aitask-scripts/aitask_verification_parse.py" .aitask-scripts/ 2>/dev/null || true
-    cp "$PROJECT_DIR/.aitask-scripts/lib/gate_ledger.py" .aitask-scripts/lib/
+    # Closure copy, not a bare cp: gate_ledger.py imports lib/ledger_block.py
+    # (t1657_1), and a hand-maintained list would leave the copied module
+    # unimportable — which fails SOFT here (the gate check returns 0 and the
+    # task archives) rather than erroring. Same reason as t1488.
+    copy_lib_py_closure "$PWD" gate_ledger
     cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" .aitask-scripts/lib/
     cp "$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh" .aitask-scripts/lib/ 2>/dev/null || true
     cp "$PROJECT_DIR/.aitask-scripts/lib/agentcrew_utils.sh" .aitask-scripts/lib/ 2>/dev/null || true

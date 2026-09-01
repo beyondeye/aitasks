@@ -25,7 +25,9 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable  # noqa: F401  -- used in SectionSpec annotations
 
 # Both the frontmatter parser (t1217) and the canonical gate-ledger parser
 # (t635_8 owns it — do not fork) live under lib/. Mirror the lib/ import idiom
@@ -39,7 +41,12 @@ from task_yaml import (  # noqa: E402
 )
 from board_groups import normalize_group_slug  # noqa: E402
 from followup_kinds import normalize_followup_kind  # noqa: E402
-import gate_ledger  # noqa: E402  -- stdlib-only; sys.path set up just above
+# gate_ledger supplies this merger's ONE registered section spec (header,
+# comment, namespace). It is no longer a leaf module — it imports
+# lib/ledger_block.py (t1657_1) — but both are still stdlib-only, and the
+# sys.path set up just above covers the sibling import.
+import gate_ledger  # noqa: E402
+import ledger_block  # noqa: E402  -- the generic marker-block substrate
 from atomic_write import atomic_write_text  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -450,12 +457,104 @@ def _conflict_markers(local: str, remote: str) -> str:
     )
 
 
+@dataclass(frozen=True)
+class SectionSpec:
+    """How to union ONE append-only marker-block section (t1657_1).
+
+    Four of these six are the gate semantics that used to be hardcoded in
+    ``_union_gate_runs``, and none of them transfers to another ledger — which
+    is exactly why they had to become spec members rather than stay literals.
+    A ``## Inbox`` block (t1657_2) carries ``id=``/``at=`` and neither ``run=``
+    nor ``attempt=``, so with the gate rules applied to it: ``validate`` would
+    reject every block, ``identity`` would collapse every note from one sender
+    onto one key, and ``order_key`` would degenerate to alphabetical.
+
+    ``order_key`` is a callable rather than a tuple of field names because
+    ``attempt`` sorts NUMERICALLY (10 after 2), which no field-name list can say.
+    """
+
+    header: str
+    comment: str
+    namespace: str
+    #: True if the block is trustworthy enough to union. Any False bails the
+    #: whole body to conflict markers rather than guessing.
+    validate: "Callable[[object], bool]"
+    #: Append-only identity. Two DISTINCT texts sharing one identity is a
+    #: contract violation.
+    identity: "Callable[[object], tuple]"
+    #: Total, side-order-independent sort key, called as (block_text, block).
+    order_key: "Callable[[str, object], tuple]"
+    #: What to do when two distinct blocks share an identity. Only "conflict"
+    #: is implemented; it is a named field so a future ledger that can safely
+    #: keep both has somewhere to say so, rather than this being an unstated
+    #: assumption baked into the loop.
+    on_collision: str = "conflict"
+
+
+def _attempt_int(block) -> int:
+    """attempt as an int; 0 for missing or non-numeric."""
+    a = block.fields.get("attempt", "")
+    return int(a) if a.isdigit() else 0
+
+
+GATE_SPEC = SectionSpec(
+    header=gate_ledger.SECTION_HEADER,
+    comment=gate_ledger.SECTION_COMMENT,
+    namespace=gate_ledger.NAMESPACE,
+    validate=lambda b: bool(_ISO_RUN_RE.match(b.fields.get("run", ""))),
+    identity=lambda b: (b.name, b.fields.get("run", ""),
+                        b.fields.get("attempt", "")),
+    # run is valid ISO ⇒ chronological; then name; then attempt NUMERICALLY;
+    # then full text as the final tie-break.
+    order_key=lambda text, b: (b.fields.get("run", ""), b.name,
+                               _attempt_int(b), text),
+)
+
+#: Sections this merger knows how to union, in the order they are rebuilt.
+#: **The gate ledger is deliberately the only entry.** t1657_1 is a zero
+#: behaviour change extraction; t1657_2 registers '## Inbox' ahead of it and
+#: owns the resulting change.
+REGISTERED_SPECS: tuple[SectionSpec, ...] = (GATE_SPEC,)
+
+
+def _header_re(header: str) -> re.Pattern:
+    return re.compile(rf"(?m)^{re.escape(header)}\s*$")
+
+
+def _split_sections(body: str, specs=REGISTERED_SPECS):
+    """Split ``body`` into (head, {spec: section_text}).
+
+    A section runs from its header to the start of the NEXT REGISTERED header,
+    or to end of body when it is the last one. That bound is what keeps this
+    generalization byte-compatible with the single-section original: with one
+    spec, the section is header..EOF exactly as before, so an unregistered
+    ``##`` section trailing the ledger still lands *inside* it and still trips
+    the cleanliness guard, rather than being silently absorbed into a tail.
+    """
+    found = []
+    for spec in specs:
+        m = _header_re(spec.header).search(body)
+        if m:
+            found.append((m.start(), spec))
+    if not found:
+        return body, {}
+
+    found.sort()
+    head = body[:found[0][0]]
+    sections = {}
+    for i, (start, spec) in enumerate(found):
+        end = found[i + 1][0] if i + 1 < len(found) else len(body)
+        sections[spec] = body[start:end]
+    return head, sections
+
+
 def _split_gate_section(body: str) -> tuple[str, str]:
-    """Return (head, section); section starts at the first '## Gate Runs' or ''."""
-    m = re.search(r"(?m)^##\s+Gate Runs\s*$", body)
-    if not m:
-        return body, ""
-    return body[:m.start()], body[m.start():]
+    """Return (head, section); section starts at the first '## Gate Runs' or ''.
+
+    Compatibility shape over :func:`_split_sections` for the gate ledger.
+    """
+    head, sections = _split_sections(body, (GATE_SPEC,))
+    return head, sections.get(GATE_SPEC, "")
 
 
 def _block_text(run) -> str:
@@ -481,71 +580,88 @@ def _section_is_clean(section: str) -> bool:
     return True
 
 
-def _union_gate_runs(local_body: str, remote_body: str):
-    """Union the append-only '## Gate Runs' ledger of two bodies.
+def _union_one_section(spec: SectionSpec, local_sec: str, remote_sec: str):
+    """Union one section per its spec, or None to bail the whole body.
 
-    Returns (merged_body, head_resolved) when a *provably safe* union is possible,
-    else None (the caller then falls back to whole-body conflict markers). The
-    safety guards below all degrade to the conflict path rather than guess, so no
-    ledger data is ever silently reordered or dropped.
+    Every guard degrades to the conflict path rather than guessing, so no ledger
+    data is ever silently reordered or dropped.
     """
-    local_head, local_sec = _split_gate_section(local_body)
-    remote_head, remote_sec = _split_gate_section(remote_body)
-    if not local_sec and not remote_sec:
-        return None  # no ledger anywhere → not our case
-
-    # Guard 3: only union purely machine-owned ledger sections.
+    # Guard 3: only union purely machine-owned sections.
     if not _section_is_clean(local_sec) or not _section_is_clean(remote_sec):
         return None
 
-    runs = (gate_ledger.parse_gate_run_blocks(local_sec)
-            + gate_ledger.parse_gate_run_blocks(remote_sec))
+    blocks = (ledger_block.parse_blocks(local_sec, spec.namespace)
+              + ledger_block.parse_blocks(remote_sec, spec.namespace))
 
-    # Guard 1: trustworthy ordering requires a valid ISO run on every block.
-    if any(not _ISO_RUN_RE.match(r.fields.get("run", "")) for r in runs):
+    # Guard 1: every block must be trustworthy enough to order.
+    if any(not spec.validate(b) for b in blocks):
         return None
 
     # Guard 2: dedup by FULL TEXT only — shared history collapses, divergent kept.
     by_text: dict[str, object] = {}
-    for r in runs:
-        by_text.setdefault(_block_text(r), r)
+    for b in blocks:
+        by_text.setdefault(_block_text(b), b)
 
-    # Guard 2b: ambiguous winner — >1 distinct block for one (name, run, attempt)
-    # is an append-only contract violation; let a human pick rather than tiebreak.
+    # Guard 2b: ambiguous winner — >1 distinct block for one identity is an
+    # append-only contract violation; let a human pick rather than tiebreak.
     ident: dict[tuple, set] = {}
-    for text, r in by_text.items():
-        key = (r.name, r.fields.get("run", ""), r.fields.get("attempt", ""))
-        ident.setdefault(key, set()).add(text)
+    for text, b in by_text.items():
+        ident.setdefault(spec.identity(b), set()).add(text)
     if any(len(texts) > 1 for texts in ident.values()):
+        if spec.on_collision != "conflict":
+            raise ValueError(
+                f"unsupported on_collision {spec.on_collision!r} for "
+                f"{spec.header!r}")
         return None
 
-    # Total, side-order-independent ordering. run is valid ISO ⇒ chronological;
-    # attempt sorts NUMERICALLY (10 after 2), 0 fallback for missing/non-numeric.
-    def _attempt_int(r) -> int:
-        a = r.fields.get("attempt", "")
-        return int(a) if a.isdigit() else 0
+    ordered = sorted(by_text.items(), key=lambda kv: spec.order_key(kv[0], kv[1]))
+    body = "\n\n".join(text for text, _b in ordered)
+    return f"{spec.header}\n{spec.comment}\n\n{body}\n"
 
-    ordered = sorted(
-        by_text.items(),
-        key=lambda kv: (kv[1].fields.get("run", ""), kv[1].name,
-                        _attempt_int(kv[1]), kv[0]),
-    )
-    blocks = "\n\n".join(text for text, _r in ordered)
-    merged_section = (
-        f"{gate_ledger.SECTION_HEADER}\n{gate_ledger.SECTION_COMMENT}\n\n{blocks}\n"
-    )
 
-    # Compare heads ignoring trailing blank lines — the side carrying the ledger
-    # includes the blank lines that preceded '## Gate Runs' while a side without a
-    # ledger does not, yet the prose is identical. Rebuild with one canonical
-    # blank line before the section.
+def _union_sections(local_body: str, remote_body: str,
+                    specs=REGISTERED_SPECS):
+    """Union every registered append-only section of two bodies.
+
+    Returns (merged_body, head_resolved) when a *provably safe* union is
+    possible, else None (the caller then falls back to whole-body conflict
+    markers). A bail in ANY registered section bails the whole body, exactly as
+    the single-section original did.
+    """
+    local_head, local_secs = _split_sections(local_body, specs)
+    remote_head, remote_secs = _split_sections(remote_body, specs)
+    if not local_secs and not remote_secs:
+        return None  # no registered section anywhere → not our case
+
+    merged_sections = []
+    for spec in specs:                      # registered order is the rebuild order
+        local_sec = local_secs.get(spec, "")
+        remote_sec = remote_secs.get(spec, "")
+        if not local_sec and not remote_sec:
+            continue
+        merged = _union_one_section(spec, local_sec, remote_sec)
+        if merged is None:
+            return None
+        merged_sections.append(merged)
+
+    merged_body = "\n".join(merged_sections)
+
+    # Compare heads ignoring trailing blank lines — the side carrying a section
+    # includes the blank lines that preceded its header while a side without one
+    # does not, yet the prose is identical. Rebuild with one canonical blank line
+    # before the first section.
     if local_head.rstrip("\n") == remote_head.rstrip("\n"):
         head_norm = local_head.rstrip("\n")
-        merged = (head_norm + "\n\n" + merged_section) if head_norm else merged_section
-        return merged, True
-    # Prose head genuinely conflicts; still union the machine-owned ledger and
+        out = (head_norm + "\n\n" + merged_body) if head_norm else merged_body
+        return out, True
+    # Prose head genuinely conflicts; still union the machine-owned sections and
     # leave the head on the conflict-marker path for manual resolution.
-    return _conflict_markers(local_head, remote_head) + merged_section, False
+    return _conflict_markers(local_head, remote_head) + merged_body, False
+
+
+def _union_gate_runs(local_body: str, remote_body: str):
+    """Compatibility shape: union the gate ledger alone."""
+    return _union_sections(local_body, remote_body, (GATE_SPEC,))
 
 
 def merge_body(local_body: str, remote_body: str) -> tuple[str, bool]:
@@ -561,7 +677,7 @@ def merge_body(local_body: str, remote_body: str) -> tuple[str, bool]:
     if local_body == remote_body:
         return local_body, True
 
-    union = _union_gate_runs(local_body, remote_body)
+    union = _union_sections(local_body, remote_body)
     if union is not None:
         return union
 
