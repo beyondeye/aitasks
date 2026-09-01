@@ -440,3 +440,23 @@ Post-implementation (Step 9) handles cleanup, archival, and merge.
 
 - **Verification after the change:** `test_fold_mark.sh` 155/155; all 15
   fold_mark-touching suites green; shellcheck clean; `aitask_skill_verify.sh` OK.
+
+### Incident: test file lost to a concurrent session (2026-09-01 15:18)
+
+Between the final review approval and the code commit, another session ran a
+`git restore` / `checkout` over `tests/` (cleaning up its own `test_concern_*`
+probes) and destroyed this task's uncommitted changes to
+`tests/test_fold_mark.sh`. The first commit therefore landed with only 2 of 3
+files (75 insertions instead of 444).
+
+Detected immediately from the commit's own `--stat` (2 files, not 3), confirmed
+by `git log -- tests/test_fold_mark.sh` still showing t1599_2 as the latest
+commit for that path and the working copy back at 36 tests. The changes were
+reconstructed from the session's edit history, re-verified (155/155, matching
+the pre-loss count exactly), and folded into the same commit via
+`git commit --amend -o -- tests/test_fold_mark.sh` (HEAD was still this task's
+commit and unpushed).
+
+No content was lost in the end. Worth noting for future work in this repo:
+uncommitted work in a shared checkout is at the mercy of any concurrent
+session's `git restore`, so commit early or snapshot outside the worktree.
