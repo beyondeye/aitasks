@@ -915,3 +915,25 @@ before the two counterfactual tests were rewritten.
 
 Full suite re-run after all four fixes: `PYTHON SUITE: PASSED (runner=pytest,
 exit=0)`.
+
+### Second review round (two more confirmed)
+
+5. **The multi-origin `max` was unauditable.** The design record promised that
+   the raw per-origin values appear in `rationale`, but only the *reduced* pair
+   was rendered: with origins `900=(high, low)` and `901=(low, low)` the entry
+   read `high / unknown` and the caveat named only the setter, so 901's values
+   were invisible. That defeats the whole point of the reduction — a `max` a
+   human cannot audit is a number they cannot override. `OriginFacts.per_origin`
+   now carries the pre-reduction values and `rationale` renders them in full
+   (`900=high/low, 901=low/low`); a single-origin entry names its source instead.
+   Rendered complete rather than truncated — the live maximum is 11 origins, and
+   a partial audit trail for a `max` is the same problem as none.
+6. **`collect`'s docstring contradicted its implementation** and, worse, endorsed
+   the hazard the module's own header forbids: it claimed a named non-follow-up
+   "yields no rows — and says so through its absence from the output". The
+   implementation reports every named id (only the *unfiltered* sweep narrows to
+   follow-ups), and nothing in this protocol may be inferred from a missing line.
+   Docstring corrected; two tests pin the real behaviour, including that origin
+   resolution reads `anchor:` / `verifies:` rather than `followup_kind:`.
+
+Full suite re-run after both: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
