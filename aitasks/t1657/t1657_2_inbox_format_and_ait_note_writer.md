@@ -6,6 +6,10 @@ issue_type: feature
 status: Implementing
 labels: [framework, ait_dispatcher, bash_scripts, task_metadata, whitelists]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 created_at: 2026-09-01 12:35
