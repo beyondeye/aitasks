@@ -149,14 +149,27 @@ syncer TUI.
 
 ## Step 1 — Pre-phase: pin the existing token contract, and settle one primitive
 
-**Spike first (blocking for Steps 3 / 5a):** empirically confirm that
-`git commit -o -m <msg> -- <path>` **records a deletion** when `<path>` is
-tracked in HEAD but absent from the worktree, and that a two-path
-`-- <new> <orig>` commit records the add+delete pair that constitutes a rename.
-Steps 3, 5a.3 and 5a.4 all assume it. If it does not, the group commit must
-stage the removal explicitly (`task_git rm --cached -- <orig>`) — safe here
-because it happens inside the Step-3a mutex and only for paths this group owns.
-Record the observed behaviour in the plan; do not proceed on the assumption.
+**Spike first (blocking for Steps 3 / 5a) — DONE, results below.**
+
+Confirmed empirically (scratch repo, git plumbing):
+
+- `git commit -o -m <msg> -- <path>` **does record a pure deletion** with no
+  `add` and no `rm --cached`. The `rm --cached` fallback is therefore not
+  needed. Afterwards the worktree is **clean** — the same property that makes a
+  cleanliness-based quarantine release wrong (Step 7c).
+- A two-path `-- <new> <orig>` commit **does record the add+delete pair**, but
+  only once `<new>` has been staged: an untracked `<new>` fails the whole commit
+  with `error: pathspec '<new>' did not match any file(s) known to git`, rc 1.
+  This is exactly the untracked-only staging rule of Step 3.
+- `git hash-object -- <path>` → rc 0 + hash when present; **rc 128, stderr, no
+  stdout** when absent. Confirms Step 5a.3: existence must be decided by
+  `[ -e ]`, never by this command's failure.
+- `git rev-parse --verify --quiet HEAD:<path>` → rc 0 + hash when present,
+  **rc 1 with no output** when absent. Confirms the Step 5a.4 probe.
+- `-z` rename bytes verified as `R` `SP` `SP` `<new>` `\0` `<orig>` `\0` — the
+  `<new>`-then-`<orig>` ordering the plan assumed. Confirmed.
+
+**Two corrections the spike forced** — see Steps 2 and 3.
 
 Then, before touching `auto_commit`, run `tests/test_sync.sh` and
 `tests/run_all_python_tests.sh --test-dir tests` and record the baseline.
@@ -171,11 +184,20 @@ control: any change that alters an existing verdict must show up here.
 paths** and C-quotes any path containing a space. Archive moves are exactly that
 shape, so it is not a corner case.
 
-Use `task_git status --porcelain -z -- aitasks/ aiplans/` (`status` is on
+Use `task_git status --porcelain -z -uall -- aitasks/ aiplans/` (`status` is on
 `_ait_git_subcmd_is_readonly`'s allowlist, so the wedged-worktree guard passes)
 and parse NUL-delimited. **Ordering trap:** with `-z` a rename emits `<new>`
 first, then `<orig>` — the reverse of the arrow display — and quoting is gone.
 Pin it in a test.
+
+**Correction from the Step-1 spike: `-uall` is mandatory, not cosmetic.** git's
+default `-unormal` **collapses an untracked directory to the directory itself**:
+a new child task shows as `?? aitasks/t99/`, not `?? aitasks/t99/t99_1_child.md`.
+`aitasks/t99/` has no derivable task id, so under Step 4 it would be classified
+**ownerless and silently skipped** — a new child task would never be
+auto-committed. `aitasks/t<P>/` is precisely the shape a parent's first child
+creates, so this is a common case, not a corner. Pin it with a test that a new
+child task file inside a new `aitasks/t<P>/` directory is committed.
 
 ## Step 3 — Group by owning task id
 
@@ -188,6 +210,17 @@ For a rename resolve the owner of **both** paths: same owner (the archive case)
 → group normally; **different owners → skip and report as an ambiguous
 cross-task rename.** Never guess an owner for an entry that legitimately names
 two.
+
+**Correction from the Step-1 spike: an `R` entry only appears when BOTH halves
+are staged.** An ordinary worktree move that nobody has staged — the realistic
+shape for the dirty tree this sweep scans — presents as two independent entries,
+` D <orig>` and `?? <new>`, which resolve to the same owner and group correctly
+on their own. `R` therefore shows up mainly when another session is mid-`add`
+(e.g. `aitask_archive.sh` between its `add` and its `commit`), and Step 3a then
+defers that group as `staged_elsewhere` anyway. So the `R` branch exists to
+**parse correctly and refuse to mis-attribute**, not as the path by which
+archive moves normally get committed — the tests must cover both shapes and must
+not assume an archive move arrives as `R`.
 
 Commit each group through **`task_git_commit_scoped "<msg>" "${paths[@]}"`**
 under a message naming its real task. Handle its full return contract — `2`
@@ -865,6 +898,113 @@ then `tests/lib/asserts.sh`. Assertion argument order is
 Also run `shellcheck .aitask-scripts/aitask_sync.sh .aitask-scripts/aitask_lock.sh`
 and `bash tests/run_all_python_tests.sh --test-dir tests` for the
 `sync_action_runner` tests.
+
+## Implementation notes (deviations and findings)
+
+All steps landed. Deviations from the approved plan, each deliberate:
+
+1. **`task_git_commit_scoped` got `--no-stage`, not a "stage only untracked"
+   mode.** The plan had the helper decide which paths to stage; instead the
+   sweep stages its own untracked paths and the helper stages nothing. Same
+   guarantee — a tracked path another session may have staged is never
+   re-staged — but staging and *unstaging* then have ONE owner, so the failure
+   path can unstage exactly what this run staged without re-deriving the set.
+   The default is unchanged, so t1599_1's and t1599_2's call sites are
+   untouched (both suites pass).
+
+2. **The wedged-worktree probe had to move to the top of `main()`.** In
+   `auto_commit` it was unreachable: `check_remote` runs first and does
+   `task_git remote get-url origin &>/dev/null`. `remote` is on neither
+   allowlist, so `assert_data_worktree_clean` die()s — and `&>/dev/null`
+   swallows the message, so the script exited 1 with empty stdout AND empty
+   stderr, which is exactly the `ERROR: empty output` case the probe exists to
+   prevent. Found by the test, not by reading.
+
+3. **`git status --porcelain -z` output must go to a FILE.** Bash discards NUL
+   bytes in command substitution, so `$(git status -z)` silently loses every
+   separator it exists for.
+
+4. **`-uall` is mandatory** (Step 2) and **an `R` entry only appears when both
+   halves are staged** (Step 3) — both forced by the Step-1 spike; the step
+   text carries the detail.
+
+5. **The `DEFERRED:` reason set is three, not five.** `locks_unavailable` and
+   `lock_contended` are per-file skip reasons that surface in the stderr report
+   and roll up into `protected_dirty` on the wire. The derived token-contract
+   test is what exposed the over-declaration.
+
+6. **Step 6 emits `LOCKS_OK`, and `LOCKS_NONE` does not exist.** A global
+   "nothing is locked" token invites being used as a per-task precondition; a
+   readable branch with no locks is `LOCKS_OK` with zero `LOCK:` lines.
+
+7. **The `DEFERRED:` parse branch fails CLOSED** (raised at Step-8 review).
+   As first written it accepted any `DEFERRED:<reason>`, so a shell-side typo
+   became a benign `severity="warning"` in both TUIs — and the syncer
+   deliberately skips its failure capture for a deferral, so a real sync failure
+   would have been silently suppressed. `parse_sync_output` now rejects a reason
+   outside `DEFERRED_REASONS` (and an empty one) as `STATUS_ERROR`, matching the
+   unknown-status branch beside it. Three tests pin it: an unknown reason, an
+   empty reason, and the positive half that every declared reason still
+   round-trips.
+
+8. **Concurrent-session entanglement (raised at Step-8 review), resolved.**
+   Mid-implementation `lib/task_utils.sh` briefly carried both this task's
+   `--no-stage` hunk and t1658_2's uncommitted data-worktree ladder, so
+   committing the file whole would have bundled foreign in-flight work — the
+   exact defect t1599 exists to fix — and that work was itself failing
+   `test_desync_state.py`. The plan was to stage only this task's hunks and
+   verify the result in isolation. Before that was needed, t1658_2 landed
+   (`a31f2b350`), so `task_utils.sh` now diffs to this task's change alone and
+   the previously-failing test passes. Every suite was re-run against the
+   advanced HEAD, since that commit rewrote `_ait_detect_data_worktree`, which
+   this sweep consumes via `_AIT_DATA_WORKTREE` and `_ait_data_gitdir`.
+
+### Fixture work (tests/lib/sync_fixture.sh)
+
+Extracted so both suites share one definition. Beyond the two gaps the plan
+predicted (no lock branch, no `bin/hostname` shim), three more surfaced:
+
+- sibling clones must use `git clone --branch aitask-data`. Checking out `main`
+  first materialises the `aitasks` **symlink** it carries, and a later
+  `git add -A` commits that symlink over the real directory, destroying every
+  task file on the branch.
+- a `pre-push` hook must `unset GIT_DIR GIT_WORK_TREE …` first. Git exports them
+  into hooks, so the sibling clone fails, its `cd` fails, and the hook's edits
+  land in the hook's own cwd — the repo's data worktree — surfacing much later
+  as an inexplicable "cannot pull with rebase: You have unstaged changes".
+- every fixture nests under one per-run base dir removed by an `EXIT` trap.
+  Each repo carries a full copy of `.aitask-scripts`; an early leaking run left
+  136 directories and several GB in `/tmp`.
+
+### Verification performed
+
+- `tests/test_sync_auto_commit_scoping.sh` — 32 assertions
+- `tests/test_sync_deferral_and_quarantine.sh` — 47 assertions
+- `tests/test_sync_action_runner.py` — 29 (incl. the derived token contract
+  and the fail-closed deferral-reason tests)
+- Regression: `test_sync.sh` (42), `test_sync_branch_mode_automerge.sh` (17),
+  `test_task_lock.sh` (93), `test_stale_lock.sh` (134),
+  `test_crash_recovery_pid_anchor.sh` (78), `test_lock_force.sh` (16),
+  `test_lock_diag.sh` (9), `test_registry_lock.sh`,
+  `test_pick_own_scoped_commit.sh`, `test_create_email_lock.sh`,
+  `test_fold_mark.sh`, `test_no_raw_tmux.sh` — all pass
+- `shellcheck` clean on `aitask_sync.sh`; `aitask_lock.sh` has only its
+  pre-existing SC2086 in `cleanup_locks`
+
+**Negative controls actually run** (each a mutated copy of the tree; every one
+behaved as the plan claimed):
+
+| control | result |
+|---|---|
+| pre-fix `add aitasks/ aiplans/` + bare commit | **18 of 32** fail, including the bystander, ownerless and foreign-staged-index assertions |
+| publication guard gated on `remote_ahead` | Test 5 fails — reports `PUSHED` and the raced bytes reach the remote |
+| cleanliness-only quarantine release | Test 10 fails — releases on run 1 and publishes |
+| age-based quarantine release | Test 13 fails — publishes the raced content |
+| `DEFERRED:` removed from the parser | the derived token-contract test fails |
+
+Full Python suite: **6313 passed, 1 failed** at the time of the first run; the
+single failure was t1658_2's then-uncommitted work (`data_symlinks.sh` missing
+from a fixture's copy list) and passes now that it has landed.
 
 ## Out of scope — spawn as a follow-up
 
