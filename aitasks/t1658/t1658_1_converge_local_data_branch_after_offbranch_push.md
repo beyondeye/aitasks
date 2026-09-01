@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1658
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 14:30
-updated_at: 2026-09-01 14:57
+updated_at: 2026-09-01 15:36
 ---
 
 ## Context
@@ -129,3 +130,8 @@ names the usage-count commit — i.e. the commit reached the **local** branch.
 
 The cwd / data-worktree-resolution hazard (parent AC5) belongs to **t1658_2**.
 Do not change `_ait_detect_data_worktree()` here.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T12:37:03Z status=pass attempt=1 type=human
