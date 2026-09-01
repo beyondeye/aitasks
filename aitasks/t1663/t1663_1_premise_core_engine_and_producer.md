@@ -6,10 +6,14 @@ issue_type: feature
 status: Implementing
 labels: [task-workflow, verification]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 created_at: 2026-09-01 15:18
-updated_at: 2026-09-01 16:00
+updated_at: 2026-09-01 16:01
 ---
 
 Build the premise-staleness verdict engine: the pure core `lib/task_premise.py` and the impure git-facing producer `.aitask-scripts/aitask_premise_stale.sh`.
