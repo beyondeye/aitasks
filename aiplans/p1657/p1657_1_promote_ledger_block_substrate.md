@@ -476,6 +476,103 @@ Then:
 
 ---
 
+## Final Implementation Notes
+
+- **Actual work done:** As planned. New `lib/ledger_block.py` (265 lines) and
+  `lib/ledger_block.sh` (213); `gate_ledger.py`, `aitask_gate.sh` and
+  `board/aitask_merge.py` re-pointed at them. Pre-phase `35bad7aaa` (3 files,
+  567 lines, frozen thereafter); implementation `9e14225a8` (1037 insertions).
+  Acceptance met: Python suite PASSED (6310 passed, 0 failed), all 28 bash
+  gate/merge tests green, both gate backends agree, shellcheck clean apart from
+  `SC1091` source-following info.
+
+- **Deviations from plan:**
+  - `characterize_merge_union` was scoped to the **gap** instead of the
+    four negative controls the plan listed. All four were already pinned by
+    `test_aitask_merge.py::TestGateRunsUnion`, which predates this task and may
+    not be edited — a stronger baseline than a fresh copy, and re-asserting it
+    would have been duplication with no added detection power. The new file
+    covers only the uncovered axis: a body carrying a second, unregistered `##`
+    section beside the ledger. Flagged to the user before implementing, not
+    silently narrowed.
+  - `_NAME_CHARS` stayed a fixed pattern rather than becoming caller-supplied.
+    `MARKER_KEYS`/`BODY_KEYS` likewise: F6 established `build_block` does not
+    iterate `MARKER_KEYS` at all, so "caller-supplied" was only ever true of the
+    parse side.
+  - **The Step-8 review ran after the commits, not before** — see Review
+    findings below.
+
+- **Issues encountered:**
+  - `gate_ledger.py` is loaded three different ways, and the third has no path
+    setup: `tests/test_gate_ledger_python_parser.py` uses
+    `spec_from_file_location`. A bare `import ledger_block` raised ImportError
+    there, in a file that may not be edited. Fixed with the repo's existing
+    idiom (`sys.path.insert(0, dirname(abspath(__file__)))`, as
+    `gate_orchestrator.py:50`), not by touching the test.
+  - The lock carried **two** distinct label strings, not one:
+    `stale_lock_acquire` renders "Removing stale **gate lock** for `<key>`" while
+    the exhaustion `die` says "**gate append lock**". Collapsing them into one
+    parameter looked like a simplification and silently rewrote the reclaim
+    warning; `test_gate_lock_characterization.sh` failed 2/47 and was fixed in
+    the code. This is the frozen-test discipline working exactly as intended.
+  - `test_gate_guarded_archival.sh` failed **soft** once `gate_ledger` became a
+    non-leaf module — the gate check returned 0 and the task archived with a
+    pending gate, rather than erroring. Precisely the t1488 shape, and the reason
+    the fixtures now use the derived closure copier.
+  - One suite flake, not fixed and not mine:
+    `test_board_detail_gates_section.py::test_stale_signature_shows_both_facts`
+    failed on worker `gw1` in the first full run and passed in the second (and
+    in isolation, repeatedly, including under `-n 4`). Its witness file
+    (`.aitask-gates/t<id>/<gate>.signed`) is read **relative to cwd** inside a
+    fixture that chdirs the process — the documented fragile area, with prior
+    isolation fixes in its history (t1487). This change touches `sys.path`, not
+    cwd.
+
+- **Key decisions:**
+  - `render_block` resolves **nothing** — icon, ordered `(key, value)` pairs and
+    pre-rendered body lines all arrive resolved. That is what keeps the
+    dependency one-way; `build_block` keeps every gate-specific resolution.
+  - `SectionSpec` carries six fields, and `order_key` is a **callable** because
+    `attempt` sorts numerically — no field-name list can express that.
+  - Sections are bounded by the next **registered** header, not the next `##`.
+    This is what makes the generalization byte-compatible: with one spec the
+    section is still header..EOF, so an unregistered section trailing the ledger
+    still lands inside it and still trips the cleanliness guard.
+  - `append_to_section` defaults to `append_at="eof"` / `create_before=None`,
+    reproducing the gate ledger's placement exactly; `section_end` and
+    `create_before` exist for a non-terminal ledger and are covered by tests.
+  - The completion audit is a **content manifest**, not a git diff. This
+    worktree has other sessions actively editing `tests/` (21 unrelated paths
+    moved during the task), so every git-based form either reports their work as
+    a violation or requires staging it.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **t1657_2 registers the second spec.** Add a `SectionSpec` to
+    `REGISTERED_SPECS` in `board/aitask_merge.py` **ahead of** `GATE_SPEC`
+    (registration order is rebuild order). Validate on `at=`, use identity
+    `(id,)` — **not** `(name, …)`, since one sender sends many notes — and order
+    by `(at, id)`. `tests/test_ledger_block_multisection.py` already drives
+    exactly this shape as a synthetic spec; it is the working reference.
+  - **Two tests in `test_merge_union_characterization.py` are expected to change
+    in t1657_2**, and say so in their own docstrings:
+    `test_divergent_foreign_section_conflicts_the_whole_body` and
+    `test_one_sided_foreign_section_conflicts_the_whole_body`. They record a
+    *limitation* — an unregistered `## Inbox` lives in the prose head, so a
+    divergent or one-sided inbox conflicts the whole body. Registering the
+    section is what fixes it, and updating those two tests is t1657_2's job.
+  - **Appending a note:** `ait_ledger_append_section` /
+    `ledger_block.append_to_section` with `create_before="## Gate Runs"` and
+    `append_at="section_end"`. The lock is
+    `ait_ledger_lock_acquire "note" "$key" "<reclaim label>" "<fail label>"` —
+    pass two distinct labels or the reclaim warning silently changes wording.
+  - **Body rendering is yours, not the seam's.** The seam emits the marker and
+    the `>` separator; the `> | ` sentinel and its sanitization belong at the
+    note writer's write site.
+  - **`t1669`** (namespace validation) is filed and unblocked — worth landing
+    before t1657_2 introduces the second namespace, though not a hard dependency.
+
 ## Review findings (deferred, dispositioned follow-up)
 
 Both raised at the Step-8 review, both confirmed, both deliberately **not** fixed
