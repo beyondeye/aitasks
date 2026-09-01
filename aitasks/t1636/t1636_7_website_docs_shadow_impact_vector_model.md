@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: documentation
@@ -11,8 +13,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1636
+implemented_with: claudecode/opus5
 created_at: 2026-08-30 19:53
-updated_at: 2026-08-31 22:50
+updated_at: 2026-09-01 08:18
 ---
 
 ## Context
@@ -110,3 +113,8 @@ t1636_4 may add or rename a surface.
 - Re-read each edited page end-to-end for stale claims the t1636 children made
   untrue — the recheck-loop sentence is the known one, but the sweep is the
   point, not that single fix.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T05:19:02Z status=pass attempt=1 type=human
