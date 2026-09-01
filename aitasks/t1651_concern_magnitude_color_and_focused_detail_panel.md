@@ -177,3 +177,8 @@ other key bubbles to the modal.
   modal-vs-inline question in favour of inline, at the user's direction.
 - The pre-existing risk t1426 was mitigating — from archived t1293,
   `risk_mitigation_tasks: [1426]` — is carried by this task instead.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T07:02:40Z status=pass attempt=1 type=human
