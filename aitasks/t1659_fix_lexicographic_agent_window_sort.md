@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1653
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 09:37
-updated_at: 2026-09-01 09:40
+updated_at: 2026-09-01 11:15
 ---
 
 ## Origin
@@ -55,3 +56,8 @@ that returns `(session_name, int_or_inf(window_index), int_or_inf(pane_index))`
 and tolerates a non-numeric index rather than raising. A tmux window index is
 normally an integer, but nothing in the snapshot type guarantees it, so the
 comparison must stay total.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T08:15:56Z status=pass attempt=1 type=human
