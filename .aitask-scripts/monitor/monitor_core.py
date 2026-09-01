@@ -887,6 +887,48 @@ class TmuxPaneInfo:
     history_size: int | None = None
 
 
+#: Category ranks for the leading slot of :func:`tmux_index_key`. The category
+#: is a slot of its own rather than a large sentinel integer because **any**
+#: sentinel is itself a reachable decimal index: `1 << 30` would tie with the
+#: literal index "1073741824" and let every larger index sort *ahead* of
+#: non-numeric text, which is exactly the guarantee this key exists to make.
+INDEX_RANK_NUMERIC = 0
+INDEX_RANK_NON_NUMERIC = 1
+
+
+def tmux_index_key(value: object) -> tuple[int, int, str]:
+    """Numeric-first ordering key for a tmux window/pane index.
+
+    The indices are strings off the tmux gateway (``#{window_index}`` /
+    ``#{pane_index}``), so a plain comparison orders "10" before "2".
+    ``isdecimal()`` (not ``isdigit()``) is the predicate that matches exactly
+    what ``int()`` accepts; the category slot keeps every non-numeric index
+    after every numeric one **for all int values**, and the trailing text makes
+    the order total and deterministic among them. tmux always reports integers,
+    but nothing in :class:`TmuxPaneInfo` enforces it, so the key never raises.
+    """
+    text = "" if value is None else str(value)
+    if text.isdecimal():
+        return (INDEX_RANK_NUMERIC, int(text), text)
+    return (INDEX_RANK_NON_NUMERIC, 0, text)
+
+
+def pane_sort_key(pane) -> tuple:
+    """Display order for a discovered tmux pane: session, then window, then
+    pane — the last two numerically (t1659).
+
+    Duck-typed on :class:`TmuxPaneInfo`'s three fields so it serves both a bare
+    ``TmuxPaneInfo`` (discovery) and a ``PaneSnapshot.pane`` (both TUIs'
+    ``_rebuild_pane_list``). It is the ONE definition of "pane order" — the
+    monitor and minimonitor lists must not be able to drift apart.
+    """
+    return (
+        pane.session_name,
+        tmux_index_key(pane.window_index),
+        tmux_index_key(pane.pane_index),
+    )
+
+
 @dataclass
 class PaneSnapshot:
     pane: TmuxPaneInfo
@@ -1996,9 +2038,7 @@ class TmuxMonitor:
         sessions = await self._discover_sessions_cached_async()
         return sorted(s.session for s in sessions)
 
-    _PANE_SORT_KEY = staticmethod(
-        lambda p: (p.session_name, p.window_index, p.pane_index)
-    )
+    _PANE_SORT_KEY = staticmethod(pane_sort_key)
 
     def _discover_panes_multi(
         self,

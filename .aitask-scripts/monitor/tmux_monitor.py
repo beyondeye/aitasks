@@ -19,6 +19,12 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     PaneCategory,
     TmuxPaneInfo,
     PaneSnapshot,
+    # The ONE pane-ordering authority (t1659), shared by discovery and both
+    # TUIs' `_rebuild_pane_list` — imported, never mirrored.
+    pane_sort_key,
+    tmux_index_key,
+    INDEX_RANK_NUMERIC,
+    INDEX_RANK_NON_NUMERIC,
     TmuxMonitor,
     load_monitor_config,
     DEFAULT_AGENT_PREFIXES,

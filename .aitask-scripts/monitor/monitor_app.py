@@ -27,6 +27,9 @@ from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,
     PaneSnapshot,
     TmuxMonitor,
+    # The ONE pane-ordering authority (t1659), shared with minimonitor — the two
+    # agent lists must not be able to drift apart.
+    pane_sort_key,
     load_monitor_config,
     load_project_tmux_config,
     capture_shadow_text,
@@ -1732,13 +1735,11 @@ class MonitorApp(
         # Sort by (session_name, window_index, pane_index) so the unified
         # multi-session list is stable across refreshes. Single-session mode
         # produces identical session_name for every snapshot, so the sort key
-        # degrades to the legacy (window_index, pane_index) order.
-        agents.sort(
-            key=lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
-        )
-        others.sort(
-            key=lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
-        )
+        # degrades to the legacy (window_index, pane_index) order. The two
+        # indices compare NUMERICALLY — they arrive as strings, so a plain
+        # comparison ordered agent 10 before agent 2 (t1659).
+        agents.sort(key=lambda s: pane_sort_key(s.pane))
+        others.sort(key=lambda s: pane_sort_key(s.pane))
 
         # Fast path: same pane set and order → update text in place, no DOM
         # churn. This keeps the focused PaneCard alive across ticks so arrow

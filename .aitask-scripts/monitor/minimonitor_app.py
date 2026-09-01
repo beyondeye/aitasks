@@ -30,6 +30,10 @@ from monitor.tmux_monitor import (  # noqa: E402
     PaneCategory,
     PaneSnapshot,
     TmuxMonitor,
+    # The ONE pane-ordering authority (t1659), shared with the full monitor —
+    # the two agent lists must not be able to drift apart.
+    pane_sort_key,
+    tmux_index_key,
     load_monitor_config,
     load_project_tmux_config,
     # Shared shadow seam (t1216_1) — one implementation, shared with the full
@@ -1756,14 +1760,9 @@ class MiniMonitorApp(
         if not candidates:
             return None
         # Numeric where possible: pane_index is a string, so a plain min() would
-        # order "10" before "2".
-        return min(
-            candidates,
-            key=lambda s: (
-                int(s.pane.pane_index) if s.pane.pane_index.isdigit() else 1 << 30,
-                s.pane.pane_index,
-            ),
-        )
+        # order "10" before "2". Shares `tmux_index_key` with the pane-list sort
+        # so the idiom — and its non-numeric fallback — exists once (t1659).
+        return min(candidates, key=lambda s: tmux_index_key(s.pane.pane_index))
 
     def _root_for_snap(self, snap: PaneSnapshot) -> Path:
         """Project root that owns the given pane's tmux session, falling back to
@@ -2473,7 +2472,8 @@ class MiniMonitorApp(
         # Sort by (session_name, window_index, pane_index) so session grouping is
         # stable across refreshes; single-session mode degrades to the legacy
         # (window_index, pane_index) order because every snapshot shares the same
-        # session.
+        # session. The two indices compare NUMERICALLY — they arrive as strings,
+        # so a plain comparison ordered agent 10 before agent 2 (t1659).
         own_snap = self._find_own_window_snapshot()
         own_pane_id = own_snap.pane.pane_id if own_snap else None
         agents: list[PaneSnapshot] = []
@@ -2486,9 +2486,7 @@ class MiniMonitorApp(
             elif s.pane.category == PaneCategory.OTHER:
                 others.append(s)
 
-        sort_key = (
-            lambda s: (s.pane.session_name, s.pane.window_index, s.pane.pane_index)
-        )
+        sort_key = lambda s: pane_sort_key(s.pane)  # noqa: E731
         agents.sort(key=sort_key)
         others.sort(key=sort_key)
 
