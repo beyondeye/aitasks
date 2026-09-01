@@ -165,9 +165,23 @@ local_diverged)
     echo "local data branch has both unpushed and unpulled commits; reconcile with './ait sync'" ;;
 ```
 
-`_task_converge_warn <context> <detail>` mirrors `_task_sync_warn` (:354):
-upstream name, the ahead/behind pair, the hint, and the caller's context string.
-Success statuses emit nothing.
+`_task_converge_warn <context>` mirrors `_task_sync_warn` (:354): upstream name,
+the ahead/behind pair, the hint, and the caller's context string. Success
+statuses emit nothing.
+
+**It must mirror `_task_sync_warn`'s undeterminable-counts arm too.** Both count
+probes print **nothing** when the branch has no upstream, so expanding them as
+`${TASK_CONVERGE_AHEAD:-0}` makes the `no_upstream` warning claim a concrete
+"0 local unpushed, 0 remote unpulled" — a **false statement** about a state
+where the counts are simply unknown, on a path this task deliberately makes
+user-visible. When BOTH are empty, say "unreconciled commit counts unavailable"
+instead, exactly as `_task_sync_warn` (:361) does. The state matrix's
+no-upstream case asserts the wording and asserts the concrete zero is **absent**.
+
+It also names `TASK_CONVERGE_STATUS` in the line: unlike `_task_sync_warn`,
+which only ever reports `failed`, this one function emits three distinct
+non-success statuses (`blocked` / `diverged` / `failed`) and the hint alone does
+not separate them.
 
 **Why `diverged` is reported rather than resolved.** Resolving it needs a
 rebase, and a rebase needs a worktree — either the shared one (the hazard this
@@ -355,10 +369,24 @@ claimed.** Two fixtures, each continuing from a state above:
 - from the clean **diverged** state, run the documented recovery
   `./.aitask-scripts/aitask_sync.sh --batch`; assert its token is `SYNCED` (or
   `AUTOMERGED`) **and** that both `git rev-list --count @{u}..HEAD` and
-  `git rev-list --count HEAD..@{u}` are `0`, and that the local commit is still
-  reachable (no work lost).
+  `git rev-list --count HEAD..@{u}` are `0`, and that the local **work** is
+  still present (no work lost).
 - from the **ff_blocked** state, same recovery; assert converged and that the
   previously-dirty metadata file's content survived into a commit.
+
+**Both recovery cases must assert the recovery command's own exit status, and
+must not read it through a pipeline.** `out="$(cmd | tail -n1)"` followed by
+`${PIPESTATUS[0]}` reads the **assignment's** status in the enclosing shell —
+always `0` — so the exit assertion is vacuous and a failing recovery that still
+prints a success-looking final line would satisfy AC4's proof. Capture `$?`
+directly from the substitution (no pipeline), then trim to the verdict line.
+
+Two fixture facts these tests depend on, both learned the hard way:
+- The recovery **rebases**, which rewrites commit hashes — so "the original sha
+  is still an ancestor" is the wrong invariant. Assert the surviving *content*.
+- `aitask_sync.sh`'s `auto_commit` runs `git add aitasks/ aiplans/`, which fails
+  **wholesale** (staging nothing) if either directory is missing. A real project
+  always has both; a fixture must seed both or the recovery silently no-ops.
 
 `tests/test_verified_update.sh` + `tests/test_usage_update.sh` — the invariant
 with zero coverage today, asserted **on the local ref**:
