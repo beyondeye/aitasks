@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, web_site, frontmatter, seed]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 15:27
-updated_at: 2026-09-01 15:58
+updated_at: 2026-09-01 17:38
+completed_at: 2026-09-01 17:38
 ---
 
 ## Problem
@@ -149,3 +150,14 @@ framework writers, but the guard must not fail open on a field it cannot see.
 > **✅ gate:plan_approved** run=2026-09-01T12:58:07Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-01T14:35:03Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-01T14:38:14Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:314dcad901c0a247
+
+> **✅ gate:risk_evaluated** run=2026-09-01T14:38:14Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1666/risk_evaluated_2026-09-01T14:38:14Z-risk_evaluated-a1.log`
