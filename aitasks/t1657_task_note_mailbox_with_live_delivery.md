@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [task_workflow, concurrency, codeagent, framework]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-01 08:43
-updated_at: 2026-09-01 08:43
+updated_at: 2026-09-01 10:10
 ---
 
 # Let tasks mail notes to each other: a durable task inbox, with opportunistic live delivery
