@@ -285,3 +285,94 @@ steps 1 and 2 are marked non-optional rather than left as a habit.
 Follow **Step 9 (Post-Implementation)** of the shared task workflow for the
 commit, gate recording, and archival steps. Current-branch mode: nothing is
 merged.
+
+## Final Implementation Notes
+
+- **Actual work done:** All four pages edited as planned.
+  `workflows/shadow-agent.md` gained a new `### Read the trade profile` section
+  (glyph key; magnitude-as-arrow-weight; priced-nothing `▲–`/`▼–` vs an omitted
+  side rendering nothing; `+N` and the degradation order that protects the core;
+  wide vs 3-line narrow layout; derived badge + `≠`; the forward / spin-off /
+  reject rule and its ~80×24 visibility gate) plus a pointer to it from
+  "Forward concerns to the followed agent".
+  `tuis/minimonitor/how-to.md` fixed the stale "For an implementation review,
+  the modal splits…" claim (plan reviews classify their findings too since
+  t1636_3), extended the priority-badge sentence, and gained a
+  "Reading a row's trade profile" paragraph carrying the 3-line companion-pane
+  layout. `tuis/monitor/how-to.md` gained the inline-profile/badge extension and
+  a "The decision reminder" paragraph. `tuis/minimonitor/_index.md` gained one
+  scoped clause plus a link.
+
+- **Deviations from plan:** None in scope. Two wording tightenings during the
+  C6 sweep: the new section's opening sentence was re-scoped from "a concern's
+  impact vector" to "Where a concern priced itself…" so the section opener could
+  not be read as a universal rule, and "short forms of the dimension names
+  above" (a 34-line-distant reference) became an explicit anchor link to
+  `#review-the-implementation`.
+
+- **Issues encountered:**
+  - **The anchor check initially returned nothing — for a *pre-existing* anchor
+    too.** `grep 'id="how-to-pick-shadow-concerns"'` failed against a link that
+    demonstrably works today, which is what exposed the real cause: `hugo build
+    --minify` emits unquoted attributes (`id=read-the-trade-profile`). The check
+    was redone against that form and then generalized into a sweep of all 27
+    fragments across the four pages (0 broken). Without the negative control on
+    a known-good anchor this would have been read as "my new anchor is broken"
+    or, worse with an inverted check, as a silent pass.
+  - **A concurrent session was editing `minimonitor/how-to.md`** (mouse /
+    scrollbar bottom-pin docs) while this task ran. The code commit was built
+    from a hunk-filtered patch staged with `git apply --cached`, so it carries
+    only this task's two hunks and leaves that work uncommitted in the tree.
+    Confirmed with the user before committing.
+
+- **Key decisions:**
+  - **Documented what ships, verified by running it.** Every rendering claim was
+    checked against the implementing symbol and then *probed*: `trade_profile`
+    was called directly and confirmed to emit `▲robus ▼simpl E:lo` for the
+    documented example, `▼–` vs nothing for priced/omitted, `▲maint? ▼simpl? E:?`
+    for unspecified magnitudes, `+1` for overflow, and `▲maint ▼simpl E:hi` at
+    the narrowest supported row (core intact after the indent and `?` rungs are
+    spent). `_badge_seg` was probed for `HIGH` / `HIGH≠` / unpriced-keeps-stated.
+    This mattered: the task file's own illustration is not authoritative, and no
+    test in this repo reads these pages for UI accuracy.
+  - **C6 — "priced itself", not "has an Improves side".** `has_impact_vector` is
+    a three-way OR, so a concern pricing only a cost or only an effort is still
+    vector-bearing. Every claim about the profile, the derived badge, the `≠`,
+    the 3-line row and the guidance line carries the qualifier on **all four**
+    pages, the overview included — an unqualified claim there would teach a
+    false universal about the legacy rows users still see.
+  - **No second copy of the vocabulary (C1).** The short labels are described as
+    "short forms of the quality dimensions named under Review the
+    implementation" and shown through one worked example, rather than tabulated.
+    `concern_dimensions.py` ↔ `concern-format.md` are guarded by
+    `tests/test_concern_dimensions.py`; the website is not, so a third copy
+    would drift unguarded.
+  - **Decision rule stated as forward / spin off / reject (C2).** The
+    whole-file sweep in `tests/test_shadow_disposition_surfaces.py` fails on
+    `blocking` + `follow-up` within ~160 chars without `informational`, so the
+    new prose deliberately does not re-enumerate dispositions and defers to the
+    existing paragraph.
+  - **Left the recheck-loop prose alone.** "Every review round re-derives the
+    shadow's findings from scratch" is still accurate; only t1650 (Postponed)
+    makes it untrue, and pre-documenting a loop that does not exist would be a
+    false current-state claim.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **`hugo build` does not validate `#fragment` links.** It fails a broken
+    `{{< relref >}}` but not a dead anchor, and `--minify` writes ids unquoted
+    (`id=foo`, no quotes). Any sibling adding a cross-page anchor should grep
+    the built HTML under `website/public/` for `id=<slug>` — and should include
+    a known-good anchor as a negative control, since a wrong grep pattern looks
+    exactly like a broken link.
+  - **These four pages have no doc-accuracy guard.** Only
+    `test_shadow_disposition_surfaces.py` touches `shadow-agent.md`, and only
+    for the disposition enumeration. Anything else stated about the picker is
+    verified by reading — and ideally probing — `monitor_shared.py`.
+  - **The picker's user-facing surface is now documented**, so a later change to
+    `trade_profile_rungs`, `_badge_seg`, `_CONCERN_GUIDANCE` or
+    `_GUIDANCE_MIN_WIDTH`/`_HEIGHT` makes these pages stale with nothing to
+    catch it. t1650 in particular will make the "re-derives from scratch"
+    sentence in `shadow-agent.md`, `minimonitor/how-to.md` and
+    `monitor/how-to.md` untrue — it already owns that sweep.
