@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1569_3]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [workflow, scheduling, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 created_at: 2026-08-27 11:28
-updated_at: 2026-08-27 11:28
+updated_at: 2026-09-01 18:03
 ---
 
 Wire the shared parallel-admission checker into `task-workflow` as a **required
