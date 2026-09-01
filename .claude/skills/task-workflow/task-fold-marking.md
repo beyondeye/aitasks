@@ -11,6 +11,8 @@ Marking tasks as folded (updating `folded_tasks` on the primary, setting `status
 **Commit modes:** every mode stages only the fold's own file set — never `aitasks/` wholesale — so a dirty or pre-staged bystander is never swept in.
 - `fresh` (default) — create a new commit `ait: Fold tasks into t<primary>: merge t<id1>, t<id2>, ...`. Emits `COMMITTED:<short_hash>`, or `NO_COMMIT` when those paths are verifiably unchanged.
 - `amend` — `git commit --amend --no-edit` (folds the marking into the previous commit, used by callers that just created or updated the primary). Emits `AMENDED`. It **refuses** — exits non-zero and rolls the whole fold back — when HEAD is not this fold's to rewrite: it carries a path outside the fold, or it is already published on the upstream.
+
+An unrecognised mode is rejected at argument-parse time, before any task is resolved or mutated.
 - `none` — skip commit (the caller stages and commits). Emits `NO_COMMIT`.
 
 **Transitive handling:** by default, if a folded task already has its own `folded_tasks`, those transitive IDs are appended to the primary's list and their `folded_into` is re-pointed at the primary. Pass `--no-transitive` to disable.
@@ -29,6 +31,14 @@ The script emits one line per action: `PRIMARY_UPDATED:<primary_id>`, `FOLDED:<i
 | `AMENDED` | the fold was folded into the preceding commit |
 | `NO_COMMIT` | no commit was created — and that is still a **success**: either `--commit-mode none` (the caller commits the mutations itself) or a verified no-op (git reports these paths unchanged) |
 
-So `NO_COMMIT` is a valid flush outcome, not a failure, and a record does **not** imply durable git history — it means that mutation *survived* the commit step and is on disk, committed or handed to the caller to commit. Every rollback path (a failed commit, a refused amend) undoes the whole fold and prints **nothing**, with the reason on stderr, so a consumer never observes progress for a transaction that was rolled back.
+So `NO_COMMIT` is a valid flush outcome, not a failure, and a record does **not** imply durable git history — it means that mutation *survived* the commit step and is on disk, committed or handed to the caller to commit. Every rollback path undoes the whole fold and prints **nothing**, with the reason on stderr, so a consumer never observes progress for a transaction that was rolled back.
 
-**What this does not buy:** silence is not proof that nothing changed. An abort *before* the commit step — a folded ID with no task file, say — leaves the mutations made so far on disk, uncommitted and not rolled back, and also prints nothing. **The exit status is authoritative:** on a non-zero exit, reconcile the task files rather than reading an empty record set as "no change".
+## The whole run is one transaction
+
+The fold's file set is assembled and snapshotted **before the first mutation**, and an `EXIT` trap rolls back on **any** abort from that point onward — a folded ID with no task file, a failed attachment merge or rebind, a refused amend, a failed commit. So an empty record set means what it looks like: nothing landed.
+
+The rollback restores each snapshotted path's **pre-fold state** — working-tree bytes *and* index entry, every stage, so a path in an unresolved merge round-trips — rather than restoring from `HEAD`. That distinction is load-bearing: the ad-hoc fold flow runs `aitask_fold_content.sh | aitask_update.sh --desc-file -` immediately before the marking script and does not commit, so the primary is routinely dirty (and may be staged) on entry, and an aborted fold may discard none of it.
+
+`--commit-mode` is validated at argument-parse time, before anything is resolved or mutated, so a bad mode never starts a transaction at all.
+
+**What this does not buy:** a signal that bypasses the `EXIT` trap (`SIGKILL`, power loss) still leaves the mutations on disk. **The exit status remains authoritative:** on a non-zero exit, check the worktree rather than reading an empty record set as proof.

@@ -37,14 +37,23 @@
 # dies without flushing, so a consumer never sees progress for a transaction
 # that was undone. Add a new record via _fold_emit, never a bare `echo`.
 #
-# WHAT THIS DOES NOT BUY: silence is not proof that nothing changed. An abort
-# BEFORE Step 6 -- a folded id with no task file, say, whose aitask_update.sh
-# exits non-zero under `set -e` -- leaves the mutations made so far on disk,
-# uncommitted and NOT rolled back (rollback_paths is not even built until after
-# Step 5b), and emits nothing. THE EXIT STATUS IS AUTHORITATIVE: on a non-zero
-# exit, reconcile the task files rather than trusting an empty record set.
-# Making that path transactional is a separate concern from this output
-# contract -- it needs the rollback set assembled before Step 3.
+# THE WHOLE RUN IS ONE TRANSACTION (t1668). The fold's file set is assembled and
+# snapshotted BEFORE the first mutation, and an EXIT trap rolls back on any
+# abort from that point through Step 6 -- a folded id with no task file, a
+# failed attachment merge, a refused amend, a failed commit. So an empty record
+# set now means what it looks like: nothing landed.
+#
+# The rollback restores each snapshotted path's PRE-FOLD state -- working-tree
+# bytes AND index entry (every stage, so an unresolved merge round-trips) -- not
+# HEAD. That distinction is load-bearing: the ad-hoc fold flow runs
+# `aitask_fold_content.sh | aitask_update.sh --desc-file -` immediately before
+# this script and does not commit, so the primary is routinely dirty (and may be
+# staged) on entry, and an aborted fold may discard none of it.
+#
+# WHAT THIS DOES NOT BUY: a signal that bypasses the EXIT trap (SIGKILL, power
+# loss) still leaves the mutations on disk. THE EXIT STATUS REMAINS
+# AUTHORITATIVE: on a non-zero exit, check the worktree rather than trusting an
+# empty record set.
 #
 # Usage:
 #   aitask_fold_mark.sh [--no-transitive] [--commit-mode fresh|amend|none] \
@@ -126,6 +135,14 @@ done
 
 [[ -z "$primary_id" ]] && usage
 [[ ${#folded_ids[@]} -eq 0 ]] && die "need at least one folded id"
+
+# Validated HERE, before anything is resolved or mutated. The Step 6 case
+# statement below still has a default arm, but reaching it would mean rolling
+# back a transaction that never needed to start.
+case "$commit_mode" in
+    fresh|amend|none) ;;
+    *) die "invalid --commit-mode: '$commit_mode' (expected fresh, amend, or none)" ;;
+esac
 
 primary_id="${primary_id#t}"
 
@@ -378,6 +395,145 @@ fi
 # approval; the primary keeps its own, and the folded file is deleted at
 # archival anyway.
 
+# === Transaction boundary (t1668) ============================================
+# Everything below this line mutates. The fold's own file set and a snapshot of
+# every path in it are assembled FIRST, so any abort from here through Step 6
+# restores the repository to exactly its pre-fold state.
+
+# The fold's own file set: every task file the fold mutates in place (deletion
+# happens later, at archival) plus, once Step 5b discovers them, the rebound
+# attachment-meta files. It is what Step 6 stages/commits and what
+# _fold_amend_guard treats as owned; it is NOT what rollback restores -- that is
+# the snapshot registry below. Paths are data-root-relative (the task_git
+# contract), matching primary_file / folded_files entries.
+fold_paths=( "$primary_file" )
+for _f in ${folded_files[@]+"${folded_files[@]}"} ${transitive_files[@]+"${transitive_files[@]}"}; do
+    fold_paths+=( "$_f" )
+done
+for _fid in "${folded_ids[@]}"; do
+    _fid="${_fid#t}"
+    if [[ "$_fid" =~ ^([0-9]+)_([0-9]+)$ ]]; then
+        _pf="$(resolve_file_by_id "${BASH_REMATCH[1]}")"
+        [[ -n "$_pf" ]] && fold_paths+=( "$_pf" )
+    fi
+done
+
+# --- fold transaction (t1668) ------------------------------------------------
+# The rollback restores the exact PRE-FOLD state of every snapshotted path:
+# both the working-tree bytes and the index entry. It is deliberately NOT a
+# HEAD restore -- the fold's own primary is routinely dirty on entry
+# (aitask_fold_content.sh merges the folded descriptions into it immediately
+# before this script runs, and does not commit), the caller may have staged
+# that, and an aborted fold may discard neither.
+_fold_snap_dir=""
+_fold_snap_paths=()          # index i -> repo path; i.blob / i.idx hold its state
+_fold_txn_active=false
+_fold_meta_root=""           # set by _fold_snapshot_meta_tree (Step 5b only)
+_fold_meta_pre=()            # meta files present before the attach transaction
+
+_fold_snap_init() {
+    _fold_snap_dir="$(mktemp -d "${TMPDIR:-/tmp}/ait_fold_snap_XXXXXX")" \
+        || die "fold: could not create the snapshot directory"
+}
+
+# _fold_snap_add <path> -- record one path's pre-mutation state. Absence is
+# represented explicitly (no .blob file) so restore can delete a path the
+# transaction created.
+_fold_snap_add() {
+    local p="$1" i="${#_fold_snap_paths[@]}"
+    [[ -n "$_fold_snap_dir" ]] || die "internal: snapshot dir not created"
+    if [[ -f "$p" ]]; then
+        cp -- "$p" "$_fold_snap_dir/$i.blob" || die "fold: could not snapshot $p"
+    fi
+    # Empty when the path is not in the index; otherwise ONE line per index
+    # entry ("<mode> <sha> <stage>\t<path>") -- THREE of them for a path in an
+    # unresolved merge. Captured verbatim so update-index --index-info can
+    # replay every stage; parsing a single mode/sha out of this and writing a
+    # stage-0 entry would silently resolve the user's conflict.
+    #
+    # FAIL CLOSED on a read failure. `ls-files` exits 0 with empty output for a
+    # path that is simply not in the index, so a NON-ZERO exit can only mean the
+    # index could not be read -- and swallowing that would record "absent",
+    # which on rollback makes --force-remove DELETE the caller's real index
+    # entry instead of restoring it. Dying here is safe precisely because it is
+    # still before the arm: no fold mutation exists yet to roll back.
+    task_git ls-files --stage -- "$p" > "$_fold_snap_dir/$i.idx" 2>/dev/null \
+        || die "fold: could not read the index entry for $p — refusing to start a transaction that could not be rolled back"
+    _fold_snap_paths[i]="$p"
+}
+
+# _fold_restore_snapshots -- put every snapshotted path back, index and worktree.
+#
+# The index half always REMOVES the current entry first (--force-remove drops
+# every stage of a path, conflicted or not) and then replays the captured lines.
+# That is what makes an unmerged path round-trip: all its stages come back
+# exactly as they were, and a path that had no entry at all stays out.
+_fold_restore_snapshots() {
+    local i p
+    (( ${#_fold_snap_paths[@]} )) || return 0
+    for i in "${!_fold_snap_paths[@]}"; do
+        p="${_fold_snap_paths[$i]}"
+        if [[ -f "$_fold_snap_dir/$i.blob" ]]; then
+            cp -- "$_fold_snap_dir/$i.blob" "$p" 2>/dev/null \
+                || warn "fold rollback: could not restore $p"
+        else
+            rm -f -- "$p" 2>/dev/null || true    # did not exist pre-fold
+        fi
+        task_git update-index --force-remove -- "$p" >/dev/null 2>&1 || true
+        if [[ -s "$_fold_snap_dir/$i.idx" ]]; then
+            task_git update-index --index-info < "$_fold_snap_dir/$i.idx" >/dev/null 2>&1 \
+                || warn "fold rollback: could not restore the index entry for $p"
+        fi
+    done
+    task_git update-index -q --refresh >/dev/null 2>&1 || true
+}
+
+# _fold_prune_unsnapshotted_meta -- drop any meta file the attach transaction
+# created (nothing in the shipped ledger does, but the snapshot must be able to
+# represent absence in both directions). No-op unless Step 5b ran.
+_fold_prune_unsnapshotted_meta() {
+    [[ -n "$_fold_meta_root" && -d "$_fold_meta_root" ]] || return 0
+    local p known
+    while IFS= read -r p; do
+        [[ -n "$p" ]] || continue
+        known=false
+        for k in ${_fold_meta_pre[@]+"${_fold_meta_pre[@]}"}; do
+            [[ "$k" == "$p" ]] && { known=true; break; }
+        done
+        $known || rm -f -- "$p" 2>/dev/null || true
+    done < <(find "$_fold_meta_root" -type f -name '*.json' 2>/dev/null)
+}
+
+# _fold_rollback -- undo the whole fold transaction. Idempotent: it disarms the
+# transaction flag, so the EXIT trap below does not repeat what an explicit
+# Step 6 failure arm already did.
+_fold_rollback() {
+    _fold_txn_active=false
+    _fold_restore_snapshots
+    _fold_prune_unsnapshotted_meta
+}
+
+# _fold_abort_cleanup -- the EXIT handler. Rolls back an armed transaction and
+# always removes the snapshot directory. It never calls exit and every command
+# is guarded, so the script's own exit status survives it.
+_fold_abort_cleanup() {
+    local rc=$?
+    if [[ "$_fold_txn_active" == true ]]; then
+        _fold_rollback
+        warn "fold aborted before the commit step (exit ${rc}) — rolled back every mutation; nothing was committed"
+    fi
+    if [[ -n "$_fold_snap_dir" && -d "$_fold_snap_dir" ]]; then
+        rm -rf "$_fold_snap_dir"
+    fi
+    return 0
+}
+
+_fold_snap_init
+for _p in "${fold_paths[@]}"; do _fold_snap_add "$_p"; done
+trap '_fold_abort_cleanup' EXIT
+_fold_txn_active=true
+# --- end fold transaction ----------------------------------------------------
+
 "$SCRIPT_DIR/aitask_update.sh" --batch "$primary_id" \
     --folded-tasks "$full_csv" \
     ${file_ref_args[@]+"${file_ref_args[@]}"} \
@@ -494,10 +650,15 @@ _fold_merge_one() {
     [[ -n "${seen_hashes[$h]:-}" ]] && return 0   # dup hash: rebind drops folded id
     local name="${n:-$h}"
     [[ -n "${seen_names[$name]:-}" ]] && name="$(_fold_unique_name "$name" "$h")"
+    # Explicit `|| die`: errexit is OFF inside this transaction (see
+    # _fold_attach_txn), and the seen_* assignments below would otherwise
+    # overwrite a failed append's status with a successful one -- letting the
+    # fold commit partial attachment state.
     "$py" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$primary_file" attachments \
         "hash=$h" "name=$name" \
         ${mime:+"mime=$mime"} ${size:+"size=$size"} \
-        ${added:+"added_at=$added"} ${backend:+"backend=$backend"}
+        ${added:+"added_at=$added"} ${backend:+"backend=$backend"} \
+        || die "fold: attachment merge failed for $h"
     seen_hashes["$h"]=1
     seen_names["$name"]=1
 }
@@ -555,27 +716,72 @@ _fold_merge_one_artifact() {
     [[ -n "$ah" ]] || return 0
     [[ -n "${seen_handles[$ah]:-}" ]] && return 0   # dup handle: already owned
     "$py" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$primary_file" artifacts \
-        "handle=$ah" ${ak:+"kind=$ak"} ${an:+"name=$an"}
+        "handle=$ah" ${ak:+"kind=$ak"} ${an:+"name=$an"} \
+        || die "fold: artifact merge failed for $ah"
     seen_handles["$ah"]=1
 }
 
 # _fold_rebind_refs <primary_id> <folded_id...> -- rebind each folded id's refs
-# to the primary; collect each changed blob's meta relpath for staging/rollback.
+# to the primary; collect each changed blob's meta relpath for staging.
+#
+# The run is CAPTURED rather than piped through process substitution: errexit is
+# disabled inside this transaction (see _fold_attach_txn), and a process
+# substitution's exit status is not observable at all, so a failing rebind would
+# otherwise be silently skipped and the fold would commit partial state.
 _fold_rebind_refs() {
     local primary_id="$1"; shift
-    local fid changed
+    local fid changed out rc _m
     for fid in "$@"; do
         fid="${fid#t}"
         [[ -z "$fid" ]] && continue
+        rc=0
+        out="$(attach_meta rebind "$fid" "$primary_id")" || rc=$?
+        (( rc == 0 )) || die "fold: attachment rebind failed for t${fid} (exit ${rc})"
         while IFS= read -r changed; do
-            [[ -n "$changed" ]] && fold_meta_relpaths+=( "$(attach_meta_relpath "$changed")" )
-        done < <(attach_meta rebind "$fid" "$primary_id")
+            [[ -n "$changed" ]] || continue
+            _m="$(attach_meta_relpath "$changed")"
+            fold_meta_relpaths+=( "$_m" )
+            fold_paths+=( "$_m" )
+        done <<< "$out"
     done
+}
+
+# _fold_snapshot_meta_tree -- snapshot every per-blob meta file before any
+# rebind touches one. The tree, not a predicted subset: attachment_meta.py's
+# rebind walks EVERY meta file and rewrites each one whose `refs` contain the
+# folded id, so the touched set is a property of the ledger rather than of the
+# task's `attachments:` frontmatter -- a drifted ref would be missed by a
+# frontmatter-derived prediction and left unrestorable. Runs inside the attach
+# lock, so no concurrent attach op can move the tree underneath it.
+_fold_snapshot_meta_tree() {
+    local d p
+    d="$(attach_meta_dir)"
+    [[ -d "$d" ]] || return 0
+    _fold_meta_root="$d"
+    _fold_meta_pre=()
+    while IFS= read -r p; do
+        [[ -n "$p" ]] || continue
+        _fold_meta_pre+=( "$p" )
+        _fold_snap_add "attachments/meta/${p#"$d"/}"   # data-root-relative
+    done < <(find "$d" -type f -name '*.json' 2>/dev/null | sort)
 }
 
 # _fold_attach_txn -- rebind + merge (attachments and artifacts), run as one
 # transaction under the attach lock.
 _fold_attach_txn() {
+    # registry_lock_acquire (inside with_attach_lock) has just installed its own
+    # lock-release EXIT handler OVER ours, and registry_lock_release clears EXIT
+    # outright. CHAIN rather than clear -- the rule lib/stale_lock.sh states --
+    # so an abort inside this transaction both rolls the fold back and releases
+    # the lock, in that order.
+    #
+    # NOTE: with_attach_lock runs us as `"$@" || rc=$?`, so errexit is DISABLED
+    # for everything below. Every mutating call must check its own status.
+    local _cur
+    _cur="$(trap -p EXIT)"; _cur="${_cur#trap -- }"; _cur="${_cur% EXIT}"
+    eval "trap '_fold_abort_cleanup; '$_cur EXIT"
+
+    _fold_snapshot_meta_tree
     _fold_rebind_refs "$primary_id" \
         "${folded_ids[@]}" ${transitive_ids[@]+"${transitive_ids[@]}"}
     _fold_transfer_attachments "$primary_file" \
@@ -607,33 +813,20 @@ if [[ "$_fold_any_attach_or_artifacts" == true ]]; then
     source "$SCRIPT_DIR/lib/attachment_lock.sh"
     # shellcheck source=lib/attachment_meta.sh
     source "$SCRIPT_DIR/lib/attachment_meta.sh"
-    with_attach_lock _fold_attach_txn
+    # An explicit failure branch, not a bare call. with_attach_lock ends with
+    # `return "$rc"`, and registry_lock_release has already run `trap - EXIT` by
+    # then -- so a callback that RETURNS non-zero (rather than calling die)
+    # would trip errexit one line before the re-arm below, and the Step-5b
+    # mutations would survive. Suppress errexit for the wrapper, re-arm, then
+    # fail. (A die from inside with_attach_lock itself -- the lock-busy path --
+    # happens before registry_lock_acquire installs anything, so the fold's
+    # original trap is still armed there.)
+    _fold_attach_rc=0
+    with_attach_lock _fold_attach_txn || _fold_attach_rc=$?
+    trap '_fold_abort_cleanup' EXIT   # registry_lock_release did `trap - EXIT`
+    (( _fold_attach_rc == 0 )) \
+        || die "fold: attachment transfer failed (exit ${_fold_attach_rc})"
 fi
-
-# Full rollback path set for a failed fold commit (review concern 6): every task
-# file the fold mutated in place (deletion happens later, at archival) plus the
-# rebound meta files — all HEAD-restorable. Paths are data-root-relative (the
-# task_git contract), matching primary_file / folded_files entries.
-rollback_paths=( "$primary_file" )
-for _f in ${folded_files[@]+"${folded_files[@]}"} ${transitive_files[@]+"${transitive_files[@]}"}; do
-    rollback_paths+=( "$_f" )
-done
-for _fid in "${folded_ids[@]}"; do
-    _fid="${_fid#t}"
-    if [[ "$_fid" =~ ^([0-9]+)_([0-9]+)$ ]]; then
-        _pf="$(resolve_file_by_id "${BASH_REMATCH[1]}")"
-        [[ -n "$_pf" ]] && rollback_paths+=( "$_pf" )
-    fi
-done
-for _m in ${fold_meta_relpaths[@]+"${fold_meta_relpaths[@]}"}; do
-    rollback_paths+=( "$_m" )
-done
-
-# _fold_rollback -- restore the whole fold transaction from HEAD (on commit fail).
-_fold_rollback() {
-    task_git reset -q -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
-    task_git checkout -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
-}
 
 # _fold_task_id_of_path -- task/plan id owning a repo path, empty when the path
 # is not a task/plan file.
@@ -706,7 +899,7 @@ _fold_amend_guard() {
     # The fold's own file set, including the attachment-meta rebinds, which are
     # not .md paths and would otherwise fall through to the deny branch.
     local -A own_paths=()
-    for p in "${rollback_paths[@]}"; do own_paths["$p"]=1; done
+    for p in "${fold_paths[@]}"; do own_paths["$p"]=1; done
 
     local labels_path
     labels_path="$(labels_file_path)"
@@ -771,12 +964,12 @@ case "$commit_mode" in
         # commit: it stages only these paths, treats a failed `git status` as
         # unverified rather than clean, guards the empty pathspec, and passes
         # `-o` so an empty one is fatal instead of silently committing the whole
-        # index. rollback_paths is already exactly this fold's file set, so no
+        # index. fold_paths is already exactly this fold's file set, so no
         # separate derivation -- or separate fold_meta_relpaths add -- is needed.
         crc=0
         task_git_commit_scoped \
             "ait: Fold tasks into t${primary_id}: merge ${joined}" \
-            "${rollback_paths[@]}" || crc=$?
+            "${fold_paths[@]}" || crc=$?
         case "$crc" in
             0)
                 hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
@@ -804,10 +997,10 @@ case "$commit_mode" in
             _fold_rollback
             die "$_fold_amend_refusal"
         fi
-        (( ${#rollback_paths[@]} )) || die "internal: empty fold path set"
+        (( ${#fold_paths[@]} )) || die "internal: empty fold path set"
         # `add` only so an untracked path can be named by the pathspec.
-        task_git add -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
-        if task_git commit --amend --no-edit -o --quiet -- "${rollback_paths[@]}" >/dev/null 2>&1; then
+        task_git add -- "${fold_paths[@]}" >/dev/null 2>&1 || true
+        if task_git commit --amend --no-edit -o --quiet -- "${fold_paths[@]}" >/dev/null 2>&1; then
             _fold_flush_records
             echo "AMENDED"
         else
@@ -822,10 +1015,15 @@ case "$commit_mode" in
         echo "NO_COMMIT"
         ;;
     *)
-        # Validated only here, after Steps 3-5b already wrote every mutation,
-        # so this exit owes the same rollback as the other three -- otherwise it
-        # leaves the task files dirty for the next unscoped commit to sweep.
-        _fold_rollback
-        die "invalid --commit-mode: $commit_mode"
+        # Unreachable: the mode is validated at argument-parse time, before
+        # anything is resolved or mutated. Kept as a default-deny arm so a
+        # future mode added to the parser without a Step 6 handler fails loudly
+        # rather than falling through; the EXIT trap performs the rollback.
+        die "internal: unvalidated --commit-mode: $commit_mode"
         ;;
 esac
+
+# The transaction reached a terminal SUCCESS -- all three failure arms die
+# inside the case above, so only a success gets here. Disarm the EXIT trap's
+# rollback (it still runs, to remove the snapshot directory).
+_fold_txn_active=false

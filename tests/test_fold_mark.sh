@@ -20,10 +20,17 @@
 #     "committed". All four flush points (crc=0, crc=2, amend, none) print the
 #     full set in emission order ahead of the terminal record; all three Step 6
 #     failure exits (guard refusal, fresh-commit failure, amend-commit failure)
-#     roll back and print nothing. An abort BEFORE Step 6 also prints nothing --
-#     and its RESIDUAL is pinned too: that path rolls back nothing, so the
-#     mutations stay on disk uncommitted and the non-zero EXIT STATUS, not the
-#     empty record set, is what says so.
+#     roll back and print nothing. An abort BEFORE Step 6 also prints nothing.
+#   - t1668: the WHOLE RUN is one transaction. The fold's file set is
+#     snapshotted before the first mutation and an EXIT trap rolls back on any
+#     abort through Step 6 -- so an empty record set now means nothing landed
+#     (this file previously PINNED the opposite as a documented residual). The
+#     restore is of PRE-FOLD state, not HEAD: working-tree bytes and index
+#     entry, every stage, so a caller's dirty/staged primary and an unmerged
+#     path both survive an aborted fold. Coverage spans the abort windows --
+#     Step 4, inside the Step 5b attach transaction (both a die and a bare
+#     non-zero return through with_attach_lock), and Step 6 -- plus
+#     argument-parse-time --commit-mode validation.
 #
 # Partial-commit semantics inherited from t1599_1: `commit -o -- <paths>`
 # commits those paths' WORKTREE content and ignores their index entry, and
@@ -850,13 +857,49 @@ test_fresh_verified_noop_flushes_records() {
     teardown
 }
 
-test_abort_mid_mutation_emits_no_records() {
-    echo "=== Test: t1661 — an abort before Step 6 emits no records ==="
+# --- t1668: the rollback restores PRE-FOLD state, not HEAD ------------------
+
+test_step6_rollback_preserves_dirty_entry() {
+    echo "=== Test: t1668 — a Step 6 rollback keeps the primary's pre-fold edit ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # The primary is DIRTY on entry -- exactly what the ad-hoc fold flow hands
+    # this script: `aitask_fold_content.sh | aitask_update.sh --desc-file -`
+    # merges the folded descriptions into the primary immediately beforehand,
+    # and does not commit. A HEAD-restoring rollback throws that merge away.
+    printf '\nPRE-FOLD EDIT\n' >> aitasks/t10_primary.md
+
+    _install_failing_pre_commit_hook
+    _run_fold_split --commit-mode fresh 10 20
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    # The fold itself must be undone...
+    assert_eq "fold undone: primary has no folded_tasks" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_eq "fold undone: folded task back to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    # ...but the caller's uncommitted edit must NOT be.
+    assert_contains "pre-fold edit survives the rollback" "PRE-FOLD EDIT" \
+        "$(cat aitasks/t10_primary.md)"
+
+    teardown
+}
+
+test_abort_mid_mutation_rolls_back() {
+    echo "=== Test: t1668 — an abort before Step 6 rolls back and emits no records ==="
     setup_project
 
     write_task aitasks/t10_primary.md
     git add -A
     git commit -m "Setup" --quiet
+
+    local before
+    before=$(git rev-parse HEAD)
 
     # A folded id with no task file: Step 3 updates the primary, then Step 4's
     # aitask_update.sh for the missing id exits non-zero and `set -e` kills the
@@ -867,16 +910,370 @@ test_abort_mid_mutation_emits_no_records() {
     assert_eq "stdout is empty" "" "$FOLD_OUT"
     assert_no_records "pre-Step-6 abort" "$FOLD_OUT"
     assert_contains "stderr names the missing task" "9999" "$FOLD_ERR"
+    assert_contains "stderr names the rollback" "rolled back every mutation" "$FOLD_ERR"
 
-    # ...and the documented RESIDUAL, pinned so nobody mistakes silence for
-    # "nothing happened": this path rolls back nothing, so the Step 3 mutation
-    # is still on disk, uncommitted. The non-zero exit status is what tells the
-    # caller to reconcile. Making this transactional is out of scope for the
-    # output contract — it needs rollback_paths assembled before Step 3.
-    assert_eq "residual: the Step 3 mutation is still on disk" "[9999]" \
+    # t1668: the silence is now honest. Before this task the Step 3 mutation
+    # stayed on disk (folded_tasks: [9999], worktree ` M`) because the rollback
+    # set was not assembled until after Step 5b; the exit status was the only
+    # signal. The whole run is one transaction now, so an empty record set means
+    # what it looks like.
+    assert_eq "the Step 3 mutation was rolled back" "" \
         "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
-    assert_status_code "residual: dirty in the worktree, never committed" \
-        " M" aitasks/t10_primary.md
+    assert_eq "primary clean in the worktree" "" \
+        "$(git status --porcelain -- aitasks/t10_primary.md)"
+    assert_eq "HEAD unchanged" "$before" "$(git rev-parse HEAD)"
+
+    teardown
+}
+
+# --- t1668: attachment-window fixture helpers --------------------------------
+#
+# Step 5b is lazily sourced, so setup_project's minimal lib set does not carry
+# the attachment ledger. registry_lock.sh / stale_lock.sh / python_resolve.sh /
+# yaml_utils.sh already come from the shared scaffold; these are the rest.
+_copy_attachment_libs() {
+    cp "$PROJECT_DIR/.aitask-scripts/lib/attachment_lock.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/attachment_meta.sh" .aitask-scripts/lib/
+    cp "$PROJECT_DIR/.aitask-scripts/lib/artifact_utils.sh"  .aitask-scripts/lib/
+    copy_py_closure_from "$PROJECT_DIR/.aitask-scripts/lib" \
+        "$PWD/.aitask-scripts/lib" attachment_meta frontmatter_patch
+}
+
+# _seed_attachment <task_stem_path> <owner_id> <content> — write a task file
+# carrying one `attachments:` entry plus its per-blob meta file, so the fold
+# takes the Step 5b path. Sets ATTACH_HEX / ATTACH_META for the caller.
+ATTACH_HEX=""; ATTACH_META=""
+_seed_attachment() {
+    local path="$1" owner="$2" content="$3"
+    ATTACH_HEX="$(printf '%s' "$content" | sha256sum | cut -d' ' -f1)"
+    write_task "$path" "attachments:" \
+        "  - hash: sha256:${ATTACH_HEX}" \
+        "    name: rb.bin"
+    ATTACH_META="attachments/meta/${ATTACH_HEX:0:2}/${ATTACH_HEX:2}.json"
+    mkdir -p "$(dirname "$ATTACH_META")"
+    printf '{"hash": "sha256:%s", "refs": ["%s"]}\n' "$ATTACH_HEX" "$owner" > "$ATTACH_META"
+}
+
+# _install_failing_frontmatter_patch — make the attachment/artifact frontmatter
+# merge fail. This is the documented mutating seam INSIDE the attach
+# transaction, reached only after the rebind has already rewritten meta files.
+_install_failing_frontmatter_patch() {
+    printf '#!/usr/bin/env python3\nimport sys\nsys.stderr.write("stub: append refused\\n")\nsys.exit(7)\n' \
+        > .aitask-scripts/lib/frontmatter_patch.py
+    chmod +x .aitask-scripts/lib/frontmatter_patch.py
+}
+
+# _install_failing_ls_files — a PATH shim whose `git` refuses `ls-files` and
+# forwards everything else to the real binary. task_git calls bare `git`, so
+# this is the CLI boundary, not a source patch: it exercises the real
+# index-read failure (an unreadable/locked index) without touching the script.
+_install_failing_ls_files() {
+    local realgit; realgit="$(command -v git)"
+    mkdir -p .shim
+    {
+        printf '#!/usr/bin/env bash\n'
+        printf 'for a in "$@"; do [[ "$a" == "ls-files" ]] && { echo "shim: index read refused" >&2; exit 1; }; done\n'
+        printf 'exec %q "$@"\n' "$realgit"
+    } > .shim/git
+    chmod +x .shim/git
+}
+
+test_index_read_failure_aborts_before_mutating() {
+    echo "=== Test: t1668 — an unreadable index aborts BEFORE the transaction ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # A pre-existing STAGED edit: the thing a fail-open snapshot destroys.
+    printf '\nPRE-FOLD EDIT\n' >> aitasks/t10_primary.md
+    git add aitasks/t10_primary.md
+    local staged_before
+    staged_before="$(git ls-files --stage -- aitasks/t10_primary.md)"
+
+    _install_failing_ls_files
+    local oldpath="$PATH"
+    PATH="$PWD/.shim:$PATH"
+    _run_fold_split --commit-mode fresh 10 9999
+    PATH="$oldpath"
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_contains "stderr names the index-read failure" \
+        "could not read the index entry" "$FOLD_ERR"
+    # `ls-files` exits 0 with EMPTY output for a path that is merely absent from
+    # the index, so a non-zero exit can only mean the read failed. Recording it
+    # as "absent" (a `|| :`-truncated snapshot) would make a later rollback's
+    # --force-remove DELETE this entry instead of restoring it.
+    assert_eq "the caller's staged index entry is untouched" "$staged_before" \
+        "$(git ls-files --stage -- aitasks/t10_primary.md)"
+    assert_status_code "still staged" "M " aitasks/t10_primary.md
+    assert_eq "nothing was mutated" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+
+    teardown
+}
+
+test_abort_preserves_pre_existing_dirty_primary() {
+    echo "=== Test: t1668 — a pre-Step-6 abort keeps the primary's dirty edit ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    printf '\nPRE-FOLD EDIT\n' >> aitasks/t10_primary.md
+
+    _run_fold_split --commit-mode fresh 10 9999
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "fold undone" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_contains "pre-fold edit survives the rollback" "PRE-FOLD EDIT" \
+        "$(cat aitasks/t10_primary.md)"
+
+    teardown
+}
+
+test_abort_preserves_pre_existing_staged_primary() {
+    echo "=== Test: t1668 — a pre-Step-6 abort keeps the primary's STAGED edit ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Staged, not merely dirty. A rollback that opens with a blanket
+    # `git reset -- <paths>` unstages this; the fold stages nothing before
+    # Step 6, so that reset could only ever discard the CALLER's work.
+    printf '\nPRE-FOLD EDIT\n' >> aitasks/t10_primary.md
+    git add aitasks/t10_primary.md
+
+    _run_fold_split --commit-mode fresh 10 9999
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "fold undone" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_status_code "still staged, not unstaged" "M " aitasks/t10_primary.md
+    assert_contains "the staged content is the pre-fold one" "PRE-FOLD EDIT" \
+        "$(git diff --cached -- aitasks/t10_primary.md)"
+    assert_not_contains "the staged content carries no fold mutation" \
+        "folded_tasks" "$(git diff --cached -- aitasks/t10_primary.md)"
+
+    teardown
+}
+
+test_abort_preserves_unmerged_index_stages() {
+    echo "=== Test: t1668 — a pre-Step-6 abort preserves unmerged index stages ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Synthesise the conflicted-index shape without a real merge. `ait syncer`
+    # rebases task data, so an unmerged aitasks/ path is reachable in the wild;
+    # a restore that parses ONE mode/sha out of `ls-files --stage` and writes a
+    # stage-0 entry would silently resolve it.
+    local sha before
+    sha=$(git hash-object -w aitasks/t10_primary.md)
+    git update-index --force-remove -- aitasks/t10_primary.md
+    printf '100644 %s 1\taitasks/t10_primary.md\n100644 %s 2\taitasks/t10_primary.md\n100644 %s 3\taitasks/t10_primary.md\n' \
+        "$sha" "$sha" "$sha" | git update-index --index-info
+    before="$(git ls-files --stage -- aitasks/t10_primary.md)"
+    assert_eq "fixture really is unmerged (3 stages)" "3" \
+        "$(printf '%s\n' "$before" | wc -l)"
+
+    _run_fold_split --commit-mode fresh 10 9999
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "all index stages round-trip byte-exactly" "$before" \
+        "$(git ls-files --stage -- aitasks/t10_primary.md)"
+
+    teardown
+}
+
+test_abort_rolls_back_child_and_parent() {
+    echo "=== Test: t1668 — a pre-Step-6 abort rolls back every mutated file ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t30_orig_parent.md "children_to_implement: [t30_1]"
+    write_task aitasks/t30/t30_1_child.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    local before
+    before=$(git rev-parse HEAD)
+
+    # Step 4 marks 30_1 Folded and strips it from t30's children_to_implement,
+    # THEN dies on the unresolvable 9999 — so three files are already mutated
+    # when the abort lands.
+    _run_fold_split --commit-mode fresh 10 30_1 9999
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "stdout is empty" "" "$FOLD_OUT"
+    assert_eq "primary rolled back" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_eq "child back to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t30/t30_1_child.md status)"
+    assert_eq "child has no folded_into" "" \
+        "$(read_frontmatter_field aitasks/t30/t30_1_child.md folded_into)"
+    assert_contains "child restored to its original parent" "t30_1" \
+        "$(read_frontmatter_field aitasks/t30_orig_parent.md children_to_implement)"
+    assert_eq "worktree clean" "" "$(git status --porcelain -- aitasks/)"
+    assert_eq "HEAD unchanged" "$before" "$(git rev-parse HEAD)"
+
+    teardown
+}
+
+test_invalid_commit_mode_rejected() {
+    echo "=== Test: t1668 — an invalid --commit-mode mutates nothing ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    _run_fold_split --commit-mode bogus 10 20
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "stdout is empty" "" "$FOLD_OUT"
+    assert_contains "stderr names the mode" "invalid --commit-mode: 'bogus'" "$FOLD_ERR"
+    assert_eq "primary untouched" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_eq "folded task untouched" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_eq "worktree clean" "" "$(git status --porcelain -- aitasks/)"
+
+    teardown
+}
+
+test_invalid_commit_mode_precedes_resolution() {
+    echo "=== Test: t1668 — --commit-mode is validated before task resolution ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Neither id resolves. Which error comes out says WHERE the mode is checked:
+    # validated up front it is the commit-mode one; validated in Step 6 (as
+    # before t1668) the run would die on the unresolvable primary long first.
+    _run_fold_split --commit-mode bogus 9999 8888
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_contains "stderr names the commit mode" "invalid --commit-mode" "$FOLD_ERR"
+    assert_not_contains "and NOT the unresolvable primary" \
+        "primary task file not found" "$FOLD_ERR"
+
+    teardown
+}
+
+test_attach_merge_failure_aborts_the_fold() {
+    echo "=== Test: t1668 — a failed attachment merge aborts the fold ==="
+    setup_project
+    _copy_attachment_libs
+
+    write_task aitasks/t10_primary.md
+    _seed_attachment aitasks/t20_a.md 20 "rollback blob"
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Precondition for the rollback assertions in the test below: prove the
+    # injected failure actually REACHES the abort. errexit is off inside the
+    # attach callback and _fold_merge_one assigns to seen_* right after the
+    # append, so before t1668 this failure was overwritten by a successful
+    # assignment and the fold committed partial attachment state.
+    _install_failing_frontmatter_patch
+    _run_fold_split --commit-mode fresh 10 20
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "stdout is empty" "" "$FOLD_OUT"
+    assert_contains "stderr names the merge failure" "attachment merge failed" "$FOLD_ERR"
+
+    teardown
+}
+
+test_attach_txn_nonzero_return_rolls_back() {
+    echo "=== Test: t1668 — a non-zero RETURN from the attach txn rolls back ==="
+    setup_project
+    _copy_attachment_libs
+
+    write_task aitasks/t10_primary.md
+    _seed_attachment aitasks/t20_a.md 20 "nonzero return blob"
+    git add -A
+    git commit -m "Setup" --quiet
+
+    local before
+    before=$(git rev-parse HEAD)
+
+    install_attach_txn_returns_nonzero || { teardown; return; }
+    _run_fold_split --commit-mode fresh 10 20
+
+    # with_attach_lock ends with `return "$rc"`, and registry_lock_release has
+    # already done `trap - EXIT` by then -- so a BARE `with_attach_lock
+    # _fold_attach_txn` call site would trip errexit one line before the
+    # re-arm and roll back nothing. This is the path a `die`-based injection
+    # cannot reach.
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_contains "stderr names the wrapper failure" \
+        "attachment transfer failed (exit 3)" "$FOLD_ERR"
+    assert_eq "primary rolled back" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_eq "folded task back to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_eq "worktree clean" "" "$(git status --porcelain -- aitasks/)"
+    assert_eq "HEAD unchanged" "$before" "$(git rev-parse HEAD)"
+    assert_dir_not_exists "attach lock released" "attachments/.attach.lock"
+
+    teardown
+}
+
+test_abort_inside_attach_txn_rolls_back() {
+    echo "=== Test: t1668 — an abort INSIDE the attach transaction rolls back ==="
+    setup_project
+    _copy_attachment_libs
+
+    write_task aitasks/t10_primary.md
+    _seed_attachment aitasks/t20_a.md 20 "attach window blob"
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # A pre-fold uncommitted edit to the META file. The rebind rewrites this
+    # file before the merge fails, so restoring it from HEAD (the only option
+    # for a path discovered after its own mutation) would discard this line --
+    # which is why the meta tree is snapshotted before the rebind runs.
+    printf '{"hash": "sha256:%s", "refs": ["20"], "mime": "text/plain"}\n' \
+        "$ATTACH_HEX" > "$ATTACH_META"
+    local meta_before
+    meta_before="$(cat "$ATTACH_META")"
+
+    local before
+    before=$(git rev-parse HEAD)
+
+    _install_failing_frontmatter_patch
+    _run_fold_split --commit-mode fresh 10 20
+
+    # 1. The injected failure reached the abort (test_attach_merge_failure_*).
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_contains "the injected failure reached the abort" \
+        "attachment merge failed" "$FOLD_ERR"
+    # 2. The fold rolled back -- so the EXIT-trap chain installed inside the
+    #    attach transaction really ran (registry_lock_acquire had replaced the
+    #    fold's handler with its own).
+    assert_eq "primary rolled back" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_eq "folded task back to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_eq "worktree clean under aitasks/" "" "$(git status --porcelain -- aitasks/)"
+    assert_eq "HEAD unchanged" "$before" "$(git rev-parse HEAD)"
+    # 3. The meta file came back as it was PRE-FOLD, not as HEAD has it.
+    assert_eq "meta file restored to its pre-fold bytes" "$meta_before" \
+        "$(cat "$ATTACH_META")"
+    # 4. ...and the lock handler the chain was prepended to still ran.
+    assert_dir_not_exists "attach lock released" "attachments/.attach.lock"
 
     teardown
 }
@@ -901,7 +1298,11 @@ s = open(p).read()
 # build has none of this code, and leaving the guard defined would make the
 # "did the injection land" check below unable to tell the two apart.
 start = s.index('# _fold_task_id_of_path -- task/plan id owning a repo path')
-end = s.index('esac\n', s.index('die "invalid --commit-mode: $commit_mode"')) + len('esac\n')
+# Anchor on the block, not on a message inside it: the old anchor was the
+# `--commit-mode` die string, which t1668 moved to argument-parse time. The
+# nested `case "$crc"` ends with an INDENTED esac, so only the top-level one
+# matches at column 0.
+end = s.index('\nesac\n', s.index('# Step 6: commit')) + len('\nesac\n')
 pre = '''# Step 6: commit
 case "$commit_mode" in
     fresh)
@@ -945,8 +1346,21 @@ PY
         || { echo "FAIL: negative control did not install pre-fix broad add"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     grep -qE 'task_git commit -m "ait: Fold tasks into .*" --quiet' .aitask-scripts/aitask_fold_mark.sh \
         || { echo "FAIL: negative control did not install pathspec-less commit"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
-    grep -q '_fold_amend_guard' .aitask-scripts/aitask_fold_mark.sh \
+    # The DEFINITION, not a mention: the fold-transaction block above the
+    # excision refers to _fold_amend_guard in a comment, and a bare name grep
+    # would read that as "the guard survived".
+    grep -q '^_fold_amend_guard() {' .aitask-scripts/aitask_fold_mark.sh \
         && { echo "FAIL: negative control left the amend guard in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    # t1668 (pin_control_excision_span): pin the excised SPAN's boundaries, not
+    # just its content. The anchor is a `\nesac\n` search from `# Step 6:
+    # commit`; if it ever matched a wider span it would swallow the fold
+    # transaction block that sits above the guard helpers, and all three
+    # t1599_2 controls below would keep "passing" while proving nothing.
+    local marker
+    for marker in '^_fold_abort_cleanup() {' '^_fold_snap_add() {' '^_fold_emit() '; do
+        grep -q "$marker" .aitask-scripts/aitask_fold_mark.sh \
+            || { echo "FAIL: negative control excised too much — '$marker' is gone"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    done
     TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
     return 0
 }
@@ -997,6 +1411,95 @@ PY
         && { echo "FAIL: negative control left the record buffer in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
     return 0
+}
+
+# t1668 control A: rebuild the fixture's copy with the PRE-FIX transaction
+# block -- the names still exist, but nothing is snapshotted and no EXIT trap is
+# installed. The rollback tests above would pass just as happily against a build
+# that never mutates anything; this is what tells the two apart.
+#
+# It patches only the delimited block, which lives ABOVE Step 6, so it composes
+# with install_prefix_commit_block rather than fighting it.
+install_prefix_no_abort_rollback() {
+    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+start = s.index('# --- fold transaction (t1668)')
+end = s.index('\n', s.index('# --- end fold transaction')) + 1
+pre = """# --- fold transaction (t1668) --- PRE-FIX BUILD: no snapshot, no trap
+_fold_snap_dir=""
+_fold_snap_paths=()
+_fold_txn_active=false
+_fold_meta_root=""
+_fold_meta_pre=()
+_fold_snap_add() { :; }
+_fold_snapshot_meta_tree() { :; }
+_fold_restore_snapshots() { :; }
+_fold_prune_unsnapshotted_meta() { :; }
+_fold_abort_cleanup() { :; }
+_fold_rollback() {
+    task_git reset -q -- "${fold_paths[@]}" >/dev/null 2>&1 || true
+    task_git checkout -- "${fold_paths[@]}" >/dev/null 2>&1 || true
+}
+# --- end fold transaction ---
+"""
+open(p, 'w').write(s[:start] + pre + s[end:])
+PY
+    # Prove the injection landed -- no arming, no snapshotting.
+    grep -q "PRE-FIX BUILD: no snapshot, no trap" .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: negative control did not install the pre-fix transaction block"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    # Check the ARMING site, not the trap string: the post-attach-lock re-arm
+    # lives outside this block (registry_lock_release clears EXIT) and would
+    # match a bare `trap '_fold_abort_cleanup' EXIT` grep even after a correct
+    # excision.
+    grep -q '^_fold_txn_active=true$' .aitask-scripts/aitask_fold_mark.sh \
+        && { echo "FAIL: negative control left the transaction armed"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -q '_fold_snap_add "\$_p"' .aitask-scripts/aitask_fold_mark.sh \
+        && { echo "FAIL: negative control left the snapshot loop in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+    return 0
+}
+
+# t1668: replace _fold_attach_txn's body with a bare non-zero RETURN, so the
+# attach callback fails WITHOUT calling die. That is the only way to exercise
+# with_attach_lock's `return "$rc"` path, which the die-based fault injection
+# (_install_failing_frontmatter_patch) can never reach.
+install_attach_txn_returns_nonzero() {
+    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+start = s.index('_fold_attach_txn() {')
+end = s.index('\n}\n', start) + len('\n}\n')
+open(p, 'w').write(s[:start] + '_fold_attach_txn() {\n    return 3\n}\n' + s[end:])
+PY
+    grep -q '^    return 3$' .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: injector did not stub _fold_attach_txn"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -q '    _fold_snapshot_meta_tree$' .aitask-scripts/aitask_fold_mark.sh \
+        && { echo "FAIL: injector left the attach transaction body in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+    return 0
+}
+
+test_negative_control_no_abort_rollback() {
+    echo "=== Negative control: pre-fix build DOES leave the abort residue ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    install_prefix_no_abort_rollback || { teardown; return; }
+
+    _run_fold_split --commit-mode fresh 10 9999
+
+    assert_defect_present "pre-fix: the Step 3 mutation is still on disk" \
+        test "[9999]" = "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_defect_present "pre-fix: the primary is left dirty" \
+        test " M aitasks/t10_primary.md" = "$(git status --porcelain -- aitasks/t10_primary.md)"
+
+    teardown
 }
 
 test_negative_control_unbuffered_on_refusal() {
@@ -1161,9 +1664,24 @@ test_amend_commit_failure_emits_no_records
 test_fresh_flush_order_preserved
 test_amend_flush_order_preserved
 test_fresh_verified_noop_flushes_records
-test_abort_mid_mutation_emits_no_records
+test_abort_mid_mutation_rolls_back
+
+# t1668 — the whole run is one transaction: every abort restores the exact
+# pre-fold state (index + worktree), and the mode is validated before any of it
+test_step6_rollback_preserves_dirty_entry
+test_abort_preserves_pre_existing_dirty_primary
+test_abort_preserves_pre_existing_staged_primary
+test_abort_preserves_unmerged_index_stages
+test_index_read_failure_aborts_before_mutating
+test_abort_rolls_back_child_and_parent
+test_invalid_commit_mode_rejected
+test_invalid_commit_mode_precedes_resolution
+test_attach_merge_failure_aborts_the_fold
+test_attach_txn_nonzero_return_rolls_back
+test_abort_inside_attach_txn_rolls_back
 
 # Negative controls (must observe the defect against the pre-fix build)
+test_negative_control_no_abort_rollback
 test_negative_control_fresh
 test_negative_control_amend_sweeps
 test_negative_control_amend
