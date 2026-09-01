@@ -68,3 +68,90 @@ updated_at: 2026-09-01 17:11
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1670 item #7.
+
+## Diagnosis (from the t1670 auto-verification run)
+
+The row renders and edits correctly. **The save is lossy**, and it fails open.
+
+### What works
+
+- The `resource_admission_command` row renders in `ait settings` → Project Config,
+  between `lint_command` and `learn_skill_authoring_guide`, with the schema summary.
+- Enter opens `EditStringScreen` (the plain string editor), not the multi-line
+  `EditVerifyBuildScreen` — correct, since the key is outside the
+  `("verify_build", "test_command", "lint_command")` preset trio.
+- The in-memory row updates and "Project config saved" is reported.
+
+### The defect
+
+`.aitask-scripts/settings/settings_app.py:2591`:
+
+```python
+data[key] = yaml.safe_load(raw_value)
+```
+
+The user-typed command string is re-parsed **as a YAML document**. Any value
+containing `: ` (colon-space) therefore parses to a **dict**, not a string:
+
+```
+input : sh -c "echo ADMISSION_REASON: no memory; exit 2"
+parsed: {'sh -c "echo ADMISSION_REASON': 'no memory; exit 2"'}
+```
+
+`safe_dump` then writes that nested mapping:
+
+```yaml
+resource_admission_command:
+  sh -c "echo ADMISSION_REASON: no memory; exit 2"
+```
+
+which reloads as a dict. `project_config_values()` finds no scalar, so
+`aitask_resource_admission.sh` reports:
+
+```
+VERDICT:admit
+REASON:none_configured
+```
+
+**exit 0 — a silent admit.** The user configured a hook, the TUI confirmed the
+save, and the framework then behaves as if no hook existed. Per
+`resource-admission.md` step 2, `none_configured` displays *nothing at all*, so
+there is no signal anywhere. This inverts the feature's stated fail-closed
+posture ("a host that cannot be probed is exactly the one that runs out of
+memory mid-verification") into a fail-open one.
+
+### Why this key makes it acute
+
+The trigger is a `: ` in the value, and this feature's own documented reason
+convention — an `ADMISSION_REASON: <text>` line, restated in the schema `detail`
+text added by t1597 — makes a colon-space the *normal* case for this key.
+Colon-free values (`./tools/check_memory.sh`, `sh -c "exit 2"`) round-trip fine.
+
+### Reproduction
+
+1. `cd` to a tree with `aitasks/metadata/project_config.yaml`; run `ait settings`.
+2. `c` → Project Config → focus `resource_admission_command` → Enter.
+3. Type `sh -c "echo ADMISSION_REASON: no memory; exit 2"` → Enter → Save Project Config.
+4. `grep -A1 resource_admission_command aitasks/metadata/project_config.yaml`
+   → the value sits on an unquoted continuation line.
+5. `./.aitask-scripts/aitask_resource_admission.sh --task-id <id>`
+   → `REASON:none_configured`, exit 0.
+
+### Scope note
+
+Line 2591 is **pre-existing**, not added by t1597, and applies to every
+string-typed project-config key. t1597 is what made it reachable and harmful.
+A fix should keep string-typed schema keys as strings rather than re-parsing
+them, and must not regress `verify_build`'s list form. Consider also whether
+the helper should distinguish "key present but not a scalar" from
+"key absent" instead of collapsing both to `none_configured` — the exit-3
+`not_scalar` path already exists for the list form and does not fire for a dict.
+
+### Second, lesser finding (same run, separate from item 7)
+
+Saving the Project Config tab rewrites the file with `yaml.safe_dump` and
+**strips every comment** — the scratch fixture went from 71 lines to 28. This is
+pre-existing settings-TUI behaviour and unrelated to the admission hook, but it
+means any project whose `project_config.yaml` carries the seeded explanatory
+comments loses them on the first save from the TUI. Worth its own task if not
+already known.
