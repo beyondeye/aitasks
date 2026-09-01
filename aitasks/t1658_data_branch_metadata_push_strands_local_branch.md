@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, task_metadata, robustness]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-01 09:25
-updated_at: 2026-09-01 09:25
+updated_at: 2026-09-01 09:27
 ---
 
 ## Symptom
