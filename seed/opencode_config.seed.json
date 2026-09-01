@@ -78,6 +78,7 @@
       "./.aitask-scripts/aitask_pr_import.sh *": "allow",
       "./.aitask-scripts/aitask_gate.sh *": "allow",
       "./.aitask-scripts/aitask_gate_record.sh *": "allow",
+      "./.aitask-scripts/aitask_note.sh *": "allow",
       "./.aitask-scripts/aitask_gate_build.sh *": "allow",
       "./.aitask-scripts/aitask_gate_fail.sh *": "allow",
       "./.aitask-scripts/aitask_gate_lint.sh *": "allow",

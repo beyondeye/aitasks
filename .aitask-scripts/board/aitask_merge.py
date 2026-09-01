@@ -510,11 +510,138 @@ GATE_SPEC = SectionSpec(
                                _attempt_int(b), text),
 )
 
+# --- '## Inbox' — the task-note mailbox (t1657_2) ---------------------------
+#
+# Note ids are "<iso-utc>.<24-hex>"; every entry also carries an ISO "at=".
+_NOTE_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\.[0-9a-f]{24}$")
+_LOCAL_TASK_RE = re.compile(r"^t[0-9]+(_[0-9]+)?$")
+# aidocs/framework/cross_repo_references.md: the 't' after '#' is tolerated.
+_XREPO_TASK_RE = re.compile(r"^[a-z0-9_-]+#t?([0-9]+(?:_[0-9]+)?)$")
+# A full object id, never an abbreviation. Both widths are accepted because the
+# merge may run in a fixture or a format-less context, where binding to
+# `git rev-parse --show-object-format` would leave NO rule at all; it degrades
+# to weaker-but-never-absent, never to accepting a short value. The WRITER pins
+# the exact width at the write site, which stays the stronger check.
+_FULL_OID_RE = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$")
+_BASE_SENTINELS = ("none", "unknown")
+
+
+def _valid_oid(value: str) -> bool:
+    return bool(_FULL_OID_RE.match(value))
+
+
+def _validate_inbox_provenance(f) -> bool:
+    """Provenance rules for a note block.
+
+    Checking only id/at/sender would let a block carrying an ABBREVIATED
+    ``base=451dd3af7`` pass and union -- exactly the ambiguity the full-oid
+    invariant exists to prevent, arriving by the one route writer-side tests
+    structurally cannot see: a block written on another PC.
+    """
+    base = f.get("base", "")
+    if not base:
+        return False
+    base_is_sentinel = base in _BASE_SENTINELS
+    if not base_is_sentinel and not _valid_oid(base):
+        return False
+
+    # No repo / no HEAD => no branch. Required with a real oid, forbidden with
+    # a sentinel -- either way the field and the base agree or the block is
+    # malformed.
+    has_branch = "base_branch" in f
+    if base_is_sentinel and has_branch:
+        return False
+    if not base_is_sentinel and not has_branch:
+        return False
+
+    if "base_mergebase" in f:
+        if base_is_sentinel or not _valid_oid(f["base_mergebase"]):
+            return False
+
+    if f.get("migrated") == "yes":
+        # Migration variant: provenance is CLAIMED, not observed. dirty/host/
+        # from_verified are forbidden -- none of the three was ever measured,
+        # and writing dirty=no on a historical note would fabricate an
+        # observation. Absence here is the contract, not an omission.
+        if not f.get("claimed_at"):
+            return False
+        return not ({"dirty", "host", "from_verified"} & f.keys())
+
+    # 'unknown' IFF base=none, fail-closed in BOTH directions: yes/no with no
+    # repository is a fabricated observation, and 'unknown' with a real base is
+    # a refusal to measure something measurable. On an unborn branch
+    # (base=unknown) `git status` still reports, so dirty is measured there.
+    dirty = f.get("dirty", "")
+    if dirty not in ("yes", "no", "unknown"):
+        return False
+    if (dirty == "unknown") != (base == "none"):
+        return False
+
+    host = f.get("host", "")
+    return bool(host) and not any(c.isspace() for c in host)
+
+
+def _validate_inbox(b) -> bool:
+    """Reject, never repair -- a non-conforming block bails the whole body.
+
+    ``identity`` is ``(id,)``, so a block with a missing ``id`` would key on
+    ``("",)`` and two unrelated malformed blocks would collide as one entry.
+    """
+    f = b.fields
+    if not _NOTE_ID_RE.match(f.get("id", "")):
+        return False
+    if not _ISO_RUN_RE.match(f.get("at", "")):
+        return False
+
+    if b.name == "read":
+        # A read receipt (t1657_3). Receipts are not tree-relative claims, so
+        # a receipt bearing provenance is malformed.
+        if {"base", "base_branch", "base_mergebase", "dirty", "host"} & f.keys():
+            return False
+        if not _LOCAL_TASK_RE.match(f.get("by", "")):
+            return False
+        if f.get("mode") not in ("auto", "explicit"):
+            return False
+        ids = f.get("ids", "")
+        parts = ids.split(",") if ids else []
+        return bool(parts) and all(_NOTE_ID_RE.match(p) for p in parts)
+
+    # A note. The marker name IS the sender, so the two must agree -- for a
+    # cross-repo sender the name is the local 't<id>' part, since '#' is not a
+    # legal marker-name character.
+    sender = f.get("from", "")
+    if _LOCAL_TASK_RE.match(sender):
+        if b.name != sender:
+            return False
+    else:
+        m = _XREPO_TASK_RE.match(sender)
+        if not m or b.name != "t" + m.group(1):
+            return False
+    if "from_verified" in f and f["from_verified"] != "yes":
+        return False
+    return _validate_inbox_provenance(f)
+
+
+INBOX_SPEC = SectionSpec(
+    header="## Inbox",
+    comment="<!-- Appended by the note framework. Do not edit by hand; use "
+            "`./ait note`. -->",
+    namespace="note",
+    validate=_validate_inbox,
+    # (id,) -- NOT (name, ...): one sender sends many notes, so a name-based
+    # identity would collapse them all onto one key and report a false
+    # ambiguous winner.
+    identity=lambda b: (b.fields.get("id", ""),),
+    # Chronological, then the id as a total tie-break. No numeric field here,
+    # so unlike the gate spec this is a plain lexicographic tuple.
+    order_key=lambda text, b: (b.fields.get("at", ""), b.fields.get("id", "")),
+)
+
 #: Sections this merger knows how to union, in the order they are rebuilt.
-#: **The gate ledger is deliberately the only entry.** t1657_1 is a zero
-#: behaviour change extraction; t1657_2 registers '## Inbox' ahead of it and
-#: owns the resulting change.
-REGISTERED_SPECS: tuple[SectionSpec, ...] = (GATE_SPEC,)
+#: '## Inbox' comes first because that is where the note writer places it --
+#: above '## Gate Runs', since both gate-append paths append at EOF and an
+#: Inbox below would swallow every future gate block.
+REGISTERED_SPECS: tuple[SectionSpec, ...] = (INBOX_SPEC, GATE_SPEC)
 
 
 def _header_re(header: str) -> re.Pattern:

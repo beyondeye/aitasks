@@ -34,12 +34,14 @@ precisely the axis t1657_1 generalizes and t1657_2 then consumes (its ``## Inbox
 lands *above* ``## Gate Runs``), so it is the one baseline that is invisible today
 and would otherwise be changed without anyone noticing.
 
-**These are observations, not requirements.** Cases 3 and 4 below record a
-*limitation* — a divergent or one-sided ``## Inbox`` conflicts the whole body
-today because the section is unregistered and therefore lives in the prose head.
-t1657_2 deliberately changes that by registering the section. When it does, these
-two tests are expected to be updated **by that task**, which is why each names the
-successor explicitly. t1657_1 itself must leave them green.
+**These were observations, not requirements — and t1657_2 has now changed two of
+them.** Cases 3 and 4 below originally recorded a *limitation*: a divergent or
+one-sided ``## Inbox`` conflicted the whole body, because the section was
+unregistered and therefore lived in the prose head. t1657_2 registered
+``INBOX_SPEC`` (ahead of the gate spec) and those two cases now assert a
+per-section **union** instead. They are named ``test_divergent_inbox_unions_per_section``
+and ``test_one_sided_inbox_resolves``. The remaining cases are untouched
+characterizations.
 
 Run: bash tests/run_all_python_tests.sh
   or: python3 -m pytest tests/test_merge_union_characterization.py -v
@@ -61,27 +63,38 @@ import gate_ledger  # noqa: E402
 _HEAD = "## Task Description\n\nSome content.\n"
 _PREAMBLE = f"\n\n{gate_ledger.SECTION_HEADER}\n{gate_ledger.SECTION_COMMENT}\n\n"
 
-# A t1657_2-shaped '## Inbox' section. Its marker namespace is 'note', and it
-# carries id=/at= rather than run=/attempt= — the exact reason the gate spec's
-# validation, identity and ordering keys do not transfer to it (t1657_1 F5).
-_INBOX_T349 = (
-    "## Inbox\n"
-    "<!-- Appended by the note framework. -->\n"
-    "\n"
-    "> **✉ note:t349** id=2026-09-01T10:00:00Z.aa from=t349 "
-    "at=2026-09-01T10:00:00Z\n"
-    ">\n"
-    "> | first note body\n"
-)
-_INBOX_T350 = (
-    "## Inbox\n"
-    "<!-- Appended by the note framework. -->\n"
-    "\n"
-    "> **✉ note:t350** id=2026-09-01T11:00:00Z.bb from=t350 "
-    "at=2026-09-01T11:00:00Z\n"
-    ">\n"
-    "> | second note body\n"
-)
+# A '## Inbox' section in the REAL t1657_2 format. Its marker namespace is
+# 'note', and it carries id=/at= rather than run=/attempt= — the exact reason
+# the gate spec's validation, identity and ordering keys do not transfer to it
+# (t1657_1 F5).
+#
+# t1657_2 note: these fixtures were originally sketched with placeholder ids
+# ('.aa') and no provenance, because the writer did not exist yet. Registering
+# INBOX_SPEC makes the section VALIDATED, so they now carry the real shape —
+# 24-hex id suffix and the full provenance set. Without that the union would
+# (correctly) reject them and bail the body to conflict markers.
+_INBOX_COMMENT = ("<!-- Appended by the note framework. Do not edit by hand; "
+                  "use `./ait note`. -->")
+_OID_A = "a" * 40
+_OID_B = "b" * 40
+
+
+def _inbox(sender: str, iso: str, suffix: str, body: str, oid: str) -> str:
+    return (
+        "## Inbox\n"
+        f"{_INBOX_COMMENT}\n"
+        "\n"
+        f"> **✉ note:{sender}** id={iso}.{suffix} from={sender} at={iso} "
+        f"base={oid} base_branch=main dirty=no host=pc1\n"
+        ">\n"
+        f"> | {body}\n"
+    )
+
+
+_INBOX_T349 = _inbox("t349", "2026-09-01T10:00:00Z", "a" * 24,
+                     "first note body", _OID_A)
+_INBOX_T350 = _inbox("t350", "2026-09-01T11:00:00Z", "b" * 24,
+                     "second note body", _OID_B)
 
 
 def _blk(gate: str, status: str, run: str, **fields) -> str:
@@ -108,10 +121,12 @@ class ForeignSectionSplitTest(unittest.TestCase):
         a = _blk("tests_pass", "pass", "2026-06-30T10:00:00Z")
         head, section = _split_gate_section(_with_inbox(_INBOX_T349, a))
 
-        # The split keys on the FIRST '## Gate Runs' only, so everything before
-        # it — including a whole foreign section — is 'head'. After t1657_1 the
-        # head is everything before the first REGISTERED header; with only the
-        # gate spec registered, that is the same boundary.
+        # _split_gate_section is the legacy single-spec wrapper: it passes
+        # (GATE_SPEC,) explicitly, so the boundary is the first '## Gate Runs'
+        # and everything before it — including a whole foreign section — is
+        # 'head'. That is why this stays true even though t1657_2 registered
+        # '## Inbox' globally; merge_body(), which uses REGISTERED_SPECS, now
+        # splits the two sections apart (see ForeignSectionUnionTest).
         self.assertIn("## Inbox", head)
         self.assertIn("note:t349", head)
         self.assertTrue(section.startswith(gate_ledger.SECTION_HEADER))
@@ -141,29 +156,39 @@ class ForeignSectionUnionTest(unittest.TestCase):
         self.assertEqual(merged.count("## Inbox"), 1)
         self.assertEqual(merged.count("run=2026-06-30T10:00:00Z"), 1)
 
-    def test_divergent_foreign_section_conflicts_the_whole_body(self):
-        """LIMITATION, not a requirement — t1657_2 registers '## Inbox' and
-        changes this to a per-section union. Update this test THERE."""
+    def test_divergent_inbox_unions_per_section(self):
+        """The limitation this test used to record is GONE (t1657_2).
+
+        It previously asserted that two PCs appending different notes conflicts
+        the whole body, because '## Inbox' was unregistered and therefore lived
+        in the prose head. Registering INBOX_SPEC makes it a real section, so
+        the two notes now union like any append-only ledger.
+        """
         a = _blk("tests_pass", "pass", "2026-06-30T10:00:00Z")
         merged, resolved = merge_body(_with_inbox(_INBOX_T349, a),
                                       _with_inbox(_INBOX_T350, a))
 
-        self.assertFalse(resolved)
-        self.assertIn("<<<<<<<", merged)
-        # Nothing is dropped — both sides' notes survive inside the markers.
+        self.assertTrue(resolved)
+        self.assertNotIn("<<<<<<<", merged)
         self.assertIn("note:t349", merged)
         self.assertIn("note:t350", merged)
+        # One section, and ordered by (at, id) — t349 at 10:00 before t350 at 11:00.
+        self.assertEqual(merged.count("## Inbox"), 1)
+        self.assertLess(merged.index("note:t349"), merged.index("note:t350"))
 
-    def test_one_sided_foreign_section_conflicts_the_whole_body(self):
-        """LIMITATION, not a requirement — the common concurrent-append case
-        for t1657_2 (one PC appends a note, the other does not). Update in
-        t1657_2 once '## Inbox' is a registered section."""
+    def test_one_sided_inbox_resolves(self):
+        """The common concurrent-append case: one PC appends, the other has not.
+
+        This is the case that mattered most and was worst before t1657_2 — an
+        unregistered Inbox put the note in the prose head, so a one-sided append
+        conflicted the ENTIRE task-file body. It now resolves.
+        """
         a = _blk("tests_pass", "pass", "2026-06-30T10:00:00Z")
         merged, resolved = merge_body(_with_inbox(_INBOX_T349, a),
                                       _HEAD + _ledger(a))
 
-        self.assertFalse(resolved)
-        self.assertIn("<<<<<<<", merged)
+        self.assertTrue(resolved)
+        self.assertNotIn("<<<<<<<", merged)
         self.assertIn("note:t349", merged)
 
 
