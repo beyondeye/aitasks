@@ -3,11 +3,12 @@ priority: low
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [framework, python, gates]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 created_at: 2026-09-01 16:42
-updated_at: 2026-09-01 16:42
+updated_at: 2026-09-01 17:05
 ---
 
 # Validate the ledger-block namespace before interpolating it into a regex
