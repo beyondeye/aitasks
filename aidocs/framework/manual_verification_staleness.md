@@ -20,6 +20,10 @@ Also related: t1553, an upstream defect in `aitask_revert_analyze.sh` surfaced
 while designing this — its `--task-files` output leaks task-metadata paths, which
 matters because t1555_2 consumes that helper to propose candidate files.
 
+The generalized sibling of this mechanism — advisory premise staleness for
+ordinary backlog tasks, with its own `premise_baseline:` field — is designed in
+`aidocs/framework/task_premise_staleness.md` (t1561); this seam stays narrow.
+
 ## The problem
 
 A manual-verification checklist is authored once — at parent-task planning time
