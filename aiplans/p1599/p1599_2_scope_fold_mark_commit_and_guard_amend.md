@@ -543,6 +543,18 @@ three cases plus the sibling suites that source the same scaffold.
   Suite after the round: **92/92**, `shellcheck` unchanged at its 6 pre-existing
   informationals.
 
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_create.sh:863,900,2060,2237,2269` — stages
+    `$LABELS_FILE` **unconditionally** at every commit site, so a concurrent
+    session's edit to the shared `aitasks/metadata/labels.txt` is staged and
+    committed under a message naming *this* task.
+    `aitask_update.sh:2265-2271` already gates the same staging on
+    `_stage_labels`; the two writers of one file disagree. Path-scoping does not
+    fix it — the scoped pathspec must still include `labels.txt` for a create
+    that genuinely added a label, so only a "did this invocation append?" gate
+    separates the cases. **Spawned as t1662**, to sequence behind (or fold into)
+    **t1599_4**, which owns that file's commit scoping.
+
 - **Post-phase mitigation `amend_guard_both_directions_test` — satisfied.**
   Permit side: `test_amend_permits_labels_file_in_head` (accept-branch 3) and
   `test_amend_permits_child_primary_parent_file` (accept-branch 2's `P_C ⇒ P`).
