@@ -15,9 +15,13 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1243_11, t1243_12, t1243_13, t1243_14, t1243_15]
 implemented_with: claudecode/opus5
 created_at: 2026-07-26 00:06
-updated_at: 2026-08-10 22:11
+updated_at: 2026-09-01 11:03
 boardcol: now
 boardidx: 18502
+artifacts:
+  - handle: art:trail-board-task-groups-1243
+    kind: implementation_trail
+    name: Board task groups and fast reordering (t1243) — landing order
 ---
 
 ## Problem

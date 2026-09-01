@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1788249829,
+  "current": "sha256:c64d739b60ad7b204bc35d3d86ade6e336f702cdb3c3b6ff32b48488350e2988",
+  "handle": "art:trail-board-task-groups-1243",
+  "updated_at": 1788249829,
+  "versions": [
+    "sha256:c64d739b60ad7b204bc35d3d86ade6e336f702cdb3c3b6ff32b48488350e2988"
+  ]
+}

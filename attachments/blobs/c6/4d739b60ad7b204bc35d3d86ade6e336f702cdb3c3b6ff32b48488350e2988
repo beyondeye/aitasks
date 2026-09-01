@@ -1,0 +1,454 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-board-task-groups-1243",
+  "title": "Board task groups and fast reordering (t1243) — landing order",
+  "owner": "aitasks#1243",
+  "scope": {
+    "kind": "topic",
+    "topics": ["aitasks#1243"],
+    "selection_note": "User asked for a trail covering t1243 'and related follow-up tasks'; resolved to the whole topic (anchor 1243) rather than just t1243 + its direct children, per user confirmation. Topic snapshot returned 22 members: the parent, its 5 still-open children (t1243_1..10 are already archived), and 15 further tasks anchored to 1243 that were spawned from review of t1243's own children or of the topically-adjacent t1377 (board column management) epic."
+  },
+  "generation": {
+    "generated_at": "2026-08-31T20:48:01Z",
+    "generator": { "agent_string": "claudecode/sonnet5", "skill": "aitask-trail" },
+    "input_digest": "7cd3175f658dce92",
+    "inputs": [
+      { "ref": "aitasks#1243", "kind": "task_file" },
+      { "ref": "aitasks#1243_11", "kind": "task_file" },
+      { "ref": "aitasks#1243_12", "kind": "task_file" },
+      { "ref": "aitasks#1243_13", "kind": "task_file" },
+      { "ref": "aitasks#1243_14", "kind": "task_file" },
+      { "ref": "aitasks#1243_15", "kind": "task_file" },
+      { "ref": "aitasks#1330", "kind": "task_file" },
+      { "ref": "aitasks#1338", "kind": "task_file" },
+      { "ref": "aitasks#1399", "kind": "task_file" },
+      { "ref": "aitasks#1400", "kind": "task_file" },
+      { "ref": "aitasks#1401", "kind": "task_file" },
+      { "ref": "aitasks#1402", "kind": "task_file" },
+      { "ref": "aitasks#1403", "kind": "task_file" },
+      { "ref": "aitasks#1404", "kind": "task_file" },
+      { "ref": "aitasks#1431", "kind": "task_file" },
+      { "ref": "aitasks#1441", "kind": "task_file" },
+      { "ref": "aitasks#1442", "kind": "task_file" },
+      { "ref": "aitasks#1445", "kind": "task_file" },
+      { "ref": "aitasks#1450", "kind": "task_file" },
+      { "ref": "aitasks#1454", "kind": "task_file" },
+      { "ref": "aitasks#1455", "kind": "task_file" },
+      { "ref": "aitasks:aiplans/p1243/p1243_11_group_formation_and_block_moves.md", "kind": "plan_file" },
+      { "ref": "aitasks:aiplans/p1243/p1243_12_group_membership_commands.md", "kind": "plan_file" },
+      { "ref": "aitasks:aiplans/p1243/p1243_13_documentation.md", "kind": "plan_file" },
+      { "ref": "aitasks:aiplans/p1243/p1243_14_retrospective_benchmark.md", "kind": "plan_file" },
+      { "ref": "aitasks:aiplans/p1243_board_task_groups_and_fast_reordering.md", "kind": "plan_file" }
+    ]
+  },
+  "freshness": { "state": "current", "checked_at": "2026-08-31T20:48:01Z" },
+  "narrative": {
+    "problem_statement": "t1243 (board task groups and fast reordering) is a 14-child decomposition plus a manual-verification sibling; 10 children are already archived and 5 remain, chained by depends. Its topic anchor (1243) also collected 15 further tasks spawned from review of t1243's own children and of a separately-numbered but topically-adjacent column-management epic (t1377) — this trail answers what to land next and in what order across all 22 open members, not just the official 5 remaining children.",
+    "recommendation_summary": "Land t1399 -> t1400 -> t1401 first (three small, already-unblocked risk-mitigation/defect tasks, each of which names t1243_11 by id as the reason it exists), then run the official chain t1243_11 -> t1243_12 -> t1243_13 -> t1243_14 -> t1243_15 (each hard-depends on the last), closing the parent alongside t1243_15. t1402's measured 45-76% performance win must wait until after t1243_14 specifically, per its own task file's explicit ordering requirement. Eight further defects/mitigations and three externally-blocked tasks carry no ordering constraint against this chain and can land whenever capacity allows.",
+    "overview": "t1243_11 is the single next actionable step in the official decomposition — its only hard dependency, t1243_10, is already archived. Before starting it, three small, already-unblocked tasks (t1399, t1400, t1401) are worth clearing first: each was filed during a prior child's review specifically because it hands t1243_11 something to build on rather than re-derive — a fixed vertical dirty-marker, a header count that no longer needs an explicit sync call, and a promoted movement-invariant helper shaped exactly for the block-move checks t1243_11 needs. After t1243_11, the remaining official decomposition is a strict chain (t1243_12 -> t1243_13 -> t1243_14 -> t1243_15); t1243_13's documentation scope is smaller than its own task file originally stated because two out-of-band docs sweeps (t1432, then t1504) already wrote the shipped half of groups onto the live site while it was blocked. t1243_14's retrospective is the workstream's own success-measurement step, and t1402 -- a real, separately-measured performance win -- is explicitly required to land after it so it doesn't distort that comparison. The remaining eleven members are either standalone board defects/mitigations with no ordering constraint against any of the above, or hard-blocked by the separate t1377 topic entirely; none of them changes what to pick up next, which is t1243_11.",
+    "method_note": "Built from the aitask_trail_gather.sh topic snapshot for anchor 1243 (22 members, digest 7cd3175f658dce92) plus targeted reads of every member's task file for rationale -- t1243_11 through t1243_15 embed their full per-child implementation-plan detail directly in-body -- and the parent's plan file (aiplans/p1243_board_task_groups_and_fast_reordering.md) for its decision-checkpoint, decomposition-table and risk sections. Did NOT open the five separate per-child plan files (aiplans/p1243/p1243_11..14.md); the task files already carried the rationale needed. Did NOT open the t1377 topic itself -- the three externally-blocked members are recorded as observations only, per explicit user choice, not verified against t1377's own current state.",
+    "caveats": [
+      "No time estimates or completion predictions are implied by wave order.",
+      "Classifications and wave boundaries are this trail's advisory judgment; only `depends:` edges are recorded as fact relations.",
+      "The t1450-derived modal-escape observation names a general board-wide risk, not a confirmed defect in t1243_12's own (not-yet-written) rename-confirm modal."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "premitigation",
+      "ordinal": 1,
+      "title": "Land t1399, t1400, and t1401 before t1243_11",
+      "purpose": "Three standalone risk-mitigation/defect tasks were each filed by name as things t1243_11's group block-move work should either inherit or avoid re-deriving. Clearing them first turns t1243_11's implementation and test-writing into consuming already-built primitives instead of re-deriving them under a group-move deadline.",
+      "why_now": "t1243_10 (their shared prerequisite) is already archived, so all three are already unblocked; deferring them costs t1243_11 the exact rework their own task files warn about.",
+      "consequence_of_delay": "t1243_11 either re-implements header-count bookkeeping and ad hoc block-move invariants inline, or ships without them and inherits t1399's still-open vertical dirty-marker bug on top of a new block-move path.",
+      "entries": [
+        {
+          "entry_id": "e_t1399",
+          "task": "aitasks#1399",
+          "topic": "aitasks#1243",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "upstream_defect", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Pre-existing vertical-move dirty-marker bug, left deliberately out of t1243_5's scope. t1401's own task file treats it as a precondition ('Sequence this task after t1399... do not weaken the invariant to make the suite green'). Landing it first lets t1401's shared invariant helper assert the vertical dirty-marker for real rather than shipping it expected-fail.",
+          "why_order_matters": "If t1401 lands first without this fix, its promoted invariant helper must carry the vertical case as expected-fail rather than a real assertion, and a later fix would have to remember to flip it.",
+          "confidence": "high",
+          "evidence_refs": ["t1399_task", "t1401_task"]
+        },
+        {
+          "entry_id": "e_t1400",
+          "task": "aitasks#1400",
+          "topic": "aitasks#1243",
+          "position": 2,
+          "classification": "preferred_predecessor",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "risk_mitigation", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Risk-mitigation follow-up for t1243_5 that names t1243_11 by id as 'the obvious candidate' for the same stale-invariant class it fixes: making ColumnHeader derive its count at render time removes a remembered step t1243_11's block-move path would otherwise have to re-implement.",
+          "why_order_matters": "Deferred, t1243_11 must call an explicit sync-count step on every block-move path or ship a stale header count; landing t1400 first makes that a non-issue by construction.",
+          "confidence": "high",
+          "evidence_refs": ["t1400_task"]
+        },
+        {
+          "entry_id": "e_t1401",
+          "task": "aitasks#1401",
+          "topic": "aitasks#1243",
+          "position": 3,
+          "classification": "preferred_predecessor",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "followup_kind": "risk_mitigation", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Promotes t1243_5's ad hoc DOM-order / column-id / header / dirty-marker / count checks into one reusable assertion helper, explicitly so 'a future in-place movement path inherits the net instead of re-deriving it' -- its own task file names t1243_11 as 'the intended beneficiary' and asks the helper be shaped so a block move of N cards is checked with one call.",
+          "why_order_matters": "Without this helper landed first, t1243_11's new test file (tests/test_board_group_moves.py) has to hand-roll the same five invariants this task exists to give it in one call.",
+          "confidence": "high",
+          "evidence_refs": ["t1401_task", "t1399_task"]
+        }
+      ]
+    },
+    {
+      "wave_id": "group_mutability",
+      "ordinal": 2,
+      "title": "t1243_11 -> t1243_12: make groups mutable, movable, and user-editable",
+      "purpose": "The two hard-chained children that turn the already-landed group data model and rendering (t1243_8/9/10) into an actually usable feature: manager-level formation/removal/block-move operations, then the user-facing G command, palette entries, and board-detail field on top of them.",
+      "why_now": "t1243_10 is archived, so t1243_11 is the single unblocked next step in the official 14-child decomposition; t1243_12 hard-depends on it.",
+      "consequence_of_delay": "Every other still-open child in the workstream (documentation, the retrospective benchmark, and the manual-verification sibling that verifies t1243_11/12 by id) is chained behind this pair, so delay here delays the whole remaining workstream.",
+      "entries": [
+        {
+          "entry_id": "e_t1243_11",
+          "task": "aitasks#1243_11",
+          "topic": "aitasks#1243",
+          "position": 1,
+          "classification": "core",
+          "snapshot": { "status": "Ready", "priority": "high", "effort": "medium", "depends": ["aitasks#1243_10"], "gates_pending": ["risk_evaluated"] },
+          "rationale": "Child 11 of 14. Owns the manager-level group operations: formation/removal write only `boardgroup` (no index writes at all, per the INV-R derivation from t1243_8), block moves generalizing t1243_5's `_card_block`, coalesce-on-move, and the `delete_column` index tidy-up. Its own task file flags an undecided ordering question with t1377_4_column_merge_engine (overlapping section §3/§4) to check before implementing.",
+          "why_order_matters": "t1243_12's membership commands call directly into this child's formation/removal/rename-merge operations; nothing downstream in the workstream can start without it.",
+          "expected_outcome": "Groups become mutable and movable as a block with a proven one-write-per-member property; delete_column stops mass-tying every draining task to index 0.",
+          "confidence": "high",
+          "evidence_refs": ["t1243_11_task", "p1243_plan"]
+        },
+        {
+          "entry_id": "e_t1243_12",
+          "task": "aitasks#1243_12",
+          "topic": "aitasks#1243",
+          "position": 2,
+          "classification": "core",
+          "snapshot": { "status": "Ready", "priority": "high", "effort": "medium", "depends": ["aitasks#1243_11"], "gates_pending": ["risk_evaluated"] },
+          "rationale": "Child 12 of 14 -- the user-facing surface (G command, palette entries, rename-onto-existing-slug confirm modal, BoardGroupField on the task-detail screen) for the operations t1243_11 builds underneath. Nothing here has independent value without t1243_11 landed first.",
+          "expected_outcome": "Users can add/remove/rename group membership and edit it from the task detail screen without touching frontmatter by hand.",
+          "confidence": "high",
+          "evidence_refs": ["t1243_12_task", "p1243_plan"]
+        }
+      ]
+    },
+    {
+      "wave_id": "documentation",
+      "ordinal": 3,
+      "title": "t1243_13 -- close out the remaining boardgroup documentation surfaces",
+      "purpose": "Documents G, group formation and block moves, and the in-board membership commands t1243_11/12 add, plus every non-website boardgroup frontmatter surface (seed block, AGENTS.md, CLAUDE.md, .codex/.opencode mirrors) that no other task has touched.",
+      "why_now": "Depends on t1243_12; its scope was already narrowed twice by out-of-band docs sweeps that wrote the shipped half of groups directly onto the live pages, so reading the CURRENT how-to/reference pages before editing is load-bearing, not optional.",
+      "entries": [
+        {
+          "entry_id": "e_t1243_13",
+          "task": "aitasks#1243_13",
+          "topic": "aitasks#1243",
+          "position": 1,
+          "classification": "core",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1243_12"], "gates_pending": ["risk_evaluated"] },
+          "rationale": "t1504 (the v0.31.0 docs-gap sweep) pre-wrote 'How to Group Tasks in a Column' and the Group Header Anatomy reference block directly onto the live board how-to/reference pages while this child was blocked, and correspondingly narrowed t1243_13's own task file (commit 7c212a0a4) to cover only G, group formation, block moves, the palette entries, and the non-website boardgroup surfaces. Building on that prose rather than re-writing it is now an explicit instruction inside the task's own body.",
+          "why_order_matters": "Re-introducing the already-shipped how-to/reference sections here would create duplicate or drifted prose against what t1504 already put on the live site.",
+          "confidence": "high",
+          "evidence_refs": ["t1243_13_task", "t1504_commit"]
+        }
+      ]
+    },
+    {
+      "wave_id": "retrospective_and_closure",
+      "ordinal": 4,
+      "title": "t1243_14 -> t1243_15: measure the workstream, verify it manually, close the parent",
+      "purpose": "The trailing retrospective re-runs the pre-registered benchmark against the fully landed feature and decides whether follow-ups are warranted; the aggregate manual-verification sibling then walks the entire 15-child checklist; the parent's own bookkeeping closes once both land.",
+      "why_now": "Both are the last two steps of the official decomposition and are explicitly sequenced last -- t1243_15 hard-depends on t1243_14, and t1243_14 itself must not be preceded by any move-path performance change (see the t1402 observation below) or its comparison table stops being valid.",
+      "entries": [
+        {
+          "entry_id": "e_t1243_14",
+          "task": "aitasks#1243_14",
+          "topic": "aitasks#1243",
+          "position": 1,
+          "classification": "core",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "depends": ["aitasks#1243_13"], "gates_pending": ["risk_evaluated"] },
+          "rationale": "Child 14 of 14 -- re-runs t1243_1's pre-registered harness against the landed board and produces the baseline-vs-landed comparison table (lateral baseline 2173.2 ms) that is the workstream's own success criterion. Explicitly 'not a licence to re-architect': follow-ups are filed only where the recorded numbers justify them.",
+          "confidence": "high",
+          "evidence_refs": ["t1243_14_task", "p1243_plan"]
+        },
+        {
+          "entry_id": "e_t1243_15",
+          "task": "aitasks#1243_15",
+          "topic": "aitasks#1243",
+          "position": 2,
+          "classification": "core",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1243_14"], "followup_kind": "manual_verification" },
+          "rationale": "Aggregate manual-verification sibling seeded from every prior child's Verification section (verifies t1243_3 through t1243_13 by id) -- the only remaining check that exercises the whole feature end-to-end in a real terminal, including two CROSS-PC sync checks no automated test in the workstream covers.",
+          "confidence": "high",
+          "evidence_refs": ["t1243_15_task"]
+        },
+        {
+          "entry_id": "e_t1243_root",
+          "task": "aitasks#1243",
+          "topic": "aitasks#1243",
+          "position": 3,
+          "classification": "coordination_only",
+          "snapshot": { "status": "Ready", "priority": "high", "effort": "high", "boardcol": "now", "gates_pending": ["risk_evaluated"] },
+          "rationale": "The parent's own frontmatter still lists `children_to_implement: [t1243_11..15]`, correctly reflecting the 5 still-open children (t1243_1 through t1243_10 are archived) but is otherwise pure bookkeeping -- it has no code of its own left to land.",
+          "confidence": "medium",
+          "evidence_refs": ["t1243_task"]
+        }
+      ]
+    },
+    {
+      "wave_id": "sequenced_followup",
+      "ordinal": 5,
+      "title": "t1402 -- the focus-query-storm fix, landed only after the retrospective",
+      "purpose": "A high-value performance follow-up (45-76% measured removable share of a lateral keypress) that the workstream's own retrospective must be measured before, or its win retroactively flatters t1243_5 and makes t1243_14's comparison table incomparable with the recorded baseline.",
+      "why_now": "t1402 hard-depends on t1243_14 (declared in its own frontmatter) -- it cannot start before Wave 4 completes, and its task file states the ordering is 'load-bearing, not a preference.'",
+      "entries": [
+        {
+          "entry_id": "e_t1402",
+          "task": "aitasks#1402",
+          "topic": "aitasks#1243",
+          "position": 1,
+          "classification": "core",
+          "snapshot": { "status": "Ready", "priority": "high", "effort": "medium", "depends": ["aitasks#1243_14"], "gates_pending": ["risk_evaluated"] },
+          "rationale": "Follow-up of the archived t1395, which attributed the residual ~1.16s lateral-move cost to a focus-query storm (107 DOMQuery.nodes calls/keypress from repeated _focused_card() re-derivation). Ablation measured 45-76% of median lateral latency removable. Its own task file requires landing after t1243_14 specifically so this win doesn't retroactively distort that retrospective's baseline comparison.",
+          "why_order_matters": "Landing before t1243_14 would let this win show up inside the retrospective's own before/after numbers, making them incomparable with the pre-registered t1243_1 baseline and falsely crediting t1243_5's transplant for a gain that came from a different, later fix.",
+          "confidence": "high",
+          "evidence_refs": ["t1402_task", "p1243_plan"]
+        }
+      ]
+    },
+    {
+      "wave_id": "independent_defects",
+      "ordinal": 6,
+      "title": "Independent board defects and risk-mitigations -- no ordering constraint on the group workstream",
+      "purpose": "Eight standalone bugs and one risk-mitigation, each spawned from review of a t1243/t1377 child, none of which blocks or is blocked by the group-mutability chain above. Grouped here so they are not re-litigated on every refresh, not because they must land in this order.",
+      "why_now": "None hard-depends on anything in this trail and nothing in this trail depends on them; they can land whenever capacity allows.",
+      "entries": [
+        {
+          "entry_id": "e_t1330",
+          "task": "aitasks#1330",
+          "topic": "aitasks#1243",
+          "position": 1,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "upstream_defect", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Numberless-task-filename creation guard, spawned from t1243_2's review. Pairs with t1338 -- same root defect (an empty task_num produces a t_<slug>.md file), observed from two different consuming code paths.",
+          "confidence": "high",
+          "evidence_refs": ["t1330_task", "t1338_task"]
+        },
+        {
+          "entry_id": "e_t1338",
+          "task": "aitasks#1338",
+          "topic": "aitasks#1243",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "upstream_defect", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Work-report silently drops the same unparseable-filename class t1330 guards against creating; spawned independently from t1314's review. Fixing t1330's creation-time guard does not retroactively fix this consumption-time silent drop -- both are needed.",
+          "confidence": "high",
+          "evidence_refs": ["t1338_task", "t1330_task"]
+        },
+        {
+          "entry_id": "e_t1403",
+          "task": "aitasks#1403",
+          "topic": "aitasks#1243",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Investigative performance task with no target set a priori ('measure first, then decide... no follow-up warranted is a success'), covering plain-arrow navigation cost that t1395 proved is unreachable from the move path.",
+          "confidence": "medium",
+          "caveats": ["Shares the same benchmark harness file as t1402 (Wave 5) -- its own task file says not to run the two benchmarks concurrently, though neither hard-depends on the other."],
+          "evidence_refs": ["t1403_task"]
+        },
+        {
+          "entry_id": "e_t1431",
+          "task": "aitasks#1431",
+          "topic": "aitasks#1243",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "followup_kind": "risk_mitigation", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Closes a latent validation gap in the board's own move_task_to_column/move_tasks_to_column: t1377_1 added boardcol validation to the CLI and headless seam but left the board's in-process path unvalidated, so the framework holds two different stances on the same field.",
+          "confidence": "high",
+          "evidence_refs": ["t1431_task"]
+        },
+        {
+          "entry_id": "e_t1441",
+          "task": "aitasks#1441",
+          "topic": "aitasks#1243",
+          "position": 5,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "upstream_defect", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Unescaped user-supplied titles/colours reaching Rich markup in three sibling renderers t1377_2 deliberately left out of its own fix scope (minimonitor's sibling-row renderer, the board's ColumnSelectItem, and the gray UNORDERED_COLOR constant Rich cannot parse).",
+          "confidence": "high",
+          "evidence_refs": ["t1441_task", "t1442_task"]
+        },
+        {
+          "entry_id": "e_t1442",
+          "task": "aitasks#1442",
+          "topic": "aitasks#1243",
+          "position": 6,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "upstream_defect", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Same markup-escaping defect class as t1441, made more reachable by t1377_3 (minimonitor can now create board columns, so a hand-edited title can reach the board's own unguarded renderer without ever passing through the board's own dialog).",
+          "confidence": "high",
+          "evidence_refs": ["t1442_task", "t1441_task"]
+        },
+        {
+          "entry_id": "e_t1445",
+          "task": "aitasks#1445",
+          "topic": "aitasks#1243",
+          "position": 7,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "upstream_defect", "gates_pending": ["risk_evaluated"] },
+          "rationale": "move_tasks_to_column can report a task as 'moved' in MoveResult even when its write silently failed (Task.load() returns False on any read exception, not only a missing file); t1377_4 fixed the same shape only inside merge_columns via _classify_members, leaving every other movement-API consumer trusting the unverified report.",
+          "confidence": "high",
+          "evidence_refs": ["t1445_task"]
+        },
+        {
+          "entry_id": "e_t1450",
+          "task": "aitasks#1450",
+          "topic": "aitasks#1243",
+          "position": 8,
+          "classification": "optional",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "low", "followup_kind": "upstream_defect", "gates_pending": ["risk_evaluated"] },
+          "rationale": "Two test-harness/UX gaps hit while building t1377_5's column dialog: PristineTreeMixin doesn't restore board_config*.json between test classes (a self-concealing cross-test leak), and the app's priority Escape binding discards any modal's dismiss() return value -- silently breaking any modal, including a future one, whose cancel/confirm distinction depends on that value.",
+          "confidence": "high",
+          "evidence_refs": ["t1450_task"]
+        }
+      ]
+    },
+    {
+      "wave_id": "external_blockers",
+      "ordinal": 7,
+      "title": "Blocked on the separate t1377 (board column management) topic",
+      "purpose": "Three tasks anchored to this topic but hard-blocked by tasks in a different topic that this trail does not cover; recorded here as coordination-only so they are not silently dropped from the topic snapshot, and not re-analyzed as if they were orderable against the group-mutability chain.",
+      "why_now": "Each is already Ready and waiting purely on its named t1377 predecessor; nothing in this trail can move them.",
+      "entries": [
+        {
+          "entry_id": "e_t1404",
+          "task": "aitasks#1404",
+          "topic": "aitasks#1243",
+          "position": 1,
+          "classification": "coordination_only",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1377_3"], "gates_pending": ["risk_evaluated"] },
+          "rationale": "Flips the Settings TUI's Columns section from read-only to editable once t1377_3's headless writer (lib/board_columns.create_column) exists; unrelated to groups but shares the topic anchor.",
+          "confidence": "high",
+          "evidence_refs": ["t1404_task"]
+        },
+        {
+          "entry_id": "e_t1454",
+          "task": "aitasks#1454",
+          "topic": "aitasks#1243",
+          "position": 2,
+          "classification": "coordination_only",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1377_5"], "followup_kind": "verification_failure" },
+          "rationale": "Auto-generated from a failed manual-verification item on t1377_7: the column-management dialog's Delete/Edit buttons steal focus before their own action handlers run, so both are dead on arrival from the dialog (reachable only from the command palette).",
+          "confidence": "high",
+          "evidence_refs": ["t1454_task"]
+        },
+        {
+          "entry_id": "e_t1455",
+          "task": "aitasks#1455",
+          "topic": "aitasks#1243",
+          "position": 3,
+          "classification": "coordination_only",
+          "snapshot": { "status": "Ready", "priority": "medium", "effort": "medium", "depends": ["aitasks#1377_6"], "followup_kind": "verification_failure" },
+          "rationale": "Auto-generated from the same t1377_7 verification run: three stale statements on the board how-to page (a non-working Delete-column path, a non-working Edit-button alternative, a wrong palette shortcut) plus one pre-existing stale statement about where collapse state is actually saved.",
+          "caveats": ["Shares website/content/docs/tuis/board/how-to.md and board/reference.md with t1243_13 (Wave 3) -- see the shared-surface-collision observation below."],
+          "confidence": "high",
+          "evidence_refs": ["t1455_task"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "aitasks#1243_10", "to": "aitasks#1243_11", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1243_11", "to": "aitasks#1243_12", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1243_12", "to": "aitasks#1243_13", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1243_13", "to": "aitasks#1243_14", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1243_14", "to": "aitasks#1243_15", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1243_14", "to": "aitasks#1402", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1377_3", "to": "aitasks#1404", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1377_5", "to": "aitasks#1454", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1377_6", "to": "aitasks#1455", "type": "hard_depends", "provenance": "fact" },
+    { "from": "aitasks#1400", "to": "aitasks#1243_11", "type": "advisory_precedes", "provenance": "advisory", "note": "t1400 names t1243_11 as the intended beneficiary of a render-time header count." },
+    { "from": "aitasks#1401", "to": "aitasks#1243_11", "type": "advisory_precedes", "provenance": "advisory", "note": "t1401 names t1243_11 as the intended beneficiary of the promoted movement-invariant helper." },
+    { "from": "aitasks#1399", "to": "aitasks#1401", "type": "advisory_precedes", "provenance": "advisory", "note": "t1401's own task file says to sequence after t1399 so the vertical dirty-marker invariant is not shipped expected-fail." },
+    { "from": "aitasks#1402", "to": "aitasks#1403", "type": "coordinates_with", "provenance": "advisory", "note": "Both benchmarks share the same harness file; t1403's task file says do not run them concurrently." },
+    { "from": "aitasks#1243_15", "to": "aitasks#1243_10", "type": "verifies", "provenance": "fact" },
+    { "from": "aitasks#1243_15", "to": "aitasks#1243_11", "type": "verifies", "provenance": "fact" },
+    { "from": "aitasks#1243_15", "to": "aitasks#1243_12", "type": "verifies", "provenance": "fact" },
+    { "from": "aitasks#1243_15", "to": "aitasks#1243_13", "type": "verifies", "provenance": "fact" }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs_modal_escape_risk",
+      "kind": "other",
+      "statement": "t1450 (Wave 6) documents a board-wide defect: the app's priority Escape binding closes ANY active modal via a bare self.screen.dismiss(), discarding whatever value the modal's own cancel path would have returned. t1243_12's plan requires its rename-onto-existing-slug confirmation modal to 'write nothing' on cancel -- that guarantee should be explicitly verified against Escape specifically (not just a Cancel button), since a modal whose dismiss value carries meaning is exactly the class this defect breaks.",
+      "affects": ["aitasks#1243_12", "aitasks#1450"],
+      "evidence_refs": ["t1450_task", "t1243_12_task"]
+    },
+    {
+      "observation_id": "obs_pristine_config_gap",
+      "kind": "other",
+      "statement": "t1450 also documents that PristineTreeMixin (tests/lib/board_fixture.py) restores only *.md files between test classes, not metadata/board_config*.json, which snapshot() in the same module does track -- a self-concealing leak for any test class that mutates board config. t1243_12's rename operation migrates a group's collapse key, which lives in board_config.local.json (the user layer); its new test module should be checked against this known harness gap rather than assumed clean.",
+      "affects": ["aitasks#1243_12", "aitasks#1450"],
+      "evidence_refs": ["t1450_task", "t1243_12_task"]
+    },
+    {
+      "observation_id": "obs_shared_doc_surface",
+      "kind": "shared_surface_collision",
+      "statement": "t1243_13 (Wave 3) and t1455 (Wave 7) both edit website/content/docs/tuis/board/how-to.md and board/reference.md around the same time -- t1455 corrects three stale statements about the column-dialog Delete/Edit buttons and the command-palette shortcut plus a pre-existing wrong claim about where collapse state is saved, while t1243_13 is adding new group-command prose to the same pages. Whichever lands second should re-read the just-landed version of these files rather than authoring from a snapshot taken before the other's edits.",
+      "affects": ["aitasks#1243_13", "aitasks#1455"],
+      "evidence_refs": ["t1243_13_task", "t1455_task"]
+    },
+    {
+      "observation_id": "obs_t1402_baseline_risk",
+      "kind": "baseline_risk",
+      "statement": "t1402's own task file states its landing order relative to t1243_14 is 'load-bearing, not a preference': landing before t1243_14 would let a 45-76%-class win from outside the t1243 workstream appear inside t1243_14's own before/after comparison table, making it incomparable with the recorded t1243_1 baseline (lateral 2173.2 ms) and retroactively over-crediting t1243_5's DOM transplant for a gain that came from a different fix.",
+      "affects": ["aitasks#1243_14", "aitasks#1402"],
+      "evidence_refs": ["t1402_task", "p1243_plan"]
+    },
+    {
+      "observation_id": "obs_external_t1377_blockers",
+      "kind": "external_dependency",
+      "statement": "Three members of this topic (t1404, t1454, t1455 -- Wave 7) are hard-blocked by tasks in the separate t1377 (board column management dialog) topic, which is outside this trail's gathered scope by explicit user choice (observation-only, not scope expansion). None of the three can be picked up until their respective t1377 predecessor (t1377_3, t1377_5, t1377_6) lands.",
+      "affects": ["aitasks#1404", "aitasks#1454", "aitasks#1455"],
+      "evidence_refs": ["t1404_task", "t1454_task", "t1455_task"]
+    },
+    {
+      "observation_id": "obs_parent_bookkeeping",
+      "kind": "other",
+      "statement": "The parent task's (t1243) frontmatter still lists children_to_implement: [t1243_11, t1243_12, t1243_13, t1243_14, t1243_15], correctly reflecting the 5 still-open children, but does not reflect that t1399/t1400/t1401 (Wave 1) were filed as separate top-level review follow-ups after the children were decomposed -- they are not additional numbered children and will never appear in that list.",
+      "affects": ["aitasks#1243"],
+      "evidence_refs": ["t1243_task"]
+    }
+  ],
+  "evidence": [
+    { "evidence_id": "snap_topic_gather", "source_type": "command_output", "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic 1243", "observed_at": "2026-08-31T20:48:01Z", "summary": "Topic snapshot for anchor 1243: 22 members (t1243 root + t1243_11..15 active children + 15 sibling defects/mitigations/follow-ups), digest 7cd3175f658dce92." },
+    { "evidence_id": "t1243_task", "source_type": "task_file", "ref": "aitasks/t1243_board_task_groups_and_fast_reordering.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Parent design task, status Ready, children_to_implement: [t1243_11..15], four workstreams (gap indexing, render cost, task groups, bulk commands)." },
+    { "evidence_id": "p1243_plan", "source_type": "plan_file", "ref": "aiplans/p1243_board_task_groups_and_fast_reordering.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Decision-checkpoint section (t1243_4 MISS its 30% target, revised scope; t1243_5 PASS at 93.6%), 14-child decomposition table, and the Risk section." },
+    { "evidence_id": "t1243_11_task", "source_type": "task_file", "ref": "aitasks/t1243/t1243_11_group_formation_and_block_moves.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Manager-level group formation/removal/block-move operations; notes on t1377_4_column_merge_engine overlap." },
+    { "evidence_id": "t1243_12_task", "source_type": "task_file", "ref": "aitasks/t1243/t1243_12_group_membership_commands.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "G command, palette entries, rename-onto-existing-slug confirm modal, BoardGroupField." },
+    { "evidence_id": "t1243_13_task", "source_type": "task_file", "ref": "aitasks/t1243/t1243_13_documentation.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Documentation child, scope narrowed twice (t1432, then t1504) to G / formation / block moves / in-board commands / non-website boardgroup surfaces." },
+    { "evidence_id": "t1243_14_task", "source_type": "task_file", "ref": "aitasks/t1243/t1243_14_retrospective_benchmark.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Retrospective benchmark child; re-runs t1243_1's harness, produces baseline-vs-landed comparison table." },
+    { "evidence_id": "t1243_15_task", "source_type": "task_file", "ref": "aitasks/t1243/t1243_15_manual_verification_board_groups_and_reordering.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Manual-verification checklist seeded from t1243_3..13's Verification sections, including CROSS-PC sync items." },
+    { "evidence_id": "t1330_task", "source_type": "task_file", "ref": "aitasks/t1330_guard_numberless_task_filenames.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Spawned from t1243_2 review: aitask_create.sh can emit a numberless t_<slug>.md file with no guard." },
+    { "evidence_id": "t1338_task", "source_type": "task_file", "ref": "aitasks/t1338_work_report_drops_unparseable_task_filenames.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Spawned from t1314 review: work-report silently drops tasks with unparseable filenames." },
+    { "evidence_id": "t1399_task", "source_type": "task_file", "ref": "aitasks/t1399_board_vertical_move_stale_dirty_marker.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Spawned from t1243_5 review: vertical move's swap-based path never repaints the dirty marker." },
+    { "evidence_id": "t1400_task", "source_type": "task_file", "ref": "aitasks/t1400_board_column_header_live_count.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Risk mitigation for t1243_5: make ColumnHeader derive task count at render time; names t1243_11 as intended beneficiary." },
+    { "evidence_id": "t1401_task", "source_type": "task_file", "ref": "aitasks/t1401_board_movement_dom_invariant_harness.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Risk mitigation for t1243_5: promote post-move invariant checks into a shared helper; names t1243_11 as intended beneficiary; sequence after t1399." },
+    { "evidence_id": "t1402_task", "source_type": "task_file", "ref": "aitasks/t1402_board_focus_query_storm_on_move.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Follow-up of t1395: fix the _focused_card() query storm; depends: [t1243_14], ordering stated as load-bearing." },
+    { "evidence_id": "t1403_task", "source_type": "task_file", "ref": "aitasks/t1403_board_nav_column_widgets_query_cost.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Investigative nav-path performance task; no target set a priori; shares harness file with t1402." },
+    { "evidence_id": "t1404_task", "source_type": "task_file", "ref": "aitasks/t1404_settings_columns_editable.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Risk-mitigation follow-up for t1377; depends: [t1377_3]." },
+    { "evidence_id": "t1431_task", "source_type": "task_file", "ref": "aitasks/t1431_board_move_column_validation.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Risk mitigation for t1377_1: board's own move path lacks boardcol validation the CLI/headless seam already has." },
+    { "evidence_id": "t1441_task", "source_type": "task_file", "ref": "aitasks/t1441_escape_user_titles_in_tui_markup_renderers.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Spawned from t1377_2 review: unescaped titles/colours reach Rich markup in sibling renderers." },
+    { "evidence_id": "t1442_task", "source_type": "task_file", "ref": "aitasks/t1442_guard_board_column_markup_renderers.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Spawned from t1377_3 review: same markup-escaping defect class, made more reachable by t1377_3." },
+    { "evidence_id": "t1445_task", "source_type": "task_file", "ref": "aitasks/t1445_board_move_result_reports_unwritten_tasks_as_moved.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Spawned from t1377_4 review: MoveResult can report a task moved when its write silently failed." },
+    { "evidence_id": "t1450_task", "source_type": "task_file", "ref": "aitasks/t1450_board_test_harness_and_modal_escape_result_gaps.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Spawned from t1377_5 review: PristineTreeMixin config-restore gap, and Escape discards modal dismiss values." },
+    { "evidence_id": "t1454_task", "source_type": "task_file", "ref": "aitasks/t1454_fix_failed_verification_t1377_7_item18.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Failed t1377_7 verification item: column-dialog Delete/Edit buttons steal focus before their handlers run; depends: [t1377_5]." },
+    { "evidence_id": "t1455_task", "source_type": "task_file", "ref": "aitasks/t1455_fix_failed_verification_t1377_7_item20.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "Failed t1377_7 verification item: stale statements on board/how-to.md; depends: [t1377_6]." },
+    { "evidence_id": "t1504_commit", "source_type": "command_output", "ref": "git show 7c212a0a4 -- aitasks/t1243/t1243_13_documentation.md", "observed_at": "2026-08-31T20:48:01Z", "summary": "t1504 (docs-gap sweep) pre-wrote the shipped-half of group docs onto the live pages and narrowed t1243_13's remaining scope accordingly." }
+  ],
+  "rendering_hints": { "depth": "deep" }
+}
