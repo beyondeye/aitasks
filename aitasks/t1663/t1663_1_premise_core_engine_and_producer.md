@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [1561]
 issue_type: feature
 status: Ready
 labels: [task-workflow, verification]
 gates: [risk_evaluated]
 anchor: 1538
 created_at: 2026-09-01 15:18
-updated_at: 2026-09-01 15:18
+updated_at: 2026-09-01 15:38
 ---
 
 Build the premise-staleness verdict engine: the pure core `lib/task_premise.py` and the impure git-facing producer `.aitask-scripts/aitask_premise_stale.sh`.
