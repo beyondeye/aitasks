@@ -217,6 +217,79 @@ class PlannedAdmissionTests(PlannedLaneTestBase, unittest.TestCase):
                 self.assertEqual(mgr.get_inflight_items(), [])
 
 
+# --- t1656: the caller hands over an UNEVALUATED probe -----------------------
+
+class PlanProbeCallerBoundaryTests(PlannedLaneTestBase, unittest.TestCase):
+    """`_inflight_item_for` must pass the plan-existence probe unevaluated.
+
+    The seam-level suite (tests/test_board_workflow_phase.py) proves
+    `derive_workflow_phase` resolves the probe on exactly one branch — but it
+    calls the seam directly and supplies the probe itself, so it says nothing
+    about what this caller passes. A regression to an eager expression
+    (`plan_exists_probe=_resolve_plan_path_for_task(task, self) is not None`,
+    or a lambda whose body got hoisted out) still pays one `Path.exists()` per
+    admitted in-flight item on every refresh — precisely the cost t1656
+    removes — while every seam test stays green. Only a spy at the module
+    boundary catches it.
+
+    The spy is unambiguous: on the `get_inflight_items` -> `_inflight_item_for`
+    path, the call inside `_inflight_item_for` is the ONLY
+    `_resolve_plan_path_for_task` call site (`TaskDetailScreen.plan_path` and
+    the `KanbanApp` helper are not on it), and the production function resolves
+    the name as a module global, so patching the attribute on the
+    fixture-bound board module is what it actually sees.
+    """
+
+    def _item_with_spy(self, name: str, body: str):
+        """`_item`, with every production `_resolve_plan_path_for_task` recorded."""
+        calls: list[str] = []
+        real = self.ab._resolve_plan_path_for_task
+
+        def spy(task, manager):
+            calls.append(task.filename)
+            return real(task, manager)          # delegate: the answers stay real
+
+        self.addCleanup(setattr, self.ab, "_resolve_plan_path_for_task", real)
+        self.ab._resolve_plan_path_for_task = spy
+        item, _ = self._item(name, body)
+        return item, calls
+
+    def test_admitted_items_that_do_not_read_it_resolve_no_plan_path(self):
+        """Zero `Path.exists()` for the two admitted states that never read it.
+
+        The phase/provenance assertion is what stops this passing vacuously:
+        without it a fixture that fell out of admission entirely would also
+        record zero calls (though `_item` would fail first).
+        """
+        for name, body, want in (
+            # B2, the ledger ladder: `review_approved` is pending, so this rung
+            # is `awaiting_review` — a state reached only by running the ladder
+            # to the end, which is exactly what must not cost a stat.
+            ("t1310_ledger_backed.md", _implementing_twin_body(),
+             ("awaiting_review", "ledger")),
+            # Branch A, the deferred-plan marker — the most common state on a
+            # real board, and the one the In-Flight Planned lane is built on.
+            ("t1311_marker_backed.md", _planned_body(),
+             ("plan_approved", "ledger")),
+        ):
+            with self.subTest(fixture=name):
+                item, calls = self._item_with_spy(name, body)
+                self.assertEqual((item.phase, item.provenance), want)
+                self.assertEqual(calls, [])
+
+    def test_no_ledger_item_resolves_the_plan_path_exactly_once(self):
+        """POSITIVE CONTROL at this boundary.
+
+        Without it the row above would pass just as well against a caller that
+        dropped the argument outright, or a seam that never read it.
+        """
+        item, calls = self._item_with_spy("t1312_no_ledger.md",
+                                          _body("Implementing"))
+        self.assertEqual((item.phase, item.provenance),
+                         ("implementing", "unknown"))
+        self.assertEqual(len(calls), 1)
+
+
 # --- The routing hole the admission opens ------------------------------------
 
 class PlannedRoutingGuardTests(PlannedLaneTestBase, unittest.TestCase):

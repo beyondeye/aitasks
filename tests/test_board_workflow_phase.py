@@ -9,6 +9,7 @@ production semantics is the point of the seam.
 
 from __future__ import annotations
 
+import inspect
 import sys
 import unittest
 from pathlib import Path
@@ -150,6 +151,24 @@ class PlanPathResolutionCharacterizationTests(bf.FixtureBoardTestBase, unittest.
                 self.assertIsNone(app)
 
 
+class _CountingProbe:
+    """Plan-existence probe that records how many times it was invoked (t1656).
+
+    A COUNTING SPY, not a mock. `mock.assert_not_called()` would pass vacuously
+    if the parameter were dropped, renamed, or silently coerced to a bool at the
+    call boundary; a spy that is threaded through `_derive` and then counted
+    cannot pass without actually reaching the seam.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.calls = 0
+
+    def __call__(self) -> bool:
+        self.calls += 1
+        return self._inner()
+
+
 # --- Fixture builders --------------------------------------------------------
 
 import gate_ledger  # noqa: E402
@@ -189,7 +208,7 @@ class WorkflowPhaseTestBase(bf.FixtureBoardTestBase):
     """Shared fixture plumbing: real task files, real gate derivation."""
 
     def _derive(self, name: str, body: str, *, plan: bool = False,
-                break_ledger_read: bool = False):
+                break_ledger_read: bool = False, probe=None):
         """Write a task, derive its gate state through the production path, and
         return `(WorkflowPhase|None, GateStateResult)`.
 
@@ -199,6 +218,13 @@ class WorkflowPhaseTestBase(bf.FixtureBoardTestBase):
         exact combination `gate_state_for` produces (`has_ledger` is resolved
         from `task.content` BEFORE the call that raises), so the real `except`
         branch builds the result. No patching, no hand-built GateStateResult.
+
+        The plan-existence probe is wrapped in a `_CountingProbe` for EVERY
+        fixture, not only the laziness tests below (t1656), and left on
+        ``self.last_probe``: the whole existing matrix then doubles as
+        invocation accounting, while the phase answers stay the production
+        answers. `probe` overrides the real resolver for tests that need to pin
+        a specific outcome.
         """
         mgr = _manager(self.ab)
         path = self.tasks_dir / name
@@ -208,9 +234,11 @@ class WorkflowPhaseTestBase(bf.FixtureBoardTestBase):
         if break_ledger_read:
             task.filepath = self.tasks_dir / "definitely_not_on_disk.md"
         result = mgr.gate_state_for(task)
+        self.last_probe = _CountingProbe(
+            probe if probe is not None
+            else (lambda: self.ab._resolve_plan_path_for_task(task, mgr) is not None))
         phase = self.ab.derive_workflow_phase(
-            task, result, mgr.gate_registry(),
-            plan_exists=self.ab._resolve_plan_path_for_task(task, mgr) is not None,
+            task, result, mgr.gate_registry(), plan_exists_probe=self.last_probe,
         )
         return phase, result
 
@@ -612,6 +640,48 @@ class ProcedureGateAgreementTests(WorkflowPhaseTestBase, unittest.TestCase):
         self.assertEqual(phase.phase, "post_impl")
 
 
+#: The CANONICAL rung list for the phase ladder — walked by the totality /
+#: reachability tests below AND by `PlanExistsProbeLazinessTests`, so a rung
+#: added here is covered by both without a second edit (t1656).
+def _phase_matrix():
+    gated = _active_tuple_fm(["plan_approved", "review_approved"],
+                             ["plan_approved", "review_approved"], [])
+    proc = _active_tuple_fm(["plan_approved", "docs_updated", "review_approved"],
+                            ["plan_approved", "docs_updated", "review_approved"], [])
+    approved = _run("plan_approved", "pass", type="human")
+    reviewed = _run("review_approved", "pass", type="human")
+    return [
+        # (name, body, plan_exists, break_read, expected phase, expected provenance)
+        ("t940_none.md", _body("Ready"), False, False, None, None),
+        ("t941_editing.md", _body("Editing"), False, False, None, None),
+        ("t942_done.md", _body("Done"), False, False, None, None),
+        ("t943_marker.md", _body("Ready", "plan_approved_at: 2026-08-25 10:24\n"),
+         False, False, "plan_approved", "marker"),
+        ("t944_derived.md", _body("Implementing"), True, False,
+         "implementing", "derived"),
+        ("t945_unknown.md", _body("Implementing"), False, False,
+         "implementing", "unknown"),
+        ("t946_error.md", _body("Implementing", "", _ledger(approved)), False, True,
+         "implementing", "error"),
+        ("t947_awaiting.md", _body("Implementing", gated, _ledger(approved)),
+         False, False, "awaiting_review", "ledger"),
+        ("t948_procedure.md", _body("Implementing", proc, _ledger(approved, reviewed)),
+         False, False, "needs_attended_agent", "ledger"),
+        ("t949_post.md", _body("Implementing", gated, _ledger(approved, reviewed)),
+         False, False, "post_impl", "ledger"),
+        ("t950_planapproved.md",
+         _body("Implementing", _active_tuple_fm(["plan_approved"], ["plan_approved"], []),
+               _ledger(approved)),
+         False, False, "plan_approved", "ledger"),
+        # Catch-all: readable ledger, nothing pending, but `plan_approved`
+        # was never recorded so `resume_point` is PLAN.
+        ("t951_implementing.md",
+         _body("Implementing", _active_tuple_fm(["tests_pass"], ["tests_pass"], []),
+               _ledger(_run("tests_pass", "pass", type="machine"))),
+         False, False, "implementing", "ledger"),
+    ]
+
+
 # --- Post-phase mitigation: ladder totality, reachability, precedence --------
 
 class LadderTotalityAndPrecedenceTests(WorkflowPhaseTestBase, unittest.TestCase):
@@ -623,42 +693,7 @@ class LadderTotalityAndPrecedenceTests(WorkflowPhaseTestBase, unittest.TestCase)
     """
 
     def _matrix(self):
-        gated = _active_tuple_fm(["plan_approved", "review_approved"],
-                                 ["plan_approved", "review_approved"], [])
-        proc = _active_tuple_fm(["plan_approved", "docs_updated", "review_approved"],
-                                ["plan_approved", "docs_updated", "review_approved"], [])
-        approved = _run("plan_approved", "pass", type="human")
-        reviewed = _run("review_approved", "pass", type="human")
-        return [
-            # (name, body, plan_exists, break_read, expected phase, expected provenance)
-            ("t940_none.md", _body("Ready"), False, False, None, None),
-            ("t941_editing.md", _body("Editing"), False, False, None, None),
-            ("t942_done.md", _body("Done"), False, False, None, None),
-            ("t943_marker.md", _body("Ready", "plan_approved_at: 2026-08-25 10:24\n"),
-             False, False, "plan_approved", "marker"),
-            ("t944_derived.md", _body("Implementing"), True, False,
-             "implementing", "derived"),
-            ("t945_unknown.md", _body("Implementing"), False, False,
-             "implementing", "unknown"),
-            ("t946_error.md", _body("Implementing", "", _ledger(approved)), False, True,
-             "implementing", "error"),
-            ("t947_awaiting.md", _body("Implementing", gated, _ledger(approved)),
-             False, False, "awaiting_review", "ledger"),
-            ("t948_procedure.md", _body("Implementing", proc, _ledger(approved, reviewed)),
-             False, False, "needs_attended_agent", "ledger"),
-            ("t949_post.md", _body("Implementing", gated, _ledger(approved, reviewed)),
-             False, False, "post_impl", "ledger"),
-            ("t950_planapproved.md",
-             _body("Implementing", _active_tuple_fm(["plan_approved"], ["plan_approved"], []),
-                   _ledger(approved)),
-             False, False, "plan_approved", "ledger"),
-            # Catch-all: readable ledger, nothing pending, but `plan_approved`
-            # was never recorded so `resume_point` is PLAN.
-            ("t951_implementing.md",
-             _body("Implementing", _active_tuple_fm(["tests_pass"], ["tests_pass"], []),
-                   _ledger(_run("tests_pass", "pass", type="machine"))),
-             False, False, "implementing", "ledger"),
-        ]
+        return _phase_matrix()
 
     def test_totality_every_fixture_yields_one_valid_answer(self):
         for name, body, plan, broken, want_phase, want_prov in self._matrix():
@@ -734,6 +769,67 @@ class LadderTotalityAndPrecedenceTests(WorkflowPhaseTestBase, unittest.TestCase)
                   _ledger(approved)))
         self.assertIn("review_approved", result.state.archive_pending)
         self.assertEqual(phase.phase, "plan_approved")
+
+
+# --- t1656: the plan-existence probe is resolved on exactly one branch -------
+
+class PlanExistsProbeLazinessTests(WorkflowPhaseTestBase, unittest.TestCase):
+    """`plan_exists_probe` is a callable, and only the B1 no-ledger branch runs it.
+
+    Before t1656 the caller passed an already-evaluated bool, so every admitted
+    in-flight item paid one `Path.exists()` per board refresh and every state
+    but one threw it away. These tests pin the seam half of the fix; the
+    *caller* half — that `_inflight_item_for` hands over an unevaluated closure
+    rather than an eager expression — is pinned at the production boundary by
+    `PlanProbeCallerBoundaryTests` in tests/test_board_inflight_planned_lane.py,
+    because nothing here can see it: these tests supply the probe themselves.
+    """
+
+    def test_probe_is_untouched_on_every_branch_that_does_not_read_it(self):
+        """Walks the CANONICAL rung list, so a rung added to `_phase_matrix`
+        is covered here automatically.
+
+        The expected count is DERIVED from each row rather than hardcoded per
+        fixture: `derived` and `unknown` are exactly B1's two outputs, so any
+        other provenance must not have touched the probe at all.
+        """
+        for name, body, plan, broken, _want_phase, want_prov in _phase_matrix():
+            with self.subTest(fixture=name):
+                self._derive(name, body, plan=plan, break_ledger_read=broken)
+                expected = 1 if want_prov in ("derived", "unknown") else 0
+                self.assertEqual(self.last_probe.calls, expected)
+
+    def test_no_ledger_branch_invokes_the_probe_exactly_once_and_reads_it(self):
+        """POSITIVE CONTROL for the row above, on BOTH outcomes.
+
+        Without it every zero-call assertion would pass just as well against a
+        seam that ignored the parameter entirely. `== 1` rather than `>= 1` is
+        what pins "resolved once on the branch that reads it" instead of
+        re-probed per read.
+        """
+        for answer, want_prov in ((True, "derived"), (False, "unknown")):
+            with self.subTest(plan_exists=answer):
+                phase, _ = self._derive(
+                    f"t952_probe_{want_prov}.md", _body("Implementing"),
+                    probe=lambda answer=answer: answer)
+                self.assertEqual((phase.phase, phase.provenance),
+                                 ("implementing", want_prov))
+                self.assertEqual(self.last_probe.calls, 1)
+
+    def test_the_probe_parameter_is_keyword_only_and_named_for_its_laziness(self):
+        """The NAME is load-bearing, not cosmetic.
+
+        A callable bound to a boolean-sounding `plan_exists` makes B1's
+        ``"derived" if plan_exists else "unknown"`` silently always-truthy —
+        every legacy in-flight task would report `derived`, with no test failing
+        on the type. Keyword-only plus the `_probe` name is what turns an
+        un-updated call site into a `TypeError` instead of a wrong phase.
+        """
+        params = inspect.signature(self.ab.derive_workflow_phase).parameters
+        self.assertIn("plan_exists_probe", params)
+        self.assertNotIn("plan_exists", params)
+        self.assertEqual(params["plan_exists_probe"].kind,
+                         inspect.Parameter.KEYWORD_ONLY)
 
 
 # --- t1642: the two axes read the SAME predicates ----------------------------

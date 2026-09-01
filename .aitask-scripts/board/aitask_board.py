@@ -12,6 +12,7 @@ from datetime import date, datetime
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from rich.cells import cell_len, set_cell_size
@@ -264,12 +265,33 @@ def _failed_active_gates(state) -> list[str]:
 
 
 def derive_workflow_phase(task: "Task", result: GateStateResult, registry: dict,
-                          *, plan_exists: bool) -> WorkflowPhase | None:
+                          *, plan_exists_probe: Callable[[], bool],
+                          ) -> WorkflowPhase | None:
     """Which workflow phase ``task`` occupies, or ``None`` if it occupies none.
 
     Pure and app-free: a `Task`, a `GateStateResult`, the gate registry, and a
-    plan-existence boolean. No widgets, no manager, no filesystem access of its
-    own — callers thread ``plan_exists`` from `_resolve_plan_path_for_task`.
+    plan-existence probe. No widgets, no manager, no filesystem access of its
+    own — the closure the caller supplies (from `_resolve_plan_path_for_task`)
+    is what touches the disk, and only if this function asks it to.
+
+    **``plan_exists_probe`` is a CALLABLE, resolved at most once and only on the
+    B1 no-ledger branch below** (t1656). Every other state — the deferred-plan
+    marker, the `error` branch, the whole ledger ladder — returns without ever
+    invoking it, so an in-flight item in any of them costs no `Path.exists()`
+    at all. Same shape `TaskManager.gate_state_for` uses when it hands
+    `read_task_gate_state` the bound `code_digest_for_refresh` rather than its
+    value. The laziness lives HERE rather than in the caller on purpose: a
+    caller that resolved it conditionally would have to restate this ladder's
+    branch conditions, and would drift the moment their order changes.
+
+    The name says `probe`, not `plan_exists`, because a callable bound to a
+    boolean-sounding name makes the B1 ternary silently always-truthy; the
+    parameter is keyword-only so an un-updated call site is a `TypeError`
+    rather than a wrong phase.
+
+    Total by contract, exactly as `gate_ledger._resolve_digest` states for the
+    digest channel: a raising probe **propagates**. Making it total is the
+    caller's job; swallowing here would reinterpret a caller bug as a phase.
 
     ``None`` means **"not in a workflow phase"** (a `Ready` task with neither a
     deferred-plan marker nor a ledger; `Editing` / `Postponed` / `Done`). It
@@ -332,7 +354,8 @@ def derive_workflow_phase(task: "Task", result: GateStateResult, registry: dict,
         # plan file we cannot tell how far it got — a different claim from "it
         # has not started" — so provenance is `unknown` and there is NO fraction,
         # rather than a fabricated 0/N.
-        return WorkflowPhase("implementing", "derived" if plan_exists else "unknown")
+        return WorkflowPhase("implementing",
+                             "derived" if plan_exists_probe() else "unknown")
 
     # --- B2. The ledger ladder. ----------------------------------------------
     # Both pending sets are derived from `archive_pending`, never from a raw
@@ -2294,17 +2317,18 @@ class TaskManager:
         if not task_id:
             return None
         result = self.gate_state_for(task)
-        # KNOWN COST, tracked as t1656: `plan_exists` is read by
-        # exactly one of `derive_workflow_phase`'s branches (the no-ledger
-        # degradation), so this stat is discarded in every other state. Do NOT
-        # "fix" it by testing `result.error` / `result.has_ledger` here — that
-        # restates the ladder's branch conditions in the caller and drifts the
-        # moment their order changes. The fix belongs in the seam: take a
-        # CALLABLE and resolve it on the branch that reads it, exactly as
-        # `gate_state_for` does with `code_digest_for_refresh`.
         phase = derive_workflow_phase(
             task, result, self.gate_registry(),
-            plan_exists=_resolve_plan_path_for_task(task, self) is not None)
+            # The CALLABLE, not its value (t1656) — the same shape
+            # `gate_state_for` uses for `code_digest_for_refresh`. Exactly one
+            # of `derive_workflow_phase`'s branches reads it (the no-ledger
+            # degradation), so an in-flight item in any other state now pays no
+            # `Path.exists()` at all. Do NOT hoist the decision here by testing
+            # `result.error` / `result.has_ledger`: that restates the ladder's
+            # branch conditions in the caller and drifts the moment their order
+            # changes. The laziness belongs in the seam.
+            plan_exists_probe=lambda: _resolve_plan_path_for_task(
+                task, self) is not None)
         if phase is None:
             return None
         blockers = self.unresolved_local_deps(task)
