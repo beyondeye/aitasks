@@ -3,10 +3,11 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, task_metadata, robustness]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-01 11:06
-updated_at: 2026-09-01 11:06
+updated_at: 2026-09-01 11:07
 ---
 
 ## Origin
