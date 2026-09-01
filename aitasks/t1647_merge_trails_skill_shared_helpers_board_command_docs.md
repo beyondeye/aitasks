@@ -3,7 +3,7 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [skills, aitask_board, artifacts, web_site]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,7 +11,6 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1647_1, t1647_2, t1647_3, t1647_4, t1647_5, t1647_6]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-08-31 11:10
 updated_at: 2026-09-01 18:51
 ---
