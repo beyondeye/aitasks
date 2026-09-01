@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, tui, scroll, textual]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-08-31 18:32
-updated_at: 2026-08-31 22:48
+updated_at: 2026-09-01 09:40
+completed_at: 2026-09-01 09:40
 ---
 
 ## Symptom (user report)
@@ -175,3 +176,14 @@ but record the decision either way.
 > **✅ gate:plan_approved** run=2026-08-31T19:48:43Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-01T06:34:42Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-01T06:40:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:03f1ad74c5f859b9
+
+> **✅ gate:risk_evaluated** run=2026-09-01T06:40:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1653/risk_evaluated_2026-09-01T06:40:07Z-risk_evaluated-a1.log`
