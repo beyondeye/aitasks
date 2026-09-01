@@ -247,6 +247,31 @@ def _pending_human_gates(state, registry: dict) -> list[str]:
             if registry.get(g, {}).get("type") == "human"]
 
 
+def _pending_procedure_gates(state, registry: dict) -> list[str]:
+    """Active PROCEDURE gates still owed, from ONE authority (t1603_4).
+
+    Sibling of `_pending_human_gates`, and derived the same way — from
+    ``archive_pending``, the list the archival guard itself reads — so it
+    inherits `gate_ledger._gate_satisfied` and the active-set scoping for free.
+
+    A `kind: procedure` gate (``docs_updated``) is deferred by the headless
+    engine and can only be run by an attended agent, so a task whose review has
+    already passed can still be blocked from archival by one. Both consumers
+    need that fact: `derive_workflow_phase` ranks it as its own phase, and
+    `TaskDetailScreen._build_gate_fields` renders it as its own row. It was
+    inline in the former until this task made it a second consumer — two copies
+    of "which gates need an attended agent" is exactly the drift t1642
+    collapsed for the other two predicates, and the expanded gate surface exists
+    to make these axes agree, not to add a place they can differ.
+
+    An unreadable ledger (``state is None``) yields ``[]``.
+    """
+    if state is None:
+        return []
+    return [g for g in state.archive_pending
+            if registry.get(g, {}).get("kind") == "procedure"]
+
+
 def _failed_active_gates(state) -> list[str]:
     """ACTIVE gates whose current run failed, from ONE authority (t1642).
 
@@ -377,10 +402,12 @@ def derive_workflow_phase(task: "Task", result: GateStateResult, registry: dict,
     # `SharedGatePredicateContractTest` in tests/test_board_gate_digest_budget.py;
     # re-inlining either predicate here or there is what that test catches.
     #
-    # `pending_procedure` stays inline: it has no second consumer.
+    # `pending_procedure` was inline here while it had no second consumer;
+    # t1603_4's expanded gate surface is that consumer, so it moved out to
+    # `_pending_procedure_gates` under the same delegation rule and is frozen
+    # by the same test.
     pending_human = _pending_human_gates(state, registry)
-    pending_procedure = [g for g in state.archive_pending
-                         if registry.get(g, {}).get("kind") == "procedure"]
+    pending_procedure = _pending_procedure_gates(state, registry)
     failed = _failed_active_gates(state)
 
     progress, current = _gate_progress(state)
@@ -7051,6 +7078,106 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                 f"[b]Goal risk:[/b] {meta.get('risk_goal_achievement')}", classes="meta-ro"))
         return out
 
+    def _build_gate_fields(self):
+        """``(rows, fraction)`` for the Gates section — the expanded gate
+        surface (t1603_4). ``rows`` empty means no section is mounted.
+
+        The compact chip on an In-Flight card and this list must never describe
+        the same ledger differently, so **nothing here is derived locally**: the
+        fraction comes from `derive_workflow_phase`, the degraded and error
+        strings from `phase_chip_text`, the failed set from
+        `_failed_active_gates` and the attended-agent set from
+        `_pending_procedure_gates`. Satisfied-vs-pending is decided by
+        membership in ``archive_pending`` — the list the archival guard reads —
+        and a gate's raw ``current`` run only chooses the glyph *within* each
+        side. A count computed here instead would be a second implementation of
+        `_gate_progress`, which is what its docstring exists to forbid.
+        """
+        if self.manager is None:
+            return [], None
+        result = self.manager.gate_state_for(self.task_data)
+        state = result.state
+
+        # An unreadable ledger is ONE row and nothing else — no phase row
+        # beside it. This must run BEFORE the phase row: `derive_workflow_phase`
+        # branch B0 returns `error` provenance for an `Implementing` task, and
+        # `phase_chip_text` renders that as this very string, so ordering the
+        # phase row first would print it twice.
+        if result.error:
+            return [ReadOnlyField(
+                escape(phase_chip_text("implementing", "error", None,
+                                       error=result.error)),
+                classes="meta-ro")], None
+
+        has_gates = bool(state and (state.active_gates or state.filtered_gates))
+        if not (has_gates or result.has_ledger):
+            return [], None
+
+        registry = self.manager.gate_registry()
+        phase = derive_workflow_phase(
+            self.task_data, result, registry,
+            # Already resolved in __init__ — no new disk access, and the
+            # laziness t1656 introduced is preserved.
+            plan_exists_probe=lambda: self._plan_path is not None)
+
+        # A fraction is a progress claim, so it requires a ledger. Deferring to
+        # `phase.progress` inherits that rule from `derive_workflow_phase` for
+        # free: it is None on the no-ledger branch and on the marker branch, and
+        # the card prints no fraction in either. Recomputing here would print
+        # `0/N` beside "No gate ledger", the fabricated fraction `WorkflowPhase`
+        # documents as never a stand-in for `None`.
+        if phase is not None:
+            fraction = phase.progress
+        elif result.has_ledger and state is not None:
+            fraction = _gate_progress(state)[0]
+        else:
+            fraction = None
+
+        out = []
+        if phase is not None:
+            out.append(ReadOnlyField(
+                escape(phase_chip_text(phase.phase, phase.provenance,
+                                       phase.progress)),
+                classes="meta-ro"))
+        if state is None:
+            return out, fraction
+
+        pending = set(state.archive_pending)
+        failed = set(_failed_active_gates(state))
+        procedure = set(_pending_procedure_gates(state, registry))
+        for gate in state.active_gates:
+            run = state.current.get(gate)   # may be None: a declared gate that
+            status = run.status if run else None   # never ran has no entry
+            name = escape(gate)
+            if gate in pending:
+                if gate in state.stale_signed:
+                    # BOTH facts, never one without the other: the ledger really
+                    # does say `pass`, and the signature no longer binds the
+                    # code (gate_ledger.py:167-174).
+                    row = f"⚠ {name} — pass, signature stale; needs re-sign"
+                elif gate in failed:
+                    row = f"✗ {name} — failed"
+                elif gate in procedure:
+                    row = f"◈ {name} — pending; needs attended agent"
+                else:
+                    # The ordinary state of a freshly claimed task, not a
+                    # fallback: every declared gate lands here until it runs.
+                    row = f"· {name} — pending"
+            elif status == "skip":
+                # Terminal-satisfied, but distinct from pass, as in the ledger.
+                row = f"⊘ {name} — skipped (not applicable)"
+            else:
+                row = f"✓ {name} — passed"
+            out.append(ReadOnlyField(row, classes="meta-ro"))
+
+        if state.filtered_gates:
+            out.append(ReadOnlyField(
+                "[dim]filtered by profile (audit only)[/dim]", classes="meta-ro"))
+            for gate in state.filtered_gates:
+                out.append(ReadOnlyField(
+                    f"[dim]· {escape(gate)}[/dim]", classes="meta-ro"))
+        return out, fraction
+
     def _build_relations_fields(self, meta):
         """Dependencies & hierarchy metadata widgets (in display order)."""
         out = []
@@ -7256,6 +7383,18 @@ class TaskDetailScreen(ShortcutsMixin, ModalScreen):
                 with Collapsible(title=f"Risk ({len(risk)})",
                                  collapsed=True, id="sec_risk", classes="meta-section"):
                     yield from risk
+
+            # Gates (read-only) — the expanded counterpart to the In-Flight
+            # card's compact chip. The title's fraction is the chip's fraction,
+            # not a row count: filtered gates are listed but never counted, and
+            # a task with no ledger gets no fraction at all rather than `0/N`.
+            gates, gate_fraction = self._build_gate_fields()
+            if gates:
+                gate_title = ("Gates" if gate_fraction is None
+                              else f"Gates ({gate_fraction[0]}/{gate_fraction[1]})")
+                with Collapsible(title=gate_title,
+                                 collapsed=True, id="sec_gates", classes="meta-section"):
+                    yield from gates
 
             relations = self._build_relations_fields(meta)
             if relations:

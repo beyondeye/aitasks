@@ -335,14 +335,27 @@ class SharedGatePredicateContractTest(unittest.TestCase):
     """
 
     #: function name -> the exact set of functions allowed to call it.
+    #:
+    #: t1603_4 added the third predicate and the third consumer. The expanded
+    #: gate surface (`TaskDetailScreen._build_gate_fields`) classifies the same
+    #: gates the In-Flight card does, so it must reach them through these
+    #: predicates rather than re-deriving "failed" / "needs an attended agent"
+    #: — a surface whose whole purpose is agreeing with the card is the last
+    #: place a second copy belongs.
     EXPECTED_CONSUMERS = {
         "_pending_human_gates": {"derive_workflow_phase", "_human_pending_gates"},
-        "_failed_active_gates": {"derive_workflow_phase", "_has_failed_gate"},
+        "_failed_active_gates": {"derive_workflow_phase", "_has_failed_gate",
+                                 "_build_gate_fields"},
+        "_pending_procedure_gates": {"derive_workflow_phase", "_build_gate_fields"},
     }
 
     #: The methods that must stay thin. `derive_workflow_phase` is deliberately
-    #: NOT here: it legitimately still reads `archive_pending` for the
-    #: `pending_procedure` set, which has no second consumer.
+    #: NOT here: it legitimately reads `archive_pending` and `active_gates` to
+    #: rank the phases, which is its own job rather than a re-derivation.
+    #: (Until t1603_4 the reason given was that its `pending_procedure` set had
+    #: no second consumer; that set is now the shared
+    #: `_pending_procedure_gates`, but the exclusion still holds on the broader
+    #: ground above.)
     THIN_METHODS = ("_human_pending_gates", "_has_failed_gate")
 
     #: Reading any of these off the gate state IS the gate logic that must live
