@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1661
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 15:38
-updated_at: 2026-09-01 15:49
+updated_at: 2026-09-01 17:57
 ---
 
 ## Origin
@@ -81,3 +82,8 @@ updates). Note the constraints:
 
 Consider also validating `--commit-mode` at argument-parse time; t1661 added a
 `_fold_rollback` to that arm, but validating up front avoids mutating at all.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T14:58:01Z status=pass attempt=1 type=human
