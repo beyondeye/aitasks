@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1538
+implemented_with: claudecode/fable5
 created_at: 2026-08-17 23:48
-updated_at: 2026-09-01 12:58
+updated_at: 2026-09-01 15:13
 boardcol: now
 boardidx: 17478
 ---
@@ -51,3 +52,8 @@ Produce a decision record in `aidocs/framework/` (or explicitly reject the gener
 - `aidocs/framework/manual_verification_staleness.md` — current narrow design and deferred trade-offs.
 - `.claude/skills/task-workflow/planning.md` and `.aitask-scripts/aitask_plan_verified.sh` — the existing review-freshness precedent.
 - `aidocs/framework/plan_path_reference_extraction_findings.md` — **input to consult for step 2** (separating detectable evidence from heuristic signals). Records six verified defects, each with a reproduction command, in the framework's only existing "which files does this plan reference?" implementation: the extension allowlist excludes most languages, the token character class silently truncates real paths, any replacement grammar needs a delimitation rule, Unicode NFC/NFD mismatch, invalid-UTF-8 git paths, and a grep-portability trap. Produced while fixing t1275 (drift-check root allowlist); consuming it implies no dependency on t1275 unless this task's implementation elects to reuse that helper.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T12:14:04Z status=pass attempt=1 type=human
