@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [1561, t1569_5]
+depends: [1561, t1569_5, 1663]
 issue_type: feature
 status: Ready
 labels: [backlog, scheduling, planning]
 anchor: 1569
 followup_kind: carry_over
 created_at: 2026-08-31 19:48
-updated_at: 2026-08-31 19:48
+updated_at: 2026-09-01 15:20
 ---
 
 ## Problem
