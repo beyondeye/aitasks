@@ -4,6 +4,8 @@ Parent Task: aitasks/t1658_data_branch_metadata_push_strands_local_branch.md
 Sibling Tasks: aitasks/t1658/t1658_2_anchor_data_worktree_resolution_to_repo_root.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/opus5 @ 2026-09-01 15:26
 ---
 
 # t1658_1 — Converge the local data branch after an off-branch metadata push
@@ -103,13 +105,44 @@ a race can turn one state into the other, and two passes bound it):
 | ahead | behind | action | status |
 |---|---|---|---|
 | 0 | 0 | nothing | `converged` (terminal) |
-| 0 | >0 | `_ait_data_git merge --ff-only --quiet "$upstream"` | `fast-forwarded` on 0, else `blocked` |
-| >0 | 0 | `_task_push_once` | `pushed` on 0, else `failed` |
+| 0 | >0 | `_ait_data_git merge --ff-only --quiet "$upstream"` | `fast-forwarded` on 0, else `blocked` (terminal) |
+| >0 | 0 | `_task_push_once` | `pushed` on 0; on failure see the pass rule below |
 | >0 | >0 | none possible without a rebase | `diverged` (terminal) |
 
 Re-sample `TASK_CONVERGE_AHEAD` / `TASK_CONVERGE_BEHIND` after any successful
 action so the globals report the **post-cycle** state (same convention as
 `TASK_PUSH_UNPUSHED`).
+
+**What consumes pass 2 — exactly one thing.** The two-pass budget exists because
+a race can turn one state into the other, but only one arm can actually observe
+that race, and leaving it unspecified makes the ahead-only arm terminate on the
+racing case: if another writer advances origin between our `fetch` and our
+`push`, git rejects non-fast-forward and `_task_push_classify "$push_err" ""`
+returns `diverged` — so a naive "non-zero → `failed`" reports status `failed` /
+reason `diverged`, while the true state is ahead-**and**-behind and step 6's
+`converge_race_stress` asserts status `diverged` / reason `local_diverged`. The
+post-phase would fail against its own seam. So:
+
+- **`>0/0`, push failed, `_task_push_classify "$push_err" ""` = `diverged`**
+  (non-fast-forward / fetch first / rejected) → **a lost race, not a failure.**
+  Consume the next pass: re-`fetch`, re-sample, re-branch. Pass 2 normally
+  observes `>0/>0` and terminates `diverged` / `local_diverged` **from the
+  counts** — the same rule stated below for that arm.
+- **`>0/0`, push failed, any other reason** (`remote_unreachable`,
+  `no_upstream`, `unknown`) → terminal `failed` with that reason. Not a race;
+  retrying buys nothing.
+- **`blocked` stays terminal and fails closed.** The worktree is still dirty, so
+  a second pass would only burn the budget without changing the answer.
+- **`converged`, `diverged`, `fast-forwarded`, `pushed` are terminal.** A
+  successful action re-samples and reports post-cycle counts; it never consumes
+  another pass.
+- **On pass exhaustion** (pass 2's push also loses the race), take the final
+  ahead/behind sample as the truth: `>0/>0` → `diverged` / `local_diverged`.
+  Only a non-race failure reports `failed`.
+
+The outcome contract (step 4) is unaffected either way — both routes fail the
+ancestry check and report partial. It is the **reason token** that must be right,
+because that is what the recovery hint and the race test read.
 
 **Reason codes derive from the existing classifier — do not duplicate its
 greps.** A blocked ff produces "Your local changes to the following files would
@@ -192,10 +225,43 @@ AIT_METADATA_VALUE=""            # the new count / score
 AIT_METADATA_LOCAL_CONVERGED=""  # 1 = local branch has the commit, 0 = origin only
 ```
 
-- `commit_metadata_update`, `commit_metadata_update_local` and
-  `commit_and_push_from_remote_clone` set **both** globals on every returning
-  path; both are initialised at the top of the two entry functions so `set -u`
-  never bites.
+**Only the remote path produces a value.** `main()` in both scripts tests
+`has_remote_tracking` *itself* and never enters `commit_metadata_update` on the
+local path — it already holds the value from `update_model_file` **before**
+calling the helper:
+
+```bash
+if has_remote_tracking; then
+    new_runs="$(commit_metadata_update …)"      # :252 / :280 — substitution dropped
+else
+    new_runs="$(update_model_file …)"           # :257 / :285 — substitution STAYS
+    commit_metadata_update_local …              # :258 / :286 — must NOT clobber it
+fi
+```
+
+So a blanket "all three set both globals" is wrong and destructive: having
+`commit_metadata_update_local` assign `AIT_METADATA_VALUE` empties or overwrites
+the count/score, including on its bare `return` when `diff --cached --quiet`
+finds nothing staged (`verified_update_lib.sh:101-103`). One contract, no
+exceptions:
+
+| site | `AIT_METADATA_VALUE` | `AIT_METADATA_LOCAL_CONVERGED` |
+|---|---|---|
+| lib file scope | `=""` (declare) | `=""` (declare) |
+| `main()`, immediately before the `has_remote_tracking` branch | `=""` (reset) | `=""` (reset) |
+| `commit_and_push_from_remote_clone` | sets, every returning path | sets, every returning path |
+| `commit_metadata_update` (remote arm) | sets, every returning path | sets, every returning path |
+| `commit_metadata_update` (no-remote arm) | **never touches** | `=1` |
+| `commit_metadata_update_local` | **never touches** | `=1`, every successful return **including the early one** |
+| `main()` local path | assigns from `update_model_file` | reads what the helper set |
+
+Both initialisation sites are load-bearing and neither alone suffices under
+`set -u`: the file-scope declaration covers the out-param unit test, which
+sources the lib and calls `commit_metadata_update` **directly** rather than
+through `main()`; the `main()` reset keeps the read site's state fresh.
+`commit_metadata_update`'s own no-remote arm is unreachable from either script's
+`main()` today — it follows the same rule so a future caller inherits one
+uniform contract rather than a special case.
 - Control flow stays on the exit code, unchanged:
   `commit_and_push_from_remote_clone` still returns `10` to request a retry, and
   every `die` is untouched.
@@ -209,8 +275,11 @@ AIT_METADATA_LOCAL_CONVERGED=""  # 1 = local branch has the commit, 0 = origin o
   new_score="$AIT_METADATA_VALUE"
   ```
 
-- The no-remote branch sets `AIT_METADATA_LOCAL_CONVERGED=1` by construction —
-  it commits straight to the local branch.
+- Both no-remote branches — `main()`'s and `commit_metadata_update`'s — set
+  `AIT_METADATA_LOCAL_CONVERGED=1` by construction, because they commit straight
+  to the local branch. Per the table above, neither touches
+  `AIT_METADATA_VALUE`; on `main()`'s local path that value comes from
+  `update_model_file` and must survive the helper call.
 - The one substitution that **stays** is the `update_model_file` callback
   (`new_value="$("$_AIT_UPDATE_MODEL_FILE_FN" …)"`), a pure jq value producer
   that sets no globals.
@@ -246,9 +315,18 @@ tell the user the score or run count **is** recorded on origin but the local
 data branch does not have it yet, name `./ait sync`, and **continue** — a
 partial metadata update must not fail the workflow.
 
-Then run `./.aitask-scripts/aitask_skill_verify.sh` and regenerate the affected
-goldens **in the same commit** (see "Regenerate goldens after any `.md.j2` or
-closure edit" in `aidocs/framework/skill_authoring_conventions.md`).
+Then run `aitask_skill_rerender.sh`, regenerate the affected goldens
+(`tests/golden/procs/task-workflow/satisfaction-feedback-{default,fast,remote}.md`)
+and commit them **in the same commit** (see "Regenerate goldens after any
+`.md.j2` or closure edit" in `aidocs/framework/skill_authoring_conventions.md`).
+
+Run **both** `./.aitask-scripts/aitask_skill_verify.sh` **and**
+`bash tests/test_skill_render_task_workflow.sh`. `aitask_skill_verify.sh` runs no
+golden assertions — the file that actually fails on a stale golden is
+`test_skill_render_task_workflow.sh` Test 1 (`assert_eq`, per golden;
+`satisfaction-feedback.md` is in its list at `:62`). Review the golden diff
+rather than rubber-stamping it: it should contain the third-outcome prose and
+nothing else.
 
 ### 6. Tests
 
@@ -262,6 +340,14 @@ and branch mode** (the file already has `setup_remote_and_clone`,
 - ahead only → `pushed`, remote has the commit, worktree untouched.
 - ahead **and** behind → `diverged` / `local_diverged`, warning emitted, no ref moved.
 - no upstream → `failed` / `no_upstream`; no remote → `no-remote`, silent.
+- **lost push race (the pass-2 trigger).** Seed ahead-only, then advance origin
+  *between* the fetch and the push — deterministically, via a second clone
+  (`advance_remote`), never by sleeping. Assert the outcome is
+  `diverged` / `local_diverged` with correct counts, **not** `failed`. Without
+  the pass rule this returns `failed` / `diverged`, so the assertion is what
+  pins it. **Negative control in the same fixture family:** a non-race push
+  failure (no upstream) still terminates `failed` / `no_upstream` and does not
+  consume pass 2 — otherwise "always retry" would pass the positive case too.
 
 **Recovery convergence (AC4's "shows that it converges") — executed, not
 claimed.** Two fixtures, each continuing from a state above:
@@ -303,6 +389,16 @@ with zero coverage today, asserted **on the local ref**:
 - **non-silent value integrity**: run against a remote **without** `--silent`
   and assert the `UPDATED:` line's value field is a bare integer — no
   `[master abc1234] ait: Update …` git summary spliced into it.
+- **the local (no-remote) path, which no remote fixture reaches.** `main()`
+  bypasses `commit_metadata_update` entirely there, so every assertion above
+  leaves it uncovered — and it is exactly the path the out-param contract can
+  corrupt. On a repo with **no remote**, assert stdout is exactly
+  `UPDATED:<agent>:<skill>:<value>` carrying the **correct count/score** and the
+  exit status is `0`. Run both sub-states: a real change staged, and the no-op
+  state where `commit_metadata_update_local` takes its early `return`. **The
+  count is the discriminator, not the token** — a helper that clobbers
+  `AIT_METADATA_VALUE` still prints `UPDATED:`, just with an empty or stale
+  value, so asserting the token alone would miss the regression entirely.
 
 Note: if any new test body runs inside a `( … )` subshell, opt into the
 file-backed counters (`assert_counters_init` / `assert_counters_load`) per
@@ -338,6 +434,7 @@ CLAUDE.md, or the file will report zero failures no matter what failed.
 bash tests/test_task_push.sh
 bash tests/test_verified_update.sh
 bash tests/test_usage_update.sh
+bash tests/test_skill_render_task_workflow.sh
 ./.aitask-scripts/aitask_skill_verify.sh
 shellcheck .aitask-scripts/aitask_usage_update.sh \
            .aitask-scripts/aitask_verified_update.sh \
@@ -362,12 +459,14 @@ Step 9 (Post-Implementation) covers cleanup, archival and merge.
 ### Code-health risk: medium
 - `git merge --ff-only` is a **new write** to the shared `.aitask-data` worktree on a path that previously did nothing whenever it was blocked; it updates files a concurrent agent may be mid-read on · severity: medium · → mitigation: none — accepted; bounded by the `ff_blocked` fails-closed case and its recovery test in the state matrix
 - Converting the metadata chain from stdout returns to out-param globals rewrites the calling convention of four functions at once, and a missed `echo` / `$( )` would strand the verdict silently again · severity: medium · → mitigation: none — accepted; the unit test asserting the globals cross the boundary, with its `$( )` negative control, fails loudly on exactly that regression
+- `main()` bypasses `commit_metadata_update` on the local path and already holds the value before calling `commit_metadata_update_local`, so an out-param contract that has that helper set `AIT_METADATA_VALUE` corrupts the count/score on a route no remote fixture exercises · severity: medium · → mitigation: none — accepted; the contract table in step 3 states one rule (only the remote path produces a value) and the new no-remote **count** assertion in step 6 covers both sub-states including the early return
 - The pre-converge adds a `git push` inside a metadata update, publishing other sessions' *committed* data-branch commits earlier than they would otherwise leave the machine · severity: low · → mitigation: none — accepted; `ait sync` already publishes them the same way
-- A third exit status (3) and a second stdout token widen the metadata scripts' contract, and the consumer lives in a rendered skill surface across three agents · severity: low · → mitigation: none — accepted; the tokens are disjoint under `grep 'UPDATED:'`, the single Claude source rerenders to all agents, and `aitask_skill_verify.sh` gates the change
+- A third exit status (3) and a second stdout token widen the metadata scripts' contract, and the consumer lives in a rendered skill surface across three agents · severity: low · → mitigation: none — accepted; the tokens are disjoint under `grep 'UPDATED:'`, the single Claude source rerenders to all agents, and `aitask_skill_verify.sh` plus `tests/test_skill_render_task_workflow.sh` gate the change — the latter is the one that fails on stale goldens, which `aitask_skill_verify.sh` does not check
 
 ### Goal-achievement risk: low
 - The residual `diverged` state is reported, not resolved, and ownership is handed to `./ait sync` · severity: low · → mitigation: inline post-phase converge_race_stress
 - The metadata-update tests are legacy-mode fixtures while production is branch mode; a mode-specific defect in the converge seam would be invisible to them · severity: low · → mitigation: inline post-phase branch_mode_metadata_fixture
+- An ahead-only push that loses a race to another writer would have terminated `failed` rather than re-fetching, so `converge_race_stress` was asserting an outcome (`diverged` / `local_diverged`) the seam could not reach · severity: medium · → mitigation: none — accepted; step 1's pass rule names the single pass-2 trigger and the exhaustion classification, and step 6 adds a lost-race case with a non-race negative control
 
 ### Planned mitigations
 - timing: post-phase | name: branch_mode_metadata_fixture | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: goal-achievement risk 2 | desc: build `tests/lib/metadata_update_fixture.sh` :: `setup_branch_mode_metadata_repo` (real `.aitask-data` worktree, the `aitasks`/`aiplans` symlinks, seeded models file, `ait` shim) and re-run the convergence and outcome assertions through it, so the seam is exercised in the shape production runs and t1658_2 can reuse the fixture
