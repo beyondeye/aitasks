@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1657_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [framework, ait_dispatcher, bash_scripts, task_metadata, whitelists]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 created_at: 2026-09-01 12:35
-updated_at: 2026-09-01 12:35
+updated_at: 2026-09-01 17:07
 ---
 
 # Durable lane: the `## Inbox` format and the `ait note` writer
