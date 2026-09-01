@@ -66,9 +66,12 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         cp "$PROJECT_DIR/.aitask-scripts/lib/registry_lock.sh"     "$repo_dir/.aitask-scripts/lib/"
         # data_symlinks.sh is sourced at startup by aitask_init_data.sh and
         # aitask_setup.sh (t1616 — the canonical aitasks/aiplans symlink
-        # creator). Not in ./ait's own source chain, but several tests copy
-        # those two scripts into a scaffolded repo and they fail closed without
-        # it. Depends only on terminal_compat.sh (already copied above).
+        # creator), and since t1658_2 by task_utils.sh itself, whose
+        # _ait_detect_data_worktree() resolution ladder calls
+        # ait_main_worktree_root(). That last consumer is why it must be here
+        # unconditionally: task_utils.sh is the most-copied add-on lib in the
+        # suite, so without this every scaffolded test that sources it dies at
+        # source time. Depends only on terminal_compat.sh (already copied above).
         cp "$PROJECT_DIR/.aitask-scripts/lib/data_symlinks.sh"     "$repo_dir/.aitask-scripts/lib/"
     }
 

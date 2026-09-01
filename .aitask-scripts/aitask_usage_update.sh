@@ -9,6 +9,14 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/verified_update_lib.sh"
 
+# Anchor to the repo root before anything resolves a relative path. TWO
+# independent cwd anchors depend on it: `aitasks/metadata/models_<agent>.json`
+# in models_file_for_agent() below, and the `./ait git` invocations inside
+# verified_update_lib.sh. From a subdirectory the former dies with "Model config
+# not found" and the latter silently degrades the update to the local-only path
+# (t1658_2).
+ait_cd_repo_root "$SCRIPT_DIR"
+
 SUPPORTED_AGENTS=(claudecode codex opencode)
 
 AGENT_STRING=""

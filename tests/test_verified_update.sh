@@ -737,6 +737,67 @@ for round in 1 2; do
     assert_contains "race round $round: the value field is present" ":pick:" "$out31"
 done
 rm -rf "$TMPDIR_31"
+echo "--- Test 32: real entry point from a NON-ROOT cwd (branch mode, t1658_2) ---"
+# The resolution tests in tests/test_task_git.sh cannot see a missing, misplaced
+# or later-regressed `ait_cd_repo_root` — only driving the REAL script from a
+# non-root cwd can. Pre-fix every invocation below died with
+# "Model config not found" (exit 1, empty stdout), because the script has TWO
+# cwd anchors: the relative `aitasks/metadata/models_<agent>.json` and the
+# relative `./ait git` inside verified_update_lib.sh.
+#
+# EACH cwd gets its OWN fixture, and here that is load-bearing in a way it is
+# not for the usage counterpart: this script's stdout value is the ROLLING
+# AVERAGE, which stays 80 on a second run, so stdout alone cannot tell two
+# invocations apart. Only `verifiedstats.pick.all_time.runs` and the commit
+# count discriminate — and both would shift to 2 and 3 on a shared fixture,
+# leaving the second pass asserted against stale numbers or silently vacuous.
+# A fresh fixture keeps both invocations' expected values identical and
+# isolates the one variable under test: the caller's cwd.
+for launch_32 in subdir unrelated; do
+    TMPDIR_32="$(setup_branch_mode_metadata_repo aitask_verified_update.sh)"
+    WORK_32="$TMPDIR_32/work"
+    DATA_32="$WORK_32/.aitask-data"
+    mkdir -p "$WORK_32/website"
+    case "$launch_32" in
+        subdir)    cwd_32="$WORK_32/website" ;;
+        unrelated) cwd_32="/tmp" ;;
+    esac
+
+    set +e
+    out32=$(cd "$cwd_32" && "$WORK_32/.aitask-scripts/aitask_verified_update.sh" \
+        --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
+    rc32=$?
+    set -e
+
+    assert_eq "32/$launch_32: reports UPDATED from a non-root cwd" \
+        "UPDATED:claudecode/opus4_6:pick:80" "$out32"
+    assert_eq "32/$launch_32: exits 0 (not the 'Model config not found' die)" "0" "$rc32"
+
+    # Local-ref convergence, the t1658_1 invariant, still holding off-root.
+    assert_eq "32/$launch_32: nothing left unpulled on the DATA branch" "0" \
+        "$(git -C "$DATA_32" rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+    origin_sha_32="$(git -C "$DATA_32" rev-parse '@{u}')"
+    anc_rc_32=0
+    git -C "$DATA_32" merge-base --is-ancestor "$origin_sha_32" HEAD 2>/dev/null || anc_rc_32=$?
+    assert_eq "32/$launch_32: the pushed commit is an ancestor of the local data HEAD" \
+        "0" "$anc_rc_32"
+
+    # DISCRIMINATING: without the anchoring the script cannot even find its
+    # config, but a fixture that silently degraded to LEGACY mode could still
+    # report UPDATED — these two cannot pass in that case. Both numbers are
+    # correct only on a fresh fixture, which is the second reason for the
+    # per-cwd isolation above.
+    assert_eq "32/$launch_32: the data branch gained exactly one commit" "2" \
+        "$(git -C "$DATA_32" rev-list --count HEAD)"
+    assert_eq "32/$launch_32: verifiedstats landed on the DATA branch" "1" \
+        "$(jq -r '.models[0].verifiedstats.pick.all_time.runs' \
+            "$DATA_32/aitasks/metadata/models_claudecode.json")"
+    assert_eq "32/$launch_32: the code checkout has no aitasks/ of its own" "1" \
+        "$([ -L "$WORK_32/aitasks" ] && echo 1 || echo 0)"
+
+    rm -rf "$TMPDIR_32"
+done
+
 
 echo ""
 echo "==============================="

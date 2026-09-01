@@ -50,7 +50,14 @@ def copy_changelog(project: Path) -> Path:
     lib_dir = script_dir / "lib"
     lib_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(CHANGELOG_SRC, script_dir / "aitask_changelog.sh")
-    for name in ["desync_state.py", "task_utils.sh", "terminal_compat.sh", "python_resolve.sh", "archive_utils.sh", "yaml_utils.sh"]:
+    # This list is task_utils.sh's startup source chain — it sources every one
+    # of these unconditionally, so a missing entry fails the fixture at source
+    # time rather than at the assertion. data_symlinks.sh joined the chain in
+    # t1658_2 (ait_main_worktree_root backs rung 3 of the data-worktree
+    # resolution ladder). The shell suites get this from
+    # tests/lib/test_scaffold.sh; this fixture keeps its own list, so it must be
+    # extended by hand whenever that chain grows.
+    for name in ["desync_state.py", "task_utils.sh", "terminal_compat.sh", "python_resolve.sh", "archive_utils.sh", "yaml_utils.sh", "data_symlinks.sh"]:
         shutil.copy2(LIB_SRC / name, lib_dir / name)
     return script_dir / "aitask_changelog.sh"
 

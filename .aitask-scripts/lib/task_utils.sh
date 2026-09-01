@@ -16,6 +16,13 @@ source "${SCRIPT_DIR}/lib/archive_utils.sh"
 source "${SCRIPT_DIR}/lib/yaml_utils.sh"
 # shellcheck source=python_resolve.sh
 source "${SCRIPT_DIR}/lib/python_resolve.sh"
+# data_symlinks.sh provides ait_main_worktree_root(), rung 3 of the data-worktree
+# resolution ladder below. It sources only terminal_compat.sh (self-anchored via
+# its own BASH_SOURCE, so no cwd dependency) and guards against double-sourcing,
+# so there is no cycle with aitask_setup.sh / aitask_init_data.sh, which source
+# it too.
+# shellcheck source=data_symlinks.sh
+source "${SCRIPT_DIR}/lib/data_symlinks.sh"
 
 # --- Default directory variables (override before sourcing if needed) ---
 TASK_DIR="${TASK_DIR:-aitasks}"
@@ -30,15 +37,118 @@ ARCHIVED_PLAN_DIR="${ARCHIVED_PLAN_DIR:-aiplans/archived}"
 
 _AIT_DATA_WORKTREE=""
 
-# Detect whether task data lives in a separate worktree
-# Sets _AIT_DATA_WORKTREE to ".aitask-data" (branch mode) or "." (legacy mode)
+# Detect whether task data lives in a separate worktree.
+# Sets _AIT_DATA_WORKTREE to the data worktree (branch mode) or "." (legacy).
+#
+# A FOUR-RUNG ladder, first hit wins. It used to be a single cwd-relative probe,
+# which silently answered "." — indistinguishable from a genuine legacy project —
+# for every caller whose cwd was not the repo root. None of the 15 scripts that
+# perform data-branch git ops cd to the root, so from `website/` the seam
+# operated on `main` and from an unlinked crew worktree on that worktree's own
+# branch, both reporting success while the data branch was never reconciled
+# (t1658_2).
+#
+#   1. ./.aitask-data/.git          -> ".aitask-data"          (the repo root)
+#   2. <toplevel>/.aitask-data/.git -> <toplevel>/.aitask-data  (a subdirectory)
+#   3. <main>/.aitask-data/.git     -> <main>/.aitask-data      (a linked worktree
+#                                      that was never --link-worktree'd)
+#   4. otherwise                    -> "."                      (legacy mode)
+#
+# Rung 1 stays a PURE FILESYSTEM PROBE and is byte-identical to the pre-ladder
+# behaviour at the repo root — which is every ./ait-dispatched invocation.
+#
+# The <root>/.aitask-data spelling is deliberately UNCANONICALIZED (not `pwd -P`)
+# so a task worktree's symlinked data dir keeps its friendly path in messages;
+# git follows the symlink either way.
+#
+# BOUNDARY: a submodule, or any nested repository, resolves to its OWN root and
+# therefore to legacy mode — never to the parent repo's data branch. That is
+# ait_main_worktree_root()'s same-repo property and it is the correct answer, not
+# an oversight; do not "fix" it by walking up past a repository boundary.
 _ait_detect_data_worktree() {
     if [[ -n "$_AIT_DATA_WORKTREE" ]]; then return; fi
+    local root=""
+
+    # Rung 1 — today's fast path.
     if [[ -d ".aitask-data/.git" || -f ".aitask-data/.git" ]]; then
         _AIT_DATA_WORKTREE=".aitask-data"
-    else
-        _AIT_DATA_WORKTREE="."
+        return
     fi
+
+    # Rung 2 — this checkout's toplevel. The `|| root=""` is load-bearing: a bare
+    # assignment from a command substitution that fails exits 128 under
+    # `set -euo pipefail` and kills the caller with no message at all, and every
+    # framework script runs with those options.
+    root="$(git rev-parse --show-toplevel 2>/dev/null)" || root=""
+    if [[ -n "$root" && ( -d "$root/.aitask-data/.git" || -f "$root/.aitask-data/.git" ) ]]; then
+        _AIT_DATA_WORKTREE="$root/.aitask-data"
+        return
+    fi
+
+    # Rung 3 — the MAIN worktree, for a linked worktree that was never
+    # --link-worktree'd (the crew case). ait_main_worktree_root has THREE states
+    # and they must not be conflated — that is the whole point of this rung:
+    #
+    #   0  resolved      -> probe <main>/.aitask-data
+    #   1  not a git repository at all -> legacy is a PROVEN answer
+    #   2  inside a repository, but the topology did not resolve
+    #
+    # State 2 is NOT a licence to answer legacy. `git init --separate-git-dir`
+    # is a documented layout that answers 2 (see the KNOWN LAYOUT BOUNDARY note
+    # in data_symlinks.sh), and an unlinked linked worktree of such a
+    # BRANCH-MODE primary would otherwise fall straight through to "." and
+    # operate on its own code branch — reinstating, in a different layout,
+    # exactly the silent legacy fallback this ladder exists to remove.
+    #
+    # It must be called in an `if`/`|| rc=$?` for the same set -e reason as
+    # rung 2.
+    local main_rc=0
+    ait_main_worktree_root "." || main_rc=$?
+    case "$main_rc" in
+        0)
+            if [[ -d "$AIT_WT_MAIN_ROOT/.aitask-data/.git" || -f "$AIT_WT_MAIN_ROOT/.aitask-data/.git" ]]; then
+                _AIT_DATA_WORKTREE="$AIT_WT_MAIN_ROOT/.aitask-data"
+                return
+            fi
+            ;;
+        1)
+            : # Not a repository — rung 4's legacy answer is correct.
+            ;;
+        *)
+            # Indeterminate. Legacy is only safe if we can PROVE this checkout
+            # owns its repository, i.e. it is the primary (or a plain
+            # subdirectory of it) — rung 2 already established that primary has
+            # no .aitask-data, so "." is then a proven answer rather than a
+            # guess. ait_linked_worktree_roots decides that on the
+            # git-dir-vs-git-common-dir predicate, which still works when the
+            # main root does not resolve: it returns 1 for "definitively NOT
+            # linked". (It cannot return 0 here — it calls
+            # ait_main_worktree_root itself and propagates this same failure —
+            # so 1 is the only safe state.)
+            local linked_rc=0
+            ait_linked_worktree_roots "." || linked_rc=$?
+            if [[ "$linked_rc" -ne 1 ]]; then
+                die "Cannot determine where task data lives: this is a git worktree whose main checkout could not be resolved (an unsupported layout such as 'git init --separate-git-dir'). Refusing rather than defaulting to legacy mode, which would commit task data to this worktree's own branch. Give this worktree its own .aitask-data (./ait setup, or aitask_init_data.sh --link-worktree <dir>), or run the command from the main checkout."
+            fi
+            ;;
+    esac
+
+    # Rung 4 — a genuine legacy-mode project.
+    _AIT_DATA_WORKTREE="."
+}
+
+# Anchor the process to the repository root — the same rule `ait` applies
+# (`cd "$AIT_DIR"`, ait:9) so relative paths like aitasks/metadata/... and ./ait
+# resolve. Call it ONCE, early, from an ENTRY-POINT script only; never from a
+# library, and never from a sourced helper.
+#
+# Deliberately does NOT honour AITASK_REPO_ROOT: that is a single-script test
+# hook read only by aitask_add_model.sh, and promoting it to a framework-wide
+# override here would silently broaden its blast radius.
+ait_cd_repo_root() {
+    local script_dir="${1:?ait_cd_repo_root: script dir required}" root
+    root="$(cd "$script_dir/.." && pwd)" || die "Cannot resolve repo root from $script_dir"
+    cd "$root" || die "Cannot cd to repo root $root"
 }
 
 # Resolve the data worktree's git-dir. Empty when in legacy mode or when the

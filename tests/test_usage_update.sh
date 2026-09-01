@@ -305,6 +305,64 @@ set -e
 assert_eq "no-remote path exits 0" "0" "$rc16"
 assert_eq "no-remote path carries the correct value" "UPDATED:claudecode/opus4_6:pick:1" "$output16"
 rm -rf "$TMPDIR_16"
+echo "--- Test 17: real entry point from a NON-ROOT cwd (branch mode, t1658_2) ---"
+# The resolution tests in tests/test_task_git.sh cannot see a missing, misplaced
+# or later-regressed `ait_cd_repo_root` — only driving the REAL script from a
+# non-root cwd can. Pre-fix every invocation below died with
+# "Model config not found" (exit 1, empty stdout), because the script has TWO
+# cwd anchors: the relative `aitasks/metadata/models_<agent>.json` and the
+# relative `./ait git` inside verified_update_lib.sh.
+#
+# EACH cwd gets its OWN fixture. The seed carries no `usagestats` key, so a
+# second run against a shared fixture would report :2 and add a third commit —
+# every discriminating value below would shift, and the two invocations could
+# not share assertions. A fresh fixture keeps them identical and isolates the
+# one variable under test: the caller's cwd.
+for launch_17 in subdir unrelated; do
+    TMPDIR_17="$(setup_branch_mode_metadata_repo aitask_usage_update.sh)"
+    WORK_17="$TMPDIR_17/work"
+    DATA_17="$WORK_17/.aitask-data"
+    mkdir -p "$WORK_17/website"
+    case "$launch_17" in
+        subdir)    cwd_17="$WORK_17/website" ;;
+        unrelated) cwd_17="/tmp" ;;
+    esac
+
+    set +e
+    out17=$(cd "$cwd_17" && "$WORK_17/.aitask-scripts/aitask_usage_update.sh" \
+        --agent-string claudecode/opus4_6 --skill pick --silent 2>/dev/null)
+    rc17=$?
+    set -e
+
+    assert_eq "17/$launch_17: reports UPDATED from a non-root cwd" \
+        "UPDATED:claudecode/opus4_6:pick:1" "$out17"
+    assert_eq "17/$launch_17: exits 0 (not the 'Model config not found' die)" "0" "$rc17"
+
+    # Local-ref convergence, the t1658_1 invariant, still holding off-root.
+    assert_eq "17/$launch_17: nothing left unpulled on the DATA branch" "0" \
+        "$(git -C "$DATA_17" rev-list --count 'HEAD..@{u}' 2>/dev/null)"
+    origin_sha_17="$(git -C "$DATA_17" rev-parse '@{u}')"
+    anc_rc_17=0
+    git -C "$DATA_17" merge-base --is-ancestor "$origin_sha_17" HEAD 2>/dev/null || anc_rc_17=$?
+    assert_eq "17/$launch_17: the pushed commit is an ancestor of the local data HEAD" \
+        "0" "$anc_rc_17"
+
+    # DISCRIMINATING: without the anchoring the script cannot even find its
+    # config, but a fixture that silently degraded to LEGACY mode could still
+    # report UPDATED — these two cannot pass in that case. Both numbers are
+    # correct only on a fresh fixture, which is the second reason for the
+    # per-cwd isolation above.
+    assert_eq "17/$launch_17: the data branch gained exactly one commit" "2" \
+        "$(git -C "$DATA_17" rev-list --count HEAD)"
+    assert_eq "17/$launch_17: usagestats landed on the DATA branch" "1" \
+        "$(jq -r '.models[0].usagestats.pick.all_time.runs' \
+            "$DATA_17/aitasks/metadata/models_claudecode.json")"
+    assert_eq "17/$launch_17: the code checkout has no aitasks/ of its own" "1" \
+        "$([ -L "$WORK_17/aitasks" ] && echo 1 || echo 0)"
+
+    rm -rf "$TMPDIR_17"
+done
+
 
 echo ""
 echo "==============================="
