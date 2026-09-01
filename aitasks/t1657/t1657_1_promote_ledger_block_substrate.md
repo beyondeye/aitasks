@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: refactor
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1657
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 12:34
-updated_at: 2026-09-01 12:56
+updated_at: 2026-09-01 15:21
 ---
 
 # Promote the ledger-block substrate to a shared seam
@@ -119,3 +122,8 @@ Everything gate-specific stays exactly where it is: `next_attempt`, `live_run`,
 - Both gate backends still agree: run the gate suite with and without
   `AIT_GATES_BACKEND=python`.
 - `shellcheck .aitask-scripts/lib/ledger_block.sh .aitask-scripts/aitask_gate.sh`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T12:21:19Z status=pass attempt=1 type=human
