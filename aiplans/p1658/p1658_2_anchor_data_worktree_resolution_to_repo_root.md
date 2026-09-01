@@ -159,6 +159,30 @@ short-circuit detection):
    different repository.
 4. Otherwise `"."` — now reachable only from a genuinely legacy-mode project.
 
+**Rung 3 has THREE states and must not conflate them (review finding, blocking).**
+`ait_main_worktree_root` returns `0` resolved, `1` not a git repository, and `2`
+*inside* a repository whose topology did not resolve — `git init
+--separate-git-dir` is a documented layout that answers `2` (the KNOWN LAYOUT
+BOUNDARY note in `data_symlinks.sh`). Treating `2` as "fall through to rung 4"
+makes an unlinked linked worktree of such a **branch-mode** primary answer `"."`
+and commit task data to its own code branch — reinstating this task's exact bug
+in a different layout. Reproduced before the fix. So:
+
+- `0` → probe `<main>/.aitask-data`, else fall to rung 4.
+- `1` → rung 4; legacy is a proven answer.
+- `2` → legacy is safe **only if this checkout provably owns its repository**.
+  Ask `ait_linked_worktree_roots "."`: it decides on the
+  `--git-dir != --git-common-dir` predicate, which still works when the main root
+  does not resolve, and returns `1` for "definitively NOT linked". It **cannot**
+  return `0` here (it calls `ait_main_worktree_root` itself and propagates the
+  same failure), so `1` is the only safe state. Anything else → **`die`** with an
+  actionable message, matching the framework's existing posture on state 2
+  (`aitask_init_data.sh:118`).
+
+**A blanket refusal on state `2` would be a regression, not a fix**: a *legacy*
+`--separate-git-dir` project also answers `2` from a subdirectory, and `"."` is
+correct there. That case is the negative control the refusal test must carry.
+
 **Every rung's command substitution MUST be guarded.** This is not style: an
 unguarded assignment aborts the caller with status 128 and no message from any
 non-repo cwd (measured — see the verification-pass findings). `ait_main_worktree_root`
@@ -293,6 +317,26 @@ Test 5) — the resolution rungs:
 - existing Tests 1–3, 5, 10 (caching) and 12 (linked worktree *with* the
   symlink, which stays on rung 1) pass unchanged.
 
+**The consumer-agreement assertions must exercise the REAL consumers (review
+finding, blocking).** Comparing two values produced by the identical command is
+tautological and cannot catch a relative-vs-absolute bug. Source the named
+consumer functions from the repo under test — `artifact_manifest_dir`,
+`attach_meta_dir`, `attachment_lock_dir`, `_artifact_local_root` — and compare
+the **canonical** directory each resolves to for (relative value, repo root)
+against (absolute value, subdirectory); `mkdir -p` + `cd && pwd -P` makes the
+comparison physical rather than textual. Carry a **negative control**: the
+relative value used from a subdirectory must NOT agree, or the assertion cannot
+fail. `aitask_sync.sh`'s two sites are a stated gap — it calls `main()` at
+import, so it cannot be sourced; do not claim them as covered.
+
+**The no-silent-fallback contract needs its own test.** Build a
+`--separate-git-dir` **branch-mode** primary plus an unlinked linked worktree,
+drive detection as a real subprocess (the refusal is a `die`), and assert it
+emits no answer and exits non-zero. Two negative controls in the same test: a
+*legacy* `--separate-git-dir` project still answers `"."` and exits 0 (the
+refusal is not blanket), and the branch-mode root still answers `.aitask-data`
+(rung 1 untouched).
+
 **Real entry points from a non-root cwd.** The resolution tests alone cannot see
 a missing, misplaced, or later-regressed `ait_cd_repo_root` — that is exactly the
 gap this bullet closes. Build on **t1658_1's shared fixture**
@@ -415,6 +459,8 @@ entry scripts' `cd`. Do not touch `lib/sync_action_runner.py`.
 - `aitask_usage_update.sh` / `aitask_verified_update.sh` gain a `cd`, changing their cwd contract for any caller relying on cwd-relative resolution. The known call sites are the `satisfaction-feedback.md` renders, which invoke them as `./.aitask-scripts/…` from the repo root — a no-op under the new anchoring · severity: low · → mitigation: inline pre-phase characterize_data_worktree_seam
 - The nested-repository boundary (a submodule or any nested checkout must resolve to its **own** legacy mode, never the parent's data worktree) is preserved by a source comment alone — no test exercises a nested repository today. A later change to rung 2 or rung 3 could therefore make a nested checkout silently operate on its parent's data branch, which is the same silent-wrong-target class this task exists to remove · severity: medium · → mitigation: spawned after-task nested_repo_boundary_regression
 
+- Rung 3's helper has three states, and treating the *indeterminate* one (`2`, which `git init --separate-git-dir` produces) as "fall through to legacy" silently reinstates the bug for an unlinked worktree of such a branch-mode primary. Found in review, reproduced, and closed by the refusal above plus Test 14 · severity: medium · → mitigation: the state-2 refusal and its two negative controls (§2, §5)
+
 ### Goal-achievement risk: low
 - The ladder's four rungs are each directly testable and were prototyped read-only against all six shapes before implementation; the entry-point tests drive the real scripts from a non-root cwd rather than the resolution function alone, so a missing `ait_cd_repo_root` cannot pass silently.
 
@@ -422,3 +468,95 @@ entry scripts' `cd`. Do not touch `lib/sync_action_runner.py`.
 - timing: pre-phase | name: characterize_data_worktree_seam | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: low | addresses: the absolute-path consumer risk and the entry-script cwd-contract risk | desc: before touching the resolution, pin today's `_ait_detect_data_worktree` answer for every shape (repo root, subdirectory, inside `.aitask-data`, linked worktree, legacy), assert every `$_AIT_DATA_WORKTREE` consumer plus `_ait_data_gitdir` still resolves the same physical location under an absolute value, and record the current failure of the two non-root entry-point invocations so the fix is a demonstrated flip
 - timing: pre-phase | name: guard_ladder_under_set_e | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: the `set -e` abort risk | desc: add a real-subprocess characterization that runs `set -euo pipefail`, sources `task_utils.sh`, calls `_ait_detect_data_worktree` from a non-git-repo cwd and echoes a sentinel — asserting sentinel present, exit 0 and `"."`; it is the only control that can see an unguarded rung, since the in-process tests run after `set +euo pipefail`
 - timing: after | name: nested_repo_boundary_regression | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | disposition: spawn | addresses: the nested-repository boundary risk | desc: add a nested-repository/submodule-shaped regression case to `tests/test_task_git.sh` — a branch-mode parent whose `.aitask-data` exists, containing an inner checkout that is its own repository with no `.aitask-data` — asserting `_ait_detect_data_worktree` answers `"."` from inside the inner repo and that no parent lookup occurs (the resolved value must not name the parent's data worktree). Spawned rather than inlined because building a genuine nested/submodule fixture is a separable medium-effort piece of test infrastructure, while the boundary itself is already correct by construction in this change
+
+## Final Implementation Notes
+
+- **Actual work done:** Replaced `_ait_detect_data_worktree()`'s single
+  cwd-relative probe with the four-rung ladder in
+  `.aitask-scripts/lib/task_utils.sh`, added `ait_cd_repo_root()` beside it, and
+  called it once at file scope in `aitask_usage_update.sh` and
+  `aitask_verified_update.sh`. `task_utils.sh` now sources `data_symlinks.sh`
+  for `ait_main_worktree_root`. Tests: `test_task_git.sh` Test 13 (five cwd
+  shapes, the `set -e` subprocess control, real-consumer agreement) and Test 14
+  (the no-silent-fallback refusal contract); `test_usage_update.sh` Test 17 and
+  `test_verified_update.sh` Test 32 (the real entry points from `website/` and
+  `/tmp`, one fresh fixture per cwd).
+
+- **Deviations from plan:**
+  - The plan's "copy `data_symlinks.sh` in `tests/lib/test_scaffold.sh`" step was
+    already done (it landed with t1616), and no shell test copies
+    `task_utils.sh` without `setup_fake_aitask_repo` — verified across all 68
+    copy sites. The step became a comment correction: the old rationale claimed
+    the lib was "Not in ./ait's own source chain", which this change falsifies.
+  - `ait_cd_repo_root` uses the framework's established
+    `root="$(cd "$script_dir/.." && pwd)"` spelling (as `aitask_skillrun.sh:26`
+    and `aitask_run_gates.sh:21` do) rather than the plan's `dirname` form, so
+    the repo root is canonicalized the same way everywhere. It deliberately does
+    not honour `AITASK_REPO_ROOT` — a single-script test hook in
+    `aitask_add_model.sh` only.
+  - The live acceptance check was run with `--agent-string claudecode/opus5`
+    rather than the plan's literal `claudecode/opus4_6`: that invocation writes a
+    real usage statistic, and recording a run against a model that did not run it
+    would be a false stat. Result: `UPDATED:claudecode/opus5:pick:18`, exit 0,
+    `./ait git rev-list --count HEAD..@{u}` = 0.
+
+- **Issues encountered:**
+  - **A regression the shell sweep missed.** `tests/test_desync_state.py` keeps
+    its own hand-maintained lib list rather than using
+    `tests/lib/test_scaffold.sh`, so the new `data_symlinks.sh` startup
+    dependency broke it at source time. The initial sweep covered only *shell*
+    fixtures; the Python suite caught it. Fixed by extending that list and
+    recording why it must be extended by hand. No install-flow change was needed
+    — `install.sh` / `aitask_setup.sh` ship the whole `.aitask-scripts/` tree.
+  - **Review finding (blocking): rung 3 conflated three helper states.**
+    `ait_main_worktree_root` returns `2` for an indeterminate topology, which
+    `git init --separate-git-dir` produces. The first implementation fell through
+    to `"."`, so an unlinked linked worktree of such a *branch-mode* primary
+    silently operated on its own code branch — this task's own bug in a different
+    layout. Reproduced, then fixed by distinguishing `1` (not a repository →
+    legacy is proven) from `2` (refuse unless `ait_linked_worktree_roots` proves
+    the checkout owns its repository). A blanket refusal on `2` was rejected: a
+    *legacy* `--separate-git-dir` project answers `2` too and `"."` is correct
+    there.
+  - **Review finding (blocking): a tautological assertion.** Test 13g compared
+    two values computed by the identical command and exercised none of the named
+    path-prefix consumers. Rewritten to source and drive the four real consumer
+    functions and compare canonical directories, with a negative control proving
+    the comparison is prefix-sensitive.
+  - **Concurrent session.** `.aitask-scripts/lib/task_utils.sh` carried another
+    session's uncommitted t1599_3 work (a `--no-stage` flag on
+    `task_git_commit_scoped`) throughout. The hunks are disjoint — mine at old
+    lines 18–41, theirs at 206–227 — so only my hunks were staged; theirs were
+    left in the working tree untouched.
+
+- **Key decisions:**
+  - Rung 1 stays a pure filesystem probe, byte-identical at the repo root, so
+    every `./ait`-dispatched invocation is unchanged.
+  - Rungs 2/3 return an **uncanonicalized** `<root>/.aitask-data`, so a task
+    worktree's symlinked data dir keeps a readable path in messages.
+  - Every rung's command substitution is explicitly guarded. Measured: an
+    unguarded `root="$(git rev-parse --show-toplevel 2>/dev/null)"` exits 128 and
+    kills the caller with no message from any non-repo cwd, and the in-process
+    tests cannot see it (the file runs `set +euo pipefail`), which is why the
+    control is a real subprocess.
+  - A nested repository or submodule resolves to its own root and therefore to
+    legacy mode, never the parent's data branch —
+    `ait_main_worktree_root`'s same-repo property. Held by a comment here; the
+    spawned `nested_repo_boundary_regression` follow-up adds the test.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - `tests/lib/test_scaffold.sh` is *not* the only place a startup dependency has
+    to be registered: `tests/test_desync_state.py` carries a parallel,
+    hand-maintained list. Any future addition to `task_utils.sh`'s source chain
+    must update both, and a shell-only sweep will miss the second.
+  - `ait_main_worktree_root` / `ait_linked_worktree_roots` are three-state
+    helpers. `1` and `2` mean different things and a caller that treats "non-zero"
+    as one outcome will fail open on the `--separate-git-dir` layout.
+  - `setup_branch_mode_metadata_repo` (from t1658_1) is the fixture for anything
+    that must run in real branch mode; give each mutating invocation its own
+    instance, since the seed's counters and commit count are what discriminate.
+  - t1658_3 (manual verification) can rely on: `website/` and an unlinked crew
+    worktree both resolving `aitask-data`, and `aitask_usage_update.sh` /
+    `aitask_verified_update.sh` succeeding from any cwd.
