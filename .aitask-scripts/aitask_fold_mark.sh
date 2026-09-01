@@ -18,6 +18,34 @@
 #   TRANSITIVE:<id>
 #   COMMITTED:<short_hash>  |  AMENDED  |  NO_COMMIT
 #
+# RECORDS MEAN "STEP 6 REACHED A TERMINAL SUCCESS" (t1661). Steps 3-5b mutate
+# the task files, but Step 6 can still roll the whole transaction back (a failed
+# commit, or an amend the guard refuses). So the four per-mutation records above
+# are BUFFERED as they happen and flushed only on one of Step 6's three terminal
+# SUCCESS outcomes -- in emission order, immediately before the terminal record:
+#
+#   COMMITTED:<hash>  this fold's own commit was created
+#   AMENDED           the fold was folded into the preceding commit
+#   NO_COMMIT         no commit was created, and that is still a SUCCESS --
+#                     either --commit-mode none (the caller commits the
+#                     mutations itself) or a verified no-op (git reports these
+#                     paths unchanged). Nothing was rolled back either way.
+#
+# So NO_COMMIT is a valid flush outcome, not a failure, and a record does NOT
+# imply durable git history -- it means that mutation SURVIVED Step 6 and is on
+# disk, committed or handed to the caller to commit. Every Step 6 rollback path
+# dies without flushing, so a consumer never sees progress for a transaction
+# that was undone. Add a new record via _fold_emit, never a bare `echo`.
+#
+# WHAT THIS DOES NOT BUY: silence is not proof that nothing changed. An abort
+# BEFORE Step 6 -- a folded id with no task file, say, whose aitask_update.sh
+# exits non-zero under `set -e` -- leaves the mutations made so far on disk,
+# uncommitted and NOT rolled back (rollback_paths is not even built until after
+# Step 5b), and emits nothing. THE EXIT STATUS IS AUTHORITATIVE: on a non-zero
+# exit, reconcile the task files rather than trusting an empty record set.
+# Making that path transactional is a separate concern from this output
+# contract -- it needs the rollback set assembled before Step 3.
+#
 # Usage:
 #   aitask_fold_mark.sh [--no-transitive] [--commit-mode fresh|amend|none] \
 #                      <primary_id> <folded_id1> [<folded_id2> ...]
@@ -33,6 +61,21 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 # are sourced LAZILY in Step 5b — only when a folded task actually carries an
 # attachment — so a plain fold needs neither lib present (keeps the common path
 # and minimal test fixtures dependency-free).
+
+# --- Structured-record buffer (t1661) ----------------------------------------
+# Holds the Steps 3-5b records until Step 6 reaches a terminal success.
+# See the "RECORDS MEAN ..." note in the header above.
+# Deliberately defined here, ABOVE Step 6: tests/test_fold_mark.sh's
+# install_prefix_commit_block excises Step 6 to rebuild t1599_2's pre-fix
+# commit block, and that rebuild must not take the buffer with it.
+_fold_records=()
+_fold_emit() { _fold_records+=( "$1" ); }
+_fold_flush_records() {
+    local r
+    for r in ${_fold_records[@]+"${_fold_records[@]}"}; do printf '%s\n' "$r"; done
+    _fold_records=()
+}
+# --- end structured-record buffer --------------------------------------------
 
 usage() {
     cat <<EOF
@@ -342,7 +385,7 @@ fi
     ${gates_args[@]+"${gates_args[@]}"} \
     ${abd_args[@]+"${abd_args[@]}"} \
     --silent >/dev/null
-echo "PRIMARY_UPDATED:${primary_id}"
+_fold_emit "PRIMARY_UPDATED:${primary_id}"
 
 # Step 4: mark each new folded task. Clear its risk_mitigation_tasks: the list
 # is instance-specific (see note above) and a folded task no longer drives its
@@ -350,14 +393,14 @@ echo "PRIMARY_UPDATED:${primary_id}"
 for fid in "${folded_ids[@]}"; do
     fid="${fid#t}"
     "$SCRIPT_DIR/aitask_update.sh" --batch "$fid" --status Folded --folded-into "$primary_id" --risk-mitigation-tasks "" --silent >/dev/null
-    echo "FOLDED:${fid}"
+    _fold_emit "FOLDED:${fid}"
 
     # Step 4b: child task parent cleanup
     if [[ "$fid" =~ ^([0-9]+)_([0-9]+)$ ]]; then
         fp="${BASH_REMATCH[1]}"
         fc="${BASH_REMATCH[2]}"
         "$SCRIPT_DIR/aitask_update.sh" --batch "$fp" --remove-child "t${fid}" --silent >/dev/null 2>&1 || true
-        echo "CHILD_REMOVED:${fp}:${fc}"
+        _fold_emit "CHILD_REMOVED:${fp}:${fc}"
     fi
 done
 
@@ -366,7 +409,7 @@ for tid in "${transitive_ids[@]}"; do
     tid="${tid#t}"
     [[ -z "$tid" ]] && continue
     "$SCRIPT_DIR/aitask_update.sh" --batch "$tid" --folded-into "$primary_id" --silent >/dev/null 2>&1 || true
-    echo "TRANSITIVE:${tid}"
+    _fold_emit "TRANSITIVE:${tid}"
 done
 
 # Step 5b (t1030_3, extended t1076_2): transfer folded tasks' attachments AND
@@ -737,10 +780,14 @@ case "$commit_mode" in
         case "$crc" in
             0)
                 hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
+                _fold_flush_records
                 echo "COMMITTED:${hash}"
                 ;;
             2)
                 # Verified nothing to commit for these paths -- benign no-op.
+                # A terminal SUCCESS: nothing was rolled back and the
+                # mutations stand, so the records are honest -- flush them.
+                _fold_flush_records
                 echo "NO_COMMIT"
                 ;;
             *)
@@ -761,6 +808,7 @@ case "$commit_mode" in
         # `add` only so an untracked path can be named by the pathspec.
         task_git add -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
         if task_git commit --amend --no-edit -o --quiet -- "${rollback_paths[@]}" >/dev/null 2>&1; then
+            _fold_flush_records
             echo "AMENDED"
         else
             _fold_rollback
@@ -768,9 +816,16 @@ case "$commit_mode" in
         fi
         ;;
     none)
+        # The caller stages and commits; the mutations stand on disk either
+        # way, so this is a terminal success and the records are flushed.
+        _fold_flush_records
         echo "NO_COMMIT"
         ;;
     *)
+        # Validated only here, after Steps 3-5b already wrote every mutation,
+        # so this exit owes the same rollback as the other three -- otherwise it
+        # leaves the task files dirty for the next unscoped commit to sweep.
+        _fold_rollback
         die "invalid --commit-mode: $commit_mode"
         ;;
 esac

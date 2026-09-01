@@ -13,6 +13,17 @@
 #     commit), and --commit-mode amend refuses to rewrite a HEAD that is not
 #     this fold's to rewrite (foreign task file, unknown metadata, or already
 #     published) -- rolling the fold back rather than leaving it dirty.
+#   - t1661: the four per-mutation records (PRIMARY_UPDATED / FOLDED /
+#     CHILD_REMOVED / TRANSITIVE) are buffered and reach stdout only when Step 6
+#     reaches a TERMINAL SUCCESS -- which includes NO_COMMIT (--commit-mode none
+#     and the verified no-op), so a record means "survived Step 6", not
+#     "committed". All four flush points (crc=0, crc=2, amend, none) print the
+#     full set in emission order ahead of the terminal record; all three Step 6
+#     failure exits (guard refusal, fresh-commit failure, amend-commit failure)
+#     roll back and print nothing. An abort BEFORE Step 6 also prints nothing --
+#     and its RESIDUAL is pinned too: that path rolls back nothing, so the
+#     mutations stay on disk uncommitted and the non-zero EXIT STATUS, not the
+#     empty record set, is what says so.
 #
 # Partial-commit semantics inherited from t1599_1: `commit -o -- <paths>`
 # commits those paths' WORKTREE content and ignores their index entry, and
@@ -191,6 +202,11 @@ test_none_mode_no_commit() {
     output=$(bash .aitask-scripts/aitask_fold_mark.sh --commit-mode none 10 20 2>&1)
     assert_contains "output says NO_COMMIT" "NO_COMMIT" "$output"
 
+    # t1661: `none` is a terminal SUCCESS — the caller commits the mutations
+    # itself — so the buffered records are flushed here too, ahead of NO_COMMIT.
+    assert_eq "records flushed ahead of NO_COMMIT" \
+        $'PRIMARY_UPDATED:10\nFOLDED:20\nNO_COMMIT' "$output"
+
     local after_hash
     after_hash=$(git rev-parse HEAD)
     assert_eq "HEAD unchanged" "$before_hash" "$after_hash"
@@ -289,6 +305,50 @@ assert_no_fold_residue() {
     assert_eq "$desc: HEAD unchanged" "$before" "$(git rev-parse HEAD)"
     for p in "${FOLD_PATHS[@]}"; do
         assert_eq "$desc: no residue on $p" "" "$(git status --porcelain -- "$p")"
+    done
+}
+
+# --- t1661 helpers -----------------------------------------------------------
+
+# _run_fold_split <args...> — run fold_mark capturing stdout and stderr
+# SEPARATELY into FOLD_OUT / FOLD_ERR, with the exit status in FOLD_RC.
+#
+# The t1599_2 refusal tests above use `2>&1`, which is fine for asserting that
+# a message appeared but useless here: a merged stream cannot tell a leaked
+# progress record from the refusal text that is supposed to be the only output.
+# Every silence assertion below needs the split.
+FOLD_OUT=""; FOLD_ERR=""; FOLD_RC=0
+_run_fold_split() {
+    local errfile
+    errfile="$(mktemp)"
+    FOLD_RC=0
+    FOLD_OUT="$(bash .aitask-scripts/aitask_fold_mark.sh "$@" 2>"$errfile")" || FOLD_RC=$?
+    FOLD_ERR="$(cat "$errfile")"
+    rm -f "$errfile"
+}
+
+# _install_failing_pre_commit_hook — make `git commit` (and `--amend`) fail.
+#
+# This is the only way to reach the two POST-staging failure exits: the amend
+# guard refuses before staging, so it exercises a different path. Neither
+# commit site passes --no-verify (task_utils.sh's task_git_commit_scoped, and
+# the amend in aitask_fold_mark.sh), the scaffold sets no core.hooksPath, and
+# task_git is plain `git` in $PWD in these fixtures — so a failing pre-commit
+# hook fails the commit itself. Git releases the index lock on hook failure, so
+# _fold_rollback still works and the restoration half stays assertable.
+_install_failing_pre_commit_hook() {
+    local hook=".git/hooks/pre-commit"
+    mkdir -p "$(dirname "$hook")"
+    printf '#!/bin/sh\nexit 1\n' > "$hook"
+    chmod +x "$hook"
+}
+
+# assert_no_records <desc> <output> — none of the four per-mutation records
+# leaked. Named individually rather than as one regex so a failure says which.
+assert_no_records() {
+    local desc="$1" out="$2" r
+    for r in "PRIMARY_UPDATED:" "FOLDED:" "CHILD_REMOVED:" "TRANSITIVE:"; do
+        assert_not_contains "$desc: no $r record" "$r" "$out"
     done
 }
 
@@ -600,6 +660,227 @@ test_child_fold_commits_parent_file() {
     teardown
 }
 
+# --- t1661: records describe surviving state only ----------------------------
+#
+# Three tests for the three Step 6 failure exits (guard refusal before staging,
+# fresh-commit failure, amend-commit failure): stdout must be silent, and the
+# rollback must still have happened. Three more for the four flush points
+# (crc=0, crc=2, amend, none — the last extends test_none_mode_no_commit above):
+# the full record set must survive, in order, ahead of the terminal record.
+# Plus the pre-Step-6 abort, where the contract deliberately stops short.
+
+test_refused_amend_emits_no_records() {
+    echo "=== Test: t1661 — a refused amend emits no records ==="
+    _setup_amend_fixture
+
+    # HEAD acquires a foreign task file, so the guard refuses BEFORE staging.
+    write_task aitasks/t77_foreign.md
+    git add aitasks/t77_foreign.md
+    git commit --amend --no-edit --quiet
+
+    local before
+    before=$(git rev-parse HEAD)
+    _run_fold_split --commit-mode amend 10 20
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "stdout is empty" "" "$FOLD_OUT"
+    assert_no_records "guard refusal" "$FOLD_OUT"
+    assert_contains "refusal went to stderr" "refusing --commit-mode amend" "$FOLD_ERR"
+    # The silence is only honest if the transaction really was undone.
+    assert_no_fold_residue "guard refusal" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_eq "folded task has no folded_into" "" \
+        "$(read_frontmatter_field aitasks/t20_a.md folded_into)"
+    assert_eq "primary has no folded_tasks" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+
+    teardown
+}
+
+test_fresh_commit_failure_emits_no_records() {
+    echo "=== Test: t1661 — a failed fresh commit emits no records ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+    FOLD_PATHS=( aitasks/t10_primary.md aitasks/t20_a.md )
+
+    local before
+    before=$(git rev-parse HEAD)
+    _install_failing_pre_commit_hook
+
+    _run_fold_split --commit-mode fresh 10 20
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "stdout is empty" "" "$FOLD_OUT"
+    assert_no_records "fresh commit failure" "$FOLD_OUT"
+    assert_contains "failure went to stderr" "fold commit failed" "$FOLD_ERR"
+    assert_no_fold_residue "fresh commit failure" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+    assert_eq "primary has no folded_tasks" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+
+    teardown
+}
+
+test_amend_commit_failure_emits_no_records() {
+    echo "=== Test: t1661 — a failed amend commit emits no records ==="
+    # Clean HEAD, so the guard PERMITS the amend and the commit itself is what
+    # fails — a different exit from test_refused_amend_emits_no_records above.
+    _setup_amend_fixture
+
+    local before
+    before=$(git rev-parse HEAD)
+    _install_failing_pre_commit_hook
+
+    _run_fold_split --commit-mode amend 10 20
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "stdout is empty" "" "$FOLD_OUT"
+    assert_no_records "amend commit failure" "$FOLD_OUT"
+    assert_contains "failure went to stderr" "fold amend-commit failed" "$FOLD_ERR"
+    assert_no_fold_residue "amend commit failure" "$before"
+    assert_eq "folded task reverted to Ready" "Ready" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+
+    teardown
+}
+
+# _seed_all_record_types — a fold whose run produces every record type:
+# PRIMARY_UPDATED (10), FOLDED (20 and the child 30_1), CHILD_REMOVED (30:1)
+# and TRANSITIVE (70, 71, carried by t20's own folded_tasks).
+_seed_all_record_types() {
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md "folded_tasks: [70, 71]"
+    write_task aitasks/t70_x.md
+    write_task aitasks/t71_y.md
+    write_task aitasks/t30_orig_parent.md "children_to_implement: [t30_1]"
+    write_task aitasks/t30/t30_1_child.md
+}
+
+# The emission order Steps 3-5 produce, which buffering must not disturb.
+ALL_RECORDS=$'PRIMARY_UPDATED:10\nFOLDED:20\nFOLDED:30_1\nCHILD_REMOVED:30:1\nTRANSITIVE:70\nTRANSITIVE:71'
+
+# assert_records_then <desc> <terminal-record-prefix>
+# The buffered records must appear in ALL_RECORDS order, with the terminal
+# record last and nothing else in between.
+assert_records_then() {
+    local desc="$1" terminal="$2"
+    assert_eq "$desc: 6 records + terminal" "7" "$(printf '%s\n' "$FOLD_OUT" | wc -l)"
+    assert_eq "$desc: records in emission order" "$ALL_RECORDS" \
+        "$(printf '%s\n' "$FOLD_OUT" | head -n 6)"
+    assert_contains "$desc: terminal record last" "$terminal" \
+        "$(printf '%s\n' "$FOLD_OUT" | tail -n 1)"
+}
+
+test_fresh_flush_order_preserved() {
+    echo "=== Test: t1661 — fresh flushes the full record set, in order ==="
+    setup_project
+
+    _seed_all_record_types
+    git add -A
+    git commit -m "Setup" --quiet
+
+    _run_fold_split --commit-mode fresh 10 20 30_1
+
+    assert_eq "exits zero" "0" "$FOLD_RC"
+    assert_records_then "fresh" "COMMITTED:"
+
+    teardown
+}
+
+test_amend_flush_order_preserved() {
+    echo "=== Test: t1661 — a permitted amend flushes the full record set ==="
+    setup_project
+
+    _seed_all_record_types
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # HEAD the amend targets carries only the primary, so the guard permits it.
+    printf '\ncreated\n' >> aitasks/t10_primary.md
+    git add aitasks/t10_primary.md
+    git commit -m "ait: Add task t10: primary" --quiet
+
+    _run_fold_split --commit-mode amend 10 20 30_1
+
+    assert_eq "exits zero" "0" "$FOLD_RC"
+    assert_records_then "amend" "AMENDED"
+
+    teardown
+}
+
+test_fresh_verified_noop_flushes_records() {
+    echo "=== Test: t1661 — a verified no-op fresh commit still flushes ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    local before
+    before=$(git rev-parse HEAD)
+
+    # task_git_commit_scoped returns 2 when `git status --porcelain -- <paths>`
+    # is empty with rc 0. In production that is the idempotent re-fold, whose
+    # rewrite is byte-identical — but only within the same minute, since
+    # aitask_update.sh stamps updated_at to the current one. The index bit is
+    # the deterministic stand-in: git reports these paths clean however the
+    # fold rewrites them on disk. `NO_COMMIT` from a FRESH invocation can only
+    # come from that arm (crc=0 prints COMMITTED:), so the assertion below
+    # cannot pass without actually reaching it.
+    git update-index --assume-unchanged aitasks/t10_primary.md aitasks/t20_a.md
+
+    _run_fold_split --commit-mode fresh 10 20
+
+    assert_eq "exits zero" "0" "$FOLD_RC"
+    assert_eq "records flushed ahead of NO_COMMIT" \
+        $'PRIMARY_UPDATED:10\nFOLDED:20\nNO_COMMIT' "$FOLD_OUT"
+    assert_eq "no commit was created" "$before" "$(git rev-parse HEAD)"
+    # The records are only honest if the mutations really did survive.
+    assert_eq "folded task IS Folded on disk" "Folded" \
+        "$(read_frontmatter_field aitasks/t20_a.md status)"
+
+    git update-index --no-assume-unchanged aitasks/t10_primary.md aitasks/t20_a.md
+    teardown
+}
+
+test_abort_mid_mutation_emits_no_records() {
+    echo "=== Test: t1661 — an abort before Step 6 emits no records ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # A folded id with no task file: Step 3 updates the primary, then Step 4's
+    # aitask_update.sh for the missing id exits non-zero and `set -e` kills the
+    # script BEFORE Step 6. The buffer is never flushed, so stdout stays empty.
+    _run_fold_split --commit-mode fresh 10 9999
+
+    assert_eq "exits non-zero" "1" "$FOLD_RC"
+    assert_eq "stdout is empty" "" "$FOLD_OUT"
+    assert_no_records "pre-Step-6 abort" "$FOLD_OUT"
+    assert_contains "stderr names the missing task" "9999" "$FOLD_ERR"
+
+    # ...and the documented RESIDUAL, pinned so nobody mistakes silence for
+    # "nothing happened": this path rolls back nothing, so the Step 3 mutation
+    # is still on disk, uncommitted. The non-zero exit status is what tells the
+    # caller to reconcile. Making this transactional is out of scope for the
+    # output contract — it needs rollback_paths assembled before Step 3.
+    assert_eq "residual: the Step 3 mutation is still on disk" "[9999]" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+    assert_status_code "residual: dirty in the worktree, never committed" \
+        " M" aitasks/t10_primary.md
+
+    teardown
+}
+
 # --- Negative controls -------------------------------------------------------
 #
 # Rebuild the fixture's copy of aitask_fold_mark.sh with the PRE-FIX Step 6
@@ -632,20 +913,24 @@ case "$commit_mode" in
         done
         if task_git commit -m "ait: Fold tasks into t${primary_id}: merge ${joined}" --quiet >/dev/null 2>&1; then
             hash=$(task_git rev-parse --short HEAD 2>/dev/null || echo "")
+            _fold_flush_records
             echo "COMMITTED:${hash}"
         else
+            _fold_flush_records
             echo "NO_COMMIT"
         fi
         ;;
     amend)
         task_git add aitasks/ >/dev/null 2>&1 || true
         if task_git commit --amend --no-edit --quiet >/dev/null 2>&1; then
+            _fold_flush_records
             echo "AMENDED"
         else
             die "fold amend-commit failed"
         fi
         ;;
     none)
+        _fold_flush_records
         echo "NO_COMMIT"
         ;;
     *)
@@ -680,6 +965,79 @@ assert_defect_present() {
 }
 
 _head_contains() { git show --name-only --pretty=format: HEAD | grep -qxF -- "$1"; }
+
+# _out_contains <needle> — predicate over the last _run_fold_split's stdout.
+_out_contains() { case "$FOLD_OUT" in *"$1"*) return 0 ;; *) return 1 ;; esac; }
+
+# t1661 control: rebuild the fixture's copy with the PRE-FIX record emission —
+# each record printed the moment its mutation happens, nothing buffered. The
+# silence tests above would pass just as happily against a build that never
+# emits anything at all; this is what tells the two apart.
+#
+# It patches only the delimited helper block, which lives ABOVE Step 6, so it
+# composes with install_prefix_commit_block rather than fighting it.
+install_unbuffered_record_emission() {
+    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+start = s.index('# --- Structured-record buffer (t1661)')
+end = s.index('\n', s.index('# --- end structured-record buffer')) + 1
+pre = """# --- Structured-record buffer (t1661) --- PRE-FIX BUILD: unbuffered
+_fold_emit() { printf '%s\\n' "$1"; }
+_fold_flush_records() { :; }
+# --- end structured-record buffer ---
+"""
+open(p, 'w').write(s[:start] + pre + s[end:])
+PY
+    # Prove the injection landed — emission is direct AND the buffer is gone.
+    grep -q "_fold_emit() { printf" .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: negative control did not install unbuffered emission"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    grep -q '_fold_records+=' .aitask-scripts/aitask_fold_mark.sh \
+        && { echo "FAIL: negative control left the record buffer in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
+    return 0
+}
+
+test_negative_control_unbuffered_on_refusal() {
+    echo "=== Negative control: pre-fix emission DOES leak on a refused amend ==="
+    _setup_amend_fixture
+
+    write_task aitasks/t77_foreign.md
+    git add aitasks/t77_foreign.md
+    git commit --amend --no-edit --quiet
+
+    install_unbuffered_record_emission || { teardown; return; }
+
+    _run_fold_split --commit-mode amend 10 20
+
+    assert_defect_present "pre-fix: a refused amend still prints PRIMARY_UPDATED" \
+        _out_contains "PRIMARY_UPDATED:10"
+    assert_defect_present "pre-fix: a refused amend still prints FOLDED" \
+        _out_contains "FOLDED:20"
+
+    teardown
+}
+
+test_negative_control_unbuffered_on_commit_failure() {
+    echo "=== Negative control: pre-fix emission DOES leak on a failed commit ==="
+    setup_project
+
+    write_task aitasks/t10_primary.md
+    write_task aitasks/t20_a.md
+    git add -A
+    git commit -m "Setup" --quiet
+
+    install_unbuffered_record_emission || { teardown; return; }
+    _install_failing_pre_commit_hook
+
+    _run_fold_split --commit-mode fresh 10 20
+
+    assert_defect_present "pre-fix: a failed fresh commit still prints PRIMARY_UPDATED" \
+        _out_contains "PRIMARY_UPDATED:10"
+
+    teardown
+}
 
 test_negative_control_fresh() {
     echo "=== Negative control: pre-fix fresh mode DOES swallow (both mechanisms) ==="
@@ -796,10 +1154,21 @@ test_amend_permits_child_primary_parent_file
 test_amend_refuses_published_head
 test_child_fold_commits_parent_file
 
+# t1661 — records reach stdout only on a Step 6 terminal success
+test_refused_amend_emits_no_records
+test_fresh_commit_failure_emits_no_records
+test_amend_commit_failure_emits_no_records
+test_fresh_flush_order_preserved
+test_amend_flush_order_preserved
+test_fresh_verified_noop_flushes_records
+test_abort_mid_mutation_emits_no_records
+
 # Negative controls (must observe the defect against the pre-fix build)
 test_negative_control_fresh
 test_negative_control_amend_sweeps
 test_negative_control_amend
+test_negative_control_unbuffered_on_refusal
+test_negative_control_unbuffered_on_commit_failure
 
 echo ""
 echo "=========================="
