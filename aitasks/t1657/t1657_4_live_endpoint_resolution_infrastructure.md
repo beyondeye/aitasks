@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [t1657_2]
 issue_type: feature
 status: Ready
 labels: [framework, tmux, concurrency, codeagent, bash_scripts]
 gates: [risk_evaluated]
 anchor: 1657
 created_at: 2026-09-01 12:36
-updated_at: 2026-09-01 12:36
+updated_at: 2026-09-01 12:37
 ---
 
 # Live-endpoint resolution infrastructure and agent adapters

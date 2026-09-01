@@ -1,14 +1,14 @@
 ---
 priority: high
 effort: medium
-depends: []
+depends: [t1657_2, t1657_4]
 issue_type: feature
 status: Ready
 labels: [framework, claudeskills, skills, agents_md, codeagent]
 gates: [risk_evaluated]
 anchor: 1657
 created_at: 2026-09-01 12:36
-updated_at: 2026-09-01 12:36
+updated_at: 2026-09-01 12:37
 ---
 
 # Discoverability: the `aitask-note` skill and the always-loaded surfaces
