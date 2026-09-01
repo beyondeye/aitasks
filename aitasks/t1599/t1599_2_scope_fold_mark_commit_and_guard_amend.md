@@ -178,3 +178,5 @@ Also run `shellcheck .aitask-scripts/aitask_fold_mark.sh`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-01T07:13:47Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-01T07:59:11Z status=pass attempt=1 type=human
