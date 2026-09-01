@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1653
 followup_kind: review_finding
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 09:53
-updated_at: 2026-09-01 10:02
+updated_at: 2026-09-01 15:19
 ---
 
 `test_minimonitor_startup_input_latency.py::MountWindowProbeTests::test_mount_returns_while_the_window_probe_is_still_blocked`
@@ -61,3 +64,8 @@ signal if it is the first.
 - The mechanism is identified and stated (regression vs. marginal assertion).
 - `bash tests/run_all_python_tests.sh --test-dir tests` reports
   `PYTHON SUITE: PASSED` on an idle box, repeatably.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T12:19:40Z status=pass attempt=1 type=human
