@@ -139,3 +139,8 @@ framework writers, but the guard must not fail open on a field it cannot see.
 - `hugo build --gc --minify` succeeds in `website/`, and any `relref` added
   resolves (a dead `#fragment` does **not** fail the build — check anchors by
   hand).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T12:58:07Z status=pass attempt=1 type=human
