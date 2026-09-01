@@ -101,6 +101,37 @@ else
     echo "FAIL: the stop_reason branches do not strictly interleave with their commands (deferred@$deferred_hdr now@$now_cmd drift@$drift_hdr clear@$clear_cmd) -- a drift stop could execute the deferred command"
 fi
 
+# --- the THIRD stop_reason selects the stamping side (t1597) --------------
+#
+# `resource_admission` (the Step-7 admission hook's park) leaves an approved plan
+# intact and awaiting implementation -- exactly what the marker means -- so it
+# must share the `deferred` command, not the `drift` one. Asserted POSITIONALLY
+# for the same reason as the pair above: rendering the clause somewhere in the
+# file is not enough, it has to sit on the stamping branch. A future stop reason
+# that lands on the wrong side of `drift_hdr` clears a marker on a task whose
+# plan is perfectly good.
+# The needle is the BRANCH clause, not the bare name: `resource_admission` also
+# appears in the Input-context table and in the exhaustiveness guard, and a
+# match on either of those would locate a line above the whole conditional and
+# make the positional check meaningless.
+ra_needle='**or `resource_admission`** (the admission hook'"'"'s park)'
+assert_hits "plan-approved-stop.md routes 'resource_admission' through the deferred branch" \
+    "1" "$STOP" "$ra_needle"
+ra_clause="$(grep -nF -- "$ra_needle" "$STOP" | head -n1 | cut -d: -f1)"
+TOTAL=$((TOTAL + 1))
+if [[ -n "$ra_clause" && "$deferred_hdr" -le "$ra_clause" && "$ra_clause" -lt "$now_cmd" ]]; then
+    PASS=$((PASS + 1))
+    echo "PASS: 'resource_admission' sits on the stamping branch (deferred@$deferred_hdr <= resource_admission@$ra_clause -> now@$now_cmd)"
+else
+    FAIL=$((FAIL + 1))
+    echo "FAIL: 'resource_admission' is not on the stamping branch (deferred@$deferred_hdr resource_admission@$ra_clause now@$now_cmd drift@$drift_hdr) -- an admission park would clear the marker of an intact approved plan"
+fi
+
+# The vocabulary is closed, and its guard has to name every member: a reason the
+# guard does not list is one an agent has to guess a disposition for.
+assert_contains "the exhaustiveness guard names all three stop reasons" \
+    'as exactly `deferred`, `drift` or `resource_admission`' "$(cat "$STOP")"
+
 echo "--- The clear sites ---"
 
 assert_hits "SKILL.md consumes the marker when implementation starts" \

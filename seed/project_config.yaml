@@ -184,9 +184,52 @@ test_command:
 lint_command:
 
 # ──────────────────────────────────────────────────────────────────────
-# gate_command_exit_contract — Which of the command keys above speak the
-# gate exit contract, so an exit of 2 means "I did not run" (a gate SKIP)
-# instead of "I ran and failed".
+# resource_admission_command — Asked whether this host can afford to START
+# implementing a task.
+#
+# Consulted once by task-workflow Step 7, after the plan is approved and the
+# remote drift check has passed, and BEFORE any branch or worktree is cut.
+# Implementation and verification are usually the memory-bound phases; this is
+# where a project gets to say "not right now" instead of OOMing mid-run.
+#
+# ONE command (unlike the keys above, which take a list) — a project needing
+# several probes points this at one wrapper script. A list value is refused
+# whatever its length, so there is no length-dependent edge: ["./probe.sh"] is
+# rejected exactly as [a, b] is.
+#
+#   exit 0  -> admit: implementation proceeds
+#   exit 2  -> defer: the task returns to Ready KEEPING its approved plan, so
+#              the next pick skips planning (`ait ls --plan-approved` finds it)
+#   other   -> error: also defers, and says the hook could not be evaluated
+#
+# Print an `ADMISSION_REASON: <text>` line to tell the user why. Everything
+# else the command prints goes to a log, whose path is reported with the stop.
+#
+# Leave blank to disable — unset means this step does nothing at all: no
+# prompt, no display, no file.
+#
+#   # Refuse below 8 GiB of available memory:
+#   resource_admission_command: "./tools/check_memory.sh"
+#
+#     #!/usr/bin/env bash
+#     avail_gib=$(awk '/^MemAvailable:/ {printf "%d", $2/1048576}' /proc/meminfo)
+#     if [ "$avail_gib" -lt 8 ]; then
+#         echo "ADMISSION_REASON: only ${avail_gib} GiB available, need 8"
+#         exit 2
+#     fi
+# ──────────────────────────────────────────────────────────────────────
+
+resource_admission_command:
+
+# ──────────────────────────────────────────────────────────────────────
+# gate_command_exit_contract — Which of the THREE GATE command keys above
+# (verify_build, test_command, lint_command) speak the gate exit contract, so
+# an exit of 2 means "I did not run" (a gate SKIP) instead of "I ran and
+# failed".
+#
+# resource_admission_command is NOT one of them and cannot be listed here: it
+# is not a gate, and its exit 2 already has a fixed meaning of its own
+# ("defer this task"), defined at that key rather than opted into here.
 #
 # The three machine gates that run project commands — build_verified
 # (verify_build), tests_pass (test_command) and lint (lint_command) — treat

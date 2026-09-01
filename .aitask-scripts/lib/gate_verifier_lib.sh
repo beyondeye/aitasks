@@ -47,7 +47,7 @@ GATE_COMMAND_SKIP_EXIT=2
 # same set from the wrappers and fails if the two drift.
 GATE_COMMAND_KEYS="verify_build test_command lint_command"
 
-# _gate_config_values <config-file> <key>
+# project_config_values <config-file> <key>
 # Resolve a project_config.yaml key to zero or more values, one per line.
 # Try the list form first (read_yaml_list handles inline [a, b] and block "- "
 # lists); fall back to a scalar via read_yaml_field, stripping surrounding
@@ -57,7 +57,14 @@ GATE_COMMAND_KEYS="verify_build test_command lint_command"
 # Extracted verbatim from run_command_gate's former inline resolution so the
 # command path is unchanged; the gate_command_exit_contract opt-in list below
 # reads through the same function rather than growing a second parser.
-_gate_config_values() {
+#
+# PUBLIC (t1597): it was `_gate_config_values` while both callers lived in this
+# file. aitask_resource_admission.sh is a third caller from OUTSIDE it -- its key
+# is not a gate command key and must NOT join GATE_COMMAND_KEYS (tests/
+# test_gate_verifiers.sh Test 10 derives that constant from the aitask_gate_*.sh
+# wrappers), but the "scalar or list, one value per line" resolution is exactly
+# the same and must not be re-implemented.
+project_config_values() {
     local config="$1" key="$2"
     [[ -f "$config" ]] || return 0
     local -a raw=()
@@ -176,7 +183,7 @@ run_project_command_key() {
     # Resolve command(s) through the shared reader (list form first, scalar
     # fallback, empties / literal "null" dropped).
     local -a cmds=()
-    mapfile -t cmds < <(_gate_config_values "$config" "$config_key")
+    mapfile -t cmds < <(project_config_values "$config" "$config_key")
 
     # Resolve the per-key exit-contract opt-in, and collect unrecognized entries.
     # The WHOLE list is validated against GATE_COMMAND_KEYS -- not just this
@@ -185,7 +192,7 @@ run_project_command_key() {
     while IFS= read -r k; do
         # No re-stripping here: read_yaml_list unquotes both list forms itself
         # since t1609 (_yaml_norm_list_item), and the scalar fallback in
-        # _gate_config_values above unquotes its own value. Test (j) in
+        # project_config_values above unquotes its own value. Test (j) in
         # tests/test_gate_verifiers.sh drives the quoted BLOCK form and is what
         # keeps that true.
         if [[ " $GATE_COMMAND_KEYS " != *" $k "* ]]; then
@@ -193,7 +200,7 @@ run_project_command_key() {
             continue
         fi
         [[ "$k" == "$config_key" ]] && exit_contract=1
-    done < <(_gate_config_values "$config" "$GATE_COMMAND_EXIT_CONTRACT_KEY")
+    done < <(project_config_values "$config" "$GATE_COMMAND_EXIT_CONTRACT_KEY")
 
     if [[ -n "$unknown_keys" ]]; then
         PROJECT_CMD_NOTE="${GATE_COMMAND_EXIT_CONTRACT_KEY}: unrecognized key(s): ${unknown_keys} (expected one of: ${GATE_COMMAND_KEYS// /, })"

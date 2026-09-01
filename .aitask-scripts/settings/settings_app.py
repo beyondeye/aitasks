@@ -215,6 +215,19 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
             "Accepts a single string or YAML list. Leave blank to skip."
         ),
     },
+    "resource_admission_command": {
+        "summary": "Command asked whether the host can afford to start implementing",
+        "detail": (
+            "Consulted by task-workflow Step 7, after the plan is approved and "
+            "before any branch or worktree is cut. Exit 0 admits; exit 2 defers "
+            "the task, which returns to Ready keeping its approved plan; any "
+            "other exit is an error that also defers. A refusal reason is taken "
+            "from an 'ADMISSION_REASON: <text>' line the command prints. "
+            "Leave blank to disable — unset means the step does nothing at all. "
+            "One command only (unlike verify_build), so a project needing "
+            "several probes points this at one wrapper script."
+        ),
+    },
     "learn_skill_authoring_guide": {
         "summary": "Skill-authoring guide applied by /aitask-learn-skill",
         "detail": (

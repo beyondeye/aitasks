@@ -173,9 +173,9 @@ folded in.
 
 ## "Approved and stopped" is not a routing signal
 
-`planning.md`'s "Approve and stop here" and `remote-drift-check.md`'s "Stop and
-re-verify plan" both record `plan_approved` `pass` — and both then revert the
-task to `Ready`. Since Check 5 only consults the ledger for a task whose status
+`planning.md`'s "Approve and stop here", `remote-drift-check.md`'s "Stop and
+re-verify plan" and `resource-admission.md`'s park all record `plan_approved`
+`pass` — and all then revert the task to `Ready`. Since Check 5 only consults the ledger for a task whose status
 is `Implementing`, that recorded entry **cannot** drive routing, and prose
 calling it "the resume signal" was simply wrong.
 
@@ -208,20 +208,23 @@ reaches the Checkpoint, and still gets the Remote Drift Check. §6.0a's
 force-reverify outranks the marker's recommendation.
 
 Its lifecycle is what keeps it honest — it means "approved **and deliberately
-deferred**, not since invalidated", so it is written **only** by the `deferred`
-stop and cleared everywhere that stops being true:
+deferred**, not since invalidated", so it is written by the stops that leave the
+plan intact and awaiting implementation, and cleared everywhere that stops being
+true:
 
 | Event | Marker |
 |---|---|
 | "Approve and stop here" (`stop_reason=deferred`) | set |
+| Resource-admission park (`stop_reason=resource_admission`) | set — the plan is approved and awaiting implementation; only the *host* said not now |
 | "Stop and re-verify plan" (`stop_reason=drift`) | **cleared**, never refreshed — the flow stopped *because* re-verification is required |
 | Step 7 implementation body entered | cleared (consumed) |
 | Decomposition into children (single-repo or cross-repo) | cleared (no single-task plan any more) |
 | Risk-mitigation "before" stop | **retained** — approved and awaiting implementation, merely blocked |
 | Replan (§6.0 "create from scratch") / abort | cleared |
 
-Both branches share one implementation, `plan-approved-stop.md`. That extraction
-is the structural fix for the original defect: the sequence lived inline in
+All three branches share one implementation, `plan-approved-stop.md`, and its
+`stop_reason` vocabulary is closed at exactly those three. That extraction is the
+structural fix for the original defect: the sequence lived inline in
 `planning.md` with the gate recording *above* its numbered list, and
 `remote-drift-check.md` copied only the numbered steps — silently dropping the
 recording. A reference cannot drop a step the way a copy can, and the shared

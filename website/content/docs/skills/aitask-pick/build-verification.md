@@ -56,6 +56,8 @@ If the build fails, the agent analyzes whether the failure is caused by the task
 
 In addition to build verification, `project_config.yaml` supports `test_command` and `lint_command` keys used by [`/aitask-qa`](../../aitask-qa/) for test execution and linting.
 
+These three are the project's **command keys**, all run after implementation. A fourth key, [`resource_admission_command`](../resource-admission/), is asked *before* implementation starts and follows a different exit contract of its own — it is not part of the gate machinery described on this page.
+
 ```yaml
 # Test command — used by /aitask-qa Step 4
 test_command: "bash tests/test_*.sh"

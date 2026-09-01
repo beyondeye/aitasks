@@ -135,7 +135,7 @@ test_each_verifier() {
 # ============================================================
 # Test 1b: config-value FORMS survive the shared resolver
 # ============================================================
-# _gate_config_values is the one reader on the code path of all three gates
+# project_config_values is the one reader on the code path of all three gates
 # (t1605 pre-phase mitigation `pin_command_resolution`). Test 1 above only
 # exercises the bare-scalar form, so the two forms an extraction could silently
 # drop -- a QUOTED scalar and a BLOCK list -- are pinned here.
@@ -290,7 +290,7 @@ EOF
 # Test 2d: an all-empty/null command list skips (t1609, approved)
 # ============================================================
 # After the reader unquotes, `- "null"` is the string `null` and
-# _gate_config_values drops it, so the list resolves EMPTY and the gate skips
+# project_config_values drops it, so the list resolves EMPTY and the gate skips
 # with "no verify_build configured". Before t1609 the item survived quoted,
 # reached bash and died 127 -> fail. The flip is deliberate: it makes the list
 # form agree with the scalar forms `verify_build: null` / `verify_build:`,

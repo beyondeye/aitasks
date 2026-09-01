@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 14 wrapped .md files (8 profile-varying + 6 profile-invariant)
-#   - 30 golden files under tests/golden/procs/task-workflow/
+#   - 17 wrapped .md files (8 profile-varying + 9 profile-invariant)
+#   - 33 golden files under tests/golden/procs/task-workflow/
 # Coverage:
 #   1.  Per-(file, profile) golden diff for the 8 profile-varying wrapped
 #       files × 3 profiles.
@@ -83,6 +83,12 @@ WRAPPED_FILES_INVARIANT=(
     # profile conditionals of its own -- the record_gates guard stayed in
     # SKILL.md, where the recording lives.
     "build-verification.md"
+    # The Step-7 resource-admission seam (t1597). Profile-invariant by design,
+    # not by accident: whether a host can afford the implementation phase must
+    # not vary with how chatty a profile is, so the procedure carries no profile
+    # conditional and ships no knob -- an unset `resource_admission_command` is
+    # the opt-out.
+    "resource-admission.md"
 )
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
