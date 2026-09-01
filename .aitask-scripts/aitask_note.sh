@@ -108,6 +108,35 @@ note_xrepo_local_part() {
     printf '%s' "${BASH_REMATCH[1]}"
 }
 
+# --- Provenance value shapes (t1657_2 F18) ----------------------------------
+#
+# These MIRROR the merger's INBOX_SPEC.validate rules. They have to: whatever
+# the writer commits, the merger later re-validates on every other PC, so a
+# value accepted here and rejected there turns a local migration into a
+# cross-PC conflict source — the block is already in git by then.
+#
+# A full object id, never an abbreviation: 40 hex (sha1) or 64 (sha256).
+note_is_full_oid() {
+    [[ "${1:-}" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]
+}
+
+# The degraded sentinels, spelled once.
+note_is_base_sentinel() {
+    [[ "${1:-}" == "none" || "${1:-}" == "unknown" ]]
+}
+
+# A claimed_at is a date or an ISO instant — the original note's own precision,
+# never free text.
+note_is_date_like() {
+    [[ "${1:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] ||
+    [[ "${1:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
+}
+
+# Branch names reach the marker line, which is whitespace-delimited.
+note_is_branch_like() {
+    [[ "${1:-}" =~ ^[A-Za-z0-9._/-]+$ ]]
+}
+
 # --- Single-line output contract --------------------------------------------
 
 # Structured fields live in a '|'-delimited single line, so a value carrying a
@@ -343,19 +372,54 @@ main() {
     local from_raw="" body_text="" body_file="" migrate=0
     local claimed_from="" claimed_at="" cli_base="" cli_base_branch=""
 
+    # Every flag is counted, not just captured. A last-one-wins parser turns a
+    # contradictory command line into a silently different note: `--text a
+    # --file b` would drop the inline text, and `--text a --text b` would keep
+    # only b — both without a word to the caller (F19).
+    local n_from=0 n_text=0 n_file=0 n_claimed_from=0 n_claimed_at=0
+    local n_base=0 n_base_branch=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --from)          from_raw="${2:-}"; shift 2 ;;
-            --text)          body_text="${2:-}"; shift 2 ;;
-            --file)          body_file="${2:-}"; shift 2 ;;
+            --from)          from_raw="${2:-}";        n_from=$((n_from+1));       shift 2 ;;
+            --text)          body_text="${2:-}";       n_text=$((n_text+1));       shift 2 ;;
+            --file)          body_file="${2:-}";       n_file=$((n_file+1));       shift 2 ;;
             --migrate)       migrate=1; shift ;;
-            --claimed-from)  claimed_from="${2:-}"; shift 2 ;;
-            --claimed-at)    claimed_at="${2:-}"; shift 2 ;;
-            --base)          cli_base="${2:-}"; shift 2 ;;
-            --base-branch)   cli_base_branch="${2:-}"; shift 2 ;;
+            --claimed-from)  claimed_from="${2:-}";    n_claimed_from=$((n_claimed_from+1)); shift 2 ;;
+            --claimed-at)    claimed_at="${2:-}";      n_claimed_at=$((n_claimed_at+1));     shift 2 ;;
+            --base)          cli_base="${2:-}";        n_base=$((n_base+1));       shift 2 ;;
+            --base-branch)   cli_base_branch="${2:-}"; n_base_branch=$((n_base_branch+1));   shift 2 ;;
             *) note_die "unknown-option:$1" ;;
         esac
     done
+
+    # --- Argument matrix -----------------------------------------------------
+    # Exactly one body source, no repeats, and the two sender/provenance modes
+    # are mutually exclusive. Refusing is the only honest answer: there is no
+    # defensible way to pick which of two bodies the caller meant.
+    # Duplicates FIRST: `--text a --text b` also fails the exactly-one rule
+    # below, and reporting that instead would name the wrong problem.
+    # The reason field is '|'-delimited, so the message must not contain one —
+    # note_sanitize_field would rewrite it (F17).
+    (( n_text <= 1 )) || note_die "duplicate-option:--text"
+    (( n_file <= 1 )) || note_die "duplicate-option:--file"
+    (( n_from <= 1 )) || note_die "duplicate-option:--from"
+    (( n_text + n_file == 1 )) \
+        || note_die "need-exactly-one-body-source:--text-or---file"
+    (( n_claimed_from <= 1 )) || note_die "duplicate-option:--claimed-from"
+    (( n_claimed_at <= 1 ))   || note_die "duplicate-option:--claimed-at"
+    (( n_base <= 1 ))         || note_die "duplicate-option:--base"
+    (( n_base_branch <= 1 ))  || note_die "duplicate-option:--base-branch"
+
+    if (( migrate )); then
+        # --from is IGNORED on this path (the proof is never run), so accepting
+        # it would let a caller believe they had attributed a verified sender.
+        (( n_from == 0 )) || note_die "from-not-valid-with-migrate"
+    else
+        local n_mig=$(( n_claimed_from + n_claimed_at + n_base + n_base_branch ))
+        # Provenance is CAPTURED in normal mode, so a supplied value would be
+        # silently discarded.
+        (( n_mig == 0 )) || note_die "migration-options-require-migrate"
+    fi
 
     # --- Target resolution (bare form for every helper call) ---
     local target_bare
@@ -381,8 +445,27 @@ main() {
             note_die "bad-claimed-from:$claimed_from"
         fi
         sender_field="$claimed_from"
+
+        # Validate the COMPLETE variant before anything is written. Checking
+        # only non-emptiness would let a short oid or a free-text date through
+        # to a committed block the merger rejects everywhere else (F18).
         [[ -n "$claimed_at" ]] || note_die "migrate-requires-claimed-at"
+        note_is_date_like "$claimed_at" \
+            || note_die "bad-claimed-at:$claimed_at"
         [[ -n "$cli_base" ]] || note_die "migrate-requires-base"
+        if note_is_base_sentinel "$cli_base"; then
+            # No repo / no HEAD => no branch. Accepting one here would emit a
+            # block whose base and base_branch disagree.
+            [[ -z "$cli_base_branch" ]] \
+                || note_die "base-branch-with-sentinel-base:$cli_base"
+        else
+            note_is_full_oid "$cli_base" \
+                || note_die "base-not-a-full-oid:$cli_base"
+            [[ -n "$cli_base_branch" ]] \
+                || note_die "migrate-requires-base-branch"
+            note_is_branch_like "$cli_base_branch" \
+                || note_die "bad-base-branch:$cli_base_branch"
+        fi
         [[ "$local_part" != "$target_bare" ]] || {
             printf 'NOTE_SELF:%s\n' "$(note_sanitize_field "$target_bare")"; return 1; }
     else

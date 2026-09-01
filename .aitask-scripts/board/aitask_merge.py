@@ -524,10 +524,34 @@ _XREPO_TASK_RE = re.compile(r"^[a-z0-9_-]+#t?([0-9]+(?:_[0-9]+)?)$")
 # the exact width at the write site, which stays the stronger check.
 _FULL_OID_RE = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$")
 _BASE_SENTINELS = ("none", "unknown")
+# claimed_at carries the original note's own precision: a date, or an instant.
+_ISO_DATE_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z)?$")
 
 
 def _valid_oid(value: str) -> bool:
     return bool(_FULL_OID_RE.match(value))
+
+
+# Allowed marker keys, per variant. An unknown key is REJECTED, not ignored
+# (t1657_2 F20): the contract is "reject, never repair", and a permissive
+# validator silently accepts exactly the blocks it exists to catch --
+# `migrated=no` (claiming the migration variant without taking it),
+# `claimed_at=<garbage>` on an ordinary note, or any future writer's key this
+# version cannot interpret. Ignoring those would union a block whose meaning
+# this code does not actually understand.
+_NOTE_KEYS_REQUIRED = {"id", "from", "at", "base", "dirty", "host"}
+_NOTE_KEYS_OPTIONAL = {"from_verified", "base_branch", "base_mergebase"}
+_MIGRATED_KEYS_REQUIRED = {"id", "from", "at", "base", "claimed_at", "migrated"}
+_MIGRATED_KEYS_OPTIONAL = {"base_branch", "base_mergebase"}
+_RECEIPT_KEYS_REQUIRED = {"id", "by", "at", "mode", "ids"}
+_RECEIPT_KEYS_OPTIONAL: set = set()
+
+
+def _keys_allowed(f, required: set, optional: set) -> bool:
+    """Exact key-set membership: every required key present, no extras."""
+    keys = set(f.keys())
+    return required <= keys and not (keys - required - optional)
 
 
 def _validate_inbox_provenance(f) -> bool:
@@ -558,14 +582,20 @@ def _validate_inbox_provenance(f) -> bool:
         if base_is_sentinel or not _valid_oid(f["base_mergebase"]):
             return False
 
-    if f.get("migrated") == "yes":
+    if "migrated" in f:
         # Migration variant: provenance is CLAIMED, not observed. dirty/host/
         # from_verified are forbidden -- none of the three was ever measured,
         # and writing dirty=no on a historical note would fabricate an
         # observation. Absence here is the contract, not an omission.
-        if not f.get("claimed_at"):
+        #
+        # Keyed on PRESENCE, not on == "yes": `migrated=no` is not an ordinary
+        # note, it is a malformed one. Falling through to the ordinary branch
+        # would accept a block claiming a variant it does not satisfy.
+        if f["migrated"] != "yes":
             return False
-        return not ({"dirty", "host", "from_verified"} & f.keys())
+        if not _ISO_DATE_RE.match(f.get("claimed_at", "")):
+            return False
+        return _keys_allowed(f, _MIGRATED_KEYS_REQUIRED, _MIGRATED_KEYS_OPTIONAL)
 
     # 'unknown' IFF base=none, fail-closed in BOTH directions: yes/no with no
     # repository is a fabricated observation, and 'unknown' with a real base is
@@ -578,7 +608,9 @@ def _validate_inbox_provenance(f) -> bool:
         return False
 
     host = f.get("host", "")
-    return bool(host) and not any(c.isspace() for c in host)
+    if not host or any(c.isspace() for c in host):
+        return False
+    return _keys_allowed(f, _NOTE_KEYS_REQUIRED, _NOTE_KEYS_OPTIONAL)
 
 
 def _validate_inbox(b) -> bool:
@@ -604,7 +636,9 @@ def _validate_inbox(b) -> bool:
             return False
         ids = f.get("ids", "")
         parts = ids.split(",") if ids else []
-        return bool(parts) and all(_NOTE_ID_RE.match(p) for p in parts)
+        if not parts or not all(_NOTE_ID_RE.match(p) for p in parts):
+            return False
+        return _keys_allowed(f, _RECEIPT_KEYS_REQUIRED, _RECEIPT_KEYS_OPTIONAL)
 
     # A note. The marker name IS the sender, so the two must agree -- for a
     # cross-repo sender the name is the local 't<id>' part, since '#' is not a

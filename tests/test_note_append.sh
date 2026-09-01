@@ -72,7 +72,7 @@ CODE_HEAD="$(git -C "$CODE" rev-parse HEAD)"
 REMOTE="$TMP/remote.git"
 git init -q --bare -b main "$REMOTE"
 DATA="$TMP/data"
-git clone -q "$REMOTE" "$DATA"
+git clone -q "$REMOTE" "$DATA" 2>/dev/null
 mkdir -p "$DATA/aitasks"
 git -C "$DATA" config user.email t@example.com
 git -C "$DATA" config user.name Test
@@ -376,6 +376,73 @@ assert_contains "10i. malformed claimed-from rejected" "NOTE_ERROR:bad-claimed-f
 out="$(run_note 706 --from "thinking_app#357" --text x 2>/dev/null)"
 assert_contains "10j. plain --from rejects a cross-repo sender" \
     "NOTE_ERROR:bad-task-id" "$out"
+
+# --- 12. Argument matrix + migration validation (F18, F19) -----------------
+#
+# What the writer COMMITS, the merger re-validates on every other PC. A value
+# accepted here and rejected there turns a local migration into a cross-PC
+# conflict source, and by then the block is already in git — so the writer must
+# refuse the same things the merger does, BEFORE the append.
+
+FULL_OID="$(printf 'a%.0s' {1..40})"
+
+out="$(run_note 706 --migrate --claimed-from "thinking_app#357" \
+        --claimed-at 2026-09-01 --base "451dd3af7" --base-branch main \
+        --text x 2>/dev/null)"
+assert_eq "12a. an abbreviated base is refused before the append" \
+    "NOTE_ERROR:base-not-a-full-oid:451dd3af7" "$out"
+
+out="$(run_note 706 --migrate --claimed-from "thinking_app#357" \
+        --claimed-at "not-a-date" --base "$FULL_OID" --base-branch main \
+        --text x 2>/dev/null)"
+assert_eq "12b. a free-text claimed-at is refused" \
+    "NOTE_ERROR:bad-claimed-at:not-a-date" "$out"
+
+out="$(run_note 706 --migrate --claimed-from "thinking_app#357" \
+        --claimed-at 2026-09-01 --base none --base-branch main --text x 2>/dev/null)"
+assert_eq "12c. a branch beside a sentinel base is refused" \
+    "NOTE_ERROR:base-branch-with-sentinel-base:none" "$out"
+
+out="$(run_note 706 --migrate --claimed-from "thinking_app#357" \
+        --claimed-at 2026-09-01 --base "$FULL_OID" --text x 2>/dev/null)"
+assert_eq "12d. a real base REQUIRES a branch" \
+    "NOTE_ERROR:migrate-requires-base-branch" "$out"
+
+# A refusal must leave nothing behind — these run before the lock and the append.
+assert_eq "12e. every refusal above appended nothing" "0" \
+    "$(grep -c 'base=451dd3af7' "$DATA/aitasks/t706_x.md")"
+
+# Body sources: exactly one, no repeats. Silently preferring --file would drop
+# the caller's inline text with no error.
+echo "from file" > "$TMP/b.txt"
+out="$(run_note 706 --from 701 --text "from text" --file "$TMP/b.txt" 2>/dev/null)"
+assert_contains "12f. --text with --file is refused, not silently resolved" \
+    "NOTE_ERROR:need-exactly-one-body-source" "$out"
+out="$(run_note 706 --from 701 2>/dev/null)"
+assert_contains "12g. no body source at all is refused" \
+    "NOTE_ERROR:need-exactly-one-body-source" "$out"
+out="$(run_note 706 --from 701 --text a --text b 2>/dev/null)"
+assert_eq "12h. a duplicate flag names ITSELF, not the arity rule" \
+    "NOTE_ERROR:duplicate-option:--text" "$out"
+out="$(run_note 706 --from 701 --from 702 --text a 2>/dev/null)"
+assert_eq "12i. duplicate --from" "NOTE_ERROR:duplicate-option:--from" "$out"
+
+# The two modes are mutually exclusive: a flag that would be IGNORED must be
+# refused, or the caller believes something the note does not say.
+out="$(run_note 706 --migrate --from 701 --claimed-from "x#1" \
+        --claimed-at 2026-09-01 --base "$FULL_OID" --base-branch main \
+        --text x 2>/dev/null)"
+assert_eq "12j. --from is refused with --migrate (the proof never runs)" \
+    "NOTE_ERROR:from-not-valid-with-migrate" "$out"
+out="$(run_note 706 --from 701 --base "$FULL_OID" --text x 2>/dev/null)"
+assert_eq "12k. migration provenance is refused without --migrate" \
+    "NOTE_ERROR:migration-options-require-migrate" "$out"
+
+# Every error line stays a single parseable record even though the messages
+# carry a '/' where a '|' would have split the field.
+out="$(run_note 706 --from 701 --text a --file "$TMP/b.txt" 2>/dev/null)"
+assert_eq "12l. a refusal is still exactly one stdout line" "1" \
+    "$(printf '%s\n' "$out" | grep -c .)"
 
 # --- 11. Concurrency -------------------------------------------------------
 #

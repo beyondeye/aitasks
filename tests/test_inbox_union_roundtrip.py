@@ -298,6 +298,61 @@ class InboxValidationTest(unittest.TestCase):
         self._bails(bad, "a receipt with no ids= must not union")
 
 
+class InboxUnknownKeyTest(unittest.TestCase):
+    """Unknown and cross-variant keys are REJECTED, not ignored (F20).
+
+    A permissive validator silently accepts exactly the blocks it exists to
+    catch. Each of these was measured unioning before the key-set check landed.
+    """
+
+    def _bails(self, block: str, msg: str):
+        merged, resolved = merge_body(
+            _HEAD + "\n" + _inbox(block) + _ledger(_G1),
+            _HEAD + "\n" + _inbox(_N2) + _ledger(_G1))
+        self.assertFalse(resolved, msg)
+        self.assertIn("<<<<<<<", merged, msg)
+
+    def test_unknown_key_is_rejected(self):
+        self._bails(_note("t349", "2026-09-01T10:00:00Z", "1" * 24, bogus="1"),
+                    "an unrecognized marker key must not union")
+
+    def test_migrated_no_is_rejected(self):
+        # Keyed on PRESENCE, not == "yes": a block claiming the variant without
+        # satisfying it is malformed, not an ordinary note.
+        self._bails(_note("t349", "2026-09-01T10:00:00Z", "1" * 24,
+                          migrated="no"),
+                    "migrated=no must not fall through to the ordinary branch")
+
+    def test_claimed_at_on_an_ordinary_note_is_rejected(self):
+        self._bails(_note("t349", "2026-09-01T10:00:00Z", "1" * 24,
+                          claimed_at="2026-09-01"),
+                    "claimed_at is a migration-only key")
+
+    def test_garbage_claimed_at_on_a_migrated_note_is_rejected(self):
+        self._bails(_note("t357", "2026-09-01T10:00:00Z", "1" * 24,
+                          **{"from": "thinking_app#357", "_name": "t357",
+                             "claimed_at": "garbage", "migrated": "yes",
+                             "dirty": None, "host": None}),
+                    "a free-text claimed_at must not union")
+
+    def test_migrated_note_carrying_dirty_is_rejected(self):
+        self._bails(_note("t357", "2026-09-01T10:00:00Z", "1" * 24,
+                          **{"from": "thinking_app#357", "_name": "t357",
+                             "claimed_at": "2026-09-01", "migrated": "yes",
+                             "host": None}),
+                    "a migrated block must not carry a measured dirty")
+
+    def test_ordinary_note_missing_a_required_key_is_rejected(self):
+        self._bails(_note("t349", "2026-09-01T10:00:00Z", "1" * 24, host=None),
+                    "a required key must be present")
+
+    def test_receipt_with_an_extra_key_is_rejected(self):
+        bad = ("> **👁 note:read** id=2026-09-01T10:00:00Z." + "5" * 24
+               + " by=t357 at=2026-09-01T10:00:00Z mode=explicit"
+               + " ids=2026-09-01T10:00:00Z." + "1" * 24 + " extra=1\n")
+        self._bails(bad, "a receipt with an extra key must not union")
+
+
 class InboxPositiveValidationTest(unittest.TestCase):
     """The complements -- so the rejections above are discriminating, not blanket."""
 
