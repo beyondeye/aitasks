@@ -6,10 +6,14 @@ issue_type: feature
 status: Implementing
 labels: [board, gates, ui]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 created_at: 2026-08-30 13:29
-updated_at: 2026-09-01 11:16
+updated_at: 2026-09-01 11:17
 ---
 
 ## Context
