@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: []
+assigned_to: dario-e@beyond-eye.com
 anchor: 1653
 followup_kind: review_finding
 created_at: 2026-09-01 09:53
-updated_at: 2026-09-01 09:53
+updated_at: 2026-09-01 10:02
 ---
 
 `test_minimonitor_startup_input_latency.py::MountWindowProbeTests::test_mount_returns_while_the_window_probe_is_still_blocked`
