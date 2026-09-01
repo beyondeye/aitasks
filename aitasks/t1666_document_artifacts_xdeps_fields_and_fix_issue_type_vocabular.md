@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [documentation, web_site, frontmatter, seed]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-01 15:27
-updated_at: 2026-09-01 15:27
+updated_at: 2026-09-01 15:28
 ---
 
 ## Problem
