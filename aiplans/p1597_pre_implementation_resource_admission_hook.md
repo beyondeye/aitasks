@@ -453,12 +453,12 @@ through the prose, which no test can):
 - Six rendered closures (3 profiles × the shared procedures) plus 4 goldens must move together; a stale render ships a workflow whose prose and goldens disagree · severity: low · → mitigation: inline pre-phase baseline_shared_lib_tests
 
 ### Goal-achievement risk: low
-- The seam covers `task-workflow` only, so `aitask-pickrem` / `aitask-pickweb` keep starting memory-bound phases unadmitted — the stated goal is met for attended picks and deferred for autonomous ones (user-confirmed scope) · severity: low · → mitigation: port_resource_admission_to_remote_picks
+- The seam covers `task-workflow` only, so `aitask-pickrem` / `aitask-pickweb` keep starting memory-bound phases unadmitted — the stated goal is met for attended picks and deferred for autonomous ones (user-confirmed scope) · severity: low · → mitigation: t1671
 - A refusal parks on the approved plan and relies on §6.0's existing-plan preference to skip re-planning; under `default` (no `plan_preference`) the user still sees the 3-way prompt, now with the marker's "Use current plan (Recommended)" — the acceptance sketch's no-replan claim holds under `use_current`, which is what it says · severity: low · → mitigation: none needed (documented behaviour)
 
 ### Planned mitigations
 - timing: pre-phase | name: baseline_shared_lib_tests | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (shared-lib rename, stop_reason edit, closure/golden freshness) | desc: Record a green baseline of test_gate_verifiers, test_plan_approved_marker_contract and test_skill_render_task_workflow before any edit
-- timing: after | name: port_resource_admission_to_remote_picks | type: feature | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement (autonomous picks start memory-bound phases unadmitted) | desc: Carry the resource-admission hook to aitask-pickrem and aitask-pickweb with their own park semantics
+- timing: after | name: port_resource_admission_to_remote_picks | type: feature | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement (autonomous picks start memory-bound phases unadmitted) | desc: Carry the resource-admission hook to aitask-pickrem and aitask-pickweb with their own park semantics | created: t1671
 
 
 ## Post-Review Changes
