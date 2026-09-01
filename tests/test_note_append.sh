@@ -444,6 +444,50 @@ out="$(run_note 706 --from 701 --text a --file "$TMP/b.txt" 2>/dev/null)"
 assert_eq "12l. a refusal is still exactly one stdout line" "1" \
     "$(printf '%s\n' "$out" | grep -c .)"
 
+# --- 13. Never exit silently (F21) -----------------------------------------
+#
+# The contract is "exactly ONE line on stdout, ALWAYS". Two paths violated it by
+# dying instead of reporting, and both left the caller unable to tell malformed
+# input from a died process:
+#
+#   * a value-taking flag with no value -> `shift 2` fails under `set -e`
+#   * lock exhaustion                   -> the seam's `die` exits past us
+#
+# Every value-taking flag, so a future flag added without its guard is caught.
+for flag in --from --text --file --claimed-from --claimed-at --base --base-branch; do
+    out="$(run_note 700 "$flag" 2>/dev/null)"
+    assert_eq "13. ${flag} with no value is typed, not silent" \
+        "NOTE_ERROR:missing-value:${flag}" "$out"
+done
+
+# ...and the same in the middle of an otherwise valid command line.
+out="$(run_note 700 --from 701 --text 2>/dev/null)"
+assert_eq "13h. a trailing valueless flag is typed" \
+    "NOTE_ERROR:missing-value:--text" "$out"
+
+# Lock exhaustion: pre-hold the target's note lock so acquisition cannot win.
+mkdir -p "$AITASKS_LOCK_DIR/note_802"
+make_task 802
+out="$(run_note 802 --from 701 --text "blocked" 2>/dev/null)"; rc=$?
+assert_eq "13i. lock exhaustion is a typed outcome, not a silent death" \
+    "NOTE_ERROR:lock-unavailable:802" "$out"
+assert_eq "13j. and exits nonzero" "1" "$rc"
+# The seam's own wording still reaches stderr — converting the death must not
+# swallow the diagnostic that says WHICH lock and where.
+err="$(run_note 802 --from 701 --text "blocked" 2>&1 >/dev/null)"
+assert_contains "13k. the seam's lock diagnostic survives on stderr" \
+    "note append lock" "$err"
+rm -rf "$AITASKS_LOCK_DIR/note_802"
+
+# Whatever the outcome, stdout is one line. This is the invariant the whole
+# group exists to protect.
+for args in "--from" "--from 701 --text a --file /dev/null" "--from 701"; do
+    # shellcheck disable=SC2086  # intentional: $args IS the argument list.
+    out="$(run_note 700 $args 2>/dev/null)"
+    assert_eq "13l. one stdout line for: $args" "1" \
+        "$(printf '%s\n' "$out" | grep -c .)"
+done
+
 # --- 11. Concurrency -------------------------------------------------------
 #
 # Two senders appending to one inbox WILL race. Every entry must survive.

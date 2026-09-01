@@ -52,7 +52,18 @@ TASK_DIR="${TASK_DIR:-aitasks}"
 # Scratch file for --file / stdin bodies, so NUL can be detected on the raw
 # bytes before they reach a shell variable (which cannot hold one).
 TMPBODY="$(mktemp "${TMPDIR:-/tmp}/aitask_note.XXXXXX")"
-note_cleanup() { rm -f "$TMPBODY"; }
+# The locked append runs in a subshell (see note_append_locked), so its id and
+# its output have to cross the process boundary through files.
+NOTE_ID_FILE="$(mktemp "${TMPDIR:-/tmp}/aitask_note_id.XXXXXX")"
+NOTE_ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/aitask_note_err.XXXXXX")"
+NOTE_STDERR_FILE="$(mktemp "${TMPDIR:-/tmp}/aitask_note_stderr.XXXXXX")"
+# Two scopes, deliberately. The SUBSHELL must not remove the handoff files —
+# its EXIT trap fires when it finishes, which is precisely when the parent still
+# needs the id it just wrote. Only the parent tears those down.
+note_cleanup_body() { rm -f "$TMPBODY"; }
+note_cleanup() {
+    rm -f "$TMPBODY" "$NOTE_ID_FILE" "$NOTE_ERR_FILE" "$NOTE_STDERR_FILE"
+}
 trap note_cleanup EXIT
 
 # --- Section constants ------------------------------------------------------
@@ -321,7 +332,16 @@ note_mint_id() {
 #
 # Mint the id INSIDE the lock and verify it is absent from the section before
 # writing. Sets NOTE_ID.
-note_append_locked() {
+#
+# RUNS IN A SUBSHELL, deliberately (F21). The seam's lock helpers call `die` on
+# exhaustion — stderr plus `exit` — which would tear this script down with
+# NOTHING on stdout, breaking the "exactly one line, always" contract in exactly
+# the way a missing flag value did. `die` cannot be caught in-process, so the
+# whole locked section runs in a subshell whose exit status the caller inspects:
+# a death there is converted to a typed NOTE_ERROR by note_append_guarded below.
+# The id crosses the boundary through a file, since a subshell cannot set a
+# variable in its parent.
+_note_append_inner() {
     local file="$1" name="$2" body="$3"; shift 3
     local -a extra_kv=("$@")
 
@@ -330,7 +350,7 @@ note_append_locked() {
     # The seam's trap releases the lock errexit-safely and exits; chain our
     # scratch-file cleanup in front of it, or binding this would silently drop
     # the EXIT handler set at startup.
-    trap 'note_cleanup; ait_ledger_lock_exit_trap' EXIT
+    trap 'note_cleanup_body; ait_ledger_lock_exit_trap' EXIT
 
     local attempt=0 candidate
     NOTE_ID=""
@@ -347,7 +367,7 @@ note_append_locked() {
         # Nothing has been appended, so this is a pre-append failure: the
         # id-less NOTE_ERROR half of the contract is the correct one.
         ait_ledger_lock_release || true
-        trap note_cleanup EXIT
+        trap note_cleanup_body EXIT
         note_die "id-collision-retries-exhausted"
     fi
 
@@ -360,7 +380,31 @@ note_append_locked() {
         "$NOTE_ANCHOR_HEADER" "section_end"
 
     ait_ledger_lock_release_checked
-    trap note_cleanup EXIT
+    trap note_cleanup_body EXIT
+    printf '%s' "$NOTE_ID" > "$NOTE_ID_FILE"
+}
+
+# Wrapper: run the locked append in a subshell and translate any death into a
+# typed single-line outcome. Sets NOTE_ID on success.
+note_append_locked() {
+    : > "$NOTE_ID_FILE"
+    : > "$NOTE_ERR_FILE"
+    if ( _note_append_inner "$@" ) >"$NOTE_ERR_FILE" 2>>"$NOTE_STDERR_FILE"; then
+        NOTE_ID="$(cat "$NOTE_ID_FILE")"
+        cat "$NOTE_STDERR_FILE" >&2 2>/dev/null || true
+        [[ -n "$NOTE_ID" ]] || note_die "append-produced-no-id"
+        return 0
+    fi
+    # The subshell died. Its own typed line (a collision exhaustion, say) is the
+    # better message; a bare death is the lock giving up.
+    cat "$NOTE_STDERR_FILE" >&2 2>/dev/null || true
+    local inner; inner="$(head -n1 "$NOTE_ERR_FILE" 2>/dev/null || true)"
+    if [[ -n "$inner" ]]; then
+        printf '%s\n' "$inner"
+    else
+        printf 'NOTE_ERROR:%s\n' "lock-unavailable:$LOCK_KEY"
+    fi
+    exit 1
 }
 
 main() {
@@ -379,15 +423,24 @@ main() {
     local n_from=0 n_text=0 n_file=0 n_claimed_from=0 n_claimed_at=0
     local n_base=0 n_base_branch=0
     while [[ $# -gt 0 ]]; do
+        # A value-taking flag must HAVE its value before we shift past it.
+        # `shift 2` with one argument left fails, and under `set -e` that exits
+        # the script with NOTHING on stdout — which breaks the "exactly one
+        # line, always" contract and leaves the caller unable to tell malformed
+        # input from a died process (F21).
         case "$1" in
-            --from)          from_raw="${2:-}";        n_from=$((n_from+1));       shift 2 ;;
-            --text)          body_text="${2:-}";       n_text=$((n_text+1));       shift 2 ;;
-            --file)          body_file="${2:-}";       n_file=$((n_file+1));       shift 2 ;;
+            --from|--text|--file|--claimed-from|--claimed-at|--base|--base-branch)
+                [[ $# -ge 2 ]] || note_die "missing-value:$1" ;;
+        esac
+        case "$1" in
+            --from)          from_raw="$2";        n_from=$((n_from+1));       shift 2 ;;
+            --text)          body_text="$2";       n_text=$((n_text+1));       shift 2 ;;
+            --file)          body_file="$2";       n_file=$((n_file+1));       shift 2 ;;
             --migrate)       migrate=1; shift ;;
-            --claimed-from)  claimed_from="${2:-}";    n_claimed_from=$((n_claimed_from+1)); shift 2 ;;
-            --claimed-at)    claimed_at="${2:-}";      n_claimed_at=$((n_claimed_at+1));     shift 2 ;;
-            --base)          cli_base="${2:-}";        n_base=$((n_base+1));       shift 2 ;;
-            --base-branch)   cli_base_branch="${2:-}"; n_base_branch=$((n_base_branch+1));   shift 2 ;;
+            --claimed-from)  claimed_from="$2";    n_claimed_from=$((n_claimed_from+1)); shift 2 ;;
+            --claimed-at)    claimed_at="$2";      n_claimed_at=$((n_claimed_at+1));     shift 2 ;;
+            --base)          cli_base="$2";        n_base=$((n_base+1));       shift 2 ;;
+            --base-branch)   cli_base_branch="$2"; n_base_branch=$((n_base_branch+1));   shift 2 ;;
             *) note_die "unknown-option:$1" ;;
         esac
     done
