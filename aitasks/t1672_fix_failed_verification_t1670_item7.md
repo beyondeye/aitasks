@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: verification_failure
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 17:11
-updated_at: 2026-09-01 17:19
+updated_at: 2026-09-01 22:39
 ---
 
 ## Failed verification item from t1597
@@ -160,3 +161,8 @@ pre-existing settings-TUI behaviour and unrelated to the admission hook, but it
 means any project whose `project_config.yaml` carries the seeded explanatory
 comments loses them on the first save from the TUI. Worth its own task if not
 already known.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-01T19:40:02Z status=pass attempt=1 type=human
