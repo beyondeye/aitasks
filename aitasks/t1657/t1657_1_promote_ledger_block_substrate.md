@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [framework, gates, bash_scripts, python, test_infrastructure]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 created_at: 2026-09-01 12:34
-updated_at: 2026-09-01 12:34
+updated_at: 2026-09-01 12:56
 ---
 
 # Promote the ledger-block substrate to a shared seam
