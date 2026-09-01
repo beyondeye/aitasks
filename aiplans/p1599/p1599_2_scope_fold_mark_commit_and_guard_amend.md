@@ -436,3 +436,117 @@ three cases plus the sibling suites that source the same scaffold.
 
 ### Planned mitigations
 - timing: post-phase | name: amend_guard_both_directions_test | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the amend guard's classifier must refuse the dangerous case without refusing the everyday one | desc: pin both directions of the default-deny amend guard as executable assertions — one permit test per accept branch (test 7 labels.txt, test 11 child primary's parent file) against the refusals (tests 5/6/8) with HEAD, index and worktree unchanged
+
+## Final Implementation Notes
+
+- **Actual work done:** Both steps landed in `.aitask-scripts/aitask_fold_mark.sh`.
+  - **Step 1** — the `fresh)` arm now delegates to `task_git_commit_scoped`
+    (`lib/task_utils.sh`), passing `rollback_paths` as the pathspec. The broad
+    `task_git add aitasks/`, the redundant `fold_meta_relpaths` add, and the
+    index-wide `diff --cached --quiet` no-op branch are all gone; the helper's
+    rc `0|2|1` maps to `COMMITTED:<hash>` / `NO_COMMIT` / rollback+`die`.
+  - **Step 2** — new `_fold_task_id_of_path()` and `_fold_amend_guard()`, plus a
+    scoped `commit --amend --no-edit -o -- "${rollback_paths[@]}"`. The guard is
+    default-deny over three accept branches (own paths / owned task id incl. a
+    child primary's parent / `labels_file_path()`), then an
+    `--is-ancestor HEAD @{u}` published-history refusal.
+  - `tests/test_fold_mark.sh`: 3 existing cases + 10 new + 2 negative controls,
+    **77 assertions, all green**. `shellcheck` clean (only the file's
+    pre-existing SC1091/SC2012 informationals remain).
+
+- **Deviations from plan:** One, and it is a correction rather than a change.
+  The plan said the guard should `warn` on an accepted `labels.txt`; there is no
+  `note()` helper and `info()` writes to **stdout**, which is this script's
+  structured data channel (`PRIMARY_UPDATED:` / `FOLDED:` / `COMMITTED:`). Used
+  `warn()` (stderr) instead, so the rider is surfaced without contaminating the
+  parseable output.
+
+- **Issues encountered:**
+  - The negative-control injector initially replaced only the `# Step 6: commit`
+    case block, leaving `_fold_amend_guard` **defined above it** — so the
+    "pre-fix" build still carried the guard. Its own landing assertion caught
+    this on the first run and failed loudly, which is exactly why the plan
+    required the assertion. Fixed by starting the replacement at the
+    `_fold_task_id_of_path` helper so the injected build has none of the new
+    code.
+  - Verified the four user-facing outcomes live through the real scaffold rather
+    than trusting the assertions: foreign-task refusal, unknown-metadata
+    refusal, published-HEAD refusal (the fixture's `push -u` makes the upstream
+    check genuinely fire, not merely be inert), and the `labels.txt` permit
+    printing its warning on stderr followed by `AMENDED` on stdout.
+
+- **Key decisions:**
+  - **Default-deny over warn-and-proceed.** An earlier draft warned on any
+    non-task path. The re-measured history shows `21219b0b4` carrying a foreign
+    `aitasks/metadata/gates.yaml`, so warn-only would have waved through a real
+    swallow. The accept list is closable because the producers are enumerable:
+    `ait create --batch` stages exactly the task file, `LABELS_FILE`, and (child
+    only) the parent file.
+  - **The guard returns, it does not `die`.** Steps 3-5b write every fold
+    mutation to disk before Step 6, so a `die`ing guard would leave the primary
+    and folded task files dirty — feeding the next unscoped commit exactly the
+    bystander this task removes. The `amend)` arm runs `_fold_rollback` first,
+    matching the block's two existing failure exits.
+  - **Associative-array membership, not `grep -vxF -f <(…)`.** Sidesteps the
+    empty-pattern-file trap (an empty pattern file makes `grep -v` match
+    everything) with no process substitution. `declare -A` was already this
+    script's floor.
+  - **Amend scoping stayed local.** `task_git_commit_scoped` has no amend
+    variant and lives in shared substrate outside this child's ownership, with
+    t1599_3 / t1599_4 still in flight. `aitask_fold_mark.sh` is the only
+    `--amend` call site in the framework.
+
+- **Adjacent findings — recorded, not fixed:**
+  - `amend` still has no no-op branch (unlike `fresh`), so an amend with nothing
+    newly staged rewrites the commit and prints `AMENDED`.
+  - `--commit-mode` is validated only at the bottom of the `case` — *after*
+    every mutation has been written to disk.
+  - **Spawned as t1661** (`depends: [1599_2]`): on a refusal the script has
+    already printed `PRIMARY_UPDATED:` / `FOLDED:` to stdout, so the structured
+    output claims progress for a transaction that was rolled back. The exit code
+    and stderr are authoritative and every caller keys off the terminal
+    `AMENDED` / `COMMITTED:` / `NO_COMMIT` records, so nothing is misled today —
+    but this child made the refusal a *routine* outcome rather than a rare one,
+    so it is worth fixing. Deferred because it changes the script's stdout
+    contract and needs a consumer sweep.
+  - `aitask_create.sh` stages `labels.txt` unconditionally where
+    `aitask_update.sh` gates on `_stage_labels`; both then commit the whole
+    index. Latent instance of the parent defect → **t1599_4's** sweep.
+  - The published check reads the **local** remote-tracking ref and does not
+    fetch, so a push made elsewhere since the last fetch is missed. Accepted
+    residual, documented in the code comment: it can under-detect, never
+    over-refuse.
+
+- **Review round 2 — three confirmed concerns, two fixed here:**
+  1. **`_fold_task_id_of_path` was too permissive.** Matching on the *basename*
+     alone accepted any `.md` anywhere under `aitasks/` / `aiplans/` whose name
+     began `t<owned-id>_`. Probed and confirmed: `aitasks/metadata/t10_unrelated.md`,
+     `aitasks/archived/t10_old.md`, and `aitasks/t99/t10_2_misfiled.md` (filename
+     id disagreeing with its directory) all parsed as owned and would have been
+     **accepted** when folding into t10 — the exact unknown-metadata class
+     default-deny exists to refuse. Rewritten to accept only the canonical direct
+     locations (`<root>/<pfx><N>_*.md` and `<root>/<pfx><P>/<pfx><P>_<C>_*.md`),
+     with the child filename's parent id required to agree with its enclosing
+     directory and anything deeper than one level rejected outright. Two new
+     refusal tests; **verified discriminating** by temporarily reinstating the
+     loose classifier — both fail against it, pass against the fix.
+  2. **The amend negative control was incomplete.** It proved only that the
+     pre-fix bare amend rewrites a foreign HEAD, never that pre-fix *amend* mode
+     sweeps a dirty `aitasks/` bystander or a pre-staged external plan — the two
+     mechanisms tests 3 and 4 assert against. Added
+     `test_negative_control_amend_sweeps`, which seeds both inputs against a
+     *clean* amend target (so any sweeping is the pre-fix defect alone, not the
+     missing guard) and asserts both enter the amended commit.
+  3. **Stdout contract on a refusal** — accepted as a follow-up, spawned as
+     **t1661** (see adjacent findings above).
+
+  Suite after the round: **92/92**, `shellcheck` unchanged at its 6 pre-existing
+  informationals.
+
+- **Post-phase mitigation `amend_guard_both_directions_test` — satisfied.**
+  Permit side: `test_amend_permits_labels_file_in_head` (accept-branch 3) and
+  `test_amend_permits_child_primary_parent_file` (accept-branch 2's `P_C ⇒ P`).
+  Refuse side: the foreign-task, unknown-metadata and published-HEAD tests, each
+  with the three-way no-residue check asserting restored frontmatter values.
+  Every accept branch has at least one permit test, so a guard that refused
+  everything could not pass.
