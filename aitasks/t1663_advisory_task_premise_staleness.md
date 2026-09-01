@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: []
+depends: [1561]
 issue_type: feature
 status: Ready
 labels: [task-workflow, planning, verification]
@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 children_to_implement: [t1663_1, t1663_2, t1663_3, t1663_4, t1663_5, t1663_6]
 anchor: 1538
 created_at: 2026-09-01 15:18
-updated_at: 2026-09-01 15:20
+updated_at: 2026-09-01 15:31
 ---
 
 Land the advisory task-premise-staleness mechanism designed by t1561. The full design is fixed in the decision record `aidocs/framework/task_premise_staleness.md` — read it before planning any child; it is the durable context anchor for this whole tree.
