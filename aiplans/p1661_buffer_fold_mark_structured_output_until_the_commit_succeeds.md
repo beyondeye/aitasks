@@ -268,3 +268,175 @@ Post-implementation (Step 9) handles cleanup, archival, and merge.
   judgment call the task does not spell out. Both are treated as terminal
   successes because nothing is rolled back and the mutations persist; tests 4
   and 5 pin each decision independently. · severity: low · → mitigation: TBD
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-01 13:15)
+
+- **Requested by user:** The Step 8 review flagged, as blocking, that the new
+  script header and `task-fold-marking.md` claim "a run that emits no records
+  made no lasting change" — but buffering only covers the Step 6 rollback paths.
+  An abort *between* Steps 3 and 6 (e.g. a folded ID with no task file, whose
+  `aitask_update.sh` exits non-zero under `set -e`) leaves earlier mutations on
+  disk with no rollback, and now prints nothing. Either narrow the documented
+  guarantee or make those failures transactional.
+
+- **Verified:** CONFIRMED, and reproduced directly:
+  `aitask_fold_mark.sh --commit-mode fresh 10 9999` against a fixture with no
+  t9999 exited 1 with **empty stdout** while `aitasks/t10_primary.md` carried
+  `folded_tasks: [9999]`. Buffering had moved the dishonesty rather than
+  removing it.
+
+- **Changes made:** Made the claim true instead of weakening it. Transactional
+  rollback was rejected — `rollback_paths` is not assembled until after Step 5b,
+  so an abort in Step 4 has no path set to restore, and building one early would
+  reopen t1599_2's scoped-commit / amend-guard design.
+  - `aitask_fold_mark.sh`: added `_fold_exit_flush` on an `EXIT` trap. It
+    flushes the buffer on **any** exit that did not roll back; `_fold_rollback`
+    now sets `_fold_rolled_back=true` to suppress it. On terminal success the
+    buffer is already empty, so the trap is a no-op there.
+  - Rewrote the header contract as three outcomes (terminal success / Step 6
+    rollback / pre-Step-6 abort) and restated the guarantee as **per record**:
+    a record on stdout means that mutation survives on disk; whether the *run*
+    succeeded is the exit status's job.
+  - `task-fold-marking.md`: same three-outcome wording.
+  - `tests/test_fold_mark.sh`: added
+    `test_abort_mid_mutation_flushes_what_landed`, asserting both halves
+    together (stdout reports `PRIMARY_UPDATED:10` **and** the primary really
+    carries `folded_tasks: [9999]`), plus a dedicated negative control
+    `test_negative_control_abort_without_exit_flush`. The existing
+    `install_unbuffered_record_emission` control cannot discriminate this test —
+    a pre-fix build prints at mutation time and would pass it — so the new
+    control removes the `EXIT` trap specifically and requires the defect
+    (mutation lands, stdout silent) to be observable.
+
+- **Verification after the change:** `test_fold_mark.sh` 153/153; all 15
+  fold_mark-touching suites green; shellcheck clean; `aitask_skill_verify.sh` OK.
+
+### Change Request 2 (2026-09-01 13:35)
+
+- **Requested by user:** The second Step 8 review rejected Change Request 1's
+  `EXIT`-trap flush as blocking: emitting `PRIMARY_UPDATED:10` on a run that
+  exits 1 and never reaches a terminal commit outcome **broadens the output
+  protocol** beyond the task's stated contract ("flush them only once Step 6
+  reaches a terminal success, so stdout describes committed state exclusively").
+  Remove the trap and its abort-specific test/control; narrow the documentation
+  to the Step 6 rollback/refusal guarantee instead.
+
+- **Verified:** CONFIRMED, and the two reviews converge rather than conflict —
+  Change Request 1 offered "narrow the documented guarantee" as its first
+  option, and this review selects it. The task specification is explicit, and
+  goal fidelity wins over the broader invariant I had preferred.
+
+- **Changes made:**
+  - `aitask_fold_mark.sh`: removed `_fold_exit_flush`, the `trap ... EXIT`, and
+    the `_fold_rolled_back` flag (including its assignment in `_fold_rollback`).
+    Buffering is back to exactly the four Step 6 terminal-success flush points.
+  - Header rewritten to the narrowed scope, with an explicit **"WHAT THIS DOES
+    NOT BUY"** paragraph: silence is not proof that nothing changed, an abort
+    before Step 6 leaves mutations on disk uncommitted, and the **exit status is
+    authoritative**. Same wording in `task-fold-marking.md`. The narrowing is
+    stated rather than left implicit, so no consumer reads the smaller
+    guarantee as the larger one.
+  - `tests/test_fold_mark.sh`: deleted `install_no_exit_flush` and
+    `test_negative_control_abort_without_exit_flush`. **Converted** (rather than
+    deleted) the abort test into `test_abort_mid_mutation_emits_no_records`,
+    which now pins the contract as specified — stdout empty on a pre-Step-6
+    abort — *and* pins the documented residual (the Step 3 mutation is still on
+    disk, dirty and uncommitted). Keeping it guards the narrowed contract on a
+    reachable path; say the word and it goes entirely.
+
+- **Known residual (deliberately not fixed here):** a pre-Step-6 abort leaves
+  the task files dirty and uncommitted, and stdout does not report it. That is
+  the *transactionality* gap, not the output contract: `rollback_paths` is not
+  assembled until after Step 5b, so fixing it means hoisting the rollback set
+  above Step 3, which would disturb t1599_2's scoped-commit and amend-guard
+  design. It predates this task (the pre-fix build left the same files dirty)
+  and is now documented in both the script header and `task-fold-marking.md`.
+
+- **Verification after the change:** `test_fold_mark.sh` 155/155; all 15
+  fold_mark-touching suites green; shellcheck clean; `aitask_skill_verify.sh` OK.
+
+## Final Implementation Notes
+
+- **Actual work done:** Buffered `aitask_fold_mark.sh`'s four per-mutation
+  records (`PRIMARY_UPDATED` / `FOLDED` / `CHILD_REMOVED` / `TRANSITIVE`) behind
+  `_fold_emit`, flushing via `_fold_flush_records` at exactly the four Step 6
+  terminal successes (`crc=0`, `crc=2`, `amend`, `none`). Documented the
+  contract — and what it does **not** buy — in the script header and in
+  `task-fold-marking.md`. Added 7 tests and 2 negative controls to
+  `tests/test_fold_mark.sh`.
+
+- **Deviations from plan:** Net zero — the delivered change matches the approved
+  plan. An `EXIT`-trap flush was added in Change Request 1 and removed again in
+  Change Request 2; what survives that round trip is one extra test
+  (`test_abort_mid_mutation_emits_no_records`, pinning the narrowed contract and
+  its residual) and a sharper header. Plan item 1d (`_fold_rollback` on the
+  invalid-`--commit-mode` arm) landed as planned; the plan flagged it as
+  adjacent scope.
+
+- **Issues encountered:**
+  - Reaching `task_git_commit_scoped`'s `crc=2` arm deterministically. The
+    production shape (an idempotent re-fold) is clock-dependent, since
+    `aitask_update.sh` stamps `updated_at` to the current minute, so a re-run is
+    only byte-identical within one minute. Used `git update-index
+    --assume-unchanged` on the fold's paths instead: git reports them clean
+    however the fold rewrites them. The assertion is self-proving — `NO_COMMIT`
+    from a `fresh` invocation can only come from that arm.
+  - Reaching the two post-staging commit failures. Neither commit site passes
+    `--no-verify`, the scaffold sets no `core.hooksPath`, and `task_git` is plain
+    `git` in `$PWD` in these fixtures, so a failing `.git/hooks/pre-commit` fails
+    the commit itself while still releasing the index — which keeps
+    `_fold_rollback` working and the restoration half assertable.
+  - `install_prefix_commit_block` (t1599_2's control) excises Step 6 by text,
+    anchored on `# _fold_task_id_of_path` and the literal
+    `die "invalid --commit-mode: $commit_mode"`. The buffer helpers were placed
+    **above** Step 6 so the excision cannot take them, the anchor line was kept
+    verbatim, and the injected pre-fix block gained `_fold_flush_records` calls
+    so it stays t1661-correct while rebuilding t1599_2's defect.
+
+- **Key decisions:**
+  - Buffering over a terminal `ROLLED_BACK:` marker — the task's stated
+    preference; a marker needs every consumer to opt in.
+  - `crc=2` and `--commit-mode none` are flush points: nothing is rolled back
+    and the mutations stand, so the records are honest. Each is pinned by its
+    own test.
+  - The guarantee is scoped to Step 6, per the task specification: a record means
+    the mutation *survived Step 6* — which includes the two `NO_COMMIT` successes
+    (`--commit-mode none`, and the verified no-op), so it does not imply durable
+    git history. A pre-Step-6 abort stays silent. Both costs — `NO_COMMIT` being
+    a success, and silence not proving no change — are written into the contract
+    rather than left implicit, with the exit status named as authoritative.
+
+- **Upstream defects identified:** None. (The pre-Step-6 abort residual noted
+  under Change Request 2 is in this same script, is pre-existing, and is now
+  documented behavior rather than a hidden defect — see the follow-up offer at
+  Step 8b.)
+
+### Change Request 3 (2026-09-01 13:50)
+
+- **Requested by user:** The header and `task-fold-marking.md` called the
+  guarantee "stdout describes committed state only", but the implementation
+  deliberately flushes ahead of `NO_COMMIT` in both `--commit-mode none` (the
+  caller commits later) and the `fresh` `crc=2` verified no-op. That name
+  contradicts the mode semantics and could mislead a consumer into reading an
+  uncommitted handoff as durable git history. Rename the guarantee to
+  terminal-success / surviving-on-disk, explicitly retain `NO_COMMIT` as a valid
+  successful flush outcome, and keep the pre-Step-6-abort disclaimer separate.
+
+- **Verified:** CONFIRMED — the two `NO_COMMIT` flushes are deliberate and are
+  pinned by `test_none_mode_no_commit` and
+  `test_fresh_verified_noop_flushes_records`. The defect was the name, not the
+  behavior.
+
+- **Changes made (documentation only — no behavior change):** retitled the
+  script-header contract to `RECORDS MEAN "STEP 6 REACHED A TERMINAL SUCCESS"`
+  and gave it a three-row table of the terminal records, spelling out that
+  `NO_COMMIT` is a success (either `--commit-mode none` or the verified no-op)
+  and that a record therefore means "survived Step 6", **not** "committed".
+  Mirrored the same table and wording into `task-fold-marking.md`, kept the
+  separate "what this does not buy" abort disclaimer in both, and aligned the
+  `tests/test_fold_mark.sh` header comment.
+
+- **Verification after the change:** `test_fold_mark.sh` 155/155; all 15
+  fold_mark-touching suites green; shellcheck clean; `aitask_skill_verify.sh` OK.
