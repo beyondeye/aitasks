@@ -115,10 +115,13 @@ references in `tests/test_gate_verifiers.sh`) and call it from the new helper.
 Verified behaviour on a scalar key: `read_yaml_list` yields nothing, the scalar
 fallback returns the value with one layer of quotes stripped.
 
-`resource_admission_command` is **scalar-only**: more than one value exits 3
-with `not_scalar` rather than guessing which refusal wins, and it keeps the
-Settings TUI's plain string editor lossless. A project needing several probes
-writes one wrapper script.
+`resource_admission_command` is **scalar-only**, enforced on the YAML **shape**
+rather than on a value count: `read_yaml_list` is the shape witness (empty for
+every scalar form, non-empty for every list form whatever its length), so ANY
+list exits 3 with `not_scalar`. A count-based check would admit a one-element
+list while rejecting a two-element one. Scalar-only keeps the Settings TUI's
+plain string editor lossless; a project needing several probes writes one
+wrapper script.
 
 **Do NOT add the key to `GATE_COMMAND_KEYS`.** `tests/test_gate_verifiers.sh`
 Test 10 derives that constant from the `aitask_gate_*.sh` wrappers and fails on
@@ -456,3 +459,32 @@ through the prose, which no test can):
 ### Planned mitigations
 - timing: pre-phase | name: baseline_shared_lib_tests | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (shared-lib rename, stop_reason edit, closure/golden freshness) | desc: Record a green baseline of test_gate_verifiers, test_plan_approved_marker_contract and test_skill_render_task_workflow before any edit
 - timing: after | name: port_resource_admission_to_remote_picks | type: feature | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement (autonomous picks start memory-bound phases unadmitted) | desc: Carry the resource-admission hook to aitask-pickrem and aitask-pickweb with their own park semantics
+
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-01 12:57)
+- **Requested by user:** The scalar-only contract was documented but not
+  enforced. `aitask_resource_admission.sh` rejected only *more than one*
+  resolved value, so `resource_admission_command: ["exit 0"]` was admitted and
+  ran — `project_config_values()` is shape-agnostic and had already flattened
+  the list, so the implementation could not enforce the contract it described.
+  Preserve the scalar-vs-list shape during resolution and add a single-item-list
+  negative test.
+- **Verified before changing anything:** a probe over seven YAML shapes confirmed
+  both halves — the one-element list really was admitted, and `read_yaml_list`
+  really is a sound shape witness: 0 values for every scalar form (including
+  `"pytest -k 'a,b'"`, whose comma must not read as a list) and ≥1 for every
+  list form regardless of length.
+- **Changes made:** the helper now asks `read_yaml_list` first and refuses the
+  list **form** outright, before any count; `project_config_values()` is used
+  only for the scalar path, so no third parser is introduced. The old
+  count-based check is kept as a defensive backstop with a comment saying it can
+  no longer be the enforcement point. Four list cases (inline/block × 1/2 items)
+  and a comma-containing-scalar negative control were added. Mutation-checked:
+  disabling the shape check reproduces the reported defect and fails 14
+  assertions.
+- **Files affected:** `.aitask-scripts/aitask_resource_admission.sh`,
+  `tests/test_resource_admission.sh`,
+  `website/content/docs/skills/aitask-pick/resource-admission.md`,
+  `seed/project_config.yaml`.
