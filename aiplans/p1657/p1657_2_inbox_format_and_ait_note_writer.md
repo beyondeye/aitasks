@@ -6,7 +6,7 @@ Archived Sibling Plans: aiplans/archived/p1657/p1657_1_promote_ledger_block_subs
 Base branch: main
 Output branch: main
 plan_verified:
-  - claudecode/opus5 @ 2026-09-01 18:46
+  - claudecode/opus5 @ 2026-09-01 22:42
 ---
 
 # p1657_2 — Durable lane: `## Inbox` format and the `ait note` writer
@@ -191,6 +191,34 @@ Both orders are now pinned, on both backends.
   (`aitask_gate.sh:1081`). Adopted verbatim: one structured line on stdout, the
   hint as a `warn`. `<reason>` is sanitized at the write site for the same
   guarantee — it sits inside a `|`-delimited single line.
+
+### F18–F20 — Implementation review (all CONFIRMED by measurement, all fixed)
+
+Raised against the shipped code, not the design. Each was reproduced before
+being fixed.
+
+- **F18 (migration inputs unvalidated).** The `--migrate` path checked only that
+  `--claimed-at` / `--base` were non-empty, then wrote them verbatim. Measured:
+  `--base 451dd3af7` produced a **committed** Inbox block that
+  `INBOX_SPEC.validate` then rejected (`valid=False`) — a local migration
+  becoming a cross-PC conflict source, with the block already in git. The writer
+  now mirrors the merger's rules *before* the append: full oid or a permitted
+  sentinel, date-shaped `claimed_at`, `base_branch` iff the base is real. The
+  asymmetry was the defect: whatever the writer commits, every other PC
+  re-validates.
+- **F19 (no argument matrix).** Option parsing was last-one-wins with no arity
+  checks. Measured: `--text a --file b.txt` emitted the file body and silently
+  dropped the inline text; `--migrate --from X` silently ignored a sender the
+  caller believed was attributed. Now: exactly one body source, no duplicate
+  flags, and the two modes mutually exclusive. Duplicate checks run **before**
+  the arity rule, so `--text a --text b` names the duplicate rather than the
+  arity violation.
+- **F20 (unknown keys accepted).** `_validate_inbox_provenance` special-cased
+  only `migrated=yes` and otherwise permitted arbitrary keys. Measured:
+  `migrated=no`, `claimed_at=garbage` on an ordinary note, and `bogus=1` all
+  unioned. Each variant now has an exact allowed key set, and `migrated` is
+  keyed on **presence** rather than `== "yes"` — a block claiming the variant
+  without satisfying it is malformed, not an ordinary note.
 
 ### F4 — Concurrent session on the seam (no edit collision)
 
