@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [task-workflow, planning, verification]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1538
 implemented_with: claudecode/fable5
 created_at: 2026-08-17 23:48
-updated_at: 2026-09-01 15:14
+updated_at: 2026-09-01 15:45
+completed_at: 2026-09-01 15:45
 boardcol: now
 boardidx: 17478
 ---
@@ -61,3 +62,14 @@ Produce a decision record in `aidocs/framework/` (or explicitly reject the gener
 > **✅ gate:plan_approved** run=2026-09-01T12:14:04Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-01T12:41:53Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-01T12:45:05Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:076d07e1db5f66d4
+
+> **✅ gate:risk_evaluated** run=2026-09-01T12:45:05Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1561/risk_evaluated_2026-09-01T12:45:05Z-risk_evaluated-a1.log`
