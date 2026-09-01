@@ -1,12 +1,13 @@
 ---
 priority: medium
 effort: low
-depends: [1599_2]
+depends: [t1599_2]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [bash_scripts, robustness, task_metadata]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-01 10:28
-updated_at: 2026-09-01 10:28
+updated_at: 2026-09-01 12:40
 ---
 
 ## Context
