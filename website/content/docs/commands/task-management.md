@@ -16,7 +16,7 @@ Create new task files with YAML frontmatter metadata. Supports standalone and pa
 1. **Parent selection** — Choose "None - create standalone task" or select an existing task as parent from a fzf list of all tasks (shown with status/priority/effort metadata)
 2. **Priority** — Select via fzf: high, medium, low
 3. **Effort** — Select via fzf: low, medium, high
-4. **Issue type** — Select via fzf from `aitasks/metadata/task_types.txt` (bug, chore, documentation, enhancement, feature, performance, refactor, style, test)
+4. **Issue type** — Select via fzf from `aitasks/metadata/task_types.txt` (bug, chore, documentation, enhancement, feature, manual_verification, performance, refactor, style, test)
 5. **Status** — Select via fzf: Ready, Editing, Implementing, Postponed
 6. **Labels** — Iterative loop: pick from existing labels in `aitasks/metadata/labels.txt`, add a new label (auto-sanitized to lowercase alphanumeric + hyphens/underscores), or finish. New labels are persisted to the labels file for future use
 7. **Dependencies** — fzf multi-select from all open tasks. For child tasks, sibling tasks appear at the top of the list. Select "None" or press Enter with nothing selected to skip
@@ -60,6 +60,7 @@ echo "Long description" | ait create --batch --name "my_task" --desc-file -
 | `--labels, -l LABELS` | Comma-separated labels |
 | `--deps DEPS` | Comma-separated dependency task numbers |
 | `--verifies IDS` | Comma-separated task IDs this task verifies (for `manual_verification` tasks) |
+| `--also-blocks-dependents GATES` | Comma-separated gates that must also pass before this task's dependents unblock, beyond the registry defaults. Writes [`also_blocks_dependents`]({{< relref "/docs/development/task-format" >}}) |
 | `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
 | `--parent, -P NUM` | Create as child of parent task number |
 | `--no-sibling-dep` | Don't auto-add dependency on previous sibling |
@@ -196,6 +197,7 @@ ait update --batch 10 --remove-child t10_1      # Remove child from parent
 | `--verifies IDS` | Set `verifies` list (comma-separated task IDs, replaces all) |
 | `--add-verifies ID` | Add one verified task ID (repeatable) |
 | `--remove-verifies ID` | Remove one verified task ID (repeatable) |
+| `--also-blocks-dependents GATES` | Set the extra dependent-unblocking gates (comma-separated, replaces all; use `""` to clear) |
 | `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
 | `--remove-file-ref REF` | Remove a file reference (exact-string match; repeatable) |
 | `--boardcol COL` | Board column ID. Validated against the project's configured columns (plus `unordered`); an unknown id is rejected. Use `""` to clear |

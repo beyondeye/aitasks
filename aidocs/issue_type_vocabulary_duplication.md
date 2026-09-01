@@ -11,6 +11,28 @@ This violates the single-source-of-truth principle (see `feedback_single_source_
 - Test fixtures don't exercise the new value (low risk; consistency only).
 - Codex/Gemini/OpenCode agents work from stale instruction mirrors.
 
+## Enforcement (t1666)
+
+`tests/test_docs_vocabulary_coverage.sh` now **fails** when any enumerating site
+drifts from `aitasks/metadata/task_types.txt`. It drives
+`tests/lib/docs_vocabulary_scan.py`, whose `SITES` table is the machine-readable
+form of the checklist below — so when you add a type, run the test rather than
+trusting a grep, and when you add a *site*, add it to `SITES` in the same
+change. The scanner extracts the enumeration itself (not the surrounding prose),
+so a site is free to explain an exclusion in words without tripping the check.
+
+Three expected sets, all derived from `task_types.txt`:
+
+| class | set | why |
+|---|---|---|
+| `FULL` | every value | the site mirrors the vocabulary |
+| `NO_MV` | minus `manual_verification` | **commit types and the wrap suggestion list.** There is no `manual_verification:` commit type: such a task records its own outcome with `ait:`, and any code change a failed check triggers lands on a spawned follow-up under that follow-up's type. A wrap, likewise, always describes code changes that already exist |
+| `DETECTED` | minus `manual_verification` and `enhancement` | `github_detect_type()` in `aitask_issue_import.sh` maps issue labels to bug/refactor/test/style/chore/documentation/performance and otherwise falls back to `feature`; it can emit neither of the other two |
+
+The same test also guards the **frontmatter field table** against the writers
+(see its header) — a separate dimension that lives in the same file because it
+protects the same document.
+
 ## Single Source of Truth (the only file that's authoritative)
 
 `aitasks/metadata/task_types.txt` — newline-delimited list, validated against by `.aitask-scripts/aitask_create.sh::is_valid_task_type` (via `get_valid_task_types`). The runtime accepts any value present here.
@@ -35,10 +57,17 @@ Each has **two** lines: the YAML frontmatter sample and the commit-message-forma
 
 | File | Sections to update |
 |------|---------------------|
-| `CLAUDE.md` | "Task File Format" `issue_type:` pipe-list + "Commit Message Format" backtick-list |
+| `CLAUDE.md` | "Task File Format" `issue_type:` pipe-list (`FULL`) + "Commit Message Format" backtick-list (**`NO_MV`**). Hand-maintained — edit directly |
 | `seed/aitasks_agent_instructions.seed.md` | Same two sections (verbatim mirror for new projects) |
 | `.codex/instructions.md` | Same two sections (Codex CLI mirror) |
 | `.opencode/instructions.md` | Same two sections (OpenCode mirror) |
+
+`AGENTS.md`, `.codex/instructions.md` and `.opencode/instructions.md` are
+**generated from the seed**, not hand-edited: edit
+`seed/aitasks_agent_instructions.seed.md` and drive the generator (see
+`aidocs/framework/aitasks_extension_points.md` §5 — never copy out of
+`AGENTS.md`, which carries the shared layer only). `tests/test_agent_instructions.sh`
+T25–T27 pin all three byte-for-byte against the live seed.
 
 Note: `seed/codex_instructions.seed.md`, `seed/opencode_instructions.seed.md` are **agent-identification only** and do not list types — leave alone.
 
@@ -46,20 +75,42 @@ Note: `seed/codex_instructions.seed.md`, `seed/opencode_instructions.seed.md` ar
 
 | File | Where |
 |------|-------|
-| `.claude/skills/task-workflow/SKILL.md` | "Code commits MUST use ... (one of: ...)" line in the commit-conventions section |
+| `.claude/skills/task-workflow/SKILL.md` | "Code commits MUST use ... (one of: ...)" line in the commit-conventions section — **`NO_MV`** |
 | `.claude/skills/task-workflow/task-creation-batch.md` | `issue_type` row of the input parameter table |
-| `.claude/skills/aitask-wrap/SKILL.md` | "Suggested issue_type: One of `feature`, `bug`, ..." line in the analysis-output section |
+| `.claude/skills/aitask-wrap/SKILL.md.j2` | "Suggested issue_type: One of `feature`, `bug`, ..." line in the analysis-output section — **`NO_MV`**. Edit the `.j2`, not the stub `SKILL.md` |
+| `.claude/skills/aitask-docs-gap/SKILL.md` | `ISSUE_TYPE:` value list in the gather-output parsing section |
+| `.claude/skills/aitask-changelog/SKILL.md` | same list, in its own gather-output parsing section |
 
-Sibling skill trees (`.opencode/skills/`, `.gemini/skills/`, `.agents/skills/`) currently do **not** mirror these enumerations — confirmed by grep. If a future port adds them, this checklist must grow.
+**Rendered variants: only the `-remote-` closures are tracked.** `.gitignore`
+excludes `.claude/skills/*-/`, but the `-remote-` trees are committed anyway and
+therefore ship — six of their files carry an enumeration:
+
+```
+{.claude,.opencode}/skills/task-workflow-remote-/{SKILL.md,task-creation-batch.md}
+.agents/skills/task-workflow-remote-codex-/{SKILL.md,task-creation-batch.md}
+```
+
+They are refreshed by `./.aitask-scripts/aitask_skill_rerender.sh <profile>`
+(**it takes a profile argument** — run it for `default`, `fast` and `remote`;
+the `remote` pass is the one that touches tracked files). The `-default-` /
+`-fast-` variants are genuinely gitignored and never appear in a diff. The
+scanner lists all six, so a source edit without a rerender fails the test.
+
+### 3b. Goldens
+
+Regenerate in the **same commit** as the source edit, per
+`aidocs/framework/skill_authoring_conventions.md`:
+`tests/golden/procs/task-workflow/{SKILL,task-creation-batch}-{default,fast,remote}.md`
+and `tests/golden/skills/aitask-wrap/SKILL-{default,fast,remote}-{claude,codex}.md`.
 
 ### 4. Website (Hugo/Docsy)
 
 | File | Where |
 |------|-------|
-| `website/content/docs/development/task-format.md` | `issue_type` row of the frontmatter-fields table |
+| `website/content/docs/development/task-format.md` | `issue_type` row of the frontmatter-fields table, **and** the defaults block under "Customizing Task Types" — two independent sites in one file |
 | `website/content/docs/tuis/board/reference.md` | `issue_type` row of the editable-fields table |
 | `website/content/docs/tuis/board/how-to.md` | "Type:" bullet in the cycle-fields list |
-| `website/content/docs/workflows/issue-tracker.md` | Auto-detection paragraph in step 1 of "The Full Cycle" |
+| `website/content/docs/workflows/issue-tracker.md` | Auto-detection paragraph in step 1 of "The Full Cycle" — **`DETECTED`**, not the full vocabulary: it describes what `github_detect_type()` can infer from a label, so a new type belongs here only if that function learns to emit it |
 | `website/content/docs/commands/task-management.md` | "Issue type" bullet in the create-task interactive flow |
 
 ### 5. Test fixtures (consistency only — current tests don't validate the new value)
@@ -83,7 +134,14 @@ The four `manual_verification`-suffixed fixtures use the same pattern with an ad
 
 ### 6. Final scan
 
-After all edits, this should return zero results:
+Run the guard — it is the authority, and it checks each site independently:
+
+```bash
+bash tests/test_docs_vocabulary_coverage.sh
+```
+
+The grep below remains a coarse second opinion; after all edits it should return
+zero results:
 
 ```bash
 grep -rEn "(bug.*feature.*chore|bug.*chore.*documentation|chore.*documentation.*feature|documentation.*feature.*performance)" \

@@ -72,7 +72,7 @@ If a `from_tag` argument was provided, append `--from-tag <from_tag>`.
 Parse the output by `KEY:` prefix (not by field position — the emission order is `ISSUE_TYPE`, `TITLE`, `PLAN_FILE`, `NOTES`, `COMMITS`):
 - The base tag from the `BASE_TAG:` line
 - Each task section (`=== TASK tNN ===` to `=== END ===`) containing:
-  - `ISSUE_TYPE:` — task type (feature, bug, enhancement, chore, documentation, performance, refactor, style, test)
+  - `ISSUE_TYPE:` — task type (feature, bug, enhancement, chore, documentation, manual_verification, performance, refactor, style, test)
   - `TITLE:` — human-readable task name
   - `PLAN_FILE:` — path to the archived plan file (may be empty)
   - `NOTES:` — "Final Implementation Notes" from the plan (may be empty)

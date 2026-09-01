@@ -34,7 +34,9 @@ Detailed description of what needs to be done.
 | `priority` | `high`, `medium`, `low` | Task priority for sorting |
 | `effort` | `low`, `medium`, `high` | Estimated implementation effort |
 | `depends` | `[1, 4]` | List of task numbers this depends on |
-| `issue_type` | `bug`, `chore`, `documentation`, `enhancement`, `feature`, `performance`, `refactor`, `style`, `test` | Type of work (from `task_types.txt`) |
+| `xdeprepo` | project name | The one linked project this task coordinates with, as a logical name from the registry. Set with `ait create --xdeprepo` / `ait update --xdeprepo`. Setting it alone declares an intent to coordinate without blocking, and is what opts the task into paired cross-repo planning. See [Cross-project dependencies]({{< relref "/docs/workflows/cross_project_dependencies" >}}) |
+| `xdeps` | `[42, 16_2]` | Blocking dependencies on tasks **in `xdeprepo`**, written the way that project numbers them locally. Set with `--xdeps` on either command. Requires `xdeprepo` — `xdeps` alone is rejected at create and update time, because task IDs are meaningless without a project to resolve them against |
+| `issue_type` | `bug`, `chore`, `documentation`, `enhancement`, `feature`, `manual_verification`, `performance`, `refactor`, `style`, `test` | Type of work (from `task_types.txt`) |
 | `status` | `Ready`, `Editing`, `Implementing`, `Postponed`, `Done`, `Folded` | Current status |
 | `labels` | `[ui, backend]` | Categorization labels |
 | `created_at` | `YYYY-MM-DD HH:MM` | Creation timestamp |
@@ -51,6 +53,8 @@ Detailed description of what needs to be done.
 | `anchor` | task id (`130`, `130_2`) | Topic-group key pointing at a subject's **root** task, so loosely-related and follow-up tasks cluster together. Absent ⇒ the task is its own root. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}). |
 | `followup_kind` | `manual_verification`, `risk_mitigation`, `upstream_defect`, `verification_failure`, `carry_over`, `qa_test_gap`, `review_finding`, `docs_gap` | Marks the task as an **auto-spawned follow-up** and records which seam spawned it. Absent ⇒ genuine new work. Orthogonal to `issue_type`, which stays the task's real type (an upstream defect is still a `bug`). Clearing it removes the key — there is no empty-value form. `manual_verification` additionally requires `issue_type: manual_verification`. |
 | `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive. Exact-string dedup. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
+| `artifacts` | list of mappings | **Nested.** Versioned, handle-addressed artifacts attached to the task. Each entry carries `handle` (`art:<id>`), `kind`, and an optional `name` — nothing else: the current version, the version history and the backend live in the artifact manifest, so a new version never rewrites the task file. Written by `ait artifact create` / `rm`, never by hand. See the [nested-field example](#nested-fields-artifacts-and-attachments) |
+| `attachments` | list of mappings | **Nested.** Content-addressed file attachments. Each entry carries `hash`, `name`, `mime`, `size`, `added_at` and `backend`. Written by `ait attach add` / `rm`, never by hand. See the [nested-field example](#nested-fields-artifacts-and-attachments) |
 | `verifies` | `[t10_1, t10_2]` | Task IDs this task verifies (used by `manual_verification` sibling tasks that gate release on human-checked behavior) |
 | `verification_baseline` | `<sha> @ YYYY-MM-DD HH:MM` | The commit a `manual_verification` checklist is known to match. Set with `ait update --verification-baseline` (update-only). Together with a curated `file_references` list it enables the advisory staleness pre-check, which warns when a named file changed since this commit; absent ⇒ the check silently skips. Inherited (not reset) by a deferred-item carry-over task |
 | `plan_approved_at` | `YYYY-MM-DD HH:MM` | Marks a task whose plan was approved and whose implementation was **deliberately deferred** (the "Approve and stop here" checkpoint option), so it is distinguishable from a never-planned task. Written and cleared by the workflow only — it is cleared when implementation starts, on a replan or abort, when the task is decomposed into children, and when a remote-drift stop demands re-verification; absent ⇒ no such plan. Shown by `ait ls -v` as `Plan: approved <ts>` and listable with `ait ls --plan-approved`. A display and prompting signal only: it never changes how the workflow routes, and the post-plan remote drift check runs regardless |
@@ -62,11 +66,47 @@ Detailed description of what needs to be done.
 | `contributor` | name | External contributor credited on the commit (used by PR-import flow) |
 | `contributor_email` | email | Email for the contributor's `Co-Authored-By` trailer |
 | `gates` | `[risk_evaluated, tests_pass]` | Declared gate set — the task's gating **intent**. Registered gates live in `aitasks/metadata/gates.yaml`. An explicit `[]` is an opt-out (never backfilled from a profile) |
-| `also_blocks_dependents` | `[merge_approved]` | Extra gates that must pass before this task's dependents unblock, beyond the registry's `blocks_dependents` defaults |
+| `also_blocks_dependents` | `[merge_approved]` | Extra gates that must pass before this task's dependents unblock, beyond the registry's `blocks_dependents` defaults. Set with `--also-blocks-dependents` on both `ait create` and `ait update` |
 | `active_gates` | `[risk_evaluated]` | **Framework-derived — never hand-edit.** The profile-filtered *enforced* gate set, materialized at pick/claim time (`resolve(gates, profile default_gates) ∩ profile rendered set`). May be `[]` (fully filtered). Written atomically with the three fields below |
 | `active_gates_filtered` | `[docs_updated]` | **Framework-derived.** Gates the profile ceiling removed (declared but not enforced) |
 | `active_gates_profile` | profile name | **Framework-derived.** Provenance stamp: the execution profile that produced the active set |
 | `active_gates_digest` | `<g>.<p>.<o>` | **Framework-derived.** Three-part integrity digest over the resolve inputs and stored outputs; on mismatch (e.g. a later `gates:` edit) enforcement falls back to the raw `gates:` field until the next pick re-materializes |
+
+### Nested fields: `artifacts` and `attachments`
+
+Every other field above is a flat scalar or a flat list. These two are lists of
+mappings, and they are the only place the header nests:
+
+```yaml
+artifacts:
+  - handle: art:trail-shadow-review-loop
+    kind: implementation_trail
+    name: "Shadow review-loop automation: landing order"
+attachments:
+  - hash: sha256:1f8b034f74a1…
+    name: crash-log.txt
+    mime: text/plain
+    size: 4821
+    added_at: 2026-08-14 09:12
+    backend: local
+```
+
+Neither is hand-edited. `artifacts` entries are written by
+[`ait artifact`]({{< relref "/docs/workflows/implementation-trails" >}}) and
+`attachments` entries by `ait attach`; both commands manage the blob, the
+manifest and the task file as one commit, so editing the block by hand
+desynchronises it from the store.
+
+### Fields the workflow writes for you
+
+Some rows above are marked **Framework-derived** or "written by the workflow
+only" — `active_gates` and its three companions, `risk_code_health`,
+`risk_goal_achievement`, `risk_mitigation_tasks`, and `plan_approved_at`. The
+`ait update` flags that write them exist but are deliberately **not documented**:
+they are internal surfaces the workflow calls at defined points, and setting one
+by hand produces a value the next pick recomputes or clears. Where a field *is*
+meant to be set by a person, the flag is named in its own row — see
+`verification_baseline` and `boardgroup`.
 
 ---
 
@@ -157,11 +197,13 @@ Valid issue types are defined in `aitasks/metadata/task_types.txt` (one type per
 bug
 chore
 documentation
+enhancement
 feature
 performance
 refactor
 style
 test
+manual_verification
 ```
 
 To add a custom type, simply add a new line to the file. All scripts (`ait create`, `ait update`, [`ait board`](../../tuis/board/), `ait stats`) read from this file dynamically.

@@ -54,7 +54,7 @@ Run the changelog data gathering script:
 Parse the output to identify:
 - The base tag (last release) from the `BASE_TAG:` line
 - Each task section (`=== TASK tNN ===` to `=== END ===`) containing:
-  - `ISSUE_TYPE:` — task type (feature, bug, refactor, documentation, performance, style, test, chore)
+  - `ISSUE_TYPE:` — task type (feature, bug, enhancement, refactor, documentation, manual_verification, performance, style, test, chore)
   - `TITLE:` — human-readable task name
   - `PLAN_FILE:` — path to the archived plan file (may be empty)
   - `COMMITS:` — source code commits for this task

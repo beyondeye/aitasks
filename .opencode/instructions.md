@@ -13,7 +13,7 @@ Task files use YAML frontmatter with these fields:
 priority: high|medium|low
 effort: high|medium|low
 depends: [1, 3]
-issue_type: bug|feature|enhancement|chore|documentation|performance|refactor|style|test
+issue_type: bug|feature|enhancement|chore|documentation|performance|refactor|style|test|manual_verification
 status: Ready|Editing|Implementing|Postponed|Done|Folded
 labels: [ui, backend]
 assigned_to: email
@@ -75,6 +75,11 @@ In legacy mode (no separate branch), `./ait git` passes through to plain `git`.
 Types match `issue_type` values: `bug`, `feature`, `enhancement`, `chore`,
 `documentation`, `performance`, `refactor`, `style`, `test`. Also `ait` for
 framework-internal changes (task/plan file operations).
+
+The list is deliberately one shorter than `task_types.txt`: there is no
+`manual_verification:` commit type. A manual-verification task records its own
+outcome with `ait:`, and any code change a failed check triggers lands on a
+spawned follow-up task under that follow-up's type.
 
 Code commits use `<type>: <description> (tNN)`. Plan/task file commits use
 `ait: <description>`. Never mix code and task/plan files in the same commit.

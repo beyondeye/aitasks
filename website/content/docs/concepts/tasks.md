@@ -8,7 +8,7 @@ depth: [main-concept]
 
 ## What it is
 
-A **task** is a markdown file with YAML frontmatter in the `aitasks/` directory, named `t<N>_<short_name>.md` (for example `aitasks/t130_add_login.md`). The frontmatter block carries fields like `priority`, `effort`, `depends`, `status`, `labels`, `assigned_to`, `issue_type`, `boardcol`; the free-form markdown body describes the work. Tasks persist exactly the same way source code does: as files committed to git. Every CLI command, TUI, and code agent skill operates on those files directly.
+A **task** is a markdown file with YAML frontmatter in the `aitasks/` directory, named `t<N>_<short_name>.md` (for example `aitasks/t130_add_login.md`). The frontmatter block carries the task's structured metadata — prioritization (`priority`, `effort`), scheduling and dependencies (`status`, `depends`, `boardcol`), classification (`issue_type`, `labels`), ownership (`assigned_to`), and a long tail of fields the workflow writes for itself; the free-form markdown body describes the work. The [Task File Format reference]({{< relref "/docs/development/task-format" >}}) documents every field. Tasks persist exactly the same way source code does: as files committed to git. Every CLI command, TUI, and code agent skill operates on those files directly.
 
 ## Why it exists
 

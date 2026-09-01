@@ -136,7 +136,7 @@ default to: `TASK_DIR=aitasks`, `PLAN_DIR=aiplans`,
 priority: high|medium|low
 effort: high|medium|low
 depends: [1, 3]
-issue_type: bug|feature|enhancement|chore|documentation|performance|refactor|style|test
+issue_type: bug|feature|enhancement|chore|documentation|performance|refactor|style|test|manual_verification
 status: Ready|Editing|Implementing|Postponed|Done|Folded
 labels: [ui, backend]
 assigned_to: email
@@ -208,6 +208,11 @@ for update-available hints or "move to v0.X.Y" flows.
 Types match `issue_type` values: `bug`, `feature`, `enhancement`, `chore`,
 `documentation`, `performance`, `refactor`, `style`, `test`. Also `ait` for
 framework-internal changes.
+
+The list is deliberately one shorter than `task_types.txt`: there is no
+`manual_verification:` commit type. A manual-verification task records its own
+outcome with `ait:`, and any code change a failed check triggers lands on a
+spawned follow-up task under that follow-up's type.
 
 ## Git Operations on Task/Plan Files
 
