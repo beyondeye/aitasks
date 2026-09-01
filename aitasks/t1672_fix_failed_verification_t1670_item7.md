@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [1597]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: verification_failure
 created_at: 2026-09-01 17:11
-updated_at: 2026-09-01 17:11
+updated_at: 2026-09-01 17:19
 ---
 
 ## Failed verification item from t1597
