@@ -6,7 +6,7 @@ Archived Sibling Plans: aiplans/archived/p1657/p1657_1_promote_ledger_block_subs
 Base branch: main
 Output branch: main
 plan_verified:
-  - claudecode/opus5 @ 2026-09-01 23:13
+  - claudecode/opus5 @ 2026-09-02 09:07
 ---
 
 # p1657_2 — Durable lane: `## Inbox` format and the `ait note` writer
@@ -240,6 +240,36 @@ being fixed.
   That subshell needs **two cleanup scopes**: its EXIT trap must not remove the
   id/handoff files, because it fires exactly when the parent still needs them —
   the first version of this fix broke the happy path that way.
+
+### F22 — Post-append failure window (CONFIRMED; plus a masking defect found proving it)
+
+Both introduced by the F21b subshell fix — a reminder that a fix to one
+failure-reporting path can open another.
+
+- **F22a (id published too late).** `_note_append_inner` wrote the handoff id
+  **after** `ait_ledger_lock_release_checked`, which genuinely can `die`:
+  `stale_lock_release` returns 1 on a retained lock or a retained guard. The
+  parent then saw a bare failed subshell for a note **already on disk** and
+  reported `NOTE_ERROR:lock-unavailable` — a pre-append error for an appended
+  note, so a caller retries and duplicates it. That is precisely the
+  disjointness F6 established. The id is now published the instant the append
+  lands, and **the id file is the witness**: non-empty means the note exists
+  whatever failed afterwards, and the outcome becomes
+  `NOTE_APPENDED_UNCOMMITTED:<id>|<path>|lock-release-failed`.
+- **F22b (the trap masked it) — found while proving F22a, and worse.** The EXIT
+  trap installed inside the locked section chained as
+  `note_cleanup_body; ait_ledger_lock_exit_trap`. That seam trap reads `$?` on
+  entry *precisely* to preserve the dying command's status — so running any
+  command in front of it resets `$?` to that command's own status. **Measured:**
+  a death inside the locked section exited 0 and the wrapper emitted
+  `NOTE_APPENDED` for a wedged lock — a failure reported as success, which is
+  strictly worse than the wrong-error-code F22a describes. The trap now captures
+  the status first and restores it with a throwaway subshell before delegating.
+
+Injected through a documented `AIT_NOTE_FAIL_AFTER_APPEND` seam: forcing a real
+release failure from outside is not deterministic, and an untested blocking path
+is worth less than an injected one. Reverting the trap order fails **5**
+assertions, so the guard discriminates rather than decorates.
 
 ### F4 — Concurrent session on the seam (no edit collision)
 
