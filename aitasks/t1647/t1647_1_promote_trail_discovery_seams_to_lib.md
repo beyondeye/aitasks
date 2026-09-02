@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: refactor
@@ -112,3 +114,5 @@ Parent plan: `aiplans/p1647_merge_trails_skill_shared_helpers_board_command_docs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-02T09:10:19Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-02T09:34:12Z status=pass attempt=1 type=human
