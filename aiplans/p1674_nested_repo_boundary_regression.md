@@ -232,13 +232,21 @@ still carrying mutation 1. Before running mutation 2, assert positively that
 rung 2 is pristine in the freshly built copy:
 
 ```bash
-grep -c '_relax_d' "$ISO/.aitask-scripts/lib/task_utils.sh"   # MUST be 0
-grep -c 'git rev-parse --show-toplevel' \
-        "$ISO/.aitask-scripts/lib/task_utils.sh"              # MUST be >= 1
+tu="$ISO/.aitask-scripts/lib/task_utils.sh"
+# grep -c EXITS 1 when the count is 0 — the very case this guard must ACCEPT.
+# Unguarded, a strict shell aborts on the pristine tree before rung 3 is ever
+# mutated or run. Same class as rung 2's own `|| root=""` in task_utils.sh.
+relax_n="$(grep -c '_relax_d' "$tu" || true)"
+rung2_n="$(grep -c 'git rev-parse --show-toplevel' "$tu" || true)"
+echo "guard: relax_n=$relax_n rung2_n=$rung2_n"
+[ "$relax_n" -eq 0 ] || { echo "RESIDUAL MUTATION 1 PRESENT — result void"; exit 1; }
+[ "$rung2_n" -ge 1 ] || { echo "RUNG 2 NOT PRISTINE — result void"; exit 1; }
 ```
 
-A non-zero first count means the rebuild did not happen — the mutation-2 result
-is void.
+`relax_n` non-zero means the rebuild did not happen and mutation 2 would
+short-circuit at rung 2; `rung2_n` of zero means rung 2 is not intact, so
+reaching rung 3 would prove nothing about the boundary. Either voids the
+mutation-2 result.
 
 **Required outcome, recorded per mutation:** under each mutation independently,
 the Test 15 boundary assertions (1), (2) and (3) **fail** for both nested shapes,
