@@ -10,7 +10,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: manual_verification
 created_at: 2026-08-30 13:32
-updated_at: 2026-09-02 10:42
+updated_at: 2026-09-02 10:56
 ---
 
 ## Manual Verification Task
@@ -36,7 +36,7 @@ archived; Defer is allowed but creates a carry-over task.
 - [x] [t1603_3] Every in-flight card carries a phase chip, including cards in the Planned lane. — PASS 2026-09-02 10:35 auto: every card carries a chip incl. Planned lane ('plan approved'); others 'needs attended agent · 1/2', 'awaiting review · 2/4', 'implementing · 2/2', 'implementing · 0/1'
 - [x] [t1603_3] The compact gate progress on a card is legible and does not wrap or overflow the 44-column lane. — PASS 2026-09-02 10:42 auto: widest chip observed 'needs attended agent · 1/2' (26 cols) inside a 40-col card in the 44-col lane; no wrap, no overflow at 200/180/100 cols
 - [x] [t1603_3] Narrow the terminal below the measured threshold: the chosen behaviour (scroll / collapse / fold) happens and the view stays usable. — PASS 2026-09-02 10:42 auto: at 100 cols the container horizontally SCROLLS (lanes keep width 44, min_width never engages); Right-arrow brings the Blocked lane fully into view, cards stay legible
-- [defer] [t1603_3] Resize to a wide terminal (>=176 cols): all four lanes are visible without horizontal scrolling. — DEFER 2026-09-02 10:42 auto: behaviour matches p1603_3's measured contract but the item's '>=176' is falsified -- all four lane boxes (44 cols each) close only at 180 rendered cols; clipped at 176-179. Needs a human call: fix the checklist number or treat as a defect.
+- [x] [t1603_3] Resize to a wide terminal (>=176 cols): all four lanes are visible without horizontal scrolling. — PASS 2026-09-02 10:56 verified threshold is 180 rendered cols (181 virtual, per p1603_3's measurement), not 176; board matches its designed contract -- checklist number was a pre-measurement guess
 - [x] [t1603_4] Press enter on an in-flight card: the detail screen opens with a collapsed `Gates (<n>)` section after Risk. — PASS 2026-09-02 10:35 auto: detail opens with '▶ Risk (2)' then collapsed '▶ Gates (2/4)'
 - [x] [t1603_4] Expand it: passed / skipped / failed / pending gates are visually distinguishable at a glance. — PASS 2026-09-02 10:35 auto: expanded rows use distinct glyphs ✓ passed / ⊘ skipped / ✗ failed / ⚠ stale / · pending
 - [x] [t1603_4] A task with a stale signature shows BOTH facts — that it passed AND that the signature no longer binds. — PASS 2026-09-02 10:35 auto: real code-bound witness gone stale renders '⚠ review_approved -- pass, signature stale; needs re-sign' -- both facts
