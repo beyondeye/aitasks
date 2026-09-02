@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1657
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 16:42
-updated_at: 2026-09-01 17:05
+updated_at: 2026-09-02 16:37
 ---
 
 # Validate the ledger-block namespace before interpolating it into a regex
@@ -82,3 +83,8 @@ caller-supplied; today it is a fixed pattern, not an input.
   `note|gate` with `ValueError`, and still accept `gate` and `note`.
 - Every existing gate and merge suite stays green — `gate` and `note` are valid,
   so no call site changes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T13:38:09Z status=pass attempt=1 type=human
