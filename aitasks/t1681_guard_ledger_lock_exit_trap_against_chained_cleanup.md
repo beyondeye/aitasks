@@ -11,11 +11,12 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+risk_mitigation_tasks: [1691, 1692]
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:18
-updated_at: 2026-09-02 16:51
+updated_at: 2026-09-02 17:07
 ---
 
 # Guard `ait_ledger_lock_exit_trap` against being chained behind another command
