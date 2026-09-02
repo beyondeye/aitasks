@@ -59,6 +59,41 @@ updated_at: 2026-09-02 19:02
 - website/content/docs/tuis/monitor/how-to.md
 - website/content/docs/tuis/monitor/reference.md
 
+### Observed failure (live tmux, 2026-09-02)
+
+`P` hides the parked rows correctly, but when the **currently focused card is the
+parked agent being hidden**, focus is stranded and the app stops responding to
+**every** keyboard binding — `P`, `Space`, `?`, arrows. The only recovery is a
+mouse click on a visible card.
+
+Reproduce from a freshly booted `ait monitor` (verified 3/3 from a cold boot; it
+does **not** reproduce once the app has already toggled `P` at least once, so
+boot fresh):
+
+1. `Down` — focus the first agent card.
+2. `Space`, `Space` — cycle that card to parked (`P`); the row still shows.
+3. `P` — the parked row disappears. **Correct so far.**
+4. `P` again — nothing happens. `?` does not open the Keys modal. Arrows do
+   nothing. `capture-pane -pe` shows **zero** focus highlights, and the preview
+   column still renders `This agent is parked — press Space to unpark it.`,
+   i.e. `_focused_pane_id` is still the now-hidden parked pane.
+5. Click any visible card with the mouse — keys work again and `P` reveals the
+   parked row.
+
+With focus on a card that is **not** the one being hidden, the toggle shrinks and
+grows the list correctly (11/11 attempts), so the defect is specific to the
+focus-handoff path.
+
+### Where to look
+
+`_hand_off_focus_before_hiding` / `_focus_next_visible_card`
+(`.aitask-scripts/monitor/monitor_app.py`) are the t1685 code added for exactly
+this case. The dead-key symptom is consistent with focus landing on a
+`PreviewPanel` (or nowhere) so that `on_descendant_focus` sets
+`_active_zone = Zone.PREVIEW`, after which `check_action` disables every binding
+except `switch_zone` — and `Tab` cannot be delivered from `tmux send-keys`, so
+the user has no keyboard route back. Confirm the zone rather than assuming it.
+
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1694 item #4.
