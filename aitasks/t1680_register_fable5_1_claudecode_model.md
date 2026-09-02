@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codeagent, claudecode, model_selection]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-02 09:17
-updated_at: 2026-09-02 09:17
+updated_at: 2026-09-02 09:19
 ---
 
 Register the new Claude model **Fable 5.1** for the `claudecode` code agent (register-only — do NOT promote to default).
