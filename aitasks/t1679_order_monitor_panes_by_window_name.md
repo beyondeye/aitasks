@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:09
-updated_at: 2026-09-02 09:14
+updated_at: 2026-09-02 12:04
 ---
 
 Agent ordering in `ait minimonitor` follows the tmux **window index** (i.e. the
@@ -104,3 +105,8 @@ If a config key is added, update `seed/project_config.yaml`,
 `website/content/docs/tuis/monitor/reference.md` (the configuration table) and
 the inherited-keys list in `website/content/docs/tuis/minimonitor/how-to.md`.
 Otherwise document the ordering rule wherever the pane list is described.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T09:04:56Z status=pass attempt=1 type=human
