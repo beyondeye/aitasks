@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1680
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 11:22
-updated_at: 2026-09-02 11:25
+updated_at: 2026-09-02 16:26
 ---
 
 ## Origin
@@ -70,3 +71,8 @@ natural extension of an existing pattern.
 Separately decide whether to normalize the two seed files already left at `0600`
 back to `0644` (a one-off repair; git will not record it, so it only affects each
 local checkout).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T13:26:32Z status=pass attempt=1 type=human
