@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: documentation
@@ -90,10 +92,33 @@ This task must:
 - The record no longer claims `--followup-of` yields a Tier-B-resolvable scope,
   and states the chosen seeding rule with its rationale.
 - `t1663_3`'s description and its Verification bullets match the chosen rule.
-- `./.aitask-scripts/aitask_query_files.sh resolve 1663_3` → the task's
-  `depends:` contains this task's id.
+- **Dependency wired** (`resolve` takes parent ids only and rejects `1663_3`;
+  `child-file` is the child lookup, and the id must be asserted in the file it
+  returns rather than inferred from the lookup succeeding):
+  ```bash
+  f=$(./.aitask-scripts/aitask_query_files.sh child-file 1663 3 | sed 's/^CHILD_FILE://')
+  command grep -n '^depends:' "$f"           # must list BOTH t1663_2 and 1673
+  ./ait ls -v --children 1663 99             # t1663_3 shows "Blocked (by t1663_2,1673)"
+  ```
+  The second command is the real assertion: `--deps` replaces the whole list, so
+  the check must prove `t1663_2` survived, not merely that `1673` arrived.
 - A grep for `--followup-of` across `aidocs/framework/task_premise_staleness.md`
   and the t1663 tree returns no remaining claim that it produces an `exact` origin.
+- **The `--verifies` contract surfaces carry the new wording and not the old.**
+  A substring search for "manual-verification tasks" cannot show this — the
+  corrected text contains that phrase too ("usually manual-verification tasks,
+  but any issue_type may carry a verifies list"), so it passes on both correct
+  and incorrect content. Assert the two arms separately, per surface: the exact
+  old **exclusive** phrase absent, and the new **non-exclusive** phrase present.
+  | file | old phrase (must be ABSENT) | new phrase (must be PRESENT) |
+  |---|---|---|
+  | `.aitask-scripts/aitask_create.sh` | `(for issue_type: manual_verification)` | `but not restricted to one` |
+  | `.aitask-scripts/aitask_update.sh` | `Verifies options (batch mode, for manual-verification tasks):` | `issue_type may carry a verifies list` |
+  | `website/content/docs/commands/task-management.md` | ``this task verifies (for `manual_verification` tasks)`` | `but any issue type may carry it` |
+
+  Use `grep -qF` (fixed-string) on each. Negative control: run the same two arms
+  against `git show <pre-edit-rev>:<file>` — every surface must fail **both**
+  arms, which is what proves the check is not vacuous.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
