@@ -1245,8 +1245,32 @@
       "name": "fable5_1",
       "cli_id": "claude-fable-5-1",
       "notes": "Fable 5.1 — most capable model, 1M context, 128K output, thinking always on",
-      "verified": {},
-      "verifiedstats": {},
+      "verified": {
+        "explore": 100
+      },
+      "verifiedstats": {
+        "explore": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      },
       "usagestats": {
         "explore": {
           "all_time": {
