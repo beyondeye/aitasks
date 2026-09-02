@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1595
+implemented_with: claudecode/opus5
 created_at: 2026-08-30 13:29
-updated_at: 2026-09-01 16:05
+updated_at: 2026-09-02 08:55
 ---
 
 ## Context
@@ -142,3 +143,8 @@ offers no edit affordance.
 - no version history in the doc body, per
   `aidocs/framework/documentation_conventions.md` (current-state-only rule);
 - `website/public/` was not hand-edited.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T05:56:07Z status=pass attempt=1 type=human
