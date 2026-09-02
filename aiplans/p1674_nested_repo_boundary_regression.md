@@ -318,6 +318,26 @@ assertions and a verification pass — both levels stay `low`.*
 
 ## Final Implementation Notes
 
+- **Actual work done:** Added Test 15 to `tests/test_task_git.sh` (+145 lines,
+  19 assertions) pinning that a plain nested checkout and a real submodule inside
+  a branch-mode parent both resolve to their own legacy mode (`"."`), plus a
+  two-line comment-only pointer in the `# BOUNDARY:` block of
+  `.aitask-scripts/lib/task_utils.sh` (+2). No executable production code
+  changed. Matches the approved plan, including both inline mitigation phases.
+- **Deviations from plan:** One — see "Deviation" below. The plan was otherwise
+  followed as written.
+- **Issues encountered:** The `answer_canon_15()` absolute-path defect described
+  below, found by the rung-2 falsification run and fixed before commit.
+- **Key decisions:** (a) The third boundary assertion is "the answer stays inside
+  the nested repository" rather than "equals the nested repo root" — the latter
+  is false for the `vendor/inner/sub` probe, where `"."` correctly resolves to the
+  subdirectory, while "stays inside" holds uniformly and still fails under a
+  boundary-walking ladder. (b) The submodule fixture is a hard precondition
+  assertion, never a skip, so a host that blocks file-transport submodule clones
+  fails naming the fixture instead of passing vacuously.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:** N/A (not a child task).
+
 **Landed.** Test 15 added to `tests/test_task_git.sh` (+145 lines) and a
 two-line pointer added to the `# BOUNDARY:` comment block in
 `.aitask-scripts/lib/task_utils.sh` (+2 lines, comment-only). Suite: **67
