@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [framework, bash_scripts, concurrency]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1681
 followup_kind: risk_mitigation
 created_at: 2026-09-02 17:06
-updated_at: 2026-09-02 17:06
+updated_at: 2026-09-02 17:17
 ---
 
 ## Origin
