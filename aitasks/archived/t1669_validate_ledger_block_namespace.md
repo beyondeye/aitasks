@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [framework, python, gates]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 16:42
-updated_at: 2026-09-02 16:38
+updated_at: 2026-09-02 18:44
+completed_at: 2026-09-02 18:44
 ---
 
 # Validate the ledger-block namespace before interpolating it into a regex
@@ -92,3 +93,14 @@ caller-supplied; today it is a fixed pattern, not an input.
 > **✅ gate:plan_approved** run=2026-09-02T13:38:09Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-02T14:03:21Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-02T15:44:46Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:29096784767ee7e1
+
+> **✅ gate:risk_evaluated** run=2026-09-02T15:44:46Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1669/risk_evaluated_2026-09-02T15:44:46Z-risk_evaluated-a1.log`
