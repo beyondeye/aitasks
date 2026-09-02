@@ -281,3 +281,75 @@ Standard closure: commit the two files, run the `risk_evaluated` gate (in this
 task's active set), then archive `aitasks/t1669_*.md` and
 `aiplans/p1669_*.md`. Current-branch mode under profile `fast` — no worktree,
 no merge.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added `_NAMESPACE_RE` (anchored with `\A`/`\Z`) and
+  `_checked_namespace()` to `.aitask-scripts/lib/ledger_block.py`, and applied
+  the guard at **all five** public entry points that take a namespace:
+  `build_marker_re`, `build_marker_search_re`, `has_markers`, `parse_blocks`
+  and `render_block`. Recorded the resulting contract as a **Namespace
+  contract** paragraph in the module docstring. Added
+  `tests/test_ledger_block_namespace_validation.py` (11 tests). No call-site
+  changes anywhere — `gate` and `note` are both in-charset.
+
+- **Deviations from plan:** None from the approved plan. The plan itself
+  deviated from the task's literal acceptance criteria in two places, both
+  deliberate and both stated in the plan before approval:
+  1. **`render_block` is guarded too** (the task named only "both builders"). It
+     interpolates the namespace into the emitted marker line, so a namespace the
+     readers reject but the writer accepts produces a block no reader can ever
+     match — a silent append that is unreadable by construction.
+  2. **`has_markers` / `parse_blocks` validate on their precompiled-pattern
+     route**, where `namespace` is otherwise never read. Raised by the user as a
+     blocking review concern against the first draft of the plan, which had
+     instead planned to *pin the bypass in a test*. That would have locked in
+     two public entry points silently accepting `"...."` / `"note("` while the
+     module claimed the charset was a contract. Verified before adopting: every
+     in-tree caller of that route (`gate_ledger.py:227,242` with
+     `NAMESPACE = "gate"`) passes a valid namespace, so nothing breaks.
+
+- **Issues encountered:** None in the implementation. Two things worth
+  recording:
+  - Splitting `build_marker_re`'s pattern across two adjacent f-strings (to keep
+    the line under the width limit after the longer expression) produces a
+    byte-identical compiled pattern; confirmed by printing
+    `build_marker_re("gate").pattern`.
+  - The tree carried unrelated uncommitted work from concurrent sessions
+    (`aitask_add_model.sh`, `minimonitor_app.py`, `tui_conventions.md`,
+    `test_add_model.sh`, `test_minimonitor_focus_in_click.py`). Only this task's
+    two paths were staged; nothing else was touched, stashed or restored.
+
+- **Key decisions:**
+  - **Reject, do not `re.escape`.** Escaping would make a nonsense namespace
+    *work*; the charset is a real contract and a namespace is a marker
+    identifier, not arbitrary text. Fail closed.
+  - **Both builders keep their own guard** even though `parse_blocks` /
+    `has_markers` now validate first. The double check is two `re.match` calls on
+    a ≤8-character string, and the builders are public — `gate_ledger.py:129-130`
+    calls them directly at import time — so an intervening
+    `_build_*_unchecked` helper would buy nothing and cost a seam.
+  - **`_NAME_CHARS` deliberately left alone.** The record name is a fixed pattern
+    inside the regex, not a caller-supplied input. Revisit only if that changes.
+  - **`\A`/`\Z`, not `^`/`$`**, so `"gate\n"` cannot slip through. Pinned by a
+    dedicated case in `BAD_NAMESPACES`.
+  - **The test's entry-point table is coverage-asserted.**
+    `test_entry_point_table_covers_the_module` reflects over the module and fails
+    if a public namespace-taking function is added without an entry, so the
+    "every entry point validates" claim cannot silently decay.
+
+- **Verification performed:**
+  - `tests/test_ledger_block_namespace_validation.py` — 11/11 pass.
+  - `test_ledger_block_multisection` + `test_ledger_block_reexport` +
+    `test_gate_ledger_build_characterization` — 40/40 pass.
+  - `tests/test_gate_guarded_archival.sh` 31/31;
+    `tests/test_create_manual_verification_gates.sh` 42/42.
+  - Full suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+  - **Mutation check** (copies in the scratchpad; the real tree was never
+    reverted): against the pre-fix module the new suite fails 58 subtests / 4
+    errors; against a **builders-only** guard it fails exactly the 16
+    precompiled-route subtests and nothing else — the suite discriminates
+    precisely on the dimension the review concern was about.
+
+- **Upstream defects identified:** None
+
