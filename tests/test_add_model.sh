@@ -107,6 +107,28 @@ teardown_fixture() {
     unset AITASK_REPO_ROOT FIXTURE_DIR
 }
 
+# Octal mode of a file. `stat -c` is GNU, `stat -f` is BSD — the same fallback
+# chain lib/atomic_write.sh::ait_file_mode uses.
+file_mode() {
+    stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null || true
+}
+
+# Fail if any dot-prefixed staging temp was left behind in <dir>. The atomic
+# writer stages `.<basename>.XXXXXX` beside its destination, so a leaked temp
+# lands inside the repo tree rather than in $TMPDIR.
+assert_no_staged_temp() {
+    local label="$1" dir="$2" leaked
+    leaked=$(find "$dir" -maxdepth 1 -name '.*.??????' -type f 2>/dev/null | tr '\n' ' ')
+    if [[ -z "$leaked" ]]; then
+        echo "  PASS: $label"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: $label — leaked: $leaked"
+        FAIL=$((FAIL + 1))
+    fi
+    TOTAL=$((TOTAL + 1))
+}
+
 # --- Tests ---
 
 echo "=== Test 1: add-json appends entry and preserves existing verified/verifiedstats ==="
@@ -235,6 +257,140 @@ assert_contains "opencode rejected with pointer" "aitask-refresh-code-models" "$
 
 r5=$(bash "$HELPER" add-json --agent claudecode --name "has space" --cli-id y --notes z 2>&1 || true)
 assert_contains "name with space rejected" "Invalid model name" "$r5"
+teardown_fixture
+
+echo "=== Test 7: writes preserve each destination's own mode (both directions) ==="
+setup_fixture
+# A deliberate 644/600 split so BOTH drift directions are discriminating: a
+# `mv` from a 0600 mktemp narrows the 644 destinations, while a hardcoded
+# `chmod 644` would widen the 600 ones. Only true per-file preservation passes
+# both. `lib/agent_string.sh` is pinned 640 (non-executable) and
+# `aitask_codeagent.sh` 755, so the read bits and the exec bit are both covered.
+chmod 644 "$FIXTURE_DIR/aitasks/metadata/models_claudecode.json"
+chmod 600 "$FIXTURE_DIR/seed/models_claudecode.json"
+chmod 644 "$FIXTURE_DIR/aitasks/metadata/codeagent_config.json"
+chmod 600 "$FIXTURE_DIR/seed/codeagent_config.json"
+chmod 640 "$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh"
+chmod 755 "$FIXTURE_DIR/.aitask-scripts/aitask_codeagent.sh"
+
+mode_paths=(
+    "aitasks/metadata/models_claudecode.json"
+    "seed/models_claudecode.json"
+    "aitasks/metadata/codeagent_config.json"
+    "seed/codeagent_config.json"
+    ".aitask-scripts/lib/agent_string.sh"
+    ".aitask-scripts/aitask_codeagent.sh"
+)
+mode_before=()
+for rel in "${mode_paths[@]}"; do
+    mode_before+=("$(file_mode "$FIXTURE_DIR/$rel")")
+done
+
+bash "$HELPER" add-json --agent claudecode --name opus4_7 --cli-id claude-opus-4-7 --notes "new flagship" >/dev/null
+bash "$HELPER" promote-config --agent claudecode --name opus4_7 --ops pick >/dev/null
+bash "$HELPER" promote-default-agent-string --agent claudecode --name opus4_7 >/dev/null
+
+# The mode assertions below only mean something if the writes actually landed —
+# a subcommand that silently no-ops would satisfy them vacuously.
+assert_eq "add-json actually wrote (2 models)" "2" \
+    "$(jq '.models | length' "$FIXTURE_DIR/aitasks/metadata/models_claudecode.json")"
+assert_eq "promote-config actually wrote (pick)" "claudecode/opus4_7" \
+    "$(jq -r '.defaults.pick' "$FIXTURE_DIR/aitasks/metadata/codeagent_config.json")"
+assert_eq "promote-default actually wrote (DEFAULT_AGENT_STRING)" \
+    'DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_7}"' \
+    "$(grep '^DEFAULT_AGENT_STRING=' "$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh")"
+
+for i in "${!mode_paths[@]}"; do
+    assert_eq "mode preserved: ${mode_paths[$i]}" \
+        "${mode_before[$i]}" "$(file_mode "$FIXTURE_DIR/${mode_paths[$i]}")"
+done
+
+assert_no_staged_temp "no staged temp left in aitasks/metadata" "$FIXTURE_DIR/aitasks/metadata"
+assert_no_staged_temp "no staged temp left in seed" "$FIXTURE_DIR/seed"
+assert_no_staged_temp "no staged temp left in .aitask-scripts/lib" "$FIXTURE_DIR/.aitask-scripts/lib"
+teardown_fixture
+
+echo "=== Test 8: writes follow a symlinked destination instead of replacing it ==="
+setup_fixture
+# The three write paths did not agree on file-symlink semantics before t1684:
+# `mv` REPLACED a symlinked destination (orphaning the backing file), while
+# `cat > "$dest"` followed it. Both now route through lib/atomic_write.sh,
+# which resolves the link and renames onto the backing file. Covered here on
+# one former-`mv` path (add-json) and on the former-`cat >` path
+# (promote-default-agent-string), where following the link is a no-regression
+# requirement. The links are RELATIVE so ait_atomic_resolve's non-absolute
+# branch is the one exercised.
+mkdir -p "$FIXTURE_DIR/real"
+mv "$FIXTURE_DIR/aitasks/metadata/models_claudecode.json" "$FIXTURE_DIR/real/models_claudecode.json"
+ln -s "../../real/models_claudecode.json" "$FIXTURE_DIR/aitasks/metadata/models_claudecode.json"
+chmod 640 "$FIXTURE_DIR/real/models_claudecode.json"
+mv "$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh" "$FIXTURE_DIR/real/agent_string.sh"
+ln -s "../../real/agent_string.sh" "$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh"
+chmod 600 "$FIXTURE_DIR/real/agent_string.sh"
+
+bash "$HELPER" add-json --agent claudecode --name opus4_7 --cli-id claude-opus-4-7 --notes "new flagship" >/dev/null
+bash "$HELPER" promote-default-agent-string --agent claudecode --name opus4_7 >/dev/null
+
+link_json="$FIXTURE_DIR/aitasks/metadata/models_claudecode.json"
+link_lib="$FIXTURE_DIR/.aitask-scripts/lib/agent_string.sh"
+
+if [[ -L "$link_json" && -L "$link_lib" ]]; then
+    echo "  PASS: both destinations are still symlinks"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: a destination was replaced by a regular file"
+    FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
+
+assert_eq "add-json link target unchanged" "../../real/models_claudecode.json" "$(readlink "$link_json")"
+assert_eq "promote-default link target unchanged" "../../real/agent_string.sh" "$(readlink "$link_lib")"
+
+# The write must have gone THROUGH the link — the backing file is what changed.
+assert_eq "backing registry updated (2 models)" "2" \
+    "$(jq '.models | length' "$FIXTURE_DIR/real/models_claudecode.json")"
+assert_eq "backing lib updated (DEFAULT_AGENT_STRING)" \
+    'DEFAULT_AGENT_STRING="${DEFAULT_AGENT_STRING:-claudecode/opus4_7}"' \
+    "$(grep '^DEFAULT_AGENT_STRING=' "$FIXTURE_DIR/real/agent_string.sh")"
+
+# Mode preservation must read the resolved path, not the link.
+assert_eq "backing registry mode preserved" "640" "$(file_mode "$FIXTURE_DIR/real/models_claudecode.json")"
+assert_eq "backing lib mode preserved" "600" "$(file_mode "$FIXTURE_DIR/real/agent_string.sh")"
+
+assert_no_staged_temp "no staged temp left beside the backing files" "$FIXTURE_DIR/real"
+teardown_fixture
+
+echo "=== Test 9: a failed second write leaves no staging temp behind ==="
+setup_fixture
+# commit_staged COPIES its source (ait_atomic_render reads it) where the old
+# `mv` consumed it — so a handler that cleans up only the second temp strands
+# the first. Forced here by making the seed/ directory unwritable, which fails
+# ait_atomic_tmp's mktemp for the second destination only. TMPDIR is scoped to
+# the fixture so the assertion sees this run's temps and nothing else.
+fixture_tmp="$FIXTURE_DIR/tmpdir"
+mkdir -p "$fixture_tmp"
+chmod 500 "$FIXTURE_DIR/seed"
+
+set +e
+TMPDIR="$fixture_tmp" bash "$HELPER" add-json --agent claudecode --name opus4_7 \
+    --cli-id claude-opus-4-7 --notes n >/dev/null 2>"$FIXTURE_DIR/err.txt"
+add_rc=$?
+set -e
+chmod 755 "$FIXTURE_DIR/seed"
+
+assert_eq "add-json fails when the seed write fails" "1" "$add_rc"
+assert_contains "failure names the seed registry" "seed/models_claudecode.json" \
+    "$(cat "$FIXTURE_DIR/err.txt")"
+
+leftover=$(find "$fixture_tmp" -type f | tr '\n' ' ')
+if [[ -z "$leftover" ]]; then
+    echo "  PASS: no staging temp stranded in TMPDIR after the failed write"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL: staging temp stranded in TMPDIR: $leftover"
+    FAIL=$((FAIL + 1))
+fi
+TOTAL=$((TOTAL + 1))
 teardown_fixture
 
 # --- Summary ---

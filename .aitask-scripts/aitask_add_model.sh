@@ -19,6 +19,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/atomic_write.sh
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 
 REPO_ROOT="${AITASK_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
@@ -65,6 +68,28 @@ print_diff() {
     else
         diff -u --label "a/$file" --label "b/$file" /dev/null "$proposed" || true
     fi
+}
+
+# Install validated staged content onto its destination, preserving the
+# destination's own current mode.
+#
+# The staging temps live in $TMPDIR and must NOT be `mv`d into place: mktemp
+# creates 0600 and the rename hands that mode to the destination, silently
+# narrowing files whose read bits git does not track (t1684). A `mv` from
+# $TMPDIR also degrades into a non-atomic copy across filesystems, and a `mv`
+# REPLACES a symlinked destination instead of writing through it.
+#
+# ait_atomic_render stages a temp beside the *resolved* destination, chmods it
+# to that destination's current mode, and renames it in — so a symlinked
+# destination keeps its link and its backing file is the one updated, matching
+# what the `cat > "$dest"` in promote-default-agent-string already did.
+#
+# `cat "$src"` is a single-command renderer, so its status IS the renderer's
+# status and ait_atomic_render tests it — the "guard every fallible command"
+# rule at the top of lib/atomic_write.sh needs no extra `|| return 1` here.
+commit_staged() {
+    local src="$1" dest="$2"
+    ait_atomic_render "$dest" cat "$src"
 }
 
 # --- Subcommand: add-json ---
@@ -142,8 +167,13 @@ cmd_add_json() {
         return 0
     fi
 
-    mv "$tmp_metadata" "$metadata_file"
-    [[ -n "$tmp_seed" ]] && mv "$tmp_seed" "$seed_file"
+    commit_staged "$tmp_metadata" "$metadata_file" \
+        || { rm -f "$tmp_metadata" "$tmp_seed"; die "Failed to write $metadata_rel"; }
+    if [[ -n "$tmp_seed" ]]; then
+        commit_staged "$tmp_seed" "$seed_file" \
+            || { rm -f "$tmp_metadata" "$tmp_seed"; die "Failed to write $seed_rel"; }
+    fi
+    rm -f "$tmp_metadata" "$tmp_seed"
     info "Added model $agent/$name to $metadata_rel${tmp_seed:+ (+ $seed_rel)}"
 }
 
@@ -212,8 +242,13 @@ cmd_promote_config() {
         return 0
     fi
 
-    mv "$tmp_metadata" "$metadata_file"
-    [[ -n "$tmp_seed" ]] && mv "$tmp_seed" "$seed_file"
+    commit_staged "$tmp_metadata" "$metadata_file" \
+        || { rm -f "$tmp_metadata" "$tmp_seed"; die "Failed to write $metadata_rel"; }
+    if [[ -n "$tmp_seed" ]]; then
+        commit_staged "$tmp_seed" "$seed_file" \
+            || { rm -f "$tmp_metadata" "$tmp_seed"; die "Failed to write $seed_rel"; }
+    fi
+    rm -f "$tmp_metadata" "$tmp_seed"
     info "Promoted $new_value for ops: $ops_csv"
 }
 
@@ -279,10 +314,15 @@ cmd_promote_default_agent_string() {
         return 0
     fi
 
-    # Preserve each file's mode (executable bit) by rewriting content in place
-    # instead of `mv`-ing a non-executable tempfile over it.
-    cat "$tmp_lib"  > "$lib_file"
-    cat "$tmp_note" > "$note_file"
+    # The `cat "$tmp" > "$file"` this replaces already preserved each file's
+    # mode, but it truncated the destination before writing a byte — the
+    # reader-visible window lib/atomic_write.sh exists to close. commit_staged
+    # keeps the mode preservation and the follow-the-symlink behaviour, and
+    # adds atomic visibility.
+    commit_staged "$tmp_lib" "$lib_file" \
+        || { rm -f "$tmp_lib" "$tmp_note"; die "Failed to write $lib_rel"; }
+    commit_staged "$tmp_note" "$note_file" \
+        || { rm -f "$tmp_lib" "$tmp_note"; die "Failed to write $note_rel"; }
     rm -f "$tmp_lib" "$tmp_note"
     info "Updated DEFAULT_AGENT_STRING to $new_value in $lib_rel (resolution-chain note in $note_rel)"
 }
