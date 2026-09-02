@@ -78,3 +78,24 @@ wrapper and were not audited.
 Note that any restructuring must preserve `registry_lock`'s EXIT-trap lifecycle
 (acquire installs a lock-release EXIT handler; release clears EXIT), which
 t1668 works around by chaining its own handler in front of it.
+
+## Scope split (planning, 2026-09-02)
+
+Auditing this seam surfaced three **pre-existing** data-integrity defects that
+are independent of the errexit bug and share a different root cause — the
+attach/artifact transaction boundary is not isolated from the worktree. At the
+user's direction they were split out to **t1698**
+(`t1698_attach_artifact_transaction_boundary_not_isolated_from_workt.md`,
+`depends: [1675]`), which carries the empirical evidence:
+
+1. A **successful** commit absorbs an unrelated in-flight edit (`git add` stages
+   the whole path).
+2. The existing commit-failure rollback **destroys** an unrelated in-flight edit
+   (`task_git checkout --` restores from HEAD).
+3. A post-mutation abort leaves uncommitted ledger drift.
+
+t1675 stays on its own bug: the contract, the audit/fix so a failure can never
+report success, the static callback guard, and targeted behavioral tests. It
+deliberately adds **no** rollback calls at the new `|| die` abort points —
+a HEAD restore there would multiply defect 2 — so the residual on-disk drift
+after an abort is t1698's to fix.
