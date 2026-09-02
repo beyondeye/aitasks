@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: high
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -11,8 +13,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 12:34
-updated_at: 2026-09-02 12:44
+updated_at: 2026-09-02 17:24
 ---
 
 ## Problem
@@ -235,3 +238,8 @@ set threaded through the same consumers.
 - Explain in all three that with the filter on, unparking requires revealing
   parked agents first.
 - `KEY_HINTS_TEXT` in `minimonitor_app.py`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T14:24:26Z status=pass attempt=1 type=human
