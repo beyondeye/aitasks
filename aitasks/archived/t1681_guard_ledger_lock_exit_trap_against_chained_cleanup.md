@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [framework, bash_scripts, concurrency]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:18
-updated_at: 2026-09-02 17:07
+updated_at: 2026-09-02 17:08
+completed_at: 2026-09-02 17:08
 ---
 
 # Guard `ait_ledger_lock_exit_trap` against being chained behind another command
@@ -98,3 +99,14 @@ preference for source enforcement over documentation.
 > **✅ gate:plan_approved** run=2026-09-02T13:51:32Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-02T14:03:56Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-02T14:08:06Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d220c09988063703
+
+> **✅ gate:risk_evaluated** run=2026-09-02T14:08:06Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1681/risk_evaluated_2026-09-02T14:08:06Z-risk_evaluated-a1.log`
