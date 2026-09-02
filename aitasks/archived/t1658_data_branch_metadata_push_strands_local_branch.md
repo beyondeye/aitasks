@@ -3,16 +3,16 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Done
 labels: [git, bash_scripts, task_metadata, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t1658_3]
 created_at: 2026-09-01 09:25
-updated_at: 2026-09-01 18:56
+updated_at: 2026-09-02 19:01
+completed_at: 2026-09-02 19:01
 ---
 
 ## Symptom
