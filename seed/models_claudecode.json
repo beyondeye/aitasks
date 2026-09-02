@@ -91,7 +91,7 @@
     {
       "name": "fable5",
       "cli_id": "claude-fable-5",
-      "notes": "Fable 5 — latest-generation Claude model",
+      "notes": "Fable 5 — previous-generation Fable model",
       "verified": {},
       "verifiedstats": {}
     },
@@ -106,6 +106,13 @@
       "name": "sonnet5",
       "cli_id": "claude-sonnet-5",
       "notes": "Best speed/intelligence balance, adaptive thinking, 1M context",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "fable5_1",
+      "cli_id": "claude-fable-5-1",
+      "notes": "Fable 5.1 — most capable model, 1M context, 128K output, thinking always on",
       "verified": {},
       "verifiedstats": {}
     }
