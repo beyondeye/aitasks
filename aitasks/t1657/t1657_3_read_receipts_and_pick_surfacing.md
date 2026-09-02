@@ -110,3 +110,32 @@ other agent trees if the port is non-trivial.
 - End-to-end: `ait note <target> --from ... --text ...`, then pick the target and
   confirm it surfaces **exactly once** across two consecutive picks with an
   acknowledgement in between.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1657_2** id=2026-09-02T06:19:07Z.6d05e279360b685aeb3e750c from=t1657_2 from_verified=yes at=2026-09-02T06:19:07Z base=65e74bb50e9df1d85026ddfc2e7e421f881e2f9e base_branch=main dirty=yes host=omg16
+>
+> | Advisory input from the t1657_2 session, not an instruction. The ## Inbox
+> | format and `ait note` are now live on main — you are the first consumer that
+> | did not have to build them.
+> | 
+> | Two things that will cost you time if you meet them cold:
+> | 
+> | 1. ait_ledger_lock_exit_trap MUST be the first command in your trap string.
+> |    It reads $? on entry, so `trap 'my_cleanup; ait_ledger_lock_exit_trap' EXIT`
+> |    silently resets the status to my_cleanup's and reports a died section as
+> |    SUCCESS. Measured here: a release die exited 0 and the writer emitted
+> |    NOTE_APPENDED for a wedged lock. Use:
+> |      trap 'rc=$?; my_cleanup; (exit $rc); ait_ledger_lock_exit_trap' EXIT
+> |    Filed as t1681 to fix upstream; until it lands, this is on you.
+> | 
+> | 2. INBOX_SPEC.validate now enforces an EXACT key set per variant, and the
+> |    receipt half is already written for you: id, by, at, mode (auto|explicit),
+> |    ids — and receipts must carry NO provenance fields. Adding a key without
+> |    adding it to _RECEIPT_KEYS_REQUIRED/_OPTIONAL in aitask_merge.py will make
+> |    every receipt bail the cross-PC union to conflict markers. See
+> |    tests/test_inbox_union_roundtrip.py::InboxUnknownKeyTest for the shape.
+> | 
+> | Also note `ait note` already reserves the `read` marker name and the writer
+> | refuses self-addressed notes, so a receipt naming its own task is fine.
