@@ -350,14 +350,17 @@ _note_append_inner() {
     # The seam's trap releases the lock errexit-safely and exits; chain our
     # scratch-file cleanup in front of it, or binding this would silently drop
     # the EXIT handler set at startup.
-    # ORDER IS LOAD-BEARING. ait_ledger_lock_exit_trap reads $? on entry to
-    # preserve the dying command's status; running any command in front of it
-    # RESETS $? to that command's own status, so a plain
-    # `note_cleanup_body; ait_ledger_lock_exit_trap' chain reports every death
-    # inside this section as SUCCESS (measured: a release die exited 0 and the
-    # wrapper emitted NOTE_APPENDED for a wedged lock). Capture first, then
-    # restore with a throwaway subshell before delegating.
-    trap 'ait_note_rc=$?; note_cleanup_body; (exit $ait_note_rc); ait_ledger_lock_exit_trap' EXIT
+    #
+    # This is the seam's chained spelling (lib/ledger_block.sh): capture the
+    # dying status FIRST, then hand it to ait_ledger_lock_exit_trap explicitly.
+    # Anything running in front of that function resets $?, which is why the
+    # status cannot simply be left implicit here — a plain
+    # `note_cleanup_body; ait_ledger_lock_exit_trap' chain reported every death
+    # inside this section as SUCCESS (measured in t1657_2: a release die exited
+    # 0 and the wrapper emitted NOTE_APPENDED for a wedged lock). Since t1681
+    # the seam detects that spelling and refuses to report success, so this is
+    # the correct form rather than merely the working one.
+    trap 'ait_note_rc=$?; note_cleanup_body; ait_ledger_lock_exit_trap "$ait_note_rc"' EXIT
 
     local attempt=0 candidate
     NOTE_ID=""

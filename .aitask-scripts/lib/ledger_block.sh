@@ -85,12 +85,86 @@ ait_ledger_lock_release_checked() {
     fi
 }
 
+# Is this function the FIRST command of the installed EXIT trap? (t1681)
+#
+# The check exists because the whole contract below rests on `$?` still holding
+# the guarded section's status, and only the first command in a trap string sees
+# it. `trap -p` inside a command substitution reports the PARENT's trap (the
+# POSIX `saved=$(trap)` idiom) and bash renders it as `trap -- 'HANDLER' EXIT`;
+# tests/test_ledger_lock_exit_trap.sh group 0 pins both facts.
+#
+# Fails SAFE in every direction it cannot judge — no EXIT trap, someone else's
+# handler, or a rendering this cannot parse all return 0 (= "no complaint"), so
+# an unexpected shell degrades to the pre-t1681 behaviour instead of inventing a
+# failure. That degradation is only invisible if nobody looks, which is why the
+# test file asserts the guard actually FIRES rather than merely that the exit
+# status is nonzero.
+_ait_ledger_exit_trap_is_first() {
+    local spec handler rest
+    spec="$(trap -p EXIT 2>/dev/null)" || return 0
+    case "$spec" in *ait_ledger_lock_exit_trap*) ;; *) return 0 ;; esac
+    handler="${spec#trap -- \'}"
+    [[ "$handler" != "$spec" ]] || return 0
+    handler="${handler#"${handler%%[![:space:]]*}"}"
+    rest="${handler#ait_ledger_lock_exit_trap}"
+    if [[ "$rest" != "$handler" ]]; then
+        # Matched at the start — make sure it is a whole word and not a prefix
+        # of some longer name. The trailing "'" is the close of the rendering.
+        case "$rest" in ""|[[:space:]]*|";"*|"'"*|"&"*|"|"*|")"*) return 0 ;; esac
+    fi
+    return 1
+}
+
 # EXIT-trap form: capture the incoming status, release errexit-safely, preserve
 # a meaningful nonzero status, and flip 0 -> 1 only when the release itself
 # failed (a bare release here could turn a die's status into a generic 1 or a
 # success into a spurious failure under set -e).
+#
+# TWO SANCTIONED SPELLINGS, and no third (t1681):
+#
+#     trap 'ait_ledger_lock_exit_trap' EXIT                     # first command
+#     trap 'rc=$?; my_cleanup; ait_ledger_lock_exit_trap "$rc"' EXIT
+#
+# `$?` reflects the command that ran immediately before this one, so a consumer
+# that needs its own cleanup and writes the natural-looking
+# `trap 'my_cleanup; ait_ledger_lock_exit_trap' EXIT` DESTROYS the status:
+# my_cleanup succeeds, `$?` becomes 0, and the trap exits 0 for a section that
+# died. Measured, not theorised — in t1657_2 that chain made a `die` from
+# ait_ledger_lock_release_checked exit 0 and `ait note` report NOTE_APPENDED
+# for an append whose lock was wedged. A failure reported as success is strictly
+# worse than a wrong error code, so the misuse is DETECTED here rather than
+# merely documented: the no-arg form checks its own position in the trap string
+# and refuses to report success when it is not first.
+#
+# The optional argument is what makes a chained consumer correct rather than
+# merely forbidden. It is the status to exit with, and it is validated against
+# the real shell-status domain 0-255: `exit` truncates modulo 256, so an
+# unvalidated 256 or 512 would exit 0 — re-opening, through this very parameter,
+# the false success the guard above exists to close.
 ait_ledger_lock_exit_trap() {
-    local rc=$?
+    local rc=$? ok=0                  # `local rc=$?` MUST stay the first command
+    if [[ $# -gt 0 ]]; then
+        rc="$1"
+        # Pattern-only, deliberately: bash arithmetic reads a leading zero as
+        # OCTAL, so `[[ 010 -le 255 ]]` accepts 010 and would exit 8 for a
+        # caller who wrote decimal ten, while `08` / `099` are invalid octal and
+        # make bash print "value too great for base" from inside an exit path.
+        case "$rc" in
+            [0-9]|[1-9][0-9]|1[0-9][0-9]|2[0-4][0-9]|25[0-5]) ok=1 ;;
+            *)                                                ok=0 ;;
+        esac
+        if [[ $ok -eq 0 ]]; then
+            warn "ait_ledger_lock_exit_trap: status '$1' is not a decimal 0-255 — treating as failure"
+            rc=1
+        fi
+    elif ! _ait_ledger_exit_trap_is_first; then
+        warn "ait_ledger_lock_exit_trap ran behind another command in the EXIT trap, so the dying status was lost. Install it first — trap 'ait_ledger_lock_exit_trap' EXIT — or pass the status explicitly: trap 'rc=\$?; my_cleanup; ait_ledger_lock_exit_trap \"\$rc\"' EXIT. Reporting a generic failure because the real status cannot be recovered here."
+        # UNCONDITIONAL. `rc` currently holds the status of whatever ran in
+        # front of us, which is NOT the section's status and must not be
+        # published as if it were: a cleanup returning 42 would exit 42, a
+        # number that looks meaningful and is not.
+        rc=1
+    fi
     if ! ait_ledger_lock_release; then
         if [[ $rc -eq 0 ]]; then rc=1; fi
     fi
