@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [minimonitor, monitor, tmux, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-02 09:09
-updated_at: 2026-09-02 09:09
+updated_at: 2026-09-02 09:14
 ---
 
 Agent ordering in `ait minimonitor` follows the tmux **window index** (i.e. the
