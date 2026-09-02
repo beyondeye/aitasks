@@ -488,6 +488,48 @@ for args in "--from" "--from 701 --text a --file /dev/null" "--from 701"; do
         "$(printf '%s\n' "$out" | grep -c .)"
 done
 
+# --- 14. Post-append failures stay id-bearing (F22) ------------------------
+#
+# Once the append lands the note EXISTS. Anything that fails afterwards — the
+# lock release genuinely can die, since stale_lock_release returns 1 on a
+# retained lock or a retained guard — must still report the id, or a caller
+# retries and duplicates the note. That is the disjointness the whole CLI
+# contract rests on.
+#
+# Injected through the documented AIT_NOTE_FAIL_AFTER_APPEND seam: forcing a
+# real release failure from outside is not deterministic, and an untested
+# blocking path is worth less than an injected one.
+
+make_task 803
+( cd "$DATA" && git add -A && git commit -qm t803 ) >/dev/null 2>&1
+before="$(awk '/^> \*\*/{c++} END{print c+0}' "$DATA/aitasks/t803_x.md")"
+out="$( ( cd "$DATA" && AIT_DIR="$CODE" AIT_NOTE_FAIL_AFTER_APPEND=1 \
+          "$NOTE" 803 --from 701 --text "landed then failed" ) 2>/dev/null )"; rc=$?
+after="$(awk '/^> \*\*/{c++} END{print c+0}' "$DATA/aitasks/t803_x.md")"
+
+assert_eq "14a. the note really did land" "$((before + 1))" "$after"
+assert_contains "14b. outcome is id-bearing, not a pre-append error" \
+    "NOTE_APPENDED_UNCOMMITTED:" "$out"
+assert_not_contains "14c. and is NOT NOTE_ERROR" "NOTE_ERROR" "$out"
+assert_contains "14d. the reason names the real failure" "lock-release-failed" "$out"
+assert_eq "14e. exits nonzero" "1" "$rc"
+
+# The id it reports must be the id on disk — a caller uses it as the join key,
+# and a mismatched one is worse than none.
+rid="${out#NOTE_APPENDED_UNCOMMITTED:}"; rid="${rid%%|*}"
+assert_eq "14f. the reported id is the one on disk" "1" \
+    "$(awk -v i="id=$rid" 'index($0,i){c++} END{print c+0}' "$DATA/aitasks/t803_x.md")"
+assert_eq "14g. still exactly one stdout line" "1" \
+    "$(printf '%s\n' "$out" | grep -c .)"
+
+# REGRESSION GUARD for the trap-order defect this fix uncovered.
+# ait_ledger_lock_exit_trap reads $? on entry; running cleanup in front of it
+# resets $? to 0, so every death inside the locked section was reported as
+# SUCCESS. Measured before the fix: this exact command printed NOTE_APPENDED
+# with rc=0. A silent revert to a plain `cleanup; exit_trap' chain fails here.
+assert_not_contains "14h. a death in the locked section is never reported as plain success" \
+    "NOTE_APPENDED:" "$out"
+
 # --- 11. Concurrency -------------------------------------------------------
 #
 # Two senders appending to one inbox WILL race. Every entry must survive.

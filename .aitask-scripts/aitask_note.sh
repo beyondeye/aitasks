@@ -350,7 +350,14 @@ _note_append_inner() {
     # The seam's trap releases the lock errexit-safely and exits; chain our
     # scratch-file cleanup in front of it, or binding this would silently drop
     # the EXIT handler set at startup.
-    trap 'note_cleanup_body; ait_ledger_lock_exit_trap' EXIT
+    # ORDER IS LOAD-BEARING. ait_ledger_lock_exit_trap reads $? on entry to
+    # preserve the dying command's status; running any command in front of it
+    # RESETS $? to that command's own status, so a plain
+    # `note_cleanup_body; ait_ledger_lock_exit_trap' chain reports every death
+    # inside this section as SUCCESS (measured: a release die exited 0 and the
+    # wrapper emitted NOTE_APPENDED for a wedged lock). Capture first, then
+    # restore with a throwaway subshell before delegating.
+    trap 'ait_note_rc=$?; note_cleanup_body; (exit $ait_note_rc); ait_ledger_lock_exit_trap' EXIT
 
     local attempt=0 candidate
     NOTE_ID=""
@@ -379,13 +386,34 @@ _note_append_inner() {
         "$NOTE_SECTION_COMMENT" "$marker" "$body" \
         "$NOTE_ANCHOR_HEADER" "section_end"
 
+    # THE NOTE HAS LANDED. Publish the id NOW, before anything that can still
+    # fail (F22). ait_ledger_lock_release_checked below genuinely can `die` —
+    # stale_lock_release returns 1 on a retained lock or a retained guard — and
+    # writing the id after it would leave the parent seeing a bare failed
+    # subshell for a note that is already on disk. It would then report a
+    # pre-append error, the caller would retry, and the note would be
+    # duplicated: exactly the disjointness the CLI contract exists to provide.
+    printf '%s' "$NOTE_ID" > "$NOTE_ID_FILE"
+
+    # Test-only fault injection through a documented seam, so the post-append
+    # failure path above is provable rather than asserted. Never set in normal
+    # operation.
+    [[ -z "${AIT_NOTE_FAIL_AFTER_APPEND:-}" ]] || exit 97
+
     ait_ledger_lock_release_checked
     trap note_cleanup_body EXIT
-    printf '%s' "$NOTE_ID" > "$NOTE_ID_FILE"
 }
 
 # Wrapper: run the locked append in a subshell and translate any death into a
 # typed single-line outcome. Sets NOTE_ID on success.
+# Set when the append landed but a LATER in-subshell step failed. main() then
+# owes an id-bearing outcome, never a pre-append error.
+NOTE_POST_APPEND_FAILURE=""
+
+# Status carrier for the EXIT trap below. Declared here because the assignment
+# lives inside a single-quoted trap string, which shellcheck cannot see into.
+ait_note_rc=0
+
 note_append_locked() {
     : > "$NOTE_ID_FILE"
     : > "$NOTE_ERR_FILE"
@@ -395,9 +423,20 @@ note_append_locked() {
         [[ -n "$NOTE_ID" ]] || note_die "append-produced-no-id"
         return 0
     fi
-    # The subshell died. Its own typed line (a collision exhaustion, say) is the
-    # better message; a bare death is the lock giving up.
     cat "$NOTE_STDERR_FILE" >&2 2>/dev/null || true
+
+    # THE ID FILE IS THE WITNESS (F22). It is written the instant the append
+    # lands, so a non-empty file means the note EXISTS on disk no matter what
+    # failed afterwards. Reporting a pre-append error here would invite a retry
+    # that duplicates it.
+    NOTE_ID="$(cat "$NOTE_ID_FILE" 2>/dev/null || true)"
+    if [[ -n "$NOTE_ID" ]]; then
+        NOTE_POST_APPEND_FAILURE="lock-release-failed"
+        return 0
+    fi
+
+    # Genuinely nothing landed. An inner typed line (a collision exhaustion,
+    # say) is the better message; a bare death is the lock giving up.
     local inner; inner="$(head -n1 "$NOTE_ERR_FILE" 2>/dev/null || true)"
     if [[ -n "$inner" ]]; then
         printf '%s\n' "$inner"
@@ -607,9 +646,14 @@ main() {
     # .git/index.lock, not the per-task key, so spanning it would only lengthen
     # the window in which a second `ait note` to this task exhausts its acquire
     # budget. What must be right is the REPORTING — see below.
-    local reason=""
-    task_git add -- "$file" 2>/dev/null \
-        || reason="git-add-failed"
+    # A post-append failure inside the locked section (F22) already means the
+    # note is on disk in a degraded state: the lock key is wedged and needs
+    # human attention. Do not pile more git work on top — report the id-bearing
+    # outcome with the scoped recovery command and let the operator act.
+    local reason="$NOTE_POST_APPEND_FAILURE"
+    if [[ -z "$reason" ]]; then
+        task_git add -- "$file" 2>/dev/null || reason="git-add-failed"
+    fi
     if [[ -z "$reason" ]]; then
         task_git commit -m "ait: Record note $NOTE_ID for t${target_bare}" \
             -- "$file" >/dev/null 2>&1 || reason="git-commit-failed"
