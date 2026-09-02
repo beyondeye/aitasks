@@ -328,3 +328,66 @@ executably rather than argued.
   suffix, deterministic ties, session grouping, the four test additions, the
   knob decision) is addressed explicitly, and the approach was validated against
   a green baseline run of the existing 17 cases.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented exactly as planned, in plan order.
+  - Pre-phase mitigation first: `WithinWindowOrderInvarianceTests` (3 cases) added to
+    `tests/test_monitor_pane_sort_order.py` and **verified green against the pre-change
+    key** (20/20) before `pane_sort_key` was touched — the characterization property the
+    plan required.
+  - `natural_name_key()` + `NAME_RANK_NUMERIC` / `NAME_RANK_TEXT` / `_NAME_RUN_RE` added to
+    `monitor_core.py` immediately after `tmux_index_key`; `pane_sort_key` became
+    `(session_name, natural_name_key(window_name), tmux_index_key(window_index),
+    tmux_index_key(pane_index))`.
+  - `natural_name_key` and both rank constants re-exported from `tmux_monitor.py`.
+  - The duplicated "Sort by (session_name, window_index, pane_index)" comment updated in
+    both `minimonitor_app.py` and `monitor_app.py`.
+  - Test module grown 17 → 39 cases; module docstring rewritten to cover both t1659 and
+    t1679.
+  - Docs: new `### Pane Order` subsection in `website/content/docs/tuis/monitor/reference.md`
+    and an ordering paragraph in `website/content/docs/tuis/minimonitor/how-to.md`, which
+    cross-links to it.
+- **Deviations from plan:** None material. One test-authoring correction: the
+  "odd names raise nothing" case originally asserted that sorting the mixed bag forwards
+  and backwards yields the same *elements*. `None` and `""` key identically (both `()`),
+  so a stable sort legitimately keeps them in input order; the assertion was rewritten to
+  compare the resulting sequence of **keys**, which is what totality actually claims.
+- **Issues encountered:**
+  - A full `run_all_python_tests.sh` mid-implementation reported 21 failures / 93 errors,
+    every one in `test_board_*` / `test_shortcut_scopes`. Root cause was an
+    `ImportError: cannot import name '_task_id_sort_key' from 'topic_semantics'` raised
+    from a **concurrent session's** in-flight `.aitask-scripts/lib/trail_discovery.py`
+    (untracked) against its mid-edit `topic_semantics.py`. Zero monitor/minimonitor/applink
+    modules were affected; the modules passed standalone immediately after, and a clean
+    re-run of the whole suite reported `PYTHON SUITE: PASSED (runner=pytest, exit=0)`.
+    Nothing to fix here — recorded so the transient is not mistaken for a regression later.
+  - The commit is therefore path-scoped to the seven files of this task; the worktree
+    carries a large amount of unrelated concurrent work.
+- **Key decisions:**
+  - **No `tmux.monitor.pane_order` config knob** (the task delegated this to planning).
+    `pane_sort_key` is module-level with no config access, and its *identity* is what
+    `test_discovery_and_the_tuis_share_one_key_object` pins — a per-instance factory would
+    force that cross-TUI parity invariant to be weakened. Window names encode task ids
+    here, so name order is the meaningful order, not a preference. Consequence:
+    `seed/project_config.yaml` and the reference config table are untouched; the rule is
+    documented as prose.
+  - **Runs are matched with `\d+|\D+` (findall), not `re.split` on a capture group.** With
+    `re.split` the runs of any two names align by parity, which would make the category
+    slot dead weight; with explicit runs `"10a"` and `"a10"` disagree at position 0, so the
+    rank slot is genuinely load-bearing — the "category slot, never a sentinel" discipline
+    the task asked for.
+  - **Digit runs keep their raw text as a third slot**, so `agent-pick-007` and
+    `agent-pick-7` stay distinct rather than colliding into the index tiebreak.
+  - **Discovery order was changed deliberately**, on the argument that `window_name` is a
+    *window* property: the new slot cannot reorder panes within a window, only whole
+    windows within a session. That is what leaves `_find_own_agent_snapshot` (the `e`/`E`
+    and review-loop resolution seam) invariant, and it is now pinned executably by the
+    pre-phase mitigation rather than merely argued. Two consumers do observe the change
+    and were accepted, not guarded: `MonitorApp._maybe_auto_switch`'s exact-`idle_seconds`
+    stable-sort tiebreak and `_find_running_agent_line`'s duplicate-task-id pick. Both stay
+    deterministic; both are recorded in the `pane_sort_key` docstring.
+  - **Both fixtures were mutation-checked.** Restoring the pre-t1679 key at every call site
+    fails 8 of the new cases; the 3 that stay green under it are survival assertions
+    (session grouping, duplicate-name tiebreak) and correctly should.
+- **Upstream defects identified:** None
