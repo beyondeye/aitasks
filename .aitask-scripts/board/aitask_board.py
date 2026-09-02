@@ -28,6 +28,7 @@ from sync_action_runner import (
     run_interactive_sync,
     STATUS_AUTOMERGED,
     STATUS_CONFLICT,
+    STATUS_DEFERRED,
     STATUS_ERROR,
     STATUS_NOTHING,
     STATUS_NO_NETWORK,
@@ -12425,6 +12426,17 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         elif status in (STATUS_PUSHED, STATUS_PULLED, STATUS_SYNCED):
             if show_notification:
                 self.app.call_from_thread(self.notify, f"Sync: {status.capitalize()}", severity="information")
+        elif status == STATUS_DEFERRED:
+            # A deferral is deliberate, not a failure: sync did less than a full
+            # cycle to avoid committing or publishing another session's
+            # in-flight work. "warning" (visible but benign) rather than
+            # "error", which would also arm the syncer's failure capture.
+            # Always notified, even when show_notification is False: the user
+            # needs to know a sync did not fully happen.
+            _msg = result.deferred_reason or "deferred"
+            if result.deferred_detail:
+                _msg = f"{_msg} ({result.deferred_detail})"
+            self.app.call_from_thread(self.notify, f"Sync deferred: {_msg}", severity="warning")
         elif status == STATUS_ERROR:
             self.app.call_from_thread(self.notify, f"Sync error: {result.error_message}", severity="error")
 

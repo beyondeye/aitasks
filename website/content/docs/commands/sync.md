@@ -45,9 +45,53 @@ In batch mode (`--batch`), the script outputs a single structured line on stdout
 | `CONFLICT:<file1>,<file2>` | Unresolvable merge conflicts detected (rebase aborted) |
 | `NO_NETWORK` | Fetch or push timed out or failed (no connectivity) |
 | `NO_REMOTE` | No git remote configured for the repository |
+| `DEFERRED:<reason>[:<detail>]` | Sync deliberately did less than a full cycle — **not** an error (see [Auto-commit policy](#auto-commit-policy)) |
 | `ERROR:<message>` | Unexpected error with details |
 
+A `DEFERRED:` line splits on its **first** colon only; `<detail>` is free text and may contain colons. The reasons are a closed set:
+
+| Reason | Meaning |
+|--------|---------|
+| `publication_blocked` | A commit whose content could not be vouched for is being withheld from the remote |
+| `protected_dirty` | Files another session owns are still dirty, which blocks the rebase |
+| `worktree_wedged` | The data worktree is stuck mid-rebase or mid-merge |
+
+Per-file skip reasons — an unreadable lock branch, a contended data-index lock, an ownerless file — are reported on stderr rather than in this token; when they block the rebase they surface here as `protected_dirty`.
+
 This protocol is used by the [board TUI](../../tuis/board/) for background sync integration.
+
+### Auto-commit policy
+
+Several sessions can share one working copy of the task data, so the pre-sync sweep never commits a file it cannot attribute. It groups the dirty task and plan files by their **owning task** and commits each group path-scoped, under a message naming that task — so a commit never carries an unrelated task's file.
+
+Anything it cannot vouch for is **skipped and reported on stderr**, and simply stays dirty, which is safe:
+
+- the task is locked by a session that is still running, or by one whose liveness cannot be established (including any lock held by another machine);
+- the file has no derivable task id — for example `aitasks/metadata/*`;
+- the entry is a rename whose two paths belong to different tasks;
+- another session has already staged the file;
+- the file changed after it was classified;
+- the lock branch could not be read at all, in which case nothing is committed.
+
+Skipped files can block the later rebase, since `git pull --rebase` refuses to run with a dirty worktree. When that happens the run reports `DEFERRED:protected_dirty` and exits **successfully** — the deferral clears by itself once the owning session commits its work.
+
+An ownerless file is different: nothing else will ever commit it, so it stays dirty until you do. The report names the file and the exact command that clears it.
+
+Three flags trade safety for availability, and each is deliberately never automatic:
+
+| Flag | Effect |
+|------|--------|
+| `--commit-unowned` | Also commit files with no derivable task id, under a message that names no task |
+| `--assume-unlocked` | Treat an unreadable lock branch as "nothing is locked". An outage can coincide with a live editor, so this is a decision you make, not one a network failure makes for you |
+| `--release-quarantine` | Publish commits withheld by `publication_blocked` (see below) |
+
+#### Withheld commits
+
+If a file is rewritten in the instant between being checked and being committed, the resulting commit holds content that was never classified. That commit is kept **local** — the run reports `DEFERRED:publication_blocked` and pushes nothing — and the state persists across runs, so a later sync cannot publish it either.
+
+It clears on its own once a later commit supersedes the content, or once the owning task's session has ended and the file has settled. Age alone never releases it: expiring the hold would publish exactly the content it exists to withhold. Past 24 hours (`AIT_SYNC_QUARANTINE_WARN_AGE`) the report escalates and names `--release-quarantine`, which is the only way to publish deliberately.
+
+While a commit is withheld, the run publishes nothing at all — not just that commit.
 
 ### How It Works
 
@@ -55,7 +99,7 @@ The sync flow follows these steps:
 
 1. **Mode detection** — Determines whether task data lives on a separate `aitask-data` branch (via `.aitask-data/` worktree) or on the current branch (legacy mode)
 2. **Remote check** — Verifies a git remote exists; outputs `NO_REMOTE` if not
-3. **Auto-commit** — If there are uncommitted changes to `aitasks/` or `aiplans/`, stages and commits them automatically
+3. **Auto-commit** — If there are uncommitted changes to `aitasks/` or `aiplans/`, commits them **grouped by owning task** (see [Auto-commit policy](#auto-commit-policy))
 4. **Fetch** — Fetches from the remote with a 10-second network timeout; outputs `NO_NETWORK` on failure
 5. **Pull with rebase** — If the remote has new commits, pulls them using `git pull --rebase` to maintain linear history. If conflicts occur in task files, the auto-merge system attempts to resolve them automatically (see below)
 6. **Push** — If there are local commits to push, pushes them to the remote (retries once on rejection, in case the remote advanced during rebase)

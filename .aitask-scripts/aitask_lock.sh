@@ -15,6 +15,9 @@
 #   ait lock --unlock <task_id>            Release lock
 #   ait lock --check <task_id>             Check if locked (exit 0=locked, 1=free)
 #   ait lock --list                        List all active locks
+#   ait lock --list --batch                Machine-readable snapshot +
+#                                          availability verdict (LOCKS_OK /
+#                                          LOCKS_UNINITIALIZED / LOCKS_UNAVAILABLE)
 #   ait lock --init                        Initialize the aitask-locks branch
 #   ait lock --cleanup                     Remove stale locks for archived tasks
 #                                          (exit 0=done, 11=branch unreadable,
@@ -501,6 +504,105 @@ list_locks() {
     done <<< "$lock_files"
 }
 
+# --- List (machine-readable): one fetched snapshot, plus an AVAILABILITY verdict
+#
+# `list_locks` above fails OPEN: an absent branch, a network failure and an empty
+# branch all end in "no locks". For a consumer that decides whether it may commit
+# another session's file, that is the wrong direction — an outage can easily
+# coincide with a live editor — so this form distinguishes them (t1599_3).
+#
+# Output (stdout; prose notes stay on stderr):
+#   LOCKS_OK                 snapshot is trustworthy; the lines below are complete
+#   LOCKS_REF:<sha>          the lock-branch commit the snapshot was read from
+#   LOCK:<id>|<email>|<host>|<pid>|<starttime>|<kind>     zero or more
+#   LOCKS_UNINITIALIZED      no lock branch (or no remote) — no task CAN be locked
+#   LOCKS_UNAVAILABLE        branch exists but is unreadable — decide nothing
+#
+# The status answers exactly ONE question — "is this snapshot trustworthy?" — and
+# nothing about any particular task. Whether a GIVEN task is held is answered by
+# the LOCK: lines. There is deliberately no "no locks anywhere" status: a
+# readable branch with no locks is LOCKS_OK with zero LOCK: lines. A separate
+# global token invites using it as a per-task precondition, which would let an
+# unrelated live lock on tY gate a decision about tX.
+#
+# The human `--list` output is deliberately untouched: aitask_board.py's
+# refresh_lock_map() regex-parses that prose line.
+list_locks_batch() {
+    if ! has_remote; then
+        _list_note "No locks (no remote configured)"
+        echo "LOCKS_UNINITIALIZED"
+        return 0
+    fi
+
+    # The tri-state probe lock_task()/unlock_task() already use for
+    # die_code 10 vs 11. check_lock() never calls it, which is why it fails open.
+    local probe_rc=0
+    lock_branch_exists_on_remote || probe_rc=$?
+    case $probe_rc in
+        1) _list_note "No locks (branch not initialized)"
+           echo "LOCKS_UNINITIALIZED"; return 0 ;;
+        2) _list_note "Lock branch unreachable"
+           echo "LOCKS_UNAVAILABLE"; return 0 ;;
+    esac
+
+    # Branch exists. From here a failure is an OUTAGE, not an absence.
+    if ! git fetch origin "$BRANCH" --quiet 2>/dev/null; then
+        _list_note "Lock branch fetch failed"
+        echo "LOCKS_UNAVAILABLE"; return 0
+    fi
+
+    local ref_hash current_tree_hash
+    ref_hash=$(git rev-parse "origin/$BRANCH" 2>/dev/null) || {
+        _list_note "Lock branch ref unreadable"
+        echo "LOCKS_UNAVAILABLE"; return 0
+    }
+    current_tree_hash=$(git rev-parse "origin/$BRANCH^{tree}" 2>/dev/null) || {
+        _list_note "Lock branch tree unreadable"
+        echo "LOCKS_UNAVAILABLE"; return 0
+    }
+
+    echo "LOCKS_OK"
+    echo "LOCKS_REF:${ref_hash}"
+
+    local lock_files
+    # awk, not grep: an empty lock branch makes `grep` exit 1, which under
+    # `set -euo pipefail` would kill the listing before it can report LOCKS_OK
+    # with zero entries — the "readable, nothing held" case.
+    lock_files=$(git ls-tree "$current_tree_hash" | awk '$4 ~ /_lock\.yaml$/ {print $4}')
+    [[ -z "$lock_files" ]] && return 0
+
+    while IFS= read -r lf; do
+        [[ -z "$lf" ]] && continue
+        local content tid lby lhost lpid lstart lkind
+        content=$(git show "origin/$BRANCH:$lf" 2>/dev/null) || {
+            # A blob we cannot read makes the SNAPSHOT incomplete, and a
+            # consumer that treats an incomplete snapshot as complete would
+            # decide "not locked" for whatever this record held. Fail closed.
+            _list_note "Lock record unreadable: $lf"
+            echo "LOCKS_UNAVAILABLE"
+            return 0
+        }
+
+        tid=$(_lock_field task_id "$content")
+        if [[ -z "$tid" ]]; then
+            debug "Skipping unrecognized lock file: $lf"
+            continue
+        fi
+
+        # Same placeholder discipline as the human form: never emit an empty
+        # field, or a consumer splitting on | silently mis-aligns.
+        lby=$(_lock_field locked_by "$content");          lby="${lby:-unknown}"
+        lhost=$(_lock_field hostname "$content");         lhost="${lhost:-unknown}"
+        lpid=$(_lock_field pid "$content");               lpid="${lpid:--}"
+        lstart=$(_lock_field pid_starttime "$content");   lstart="${lstart:--}"
+        # Absent kind defaults to proc, matching the reader at the top of this
+        # file and pid_anchor.sh's own backward-compat default.
+        lkind=$(_lock_field pid_starttime_kind "$content"); lkind="${lkind:-proc}"
+
+        echo "LOCK:${tid}|${lby}|${lhost}|${lpid}|${lstart}|${lkind}"
+    done <<< "$lock_files"
+}
+
 # --- Cleanup: remove stale locks for archived tasks ---
 
 # Internal: true when a failed `git fetch` of the lock branch means the branch
@@ -726,6 +828,21 @@ Commands:
                                    RECOGNIZED records, not that the lock branch
                                    is empty: a lock file with no task_id: field
                                    is skipped and shown only under --debug.
+  --list --batch                   Same snapshot, machine-readable, plus an
+                                   AVAILABILITY verdict (--list alone fails
+                                   open: an absent branch, a network failure and
+                                   an empty branch all read as "no locks"):
+                                     LOCKS_OK              snapshot trustworthy
+                                     LOCKS_REF:<sha>       lock-branch commit
+                                     LOCK:<id>|<email>|<host>|<pid>|<starttime>|<kind>
+                                     LOCKS_UNINITIALIZED   no branch / no remote
+                                     LOCKS_UNAVAILABLE     unreadable — decide
+                                                           nothing
+                                   The verdict describes the SNAPSHOT, never a
+                                   task: a readable branch holding no locks is
+                                   LOCKS_OK with zero LOCK: lines. Whether a
+                                   given task is held is answered by the LOCK:
+                                   lines alone.
   --init                           Initialize the aitask-locks branch on remote
   --cleanup                        Remove stale locks for archived tasks.
                                    Exit 0 = completed (including nothing to do),
@@ -776,7 +893,14 @@ case "${1:-}" in
         check_lock "$CHECK_TASK_ID"
         ;;
     --list|list)
-        list_locks
+        # The --debug pre-parse loop above only strips flags BEFORE the verb, so
+        # `--list --batch` has to be consumed here.
+        shift
+        case "${1:-}" in
+            --batch) list_locks_batch ;;
+            "")      list_locks ;;
+            *)       die "Unknown option for --list: $1. Use --help for usage." ;;
+        esac
         ;;
     --cleanup|cleanup)
         # Called bare on purpose. `set -e` propagates cleanup_locks' exact

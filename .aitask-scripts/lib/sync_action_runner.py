@@ -62,7 +62,23 @@ STATUS_AUTOMERGED = "AUTOMERGED"
 STATUS_CONFLICT = "CONFLICT"
 STATUS_NO_NETWORK = "NO_NETWORK"
 STATUS_NO_REMOTE = "NO_REMOTE"
+STATUS_DEFERRED = "DEFERRED"
 STATUS_ERROR = "ERROR"
+
+# Closed set of DEFERRED reasons. A `DEFERRED:` line is `DEFERRED:<reason>` or
+# `DEFERRED:<reason>:<detail>`, split on the FIRST colon only — <detail> is free
+# text and may itself contain colons. Pinned here (and asserted in
+# tests/test_sync_action_runner.py) so a reason added on the shell side with no
+# Python counterpart is caught rather than surfacing as raw text.
+DEFERRED_REASONS = frozenset({
+    "publication_blocked",   # a commit we cannot vouch for is being withheld
+    "protected_dirty",       # files another session owns block the rebase
+    "worktree_wedged",       # the data worktree is stuck mid-rebase/merge
+})
+# Deliberately three, not five. `locks_unavailable` and `lock_contended` are
+# per-file SKIP reasons inside the sweep: they surface in the stderr report and
+# roll up into `protected_dirty` on the wire, so they are not wire reasons and
+# declaring them here would make this set untrue.
 
 # --- Synthetic statuses owned by run_sync_batch ---
 STATUS_TIMEOUT = "TIMEOUT"
@@ -82,6 +98,13 @@ class SyncResult:
     conflicted_files: list[str] = field(default_factory=list)
     error_message: str | None = None
     raw_output: str = ""
+    #: Set only for STATUS_DEFERRED. Deliberately NOT folded into
+    #: ``error_message``: a deferral is a benign outcome, and anything
+    #: inspecting the dataclass would read a populated ``error_message`` as a
+    #: failure. ``deferred_reason`` is one of :data:`DEFERRED_REASONS` when the
+    #: shell and Python sides agree; ``deferred_detail`` is free text.
+    deferred_reason: str | None = None
+    deferred_detail: str | None = None
 
 
 def parse_sync_output(stdout: str) -> SyncResult:
@@ -112,6 +135,28 @@ def parse_sync_output(stdout: str) -> SyncResult:
         return SyncResult(
             status=STATUS_CONFLICT,
             conflicted_files=suffix.split(","),
+            raw_output=raw,
+        )
+
+    if line.startswith("DEFERRED:"):
+        suffix = line[len("DEFERRED:"):]
+        reason, _, detail = suffix.partition(":")
+        if reason not in DEFERRED_REASONS:
+            # FAIL CLOSED, exactly like the unknown-status branch below. A
+            # deferral renders as a benign warning in both TUIs and is
+            # deliberately not captured as a failure — so accepting an
+            # unrecognised reason would turn a shell-side typo into "all fine,
+            # just deferred" and silently suppress a real sync failure. The
+            # reason set is a closed protocol; an unknown one is a bug.
+            return SyncResult(
+                status=STATUS_ERROR,
+                error_message=f"unknown deferral reason: {reason or '(empty)'}",
+                raw_output=raw,
+            )
+        return SyncResult(
+            status=STATUS_DEFERRED,
+            deferred_reason=reason,
+            deferred_detail=detail or None,
             raw_output=raw,
         )
 

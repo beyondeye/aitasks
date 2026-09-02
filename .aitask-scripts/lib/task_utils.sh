@@ -313,7 +313,8 @@ task_git() {
 
 # --- Path-scoped commit (shared) ---
 
-# task_git_commit_scoped <msg> <path>... — stage and commit ONLY these paths.
+# task_git_commit_scoped [--no-stage] <msg> <path>... — stage and commit ONLY
+# these paths.
 # Returns 0 = committed, 2 = verified nothing to commit, 1 = commit failed.
 #
 # `git commit -- <paths>` is a PARTIAL commit: it takes those paths' WORKTREE
@@ -322,10 +323,24 @@ task_git() {
 # own aitask_update.sh write is on disk — but it is a real change from an
 # index-wide commit, so it is stated rather than assumed.
 #
+# `--no-stage` (opt-in; default is unchanged) skips the `add` entirely, for a
+# caller that has already staged whatever needed staging and must not touch the
+# index for anything else. The `.aitask-data` index is SHARED by every session
+# on the machine, so an unconditional `add` of a tracked path can replace an
+# index entry another session staged and has not yet committed (t1599_3). A
+# caller in that position stages only the untracked paths itself — so it also
+# knows exactly which entries to unstage if the commit fails — and passes this
+# flag. `commit -o` needs no staging for a tracked path, so nothing is lost.
+#
 # Lives here rather than in one script because BOTH writers of the shared
 # contributor list commit through it (t1626): aitask_pick_own.sh (via its
 # _commit_scoped alias) and aitask_create.sh::add_email_to_file.
 task_git_commit_scoped() {
+    # Matched literally, so a message is never mistaken for the flag.
+    local do_stage=1
+    if [[ "${1:-}" == "--no-stage" ]]; then
+        do_stage=0; shift
+    fi
     local msg="$1"; shift
     # Load-bearing: `git commit --` with no pathspec commits the WHOLE index,
     # silently re-creating the cross-session swallow this exists to stop.
@@ -334,8 +349,13 @@ task_git_commit_scoped() {
     (( $# )) || return 2
 
     # `add` is needed ONLY so an untracked path can be named by the pathspec;
-    # a pathspec cannot match a file git does not know about.
-    task_git add -- "$@" >/dev/null 2>&1 || true
+    # a pathspec cannot match a file git does not know about. Verified: a
+    # two-path `commit -o -- <new> <orig>` rename fails outright with
+    # "pathspec did not match any file(s) known to git" when <new> is untracked,
+    # while a pure deletion needs no staging at all.
+    if (( do_stage )); then
+        task_git add -- "$@" >/dev/null 2>&1 || true
+    fi
 
     # Capture the status exit separately: a failing status with empty stdout
     # must read as "unverified", never as "clean" (same shape as the guard in

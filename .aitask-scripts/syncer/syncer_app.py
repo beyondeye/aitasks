@@ -74,6 +74,7 @@ from agent_command_screen import AgentCommandScreen  # noqa: E402
 from sync_action_runner import (  # noqa: E402
     STATUS_AUTOMERGED,
     STATUS_CONFLICT,
+    STATUS_DEFERRED,
     STATUS_ERROR,
     STATUS_NO_NETWORK,
     STATUS_NO_REMOTE,
@@ -2170,6 +2171,15 @@ class SyncerApp(TuiSwitcherMixin, ShortcutsMixin, App):
             self.notify(self._prefix(label, "Sync: Auto-merged conflicts"), severity="information")
         elif status in (STATUS_PUSHED, STATUS_PULLED, STATUS_SYNCED):
             self.notify(self._prefix(label, f"Sync: {status.capitalize()}"), severity="information")
+        elif status == STATUS_DEFERRED:
+            # Deliberately NOT _capture_failure: that is what arms
+            # action_agent_resolve, i.e. offers to spawn a code agent to "fix"
+            # the run. A deferral is sync declining to commit or publish another
+            # session's in-flight work — the correct outcome, not a failure.
+            _msg = result.deferred_reason or "deferred"
+            if result.deferred_detail:
+                _msg = f"{_msg} ({result.deferred_detail})"
+            self.notify(self._prefix(label, f"Sync deferred: {_msg}"), severity="warning")
 
         self._post_action_refresh(row)
 

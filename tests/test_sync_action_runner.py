@@ -164,5 +164,113 @@ class RunSyncBatchTargetingTests(unittest.TestCase):
         self.assertIsNone(kwargs["cwd"])
 
 
+class TokenContractTest(unittest.TestCase):
+    """The wire protocol spans two languages; DERIVE it rather than restate it.
+
+    `aitask_sync.sh` emits every status through `batch_out`, and
+    `parse_sync_output` fails CLOSED — an unrecognised line becomes
+    STATUS_ERROR, which the board renders red and the syncer escalates into an
+    offer to spawn a code agent. So a token added to the shell and missed here
+    degrades silently into a fake failure. These tests read the shell source and
+    assert the two sides still agree.
+    """
+
+    SYNC_SH = PROJECT_DIR / ".aitask-scripts" / "aitask_sync.sh"
+
+    @staticmethod
+    def _emitted_tokens(source: str) -> set[str]:
+        """Every literal reaching `batch_out`, reduced to its bare token."""
+        import re
+        out = set()
+        for raw in re.findall(r'batch_out\s+"([^"]*)"', source):
+            # Strip a `:<detail>` suffix and any shell interpolation.
+            token = raw.split(":", 1)[0]
+            if "$" in token or not token:
+                continue
+            out.add(token)
+        return out
+
+    def test_every_emitted_token_is_recognised(self):
+        tokens = self._emitted_tokens(self.SYNC_SH.read_text())
+        self.assertTrue(tokens, "found no batch_out literals — the scan broke")
+        for token in sorted(tokens):
+            # CONFLICT:/ERROR:/DEFERRED: are prefix forms; give them a suffix so
+            # the bare word is not what gets parsed.
+            if token == "DEFERRED":
+                # Must be a declared reason now that the branch fails closed.
+                probe = "DEFERRED:protected_dirty"
+            elif token in {"CONFLICT", "ERROR"}:
+                probe = f"{token}:x"
+            else:
+                probe = token
+            result = sync_action_runner.parse_sync_output(probe)
+            if token == "ERROR":
+                self.assertEqual(result.status, STATUS_ERROR)
+                continue
+            self.assertNotEqual(
+                result.status, STATUS_ERROR,
+                f"{token!r} is emitted by aitask_sync.sh but parse_sync_output "
+                f"does not recognise it (got {result.error_message!r})",
+            )
+
+    def test_a_bogus_token_still_fails(self):
+        # Negative control: without this, the assertion above would also pass
+        # against a parser that accepted anything.
+        self.assertEqual(
+            sync_action_runner.parse_sync_output("TOTALLY_MADE_UP").status,
+            STATUS_ERROR,
+        )
+
+    def test_every_emitted_deferred_reason_is_declared(self):
+        """`DEFERRED:<reason>` reasons are a closed set on both sides."""
+        import re
+        source = self.SYNC_SH.read_text()
+        reasons = set()
+        for raw in re.findall(r'batch_out\s+"DEFERRED:([^":$]*)', source):
+            if raw:
+                reasons.add(raw)
+        self.assertTrue(reasons, "found no DEFERRED literals — the scan broke")
+        unknown = reasons - sync_action_runner.DEFERRED_REASONS
+        self.assertFalse(
+            unknown,
+            f"aitask_sync.sh emits DEFERRED reason(s) {sorted(unknown)} that "
+            f"sync_action_runner.DEFERRED_REASONS does not declare",
+        )
+
+    def test_an_unknown_deferral_reason_fails_closed(self):
+        """A shell-side typo must NOT become a benign warning.
+
+        Both TUIs render STATUS_DEFERRED as `severity="warning"` and the syncer
+        deliberately skips its failure capture for it, so a reason this side
+        does not know about would silently suppress a real problem.
+        """
+        r = sync_action_runner.parse_sync_output("DEFERRED:misspelled_reason")
+        self.assertEqual(r.status, STATUS_ERROR)
+        self.assertIn("misspelled_reason", r.error_message or "")
+        self.assertIsNone(r.deferred_reason)
+
+    def test_an_empty_deferral_reason_fails_closed(self):
+        r = sync_action_runner.parse_sync_output("DEFERRED:")
+        self.assertEqual(r.status, STATUS_ERROR)
+        r2 = sync_action_runner.parse_sync_output("DEFERRED::detail only")
+        self.assertEqual(r2.status, STATUS_ERROR)
+
+    def test_every_declared_reason_is_accepted(self):
+        # The positive half: the closed set must actually round-trip, or the
+        # guard above would be rejecting valid traffic.
+        for reason in sorted(sync_action_runner.DEFERRED_REASONS):
+            r = sync_action_runner.parse_sync_output(f"DEFERRED:{reason}:d")
+            self.assertEqual(r.status, sync_action_runner.STATUS_DEFERRED, reason)
+            self.assertEqual(r.deferred_reason, reason)
+
+    def test_deferred_detail_may_contain_colons(self):
+        r = sync_action_runner.parse_sync_output("DEFERRED:protected_dirty:a:b:c")
+        self.assertEqual(r.deferred_reason, "protected_dirty")
+        self.assertEqual(r.deferred_detail, "a:b:c")
+        # A deferral is benign: it must never look like a failure to a consumer
+        # inspecting the dataclass.
+        self.assertIsNone(r.error_message)
+
+
 if __name__ == "__main__":
     unittest.main()
