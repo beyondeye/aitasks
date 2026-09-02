@@ -33,6 +33,14 @@ The division shows up in the two rendering entry points:
   factory, so ``gate_ledger`` can keep returning its own ``GateRun`` type with the
   gate-specific accessors it has always had.
 
+**Namespace contract.** A namespace is a marker *identifier* matching
+``_NAMESPACE_CHARS``, validated at every public entry point that takes one --
+including :func:`has_markers` / :func:`parse_blocks` when a precompiled pattern
+makes the argument otherwise unused. Out-of-charset input raises ``ValueError``
+rather than being escaped: escaping would make a nonsense namespace *work*, and
+a wildcard like ``....`` would then silently cross-parse another ledger's blocks
+(t1669).
+
 Stdlib only, matching ``gate_ledger``'s constraint: this substrate has to work
 where PyYAML is unavailable.
 """
@@ -48,6 +56,24 @@ import re
 _NAMESPACE_CHARS = r"[A-Za-z0-9_]+"
 _NAME_CHARS = r"[A-Za-z0-9_]+"
 
+#: The namespace charset, as an anchored matcher. ``\A``/``\Z`` rather than
+#: ``^``/``$`` so a trailing newline cannot slip through.
+_NAMESPACE_RE = re.compile(rf"\A{_NAMESPACE_CHARS}\Z")
+
+
+def _checked_namespace(namespace: str) -> str:
+    """Return ``namespace`` if it is a legal marker identifier, else raise.
+
+    Rejecting rather than ``re.escape``-ing is deliberate: escaping would make a
+    nonsense namespace *work*, and a wildcard like ``....`` would then silently
+    cross-parse another ledger's blocks. Fail closed.
+    """
+    if not _NAMESPACE_RE.match(namespace):
+        raise ValueError(
+            f"ledger namespace must match {_NAMESPACE_CHARS}, got {namespace!r}")
+    return namespace
+
+
 #: ``key=value`` pairs on a marker line. Values are whitespace-delimited.
 KV_RE = re.compile(r"(\w+)=(\S+)")
 
@@ -62,13 +88,14 @@ SECTION_HEADER_RE = re.compile(r"^##\s+")
 def build_marker_re(namespace: str) -> re.Pattern:
     """Full marker matcher for ``namespace``: groups are (icon, name, tail)."""
     return re.compile(
-        rf"^>\s*\*\*(\S+)\s+{namespace}:({_NAME_CHARS})\*\*(.*)$")
+        rf"^>\s*\*\*(\S+)\s+{_checked_namespace(namespace)}:"
+        rf"({_NAME_CHARS})\*\*(.*)$")
 
 
 def build_marker_search_re(namespace: str) -> re.Pattern:
     """Cheap multiline prefilter for ``namespace`` markers anywhere in a text."""
     return re.compile(
-        rf"(?m)^>\s*\*\*\S+\s+{namespace}:{_NAME_CHARS}\*\*")
+        rf"(?m)^>\s*\*\*\S+\s+{_checked_namespace(namespace)}:{_NAME_CHARS}\*\*")
 
 
 def _normalize_body_key(label: str) -> str:
@@ -110,8 +137,12 @@ class LedgerBlock:
 def has_markers(text: str, namespace: str, search_re: re.Pattern | None = None) -> bool:
     """Cheap prefilter: does ``text`` contain any ``namespace`` marker?
 
-    Pass ``search_re`` to reuse a module-level compiled pattern.
+    Pass ``search_re`` to reuse a module-level compiled pattern. ``namespace``
+    is validated either way -- it is a required argument meaning the same thing
+    on both routes, and leaving it unchecked here would make this a public entry
+    point that accepts an out-of-charset namespace in silence.
     """
+    _checked_namespace(namespace)
     pattern = search_re if search_re is not None else build_marker_search_re(namespace)
     return bool(pattern.search(text))
 
@@ -127,7 +158,11 @@ def parse_blocks(text: str, namespace: str, factory=LedgerBlock,
     A block runs from its marker line to the next marker, the next ``##``
     section header, or a non-blockquote non-blank line — whichever comes first.
     Blank lines inside a block are skipped rather than terminating it.
+
+    ``namespace`` is validated even when ``marker_re`` makes it unused, for the
+    reason given on :func:`has_markers`.
     """
+    _checked_namespace(namespace)
     pattern = marker_re if marker_re is not None else build_marker_re(namespace)
     blocks: list = []
     lines = text.splitlines()
@@ -181,7 +216,7 @@ def render_block(namespace: str, name: str, icon: str, marker_kv, body_lines) ->
     strings. Defaults, icon lookup, attempt arithmetic and label mapping are the
     caller's, which is what keeps this module free of any consumer's vocabulary.
     """
-    marker = f"> **{icon} {namespace}:{name}**"
+    marker = f"> **{icon} {_checked_namespace(namespace)}:{name}**"
     for key, value in marker_kv:
         marker += f" {key}={value}"
 
