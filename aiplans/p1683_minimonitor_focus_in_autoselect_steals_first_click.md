@@ -227,3 +227,78 @@ Step 9.
 
 ### Planned mitigations
 - timing: post-phase | name: pin_restore_focus_fallback_scroll_contract | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — `_restore_focus` fallback behaviour change | desc: pin both halves of the fallback contract (focuses card 0 AND does not scroll), not just the non-scrolling half
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned three files.
+  `.aitask-scripts/monitor/minimonitor_app.py` gained `_first_list_card()`;
+  `_auto_select_own_window()` now focuses with `scroll_visible=False`
+  unconditionally; `on_app_focus()` only schedules
+  `_auto_select_after_focus_in()`, which bails when `self.focused is not None`
+  and otherwise settles focus with `self.set_focus(card, scroll_visible=False)`.
+  The `_restore_focus` comment that classified `on_app_focus ->
+  _auto_select_own_window` as a scroll-permitted "active gesture" was rewritten —
+  that classification was the bug. New `tests/test_minimonitor_focus_in_click.py`
+  (7 tests). New "Terminal focus-in: never re-drive focus from an `AppFocus`
+  handler" section in `aidocs/framework/tui_conventions.md`.
+
+- **Deviations from plan:** None. The plan's seven-case matrix was implemented
+  verbatim, including the two no-click cases added during plan review.
+
+- **Issues encountered:**
+  - `pilot.click` cannot express the "mouse already queued behind the focus-in"
+    interleaving: it `await`s a `pause()` before each event and calls
+    `screen._forward_event` directly, draining the pending callback first. The
+    click is posted as a real `events.MouseDown` onto the app queue instead,
+    which is the production path (`App.on_event` forwards to
+    `screen._forward_event`).
+  - A subclass override does NOT suppress the base handler — Textual dispatches
+    `on_*` on every class in the MRO — so the pre-fix/mutant probing was done by
+    patching `MiniMonitorApp` itself, not by subclassing. The same fact is why
+    the test host subclasses the real app rather than imitating it.
+  - First full-suite run failed `test_minimonitor_bottom_pin_live.py::
+    test_2_the_press_hit_the_thumb` ("no grab observed"). That assertion's own
+    docstring records a measured 1-in-12 flake rate on the grab; box load average
+    was ~6.5 with ~10 concurrent agents. It then passed twice in isolation and
+    once in a clean full-suite run (`PYTHON SUITE: PASSED`). Judged flake, not
+    regression.
+
+- **Key decisions:**
+  - The guard tests `self.focused is not None`, not `isinstance(...,
+    MiniPaneCard)`. By the time the deferred callback runs, anything focused is
+    more authoritative than "card 0" — including an open dialog's control, which
+    the pre-fix handler yanked focus out of on every alt-tab.
+  - `set_focus`, not `Widget.focus()`, inside the deferred callback: `focus()`
+    defers a second time and would land after a click still queued behind it,
+    re-creating the overwrite the guard exists to prevent.
+  - `scroll_visible=False` is unconditional rather than a parameter — neither
+    call site wants a scroll, and a keyword no caller ever sets to True is dead
+    parameterization.
+  - `on_app_focus` was KEPT (guarded) rather than deleted. `AUTO_FOCUS = "*"`
+    does not cover the empty case: at compose the list is empty, so auto-focus
+    lands on `#mini-own-agent`, and a card is only selected later by
+    `_restore_focus`'s per-tick fallback.
+
+- **Post-phase risk mitigation (`pin_restore_focus_fallback_scroll_contract`):**
+  Implemented. `test_restore_focus_fallback_does_not_scroll` pins BOTH halves of
+  the fallback contract — that it still focuses card 0, and that it no longer
+  scrolls — plus an in-scenario assertion that `_list_scroll_lock` is clear, so
+  the scroll assertion cannot pass vacuously via the t1539 lock.
+
+- **Negative controls (both executed, results as documented in the module
+  docstring):** (1) reverting both halves fails all 7 tests; (2) keeping
+  `scroll_visible=False` but dropping the guard fails exactly
+  `test_click_queued_with_the_focus_in_wins`,
+  `test_focus_in_alone_preserves_the_focused_card_and_scroll`,
+  `test_focus_in_without_a_preceding_blur_preserves_focus` and
+  `test_focus_in_does_not_steal_focus_from_another_widget`, while the other
+  three pass — confirming that the i2 click case alone cannot see a missing
+  guard.
+
+- **Upstream defects identified:**
+  - `tests/test_multi_session_minimonitor.sh:147-165 — Tier 1d asserts a locally
+    redefined copy of an `_auto_select_own_window` predicate
+    (`snap_window_index == own_window_index and snap_session in ("", own_session)`)
+    that no longer exists in the source, so it stays green regardless of the real
+    method's behaviour. Misleading regression coverage; the file's other tiers
+    should be audited for the same self-mirroring pattern.
