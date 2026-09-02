@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1647
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 18:49
-updated_at: 2026-09-01 22:35
+updated_at: 2026-09-02 12:10
 ---
 
 ## Context
@@ -106,3 +107,8 @@ moves WITH the functions.
   discovery/dedup/overlap/load only.
 
 Parent plan: `aiplans/p1647_merge_trails_skill_shared_helpers_board_command_docs.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T09:10:19Z status=pass attempt=1 type=human
