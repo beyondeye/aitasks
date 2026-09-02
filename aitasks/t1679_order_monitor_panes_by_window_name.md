@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -13,7 +15,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:09
-updated_at: 2026-09-02 12:04
+updated_at: 2026-09-02 12:05
 ---
 
 Agent ordering in `ait minimonitor` follows the tmux **window index** (i.e. the
@@ -110,3 +112,5 @@ Otherwise document the ordering rule wherever the pane list is described.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-02T09:04:56Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-02T09:39:32Z status=pass attempt=1 type=human
