@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -11,8 +13,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 10:45
-updated_at: 2026-09-02 10:49
+updated_at: 2026-09-02 16:17
 ---
 
 ## Problem
@@ -146,3 +149,8 @@ minimonitor fixture + negative-control discipline).
 - `.aitask-scripts/monitor/minimonitor_app.py:2642` `on_descendant_focus`
 - Origin of `on_app_focus`: commit `5f77c04c4` (t511)
 - `aidocs/framework/tui_conventions.md`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T13:17:12Z status=pass attempt=1 type=human
