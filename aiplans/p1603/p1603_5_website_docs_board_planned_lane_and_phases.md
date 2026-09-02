@@ -490,3 +490,101 @@ step, which is what moves the dimension from `medium` to `low`.
 Standard closure: commit, merge per the plan header (base `main`, output `main`, current branch —
 no worktree), archive the task and plan. The Final Implementation Notes must record that step 10
 was verify-only.
+
+---
+
+## Implementation record
+
+All 11 steps and both post-phase mitigations executed. No deviations from the approved plan.
+
+| Step | Outcome |
+|------|---------|
+| 1 | `reference.md` card anatomy: `📋 Ready · Planned` line + the qualifier paragraph |
+| 2 | In-Flight base-filter row rewritten — four lanes, `Ready`+marker admission |
+| 3 | New `### In-Flight Lanes and Workflow Phases` (+`#### The four lanes`, `#### The five workflow phases`, `#### Gate progress`, `#### Honest degradation`, `#### Gates in Task Detail`) |
+| 4 | `g` / `s` / `f` keyboard rows carry the Planned-refusal qualifier |
+| 5 | `plan_approved_at` row added to `### Task Metadata Fields`, marked Read-only |
+| 6 | `how-to.md` In-Flight block: four lanes, `Ready`+marker admission, Planned-refusal sentence |
+| 7 | `_index.md` status-line bullet carries `· Planned` |
+| 8 | `parallel-planning.md` gains the board as the third read surface |
+| 9 | `task-management.md` cross-reference added |
+| 10 | **Verify-only, no edit owed** — `plan_approved_at` was already documented in `development/task-format.md` (shipped by t1595); confirmed present and accurate. It sits at line 60, not 56: another session added an `artifacts` row above it during this task |
+| 11 | Three dead links repaired in `how-to.md` (`reference/#by-trail` ×2, `../../workflows/work-report/`), all to `{{< relref >}}` form |
+
+### Post-phase results
+
+**`sweep_doc_anchors_with_control`** — `HTMLParser`-based sweep over the five built pages,
+resolving each same-site href against its own rendered file:
+
+```
+pages swept : 5      resolved : 830      broken : 0      skipped : 75 (empty / off-site)
+control+ extractor captured 'how-to/#how-to-mark-tasks'  : True
+control+ that href resolved                              : True
+control+ it is written UNQUOTED in output                : True
+control- resolver found #by-trail on the reference page  : True
+SWEEP: PASSED
+```
+
+Two findings worth recording:
+
+- The **negative control caught its own mis-specification** before it could mask anything: it was
+  first keyed on "a link *on* the reference page", but after step 11 the `#by-trail` links point
+  *to* that page from `how-to`. Re-keyed on the resolved **target**. A control that silently failed
+  here would have left every "broken" verdict unproven.
+- The pre-repair forms were replayed through the same resolver to show the sweep discriminates:
+  `reference/#by-trail` → missing `how-to/reference/index.html`, `../../workflows/work-report/` →
+  missing `docs/tuis/workflows/work-report/index.html`, repaired form → resolves. So the
+  broken-count was non-zero before step 11 and is 0 after.
+
+**`pin_board_doc_literals_with_a_test`** — `tests/test_board_reference_doc_literals.py`, 10 tests,
+all passing. Coverage matches the plan's closed table exactly: 4 lane titles + 5 phase labels +
+5 phase names (class a), 5 zero-interpolation renders (class b), the 6 `Gates` row forms
+(class c, normalized on the fixtures' own gate names). The fraction and the error suffix are
+deliberately **not** asserted.
+
+One fixture bug found and fixed while writing it: the stale-signature witness was first stamped
+with the same digest the manager was seeded with, so the signature read as *fresh* and the `⚠` row
+never rendered — the fixture would have silently tested five forms while claiming six. The row
+count assertion is what caught it; `WITNESS_DIGEST` is now deliberately distinct from
+`PINNED_DIGEST`, and the reason is recorded on both constants.
+
+**Forced-failure injection** (the guard must be able to fail): run against a mutated copy of the
+page with one literal broken per class — `Agent can continue` → `Agent may proceed`,
+`plan approved (from marker)` → `plan approved (marker)`, and the stale row shortened — the module
+reports **3 failures**, one per class. The repo file was never modified.
+
+### Verification summary
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | `hugo build --gc --minify` | ✅ 240 pages, exit 0 (Hugo v0.165.0+extended) |
+| 2 | every `{{< relref >}}` page target resolves | ✅ implied by the clean build |
+| 3 | fragment sweep with both controls | ✅ 830 resolved / 0 broken |
+| 4 | step-11 repairs resolve; broken-count 0, was non-zero | ✅ shown by replay |
+| 5 | documented literals match source | ✅ 10/10 in the new guard |
+| 6 | rows A–D match `TwoAxisFixtureTests` | ✅ confirmed during the verify pass |
+| 7 | current-state-only prose | ✅ no version history in the doc bodies |
+| 8 | `website/public/` not hand-edited | ✅ untracked build output only |
+
+Neighbouring suites re-run green: `test_board_detail_gates_section`,
+`test_board_inflight_planned_lane`, `test_board_workflow_phase`, `test_board_inflight_view`,
+`test_board_gate_digest_budget` — 121 passed with the new module.
+
+### Deviation found in review, and corrected
+
+**Rows A–D were paraphrased, not carried verbatim.** The task file and this plan both require the
+four worked rows verbatim; the first implementation rewrote every Task-column description
+(`approve-and-stop` → "approved and stopped") and dropped the `resume_point == IMPLEMENT` /
+`resume_point == POSTIMPL` identifiers entirely. The phase and lane values were correct, so the
+fixture check in `TwoAxisFixtureTests` still passed — it pins the *values*, and cannot see prose
+drift. Caught in Step-8 review.
+
+The motive was real but unrecorded: `resume_point` appears **nowhere** in `website/content`, so
+carrying it verbatim puts an undefined internal term on a user-facing page. Softening it silently
+was the error — that is a plan amendment, not an editorial call.
+
+Corrected by restoring the four rows verbatim **and** adding the gloss the restored text needs: a
+short paragraph under the tables defining `resume_point` (`PLAN` / `IMPLEMENT` / `POSTIMPL`) and
+pointing "marker" at the metadata table. The contract is honoured and the term is no longer
+dangling. Re-verified: build clean, sweep 831 resolved / 0 broken (one new internal link), guard
+10/10.
