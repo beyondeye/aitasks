@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1657_1]
 issue_type: feature
@@ -171,3 +173,5 @@ EOF-append path, so one backend passing proves nothing about the other.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-01T15:48:17Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-02T06:11:27Z status=pass attempt=1 type=human
