@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [tui, minimonitor, monitor, agent_marks]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ risk_mitigation_tasks: [1695]
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-02 12:34
-updated_at: 2026-09-02 18:35
+updated_at: 2026-09-02 18:36
+completed_at: 2026-09-02 18:36
 ---
 
 ## Problem
@@ -246,3 +247,14 @@ set threaded through the same consumers.
 > **✅ gate:plan_approved** run=2026-09-02T14:24:26Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-02T15:17:41Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-02T15:36:12Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c7a850d09ecfefe0
+
+> **✅ gate:risk_evaluated** run=2026-09-02T15:36:12Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1685/risk_evaluated_2026-09-02T15:36:12Z-risk_evaluated-a1.log`
