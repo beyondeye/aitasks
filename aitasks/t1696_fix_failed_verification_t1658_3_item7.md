@@ -114,6 +114,20 @@ name the converge seam directly, or have `ait sync` run `task_data_converge()`
 on its `protected_dirty` deferral path before giving up. Whatever is chosen, the
 hint and the reachable recovery must agree.
 
+### Additional surface carrying the same hint
+
+The rendered satisfaction-feedback procedures repeat the unreachable advice on the
+partial-result branch and must be updated together with the shell messages:
+
+- `.claude/skills/task-workflow/satisfaction-feedback.md:42` and `:93`
+- `.claude/skills/task-workflow-remote-/satisfaction-feedback.md:38-area` and `:87-area`
+- `.agents/skills/task-workflow-remote-codex-/satisfaction-feedback.md`
+- `.opencode/skills/task-workflow-remote-/satisfaction-feedback.md`
+- goldens under `tests/golden/procs/task-workflow/satisfaction-feedback-*.md`
+
+(The continue-not-abort contract in those files is correct and was verified working
+in t1658_3 item 8 - only the `./ait sync` recovery wording is at issue.)
+
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1658_3 item #7.
