@@ -43,6 +43,77 @@ updated_at: 2026-09-02 18:55
 - tests/test_usage_update.sh
 - tests/test_verified_update.sh
 
+### Observed behavior (recorded during t1658_3 auto-verification, 2026-09-02)
+
+Reproduced on this checkout with three other agent sessions live.
+
+**Setup — the partial state was forced exactly as item #6 specifies:**
+`aitasks/metadata/models_claudecode.json` left locally modified, then
+`aitask_usage_update.sh --agent-string claudecode/opus4_6 --skill pick`.
+Item #6 passed: stdout `UPDATED_REMOTE_ONLY:claudecode/opus4_6:pick:5`, exit 3,
+explanation on stderr, local edit untouched. Branch left `behind 1 / ahead 0`,
+with metadata commit `759616e58` on `origin/aitask-data` only.
+
+**Then the probe edit was reverted, leaving the genuine partial state**
+(behind 1 / ahead 0, models_claudecode.json clean, four unrelated task/plan
+files dirty because their tasks are locked by live sessions).
+
+**`./ait sync` did not converge:**
+
+```
+RC=0
+sync: not everything was auto-committed —
+  - t1675 is locked by a LIVE session on omg16 - its files left dirty for that session to commit
+  - t1677 is locked by a LIVE session on omg16 - its files left dirty for that session to commit
+  - t1658_3 is locked by a LIVE session on omg16 - its files left dirty for that session to commit
+  - t1686 is locked by a LIVE session on omg16 - its files left dirty for that session to commit
+Warning: Sync deferred: 4 protected file(s) block the rebase; the fetch still ran.
+
+after:  ahead @{u}..HEAD = 0   behind HEAD..@{u} = 1
+merge-base --is-ancestor 759616e58 HEAD -> NO (commit still missing locally)
+```
+
+`ait sync` exits **0** while leaving the branch behind, so a caller cannot tell
+recovery failed.
+
+**`task_data_converge()` — the seam t1658_1 itself added — recovered it immediately:**
+
+```
+STATUS=fast-forwarded REASON= AHEAD=0 BEHIND=0
+merge-base --is-ancestor 759616e58 HEAD -> YES
+```
+
+All four dirty foreign files were still present and byte-identical (md5 unchanged)
+afterwards.
+
+### The defect
+
+The partial-outcome messages direct the user to a command that cannot perform the
+recovery in the very situation that produces the partial outcome:
+
+- `lib/verified_update_lib.sh:191` - "... not on the local data branch (converge: ...) - recover with './ait sync'"
+- `lib/task_utils.sh:732` - "local edits to the same file(s) block the fast-forward; commit them or reconcile with './ait sync'"
+- `lib/task_utils.sh:734` - "local data branch has both unpushed and unpulled commits; reconcile with './ait sync'"
+
+`ait sync` reconciles via `pull --rebase`, which requires a clean worktree. Its
+own t1599 lock protection deliberately leaves live-locked task files dirty and
+then takes the `protected_dirty` deferral (`aitask_sync.sh` step 5 early exit),
+so on a multi-agent box the recommended recovery is unreachable — while
+`task_data_converge()`'s `fetch` + `merge --ff-only` succeeds against exactly
+that state.
+
+**Not a data-loss bug:** nothing was lost, and the next metadata update
+self-heals because it calls `task_data_converge()` before committing. The defect
+is the misdirecting recovery instruction (and `ait sync`'s silent exit 0), not
+the convergence seam, which behaved correctly throughout.
+
+### Suggested direction (not prescriptive)
+
+Point the recovery hint at a path that works with a dirty shared worktree - e.g.
+name the converge seam directly, or have `ait sync` run `task_data_converge()`
+on its `protected_dirty` deferral path before giving up. Whatever is chosen, the
+hint and the reachable recovery must agree.
+
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1658_3 item #7.
