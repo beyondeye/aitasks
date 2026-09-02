@@ -42,7 +42,7 @@ Any pane that is **not** an agent — a shell, a log, a window you renamed off t
 
 Each agent card in the list shows:
 
-- A prioritized mark: **★** when the agent is marked, dim **☆** when it is not. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized))
+- An agent mark: **★** when the agent is prioritized, **P** when it is parked, dim **☆** when neither. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized)). A parked card shows only the **P**, the name and a dim `parked`; press **P** to hide parked agents from this list
 - A status dot: **green** when the agent has produced recent output, **magenta** when it is waiting for your input, **blue** when its task is finished, **yellow** when it is idle
 - The agent window name (truncated to 20 characters on narrow layouts)
 - A matching label: `PROMPT <n>s` when the agent is waiting for you, `DONE <n>s` when its task is finished, or `IDLE <n>s` when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds). `DONE` reflects the pane's *task* — its status reads `Done`, or it has been archived — so an agent still printing output after its task landed reads `DONE`, while an agent waiting on you reads `PROMPT` even when its task is done
@@ -148,10 +148,10 @@ The pinned card's header names what it is following: `── this agent ──` 
 > and name are frozen when the panel is first built, so renaming the window
 > afterwards does not change them.
 >
-> Two things on the pinned card *do* stay current. Its prioritized mark
-> (**★** / **☆**) is not a status badge but a note you left yourself, and it can
-> change without the agent changing at all — you marked it from another project,
-> or it expired. Its **workflow phase** is kept current too: this panel *is* the
+> Two things on the pinned card *do* stay current. Its agent mark
+> (**★** / **P** / **☆**) is not a status badge but a note you left yourself, and
+> it can change without the agent changing at all — you marked it from another
+> project, or it expired. Its **workflow phase** is kept current too: this panel *is* the
 > followed agent, and the shadow companion you launch from it picks its review
 > mode from that phase, so showing it only on the list rows — which exclude the
 > followed agent by construction — would put it everywhere except the one place
@@ -283,7 +283,11 @@ Other refusals are about state rather than support, and each says which: no foll
 
 ### How to Mark an Agent as Prioritized
 
-When you are following many agents, some matter more than others. Press **Space** to toggle a **prioritized mark** on the agent this minimonitor **follows** — the one pinned at the top under `── this agent ──`. It does not matter which card in the list is highlighted; `Space` here always means "the agent I am watching". Marked agents show a bright **★**; unmarked agents show a dim **☆**, so the column is always present and rows never shift when you toggle one.
+When you are following many agents, some matter more than others. Press **Space** to cycle the mark on the agent this minimonitor **follows** — the one pinned at the top under `── this agent ──` — through prioritized (**★**), parked (**P**) and unmarked (dim **☆**). It does not matter which card in the list is highlighted; `Space` here always means "the agent I am watching". The column is always present, so rows never shift when you change one.
+
+**Parking the followed agent does not stop this minimonitor watching it.** Parking is a signal to *other* monitors' lists — it takes the agent out of them and stops them checking it. This pane is bound to that one agent, so its pinned card keeps updating, and **L**, **c** and the shadow companion all keep working exactly as before. The pinned card simply shows **P** instead of ★ or ☆.
+
+Press **P** to hide parked agents from the scrollable list, and **P** again to show them. With them hidden you cannot unpark from the list — reveal them first, then use `Space` in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), where **Space** acts on the focused card.
 
 The cards in the scrollable list show marks but cannot be toggled from here — to mark some *other* agent, use [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), where **Space** acts on the focused card.
 
@@ -379,7 +383,8 @@ All actions below are also available via mouse — see [Mouse Support](#mouse-su
 | `E` | Launch a shadow agent, choosing the code agent and model first |
 | `c` | Pick the shadow's concerns and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `e` edits the outgoing payload before it is copied, `R` reviews the rejected list, `u` shows any lines that could not be parsed) |
 | `L` | Arm or disarm the [auto-recheck loop](#how-to-run-the-auto-recheck-loop) — minimonitor asks the shadow for a fresh review round once the followed agent settles |
-| `Space` | Toggle the prioritized mark (`★`) on the **followed** agent (the one pinned at the top) — shared across all your projects |
+| `Space` | Cycle the mark on the **followed** agent (the one pinned at the top): unmarked → `★` prioritized → `P` parked → unmarked. Shared across all your projects |
+| `P` | Hide or show parked agents in the scrollable list |
 | `d` | Cycle the idle-detection compare mode (`≈` ANSI-stripped, `=` strict) |
 | `j` | Open the TUI switcher |
 | `m` | Switch to the full [monitor]({{< relref "/docs/tuis/monitor" >}}) with this agent focused |

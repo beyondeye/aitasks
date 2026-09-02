@@ -9,7 +9,7 @@ Both apps are covered. They have independent root-resolution and refresh paths,
 so covering one does not cover the other.
 
 **Target resolution split (t1383).** The shared write path is
-`AgentMarksMixin._toggle_mark_for`, and everything below the target — argv,
+`AgentMarksMixin._cycle_mark_for`, and everything below the target — argv,
 strict root, the four outcomes — is asserted against *it*, for both apps.
 Above it the two diverge: the full monitor resolves through live focus
 (`FocusResolutionTests` here), while the minimonitor overrides
@@ -143,11 +143,11 @@ class _ActionFixture(unittest.TestCase):
 
         Everything below the target resolution — the argv shape, strict root
         resolution, and the four outcome branches — lives in
-        `_toggle_mark_for`, which both apps reach. Asserting it here keeps the
+        `_cycle_mark_for`, which both apps reach. Asserting it here keeps the
         coverage genuinely shared instead of silently becoming
         monitor-only (t1383).
         """
-        asyncio.run(app._toggle_mark_for(snap))
+        asyncio.run(app._cycle_mark_for(snap))
 
 
 class ArgvContractTests(_ActionFixture):
@@ -162,7 +162,7 @@ class ArgvContractTests(_ActionFixture):
                 self.assertEqual(len(app.calls), 1)
                 self.assertEqual(
                     app.calls[0],
-                    ["toggle", os.path.realpath(self.here), "agent-t1"],
+                    ["cycle", os.path.realpath(self.here), "agent-t1"],
                 )
 
     def test_cross_session_card_resolves_its_OWN_root(self):
@@ -177,7 +177,7 @@ class ArgvContractTests(_ActionFixture):
                 self.run_sink(app, snaps["%9"])
                 self.assertEqual(
                     app.calls[0],
-                    ["toggle", os.path.realpath(self.there), "agent-far"],
+                    ["cycle", os.path.realpath(self.there), "agent-far"],
                 )
                 self.assertNotEqual(app.calls[0][1], os.path.realpath(self.here))
 
@@ -252,6 +252,38 @@ class OutcomeTests(_ActionFixture):
                 self.run_sink(app, app._snapshots["%1"])
                 self.assertIn("Unmarked", app.notes[0][0])
                 self.assertEqual(len(app.later), 1)
+
+    def test_parked_notifies_and_schedules_a_repaint(self):
+        for cls in BOTH_APPS:
+            with self.subTest(app=cls.__name__):
+                app = self.app(cls, reply=(0, "PARKED:/r|agent-t1"))
+                self.run_sink(app, app._snapshots["%1"])
+                self.assertEqual(app.notes[0][1], "information")
+                self.assertIn("Parked", app.notes[0][0])
+                self.assertIn("agent-t1", app.notes[0][0])
+                self.assertEqual(len(app.later), 1)
+
+    def test_parking_while_hidden_names_the_way_back(self):
+        """With the filter on the row is about to vanish, and the only route to
+        unparking it is `P` then `Space`. The toast is the one place the user is
+        guaranteed to be looking when that happens (t1685)."""
+        for cls in BOTH_APPS:
+            with self.subTest(app=cls.__name__):
+                app = self.app(cls, reply=(0, "PARKED:/r|agent-t1"))
+                app._hide_parked = True
+                self.run_sink(app, app._snapshots["%1"])
+                msg = app.notes[0][0]
+                self.assertIn("P", msg)
+                self.assertIn("Space", msg)
+                self.assertIn("unpark", msg.lower())
+
+    def test_parking_while_shown_says_only_that(self):
+        """Negative control for the test above: the longer message must be
+        conditional on the filter, not always emitted."""
+        app = self.app(MonitorApp, reply=(0, "PARKED:/r|agent-t1"))
+        app._hide_parked = False
+        self.run_sink(app, app._snapshots["%1"])
+        self.assertEqual(app.notes[0][0], "Parked agent-t1")
 
     def test_lock_busy_warns_and_changes_nothing(self):
         for cls in BOTH_APPS:

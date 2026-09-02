@@ -54,7 +54,7 @@ ROOT_B = "/repo/beta"
 def _marks(*entries: tuple[str, str]) -> agent_marks.MarksFile:
     mf = agent_marks.MarksFile(version=agent_marks.SCHEMA_VERSION, marks=[])
     for root, window in entries:
-        agent_marks.toggle(mf, root, window, now=1_700_000_000)
+        agent_marks.cycle(mf, root, window, now=1_700_000_000)
     return mf
 
 
@@ -104,6 +104,37 @@ class ThreeWayDistinctionTests(unittest.TestCase):
         dropped = agent_marks.sweep_liveness(mf, {}, {ROOT_A})
         self.assertEqual([d.window for d in dropped], ["agent-gone"])
         self.assertEqual(_windows(mf), [f"{ROOT_B}:agent-elsewhere"])
+
+
+class ParkedMarkSweepTests(unittest.TestCase):
+    """Parked marks are exempt from age expiry but NOT from the liveness sweep.
+
+    That asymmetry is what keeps the store bounded by something real (the window
+    is gone) rather than by a clock the user did not set (t1685).
+    """
+
+    def _parked(self, root: str, window: str) -> agent_marks.MarksFile:
+        mf = agent_marks.MarksFile(version=agent_marks.SCHEMA_VERSION, marks=[])
+        agent_marks.cycle(mf, root, window, now=1_700_000_000)
+        agent_marks.cycle(mf, root, window, now=1_700_000_000)  # -> parked
+        assert mf.marks[0].kind == agent_marks.KIND_PARKED
+        return mf
+
+    def test_a_parked_mark_whose_window_is_gone_is_still_swept(self):
+        mf = self._parked(ROOT_A, "agent-t1")
+        dropped = agent_marks.sweep_liveness(mf, {ROOT_A: set()}, {ROOT_A})
+        self.assertEqual([d.window for d in dropped], ["agent-t1"])
+        self.assertEqual(mf.marks, [])
+
+    def test_a_parked_mark_whose_window_lives_is_kept(self):
+        """The negative control for the test above: without it, "swept" and
+        "never present" look identical."""
+        mf = self._parked(ROOT_A, "agent-t1")
+        dropped = agent_marks.sweep_liveness(
+            mf, {ROOT_A: {"agent-t1"}}, {ROOT_A}
+        )
+        self.assertEqual(dropped, [])
+        self.assertEqual(_windows(mf), [f"{ROOT_A}:agent-t1"])
 
 
 class IncompleteObservationTests(unittest.TestCase):

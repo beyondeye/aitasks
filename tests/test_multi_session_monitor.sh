@@ -705,7 +705,7 @@ ROOT_B = os.environ["MARKS_ROOT_B"]
 STORE = os.environ["AITASKS_AGENT_MARKS_FILE"]
 
 mf = agent_marks.load(STORE)
-agent_marks.toggle(mf, ROOT_A, "agent-pick-42")
+agent_marks.cycle(mf, ROOT_A, "agent-pick-42")
 agent_marks.dump(mf, STORE)
 
 def mk_snap(sess, name):
@@ -714,7 +714,10 @@ def mk_snap(sess, name):
         window_index="1", pane_index="0", pane_id="%" + sess,
         window_name=name,
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
+    # is incomplete, not exercising a defensive path in the renderer.
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           parked=False)
 
 app = ma.MonitorApp.__new__(ma.MonitorApp)
 app._task_cache = SimpleNamespace(

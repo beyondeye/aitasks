@@ -383,6 +383,16 @@ class RefreshGuardTests(unittest.TestCase):
                             raise RuntimeError("tmux exploded")
                         return None      # second call: clean early return
 
+                    # Resolved BEFORE the capture since t1685 (the parked set is
+                    # derived from it and must be published before the tick
+                    # captures). Answered here so the RuntimeError below still
+                    # comes from the capture, which is what this test is about.
+                    async def get_session_to_project_mapping_async(_self):
+                        return {}
+
+                    def set_parked_agents(_self, pairs):
+                        pass
+
                 app._monitor = _Boom()
 
                 with self.assertRaises(RuntimeError):

@@ -36,7 +36,7 @@ class _StoreTestCase(unittest.TestCase):
     def seed(self, *entries: tuple[str, str]) -> None:
         mf = agent_marks.load(self.store)
         for root, window in entries:
-            agent_marks.toggle(mf, root, window)
+            agent_marks.cycle(mf, root, window)
         agent_marks.dump(mf, self.store)
 
 
@@ -60,18 +60,61 @@ class PathResolutionTests(_StoreTestCase):
 
 
 class RoundTripTests(_StoreTestCase):
-    def test_toggle_on_then_off(self):
+    def test_cycle_runs_none_priority_parked_none(self):
+        """The full tristate cycle, in order, on one key (t1685)."""
         mf = agent_marks.load(self.store)
-        added = agent_marks.toggle(mf, "/repo/a", "agent-t1")
+        added = agent_marks.cycle(mf, "/repo/a", "agent-t1")
+        self.assertEqual(added.kind, agent_marks.KIND_PRIORITY)
         self.assertTrue(added.now_marked)
         self.assertIsNotNone(added.record)
-        removed = agent_marks.toggle(mf, "/repo/a", "agent-t1")
+
+        parked = agent_marks.cycle(mf, "/repo/a", "agent-t1")
+        self.assertEqual(parked.kind, agent_marks.KIND_PARKED)
+        self.assertTrue(parked.now_marked)
+        self.assertEqual(
+            len(mf.marks), 1,
+            "parking must REPLACE the priority record, not add a second one",
+        )
+        self.assertEqual(mf.marks[0].kind, agent_marks.KIND_PARKED)
+
+        removed = agent_marks.cycle(mf, "/repo/a", "agent-t1")
+        self.assertIsNone(removed.kind)
         self.assertFalse(removed.now_marked)
         self.assertEqual(mf.marks, [])
 
+        # And it wraps: a fourth press starts the cycle again.
+        self.assertEqual(
+            agent_marks.cycle(mf, "/repo/a", "agent-t1").kind,
+            agent_marks.KIND_PRIORITY,
+        )
+
+    def test_parking_restamps_marked_at(self):
+        """Parking is a new decision with its own age.
+
+        The two kinds are aged differently — `expire` exempts parked marks — so
+        inheriting the star's timestamp would date the park from a decision the
+        user has since changed.
+        """
+        mf = agent_marks.load(self.store)
+        agent_marks.cycle(mf, "/repo/a", "agent-t1", now=1_700_000_000)
+        agent_marks.cycle(mf, "/repo/a", "agent-t1", now=1_700_009_999)
+        self.assertEqual(mf.marks[0].marked_at, 1_700_009_999)
+
+    def test_is_marked_means_priority_not_merely_marked(self):
+        """A parked agent is not starred — every caller of `is_marked` means
+        "does this row show a ★", and widening it would paint parked agents as
+        prioritized."""
+        mf = agent_marks.load(self.store)
+        agent_marks.cycle(mf, "/repo/a", "agent-t1")
+        agent_marks.cycle(mf, "/repo/a", "agent-t1")  # -> parked
+        self.assertEqual(
+            mf.kind_of("/repo/a", "agent-t1"), agent_marks.KIND_PARKED
+        )
+        self.assertFalse(mf.is_marked("/repo/a", "agent-t1"))
+
     def test_marked_at_is_recorded(self):
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(mf, "/repo/a", "agent-t1", now=1700000000)
+        agent_marks.cycle(mf, "/repo/a", "agent-t1", now=1700000000)
         self.assertEqual(mf.marks[0].marked_at, 1700000000)
 
     def test_dump_load_round_trip(self):
@@ -109,21 +152,26 @@ class CanonicalizationTests(_StoreTestCase):
 
     def test_write_via_symlink_reads_via_real_path(self):
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(mf, self.link, "agent-t1")
+        agent_marks.cycle(mf, self.link, "agent-t1")
         agent_marks.dump(mf, self.store)
         self.assertTrue(agent_marks.load(self.store).is_marked(self.real, "agent-t1"))
 
     def test_write_via_real_path_reads_via_symlink(self):
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(mf, self.real, "agent-t1")
+        agent_marks.cycle(mf, self.real, "agent-t1")
         agent_marks.dump(mf, self.store)
         self.assertTrue(agent_marks.load(self.store).is_marked(self.link, "agent-t1"))
 
-    def test_toggling_via_the_other_spelling_removes_not_duplicates(self):
+    def test_cycling_via_the_other_spelling_advances_not_duplicates(self):
+        """The second spelling must reach the SAME record, not add one."""
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(mf, self.real, "agent-t1")
-        result = agent_marks.toggle(mf, self.link, "agent-t1")
-        self.assertFalse(result.now_marked)
+        agent_marks.cycle(mf, self.real, "agent-t1")
+        result = agent_marks.cycle(mf, self.link, "agent-t1")
+        self.assertEqual(result.kind, agent_marks.KIND_PARKED)
+        self.assertEqual(len(mf.marks), 1)
+        self.assertEqual(
+            agent_marks.cycle(mf, self.link, "agent-t1").kind, None
+        )
         self.assertEqual(mf.marks, [])
 
     def test_hand_edited_symlink_spelling_is_canonicalized_on_read(self):
@@ -138,6 +186,89 @@ class CanonicalizationTests(_StoreTestCase):
             encoding="utf-8",
         )
         self.assertTrue(agent_marks.load(self.store).is_marked(self.real, "agent-t1"))
+
+
+class SchemaMigrationTests(_StoreTestCase):
+    """v1 -> v2 read migration (t1685).
+
+    The bump exists because a mark now carries a `kind`. A v1 file has no such
+    key, so every v1 record is a priority mark — that IS the migration, and it
+    must be executable rather than asserted in prose, because the alternative
+    (`_parse` refusing an older version, as it did before t1685) makes every
+    user's existing marks vanish on upgrade.
+    """
+
+    V1 = (
+        '{"version": 1, "marks": ['
+        '{"root": "/repo/a", "window": "agent-one", "marked_at": 1700000000},'
+        '{"root": "/repo/b", "window": "agent-two", "marked_at": 1700000001}'
+        "]}"
+    )
+
+    def test_a_v1_store_loads_with_every_mark_as_priority(self):
+        self.store.write_text(self.V1, encoding="utf-8")
+        mf = agent_marks.load(self.store)
+        self.assertEqual(
+            [m.kind for m in mf.marks],
+            [agent_marks.KIND_PRIORITY] * 2,
+        )
+        self.assertEqual(
+            {m.window for m in mf.marks}, {"agent-one", "agent-two"},
+            "the migration dropped a mark",
+        )
+        self.assertEqual(
+            mf.version, agent_marks.SCHEMA_VERSION,
+            "the in-memory generation must be normalised to v2 — carrying the "
+            "on-disk 1 would make a migrated store claim to still be v1",
+        )
+
+    def test_a_v1_store_round_trips_to_a_v2_file(self):
+        self.store.write_text(self.V1, encoding="utf-8")
+        agent_marks.dump(agent_marks.load(self.store), self.store)
+        data = json.loads(self.store.read_text(encoding="utf-8"))
+        self.assertEqual(data["version"], 2)
+        self.assertEqual(
+            sorted(m["kind"] for m in data["marks"]),
+            ["priority", "priority"],
+        )
+
+    def test_a_version_from_the_future_is_still_refused(self):
+        """The half of the old contract that stands: a newer file must not be
+        truncated to the fields this version understands."""
+        self.store.write_text(
+            '{"version": 99, "marks": []}', encoding="utf-8"
+        )
+        with self.assertRaises(agent_marks.MalformedMarksError):
+            agent_marks.load(self.store)
+        # ... and the READ path degrades to empty rather than raising.
+        self.assertEqual(agent_marks.load_safe(self.store).marks, [])
+
+    def test_an_unrecognised_kind_is_a_corruption_not_a_default(self):
+        """Fail closed, like every other field check in `_parse`.
+
+        Defaulting an unknown kind to priority would silently un-park a parked
+        agent — the store would start listing and capturing an agent the user
+        asked it to stop paying for.
+        """
+        self.store.write_text(
+            '{"version": 2, "marks": [{"root": "/repo/a", '
+            '"window": "w", "marked_at": 1, "kind": "sideways"}]}',
+            encoding="utf-8",
+        )
+        with self.assertRaises(agent_marks.MalformedMarksError):
+            agent_marks.load(self.store)
+
+    def test_an_absent_kind_still_reads_as_priority_under_v2(self):
+        """A hand-edited v2 file keeps the v1 default rather than failing."""
+        self.store.write_text(
+            '{"version": 2, "marks": [{"root": "/repo/a", '
+            '"window": "w", "marked_at": 1}]}',
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            agent_marks.load(self.store).marks[0].kind,
+            agent_marks.KIND_PRIORITY,
+        )
 
 
 class CorruptionTests(_StoreTestCase):
@@ -242,7 +373,7 @@ class ExpiryTests(_StoreTestCase):
 
     def _mf(self, age_days: float) -> agent_marks.MarksFile:
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(
+        agent_marks.cycle(
             mf, "/repo/a", "agent-t1", now=int(self.NOW - age_days * self.DAY)
         )
         return mf
@@ -264,8 +395,38 @@ class ExpiryTests(_StoreTestCase):
 
     def test_visible_marks_filters_without_mutating(self):
         mf = self._mf(2.5)
-        self.assertEqual(agent_marks.visible_marks(mf, ttl=2.0, now=self.NOW), set())
+        self.assertEqual(agent_marks.visible_marks(mf, ttl=2.0, now=self.NOW), {})
         self.assertEqual(len(mf.marks), 1, "visible_marks must not mutate the store")
+
+    def test_visible_marks_reports_the_kind(self):
+        mf = self._mf(0.5)
+        self.assertEqual(
+            agent_marks.visible_marks(mf, ttl=2.0, now=self.NOW),
+            {(os.path.realpath("/repo/a"), "agent-t1"): agent_marks.KIND_PRIORITY},
+        )
+
+    def test_an_over_ttl_parked_mark_survives_expiry(self):
+        """Parking is a long-lived intent; a 2-day TTL silently un-parking a
+        background agent would defeat the feature on a timer (t1685)."""
+        mf = agent_marks.load(self.store)
+        old = int(self.NOW - 10 * self.DAY)
+        agent_marks.cycle(mf, "/repo/a", "star", now=old)
+        agent_marks.cycle(mf, "/repo/a", "parked", now=old)
+        agent_marks.cycle(mf, "/repo/a", "parked", now=old)  # -> parked, same age
+        self.assertEqual(mf.kind_of("/repo/a", "parked"), agent_marks.KIND_PARKED)
+
+        dropped = agent_marks.expire(mf, ttl=2.0, now=self.NOW)
+        self.assertEqual(
+            [d.window for d in dropped], ["star"],
+            "expiry must drop the over-TTL star and keep the over-TTL park",
+        )
+        self.assertEqual([m.window for m in mf.marks], ["parked"])
+        # ... and the render path agrees with the reaper, or the two disagree
+        # about what is visible.
+        self.assertIn(
+            (os.path.realpath("/repo/a"), "parked"),
+            agent_marks.visible_marks(mf, ttl=2.0, now=self.NOW),
+        )
 
 
 class TtlEnvTests(unittest.TestCase):
@@ -407,8 +568,8 @@ class MarksViewTests(_StoreTestCase):
 
     def test_expired_marks_are_not_visible(self):
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(mf, "/repo/a", "old", now=int(time.time() - 10 * 86400))
-        agent_marks.toggle(mf, "/repo/a", "new")
+        agent_marks.cycle(mf, "/repo/a", "old", now=int(time.time() - 10 * 86400))
+        agent_marks.cycle(mf, "/repo/a", "new")
         agent_marks.dump(mf, self.store)
         view = agent_marks.MarksView(self.store)
         view.refresh()

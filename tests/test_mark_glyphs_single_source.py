@@ -506,7 +506,7 @@ class CodepointPolicyTests(unittest.TestCase):
     def test_the_manifest_is_not_vacuous(self):
         """Proves the manifest can express 'not covered' and that the generator
         discriminates rather than emitting `true` for everything."""
-        for cp in (0x2610, 0x2611, 0x2605, 0x2606):
+        for cp in (0x2610, 0x2611, 0x2605, 0x2606, 0x23F8):
             key = f"{cp:04X}"
             self.assertIn(key, self.coverage, key)
             for family in SUPPORTED_FONTS:
@@ -520,6 +520,46 @@ class CodepointPolicyTests(unittest.TestCase):
         by_family = self.coverage["2714"]
         self.assertIn(True, by_family.values())
         self.assertIn(False, by_family.values())
+
+    def test_the_parked_mark_evidence_is_recorded(self):
+        """The t1685 park-glyph decision, kept machine-checked.
+
+        `P` U+0050 is the monitor's parked mark (``monitor_shared.PARK_GLYPH``).
+        It is not part of ``RATIFIED`` — that tuple is the multi-select pair this
+        module owns — so its evidence would otherwise live only in prose, and the
+        two alternatives it beat would stop being measured at all.
+
+        The three verdicts together are what make the choice reviewable: `P` is
+        covered everywhere and claimed by no emoji font; `⏸` is covered nowhere
+        AND emoji-capable (the exact t1638 defect); `■` is covered everywhere but
+        was rejected on legibility, not coverage — which is why it is asserted
+        covered rather than assumed absent.
+        """
+        for family in SUPPORTED_FONTS:
+            self.assertTrue(
+                self.coverage["0050"][family],
+                f"U+0050 (P, the parked mark) is not covered by {family} — "
+                f"monitor_shared.PARK_GLYPH would resolve by fallback",
+            )
+            self.assertFalse(
+                self.coverage["23F8"][family],
+                f"U+23F8 was recorded as covered by {family}; the recorded "
+                f"reason for rejecting it no longer holds",
+            )
+            self.assertTrue(
+                self.coverage["25A0"][family],
+                f"U+25A0 was recorded as uncovered by {family}; it was rejected "
+                f"for colliding with the state dot, not for coverage",
+            )
+        self.assertIn(
+            0x23F8, _EMOJI_CAPABLE,
+            "U+23F8 is no longer emoji-capable, so the recorded rejection "
+            "reason has gone stale",
+        )
+        self.assertNotIn(
+            0x0050, _EMOJI_CAPABLE,
+            "U+0050 became emoji-capable — the parked mark needs re-deciding",
+        )
 
     def test_the_manifest_covers_exactly_the_supported_fonts(self):
         self.assertEqual(set(self.manifest["fonts"]), set(SUPPORTED_FONTS))

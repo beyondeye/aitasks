@@ -52,12 +52,26 @@ from mark_glyphs import (  # noqa: E402
 
 MANIFEST_PATH = REPO_ROOT / "tests" / "data" / "font_coverage.json"
 
-#: Codepoints this repo REJECTED, recorded so the manifest can be shown to
-#: discriminate. `2610`/`2611` are the t1638 defect itself; `2714` is the
-#: replacement the task proposed and measurement overruled; `2605`/`2606` are the
-#: monitor's prioritised-agent pair, whose identical coverage gap was
-#: deliberately deferred rather than fixed.
-REJECTED_CODEPOINTS = (0x2610, 0x2611, 0x2714, 0x2605, 0x2606)
+#: Codepoints measured here IN ADDITION to the ratified multi-select pair —
+#: rejections kept on purpose so the manifest can be shown to discriminate, plus
+#: any glyph ratified elsewhere in the repo. It held only rejections until t1685
+#: added the first non-rejection, which is why it is no longer named for them.
+#:
+#:   2610 / 2611  rejected — the t1638 defect itself (emoji-capable ☐/☑)
+#:   2714         rejected — the replacement t1638 proposed, overruled by
+#:                measurement (covered by one supported font, not both)
+#:   2605 / 2606  the monitor's ★/☆ pair: covered by NEITHER supported font, so
+#:                it resolves by fallback. Not emoji-capable, so not broken —
+#:                the deferral t1638 recorded and t1639 will retire
+#:   0050         CHOSEN (t1685) — `P`, the parked mark. Covered by every
+#:                supported font and claimed by no emoji font
+#:   23F8         rejected (t1685) — `⏸` is emoji-capable, i.e. the exact t1638
+#:                invisible-glyph defect
+#:   25A0         rejected (t1685) — `■` is covered, but collides visually with
+#:                the monitor's state dot `●` two columns away
+EXTRA_MEASURED_CODEPOINTS = (
+    0x2610, 0x2611, 0x2714, 0x2605, 0x2606, 0x0050, 0x23F8, 0x25A0,
+)
 
 
 def ratified_codepoints() -> tuple[int, ...]:
@@ -173,7 +187,7 @@ def locate(family: str) -> Path | None:
 
 
 def build(font_files: dict[str, Path]) -> dict:
-    codepoints = sorted(set(ratified_codepoints()) | set(REJECTED_CODEPOINTS))
+    codepoints = sorted(set(ratified_codepoints()) | set(EXTRA_MEASURED_CODEPOINTS))
     coverage: dict[str, dict[str, bool]] = {}
     covered_by: dict[str, set[int]] = {
         fam: read_cmap(path) for fam, path in font_files.items()

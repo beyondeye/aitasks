@@ -43,6 +43,7 @@ from monitor.tmux_monitor import (  # noqa: E402
     _SHADOW_TRUNCATED_MSG,
 )
 from monitor.tmux_control import TmuxControlState  # noqa: E402
+import agent_marks  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _ansi_to_rich_text, _TASK_ID_RE, GateSummaryCache, TaskInfo, TaskInfoCache,
     workflow_phase,
@@ -381,6 +382,15 @@ class MonitorApp(
 
     _shortcuts_scope = "monitor"
 
+    #: Class-level floor for the per-tick parked set (t1685), the same rationale
+    #: as `AgentMarksMixin._session_root_map`: many test modules build the app
+    #: with `__new__` and hand-set only what they touch, so an `__init__`-only
+    #: default would AttributeError the moment a consumer read it — and the
+    #: consumers here include the concern offer and the signature scan, which
+    #: are nowhere near the parked feature. Safe to share: `_refresh_data`
+    #: **rebinds** this name every tick and never mutates the set in place.
+    _parked_pane_ids: frozenset = frozenset()
+
     TITLE = "tmux Monitor"
 
     CSS = """
@@ -514,6 +524,7 @@ class MonitorApp(
         Binding("e", "launch_shadow", "Shadow"),
         Binding("E", "launch_shadow_pick", "Shadow (pick)"),
         Binding("space", "toggle_mark", "Mark"),
+        Binding("P", "toggle_parked_visibility", "Parked"),
     ]
 
     def __init__(
@@ -648,6 +659,10 @@ class MonitorApp(
         # action_toggle_auto_switch) reuse the last tick's set rather than
         # triggering an N-stat fan-out on a keystroke.
         self._completed_pane_ids: frozenset[str] = frozenset()
+        # Pane ids whose agent is parked, recomputed once per refresh tick
+        # (t1685). Same "starts empty so a keypress-driven rebuild reuses the
+        # last tick's set" contract as `_completed_pane_ids` above.
+        self._parked_pane_ids: frozenset[str] = frozenset()
         # Prioritized-agent marks (t1326): cached reader + purge scheduling.
         #: Advisory shadow-phase stamps queued by the card renderer, flushed
         #: after the rebuild so the render path makes no tmux call (t1598).
@@ -991,18 +1006,13 @@ class MonitorApp(
             saved_pane_id = self._focused_pane_id
             saved_zone = self._active_zone
 
-            # Two-phase capture (t1111_4): offload the strip/prompt-regex CPU work,
-            # then commit under the monitor-owned generation guard. If a newer refresh
-            # reserved a later generation while we were off-loop, discard this cycle —
-            # skip the DOM rebuild entirely (the newer cycle owns it) and never write
-            # stale content into _last_content / _snapshots.
-            gen, classified = await self._monitor.capture_all_classified_async()
-            if self._monitor.capture_generation != gen:
-                return
-            snaps = self._monitor.commit_snapshots(gen, classified)
-            if snaps is None:
-                return
-            self._snapshots = snaps
+            # Marks resolve BEFORE the capture, and that ordering is required
+            # rather than tidy (t1685). The parked set published below decides
+            # which agents this tick will skip capturing, and it is derived from
+            # the mark store plus this mapping — so publishing it after the
+            # capture would leak one capture-and-classify of every already-parked
+            # agent on every monitor launch.
+            #
             # Refresh the per-session project-root mapping so cross-session task
             # data resolves from the right project. Cheap — piggybacks on the
             # TmuxMonitor sessions cache TTL.
@@ -1015,6 +1025,27 @@ class MonitorApp(
             # and it is what makes a mark set in another repo appear within a tick.
             self._set_session_root_map(session_roots)
             self._refresh_marks()
+            self._publish_parked_agents()
+
+            # Two-phase capture (t1111_4): offload the strip/prompt-regex CPU work,
+            # then commit under the monitor-owned generation guard. If a newer refresh
+            # reserved a later generation while we were off-loop, discard this cycle —
+            # skip the DOM rebuild entirely (the newer cycle owns it) and never write
+            # stale content into _last_content / _snapshots.
+            gen, classified = await self._monitor.capture_all_classified_async()
+            if self._monitor.capture_generation != gen:
+                return
+            snaps = self._monitor.commit_snapshots(gen, classified)
+            if snaps is None:
+                return
+            self._snapshots = snaps
+            # Parked-pane set for THIS tick (t1685), same contract as the
+            # completed set below: one pass, read by the list filter, the session
+            # bar, auto-switch and the concern offer, so all of them agree within
+            # a tick.
+            self._parked_pane_ids = frozenset(
+                pid for pid, snap in self._snapshots.items() if snap.parked
+            )
             # Completed-pane set for THIS tick (t1322). Must run after
             # update_session_mapping (which may clear the task cache) and before
             # _maybe_auto_switch below, which filters on it.
@@ -1047,6 +1078,12 @@ class MonitorApp(
                     if (
                         snap.pane.category == PaneCategory.AGENT
                         and snap.pane.window_name == target_name
+                        # A parked agent that the filter is hiding has no card
+                        # to focus, so honouring the request would set
+                        # `_focused_pane_id` to a pane the list does not render
+                        # (t1685). With the filter OFF the row exists and the
+                        # request is honoured as before.
+                        and not (self._hide_parked and snap.parked)
                     ):
                         self._focused_pane_id = pid
                         saved_pane_id = pid
@@ -1142,6 +1179,11 @@ class MonitorApp(
         try:
             self._concern_tick += 1
             pane_id = self._focused_pane_id
+            # A parked agent raises no auto-offer (t1685): the user asked to stop
+            # being told about it, and its shadow's block may be arbitrarily old
+            # since the agent itself is no longer being read.
+            if pane_id is not None and pane_id in self._parked_pane_ids:
+                return
             shadow_snap = (
                 self._tick_shadow_snaps.get(pane_id) if pane_id else None
             )
@@ -1386,6 +1428,11 @@ class MonitorApp(
         for pane_id, snap in self._snapshots.items():
             if snap.pane.category != PaneCategory.AGENT:
                 continue
+            if snap.parked:
+                # Parked agents leave the state partition entirely (t1685), so
+                # they must not land in `done` either — the session bar counts
+                # them under their own term. This also skips their per-pane stat.
+                continue
             task_id = self._task_cache.get_task_id_for_pane(snap.pane)
             if not task_id:
                 continue
@@ -1407,6 +1454,12 @@ class MonitorApp(
         otherwise permanently capture focus — parking the monitor on a done
         agent and never surfacing a live one that needs input.
 
+        Parked agents (t1685) are excluded from every branch too, for a
+        different reason: they are not being captured, so their ``is_idle`` /
+        ``awaiting_input`` are "nothing observed", not "nothing happening".
+        Switching to one would move focus to a row that may not even be
+        rendered, and would present a non-verdict as a reason to look.
+
         Returns True if focus was switched, False otherwise.
         """
         if self._focused_pane_id is None:
@@ -1415,8 +1468,10 @@ class MonitorApp(
         if current_snap is None or current_snap.pane.category != PaneCategory.AGENT:
             return False
         # If focused agent already needs attention, keep it — unless it is
-        # merely *completed*-idle, which needs no attention at all.
-        if (
+        # merely *completed*-idle, which needs no attention at all. A PARKED
+        # agent never holds focus here (t1685): it has no verdict to need
+        # attention with, so auto-switch must be free to move off it.
+        if not current_snap.parked and (
             getattr(current_snap, "awaiting_input", False)
             or (
                 current_snap.is_idle
@@ -1429,6 +1484,7 @@ class MonitorApp(
         awaiting = [
             snap for snap in self._snapshots.values()
             if snap.pane.category == PaneCategory.AGENT
+            and not snap.parked
             and getattr(snap, "awaiting_input", False)
         ]
         if awaiting:
@@ -1439,6 +1495,7 @@ class MonitorApp(
         idle_agents = [
             snap for snap in self._snapshots.values()
             if snap.pane.category == PaneCategory.AGENT and snap.is_idle
+            and not snap.parked
             and snap.pane.pane_id not in self._completed_pane_ids
         ]
         if not idle_agents:
@@ -1510,6 +1567,19 @@ class MonitorApp(
                 # stale. Set _focused_pane_id directly so the next tick sees
                 # the real state.
                 self._focused_pane_id = card.pane_id
+            else:
+                # The saved pane has no card — it was filtered out (parked, with
+                # the filter on) or removed. Anchor focus rather than leaving it
+                # wherever it landed: this is the invariant a future call site
+                # cannot forget, whereas the deliberate handoff in
+                # `_focus_next_visible_card` can be bypassed (t1685).
+                cards = self._visible_pane_cards()
+                if cards:
+                    cards[0].focus()
+                    self._focused_pane_id = cards[0].pane_id
+                else:
+                    self._clear_pane_list_focus()
+                    return
         # Sync preview with the final focus state. The _update_content_preview
         # call in _refresh_data (line 683) may have rendered with a stale
         # _focused_pane_id if DOM events during _rebuild_pane_list shifted
@@ -1549,23 +1619,34 @@ class MonitorApp(
             s for s in self._snapshots.values()
             if s.pane.category == PaneCategory.AGENT
         ]
-        # The three counters partition the agents exactly as the badges do, on
-        # the same PROMPT > COMPLETED > IDLE ladder (t1322), so every agent
-        # lands in at most one bucket and the bar can never disagree with the
-        # rows above it. Subtracting completed from idle alone would not be
-        # enough: a completed agent parked on its final feedback prompt is both
-        # awaiting and completed, and would be counted twice while its badge
-        # read PROMPT.
-        awaiting_count = sum(1 for a in agents if getattr(a, "awaiting_input", False))
-        done_count = sum(1 for a in agents
+        # The three live counters partition the NON-PARKED agents exactly as the
+        # badges do, on the same PROMPT > COMPLETED > IDLE ladder (t1322), so
+        # every such agent lands in at most one bucket and the bar can never
+        # disagree with the rows above it. Subtracting completed from idle alone
+        # would not be enough: a completed agent sitting on its final feedback
+        # prompt is both awaiting and completed, and would be counted twice while
+        # its badge read PROMPT.
+        #
+        # Parked agents (t1685) leave that partition entirely and get a fourth,
+        # separate term. They have no meaningful is_idle / awaiting_input — they
+        # are not captured — so counting them in any live bucket would put a
+        # non-verdict in the same row as three verdicts. The `parked` term is
+        # shown whether or not `P` is hiding those rows: it is the one place a
+        # hidden agent is still accounted for, and a count that appeared and
+        # disappeared with a view toggle would be worse than no count at all.
+        live = [a for a in agents if not a.parked]
+        parked_count = len(agents) - len(live)
+        awaiting_count = sum(1 for a in live if getattr(a, "awaiting_input", False))
+        done_count = sum(1 for a in live
                          if a.pane.pane_id in self._completed_pane_ids
                          and not getattr(a, "awaiting_input", False))
-        idle_count = sum(1 for a in agents
+        idle_count = sum(1 for a in live
                          if a.is_idle and not getattr(a, "awaiting_input", False)
                          and a.pane.pane_id not in self._completed_pane_ids)
         awaiting_str = f"  [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
         done_str = f"  [{STATE_STYLE_DONE}]{done_count} done[/]" if done_count > 0 else ""
         idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
+        parked_str = f"  [dim]{parked_count} parked[/]" if parked_count > 0 else ""
         bar = self.query_one("#session-bar", SessionBar)
         auto_tag = "  [bold yellow]\\[AUTO][/]" if self._auto_switch else ""
         # Pre-fetched by `_refresh_data` (t1622). `None` means this call brought
@@ -1601,6 +1682,7 @@ class MonitorApp(
                 f"{awaiting_str}"
                 f"{done_str}"
                 f"{idle_str}"
+                f"{parked_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -1613,6 +1695,7 @@ class MonitorApp(
                 f"{awaiting_str}"
                 f"{done_str}"
                 f"{idle_str}"
+                f"{parked_str}"
                 f"{auto_tag}"
                 f"{desync}"
                 f"{state_badge}"
@@ -1635,6 +1718,18 @@ class MonitorApp(
         # between _compute_completed_panes and this call would flip the identity
         # gate and leave the badge disagreeing with the session bar and the
         # auto-switch decision for a tick.
+        if snap.parked:
+            # Deliberately the WHOLE row (t1685). Every other element here is
+            # either capture-derived (state dot, status badge, compare-mode
+            # glyph, shadow glyph) or a live verdict, and a parked pane was not
+            # captured — a frozen ● would read as a current idle/active answer
+            # that is in fact arbitrarily stale. The mark glyph, the window name
+            # and an explicit `parked` marker are what is actually true.
+            return (
+                f" {format_mark_glyph(agent_marks.KIND_PARKED)} "
+                f"{snap.pane.window_index}:{snap.pane.window_name} "
+                f"({snap.pane.pane_index})  [dim]parked[/]"
+            )
         completed = snap.pane.pane_id in self._completed_pane_ids
         dot = format_state_dot(snap, completed)
         status = format_pane_status(snap, completed)
@@ -1662,7 +1757,7 @@ class MonitorApp(
         # Leftmost: the prioritized mark (t1326) is a durable user annotation,
         # deliberately outside the live state cluster. Always-on ★/☆ pair, so
         # rows never shift when one is toggled.
-        mark = format_mark_glyph(self._is_marked(snap))
+        mark = format_mark_glyph(self._mark_kind(snap))
         text = (
             f" {mark} {dot}{shadow_part} {glyph} "
             f"{snap.pane.window_index}:{snap.pane.window_name} "
@@ -1728,6 +1823,12 @@ class MonitorApp(
         others: list[PaneSnapshot] = []
         for snap in self._snapshots.values():
             if snap.pane.category == PaneCategory.AGENT:
+                # The parked filter is applied HERE, before `desired_ids` is
+                # built below (t1685). Filtering after that comparison would
+                # leave the in-place fast path seeing an unchanged pane-id list,
+                # so pressing P — or parking an agent — would not rebuild at all.
+                if self._hide_parked and snap.parked:
+                    continue
                 agents.append(snap)
             elif snap.pane.category == PaneCategory.OTHER:
                 others.append(snap)
@@ -1849,6 +1950,20 @@ class MonitorApp(
             header.update("[bold]Content Preview[/]")
             preview.styles.min_width = 0
             preview.update("[dim]Focus an agent or pane to see its output[/]")
+            self._preview_rendered_lines = []
+            self._last_preview_pane_id = self._focused_pane_id
+            return
+
+        # A parked pane IS in `_snapshots` (with an empty `content`), so it
+        # passes the guard above and would render as a blank pane —
+        # indistinguishable from a broken capture. Say what is actually true
+        # instead, and name the way out (t1685).
+        if self._snapshots[self._focused_pane_id].parked:
+            header.update("[bold]Content Preview[/]")
+            preview.styles.min_width = 0
+            preview.update(
+                "[dim]This agent is parked — press Space to unpark it.[/]"
+            )
             self._preview_rendered_lines = []
             self._last_preview_pane_id = self._focused_pane_id
             return
@@ -2176,6 +2291,11 @@ class MonitorApp(
         prev = self._concern_sig_latest
         latest: dict[str, str] = {}
         for followed, snap in self._tick_shadow_snaps.items():
+            # Parked agents carry no concern badge (t1685) — their row renders
+            # the parked placeholder and nothing else, so a signature computed
+            # here would have nowhere to show and would age silently.
+            if followed in self._parked_pane_ids:
+                continue
             sig = concern_block_signature(snap.content)
             if sig is None and snap.pane.width < _SENTINEL_SAFE_COLS:
                 # Below _SENTINEL_SAFE_COLS the fences themselves can wrap, so
@@ -2503,6 +2623,90 @@ class MonitorApp(
             self._selected_card_pane_id = focused_id
         else:
             self._selected_card_pane_id = None
+
+    def _visible_pane_cards(self) -> list[PaneCard]:
+        """The PaneCards currently mounted in the list, in display order."""
+        try:
+            container = self.query_one("#pane-list", VerticalScroll)
+        except Exception:
+            return []
+        return [w for w in container.children if isinstance(w, PaneCard)]
+
+    def _clear_pane_list_focus(self) -> None:
+        """Leave the pane list with nothing selected, coherently (t1685).
+
+        Reachable: park the only visible agent while the filter is on. Returning
+        early instead would leave `_focused_pane_id` naming a pane with no card,
+        and `space` / `k` / `n` / `e` / the preview would all keep resolving
+        against it — the same class of stale-focus defect the handoff exists to
+        remove, just one step later.
+
+        The zone stays PANE_LIST so `P` remains dispatchable (`check_action`
+        gates on the zone, not on a selection), and the preview is re-rendered so
+        it shows its empty state rather than the parked pane's blank content.
+        """
+        self._focused_pane_id = None
+        self._selected_card_pane_id = None
+        try:
+            self.set_focus(None)
+        except Exception:
+            pass
+        self._update_content_preview()
+        self._update_shadow_preview()
+
+    def _focus_next_visible_card(self, hidden_pane_id: str | None) -> None:
+        """Move focus off a card the parked filter is about to hide.
+
+        Runs BEFORE the rebuild, which is the whole point: once the card is
+        removed there is nothing to hand off from, and `_restore_focus` has no
+        card to resolve the saved id against.
+        """
+        cards = self._visible_pane_cards()
+        remaining = [c for c in cards if c.pane_id != hidden_pane_id]
+        if not remaining:
+            self._clear_pane_list_focus()
+            return
+        # Prefer the next card after the hidden one; fall back to the previous.
+        target = remaining[0]
+        ids = [c.pane_id for c in cards]
+        if hidden_pane_id in ids:
+            idx = ids.index(hidden_pane_id)
+            after = [c for c in cards[idx + 1:] if c.pane_id != hidden_pane_id]
+            before = [c for c in cards[:idx] if c.pane_id != hidden_pane_id]
+            target = after[0] if after else (before[-1] if before else target)
+        self._focused_pane_id = target.pane_id
+        try:
+            target.focus()
+        except Exception:
+            pass
+
+    def _hand_off_focus_before_hiding(self) -> None:
+        """Mixin hook: `P` is about to hide the focused card. Move off it."""
+        pane_id = self._focused_pane_id
+        if pane_id is None:
+            return
+        snap = self._snapshots.get(pane_id)
+        if snap is None or not snap.parked:
+            return
+        self._focus_next_visible_card(pane_id)
+
+    async def action_toggle_mark(self) -> None:
+        """Cycle the focused card's mark, then keep focus on a visible card.
+
+        The handoff cannot live in the shared mixin: only the full monitor has a
+        focusable pane list, and only it can strand focus on a row the parked
+        filter removes. `_restore_focus` also carries a no-card fallback, but
+        that is the safety net — this is the deliberate move, made while the
+        card being left is still mounted.
+        """
+        pane_id = self._get_focused_pane_id()
+        await super().action_toggle_mark()
+        if pane_id and self._hide_parked:
+            snap = self._snapshots.get(pane_id)
+            # `_cycle_mark_for` already re-read the store, so the mark is current
+            # even though this tick's snapshot predates the write.
+            if snap is not None and self._is_parked(snap):
+                self._focus_next_visible_card(pane_id)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Show/hide footer bindings based on active zone."""

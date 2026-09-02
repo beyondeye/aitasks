@@ -177,7 +177,7 @@ class _StoreFixture(unittest.TestCase):
         `age_days` back-dates `marked_at` so the TTL filter can be exercised.
         """
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(
+        agent_marks.cycle(
             mf, root if root is not None else self.here, window,
             now=time.time() - age_days * 86400.0,
         )
@@ -277,7 +277,7 @@ class ResolutionTests(_ResolutionFixture):
         self.assertEqual(len(app.spy_calls), 1)
         self.assertEqual(
             app.spy_calls[0],
-            ["toggle", os.path.realpath(self.here), OWN_WINDOW],
+            ["cycle", os.path.realpath(self.here), OWN_WINDOW],
         )
 
     def test_focused_card_from_another_repo_is_still_ignored(self):
@@ -290,7 +290,7 @@ class ResolutionTests(_ResolutionFixture):
 
         self.assertEqual(
             app.spy_calls[0],
-            ["toggle", os.path.realpath(self.here), OWN_WINDOW],
+            ["cycle", os.path.realpath(self.here), OWN_WINDOW],
         )
         self.assertNotEqual(app.spy_calls[0][1], os.path.realpath(self.there))
         self.assertNotEqual(app.spy_calls[0][2], LIST_WINDOW)
@@ -302,7 +302,7 @@ class ResolutionTests(_ResolutionFixture):
 
         self.assertEqual(
             app.spy_calls,
-            [["toggle", os.path.realpath(self.here), OWN_WINDOW]],
+            [["cycle", os.path.realpath(self.here), OWN_WINDOW]],
         )
 
     def test_no_followed_agent_warns_and_never_writes(self):
@@ -785,3 +785,161 @@ async def _noop_async():
 
 if __name__ == "__main__":
     unittest.main(verbosity=1)
+
+
+# ---------------------------------------------------------------------------
+# Layer 4 — the followed agent keeps being captured while parked (t1685 §7)
+# ---------------------------------------------------------------------------
+
+class OwnAgentStaysCapturedTests(_StoreFixture):
+    """Parking the followed agent must not stop THIS pane watching it.
+
+    Parking is a signal to other monitors' lists; the docked panel, `L`, `c` and
+    shadow readiness are all bound to that agent and all need live capture. The
+    mechanism is one subtraction in `MiniMonitorApp._parked_agent_pairs`, and its
+    failure mode is silent: no error, no crash, just a panel showing frozen data.
+    So every assertion here is paired with a control that makes it falsifiable.
+    """
+
+    def app(self, *, confirmed=True, own_window_name=OWN_WINDOW):
+        app = MiniMonitorApp.__new__(MiniMonitorApp)
+        app._project_root = self.here
+        app._monitor = _FakeMonitor(self.mapping())
+        app._session = SESSION
+        app._own_window_index = OWN_WINDOW_INDEX
+        app._own_window_name = own_window_name
+        app._own_identity_confirmed = confirmed
+        app._snapshots = {}
+        app._marks_view = agent_marks.MarksView(self.store)
+        app._set_session_root_map(app._monitor.get_session_to_project_mapping())
+        app._refresh_marks()
+        return app
+
+    def park(self, window: str, *, root: Path | None = None) -> None:
+        """Drive the real cycle to `parked` — never hand-write the record."""
+        mf = agent_marks.load(self.store)
+        target = root if root is not None else self.here
+        agent_marks.cycle(mf, target, window)
+        agent_marks.cycle(mf, target, window)
+        agent_marks.dump(mf, self.store)
+        assert mf.kind_of(target, window) == agent_marks.KIND_PARKED
+
+    def test_the_followed_agent_is_subtracted_from_the_published_set(self):
+        self.park(OWN_WINDOW)
+        app = self.app()
+        self.assertNotIn(
+            (SESSION, OWN_WINDOW), app._parked_agent_pairs(),
+            "the followed agent was published as parked — core will stop "
+            "capturing it and the docked panel will freeze",
+        )
+
+    def test_the_control_shows_the_subtraction_is_what_removes_it(self):
+        """NEGATIVE CONTROL. Without it the test above would pass for an app
+        whose mark simply never resolved, proving nothing."""
+        self.park(OWN_WINDOW)
+        app = self.app()
+        self.assertIn(
+            (SESSION, OWN_WINDOW),
+            AgentMarksMixin._parked_agent_pairs(app),
+            "the base mixin did not see the parked mark at all — the "
+            "subtraction test above is vacuous",
+        )
+
+    def test_another_repos_parked_agent_is_still_published(self):
+        """Positive control on the other side: the override subtracts exactly
+        one pair, not the whole set."""
+        self.park(LIST_WINDOW)
+        app = self.app()
+        self.assertIn((SESSION, LIST_WINDOW), app._parked_agent_pairs())
+
+    def test_an_unconfirmed_identity_publishes_nothing(self):
+        """`_update_own_window_info` returns silently on five failure paths, and
+        each leaves the PREVIOUS name in place. Acting on an unconfirmed name is
+        how the followed agent ends up parked against the wrong pair, so the
+        publication fails safe instead: one tick of extra capture, never a
+        frozen panel."""
+        self.park(OWN_WINDOW)
+        self.park(LIST_WINDOW)
+        app = self.app(confirmed=False)
+        self.assertEqual(
+            app._parked_agent_pairs(), frozenset(),
+            "an unconfirmed own identity must publish NO parked pairs",
+        )
+
+    def test_a_stale_name_publishes_nothing_either(self):
+        """The case a `_own_window_name is not None` check would miss: after a
+        rename the name is present and WRONG, so the subtraction would remove a
+        pair that no longer exists and leave the real followed agent parked."""
+        self.park(OWN_WINDOW)
+        app = self.app(confirmed=False, own_window_name="agent-old-name")
+        self.assertEqual(app._parked_agent_pairs(), frozenset())
+
+    def test_a_confirmed_rename_follows_the_new_name(self):
+        """Positive control for the two above: once the query succeeds with the
+        new name, the subtraction tracks it."""
+        self.park("agent-renamed")
+        app = self.app(confirmed=True, own_window_name="agent-renamed")
+        self.assertNotIn((SESSION, "agent-renamed"), app._parked_agent_pairs())
+
+    def test_a_missing_name_publishes_nothing(self):
+        self.park(LIST_WINDOW)
+        app = self.app(confirmed=True, own_window_name=None)
+        self.assertEqual(app._parked_agent_pairs(), frozenset())
+
+
+class OwnWindowInfoConfirmationTests(unittest.TestCase):
+    """`_update_own_window_info` must REPORT whether it confirmed a name.
+
+    Every one of its failure paths leaves the previous fields standing, which is
+    right for display and wrong for the parked subtraction — so the caller needs
+    a signal, not a `is not None` check on a field that survives failure.
+    """
+
+    def app(self, reply):
+        app = MiniMonitorApp.__new__(MiniMonitorApp)
+        app._own_window_id = None
+        app._own_window_index = None
+        app._own_window_name = "agent-stale"
+        app._monitor = SimpleNamespace(
+            tmux_run_async=lambda *a, **k: _immediate(reply)
+        )
+        return app
+
+    def _run(self, app):
+        with patch.dict(os.environ, {"TMUX_PANE": "%7"}):
+            return asyncio.run(app._update_own_window_info())
+
+    def test_a_full_reply_confirms(self):
+        app = self.app((0, "@1\t3\tagent-fresh"))
+        self.assertTrue(self._run(app))
+        self.assertEqual(app._own_window_name, "agent-fresh")
+
+    def test_a_failed_query_does_not_confirm_and_leaves_the_stale_name(self):
+        app = self.app((1, ""))
+        self.assertFalse(self._run(app))
+        self.assertEqual(
+            app._own_window_name, "agent-stale",
+            "the field is deliberately left alone — which is exactly why the "
+            "return value, not the field, is what the subtraction may trust",
+        )
+
+    def test_an_empty_reply_does_not_confirm(self):
+        self.assertFalse(self._run(self.app((0, "   "))))
+
+    def test_a_truncated_reply_does_not_confirm(self):
+        """Two fields: index refreshed, NAME NOT. The stale name survives, so
+        this must report unconfirmed even though the call 'succeeded'."""
+        app = self.app((0, "@1\t3"))
+        self.assertFalse(self._run(app))
+        self.assertEqual(app._own_window_index, "3")
+        self.assertEqual(app._own_window_name, "agent-stale")
+
+    def test_no_tmux_pane_does_not_confirm(self):
+        app = self.app((0, "@1\t3\tagent-fresh"))
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("TMUX_PANE", None)
+            self.assertFalse(asyncio.run(app._update_own_window_info()))
+
+
+async def _immediate(value):
+    return value

@@ -172,7 +172,7 @@ class SpaceDispatchTests(unittest.TestCase):
 
         asyncio.run(runner())
         self.assertEqual(len(calls), 1, "space must reach the toggle action")
-        self.assertEqual(calls[0][0], "toggle")
+        self.assertEqual(calls[0][0], "cycle")
         self.assertEqual(
             calls[0][2], "agent-t1",
             "space must target the followed agent, not the focused card",

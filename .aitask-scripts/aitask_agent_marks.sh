@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# aitask_agent_marks.sh - Locked writer for the cross-repo prioritized-agent
-# marks store (t1326).
+# aitask_agent_marks.sh - Locked writer for the cross-repo agent marks store
+# (t1326; tristate since t1685).
 #
 # The store lives at `~/.config/aitasks/agent_marks.json` (override with
-# `AITASKS_AGENT_MARKS_FILE`). It records `{root, window, marked_at}` entries
-# keyed by `(realpath(project_root), tmux_window_name)`, so a mark set from one
-# repo's monitor is visible from every other repo's monitor.
+# `AITASKS_AGENT_MARKS_FILE`). It records `{root, window, marked_at, kind}`
+# entries keyed by `(realpath(project_root), tmux_window_name)`, so a mark set
+# from one repo's monitor is visible from every other repo's monitor. `kind` is
+# `priority` (the ★) or `parked` (dropped from the list and never captured); an
+# agent is one or the other, never both.
 #
 # This script is the ONLY writer. It holds the `registry_lock.sh` mutex around a
 # read-modify-write and delegates the actual parsing/policy to the lock-free
@@ -18,15 +20,18 @@
 # allow-list entries and no `ait` dispatcher case.
 #
 # Verbs:
-#   toggle <project_root> <window_name>
-#                          - Flip the mark. Prints MARKED:<root>|<window> or
-#                            UNMARKED:<root>|<window>.
+#   cycle <project_root> <window_name>
+#                          - Advance the mark one step through
+#                            unmarked -> priority -> parked -> unmarked. Prints
+#                            MARKED:<root>|<window>, PARKED:<root>|<window> or
+#                            UNMARKED:<root>|<window> for the state it landed in.
 #   purge [--observed <file>]
 #                          - Apply age expiry and, when --observed is given, the
 #                            fail-closed liveness sweep. Prints a
 #                            DROPPED:<root>|<window>|<reason> line per removed
 #                            entry, then PURGED:<n>.
-#   list                   - Print MARK:<root>|<window>|<marked_at> per entry.
+#   list                   - Print MARK:<root>|<window>|<marked_at>|<kind> per
+#                            entry.
 #                            Takes NO lock: it is a pure read, and the atomic
 #                            rename is enough (t1598).
 #
@@ -54,9 +59,9 @@ MARKS_FILE="${AITASKS_AGENT_MARKS_FILE:-$HOME/.config/aitasks/agent_marks.json}"
 MARKS_LOCK_DIR="${MARKS_FILE}.lockd"
 
 # Keypress-path timeout. The 10s default is far too long to stall a TUI on a
-# single `space`; 2s is long enough to ride out a concurrent toggle and short
+# single `space`; 2s is long enough to ride out a concurrent write and short
 # enough that a jammed lock reports back rather than freezing the UI.
-TOGGLE_LOCK_TIMEOUT=2
+CYCLE_LOCK_TIMEOUT=2
 # Background maintenance can afford to wait for a contended lock.
 PURGE_LOCK_TIMEOUT=10
 
@@ -64,7 +69,7 @@ MARKS_PY="$SCRIPT_DIR/lib/agent_marks.py"
 
 usage() {
     cat >&2 <<'EOF'
-Usage: aitask_agent_marks.sh toggle <project_root> <window_name>
+Usage: aitask_agent_marks.sh cycle <project_root> <window_name>
        aitask_agent_marks.sh purge [--observed <file>]
        aitask_agent_marks.sh list
 EOF
@@ -96,11 +101,11 @@ run_marks_py() {
     return "$rc"
 }
 
-cmd_toggle() {
+cmd_cycle() {
     local root="${1:-}" window="${2:-}"
     [ -n "$root" ] && [ -n "$window" ] || usage
-    marks_lock_or_busy "$TOGGLE_LOCK_TIMEOUT"
-    run_marks_py toggle "$root" "$window"
+    marks_lock_or_busy "$CYCLE_LOCK_TIMEOUT"
+    run_marks_py cycle "$root" "$window"
 }
 
 cmd_purge() {
@@ -138,7 +143,7 @@ main() {
     [ -n "$verb" ] || usage
     shift
     case "$verb" in
-        toggle) cmd_toggle "$@" ;;
+        cycle)  cmd_cycle "$@" ;;
         purge)  cmd_purge "$@" ;;
         list)   cmd_list "$@" ;;
         *)      usage ;;

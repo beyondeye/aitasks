@@ -37,7 +37,7 @@ from monitor.monitor_core import (  # noqa: E402
     PaneCategory, PaneSnapshot, TmuxPaneInfo,
 )
 from monitor.monitor_shared import (  # noqa: E402
-    MARK_EMPTY_GLYPH, MARK_GLYPH, format_mark_glyph,
+    MARK_EMPTY_GLYPH, MARK_GLYPH, PARK_GLYPH, format_mark_glyph,
 )
 
 # `#mini-key-hints` carries `padding: 0 1`, leaving this many usable columns.
@@ -95,7 +95,7 @@ class _MarksFixture(unittest.TestCase):
 
     def mark(self, window: str) -> None:
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(mf, self.root, window)
+        agent_marks.cycle(mf, self.root, window)
         agent_marks.dump(mf, self.store)
 
     def app(self, cls, sessions: dict[str, Path] | None = None):
@@ -125,24 +125,53 @@ class GlyphFormatterTests(unittest.TestCase):
     def test_marked_is_bold_white_star(self):
         """White, not the repo-wide marked=bold-yellow: yellow is the IDLE state
         colour of the ● two columns away, and the two would read as one cluster."""
-        self.assertEqual(format_mark_glyph(True), f"[bold white]{MARK_GLYPH}[/]")
+        self.assertEqual(
+            format_mark_glyph(agent_marks.KIND_PRIORITY),
+            f"[bold white]{MARK_GLYPH}[/]",
+        )
 
     def test_unmarked_is_dim_hollow_star(self):
-        self.assertEqual(format_mark_glyph(False), f"[dim]{MARK_EMPTY_GLYPH}[/]")
+        self.assertEqual(
+            format_mark_glyph(agent_marks.KIND_NONE),
+            f"[dim]{MARK_EMPTY_GLYPH}[/]",
+        )
 
-    def test_pair_is_always_on(self):
-        """Unlike format_shadow_glyph, neither state may render as "" — an
-        absent glyph would shift the row on toggle and read as a bug."""
-        for state in (True, False):
-            self.assertNotEqual(format_mark_glyph(state), "")
+    def test_parked_is_bold_white_p(self):
+        """Shares the star's white — both are user intent, not state — and
+        shares nothing else. A parked row renders no state dot at all, so the
+        two can never cluster (t1685)."""
+        self.assertEqual(
+            format_mark_glyph(agent_marks.KIND_PARKED),
+            f"[bold white]{PARK_GLYPH}[/]",
+        )
+
+    def test_column_is_always_on(self):
+        """Unlike format_shadow_glyph, no state may render as "" — an absent
+        glyph would shift the row on a mark change and read as a bug."""
+        for kind in (agent_marks.KIND_NONE, agent_marks.KIND_PRIORITY,
+                     agent_marks.KIND_PARKED):
+            self.assertNotEqual(format_mark_glyph(kind), "")
+
+    def test_an_unknown_kind_raises_instead_of_rendering_unmarked(self):
+        """t1685 widened this signature from `bool` to `str` across five call
+        sites. Python would format a stray `True` without complaint, so a missed
+        call site would silently render ``☆`` forever; the raise is what turns
+        that into a loud failure. Kept reachable only from a programming error —
+        every production caller passes a total `_mark_kind()` result.
+        """
+        for bad in (True, False, "sideways", None, 1):
+            with self.assertRaises(ValueError):
+                format_mark_glyph(bad)
 
     def test_glyphs_are_single_column_and_distinct(self):
-        self.assertEqual(len(MARK_GLYPH), 1)
-        self.assertEqual(len(MARK_EMPTY_GLYPH), 1)
-        self.assertNotEqual(MARK_GLYPH, MARK_EMPTY_GLYPH)
+        for glyph in (MARK_GLYPH, MARK_EMPTY_GLYPH, PARK_GLYPH):
+            self.assertEqual(len(glyph), 1)
+        self.assertEqual(
+            len({MARK_GLYPH, MARK_EMPTY_GLYPH, PARK_GLYPH}), 3
+        )
         # Must not collide with the live-state glyphs sharing the row.
-        self.assertNotIn(MARK_GLYPH, {"●", "◆", "≈", "="})
-        self.assertNotIn(MARK_EMPTY_GLYPH, {"●", "◆", "≈", "="})
+        for glyph in (MARK_GLYPH, MARK_EMPTY_GLYPH, PARK_GLYPH):
+            self.assertNotIn(glyph, {"●", "◆", "≈", "="})
 
 
 class CardBuilderTests(_MarksFixture):
@@ -204,7 +233,7 @@ class CardBuilderTests(_MarksFixture):
 
     def test_expired_mark_is_not_rendered(self):
         mf = agent_marks.load(self.store)
-        agent_marks.toggle(
+        agent_marks.cycle(
             mf, self.root, "agent-old",
             now=int(__import__("time").time() - 10 * 86400),
         )

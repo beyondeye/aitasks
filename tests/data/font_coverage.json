@@ -1,5 +1,17 @@
 {
   "coverage": {
+    "0050": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
+    "23F8": {
+      "CaskaydiaMono Nerd Font": false,
+      "JetBrainsMono Nerd Font": false
+    },
+    "25A0": {
+      "CaskaydiaMono Nerd Font": true,
+      "JetBrainsMono Nerd Font": true
+    },
     "25A1": {
       "CaskaydiaMono Nerd Font": true,
       "JetBrainsMono Nerd Font": true

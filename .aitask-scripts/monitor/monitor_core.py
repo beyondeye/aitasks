@@ -205,6 +205,13 @@ class ClassifyResult:
     # were. Consumers use these to tell the two regimes apart.
     agent_key: str = ""
     scoped: bool = False
+    #: True only for a pane that was deliberately NOT captured because it is
+    #: parked (t1685). It never comes out of `classify_content` — the parked
+    #: pane never reaches the classifier at all — so this is the marker
+    #: `capture_all_classified_async` uses to tell `commit_snapshots` "this is
+    #: an intentional skip", which must not be confused with the `None` result
+    #: that means "the capture failed".
+    parked: bool = False
 
 
 def classify_content(
@@ -992,6 +999,30 @@ def pane_sort_key(pane) -> tuple:
     )
 
 
+def _parked_snapshot(pane: "TmuxPaneInfo", now: float) -> "PaneSnapshot":
+    """The minimal snapshot for a pane that was deliberately not captured.
+
+    Every observation-derived field is its "nothing was observed" value, and
+    that is not the same as its "nothing is happening" value: `is_idle=False`
+    means *no verdict*, so the renderer shows the parked placeholder instead of
+    a state dot. `idle_seconds=0.0` for the same reason — a growing number would
+    invite the row to be read as "idle this long".
+
+    Deliberately outside `TmuxMonitor._apply_bookkeeping`, which owns
+    `_last_content` / `_last_change_time` and must not see a pane with no
+    content.
+    """
+    return PaneSnapshot(
+        pane=pane,
+        content="",
+        timestamp=now,
+        idle_seconds=0.0,
+        is_idle=False,
+        awaiting_input=False,
+        parked=True,
+    )
+
+
 @dataclass
 class PaneSnapshot:
     pane: TmuxPaneInfo
@@ -1007,6 +1038,12 @@ class PaneSnapshot:
     # pane reports `node`). Consumers must not present the two regimes alike.
     agent_key: str = ""
     scoped: bool = False
+    #: Parked (t1685): this pane was not captured this tick by request, so
+    #: `content` is empty and `is_idle` / `awaiting_input` are False because
+    #: nothing was observed — NOT because the agent is busy. Renderers must show
+    #: the parked placeholder rather than a state dot; a frozen ● would read as
+    #: a live verdict that is in fact arbitrarily stale.
+    parked: bool = False
 
 
 # %begin / %end / %error <epoch> <cmd_id> <flags>
@@ -1596,6 +1633,10 @@ class TmuxMonitor:
         # beside the state it guards, so every caller (monitor, minimonitor,
         # pusher, applink router) is protected uniformly.
         self._capture_generation: int = 0
+        # Agents whose capture is skipped this tick, as (session_name,
+        # window_name) — published by the App once per tick before it captures
+        # (t1685). See `set_parked_agents`.
+        self._parked_agents: frozenset = frozenset()
         # Discovery-derived liveness facts (t1326), keyed by capture generation
         # until that generation's commit wins. See _record_discovery_facts.
         self._discovery_facts: dict[int, tuple[frozenset, frozenset]] = {}
@@ -1704,6 +1745,29 @@ class TmuxMonitor:
         )
 
     # -- Capture generation + offload seam (t1111_4) ---------------------------
+
+    def set_parked_agents(self, pairs) -> None:
+        """Publish the ``(session_name, window_name)`` pairs to skip capturing.
+
+        The same publish-down shape as ``AgentMarksMixin._set_session_root_map``,
+        and for the same reason: marks live App-side, and the capture path must
+        not do a blocking tmux or filesystem round-trip to learn about them.
+
+        **Rebinds, never mutates in place** — a reader holding the previous
+        frozenset keeps a coherent view of the tick it started in.
+
+        The caller must publish this BEFORE awaiting
+        :meth:`capture_all_classified_async`. Publishing after it would leak one
+        capture of every already-parked agent on every launch.
+        """
+        self._parked_agents = frozenset(pairs or ())
+
+    def _is_parked_pane(self, pane: "TmuxPaneInfo") -> bool:
+        """Whether this pane is an agent the App asked us not to capture."""
+        return (
+            pane.category == PaneCategory.AGENT
+            and (pane.session_name, pane.window_name) in self._parked_agents
+        )
 
     def _next_generation(self) -> int:
         """Reserve and return the next capture generation (see `__init__`)."""
@@ -2739,7 +2803,18 @@ class TmuxMonitor:
         # Shadow panes (t1133) join the SAME gather (invariant E — one cycle,
         # no separate fan-out); they pass their pane object explicitly because
         # they are never in `_pane_cache` (cache-boundary invariant).
-        all_panes = panes + shadows
+        # Parked agents (t1685) are split off HERE — after `_record_discovery_facts`
+        # above, never before it. Parking skips only the CAPTURE; the pane must
+        # stay in discovery, because `sweep_liveness` keys on discovery and a
+        # parked agent that dropped out of it would have its own mark reaped by
+        # the next purge. That ordering is the load-bearing correctness fact of
+        # the whole feature.
+        #
+        # Shadow panes are deliberately NOT filtered: a shadow is its own pane,
+        # and a minimonitor following a parked agent keeps its shadow working.
+        parked_panes = [p for p in panes if self._is_parked_pane(p)]
+        parked_ids = {p.pane_id for p in parked_panes}
+        all_panes = [p for p in panes if p.pane_id not in parked_ids] + shadows
         # Reserve this batch's shadow WRITE seq HERE — after the discovery await
         # above, in the last statement before the shadow panes are actually read
         # (t1216_1). Reserving it beside `gen` would date this batch from before
@@ -2775,6 +2850,15 @@ class TmuxMonitor:
             classified_ok
         )
         classified.extend((pane, None, None) for pane in failed)
+        # Parked panes rejoin the batch with an explicit marker rather than the
+        # `(pane, None, None)` shape used for a FAILED capture. The two must not
+        # be conflated in either direction: `commit_snapshots` drops the failed
+        # shape, so routing a parked pane through it would make the row vanish
+        # even when the user has asked to see parked agents.
+        classified.extend(
+            (pane, None, ClassifyResult(compare_value="", parked=True))
+            for pane in parked_panes
+        )
         return gen, classified
 
     def commit_snapshots(
@@ -2852,6 +2936,15 @@ class TmuxMonitor:
             str, tuple[TmuxPaneInfo, str, "ClassifyResult"]
         ] = {}
         for pane, content, result in classified:
+            if result is not None and result.parked:
+                # Built directly, NOT through `_apply_bookkeeping` (t1685):
+                # that method is the only writer of `_last_content` /
+                # `_last_change_time`, and a parked pane produced no content to
+                # compare, so letting it near the idle clock would reset the
+                # pane's change time to "now" on every tick and make it look
+                # permanently busy the moment it is unparked.
+                snapshots[pane.pane_id] = _parked_snapshot(pane, now)
+                continue
             if result is None:
                 continue
             if pane.shadow_target:

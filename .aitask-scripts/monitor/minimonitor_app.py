@@ -54,6 +54,7 @@ from monitor.tmux_monitor import (  # noqa: E402
 from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t1159_2)
 from monitor import review_loop_log  # noqa: E402  (durable disarm/hold record, t1606)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
+import agent_marks  # noqa: E402
 from monitor.monitor_shared import (  # noqa: E402
     _TASK_ID_RE, GateSummaryCache, TaskInfoCache, TaskDetailDialog,
     workflow_phase,
@@ -784,7 +785,12 @@ KEY_HINTS_TEXT = (
     "d:detect (\u2248 strip, = raw)\n"
     "j:tui switcher  m:full monitor\n"
     "k:kill  n:next  e/E:shadow\n"
-    "c:concerns  p:pick task\n"
+    # `P` shares this line with `p` deliberately (t1685): they are unrelated
+    # actions that differ only in case, and putting them side by side is what
+    # makes that legible. It also keeps the hints at TEN rows — an eleventh
+    # would cost the pane list a row at every pane height, which
+    # test_minimonitor_top_chrome_render pins.
+    "c:concerns  p:pick task  P:parked\n"
     "L:auto-recheck loop\n"
     "M:multi-session  ?:edit keys\n"
     "space:mark ★ (followed agent)"
@@ -890,6 +896,12 @@ class MiniMonitorApp(
     # only what they touch, so an `__init__`-only default would AttributeError
     # the moment _rebuild_session_bar read it.
     _session_bar_enabled = False
+
+    # Same `__new__`-built-test rationale: `_parked_agent_pairs` reads these two
+    # and must fail SAFE (publish nothing) rather than AttributeError on an app
+    # that never ran `__init__` (t1685).
+    _own_identity_confirmed: bool = False
+    _own_window_name: str | None = None
 
     # CLASS attributes for the same reason as `_target_width` above (t1580):
     # several test modules build the app with `MiniMonitorApp.__new__(...)` and
@@ -1094,6 +1106,7 @@ class MiniMonitorApp(
         # "surface the hint in the pane's own text" exception, justified in
         # p1159_2; the hints/bindings parity is test-pinned).
         Binding("L", "toggle_review_loop", "Auto-recheck loop", show=False),
+        Binding("P", "toggle_parked_visibility", "Parked", show=False),
     ]
 
     def __init__(
@@ -1149,6 +1162,10 @@ class MiniMonitorApp(
         self._own_window_id: str | None = None
         self._own_window_index: str | None = None
         self._own_window_name: str | None = None
+        # Whether THIS tick's `_update_own_window_info` confirmed the window
+        # name (t1685). Reset at the top of every `_refresh_data`; read only by
+        # `_parked_agent_pairs`, which fails safe without it.
+        self._own_identity_confirmed: bool = False
         # The followed-agent docked panel is built once (static identity, no
         # per-cycle status refresh) — see _maybe_build_own_agent_panel.
         self._own_panel_built: bool = False
@@ -1163,7 +1180,7 @@ class MiniMonitorApp(
         # current state and the repaint's change-detector, so the
         # agent → renamed transition is an ordinary state change rather than a
         # case the repaint has to special-case.
-        self._own_mark_state: bool | None = None
+        self._own_mark_state: str | None = None
         # Rendered phase line currently painted on the docked panel (t1420).
         self._own_phase_state: str = ""
         # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
@@ -1512,14 +1529,12 @@ class MiniMonitorApp(
             # Save focus state before rebuild
             saved_pane_id = self._focused_pane_id
 
-            # capture_all_async returns None when a newer overlapping refresh
-            # superseded this one (t1111_4). Skip the stale cycle — a newer refresh
-            # owns the rebuild — rather than overwriting visible snapshots with stale
-            # pane content.
-            snaps = await self._monitor.capture_all_async()
-            if snaps is None:
-                return
-            self._snapshots = snaps
+            # Everything the parked set is derived from resolves BEFORE the
+            # capture (t1685). The set published below decides which agents this
+            # tick skips capturing; publishing it after the capture would leak
+            # one capture-and-classify of every already-parked agent on every
+            # launch, and would subtract the followed agent against a stale name.
+            #
             # Refresh per-session project-root mapping so cross-session task data
             # resolves from the right project (free — uses TmuxMonitor's cached
             # session list).
@@ -1535,13 +1550,28 @@ class MiniMonitorApp(
             # nothing changed. Must run before the pane list renders, and is what
             # makes a mark set in another repo appear here within one tick.
             self._refresh_marks()
+            # Keep window index fresh (handles tmux renumber-windows). Moved
+            # above the capture (t1685): `_parked_agent_pairs` subtracts the
+            # followed agent by name, and it must be THIS tick's name. Reset the
+            # flag first so a failed query can only ever make the publication
+            # more conservative, never leave a previous tick's confirmation
+            # standing.
+            self._own_identity_confirmed = False
+            self._own_identity_confirmed = await self._update_own_window_info()
+            self._publish_parked_agents()
+
+            # capture_all_async returns None when a newer overlapping refresh
+            # superseded this one (t1111_4). Skip the stale cycle — a newer refresh
+            # owns the rebuild — rather than overwriting visible snapshots with stale
+            # pane content.
+            snaps = await self._monitor.capture_all_async()
+            if snaps is None:
+                return
+            self._snapshots = snaps
             # Completed-pane set for THIS tick (t1322) — after the session
             # mapping refresh (which may clear the task cache), before the bar
             # and the pane list read it.
             self._completed_pane_ids = self._compute_completed_panes()
-
-            # Keep window index fresh (handles tmux renumber-windows)
-            await self._update_own_window_info()
 
             # Auto-close check (with 5-second grace period after mount)
             if self._own_window_id and (time.monotonic() - self._mount_time) > 5.0:
@@ -1687,19 +1717,32 @@ class MiniMonitorApp(
         if len(parts) >= 3 and self._own_window_name is None:
             self._own_window_name = parts[2]
 
-    async def _update_own_window_info(self) -> None:
+    async def _update_own_window_info(self) -> bool:
         """Re-query own window index/name (handles tmux renumber-windows and
-        window renames)."""
+        window renames). Returns whether THIS call confirmed a window name.
+
+        Every failure path returns without touching the fields, so the
+        **previous** values survive — which is right for display (a stale index
+        still beats none) and wrong for anything that must not act on a stale
+        identity. The parked-capture subtraction is exactly that: it removes the
+        followed agent's pair from the set published to `TmuxMonitor`, and a
+        stale name subtracts the wrong pair, leaving the real followed agent
+        parked and uncaptured while its docked panel silently freezes.
+
+        Hence a return value rather than a `_own_window_name is not None` check
+        at the call site: "absent" is not the only unsafe state, "unconfirmed" is
+        — and after a rename the name is present and wrong.
+        """
         own_pane = os.environ.get("TMUX_PANE", "")
         if not own_pane or self._monitor is None:
-            return
+            return False
         rc, stdout = await self._monitor.tmux_run_async(
             ["display-message", "-p", "-t", own_pane,
              "#{window_id}\t#{window_index}\t#{window_name}"],
             timeout=2,
         )
         if rc != 0 or not stdout.strip():
-            return
+            return False
         parts = stdout.strip().split("\t")
         if len(parts) >= 1:
             self._own_window_id = parts[0]
@@ -1707,6 +1750,37 @@ class MiniMonitorApp(
             self._own_window_index = parts[1]
         if len(parts) >= 3:
             self._own_window_name = parts[2]
+            return True
+        # Fewer than three fields: the name was NOT refreshed, so whatever is in
+        # `_own_window_name` is from an earlier query and may predate a rename.
+        return False
+
+    def _parked_agent_pairs(self) -> frozenset:
+        """Parked pairs to publish, minus the agent this minimonitor follows.
+
+        Parking the followed agent is a signal to *other* monitors' lists, not
+        an instruction to this pane to stop working (t1685 §7): its docked panel,
+        the `L` auto-recheck loop, `c` concerns and shadow readiness are all
+        bound to that agent and all need live capture. So its pair is subtracted
+        before publication.
+
+        **Fail-safe on an unconfirmed identity.** The subtraction is only valid
+        against a window name confirmed by THIS tick's
+        `_update_own_window_info`; otherwise this returns an EMPTY set, publishing
+        no parked pairs at all. Costing one tick of capture for every parked
+        agent in this pane's view is recoverable and invisible except as CPU;
+        subtracting a stale post-rename name would leave the followed agent in
+        the parked set and freeze the panel this pane exists to show, with no
+        error anywhere. The mount-time seed deliberately does not set the
+        confirmation flag — it fills only unset fields and can race the first
+        refresh, which is the other half of the same hazard.
+        """
+        if not self._own_identity_confirmed or not self._own_window_name:
+            return frozenset()
+        own = (self._session, self._own_window_name)
+        return frozenset(
+            pair for pair in super()._parked_agent_pairs() if pair != own
+        )
 
     def _find_own_agent_snapshot(self) -> PaneSnapshot | None:
         """Return the snapshot of the AGENT pane sharing this minimonitor's
@@ -2004,6 +2078,14 @@ class MiniMonitorApp(
                     return
         # Fallback: select the first general-list agent (the followed agent
         # lives in its own static docked panel and is not focusable).
+        if self._first_list_card() is None:
+            # No card to fall back to — reachable once `P` hides every parked
+            # agent and nothing else is listed (t1685). Clear rather than leave
+            # `_focused_pane_id` naming a pane the list no longer renders;
+            # `_auto_select_own_window` is already a no-op here, but the stale id
+            # is not.
+            self._focused_pane_id = None
+            return
         self._auto_select_own_window()
 
     def _first_list_card(self) -> MiniPaneCard | None:
@@ -2074,20 +2156,26 @@ class MiniMonitorApp(
             if s.pane.category == PaneCategory.AGENT
         ]
         total = len(agents)
-        # Same three-way partition as the full monitor (t1322): each agent lands
-        # in at most one bucket, on the PROMPT > COMPLETED > IDLE ladder the
-        # badges use. The bar is narrow, so `done` renders as a compact `Nd`.
-        awaiting_count = sum(1 for a in agents if getattr(a, "awaiting_input", False))
-        done_count = sum(1 for a in agents
+        # Same partition as the full monitor (t1322/t1685): each NON-PARKED
+        # agent lands in at most one live bucket, on the PROMPT > COMPLETED >
+        # IDLE ladder the badges use. Parked agents leave that partition — they
+        # are not captured, so they have no verdict to bucket — and get their own
+        # term, shown whether or not `P` is hiding their rows. The bar is narrow,
+        # so `done` renders as a compact `Nd` and `parked` as `Np`.
+        live = [a for a in agents if not a.parked]
+        parked_count = len(agents) - len(live)
+        awaiting_count = sum(1 for a in live if getattr(a, "awaiting_input", False))
+        done_count = sum(1 for a in live
                          if a.pane.pane_id in self._completed_pane_ids
                          and not getattr(a, "awaiting_input", False))
-        idle_count = sum(1 for a in agents
+        idle_count = sum(1 for a in live
                          if a.is_idle and not getattr(a, "awaiting_input", False)
                          and a.pane.pane_id not in self._completed_pane_ids)
 
         awaiting_str = f" [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
         done_str = f" [{STATE_STYLE_DONE}]{done_count}d[/]" if done_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
+        parked_str = f" [dim]{parked_count}p[/]" if parked_count > 0 else ""
         # Pre-fetched by `_refresh_data` (t1622), which awaits the async reader
         # inside the same `_session_bar_enabled` gate. `None` means this call
         # brought none — a test or any future synchronous rebuild — so read the
@@ -2132,10 +2220,10 @@ class MiniMonitorApp(
                 s.pane.session_name for s in agents if s.pane.session_name
             }
             n = len(sessions) if sessions else 1
-            bar.update(f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{desync}{state_badge}")
+            bar.update(f"multi: {n}s · {total}a{awaiting_str}{done_str}{idle_str}{parked_str}{desync}{state_badge}")
         else:
             bar.update(
-                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{desync}{state_badge}"
+                f"{self._session}  {total} agent{'s' if total != 1 else ''}{awaiting_str}{done_str}{idle_str}{parked_str}{desync}{state_badge}"
             )
 
     def _compute_completed_panes(self) -> frozenset[str]:
@@ -2148,6 +2236,9 @@ class MiniMonitorApp(
         done: set[str] = set()
         for pane_id, snap in self._snapshots.items():
             if snap.pane.category != PaneCategory.AGENT:
+                continue
+            if snap.parked:
+                # Parked agents leave the state partition entirely (t1685).
                 continue
             task_id = self._task_cache.get_task_id_for_pane(snap.pane)
             if not task_id:
@@ -2166,6 +2257,18 @@ class MiniMonitorApp(
         ``_own_agent_identity_text`` and is static by design: no live status
         dot, no compare-mode glyph, and no shadow-status glyph (t1133).
         """
+        if snap.parked:
+            # The whole row, deliberately (t1685) — see
+            # MonitorApp._format_agent_card_text for why nothing capture-derived
+            # may appear on a pane that was not captured. The name budget is
+            # unchanged: the mark column is still one cell.
+            name = snap.pane.window_name
+            if len(name) > 20:
+                name = name[:19] + "…"
+            return (
+                f"{format_mark_glyph(agent_marks.KIND_PARKED)} {name}  [dim]parked[/]"
+            )
+
         # Per-tick set is the SOLE source of the completed flag (t1322) — the
         # `info` lookup below supplies the title and gate summary but must never
         # re-derive completion, or the badge could disagree with the session bar
@@ -2201,7 +2304,7 @@ class MiniMonitorApp(
         # Leftmost: a durable user annotation, deliberately outside the live
         # state cluster (dot / shadow / compare-mode), and first to survive
         # truncation.
-        mark = format_mark_glyph(self._is_marked(snap))
+        mark = format_mark_glyph(self._mark_kind(snap))
         shadow_part = f" {shadow}" if shadow else ""
         line1 = f"{mark} {dot}{shadow_part} {glyph} {name}  {status}"
 
@@ -2338,7 +2441,7 @@ class MiniMonitorApp(
                     line += f"\n  [dim]{wline}[/]"
         return line
 
-    def _own_card_text(self, marked: bool | None, phase: str = "") -> str:
+    def _own_card_text(self, mark_kind: str | None, phase: str = "") -> str:
         """Docked-panel card text: the frozen identity line, the mark glyph, and
         the advisory workflow phase.
 
@@ -2383,14 +2486,19 @@ class MiniMonitorApp(
         panel exists to show — so the fold is accepted. Row-width tuning for
         this pane belongs to t1351.
         """
-        line = (self._own_identity_text if marked is None
-                else f"{format_mark_glyph(marked)} {self._own_identity_text}")
+        # `None` means NOTHING IS MARKABLE here (a window renamed off the
+        # `agent-` prefix), and renders no glyph at all — distinct from
+        # `KIND_NONE`, which is a markable agent that simply carries no mark and
+        # renders `☆`. Keeping the two apart is what stops a read-only `☆`
+        # appearing on a pane whose `space` refuses (t1383).
+        line = (self._own_identity_text if mark_kind is None
+                else f"{format_mark_glyph(mark_kind)} {self._own_identity_text}")
         if phase:
             line += f"\n  [dim]{phase}[/]"
         return line
 
     def _refresh_own_live_state(self) -> None:
-        """Repaint the docked panel's ★/☆ and advisory phase when either changes.
+        """Repaint the docked panel's mark glyph and advisory phase on change.
 
         One set lookup per tick when nothing changed, and a single
         ``Static.update`` when something did. Four sources converge on this one
@@ -2400,23 +2508,29 @@ class MiniMonitorApp(
         glyph, rather than stranding the last-rendered ★ on a pane that
         ``space`` now refuses.
 
+        A parked followed agent shows ``P`` here and keeps its live phase line:
+        this pane goes on capturing the agent it follows (t1685 §7), so the
+        phase is current, not frozen. Parking is a signal to other monitors'
+        lists — not to this one.
+
         Only the glyph tracks reality: the identity text stays frozen through a
         rename, per ``_maybe_build_own_agent_panel``'s one-shot contract.
         """
         if self._own_card is None:
             return
         snap = self._find_own_agent_snapshot()
-        marked = self._is_marked(snap) if snap is not None else None
+        mark_kind = self._mark_kind(snap) if snap is not None else None
         phase = self._own_phase_text(snap)
-        # Tri-state compare: False (unmarked agent) and None (nothing markable)
-        # are distinct, so the transition between them repaints. The phase is
-        # compared as its RENDERED string, so a provenance change that does not
-        # alter what the user sees costs no repaint.
-        if marked == self._own_mark_state and phase == self._own_phase_state:
+        # Four-state compare: KIND_NONE (unmarked agent), KIND_PRIORITY,
+        # KIND_PARKED and None (nothing markable) are all distinct, so every
+        # transition between them repaints. The phase is compared as its
+        # RENDERED string, so a provenance change that does not alter what the
+        # user sees costs no repaint.
+        if mark_kind == self._own_mark_state and phase == self._own_phase_state:
             return
-        self._own_mark_state = marked
+        self._own_mark_state = mark_kind
         self._own_phase_state = phase
-        self._own_card.update(self._own_card_text(marked, phase))
+        self._own_card.update(self._own_card_text(mark_kind, phase))
 
     def _own_phase_text(self, snap) -> str:
         """Rendered advisory phase for the followed agent, or ``""``.
@@ -2472,7 +2586,7 @@ class MiniMonitorApp(
         session = self._own_header_session(own_snap)
         # Freeze the identity here; only the mark glyph tracks reality after.
         self._own_identity_text = self._own_agent_identity_text(own_snap)
-        self._own_mark_state = self._is_marked(own_snap) if is_agent else None
+        self._own_mark_state = self._mark_kind(own_snap) if is_agent else None
         self._own_phase_state = self._own_phase_text(own_snap)
         card = Static(
             self._own_card_text(self._own_mark_state, self._own_phase_state),
@@ -2534,6 +2648,8 @@ class MiniMonitorApp(
             if s.pane.pane_id == own_pane_id:
                 continue
             if s.pane.category == PaneCategory.AGENT:
+                if self._hide_parked and s.parked:
+                    continue  # `P` filter (t1685)
                 agents.append(s)
             elif s.pane.category == PaneCategory.OTHER:
                 others.append(s)
@@ -4932,7 +5048,7 @@ class MiniMonitorApp(
         if snap is None:
             self.notify("No followed agent in this window", severity="warning")
             return
-        await self._toggle_mark_for(snap)
+        await self._cycle_mark_for(snap)
 
     def action_switch_to_monitor(self) -> None:
         """Switch to the full monitor window with the companion agent focused.

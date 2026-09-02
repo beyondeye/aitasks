@@ -35,7 +35,8 @@ depth: [advanced]
 | `c` | Pick the shadow's concerns for the focused agent and copy the selected ones to the clipboard (inside the picker: `r` rejects a concern, `t` spins one off as its own draft task, `e` edits the outgoing payload before it is copied, `R` reviews the rejected list, `u` shows any lines that could not be parsed) | Pane list zone |
 | `e` | Launch a shadow companion agent for the focused agent pane | Pane list zone |
 | `E` | Launch a shadow companion agent, choosing the code agent and model first | Pane list zone |
-| `Space` | Toggle the prioritized mark (`★`) on the focused agent — stored per user and shared across all your projects | Pane list zone |
+| `Space` | Cycle the mark on the focused agent: unmarked → prioritized (`★`) → parked (`P`) → unmarked. Stored per user and shared across all your projects | Pane list zone |
+| `P` | Hide or show parked agents in the pane list (in-memory, per monitor instance) | Pane list zone |
 
 #### Monitor Controls
 

@@ -349,6 +349,9 @@ def _snap(*, window_name: str = "agent-pick-42", content: str = "",
         pane=pane, content=content, is_idle=False, idle_seconds=0.0,
         awaiting_input=awaiting_input, awaiting_input_kind=awaiting_input_kind,
         agent_key=resolved, scoped=bool(resolved),
+        # `parked` is a real PaneSnapshot field (t1685); a double that omits it
+        # raises rather than ignoring it.
+        parked=False,
     )
 
 

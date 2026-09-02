@@ -61,7 +61,7 @@ Each card shows:
   archive still resolves without restarting the TUI.
 - For agent panes carrying a task ID in the window name, the associated task number
 - A **shadow marker** `◆` when a shadow agent is bound to that pane, colored by the shadow's own state. It gains a `!` (`◆!`) when the shadow has raised concerns you have not picked yet — see [How to Pick Shadow Concerns](#how-to-pick-shadow-concerns). Panes with no shadow show nothing at all here.
-- A **prioritized mark** at the far left: `★` when you have marked the agent, dim `☆` when you have not — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized).
+- An **agent mark** at the far left: `★` when you have prioritized the agent, `P` when you have parked it, dim `☆` when neither — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized). A parked card shows the `P`, the window name and a dim `parked` and nothing else — no state dot, no status, no gate summary — because a parked agent is not being read at all.
 - For agent panes carrying a task ID, the end of the status row carries the task's **gate summary** and then its **workflow phase** — `gates: 1/4 pass  phase: IMPLEMENT`. A trailing `⏸` on the phase means the agent is waiting on your input, and an `unknown (…)` phase is a "cannot tell" state that names its own cause rather than a missing one. Either part is omitted when there is nothing to say. The phase is **advisory** — it never gates anything. The [minimonitor how-to]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-read-the-agent-list) lists the phase values in full.
 
 The **`CODE AGENTS (N)`** header above the agent cards repeats the same four
@@ -223,18 +223,40 @@ If the selected agent has no shadow bound, monitor tells you so — and points y
 
 ### How to Mark an Agent as Prioritized
 
-With the pane list focused, press **Space** to toggle a **prioritized mark** on the focused agent. Marked agents show a bright **★**; unmarked agents show a dim **☆**, so the column is always present and rows never shift when you toggle one.
+With the pane list focused, press **Space** to cycle the mark on the focused agent through three states:
+
+| Press | State | Glyph | Meaning |
+|-------|-------|-------|---------|
+| once | prioritized | bright **★** | this one matters — flag it in every project's monitor |
+| twice | parked | bright **P** | I am done watching this one |
+| three times | unmarked | dim **☆** | back to the default |
+
+An agent is prioritized *or* parked, never both, and the column is always present so rows never shift when you change one.
 
 This is the place to mark *any* agent. [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-mark-an-agent-as-prioritized) binds the same key, but — being a companion pane tied to one agent — it always marks the agent it follows, whatever its list highlights.
 
 Marks are stored **per user, outside every repository**, in `~/.config/aitasks/agent_marks.json` (override the path with `AITASKS_AGENT_MARKS_FILE`). A mark you set here is therefore visible from every other project's `monitor` and [`minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}), usually within one refresh cycle, and survives restarting the TUI. Each mark is keyed by the pair *(project root, tmux window name)*, so two projects running identically-named agent windows never share a mark.
 
-Marks are purely visual — they do not reorder the list or change the session-bar counters.
+A **prioritized** mark is purely visual: it does not reorder the list or change the session-bar counters. A **parked** mark is not — see below.
 
 **Automatic cleanup** keeps the list honest without any manual unmarking:
 
-- **Age** — a mark older than about 2 days is dropped. Override the window with `AITASKS_AGENT_MARK_TTL_DAYS`; a missing or invalid value falls back to the default, so a typo cannot wipe your marks.
-- **Departed agents** — when a project's tmux session is visible and the marked window is gone, its mark is dropped. The check is deliberately conservative: a project whose session cannot be seen at all — not running, or on a different tmux server — never loses its marks.
+- **Age** — a *prioritized* mark older than about 2 days is dropped. Override the window with `AITASKS_AGENT_MARK_TTL_DAYS`; a missing or invalid value falls back to the default, so a typo cannot wipe your marks. **Parked marks never expire on age** — parking is a long-lived "ignore this one" intent, and a timer that silently un-parked a background agent would defeat it.
+- **Departed agents** — when a project's tmux session is visible and the marked window is gone, its mark is dropped. This applies to parked marks too, so the store stays bounded by something real rather than by a clock. The check is deliberately conservative: a project whose session cannot be seen at all — not running, or on a different tmux server — never loses its marks.
+
+### How to Park an Agent You Are Done Watching
+
+Parking is what shortens the list. Press **Space** twice on the focused agent to park it, then **P** to hide every parked agent from the pane list. Press **P** again to show them.
+
+A parked agent costs nothing: `monitor` stops capturing and classifying its pane entirely, so it no longer contributes to the refresh cycle's work. That is why a parked card shows only `P`, the window name and a dim `parked` — with no state dot and no status. There is no current answer to show, and a frozen dot would read as one.
+
+Three consequences worth knowing:
+
+- **Parked agents leave the session-bar partition.** The `awaiting` / `done` / `idle` counters cover the agents still being watched, and parked ones are counted separately as `N parked`. That term is shown whether or not `P` is hiding their rows — it is the one place a hidden agent is still accounted for.
+- **Auto-switch never selects a parked agent** (see [How to Toggle Auto-Switch Mode](#how-to-toggle-auto-switch-mode)), and parking the focused card hands focus to the next visible one.
+- **With parked agents hidden, you cannot unpark from the list** — the row is not there. Press **P** to reveal parked agents, then **Space** on the one you want back. The toast shown when you park an agent while the filter is on says exactly this.
+
+Parking is a signal to your *monitors*, not to the agent: the agent keeps running, and a [`minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) that follows a parked agent keeps watching it — see [its how-to]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-mark-an-agent-as-prioritized).
 
 Outside the pane list zone, `Space` behaves as it always has: it is forwarded to the focused tmux pane along with every other unhandled key.
 

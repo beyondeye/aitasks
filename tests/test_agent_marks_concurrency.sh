@@ -47,22 +47,22 @@ mark_count() {
     "$MARKS_SH" list 2>/dev/null | grep -c '^MARK:' || true
 }
 
-echo "=== Test 1: N concurrent toggles of DISTINCT windows all land ==="
+echo "=== Test 1: N concurrent cycles of DISTINCT windows all land ==="
 N=6
 for i in $(seq 1 "$N"); do
-    "$MARKS_SH" toggle "$ROOT" "agent-w$i" >"$TMP/t1_out_$i.log" 2>"$TMP/t1_err_$i.log" &
+    "$MARKS_SH" cycle "$ROOT" "agent-w$i" >"$TMP/t1_out_$i.log" 2>"$TMP/t1_err_$i.log" &
 done
 wait
 
 count="$(mark_count)"
 if [ "$count" != "$N" ]; then
-    echo "DIAG: concurrent-toggle anomaly (got $count, want $N) — contender output follows:"
+    echo "DIAG: concurrent-cycle anomaly (got $count, want $N) — contender output follows:"
     for i in $(seq 1 "$N"); do
         echo "--- writer $i stdout ---"; cat "$TMP/t1_out_$i.log"
         echo "--- writer $i stderr ---"; cat "$TMP/t1_err_$i.log"
     done
 fi
-assert_eq "$N concurrent toggles -> $N marks (no lost update)" "$N" "$count"
+assert_eq "$N concurrent cycles -> $N marks (no lost update)" "$N" "$count"
 
 for i in $(seq 1 "$N"); do
     n="$("$MARKS_SH" list | grep -c "|agent-w$i|" || true)"
@@ -71,21 +71,24 @@ done
 assert_dir_not_exists "lock dir released after normal exits" "$LOCK_DIR"
 
 echo
-echo "=== Test 2: concurrent toggles of the SAME window stay consistent ==="
-# Each toggle flips the same key, so the final state is on/off by parity. The
-# invariant that matters is that the store is never corrupted and never grows a
-# duplicate — an unserialized read-modify-write could produce both.
+echo "=== Test 2: concurrent cycles of the SAME window stay consistent ==="
+# Each cycle advances the same key one step through
+# unmarked -> priority -> parked -> unmarked, so the final state depends on how
+# many landed (period 3 since t1685, parity before it) and is deliberately NOT
+# asserted. The invariant that matters is that the store is never corrupted and
+# never grows a duplicate — an unserialized read-modify-write could produce both,
+# whatever the cycle length.
 rm -f "$AITASKS_AGENT_MARKS_FILE"
 for i in 1 2 3 4; do
-    "$MARKS_SH" toggle "$ROOT" "agent-same" >/dev/null 2>"$TMP/t2_err_$i.log" &
+    "$MARKS_SH" cycle "$ROOT" "agent-same" >/dev/null 2>"$TMP/t2_err_$i.log" &
 done
 wait
 dupes="$("$MARKS_SH" list | grep -c '|agent-same|' || true)"
 if [ "$dupes" -gt 1 ]; then
-    echo "DIAG: duplicate entry after concurrent same-key toggles:"
+    echo "DIAG: duplicate entry after concurrent same-key cycles:"
     cat "$TMP"/t2_err_*.log
 fi
-assert_eq "same-key concurrent toggles never duplicate the entry" "0" \
+assert_eq "same-key concurrent cycles never duplicate the entry" "0" \
     "$([ "$dupes" -le 1 ] && echo 0 || echo 1)"
 assert_eq "store still parses after same-key contention" "0" \
     "$("$MARKS_SH" list >/dev/null 2>&1; echo $?)"
@@ -94,7 +97,7 @@ assert_dir_not_exists "lock dir released after same-key contention" "$LOCK_DIR"
 echo
 echo "=== Test 3: a held lock reports LOCK_BUSY and writes NOTHING ==="
 rm -f "$AITASKS_AGENT_MARKS_FILE"
-"$MARKS_SH" toggle "$ROOT" "agent-pre" >/dev/null 2>&1
+"$MARKS_SH" cycle "$ROOT" "agent-pre" >/dev/null 2>&1
 # cmp(1), not md5sum: macOS ships `md5`, not `md5sum`, and this suite must run
 # there too (see aidocs/framework/sed_macos_issues.md).
 cp "$AITASKS_AGENT_MARKS_FILE" "$TMP/before_blocked.json"
@@ -107,7 +110,7 @@ holder_pid=$!
 echo "$holder_pid" > "$LOCK_DIR/pid"
 echo "held-by-test" > "$LOCK_DIR/owner"
 
-out="$("$MARKS_SH" toggle "$ROOT" "agent-blocked" 2>&1)"; rc=$?
+out="$("$MARKS_SH" cycle "$ROOT" "agent-blocked" 2>&1)"; rc=$?
 
 kill "$holder_pid" 2>/dev/null || true
 wait "$holder_pid" 2>/dev/null || true
@@ -129,8 +132,8 @@ wait "$dead_pid" 2>/dev/null || true
 echo "$dead_pid" > "$LOCK_DIR/pid"
 echo "dead-owner" > "$LOCK_DIR/owner"
 
-out="$("$MARKS_SH" toggle "$ROOT" "agent-after-dead" 2>&1)"; rc=$?
-assert_eq "dead holder reclaimed -> toggle succeeds" "0" "$rc"
+out="$("$MARKS_SH" cycle "$ROOT" "agent-after-dead" 2>&1)"; rc=$?
+assert_eq "dead holder reclaimed -> cycle succeeds" "0" "$rc"
 assert_contains "dead holder reclaimed -> mark recorded" "MARKED:" "$out"
 assert_dir_not_exists "lock dir released after reclaim" "$LOCK_DIR"
 
@@ -138,7 +141,7 @@ echo
 echo "=== Test 5: a corrupt store is refused, not clobbered ==="
 echo '{ not json' > "$AITASKS_AGENT_MARKS_FILE"
 corrupt_before="$(cat "$AITASKS_AGENT_MARKS_FILE")"
-out="$("$MARKS_SH" toggle "$ROOT" "agent-x" 2>&1)"; rc=$?
+out="$("$MARKS_SH" cycle "$ROOT" "agent-x" 2>&1)"; rc=$?
 assert_eq "corrupt store -> exit 4" "4" "$rc"
 assert_contains "corrupt store -> ERROR reported" "ERROR:" "$out"
 assert_eq "corrupt store left byte-identical (no clobber)" \
@@ -153,7 +156,7 @@ echo "=== Test 6: the read-only \`list\` verb takes no lock (t1598) ==="
 # mutex — measured at 10.267s on the reporting machine.
 # Test 5 leaves the store deliberately corrupt; start from a clean one.
 rm -f "$AITASKS_AGENT_MARKS_FILE"
-"$MARKS_SH" toggle "$ROOT" "agent-listable" >/dev/null 2>&1
+"$MARKS_SH" cycle "$ROOT" "agent-listable" >/dev/null 2>&1
 # Hold the lock with a LIVE pid so it is never stolen (the same fixture shape
 # Test 3 uses); a dead holder would be reclaimed and prove nothing.
 mkdir -p "$LOCK_DIR"

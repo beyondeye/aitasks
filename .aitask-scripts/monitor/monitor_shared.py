@@ -237,11 +237,29 @@ def format_shadow_glyph(
 MARK_GLYPH = "★"        # prioritized
 MARK_EMPTY_GLYPH = "☆"  # not prioritized
 
+# Parked (t1685). `P` U+0050 was chosen by MEASUREMENT, not taste: it is the only
+# candidate covered by every family in mark_glyphs.SUPPORTED_FONTS that no emoji
+# font claims, so unlike the star pair above it never falls back at all. The
+# alternatives are recorded in tests/data/font_coverage.json so the rejections
+# stay machine-checked rather than becoming folklore: `⏸` U+23F8 is covered by
+# neither supported font AND is emoji-capable — the exact t1638 invisible-glyph
+# defect — and `■` U+25A0, though covered, collides visually with the state dot
+# `●` two columns away.
+#
+# It is a letter, and that is fine here: it sits in a one-cell column whose only
+# other occupants are ★ and ☆, so there is nothing for it to be confused with.
+PARK_GLYPH = "P"
 
-def format_mark_glyph(marked: bool) -> str:
-    """Always-on ``★``/``☆`` pair for the user's prioritized-agent mark.
 
-    Unlike :func:`format_shadow_glyph`, this NEVER returns ``""`` — the pair is
+def format_mark_glyph(kind: str) -> str:
+    """Always-on mark column for an agent row: ``☆`` / ``★`` / ``P``.
+
+    ``kind`` is one of ``agent_marks.KIND_NONE`` / ``KIND_PRIORITY`` /
+    ``KIND_PARKED`` — the total answer from ``MarksView.kind_for`` or
+    ``AgentMarksMixin._mark_kind``, never a bool. It **raises** on anything else
+    (see the guard below) rather than falling through to the unmarked glyph.
+
+    Unlike :func:`format_shadow_glyph`, this NEVER returns ``""`` — the column is
     always-on by explicit decision (the t1004 convention, cf. the board's and
     brainstorm's ✓/□), so an unmarked agent reads as *deliberately unmarked*
     rather than as a row that forgot to render one. That costs two columns on
@@ -255,10 +273,24 @@ def format_mark_glyph(marked: bool) -> str:
     one state cluster and invite "is that agent idle, or is it flagged?". White
     belongs to no state in the ladder (magenta / blue / yellow / green),
     which is exactly what makes it legible as *user intent* rather than status.
+    ``P`` shares that white for the same reason, and shares nothing else: a
+    parked row renders no state dot at all, so the two can never cluster.
+
+    **The raise is a programming-error guard, not a new way to break a tick.**
+    Every production caller passes a ``_mark_kind()`` / ``kind_for()`` result and
+    both are total over the three values, so it is unreachable from advisory
+    data — it exists to make a *missed call site* fail loudly instead of
+    rendering ``☆`` for a stray ``True``. Do NOT wrap call sites in
+    ``try/except`` to "make it safe": that restores exactly the silent
+    wrong-glyph fallthrough this guard removes.
     """
-    if marked:
+    if kind == agent_marks.KIND_PRIORITY:
         return f"[bold white]{MARK_GLYPH}[/]"
-    return f"[dim]{MARK_EMPTY_GLYPH}[/]"
+    if kind == agent_marks.KIND_PARKED:
+        return f"[bold white]{PARK_GLYPH}[/]"
+    if kind == agent_marks.KIND_NONE:
+        return f"[dim]{MARK_EMPTY_GLYPH}[/]"
+    raise ValueError(f"unknown mark kind: {kind!r}")
 
 
 # Repo/session divider (t1449): in multi-session mode each tmux session is one
@@ -405,6 +437,11 @@ class AgentMarksMixin:
     _maintenance_inflight: bool = False
     _refresh_inflight: bool = False
 
+    #: Whether parked agents are hidden from the pane list (t1685). Per-app-
+    #: instance and in-memory by design: it is a view toggle, not a preference,
+    #: and persisting it would let a forgotten `P` hide agents across restarts.
+    _hide_parked: bool = False
+
     async def _maybe_offer_concerns(self) -> None:
         """Host hook run with the purge by `_dispatch_refresh_maintenance`.
 
@@ -475,6 +512,8 @@ class AgentMarksMixin:
         # rather than triggering a fan-out on a keystroke — the same contract
         # `_completed_pane_ids` uses.
         self._session_root_map: dict = {}
+        # Parked-agent view filter (t1685); see the class-level floor.
+        self._hide_parked: bool = False
 
     def _set_session_root_map(self, mapping: dict) -> None:
         """Publish this tick's session→project-root map.
@@ -508,12 +547,71 @@ class AgentMarksMixin:
         """
         return self._root_for_session(getattr(snap.pane, "session_name", ""))
 
-    def _is_marked(self, snap: PaneSnapshot) -> bool:
-        """Render-time lookup. Cheap: the view is a cached key set."""
+    def _mark_kind(self, snap: PaneSnapshot) -> str:
+        """Render-time lookup: the pane's mark kind, or ``KIND_NONE``.
+
+        Total by construction, including for a pane whose project root cannot be
+        resolved — the same fail-closed answer :meth:`_is_marked` has always
+        given. That is what lets `format_mark_glyph` take a plain ``str`` and
+        raise on anything outside the vocabulary.
+        """
         root = self._strict_root_for_snap(snap)
         if root is None:
-            return False
-        return self._marks_view.is_marked(root, snap.pane.window_name)
+            return agent_marks.KIND_NONE
+        return self._marks_view.kind_for(root, snap.pane.window_name)
+
+    def _is_marked(self, snap: PaneSnapshot) -> bool:
+        """True for a **priority** mark only — parked agents are not starred."""
+        return self._mark_kind(snap) == agent_marks.KIND_PRIORITY
+
+    def _is_parked(self, snap: PaneSnapshot) -> bool:
+        return self._mark_kind(snap) == agent_marks.KIND_PARKED
+
+    def _parked_agent_pairs(self) -> frozenset:
+        """``(session_name, window_name)`` pairs whose capture must be skipped.
+
+        Published down to ``TmuxMonitor`` once per tick — the same shape as
+        :meth:`_set_session_root_map`, and for the same reason: the capture path
+        must not do a blocking tmux round-trip to learn about marks.
+
+        **Derived from the marks store and the session→root map ALONE — never
+        from ``_snapshots``.** This is published *before* the first capture, when
+        there are no snapshots at all; deriving it from them would make a
+        monitor opened with an already-parked agent capture and classify that
+        agent once on every launch. Inverting the map instead makes the very
+        first tick correct.
+
+        A root mapped from two sessions yields a pair for each. That is inert: a
+        pane matches only when BOTH fields match.
+        """
+        parked = self._marks_view.parked_windows()
+        if not parked:
+            return frozenset()
+        pairs = set()
+        for session in self._session_root_map:
+            root = self._root_for_session(session)
+            if root is None:
+                continue
+            for mark_root, window in parked:
+                if mark_root == root:
+                    pairs.add((session, window))
+        return frozenset(pairs)
+
+    def _publish_parked_agents(self) -> None:
+        """Hand this tick's parked set to the monitor, before it captures.
+
+        `getattr`-probed rather than called outright: several test doubles
+        implement only the slice of the ``TmuxMonitor`` API their suite drives,
+        and an unconditional call would break them rather than the feature.
+        """
+        monitor = getattr(self, "_monitor", None)
+        setter = getattr(monitor, "set_parked_agents", None)
+        if setter is None:
+            return
+        try:
+            setter(self._parked_agent_pairs())
+        except Exception:  # noqa: BLE001 - advisory data must never break a tick
+            pass
 
     # -- read path ---------------------------------------------------------
 
@@ -576,8 +674,8 @@ class AgentMarksMixin:
             return 1, f"ERROR:cannot run {_MARKS_SH.name}: {exc}"
         return proc.returncode or 0, out.decode("utf-8", "replace").strip()
 
-    async def _toggle_mark_for(self, snap: PaneSnapshot) -> None:
-        """Toggle the prioritized mark on ``snap``. The shared write path.
+    async def _cycle_mark_for(self, snap: PaneSnapshot) -> None:
+        """Advance ``snap``'s mark one step. The shared write path.
 
         Target resolution belongs to the caller: the full monitor resolves
         through live focus (:meth:`action_toggle_mark`); the minimonitor
@@ -604,11 +702,23 @@ class AgentMarksMixin:
             return
 
         window = snap.pane.window_name
-        rc, out = await self._run_marks_cmd(["toggle", root, window])
+        rc, out = await self._run_marks_cmd(["cycle", root, window])
         first = out.splitlines()[0] if out else ""
 
         if first.startswith("MARKED:"):
             self.notify(f"Prioritized {window}", timeout=3)
+        elif first.startswith("PARKED:"):
+            # With the filter on the row is about to vanish, and the only way
+            # back is P then space. Say so here rather than leaving the user to
+            # discover that the agent they just parked cannot be reached.
+            if self._hide_parked:
+                self.notify(
+                    f"Parked {window} — hidden. Press P to show parked agents, "
+                    "then Space to unpark.",
+                    timeout=6,
+                )
+            else:
+                self.notify(f"Parked {window}", timeout=3)
         elif first.startswith("UNMARKED:"):
             self.notify(f"Unmarked {window}", timeout=3)
         elif first == "LOCK_BUSY" or rc == 3:
@@ -622,10 +732,17 @@ class AgentMarksMixin:
         # so force the re-read rather than trusting the stat stamp.
         self._marks_view.invalidate()
         self._refresh_marks()
+        # Republish immediately: parking must take effect on the NEXT capture,
+        # not the one after it.
+        self._publish_parked_agents()
         self.call_later(self._refresh_data)
 
     async def action_toggle_mark(self) -> None:
-        """Toggle the prioritized mark on the *focused* agent card.
+        """Cycle the mark on the *focused* agent card: none -> ★ -> P -> none.
+
+        The action id stays ``toggle_mark`` even though the cycle is tristate
+        (t1685): shortcut action ids are persisted in ``userconfig.yaml`` under
+        ``shortcuts:``, so renaming it would silently drop every user's rebind.
 
         The minimonitor overrides this to target the agent it follows instead
         (t1383) — it is a companion pane bound to exactly one agent, so focus
@@ -656,9 +773,36 @@ class AgentMarksMixin:
         snap = self._snapshots.get(pane_id)
         if snap is None:
             return
-        await self._toggle_mark_for(snap)
+        await self._cycle_mark_for(snap)
 
     # -- purge -------------------------------------------------------------
+
+    def action_toggle_parked_visibility(self) -> None:
+        """Show/hide parked agents in the pane list (``P``, t1685).
+
+        The host app hands focus off first when the currently focused card is
+        about to be hidden — see `_hand_off_focus_before_hiding`, whose default
+        here is a no-op because only the full monitor has a focusable list.
+        """
+        hiding = not self._hide_parked
+        if hiding:
+            self._hand_off_focus_before_hiding()
+        self._hide_parked = hiding
+        self.notify(
+            "Parked agents hidden" if hiding else "Parked agents shown",
+            timeout=3,
+        )
+        self.call_later(self._refresh_data)
+
+    def _hand_off_focus_before_hiding(self) -> None:
+        """Hook: move focus off a card that the parked filter is about to hide.
+
+        No-op by default. Minimonitor's list rows are read-only and its followed
+        agent lives in a docked panel, so nothing there can lose focus to the
+        filter; the full monitor overrides this. A real default rather than a
+        `getattr` probe, so the contract is visible on the mixin.
+        """
+        return None
 
     def _collect_marks_observation(self) -> tuple[dict[str, set[str]], set[str], bool]:
         """Snapshot what this tick can prove about liveness.

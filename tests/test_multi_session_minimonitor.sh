@@ -227,7 +227,10 @@ def mk_snap(sess, wi, pi, pid, name):
         pane_id=pid,
         window_name=name,
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
+    # is incomplete, not exercising a defensive path in the renderer.
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           parked=False)
 
 # Two agents in two sessions → expect 4 widgets: [divA, cardA, divB, cardB]
 app._snapshots = {
@@ -292,7 +295,7 @@ def mk_snap(sess, idle=False):
         session_name=sess, window_index="1", pane_index="0",
         pane_id="%x", window_name="agent-x",
     )
-    return SimpleNamespace(pane=pane, is_idle=idle, idle_seconds=0.0)
+    return SimpleNamespace(pane=pane, is_idle=idle, idle_seconds=0.0, parked=False)
 
 app._snapshots = {"%1": mk_snap("sA"), "%2": mk_snap("sB", idle=True)}
 app._rebuild_session_bar()
@@ -334,7 +337,10 @@ def mk_snap(sess, wi, pi, pid, name):
         session_name=sess, window_index=wi, pane_index=pi,
         pane_id=pid, window_name=name,
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
+    # is incomplete, not exercising a defensive path in the renderer.
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           parked=False)
 
 def make_app(containers):
     app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
@@ -448,7 +454,10 @@ def mk_snap(sess, wi, pid):
         session_name=sess, window_index=wi, pane_index=0,
         pane_id=pid, window_name="agent-" + pid,
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
+    # is incomplete, not exercising a defensive path in the renderer.
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           parked=False)
 
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app._session = "sA"
@@ -497,7 +506,7 @@ STORE = os.environ["AITASKS_AGENT_MARKS_FILE"]
 
 # Mark `agent-pick-42` in repo A ONLY.
 mf = agent_marks.load(STORE)
-agent_marks.toggle(mf, ROOT_A, "agent-pick-42")
+agent_marks.cycle(mf, ROOT_A, "agent-pick-42")
 agent_marks.dump(mf, STORE)
 
 def mk_snap(sess, name):
@@ -506,7 +515,10 @@ def mk_snap(sess, name):
         window_index="1", pane_index="0", pane_id="%" + sess,
         window_name=name,
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    # `parked` is a real PaneSnapshot field (t1685); a double that omits it
+    # is incomplete, not exercising a defensive path in the renderer.
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           parked=False)
 
 app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
 app._task_cache = SimpleNamespace(

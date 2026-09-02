@@ -14,7 +14,7 @@ consequences of adding it:
   of the decision, pinned here so a later change cannot loosen it silently.
 * Action guards — "the focused card is an agent" stops being an invariant once
   the list can hold OTHER cards, so ``d`` / ``i`` re-check inside the action.
-  The mark guard lives in ``AgentMarksMixin._toggle_mark_for``, the write path
+  The mark guard lives in ``AgentMarksMixin._cycle_mark_for``, the write path
   both apps share, so it is asserted for **both** — through the sink, because
   since t1383 the two apps no longer resolve their target the same way
   (monitor: live focus; minimonitor: the followed agent).
@@ -79,7 +79,10 @@ def _snap(
         category=category,
         current_command=command,
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           # `parked` is a real PaneSnapshot field (t1685); a
+                           # double that omits it raises rather than ignoring it.
+                           parked=False)
 
 
 class _FakeContainer:
@@ -531,7 +534,7 @@ class ActionGuardTests(unittest.TestCase):
 
 
 class SharedMarkGuardTests(unittest.TestCase):
-    """The AGENT-only guard lives in `AgentMarksMixin._toggle_mark_for` — the
+    """The AGENT-only guard lives in `AgentMarksMixin._cycle_mark_for` — the
     shared write path both apps reach — so it is asserted for BOTH apps.
 
     Driven through the sink rather than `action_toggle_mark`, because since
@@ -568,7 +571,7 @@ class SharedMarkGuardTests(unittest.TestCase):
     def _assert_refuses(self, cls):
         snap = _snap("%2", window_name="noam_bugs", category=PaneCategory.OTHER)
         app = self._stub(cls, snap)
-        asyncio.run(app._toggle_mark_for(snap))
+        asyncio.run(app._cycle_mark_for(snap))
         self.assertEqual(app.marks_argv, [],
                          f"{cls.__name__} wrote a mark for a non-agent pane")
         self.assertEqual(app.root_calls, [],
@@ -589,9 +592,9 @@ class SharedMarkGuardTests(unittest.TestCase):
         """Positive control: the guard fires on category, not on everything."""
         snap = _snap("%1", window_name="agent-pick-42")
         app = self._stub(mm.MiniMonitorApp, snap)
-        asyncio.run(app._toggle_mark_for(snap))
+        asyncio.run(app._cycle_mark_for(snap))
         self.assertEqual(len(app.root_calls), 1)
-        self.assertEqual([argv[0] for argv in app.marks_argv], ["toggle"])
+        self.assertEqual([argv[0] for argv in app.marks_argv], ["cycle"])
 
     def test_minimonitor_space_ignores_a_focused_other_card(self):
         """The t1383 inversion, stated where the old contract used to live.

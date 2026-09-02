@@ -371,7 +371,10 @@ def _snap(pane_id: str, window_index: str):
         category=PaneCategory.AGENT,
         current_command="python",
     )
-    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0)
+    return SimpleNamespace(pane=pane, is_idle=False, idle_seconds=0.0,
+                           # `parked` is a real PaneSnapshot field (t1685); a
+                           # double that omits it raises rather than ignoring it.
+                           parked=False)
 
 
 class _RefreshHost(_ListHost):

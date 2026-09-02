@@ -12,6 +12,20 @@ name, which is not unique across repos (unconfigured repos all fall back to the
 literal ``"aitasks"``; see ``AitasksSession.key`` in ``agent_launch_utils.py``).
 ``pane_id`` is not durable either: tmux recycles ``%N`` across server restarts.
 
+A mark carries a ``kind`` (t1685): ``priority`` (the ★ the feature shipped with)
+or ``parked`` ("stop listing and stop checking this one"). One entry, one kind —
+an agent is starred or parked, never both.
+
+STORE VERSIONS. The current version is 2. Version 1 — which has no ``kind`` key
+at all — is **migrated on read**: every v1 record is a priority mark, so it
+parses through the same path and the in-memory generation is normalised to
+version 2. Anything newer than 2 is still rejected outright, because a file
+written by a newer framework must not be truncated to the fields this one knows.
+The migration is one-directional and that cost is accepted: a pre-t1685 ``ait``
+reading a v2 store renders **no marks at all**, in every project, until it is
+upgraded. That is fail-safe (marks are advisory) but it is not silent about
+itself — see :func:`load_safe`.
+
 The module is deliberately free of Textual, tmux and subprocess imports so the
 policy (expiry, liveness) is unit-testable with no tmux server and no event loop.
 """
@@ -35,7 +49,21 @@ TTL_ENV = "AITASKS_AGENT_MARK_TTL_DAYS"
 
 DEFAULT_MARKS_PATH = "~/.config/aitasks/agent_marks.json"
 DEFAULT_TTL_DAYS = 2.0
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+#: The oldest on-disk version :func:`_parse` will migrate rather than reject.
+OLDEST_READABLE_VERSION = 1
+
+#: Mark kinds (t1685). A mark is priority OR parked, never both — that is what
+#: keeps the cycle unambiguous and the mark column one cell wide.
+KIND_PRIORITY = "priority"
+KIND_PARKED = "parked"
+MARK_KINDS = (KIND_PRIORITY, KIND_PARKED)
+
+#: The "no mark here" answer from a lookup. Never stored — a record always
+#: carries one of :data:`MARK_KINDS`. Exists so callers can thread one total
+#: ``str`` through the render path instead of an ``Optional[str]``.
+KIND_NONE = ""
 
 #: Store mode. The registry beside it (``projects.yaml``) is 0600; a per-user
 #: file naming every project root you work in gets the same treatment.
@@ -59,15 +87,24 @@ class MalformedMarksError(Exception):
 
 @dataclass(frozen=True)
 class MarkRecord:
-    """One mark. ``root`` is always already-canonical (see :func:`mark_key`)."""
+    """One mark. ``root`` is always already-canonical (see :func:`mark_key`).
+
+    ``kind`` defaults to :data:`KIND_PRIORITY` for the same reason an absent
+    ``"kind"`` key reads as priority: that is what every v1 record means.
+    """
 
     root: str
     window: str
     marked_at: int
+    kind: str = KIND_PRIORITY
 
     @property
     def key(self) -> tuple[str, str]:
         return (self.root, self.window)
+
+    @property
+    def parked(self) -> bool:
+        return self.kind == KIND_PARKED
 
 
 @dataclass
@@ -81,14 +118,40 @@ class MarksFile:
     def keys(self) -> set[tuple[str, str]]:
         return {m.key for m in self.marks}
 
+    def kinds(self) -> dict[tuple[str, str], str]:
+        return {m.key: m.kind for m in self.marks}
+
+    def kind_of(self, root: str, window: str) -> str:
+        """The stored kind for a key, or :data:`KIND_NONE` when unmarked."""
+        return self.kinds().get(mark_key(root, window), KIND_NONE)
+
     def is_marked(self, root: str, window: str) -> bool:
-        return mark_key(root, window) in self.keys()
+        """True for a **priority** mark only.
+
+        Deliberately the same narrow meaning as ``MarksView.is_marked``: two
+        methods of the same name that disagreed about whether a parked agent is
+        "marked" would be a trap, and every caller of either means "does this
+        row show a ★". Ask :meth:`kind_of` when you mean "carries any mark".
+        """
+        return self.kind_of(root, window) == KIND_PRIORITY
 
 
 @dataclass(frozen=True)
-class ToggleResult:
-    now_marked: bool
-    record: MarkRecord | None  # the added record, or the removed one
+class CycleResult:
+    """Outcome of one :func:`cycle` call.
+
+    ``kind`` is the state the key is in **after** the call: one of
+    :data:`MARK_KINDS`, or ``None`` when the mark was removed. ``record`` is the
+    record that was written, or the one that was removed.
+    """
+
+    kind: str | None
+    record: MarkRecord | None
+
+    @property
+    def now_marked(self) -> bool:
+        """True while the key still carries a mark of either kind."""
+        return self.kind is not None
 
 
 def _empty() -> MarksFile:
@@ -155,14 +218,16 @@ def _parse(text: str) -> MarksFile:
     version = data.get("version")
     if not isinstance(version, int) or isinstance(version, bool):
         raise MalformedMarksError(f"missing or non-integer version: {version!r}")
-    if version != SCHEMA_VERSION:
-        # EXACT equality, not just `> SCHEMA_VERSION`. A newer file must not be
-        # truncated to fields we do not understand; an *older* one must not be
-        # silently rewritten as the current version either, because that is a
-        # migration and no migration exists. Readers render nothing and writers
-        # refuse until one is written.
+    if version > SCHEMA_VERSION or version < OLDEST_READABLE_VERSION:
+        # A NEWER file is still refused outright: it must not be truncated to
+        # the fields this version understands. An OLDER one is no longer refused
+        # — t1685 wrote the v1 -> v2 migration this comment used to say did not
+        # exist. v1 has no `kind` key by construction, so every v1 record parses
+        # as KIND_PRIORITY through the path below and the returned generation is
+        # normalised to SCHEMA_VERSION (see the return statement).
         raise MalformedMarksError(
-            f"unsupported store version {version} (expected {SCHEMA_VERSION})"
+            f"unsupported store version {version} "
+            f"(readable: {OLDEST_READABLE_VERSION}..{SCHEMA_VERSION})"
         )
 
     raw_marks = data.get("marks")
@@ -183,14 +248,26 @@ def _parse(text: str) -> MarksFile:
             raise MalformedMarksError(f"bad 'window' in entry: {entry!r}")
         if not isinstance(marked_at, int) or isinstance(marked_at, bool):
             raise MalformedMarksError(f"bad 'marked_at' in entry: {entry!r}")
+        # Absent `kind` means priority — the v1 migration and the forward-compat
+        # rule for a hand-edited file, in one branch. A PRESENT but unrecognised
+        # value is a corruption, not a default: fail closed like every other
+        # field check here, rather than silently un-parking a parked agent.
+        kind = entry.get("kind", KIND_PRIORITY)
+        if kind not in MARK_KINDS:
+            raise MalformedMarksError(f"bad 'kind' in entry: {entry!r}")
         # Canonicalize on read too: an entry hand-edited with a symlinked path
         # must still match a strictly-resolved lookup.
         key = mark_key(root, window)
         if key in seen:
             continue  # first spelling wins; a duplicate is not a corruption
         seen.add(key)
-        marks.append(MarkRecord(root=key[0], window=window, marked_at=marked_at))
-    return MarksFile(version=version, marks=marks)
+        marks.append(
+            MarkRecord(root=key[0], window=window, marked_at=marked_at, kind=kind)
+        )
+    # NORMALISED, not carried: whatever the file said, the object in hand is a
+    # v2 generation, and `dump` writes SCHEMA_VERSION unconditionally. Returning
+    # the on-disk number would make a migrated v1 store claim to still be v1.
+    return MarksFile(version=SCHEMA_VERSION, marks=marks)
 
 
 def load(path: str | os.PathLike | None = None) -> MarksFile:
@@ -257,7 +334,12 @@ def dump(mf: MarksFile, path: str | os.PathLike | None = None) -> None:
     payload = {
         "version": SCHEMA_VERSION,
         "marks": [
-            {"root": m.root, "window": m.window, "marked_at": m.marked_at}
+            {
+                "root": m.root,
+                "window": m.window,
+                "marked_at": m.marked_at,
+                "kind": m.kind,
+            }
             for m in sorted(mf.marks, key=lambda m: (m.root, m.window))
         ],
     }
@@ -289,37 +371,66 @@ def _discard(tmp: str) -> None:
 # --- policy (pure) ----------------------------------------------------------
 
 
-def toggle(
+def cycle(
     mf: MarksFile,
     root: str | os.PathLike,
     window: str,
     *,
     now: int | None = None,
-) -> ToggleResult:
-    """Flip the mark for ``(root, window)``. Mutates ``mf`` in place."""
+) -> CycleResult:
+    """Advance the mark for ``(root, window)``. Mutates ``mf`` in place.
+
+    The cycle is **unmarked -> priority -> parked -> unmarked**. Named ``cycle``
+    rather than ``toggle`` because it has three states, not two: a name that
+    said "toggle" would be wrong at exactly the step that matters.
+
+    The priority -> parked step writes a **fresh** ``marked_at``. Parking is a
+    new decision with its own age, and the two kinds are aged differently
+    (:func:`expire` exempts parked marks), so inheriting the star's timestamp
+    would date the park from a decision the user has since changed.
+    """
     key = mark_key(root, window)
+    stamp = int(now if now is not None else time.time())
     for existing in mf.marks:
-        if existing.key == key:
-            mf.marks.remove(existing)
-            return ToggleResult(now_marked=False, record=existing)
+        if existing.key != key:
+            continue
+        if existing.kind == KIND_PRIORITY:
+            parked = MarkRecord(
+                root=key[0], window=window, marked_at=stamp, kind=KIND_PARKED
+            )
+            mf.marks[mf.marks.index(existing)] = parked
+            return CycleResult(kind=KIND_PARKED, record=parked)
+        mf.marks.remove(existing)
+        return CycleResult(kind=None, record=existing)
     record = MarkRecord(
-        root=key[0], window=window, marked_at=int(now if now is not None else time.time())
+        root=key[0], window=window, marked_at=stamp, kind=KIND_PRIORITY
     )
     mf.marks.append(record)
-    return ToggleResult(now_marked=True, record=record)
+    return CycleResult(kind=KIND_PRIORITY, record=record)
 
 
 def expire(
     mf: MarksFile, *, ttl: float | None = None, now: float | None = None
 ) -> list[MarkRecord]:
-    """Drop marks older than the TTL. Returns the dropped records.
+    """Drop **priority** marks older than the TTL. Returns the dropped records.
 
     Needs no tmux visibility, so this is the safe general reaper: it is what
     bounds the store when a repo is never opened again.
+
+    **Parked marks are exempt (t1685), and the asymmetry is deliberate.** A star
+    is a "look at this one soon" note, and one that has gone stale is noise worth
+    reaping. Parking is the opposite: a long-lived "ignore this one" intent, and
+    a two-day TTL silently un-parking a background agent would re-list and
+    re-check exactly the agent the user asked to stop paying for — defeating the
+    feature on a timer. Parked marks are still reaped by
+    :func:`sweep_liveness` when their window is actually gone, so the store
+    stays bounded by something real rather than by a clock.
     """
     window_days = ttl_days(ttl)
     cutoff = (now if now is not None else time.time()) - window_days * 86400.0
-    dropped = [m for m in mf.marks if m.marked_at < cutoff]
+    dropped = [
+        m for m in mf.marks if m.kind != KIND_PARKED and m.marked_at < cutoff
+    ]
     if dropped:
         stale = {id(m) for m in dropped}
         mf.marks = [m for m in mf.marks if id(m) not in stale]
@@ -372,16 +483,21 @@ def visible_marks(
     *,
     ttl: float | None = None,
     now: float | None = None,
-) -> set[tuple[str, str]]:
-    """Keys that should render, applying age expiry without mutating the store.
+) -> dict[tuple[str, str], str]:
+    """Key -> kind for the marks that should render, applying age expiry.
 
-    The render path filters rather than writes: materializing every tick would
-    spawn a locked subprocess every few seconds. :func:`expire` is the
-    materializing twin, run periodically by the wrapper.
+    Filters rather than writes: materializing every tick would spawn a locked
+    subprocess every few seconds. :func:`expire` is the materializing twin, run
+    periodically by the wrapper — and this function applies the TTL to the same
+    kinds it does, so the two never disagree about what is visible.
     """
     window_days = ttl_days(ttl)
     cutoff = (now if now is not None else time.time()) - window_days * 86400.0
-    return {m.key for m in mf.marks if m.marked_at >= cutoff}
+    return {
+        m.key: m.kind
+        for m in mf.marks
+        if m.kind == KIND_PARKED or m.marked_at >= cutoff
+    }
 
 
 # --- TUI-side cached reader -------------------------------------------------
@@ -407,7 +523,7 @@ class MarksView:
     def __init__(self, path: str | os.PathLike | None = None) -> None:
         self._path = marks_path(path)
         self._stamp: tuple[int, int, int] | None = None
-        self._keys: set[tuple[str, str]] = set()
+        self._kinds: dict[tuple[str, str], str] = {}
         self._loaded = False
 
     @property
@@ -428,7 +544,7 @@ class MarksView:
             return False
         self._stamp = stamp
         self._loaded = True
-        self._keys = visible_marks(load_safe(self._path), now=now)
+        self._kinds = visible_marks(load_safe(self._path), now=now)
         return True
 
     def invalidate(self) -> None:
@@ -440,8 +556,29 @@ class MarksView:
         self._loaded = False
         self._stamp = None
 
+    def kind_for(self, root: str | os.PathLike, window: str) -> str:
+        """The visible kind for an agent, or :data:`KIND_NONE` when unmarked.
+
+        Total by construction: every caller can thread the result straight into
+        the render path without an ``Optional`` branch.
+        """
+        return self._kinds.get(mark_key(root, window), KIND_NONE)
+
     def is_marked(self, root: str | os.PathLike, window: str) -> bool:
-        return mark_key(root, window) in self._keys
+        """True for a **priority** mark only — parked is not "marked" here.
+
+        Kept narrow on purpose: every existing caller means "does this row show
+        a star", and widening it to "carries any mark" would silently paint
+        parked agents as prioritized.
+        """
+        return self.kind_for(root, window) == KIND_PRIORITY
+
+    def is_parked(self, root: str | os.PathLike, window: str) -> bool:
+        return self.kind_for(root, window) == KIND_PARKED
+
+    def parked_windows(self) -> set[tuple[str, str]]:
+        """Every visible parked key. The source of the per-tick capture-skip set."""
+        return {k for k, kind in self._kinds.items() if kind == KIND_PARKED}
 
 
 # --- CLI (driven by aitask_agent_marks.sh, under the lock) ------------------
@@ -479,11 +616,15 @@ def _read_observed(path: str) -> tuple[dict[str, set[str]], set[str], bool]:
     return observed, roots, complete
 
 
-def _cli_toggle(args) -> int:
+#: Wire verb per resulting kind. `None` (mark removed) is the third row.
+_CYCLE_VERBS = {KIND_PRIORITY: "MARKED", KIND_PARKED: "PARKED", None: "UNMARKED"}
+
+
+def _cli_cycle(args) -> int:
     mf = load(args.file)
-    result = toggle(mf, args.root, args.window)
+    result = cycle(mf, args.root, args.window)
     dump(mf, args.file)
-    verb = "MARKED" if result.now_marked else "UNMARKED"
+    verb = _CYCLE_VERBS[result.kind]
     print(f"{verb}:{mark_key(args.root, args.window)[0]}|{args.window}")
     return 0
 
@@ -491,7 +632,7 @@ def _cli_toggle(args) -> int:
 def _cli_list(args) -> int:
     mf = load(args.file)
     for m in sorted(mf.marks, key=lambda m: (m.root, m.window)):
-        print(f"MARK:{m.root}|{m.window}|{m.marked_at}")
+        print(f"MARK:{m.root}|{m.window}|{m.marked_at}|{m.kind}")
     return 0
 
 
@@ -517,16 +658,16 @@ def _cli_purge(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="agent_marks",
-        description="Cross-repo prioritized-agent marks store (lock-free; "
-        "callers own concurrency).",
+        description="Cross-repo agent marks store — prioritized and parked "
+        "(lock-free; callers own concurrency).",
     )
     parser.add_argument("--file", default=None, help="store path override")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_toggle = sub.add_parser("toggle")
-    p_toggle.add_argument("root")
-    p_toggle.add_argument("window")
-    p_toggle.set_defaults(func=_cli_toggle)
+    p_cycle = sub.add_parser("cycle")
+    p_cycle.add_argument("root")
+    p_cycle.add_argument("window")
+    p_cycle.set_defaults(func=_cli_cycle)
 
     sub.add_parser("list").set_defaults(func=_cli_list)
 
