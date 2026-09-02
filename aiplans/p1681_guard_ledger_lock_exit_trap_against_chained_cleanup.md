@@ -337,11 +337,11 @@ two confirmed spawned "after" mitigations.
   pre-phase pin_trap_p_rendering_matrix
 - The guard is designed to degrade to today's behaviour on an unrecognised trap
   rendering, which means it can also *silently stop guarding* on such a shell (e.g.
-  macOS bash 3.2, untested here) · severity: medium · → mitigation:
-  bash32_trap_shape_manual_check
+  macOS bash 3.2, untested here) · severity: medium · → mitigation: t1691
+  (bash32_trap_shape_manual_check)
 - `aitask_gate.sh` keeps a byte-for-byte duplicate of the trap function, so the
-  seam and its largest sibling now diverge in safety · severity: low · → mitigation:
-  converge_gate_lock_exit_trap_onto_seam
+  seam and its largest sibling now diverge in safety · severity: low · → mitigation: t1692
+  (converge_gate_lock_exit_trap_onto_seam)
 
 ### Goal-achievement risk: low
 - The task's verification bullet asks for exact status *preservation* on a chained
