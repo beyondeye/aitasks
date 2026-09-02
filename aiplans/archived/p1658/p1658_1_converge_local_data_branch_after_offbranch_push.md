@@ -610,3 +610,4 @@ Step 9 (Post-Implementation) covers cleanup, archival and merge.
     now exists" over any value that is equal in both modes.
   - t1658_2 owns the cwd / data-worktree-resolution hazard (parent AC5);
     `_ait_detect_data_worktree()` was deliberately left untouched here.
+- **Manual-verification failure:** item "[t1658_1] From that partial state, run `./ait sync` and confirm the branch converges (both `./ait git rev-list --count @{u}..HEAD` and `HEAD..@{u}` reach 0) with no work lost." failed; follow-up task t1696.
