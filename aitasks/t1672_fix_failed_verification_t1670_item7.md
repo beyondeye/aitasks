@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [1597]
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 1595
 followup_kind: verification_failure
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 17:11
-updated_at: 2026-09-01 22:39
+updated_at: 2026-09-01 22:40
 ---
 
 ## Failed verification item from t1597
@@ -166,3 +168,5 @@ already known.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-01T19:40:02Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-02T06:12:08Z status=pass attempt=1 type=human
