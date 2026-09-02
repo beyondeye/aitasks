@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1569_3]
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1569
+implemented_with: claudecode/opus5
 created_at: 2026-08-27 11:28
-updated_at: 2026-09-01 18:03
+updated_at: 2026-09-02 12:10
 ---
 
 Wire the shared parallel-admission checker into `task-workflow` as a **required
@@ -231,3 +234,8 @@ and the ordering, so the two checks cannot be confused for one:
   If the parallel preflight's stop-and-replan reuses that sequence, it must add
   its reason to the table and say which side it belongs on — the guard refuses
   an unlisted reason rather than guessing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T09:11:02Z status=pass attempt=1 type=human
