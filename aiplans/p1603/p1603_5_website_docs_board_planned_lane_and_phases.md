@@ -588,3 +588,55 @@ short paragraph under the tables defining `resume_point` (`PLAN` / `IMPLEMENT` /
 pointing "marker" at the metadata table. The contract is honoured and the term is no longer
 dangling. Re-verified: build clean, sweep 831 resolved / 0 broken (one new internal link), guard
 10/10.
+
+## Final Implementation Notes
+
+- **Actual work done:** All 11 steps plus both inline post-phase mitigations, as approved. The
+  board reference gained a new `### In-Flight Lanes and Workflow Phases` section (two-axis model,
+  four lanes, five phases, gate progress, honest degradation, and a `#### Gates in Task Detail`
+  subsection), a card-anatomy line, a corrected In-Flight filter row, qualified `g`/`s`/`f`
+  keyboard rows and a `plan_approved_at` metadata row; `how-to.md`, `_index.md`,
+  `parallel-planning.md` and `task-management.md` were corrected or cross-referenced;
+  `tests/test_board_reference_doc_literals.py` was added (10 tests).
+- **Deviations from plan:** One, caught in Step-8 review and corrected — rows A–D were paraphrased
+  rather than carried verbatim (see "Deviation found in review, and corrected" above). Restored
+  verbatim, with a new gloss defining `resume_point`, which appears nowhere else in
+  `website/content`. Step 10 was verify-only by design, not a deviation: `plan_approved_at` was
+  already documented in `development/task-format.md` from t1595, so that file is untouched and no
+  edit was owed.
+- **Issues encountered:**
+  1. The anchor sweep's **negative control failed on its first run** — it was keyed on "a link on
+     the reference page", but step 11's repair made `#by-trail` a link *to* that page from
+     `how-to`. Re-keyed on the resolved target. Had it passed silently, the "0 broken" verdict
+     would have been unproven.
+  2. The literal guard's **stale-signature fixture was inert**: the witness was stamped with the
+     same digest the manager was seeded with, so the signature read as fresh and the `⚠` row never
+     rendered — five row forms while claiming six. The row-count assertion caught it;
+     `WITNESS_DIGEST` is now deliberately distinct from `PINNED_DIGEST`.
+- **Key decisions:**
+  - The guard asserts **exactly what the documentation presents**, per a closed coverage table:
+    the card badge concretely (`📋 Ready · Planned`, not a `<status>` token), the gate rows
+    normalized on the fixtures' own gate names, and the fraction and error suffix **not** asserted
+    at all. A guard that forces prose onto a page proves nothing about that page's accuracy.
+  - The anchor sweep walks **generated HTML** and resolves each href against its own rendered
+    file, rather than mapping source filenames to output paths — `_index.md` builds to
+    `<section>/index.html`, and sources carry three different link forms.
+  - Extraction uses a real HTML attribute parser: `--minify` strips quotes from `href` as it does
+    from `id`, and the built `how-to` page holds only 2 quoted hrefs, so a quote-only pattern would
+    report a clean sweep of an empty set.
+- **Upstream defects identified:** A site-wide run of this task's link sweep found **28 broken
+  internal links (21 distinct) across 10 other pages**, all the same pre-existing class as the
+  three repaired here: hand-written relative markdown paths that resolve one directory level
+  wrong. `hugo build` cannot catch them — it validates `{{< relref >}}` page targets and neither
+  relative paths nor `#fragment` targets. Out of scope for this task, which owns only the pages it
+  edits.
+  - `website/content/docs/development/review-guide-format.md:270-274 — 5 dead relative links (../workflows/, ../skills/)`
+  - `website/content/docs/skills/aitask-pick/execution-profiles.md:43,44,51,118 — 3 dead relative links (../../workflows/, ../aitask-pickrem/)`
+  - `website/content/docs/tuis/settings/reference.md:182,183 — 2 dead relative links (../../skills/)`
+  - `website/content/docs/tuis/monitor/how-to.md:75,276 — 2 dead relative links (reference/#... resolves under how-to/)`
+  - `website/content/docs/skills/aitask-qa.md:25,75 — 2 dead relative links (aitask-pick/... resolves under aitask-qa/)`
+  - `website/content/docs/installation/linux.md:229,230 — 2 dead relative links (windows-wsl/, ../commands/setup-install/)`
+  - `website/content/docs/development/skills/aitask-audit-wrappers.md:92 — 1 dead relative link (../../skills/aitask-add-model/)`
+  - `website/content/docs/installation/windows-wsl.md:52 — 1 dead anchor (../#authentication-with-your-git-remote)`
+  - `website/content/docs/tuis/minimonitor/how-to.md:345 — 1 dead relative link (../monitor/how-to/#...)`
+  - `website/content/docs/tuis/settings/how-to.md:61 — 1 dead relative link (../board/)`
