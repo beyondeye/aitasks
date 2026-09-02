@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1382
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 14:16
-updated_at: 2026-09-02 14:18
+updated_at: 2026-09-02 17:33
 ---
 
 ## Symptom
@@ -161,3 +162,8 @@ twice in the agent list.
   companion-filter defect and should not wait on it.
 - **t1447** — companion cleanup-hook arming and dead-monitor guards. Same
   subsystem, different failure.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T14:33:25Z status=pass attempt=1 type=human
