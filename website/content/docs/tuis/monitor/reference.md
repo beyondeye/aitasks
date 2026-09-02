@@ -86,6 +86,16 @@ The `SHADOW` zone is **skipped** by `Tab` unless the selected agent has a bound 
 
 Agent panes whose window name contains a task ID (e.g., `agent-t42-claudecode`) are linked to the corresponding task file — that is what powers the `i` (Task Info) and `n` (Next Sibling) shortcuts.
 
+### Pane Order
+
+The pane list is ordered by, in this precedence:
+
+1. **tmux session** — panes are always grouped by session first, so a pane in a later session never rises above an earlier session's panes, however its name sorts. In the [multi-session view](#multi-session-view) this is what the `── <session_name> ──` divider rows follow.
+2. **tmux window name**, compared **naturally** — runs of digits compare as numbers, not as text. So `agent-pick-2` precedes `agent-pick-9`, `agent-pick-10` and `agent-pick-20`, and a child task's window follows its parent's (`agent-pick-100`, `agent-pick-100_1`, `agent-pick-101`). The window *index* is deliberately not used here: it only records the order the windows were created in, whereas the name is what the cards display and what carries the task ID.
+3. **window index, then pane index** — the tiebreak when two windows share a name, so the order is total and stable across refreshes. These also compare numerically.
+
+Both `ait monitor` and [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) sort with the same key, so their lists cannot disagree. The order is not configurable.
+
 ### Agent Card Status Row
 
 For a linked agent pane, the status row ends with two task-derived fields, in this order:

@@ -1732,11 +1732,14 @@ class MonitorApp(
             elif snap.pane.category == PaneCategory.OTHER:
                 others.append(snap)
 
-        # Sort by (session_name, window_index, pane_index) so the unified
-        # multi-session list is stable across refreshes. Single-session mode
-        # produces identical session_name for every snapshot, so the sort key
-        # degrades to the legacy (window_index, pane_index) order. The two
-        # indices compare NUMERICALLY — they arrive as strings, so a plain
+        # Sort by (session_name, window_name, window_index, pane_index) so the
+        # unified multi-session list is stable across refreshes. Single-session
+        # mode produces identical session_name for every snapshot, so the sort
+        # key degrades to (window_name, …). The name leads the window slot
+        # (t1679) because the index is only launch order, while the name is what
+        # the cards show; it compares NATURALLY, and the two indices — which
+        # compare numerically — survive as the tiebreak for two windows sharing
+        # a name. Both are string fields off the tmux gateway, so a plain
         # comparison ordered agent 10 before agent 2 (t1659).
         agents.sort(key=lambda s: pane_sort_key(s.pane))
         others.sort(key=lambda s: pane_sort_key(s.pane))

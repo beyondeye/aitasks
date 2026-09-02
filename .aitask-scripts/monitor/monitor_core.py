@@ -913,17 +913,80 @@ def tmux_index_key(value: object) -> tuple[int, int, str]:
     return (INDEX_RANK_NON_NUMERIC, 0, text)
 
 
-def pane_sort_key(pane) -> tuple:
-    """Display order for a discovered tmux pane: session, then window, then
-    pane — the last two numerically (t1659).
+#: Category ranks for one run of :func:`natural_name_key`. Same discipline as
+#: `INDEX_RANK_*` above, and for the same reason: the slot is a category, never
+#: a sentinel integer, because any sentinel is itself a reachable digit run.
+NAME_RANK_NUMERIC = 0
+NAME_RANK_TEXT = 1
 
-    Duck-typed on :class:`TmuxPaneInfo`'s three fields so it serves both a bare
+#: One run of a window name: digits, or everything that is not digits.
+_NAME_RUN_RE = re.compile(r"\d+|\D+")
+
+
+def natural_name_key(value: object) -> tuple[tuple[int, int, str], ...]:
+    """Natural (numeric-aware) ordering key for a tmux window name.
+
+    Agent windows are named ``agent-(pick|qa|resume|explore|raw)-<id>``, so a
+    plain string compare orders ``agent-pick-10`` before ``agent-pick-2`` — the
+    same "jumps back to low numbers part-way down the list" symptom t1659
+    removed from the indices. The name is split into digit / non-digit runs and
+    each run becomes a ``(rank, number, text)`` triple, so digit runs compare
+    **numerically**. A child task's window (``agent-pick-100_1``) yields a
+    longer run tuple than its parent's (``agent-pick-100``) and therefore
+    follows it, while still preceding ``agent-pick-101``.
+
+    The rank slot is load-bearing, not decoration: the runs of two names need
+    not align by kind (``"10a"`` is digits-then-text, ``"a10"`` the reverse),
+    and it is what orders a digit run against a text run at the same position
+    without ever comparing an ``int`` to a ``str``. It is a category — never a
+    large sentinel integer — for the reason :func:`tmux_index_key` states.
+
+    ``isdecimal()`` (not ``isdigit()``) is the predicate that matches exactly
+    what ``int()`` accepts, so the key never raises; an empty or non-string
+    name still yields a totally ordered key. The raw run text is kept as the
+    third slot so ``agent-pick-007`` and ``agent-pick-7`` stay distinct.
+    """
+    text = "" if value is None else str(value)
+    return tuple(
+        (NAME_RANK_NUMERIC, int(run), run) if run.isdecimal()
+        else (NAME_RANK_TEXT, 0, run)
+        for run in _NAME_RUN_RE.findall(text)
+    )
+
+
+def pane_sort_key(pane) -> tuple:
+    """Display order for a discovered tmux pane: session, then window **name**
+    (naturally, t1679), then window index and pane index as tiebreaks (t1659).
+
+    Duck-typed on :class:`TmuxPaneInfo`'s four fields so it serves both a bare
     ``TmuxPaneInfo`` (discovery) and a ``PaneSnapshot.pane`` (both TUIs'
     ``_rebuild_pane_list``). It is the ONE definition of "pane order" — the
     monitor and minimonitor lists must not be able to drift apart.
+
+    ``session_name`` still leads, so per-session grouping (and minimonitor's
+    session dividers in multi-session mode) is unchanged. The name replaced the
+    window index in the second slot because the index is only launch order,
+    while the name is what the cards actually show and what carries the task id.
+    The two indices survive as the tiebreak that keeps the order **total and
+    deterministic** when two windows share a name.
+
+    **This also changes discovery order, and that is deliberate.** The name is a
+    property of the WINDOW, so every pane in a window carries the same one — the
+    new slot therefore cannot reorder panes *within* a window, only move whole
+    windows relative to each other inside a session. That is what keeps
+    ``MiniMonitorApp._find_own_agent_snapshot`` (filters to one window, takes
+    the first match — the ``e`` / ``E`` and review-loop resolution seam)
+    invariant; ``tests/test_monitor_pane_sort_order.py``'s
+    ``WithinWindowOrderInvarianceTests`` pins it. Two consumers do observe the
+    change, both benignly and both still deterministic: ``MonitorApp``'s
+    auto-switch breaks exact ``idle_seconds`` ties by discovery order
+    (``monitor_app._maybe_auto_switch``), and
+    ``MiniMonitorApp._find_running_agent_line`` names the first pane running a
+    duplicated task id. In both the tie-break simply becomes name order.
     """
     return (
         pane.session_name,
+        natural_name_key(pane.window_name),
         tmux_index_key(pane.window_index),
         tmux_index_key(pane.pane_index),
     )

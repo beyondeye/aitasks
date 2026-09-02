@@ -25,6 +25,10 @@ from monitor.monitor_core import (  # noqa: F401  (re-export shim)
     tmux_index_key,
     INDEX_RANK_NUMERIC,
     INDEX_RANK_NON_NUMERIC,
+    # Its window-name slot (t1679) and that slot's category ranks.
+    natural_name_key,
+    NAME_RANK_NUMERIC,
+    NAME_RANK_TEXT,
     TmuxMonitor,
     load_monitor_config,
     DEFAULT_AGENT_PREFIXES,

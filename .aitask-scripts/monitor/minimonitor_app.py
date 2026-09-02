@@ -2469,11 +2469,15 @@ class MiniMonitorApp(
         # `_find_own_window_snapshot`, so a renamed own window is excluded from
         # the OTHER section rather than being shown twice.
         #
-        # Sort by (session_name, window_index, pane_index) so session grouping is
-        # stable across refreshes; single-session mode degrades to the legacy
-        # (window_index, pane_index) order because every snapshot shares the same
-        # session. The two indices compare NUMERICALLY — they arrive as strings,
-        # so a plain comparison ordered agent 10 before agent 2 (t1659).
+        # Sort by (session_name, window_name, window_index, pane_index) so
+        # session grouping is stable across refreshes; single-session mode
+        # degrades to (window_name, …) because every snapshot shares the same
+        # session. The name leads the window slot (t1679) because the index is
+        # only launch order, while the name is what the cards show; it compares
+        # NATURALLY, and the two indices — which compare numerically — survive
+        # as the tiebreak for two windows sharing a name. Both are string fields
+        # off the tmux gateway, so a plain comparison ordered agent 10 before
+        # agent 2 (t1659).
         own_snap = self._find_own_window_snapshot()
         own_pane_id = own_snap.pane.pane_id if own_snap else None
         agents: list[PaneSnapshot] = []
