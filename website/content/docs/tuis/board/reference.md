@@ -63,9 +63,9 @@ depth: [advanced]
 | `T` | Create an implementation trail from the focused task | Board (hidden in In-Flight and By-Trail views) |
 | `w` | Draft a work report from selected columns | Board (context-dependent — column-scoped; hidden in In-Flight, By-Topic and By-Trail views) |
 | `b` | Launch brainstorm for the focused task | Board (context-dependent — shown when task is brainstormable) |
-| `g` | Resume the focused In-Flight task directly | In-Flight row |
-| `s` | Sign off a pending human gate | In-Flight row with pending human gate |
-| `f` | Fail a pending human gate | In-Flight row with pending human gate |
+| `g` | Resume the focused In-Flight task directly | In-Flight row — [refused on a Planned task](#in-flight-lanes-and-workflow-phases) |
+| `s` | Sign off a pending human gate | In-Flight row with pending human gate — [refused on a Planned task](#in-flight-lanes-and-workflow-phases) |
+| `f` | Fail a pending human gate | In-Flight row with pending human gate — [refused on a Planned task](#in-flight-lanes-and-workflow-phases) |
 
 #### Column Operations
 
@@ -101,6 +101,7 @@ depth: [advanced]
 │ 💪 medium | 🏷️ ui,api | GH | PR:GH | @alice │  ← Effort, labels, issue/PR indicator, contributor
 │ 🔒 alice@example.com            │  ← Lock indicator (if locked)
 │ 🚫 blocked | 👤 alice           │  ← Status/blocked, assigned to
+│ 📋 Ready · Planned              │  ← Status, with `· Planned` when an approved plan awaits implementation
 │ 🔗 t12, t15                     │  ← Blocking dependency links
 │ 📎 folded into t42              │  ← Folded indicator (if applicable)
 │ 👶 3 children                   │  ← Child task count (if parent)
@@ -108,6 +109,12 @@ depth: [advanced]
 ```
 
 Not all lines are shown on every card — lines only appear when the corresponding data exists.
+
+**The `· Planned` qualifier** marks a task whose plan was approved and whose implementation was
+deliberately deferred (the "Approve and stop here" checkpoint), so it reads differently from a task
+nobody has looked at yet. The card carries no timestamp — a card is a narrow surface — and the
+approval time appears in the task detail dialog as `Plan approved: <YYYY-MM-DD HH:MM>` under
+**Tracking & provenance**. Such a task also gets its own [In-Flight lane](#in-flight-lanes-and-workflow-phases).
 
 ### Group Header Anatomy
 
@@ -212,7 +219,7 @@ It splits filtering into a **base radio** (mutually exclusive — exactly one is
 | All | `a` | `a All` | All tasks (default) |
 | Locked | `l` | `l Locked` | Busy tasks: status `Implementing` **or** present in the lock list. When a *child* is busy, also includes its parent and all sibling children (context grouping). |
 | Free | `f` | `f Free` | Tasks that are ready to pick: neither `Implementing` nor locked. Parents are hidden when any of their children is busy. |
-| In-Flight | `i` | `i In-Flight` | Active `Implementing` tasks grouped by next required action: Needs your action, Agent can continue, and Blocked. |
+| In-Flight | `i` | `i In-Flight` | Work already under way, in four lanes by what happens next: Planned, Needs your action, Agent can continue, and Blocked. Covers `Implementing` tasks **and** `Ready` tasks carrying an approved-but-deferred plan. Each card also shows a workflow-phase chip — see [In-Flight Lanes and Workflow Phases](#in-flight-lanes-and-workflow-phases). |
 | By-Topic | `y` | `y By-Topic` | Tasks clustered into per-anchor swimlanes by their [topic key]({{< relref "/docs/concepts/topic-anchoring" >}}) (`anchor`, else a child's parent topic, else own id). A topic with two or more tasks gets its own lane (labelled by the root task); lone tasks collapse into one **Ungrouped** lane. |
 | By-Trail | `z` | `z By-Trail` | The members of one **implementation trail**, laid out as wave columns (`W1 · …`). Each card carries its classification, confidence, and any drift marker; `Enter` opens the full narrative. A short pane below the columns shows the trail's summary. Press `s` to choose which trail is shown. |
 
@@ -391,6 +398,154 @@ Add-ons compose with the active base. Example: `l + g` shows busy tasks linked t
 
 **Locked view auto-expansion:** When the base filter switches to Locked, parent tasks that have at least one busy child are automatically expanded (their child cards are displayed). When switching away, these auto-expanded parents are collapsed back unless they were manually expanded before entering the view.
 
+### In-Flight Lanes and Workflow Phases
+
+The In-Flight view describes work already under way along **two independent axes**:
+
+- the **lane** (the column a card sits in) answers *what happens next*;
+- the **phase chip** (a line on the card) answers *where the task sits in the workflow*.
+
+**Every card sits in exactly one lane and carries exactly one chip.** Both are single values on
+the card; there is no multi-membership.
+
+"Independent" means **neither axis determines the other**. It does **not** mean a task appears
+twice. The two pairs below are the worked examples — read both, because with only one of them the
+chip looks like a restatement of the lane.
+
+**Same phase, different lanes** — the lane is not derivable from the phase:
+
+| # | Task | Status | Phase (chip) | Lane |
+|---|------|--------|--------------|------|
+| A | approve-and-stop | `Ready` + marker | `plan_approved` | **Planned** |
+| B | in-flight, `resume_point == IMPLEMENT` | `Implementing` | `plan_approved` | **Agent can continue** |
+
+**Same lane, different phases** — the phase is not derivable from the lane:
+
+| # | Task | Lane | Phase (chip) |
+|---|------|------|--------------|
+| C | pending human gate | Needs your action | `awaiting_review` |
+| D | `resume_point == POSTIMPL` | Needs your action | `post_impl` |
+
+**`resume_point`** is the checkpoint a task's gate ledger says it would resume from, and it takes
+three values: `PLAN` (nothing durable recorded yet), `IMPLEMENT` (the plan was approved, so the
+next thing owed is code) and `POSTIMPL` (the review passed, so what remains is merge and
+archival). **marker** is the [deferred-plan marker](#task-metadata-fields) — the frontmatter field
+recording an approved plan whose implementation was deliberately put off.
+
+A and B are two **different tasks**. They share a phase because an approve-and-stop task reverts
+to `Ready` but keeps its gate ledger — the last thing recorded is still that the plan was
+approved — while the lane splits them on the question the operator actually asks: one can be
+handed to an agent, the other has not started.
+
+#### The four lanes
+
+In render order, with the card operations each offers:
+
+| Lane | Holds | Card operations |
+|------|-------|-----------------|
+| **Planned** | `Ready` tasks carrying an approved-but-deferred plan; implementation never started | `[p pick]` only |
+| **Needs your action** | a human gate is pending, failed, or needs re-signing; or every gate now passes | `[p pick] [g resume] [s sign-off] [f fail]` |
+| **Agent can continue** | an agent can pick the work up unattended | `[p pick] [g resume]` |
+| **Blocked** | unresolved dependencies | `[p pick]` |
+
+Two rules that are not guessable from the lane names:
+
+- **Blocked outranks every other lane.** A task with an approved plan *and* an unresolved
+  dependency renders in Blocked, not Planned — the lane reports what can happen next, and the
+  answer there is "nothing".
+- **A Planned task offers `p` and nothing else, and the other keys are refused rather than
+  merely hidden.** Pressing `g`, `s` or `f` on one — through the key, a rebinding, or the command
+  palette — shows an explanation instead of acting. Resuming would start implementation without
+  passing the planning checkpoint and its remote drift check, and signing off would approve a
+  review of code that was never written.
+
+#### The five workflow phases
+
+| Phase | Chip label |
+|-------|------------|
+| `plan_approved` | `plan approved` |
+| `implementing` | `implementing` |
+| `awaiting_review` | `awaiting review` |
+| `needs_attended_agent` | `needs attended agent` |
+| `post_impl` | `post-implementation` |
+
+`needs_attended_agent` exists because a gate can be machine-run and still need a person to launch
+it: `docs_updated` is a machine gate whose work is a *procedure*, so the headless engine defers it
+and only an attended agent can run it. A task whose review already passed can therefore still be
+held back from archival, and reporting it as `post-implementation` would say "ready to archive"
+about a task the archival guard will refuse.
+
+The label above is the chip's stem. **The rendered form differs between the two surfaces** — the
+card's chip is deliberately compact, and the task detail dialog carries the expanded one:
+
+| How the phase was determined | On the card | In task detail |
+|------------------------------|-------------|----------------|
+| from the gate ledger, task has enforced gates | `<label> · <satisfied>/<enforced>` | same |
+| from the gate ledger, task has no enforced gates | `<label>` | same |
+| from the deferred-plan marker alone | `<label>` | `plan approved (from marker)` |
+| ledger absent or unreadable | `<label>` | see [Honest degradation](#honest-degradation) |
+
+The `(from marker)` qualifier belongs to a `Ready`-plus-marker task and is **detail-only**. The
+marker outranks the ledger, so the chip does not claim there is no ledger — such a task usually
+has one. The card omits every qualifier on purpose: its own action line already says what to do,
+in plainer words than the ledger vocabulary.
+
+#### Gate progress
+
+Where a chip carries a fraction, it counts satisfied gates against enforced ones. Two rules read
+as bugs unless you know them:
+
+- **The denominator is the enforced active set, not the declared `gates:` list.** A gate your
+  execution profile filters out is not counted at all — it is neither in the numerator nor in the
+  denominator. A task declaring three gates under a profile that enforces one shows `x/1`.
+- **A stale signature counts as not satisfied, even though the ledger says `pass`.** A human
+  approval is bound to the code it approved; when that code changes the signature no longer binds,
+  and the archival guard treats the gate as outstanding. The board matches the guard rather than
+  the raw ledger, and such a card says `awaiting re-sign: <gate>` so the action is the *re*-signing
+  rather than a first signature.
+
+A skipped gate is the mirror case: `skip` is terminal — "not applicable" — so it **is** satisfied
+and does count toward the numerator, even though it is not a pass.
+
+#### Honest degradation
+
+Under an execution profile that records no gates there is no ledger to read, so the view derives
+what it can from the task's status, whether a plan file exists, and the deferred-plan marker — and
+says which of those it used:
+
+| State | Card chip | Card action line | Task detail |
+|-------|-----------|------------------|-------------|
+| no ledger, a plan file exists | `implementing` | `No gate information yet — pick/resume` | `No gate ledger — implementing (derived)` |
+| no ledger, no plan file | `implementing` | `No gate information yet — pick/resume` | `No gate ledger — implementing (unknown)` |
+| a ledger exists but could not be read | `implementing` | `gate state unavailable` | `Gate state unavailable`, with the reason |
+
+**`unknown` means "we cannot tell how far it got", not "it has not started".** A task whose status
+is `Implementing` has asserted that implementation began; with neither a ledger nor a plan the
+board simply has no evidence of progress. No fraction is shown in that state — an absent fraction
+is a different claim from `0/N`, and the board will not fabricate one.
+
+#### Gates in Task Detail
+
+Press `Enter` on a card to open the task detail dialog. When the task has gates or a ledger, it
+carries a **Gates** section — the expanded counterpart of the card's chip, titled with the same
+fraction, e.g. `Gates (2/3)`. It leads with the phase chip, then lists one row per enforced gate:
+
+| Row | Meaning |
+|-----|---------|
+| `✓ <gate> — passed` | satisfied |
+| `⊘ <gate> — skipped (not applicable)` | satisfied, but deliberately distinct from passed |
+| `· <gate> — pending` | enforced and has not run yet — the ordinary state of a freshly picked task |
+| `◈ <gate> — pending; needs attended agent` | a procedure gate the headless engine defers |
+| `✗ <gate> — failed` | ran and failed |
+| `⚠ <gate> — pass, signature stale; needs re-sign` | both facts at once: the ledger says `pass`, and the signature no longer binds the code |
+
+Gates your profile filtered out are listed afterwards under a dimmed `filtered by profile (audit
+only)` heading. They are shown so the difference between what a task declares and what is enforced
+is visible, and they are counted in nothing.
+
+The section is read-only; gates are signed from the In-Flight view with `s` / `f`, or from the
+command line with [`ait gate`]({{< relref "/docs/commands/gates" >}}).
+
 ### Column Configuration
 
 Columns are stored in `aitasks/metadata/board_config.json`:
@@ -455,6 +610,7 @@ The board reads and displays the following frontmatter fields from task files:
 | `contributor` | string | Read-only | PR author username, displayed as `@username` on the card |
 | `contributor_email` | string | Read-only | PR author email (shown in detail dialog) |
 | `implemented_with` | string | Read-only | Code agent and model used to implement the task (e.g., `claudecode/opus4_6`) |
+| `plan_approved_at` | string | Read-only | Timestamp of a plan that was approved with implementation deliberately deferred. Written and cleared **exclusively by the task workflow** — the board renders it and offers no way to edit it. Surfaces as the card's `· Planned` qualifier, as an [In-Flight lane](#in-flight-lanes-and-workflow-phases), and as `Plan approved:` under Tracking & provenance. |
 | `created_at` | string | Read-only | Creation timestamp (YYYY-MM-DD HH:MM) |
 | `updated_at` | string | Auto-updated | Updated automatically on save |
 | `children_to_implement` | list | Read-only | Child task IDs for parent tasks |

@@ -199,17 +199,22 @@ The View Selector at the top-left combines one base view with optional add-on fi
 
 **In-Flight view (`i`):**
 
-Shows tasks with `status: Implementing` in action groups:
+Shows work already under way — tasks with `status: Implementing`, **and** `Ready` tasks carrying an approved plan whose implementation was deliberately deferred — in four lanes by what happens next:
 
+- **Planned** — an approved plan is waiting; implementation has not started.
 - **Needs your action** — tasks waiting for a human gate, a failed gate decision, or post-implementation/archive follow-up.
 - **Agent can continue** — tasks that can be resumed by an agent, including implementing tasks without a gate ledger.
 - **Blocked** — tasks still blocked by unresolved dependencies.
 
+Each card also carries a workflow-phase chip, which is a separate question from the lane. See [In-Flight Lanes and Workflow Phases]({{< relref "/docs/tuis/board/reference" >}}#in-flight-lanes-and-workflow-phases) for the two-axis model, the phase vocabulary, and how gate progress is counted.
+
 With an In-Flight row focused, **p** launches the normal pick/resume flow, **g** launches direct resume, and **s** / **f** sign off or fail a pending human gate. A gate whose sign-off has gone stale — it was approved, but the code has changed since — counts as pending here and can be re-signed the same way. If more than one human gate is pending, the board asks which gate to update.
+
+On a **Planned** row only **p** applies: **g**, **s** and **f** are refused with an explanation, because resuming would skip the planning checkpoint and signing off would approve a review of code that does not exist yet.
 
 **By-Trail view (`z`):**
 
-Shows the members of a single [implementation trail](reference/#by-trail) — a
+Shows the members of a single [implementation trail]({{< relref "/docs/tuis/board/reference" >}}#by-trail) — a
 stored, wave-structured plan for the order a group of tasks should be done in.
 Each wave is a column; each card carries its classification, confidence, and
 status, and a short pane underneath carries the trail's summary.
@@ -238,7 +243,7 @@ status, and a short pane underneath carries the trail's summary.
    focused entry's task to a column, **M** moves the whole focused wave. **M**
    reviews the list first and preserves wave order, so the wave lands in the
    sequence the trail recommends — which is what makes a
-   [work report](../../workflows/work-report/) drafted from that column read as a
+   [work report]({{< relref "/docs/workflows/work-report" >}}) drafted from that column read as a
    plan. Read-only members (archived, cross-repo, missing) cannot move and are
    named rather than silently dropped.
 
@@ -458,7 +463,7 @@ When working across multiple machines, task files can get out of sync. The board
 
 > **In the By-Trail view, sync is on **S** instead.** That view uses **s** to
 > choose which trail to show, so the sync key is shifted — see
-> [By-Trail](reference/#by-trail).
+> [By-Trail]({{< relref "/docs/tuis/board/reference" >}}#by-trail).
 
 **Enabling auto-sync:**
 

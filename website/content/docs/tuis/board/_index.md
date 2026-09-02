@@ -67,7 +67,7 @@ From top to bottom, a card shows:
 - **Mark** — `✓` when the task is marked, `□` when it is not. The glyph is always present on parent cards, so rows never shift when you toggle one; a marked card is drawn in bold Dracula yellow (`#F1FA8C`). See [How to Mark Tasks](how-to/#how-to-mark-tasks).
 - **Task number and title** — e.g., "t47 playlists support". The number appears in cyan. If the file has uncommitted git changes, an orange asterisk (*) appears after the number.
 - **Info line** — Shows effort level (e.g., "💪 medium"), labels (e.g., "🏷️ ui,backend"), and issue platform indicator ("GH" for GitHub, "GL" for GitLab, "BB" for Bitbucket).
-- **Status line** — Shows either "🚫 blocked" (if the task has unresolved dependencies) or "📋 Ready" (or other status). If assigned, shows "👤 name".
+- **Status line** — Shows either "🚫 blocked" (if the task has unresolved dependencies) or "📋 Ready" (or other status). A task whose plan was approved with implementation deliberately deferred adds a qualifier — "📋 Ready · Planned" — and gets its own lane in the In-Flight view (see [In-Flight Lanes and Workflow Phases](reference/#in-flight-lanes-and-workflow-phases)). If assigned, shows "👤 name".
 - **Dependency links** — If blocked, shows "🔗 t12, t15" linking to blocking tasks.
 - **Folded indicator** — Shows "📎 folded into t42" if this task was merged into another.
 - **Children count** — Shows "👶 3 children" for parent tasks with subtasks.

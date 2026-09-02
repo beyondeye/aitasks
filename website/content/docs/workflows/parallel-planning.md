@@ -59,6 +59,13 @@ ait ls --plan-approved 20      # tasks with an approved plan awaiting implementa
 ait ls -v 20                   # shows "Plan: approved <YYYY-MM-DD HH:MM>" on each
 ```
 
+The board shows the same thing three ways: the task card's status reads `📋 Ready · Planned`, the
+In-Flight view collects these tasks into a **Planned** lane of their own, and the task detail
+dialog carries the approval time as `Plan approved:` under Tracking & provenance. From the Planned
+lane only **p** (pick) applies — direct resume is refused there on purpose, so picking one always
+goes back through the planning checkpoint. See
+[In-Flight Lanes and Workflow Phases]({{< relref "/docs/tuis/board/reference" >}}#in-flight-lanes-and-workflow-phases).
+
 Re-pick it with `/aitask-pick <N>` whenever you are ready. The agent tells you an
 approved plan is waiting and offers to use it as-is, so the planning phase is
 skipped. The plan is still checked against the current state of the repository
