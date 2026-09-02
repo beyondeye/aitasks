@@ -1,13 +1,15 @@
 # Approved-Plan Stop Sequence Procedure
 
 The single release-and-revert sequence used by **every** branch that ends a
-session on an **approved plan that will not be implemented now**. Three call
+session on an **approved plan that will not be implemented now**. Four call
 sites share it:
 
 - `planning.md` Checkpoint → **"Approve and stop here"** (`stop_reason=deferred`)
 - `remote-drift-check.md` step 5 → **"Stop and re-verify plan"** (`stop_reason=drift`)
 - `resource-admission.md` step 4 → **the hook refused, or could not decide**
   (`stop_reason=resource_admission`)
+- `parallel-admission.md` step 7 → **the user chose "Stop and re-plan"**
+  (`stop_reason=parallel_admission`)
 
 Every one of them approved the plan and then chose — or was told — to stop, so
 each owes the ledger the same record and the workspace the same release. Keeping the sequence in one
@@ -29,7 +31,7 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
 | `task_id` | The task being stopped (`16` or `16_2`). |
 | `task_num` | Numeric id for `aitask_update.sh` — the task's **own** id; for a child that is the child id (`16_2`), never the parent's. |
 | `plan_file` | Path to the externalized plan (e.g. `aiplans/p16_add_auth.md`). |
-| `stop_reason` | `deferred` (implementation postponed), `drift` (remote drifted), or `resource_admission` (the host could not afford the phase). Recorded as the gate's `note=`, so the ledger says *why* the session stopped. |
+| `stop_reason` | `deferred` (implementation postponed), `drift` (remote drifted), `resource_admission` (the host could not afford the phase), or `parallel_admission` (the user stopped on an in-flight collision). Recorded as the gate's `note=`, so the ledger says *why* the session stopped. |
 | `revert_commit_message` | Commit subject for the status revert, e.g. `ait: Revert t<task_num> to Ready after plan approval`. |
 | `closing_message` | The message shown to the user, naming the re-pick command. |
 
@@ -84,10 +86,12 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
   | `deferred` | approved, implementation postponed by the user | **stamp** |
   | `resource_admission` | approved, implementation postponed by the host's capacity | **stamp** |
   | `drift` | must be re-verified before it can be implemented | **clear** |
+  | `parallel_admission` | must be re-checked against in-flight work before it can be implemented | **clear** |
 
-  A `drift` stop means the opposite of the other two — the flow stopped *because*
-  the plan must be re-verified — so it **clears** the marker rather than
-  refreshing it; leaving (or renewing) it there would advertise a plan as
+  The two **clear** rows mean the opposite of the two **stamp** rows — those
+  flows stopped *because* the plan must be re-checked before it may be
+  implemented — so they **clear** the marker rather than refreshing it; leaving
+  (or renewing) it there would advertise a plan as
   implementation-ready on exactly the path that just established it is not. The
   marker is folded into the revert call rather than added as a separate bullet so
   no branch can perform one without the other.
@@ -102,15 +106,16 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
     ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to "" --plan-approved-at now
     ```
 
-  - **If `stop_reason` is `drift`** (the drift check's "Stop and re-verify plan"),
+  - **If `stop_reason` is `drift`** (the drift check's "Stop and re-verify plan")
+    **or `parallel_admission`** (the preflight's user-elected "Stop and re-plan"),
     run **only** this:
 
     ```bash
     ./.aitask-scripts/aitask_update.sh --batch <task_num> --status Ready --assigned-to "" --plan-approved-at ""
     ```
 
-  There is no fourth case: `stop_reason` is documented in the Input context table
-  as exactly `deferred`, `drift` or `resource_admission`. If it is anything else,
+  There is no fifth case: `stop_reason` is documented in the Input context table
+  as exactly `deferred`, `drift`, `resource_admission` or `parallel_admission`. If it is anything else,
   stop and report it rather than guessing a marker disposition — a new stop path
   must state which side of the table above it belongs on before it may use this
   sequence.
@@ -130,15 +135,20 @@ here — see the Notes. For a rejected plan see `task-abort.md`.
 
 - **Whether a worktree exists at all here depends on the call site.** Reached
   from `planning.md`'s "Approve and stop here", `remote-drift-check.md`'s
-  "Stop and re-verify plan", or `resource-admission.md`'s park, **no worktree
-  exists yet** — all three stops happen before `SKILL.md` Step 7's deferred fork
+  "Stop and re-verify plan", `resource-admission.md`'s park, or
+  `parallel-admission.md`'s user-elected stop at the planning Checkpoint, **no
+  worktree exists yet** — those stops all happen before `SKILL.md` Step 7's
+  deferred fork
   (the admission hook is consulted immediately before it, for this reason among
   others). That is the improvement: the drift
   stop no longer strands a branch cut from the pre-drift HEAD, and the re-pick
   cuts a fresh one from the pulled base. Reached from Step 7's risk-mitigation
   "before" stop, the worktree **does** exist and is intentionally left in place —
-  the next pick reuses it via the reuse check at the fork site. Only the **Task
-  Abort Procedure** removes a worktree.
+  the next pick reuses it via the reuse check at the fork site. The parallel
+  preflight's **other** call site — `SKILL.md` **Re-entry Routing**'s `IMPLEMENT`
+  route — is the same case: a worktree from the earlier session may already
+  exist, and is likewise left in place. Only the **Task Abort Procedure** removes
+  a worktree.
 - **The marker is a display/prompt signal, never a routing one.** `ait ls -v`
   shows it (and `ait ls --plan-approved` filters on it), and `planning.md` §6.0
   names it in the existing-plan prompt — but nothing routes on it. The re-pick

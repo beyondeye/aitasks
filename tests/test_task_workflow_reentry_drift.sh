@@ -216,11 +216,86 @@ guards_rendered_zero_footprint() {
     assert_contains "stop-sequence-records-under-fast" 'gate_name=plan_approved' "$out"
 }
 
+
+# ---------------------------------------------------------------------------
+# The parallel-admission preflight sits AFTER the drift check, at BOTH call
+# sites, and on NEITHER the POSTIMPL route (t1569_4).
+#
+# Order is load-bearing: the drift check can pull the base branch, which changes
+# what is in flight, so a preflight that ran first would be reasoning about a
+# stale world. Positional, not just present-somewhere -- "the file mentions
+# both" is exactly the assertion an inverted wiring would still satisfy.
+# ---------------------------------------------------------------------------
+guards_parallel_admission_order() {
+    local planning skill pa
+    planning="$(cat "$WF/planning.md")"
+    skill="$(cat "$WF/SKILL.md")"
+    pa="$(cat "$WF/parallel-admission.md")"
+
+    # -- the procedure exists and is advisory -------------------------------
+    assert_contains "pa-is-advisory" \
+        'no verdict ever ends the workflow on its own' "$pa"
+    assert_contains "pa-registers-its-stop-reason" \
+        'stop_reason=parallel_admission' "$pa"
+    assert_contains "pa-stop-reason-is-on-the-clearing-side" \
+        '**or `parallel_admission`** (the preflight'"'"'s user-elected "Stop and re-plan")' \
+        "$(cat "$WF/plan-approved-stop.md")"
+
+    # -- planning.md: one preflight reference per drift-check reference ------
+    local n_drift n_pre
+    n_drift="$(grep -c 'Remote Drift Check Procedure' "$WF/planning.md")"
+    n_pre="$(grep -c 'Parallel-Admission Preflight Procedure' "$WF/planning.md")"
+    assert_eq_trim "pa-planning-covers-every-drift-site" "$n_drift" "$n_pre"
+
+    # -- and each one FOLLOWS its drift-check reference ----------------------
+    #
+    # BYTE offsets, not line numbers: two of the three call sites put the
+    # preflight sentence in the SAME line as the drift-check reference, where a
+    # line-number comparison ties and the assertion becomes vacuous. `grep -bo`
+    # orders them correctly whether or not they share a line.
+    local drift_off pre_off ok i d_i p_i d_next
+    mapfile -t drift_off < <(grep -bo 'Remote Drift Check Procedure' "$WF/planning.md" | cut -d: -f1)
+    mapfile -t pre_off   < <(grep -bo 'Parallel-Admission Preflight Procedure' "$WF/planning.md" | cut -d: -f1)
+    ok=1
+    for i in "${!drift_off[@]}"; do
+        d_i="${drift_off[$i]}"
+        p_i="${pre_off[$i]:-}"
+        [[ -n "$p_i" ]] || { ok=0; break; }
+        [[ "$p_i" -gt "$d_i" ]] || { ok=0; break; }
+        d_next="${drift_off[$((i + 1))]:-99999999}"
+        [[ "$p_i" -lt "$d_next" ]] || { ok=0; break; }
+    done
+    assert_eq_trim "pa-planning-preflight-follows-drift" "1" "$ok"
+
+    # -- SKILL.md IMPLEMENT route: preflight after the re-entry drift check --
+    local impl_drift impl_pre postimpl
+    impl_drift="$(grep -bo '\*\*Remote drift check (re-entry)\.\*\*' "$WF/SKILL.md" | head -n1 | cut -d: -f1)"
+    impl_pre="$(grep -bo '\*\*Parallel-admission preflight (re-entry)\.\*\*' "$WF/SKILL.md" | head -n1 | cut -d: -f1)"
+    postimpl="$(grep -bo '\*\*`POSTIMPL`\*\* → \*\*first run the merge-target sync' "$WF/SKILL.md" | head -n1 | cut -d: -f1)"
+    assert_eq_trim "pa-reentry-implement-has-preflight" "1" \
+        "$([[ -n "$impl_pre" ]] && echo 1 || echo 0)"
+    assert_eq_trim "pa-reentry-preflight-follows-drift" "1" \
+        "$([[ -n "$impl_drift" && -n "$impl_pre" && "$impl_pre" -gt "$impl_drift" ]] && echo 1 || echo 0)"
+    # ... and BEFORE the POSTIMPL route begins, i.e. it is on the IMPLEMENT arm.
+    assert_eq_trim "pa-reentry-preflight-is-on-the-implement-arm" "1" \
+        "$([[ -n "$impl_pre" && -n "$postimpl" && "$impl_pre" -lt "$postimpl" ]] && echo 1 || echo 0)"
+
+    # -- POSTIMPL carries neither check, and says why ------------------------
+    local postimpl_line postimpl_block
+    postimpl_line="$(grep -n '\*\*`POSTIMPL`\*\* → \*\*first run the merge-target sync' "$WF/SKILL.md" | head -n1 | cut -d: -f1)"
+    postimpl_block="$(sed -n "${postimpl_line},\$p" "$WF/SKILL.md" | sed -n '1,/^### Step 5/p')"
+    assert_contains "pa-postimpl-explains-the-omission" \
+        'The **Parallel-Admission Preflight** is omitted here' "$postimpl_block"
+    assert_not_contains "pa-postimpl-does-not-execute-the-preflight" \
+        'Execute the **Parallel-Admission Preflight Procedure**' "$postimpl_block"
+}
+
 run_all_guards() {
     guards_stop_sequence_shared
     guards_reentry_routing
     guards_merge_target_sync
     guards_rendered_zero_footprint
+    guards_parallel_admission_order
 }
 
 # ===========================================================================
@@ -336,6 +411,22 @@ negctrl "reentry-postimpl-runs-merge-sync" "$WF/SKILL.md" \
 negctrl "reentry-postimpl-states-step9-never-fetches" "$WF/SKILL.md" \
     's|Step 9 \*\*never fetches\*\*|Step 9 **sometimes fetches**|g' \
     's|Step 9 \*\*sometimes fetches\*\*|Step 9 **never fetches**|g'
+
+negctrl "pa-planning-preflight-follows-drift" "$WF/planning.md" \
+    's|Then execute the \*\*Parallel-Admission Preflight Procedure\*\* (see `parallel-admission.md`) with `task_id`, `task_num`, `plan_file` and `active_profile`. It never ends the workflow on its own; if the \*\*user\*\* chose to stop or abort there, do NOT proceed to Step 7. Otherwise, skip the interactive|Otherwise, skip the interactive|' \
+    's|Otherwise, skip the interactive|Then execute the **Parallel-Admission Preflight Procedure** (see `parallel-admission.md`) with `task_id`, `task_num`, `plan_file` and `active_profile`. It never ends the workflow on its own; if the **user** chose to stop or abort there, do NOT proceed to Step 7. Otherwise, skip the interactive|'
+
+negctrl "pa-reentry-preflight-follows-drift" "$WF/SKILL.md" \
+    's|\*\*Parallel-admission preflight (re-entry)\.\*\*|**Parallel-admission preflight BROKEN.**|g' \
+    's|\*\*Parallel-admission preflight BROKEN\.\*\*|**Parallel-admission preflight (re-entry).**|g'
+
+negctrl "pa-is-advisory" "$WF/parallel-admission.md" \
+    's|no verdict ever ends the workflow on its own|a CONFLICT stops the workflow|' \
+    's|a CONFLICT stops the workflow|no verdict ever ends the workflow on its own|'
+
+negctrl "pa-postimpl-explains-the-omission" "$WF/SKILL.md" \
+    's|The \*\*Parallel-Admission Preflight\*\* is omitted here|The preflight is BROKEN here|' \
+    's|The preflight is BROKEN here|The **Parallel-Admission Preflight** is omitted here|'
 
 negctrl "sync-is-fast-forward-only" "$WF/merge-target-sync.md" \
     's|git merge --ff-only|git merge --BROKEN|g' \

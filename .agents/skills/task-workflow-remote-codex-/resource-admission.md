@@ -107,8 +107,11 @@ and returns without creating a log.
   whether *other tasks* collide with this one; this one asks whether the *host*
   can afford it. Where both are wired, correctness runs before capacity: the
   parallel preflight sits at the planning Checkpoint, this hook last, immediately
-  before the fork. Neither may be folded into the other.
+  before the fork. Neither may be folded into the other. Their dispositions also
+  differ: the parallel preflight is **advisory** and never stops on its own,
+  while a refusal here parks the task.
 - **Availability is structural, not statistical.** The hook is opt-in and runs
   one local command, so a project that configures it gets an answer every time or
-  a named error. There is no "cannot decide" population to measure before letting
-  it block — unlike a checker that reads shared state it does not control.
+  a named error. There is no "cannot decide" population to measure — unlike a
+  checker that reads shared state it does not control, which is exactly why the
+  parallel preflight is advisory and this hook can park.

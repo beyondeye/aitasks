@@ -6,6 +6,7 @@ and calling skills (aitask-pick, aitask-explore, etc.).
 ## Table of Contents
 
 - [Profile Schema Reference](#profile-schema-reference)
+  - [Parallel admission](#parallel-admission)
 - [Gate Declaration Model](#gate-declaration-model)
 - [Customizing Execution Profiles](#customizing-execution-profiles)
 - [Default Profile Configuration](#default-profile-configuration)
@@ -46,6 +47,7 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They pre-answer 
 | `explore_auto_continue` | bool | no | `true` = continue straight to implementation after the task is created; omit or `false` = ask | aitask-explore Step 4 |
 | `explore_label_confirm` | string | no | `"ask"` (default when omitted — show the proposed labels split into existing / near-duplicate / new and confirm), `"auto"` (accept the proposed labels with no prompt; new ones still enter the vocabulary), `"existing_only"` (never mint a new label: keep existing ones, substitute near-duplicates, report the rest as dropped). Headless profiles must set `auto` or `existing_only` so no prompt is emitted. | aitask-explore Step 3a |
 | `remote_drift_check` | string | no | `"warn"` (default — soft warning when remote is ahead with no plan-overlap, strong warning with overlap), `"skip"` (do nothing), `"strong-only"` (only prompt when overlap exists) | Step 6 checkpoint (post-plan) |
+| `parallel_admission` | string | no | `"confirm"`, `"warn"` (**the default** when omitted), or `"off"`. Governs how loudly the [Parallel-Admission Preflight](#parallel-admission) surfaces a non-CLEAR verdict. **No value ever stops the workflow** — every stop is a user choice at the prompt. **All three shipped profiles set `"off"`** (an opt-out; the absent-key default is still `warn`). Quote it: YAML parses a bare `off` as the boolean false (the renderer accepts both, but the quoted form says what it means) | Step 6 checkpoint (post-plan), Re-entry Routing `IMPLEMENT` |
 | `manual_verification_mode` | string | no | `"ask"` (default — prompt fires with autonomous / autonomous_with_plan / skip), `"manual"` (skip prompt; straight to interactive), `"autonomous"` (skip prompt; run autonomous), `"autonomous_with_plan"` (skip prompt; design + approve + execute). Controls only the up-front prompt — the per-item `auto` verb in the interactive loop is always available regardless. | Manual Verification Step 1.5 |
 | `headless` | bool | no | `true` = a fully autonomous profile (no interactive prompts) used where `ait setup` never ran, e.g. Claude Code Web. Marks the profile as one whose `prerender_for_headless` skills ship committed prerenders. Currently only `remote`. | (build-time: `aitask_skill_verify.sh`) |
 
@@ -63,6 +65,47 @@ Only `name` and `description` are required. Omitting any other key means the cor
 > **Plan verification tracking (`plan_verification_required`, `plan_verification_stale_after_hours`):** When `plan_preference` (or `plan_preference_child`) is `"verify"`, the workflow consults the plan file's `plan_verified` metadata list to decide whether a fresh verification is actually needed. `plan_verification_required` is the number of fresh (non-stale) entries required to skip re-verification — default `1` means a single prior verification is sufficient. `plan_verification_stale_after_hours` is how old (in hours) an entry may be before it no longer counts as fresh — default `24`. Both keys apply uniformly to parent and child tasks — there are no `_child` variants. The actual decision (skip / verify / ask) is computed by `./.aitask-scripts/aitask_plan_verified.sh decide`, which returns a structured report the workflow parses directly.
 
 > **Remote-specific profile fields** (e.g., `done_task_action`, `review_action`, `issue_action`) are documented in the `aitask-pickrem` skill. They are only recognized by that skill and ignored by this workflow.
+
+### Parallel admission
+
+`parallel_admission` governs the **Parallel-Admission Preflight**
+(`parallel-admission.md`), which asks the shared checker whether another
+in-flight task collides with this one. It runs at the planning Checkpoint and on
+the `IMPLEMENT` re-entry route, in both cases immediately after the Remote Drift
+Check.
+
+| value | behaviour |
+|---|---|
+| `"confirm"` | every non-CLEAR verdict requires explicit confirmation to continue |
+| `"warn"` | **default.** `CONFLICT` and `UNCHECKABLE` require confirmation; `CLEAR_CAVEATED` renders as a visible note, distinct from `CLEAR` |
+| `"off"` | whole-step no-op: no invocation, no display |
+
+**No value of this key ever stops the workflow.** The knob controls only how
+loudly a non-CLEAR verdict is surfaced; every stop is a choice the user makes at
+the prompt.
+
+**There is deliberately no `block` value.** A value named for a behaviour the
+procedure does not have would be a lie. The evidence the checker reasons over is
+regex-extracted from plan prose — a path a plan merely *runs* inside a fenced
+command is indistinguishable from one it declares it will edit — so a measured
+false `CONFLICT` is on record. A heuristic of that shape may inform a decision;
+it may not make one. Any future hard-stop mode is gated on a structured per-task
+declaration of intended edits (t1343), not on this knob.
+
+`warn` is the default for that reason, not as a conservative first step toward
+something stricter.
+
+**Every shipped profile sets `"off"`, and that is an opt-OUT, not the default.**
+An absent key still means `warn`; `default.yaml`, `fast.yaml` and `remote.yaml`
+each opt out explicitly. Measured 2026-09-02: **9 of 16 `Implementing` tasks
+carry no plan file (56%)**, and an in-flight task's surface is derived from its
+plan file **only** — there is no task-body/origin fallback on that side, unlike
+the candidate's `--from auto`. The result is **108 of 122** live candidates
+returning `UNCHECKABLE`: a prompt on roughly nine picks in ten with nothing
+actionable to say. Set `warn` or `confirm` in your own profile to opt in.
+
+Headless profiles must keep `"off"` regardless: under `confirm` and `warn` the
+procedure prompts, which an unattended run cannot answer.
 
 ## Gate Declaration Model
 

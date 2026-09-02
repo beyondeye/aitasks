@@ -40,15 +40,16 @@ Profiles are YAML files stored in `aitasks/metadata/profiles/`. They are loaded 
 | `qa_tier` | string | `"quick"`, `"standard"`, or `"exhaustive"` — pre-selects the QA analysis depth tier |
 | `shadow_impl_review_tier` | string | `"quick"`, `"default"`, `"advanced"`, or `"deep"` — pre-selects the effort tier for the [shadow's implementation review]({{< relref "/docs/workflows/shadow-agent" >}}#review-the-implementation), skipping its tier prompt. A tier named in your ask still wins. Takes effect only once `default_profiles.shadow` names this profile |
 | `manual_verification_followup_mode` | string | `"ask"` (default) or `"never"` — used by task-workflow Step 8c to control whether the post-implementation manual-verification follow-up prompt fires |
-| `manual_verification_mode` | string | `"ask"` (default), `"manual"`, `"autonomous"`, or `"autonomous_with_plan"` — pre-answers the [Manual Verification](../../workflows/manual-verification/#autonomous-verification) up-front offer to let an AI agent run the checklist. Controls only that offer; the per-item `auto` verb stays available regardless |
-| `risk_evaluation` | bool | `true` runs the [risk-evaluation step](../../workflows/risk-evaluation/) at the end of planning and offers risk-mitigation follow-ups; omit or `false` = disabled (opt-in, off by default) |
+| `manual_verification_mode` | string | `"ask"` (default), `"manual"`, `"autonomous"`, or `"autonomous_with_plan"` — pre-answers the [Manual Verification]({{< relref "/docs/workflows/manual-verification" >}}#autonomous-verification) up-front offer to let an AI agent run the checklist. Controls only that offer; the per-item `auto` verb stays available regardless |
+| `parallel_admission` | string | `"confirm"`, `"warn"` (default), or `"off"` — how loudly the [parallel-admission preflight](../parallel-admission/) surfaces a non-CLEAR verdict. **No value ever stops the workflow.** Quote `"off"`: YAML reads a bare `off` as false. Headless profiles must set it |
+| `risk_evaluation` | bool | `true` runs the [risk-evaluation step]({{< relref "/docs/workflows/risk-evaluation" >}}) at the end of planning and offers risk-mitigation follow-ups; omit or `false` = disabled (opt-in, off by default) |
 | `record_gates` | bool | `true` records approval checkpoints (plan/review/merge approval, plus build and risk evaluation when they run) as gate-run entries in the task's gate ledger — committed for cross-PC visibility and later resume; omit or `false` = disabled (opt-in, off by default) |
 
 Omitting a key means that question is asked interactively. `enableFeedbackQuestions` is enabled by default when the key is absent.
 
 ## Remote-Mode Profile Fields
 
-Remote and web workflows recognize additional profile keys (`force_unlock_stale`, `done_task_action`, `orphan_parent_action`, `complexity_action`, `review_action`, `issue_action`, `abort_plan_action`, `abort_revert_status`). For the full table with types and defaults, see [`/aitask-pickrem` → Remote-Specific Profile Fields](../aitask-pickrem/#remote-specific-profile-fields).
+Remote and web workflows recognize additional profile keys (`force_unlock_stale`, `done_task_action`, `orphan_parent_action`, `complexity_action`, `review_action`, `issue_action`, `abort_plan_action`, `abort_revert_status`). For the full table with types and defaults, see [`/aitask-pickrem` → Remote-Specific Profile Fields]({{< relref "/docs/skills/aitask-pickrem" >}}#remote-specific-profile-fields).
 
 ## Example
 
@@ -115,4 +116,4 @@ The argument is position-independent and can appear anywhere in the argument str
 - Profiles are preserved during `install.sh --force` upgrades
 - Plan approval is always required and cannot be skipped by profiles
 
-For remote/autonomous extensions, see [`/aitask-pickrem`](../aitask-pickrem/).
+For remote/autonomous extensions, see [`/aitask-pickrem`]({{< relref "/docs/skills/aitask-pickrem" >}}).

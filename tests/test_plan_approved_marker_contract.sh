@@ -101,36 +101,76 @@ else
     echo "FAIL: the stop_reason branches do not strictly interleave with their commands (deferred@$deferred_hdr now@$now_cmd drift@$drift_hdr clear@$clear_cmd) -- a drift stop could execute the deferred command"
 fi
 
-# --- the THIRD stop_reason selects the stamping side (t1597) --------------
+# --- EVERY stop_reason selects exactly one side, derived (t1569_4) -------
 #
-# `resource_admission` (the Step-7 admission hook's park) leaves an approved plan
-# intact and awaiting implementation -- exactly what the marker means -- so it
-# must share the `deferred` command, not the `drift` one. Asserted POSITIONALLY
-# for the same reason as the pair above: rendering the clause somewhere in the
-# file is not enough, it has to sit on the stamping branch. A future stop reason
-# that lands on the wrong side of `drift_hdr` clears a marker on a task whose
-# plan is perfectly good.
-# The needle is the BRANCH clause, not the bare name: `resource_admission` also
-# appears in the Input-context table and in the exhaustiveness guard, and a
-# match on either of those would locate a line above the whole conditional and
-# make the positional check meaningless.
-ra_needle='**or `resource_admission`** (the admission hook'"'"'s park)'
-assert_hits "plan-approved-stop.md routes 'resource_admission' through the deferred branch" \
-    "1" "$STOP" "$ra_needle"
-ra_clause="$(grep -nF -- "$ra_needle" "$STOP" | head -n1 | cut -d: -f1)"
-TOTAL=$((TOTAL + 1))
-if [[ -n "$ra_clause" && "$deferred_hdr" -le "$ra_clause" && "$ra_clause" -lt "$now_cmd" ]]; then
-    PASS=$((PASS + 1))
-    echo "PASS: 'resource_admission' sits on the stamping branch (deferred@$deferred_hdr <= resource_admission@$ra_clause -> now@$now_cmd)"
-else
-    FAIL=$((FAIL + 1))
-    echo "FAIL: 'resource_admission' is not on the stamping branch (deferred@$deferred_hdr resource_admission@$ra_clause now@$now_cmd drift@$drift_hdr) -- an admission park would clear the marker of an intact approved plan"
-fi
+# This replaces the per-reason hardcoded block that used to live here. A fourth
+# reason arriving with its own copy-pasted assertion is how the two lists drift:
+# the guard would keep passing for the three it knows and say nothing about the
+# new one. So derive the reason set from the file's OWN exhaustiveness sentence
+# and check each member positionally.
+#
+# The two branch regions are bounded by the interleave check above:
+#   stamping region = [deferred_hdr, now_cmd)   -> --plan-approved-at now
+#   clearing region = [drift_hdr,    clear_cmd) -> --plan-approved-at ""
+#
+# A reason in NEITHER region is one an agent has to guess a disposition for; a
+# reason in BOTH is one that renders two contradictory commands.
 
-# The vocabulary is closed, and its guard has to name every member: a reason the
-# guard does not list is one an agent has to guess a disposition for.
-assert_contains "the exhaustiveness guard names all three stop reasons" \
-    'as exactly `deferred`, `drift` or `resource_admission`' "$(cat "$STOP")"
+exhaustive_line="$(grep -n 'is documented in the Input context table' "$STOP" | head -n1 | cut -d: -f1)"
+if [[ -z "$exhaustive_line" ]]; then
+    # Fall back to the sentence itself, wherever it sits.
+    exhaustive_line="$(grep -n 'as exactly `' "$STOP" | head -n1 | cut -d: -f1)"
+fi
+# The sentence may wrap, so read a small window and pull the backticked names
+# that follow "as exactly".
+exhaustive_text="$(sed -n "${exhaustive_line},$((exhaustive_line + 3))p" "$STOP" | tr '\n' ' ')"
+sentence_reasons="$(printf '%s' "$exhaustive_text" \
+    | sed 's/.*as exactly //' \
+    | grep -oE '`[a-z_]+`' | tr -d '`' | sort -u)"
+
+assert_eq_trim "the exhaustiveness sentence names at least three reasons" \
+    "yes" "$([[ "$(printf '%s\n' "$sentence_reasons" | grep -c .)" -ge 3 ]] && echo yes || echo no)"
+
+# Backticked reason tokens actually present in each branch region.
+region_reasons() {  # $1=start line, $2=end line
+    sed -n "${1},$(( $2 - 1 ))p" "$STOP" \
+        | grep -oE '`[a-z_]+`' | tr -d '`' | grep -vx 'stop_reason' | sort -u
+}
+stamping_reasons="$(region_reasons "$deferred_hdr" "$now_cmd")"
+clearing_reasons="$(region_reasons "$drift_hdr" "$clear_cmd")"
+
+while IFS= read -r reason; do
+    [[ -z "$reason" ]] && continue
+    in_stamp=0; in_clear=0
+    printf '%s\n' "$stamping_reasons" | grep -qxF "$reason" && in_stamp=1
+    printf '%s\n' "$clearing_reasons" | grep -qxF "$reason" && in_clear=1
+    TOTAL=$((TOTAL + 1))
+    if [[ $(( in_stamp + in_clear )) -eq 1 ]]; then
+        PASS=$((PASS + 1))
+        side="stamping"; [[ $in_clear -eq 1 ]] && side="clearing"
+        echo "PASS: stop_reason '$reason' selects exactly one side ($side)"
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: stop_reason '$reason' is on $(( in_stamp + in_clear )) branch(es) (stamping=$in_stamp clearing=$in_clear) -- every reason must select exactly one marker disposition"
+    fi
+done <<< "$sentence_reasons"
+
+# The other direction: a clause naming a reason the sentence forgot. Without
+# this, dropping a name from the sentence would silently stop checking it.
+orphan_clause_reasons=""
+while IFS= read -r reason; do
+    [[ -z "$reason" ]] && continue
+    printf '%s\n' "$sentence_reasons" | grep -qxF "$reason" ||
+        orphan_clause_reasons+="$reason "
+done <<< "$(printf '%s\n%s\n' "$stamping_reasons" "$clearing_reasons" | sort -u)"
+assert_eq_trim "every branch clause's reason is named in the exhaustiveness sentence" \
+    "" "$orphan_clause_reasons"
+
+# `resource_admission` (t1597) leaves an approved plan intact and awaiting
+# implementation, so it must share the STAMPING command. The generic loop proves
+# it picks one side; this pins WHICH, because picking the wrong one is silent.
+assert_eq_trim "'resource_admission' is on the stamping side" \
+    "yes" "$(printf '%s\n' "$stamping_reasons" | grep -qxF resource_admission && echo yes || echo no)"
 
 echo "--- The clear sites ---"
 

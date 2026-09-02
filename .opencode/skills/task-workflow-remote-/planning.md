@@ -409,7 +409,7 @@ The effective action is `post_plan_action: start_implementation`.
 
 Then act on the effective value:
 
-- If the effective action is `"start_implementation"`: Display "Profile 'remote': proceeding to implementation". Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `output_branch`, `plan_file`, and `active_profile` from context. If the procedure ends the workflow ("Stop and re-verify plan" or "Abort task"), do NOT proceed to Step 7. Otherwise, skip the interactive AskUserQuestion below and proceed to Step 7.
+- If the effective action is `"start_implementation"`: Display "Profile 'remote': proceeding to implementation". Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `output_branch`, `plan_file`, and `active_profile` from context. If the procedure ends the workflow ("Stop and re-verify plan" or "Abort task"), do NOT proceed to Step 7. Then execute the **Parallel-Admission Preflight Procedure** (see `parallel-admission.md`) with `task_id`, `task_num`, `plan_file` and `active_profile`. It never ends the workflow on its own; if the **user** chose to stop or abort there, do NOT proceed to Step 7. Otherwise, skip the interactive AskUserQuestion below and proceed to Step 7.
 - If the effective action is `"ask"`: show the interactive checkpoint below.
 
 
@@ -423,7 +423,7 @@ Otherwise, use `AskUserQuestion`:
   - "Approve and stop here" (description: "Approve the plan, release the lock, revert task to Ready, and end the workflow — pick it up later in a fresh context")
   - "Abort task" (description: "Stop and revert task status")
 
-If "Start implementation": Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `output_branch`, `plan_file`, and `active_profile` from context. If the procedure returns ("Continue anyway"), proceed to Step 7. If it ends the workflow ("Stop and re-verify plan" or "Abort task"), stop.
+If "Start implementation": Execute the **Remote Drift Check Procedure** (see `remote-drift-check.md`) with `base_branch`, `output_branch`, `plan_file`, and `active_profile` from context. If it ends the workflow ("Stop and re-verify plan" or "Abort task"), stop. Then execute the **Parallel-Admission Preflight Procedure** (see `parallel-admission.md`) with `task_id`, `task_num`, `plan_file` and `active_profile`. It never ends the workflow on its own; if the **user** chose to stop or abort there, do NOT proceed to Step 7. If both return, proceed to Step 7.
 
 If "Revise plan":
 

@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # test_skill_render_task_workflow.sh - Regression tests for the wrapped
 # shared workflow under .claude/skills/task-workflow/:
-#   - 17 wrapped .md files (8 profile-varying + 9 profile-invariant)
-#   - 33 golden files under tests/golden/procs/task-workflow/
+#   - the wrapped .md files under it (profile-varying + profile-invariant)
+#   - their goldens under tests/golden/procs/task-workflow/
+#
+# The inventory and the counts are NOT stated here: Test 0 derives both from
+# disk and fails when they disagree with the arrays below. Prose counts went
+# stale silently; an assertion cannot.
 # Coverage:
-#   1.  Per-(file, profile) golden diff for the 8 profile-varying wrapped
+#   0.  Every Jinja-bearing workflow file is listed, no file is in both arrays,
+#       every listed file exists and has its goldens, and no golden is orphaned.
+#   1.  Per-(file, profile) golden diff for the profile-varying wrapped
 #       files × 3 profiles.
 #   1b. remote-drift-check is profile-invariant — a single canonical golden
 #       plus a byte-equality assertion across all 3 profile renders.
@@ -66,6 +72,20 @@ WRAPPED_FILES_VARYING=(
     # golden at all until then, so template drift in the one file every
     # task-creating seam routes through was invisible to this suite.
     "task-creation-batch.md"
+    # The advisory parallel-admission preflight (t1569_4).
+    #
+    # All three committed profiles ship `parallel_admission: "off"` (56% of
+    # in-flight tasks carry no plan, so the check is opted out until the
+    # in-flight surface gains a task-body fallback), and `off` renders the whole
+    # step away. The three renders are therefore the SAME no-op body differing
+    # only in the interpolated profile name -- which is exactly what makes them
+    # worth pinning per profile: the golden is where "this profile opted out" is
+    # recorded, so silently re-enabling one shows up as a golden diff.
+    #
+    # The `warn` and `confirm` bodies have no committed profile at all, exactly
+    # like remote-drift-check's `skip`. Test 4e drives both through synthetic
+    # profiles, which is their only executable coverage.
+    "parallel-admission.md"
 )
 WRAPPED_FILES_INVARIANT=(
     "remote-drift-check.md"
@@ -93,9 +113,85 @@ WRAPPED_FILES_INVARIANT=(
 PROFILES=(default fast remote)
 AGENTS=(claude codex opencode)
 
+# === Test 0: the two arrays ARE the inventory, and every file has its goldens ===
+#
+# The header used to state the counts in prose ("17 wrapped .md files", "33
+# golden files"). Prose cannot fail, so a procedure added to the workflow dir and
+# forgotten here was covered by nothing and drifted silently — which is exactly
+# what this file exists to prevent. Assert the two facts instead of narrating
+# them (t1569_4 pre-phase mitigation `pin_procedure_and_golden_inventory`):
+#
+#   1. Every Jinja-bearing file in .claude/skills/task-workflow/ is listed in one
+#      of the two arrays (containment — see the note at the assertion), and every
+#      listed name still exists.
+#   2. Every listed file has its expected goldens on disk: 3 for a varying file
+#      (one per profile), 1 canonical -default for an invariant one — and no
+#      golden is orphaned.
+#
+# Counts are DERIVED here rather than restated, so this test never needs editing
+# when a file is added — only the arrays do, which is the point.
+
+echo "=== Test 0: wrapped-file inventory and golden coverage ==="
+
+listed_files="$(printf '%s\n' "${WRAPPED_FILES_VARYING[@]}" "${WRAPPED_FILES_INVARIANT[@]}" | sort)"
+
+# CONTAINMENT, not equality. The workflow dir holds ~36 .md files; most carry no
+# Jinja and need no golden, and a few (auto-verification.md) vary through a
+# resolved sibling ref rather than a conditional of their own. The load-bearing
+# direction is one-way: a file that CONTAINS Jinja has profile-conditional
+# output, so leaving it off both arrays means its branches are goldened by
+# nothing. That is the drift this catches.
+unlisted_jinja=""
+for f in "$WORKFLOW_DIR"/*.md; do
+    n="$(basename "$f")"
+    grep -qE '\{%|\{\{' "$f" || continue
+    printf '%s\n' "$listed_files" | grep -qxF "$n" || unlisted_jinja+="$n "
+done
+assert_eq "every profile-conditional (Jinja-bearing) file is listed" "" "$unlisted_jinja"
+
+# And the inverse: an array entry whose file is gone is a stale name that would
+# make every loop below read a nonexistent path.
+missing_files=""
+while IFS= read -r n; do
+    [[ -z "$n" ]] && continue
+    [[ -f "$WORKFLOW_DIR/$n" ]] || missing_files+="$n "
+done <<< "$listed_files"
+assert_eq "every listed file exists in the workflow dir" "" "$missing_files"
+
+# A file in BOTH arrays would be rendered twice against contradictory
+# expectations; the union above cannot see that, so check it separately.
+dupes="$(printf '%s\n' "${WRAPPED_FILES_VARYING[@]}" "${WRAPPED_FILES_INVARIANT[@]}" \
+    | sort | uniq -d)"
+assert_eq "no file is listed as both varying and invariant" "" "$dupes"
+
+missing_goldens=""
+for file in "${WRAPPED_FILES_VARYING[@]}"; do
+    stem="${file%.md}"
+    for profile in "${PROFILES[@]}"; do
+        [[ -f "$GOLDEN_DIR/${stem}-${profile}.md" ]] ||
+            missing_goldens+="${stem}-${profile}.md "
+    done
+done
+for file in "${WRAPPED_FILES_INVARIANT[@]}"; do
+    stem="${file%.md}"
+    [[ -f "$GOLDEN_DIR/${stem}-default.md" ]] || missing_goldens+="${stem}-default.md "
+done
+assert_eq "every listed wrapped file has its goldens on disk" "" "$missing_goldens"
+
+# The inverse: a golden with no owning file is a leftover from a deleted
+# procedure, and would sit unread forever.
+expected_goldens="$( { for f in "${WRAPPED_FILES_VARYING[@]}"; do
+                          for p in "${PROFILES[@]}"; do echo "${f%.md}-${p}.md"; done
+                      done
+                      for f in "${WRAPPED_FILES_INVARIANT[@]}"; do
+                          echo "${f%.md}-default.md"
+                      done; } | sort)"
+actual_goldens="$(find "$GOLDEN_DIR" -maxdepth 1 -name '*.md' -printf '%f\n' | sort)"
+assert_eq "no orphan goldens" "$expected_goldens" "$actual_goldens"
+
 # === Test 1: Per-(file, profile) golden diff (profile-varying files) ===
 
-echo "=== Test 1: golden diffs for 8 profile-varying wrapped files × 3 profiles ==="
+echo "=== Test 1: golden diffs for ${#WRAPPED_FILES_VARYING[@]} profile-varying wrapped files × ${#PROFILES[@]} profiles ==="
 for file in "${WRAPPED_FILES_VARYING[@]}"; do
     stem="${file%.md}"
     for profile in "${PROFILES[@]}"; do
@@ -393,6 +489,171 @@ assert_contains "plan-externalization: scratch file lives until Step 8" \
 # would teach a future edit to drop it and restore the stale-header bug.
 assert_not_contains "plan-externalization: no example labels branch-flags as empty" \
     '(`<branch-flags>` empty)' "$PE_OUT"
+
+# === Test 4e: parallel-admission disposition contract, on the RENDER (t1569_4) ===
+#
+# The render is what the agent executes, so the verdict->disposition mapping has
+# to be asserted on the GENERATED text, not inferred from the source template.
+# Goldens catch any byte change but cannot say which sentence is load-bearing;
+# these name them.
+#
+# `confirm` is set by NO committed profile, so the synthetic profile below is
+# that branch's only executable coverage (same reason as Test 4b's
+# create_worktree).
+
+echo "=== Test 4e: parallel-admission disposition contract per profile ==="
+
+PA_SRC="$WORKFLOW_DIR/parallel-admission.md"
+
+TMP_PA_WARN="$(mktemp "${TMPDIR:-/tmp}/test_pa_warn_XXXXXX.yaml")"
+TMP_PA_CONFIRM="$(mktemp "${TMPDIR:-/tmp}/test_pa_confirm_XXXXXX.yaml")"
+TMP_PA_OFF="$(mktemp "${TMPDIR:-/tmp}/test_pa_off_XXXXXX.yaml")"
+trap 'rm -f "$TMP_PROFILE" "$TMP_OB_PROFILE" "$TMP_PA_WARN" "$TMP_PA_CONFIRM" "$TMP_PA_OFF"' EXIT
+# Every COMMITTED profile ships `off`, so the active bodies have no committed
+# render at all. These two synthetic profiles are their only coverage -- the
+# same situation as remote_drift_check: skip in Test 4.
+cat > "$TMP_PA_WARN" <<'YAML'
+name: test_pa_warn
+description: "Synthetic profile for t1569_4 (parallel_admission: warn)"
+parallel_admission: warn
+YAML
+# …and the absent-key default must render the SAME body as an explicit `warn`.
+TMP_PA_ABSENT="$(mktemp "${TMPDIR:-/tmp}/test_pa_absent_XXXXXX.yaml")"
+cat > "$TMP_PA_ABSENT" <<'YAML'
+name: test_pa_warn
+description: "Synthetic profile for t1569_4 (parallel_admission absent)"
+YAML
+cat > "$TMP_PA_CONFIRM" <<'YAML'
+name: test_pa_confirm
+description: "Synthetic profile for t1569_4 (parallel_admission: confirm)"
+parallel_admission: confirm
+YAML
+cat > "$TMP_PA_OFF" <<'YAML'
+name: test_pa_off
+description: "Synthetic profile for t1569_4 (parallel_admission: off)"
+parallel_admission: "off"
+YAML
+
+pa_render() { $RENDER "$PA_SRC" "$1" claude 2>&1; }
+
+# --- the ACTIVE (warn) body: every verdict maps to its own disposition ------
+for prof in warn absent; do
+    case "$prof" in
+        warn)   out="$(pa_render "$TMP_PA_WARN")" ;;
+        absent) out="$(pa_render "$TMP_PA_ABSENT")" ;;
+    esac
+    assert_contains "pa/$prof: CLEAR proceeds with the honest wording" \
+        'no known conflict at check time' "$out"
+    assert_contains "pa/$prof: CLEAR must not claim parallel safety" \
+        'never "safe to run in parallel"' "$out"
+    # warn: CLEAR_CAVEATED is a NOTE, distinct from CLEAR and from confirm.
+    assert_contains "pa/$prof: CLEAR_CAVEATED renders as a visible note (warn)" \
+        'display a visible note naming each unverified source' "$out"
+    assert_not_contains "pa/$prof: CLEAR_CAVEATED does not ask under warn" \
+        "sets \`parallel_admission: confirm\`" "$out"
+    assert_contains "pa/$prof: CLEAR_CAVEATED is rendered distinctly from CLEAR" \
+        'Render it distinctly from `CLEAR`' "$out"
+    assert_contains "pa/$prof: CONFLICT names the tasks and files, then asks" \
+        'name the overlapping task(s) and file(s) from the `OVERLAP:` lines, then ask' "$out"
+    assert_contains "pa/$prof: UNCHECKABLE names why and asks" \
+        'name *why*, with the remedy from step 5' "$out"
+    # Continue-first is the advisory posture, and it is an ORDER claim.
+    # Anchor on the OPTION-LIST shape, not the bare label: the intro quotes
+    # `returned "Continue anyway"` from the drift check, and a head -n1 on the
+    # bare label lands there instead -- which made an earlier draft of this
+    # assertion trivially true regardless of the real option order.
+    cont_line="$(printf '%s\n' "$out" | grep -n -- '- "Continue anyway" (description:' | head -n1 | cut -d: -f1)"
+    stop_line="$(printf '%s\n' "$out" | grep -n -- '- "Stop and re-plan" (description:' | head -n1 | cut -d: -f1)"
+    TOTAL=$((TOTAL + 1))
+    if [[ -n "$cont_line" && -n "$stop_line" && "$cont_line" -lt "$stop_line" ]]; then
+        PASS=$((PASS + 1))
+        echo "PASS: pa/$prof lists 'Continue anyway' before 'Stop and re-plan' (@$cont_line < @$stop_line)"
+    else
+        FAIL=$((FAIL + 1))
+        echo "FAIL: pa/$prof does not list continue first (continue@$cont_line stop@$stop_line) -- an advisory heuristic must not present a stop as the default"
+    fi
+    # The fail-safe clause (t1569_4 finding: invalid output is never a pass).
+    assert_contains "pa/$prof: invalid checker output is UNCHECKABLE, not a pass" \
+        'Accept the result only if it is well-formed' "$out"
+    assert_contains "pa/$prof: a duplicate VERDICT line is never resolved by picking one" \
+        'never pick one' "$out"
+    assert_contains "pa/$prof: fail-safe is stated, not implied" \
+        'fail-safe, not fail-open' "$out"
+done
+
+# --- the `confirm` branch (synthetic; no committed profile sets it) ---------
+out_confirm="$(pa_render "$TMP_PA_CONFIRM")"
+assert_contains "pa/confirm: CLEAR_CAVEATED asks instead of noting" \
+    "**Profile 'test_pa_confirm' sets \`parallel_admission: confirm\`**" "$out_confirm"
+assert_not_contains "pa/confirm: the warn note text is suppressed" \
+    'display a visible note naming each unverified source' "$out_confirm"
+assert_contains "pa/confirm: CONFLICT is unchanged by the knob" \
+    'name the overlapping task(s) and file(s)' "$out_confirm"
+
+# --- `off`: the WHOLE step is absent, not merely quiet ---------------------
+for label in "synthetic:$TMP_PA_OFF" "default:$PROFILES_DIR/default.yaml" \
+             "fast:$PROFILES_DIR/fast.yaml" "remote:$PROFILES_DIR/remote.yaml"; do
+    name="${label%%:*}"; file="${label#*:}"
+    out_off="$(pa_render "$file")"
+    assert_contains "pa/off($name): says it is a no-op" 'is a **no-op**' "$out_off"
+    assert_not_contains "pa/off($name): no checker invocation" \
+        'aitask_parallel_admission.sh' "$out_off"
+    assert_not_contains "pa/off($name): no prompt" 'AskUserQuestion' "$out_off"
+    assert_not_contains "pa/off($name): no disposition table" 'CLEAR_CAVEATED' "$out_off"
+done
+
+# --- NO render, in ANY profile, may claim the step stops on its own --------
+#
+# The executable form of the advisory-only decision. Checked across every
+# profile including `off`, because the Notes render there too.
+for file in "$PROFILES_DIR"/default.yaml "$PROFILES_DIR"/fast.yaml \
+            "$PROFILES_DIR"/remote.yaml "$TMP_PA_WARN" "$TMP_PA_ABSENT" \
+            "$TMP_PA_CONFIRM" "$TMP_PA_OFF"; do
+    out_any="$(pa_render "$file")"
+    assert_contains "pa($(basename "$file")): states that no value stops the workflow" \
+        'No value of `parallel_admission` stops' "$out_any"
+    assert_not_contains "pa($(basename "$file")): never renders a stop-and-replan default" \
+        'stop-and-replan by default' "$out_any"
+    assert_not_contains "pa($(basename "$file")): never offers a \`block\` value" \
+        'parallel_admission: block' "$out_any"
+done
+
+# --- every SHIPPED profile opts out, and its seed mirror agrees ------------
+#
+# The docs, the goldens and Test 4e's `off` loop all rest on this. Assert it
+# directly rather than inferring it from a render.
+for prof in default fast remote; do
+    assert_contains "profile $prof ships the opt-out" \
+        'parallel_admission: "off"' "$(cat "$PROFILES_DIR/$prof.yaml")"
+    assert_contains "seed profile $prof mirrors it" \
+        'parallel_admission: "off"' "$(cat "seed/profiles/$prof.yaml")"
+    # Unquoted would parse as the boolean false. The renderer tolerates that,
+    # but a shipped profile must not rely on the tolerance.
+    assert_not_contains "profile $prof does not ship a bare (boolean) off" \
+        'parallel_admission: off' "$(cat "$PROFILES_DIR/$prof.yaml")"
+done
+
+# --- profiles.md documents the knob, and agrees with the procedure ---------
+#
+# profiles.md carries NO Jinja and is in neither WRAPPED_FILES_* array, so no
+# golden covers it. A contradiction between the knob's documentation and the
+# procedure it documents would otherwise be invisible to this whole suite.
+PROFILES_DOC="$WORKFLOW_DIR/profiles.md"
+profiles_doc_text="$(cat "$PROFILES_DOC")"
+assert_contains "profiles.md documents parallel_admission" \
+    '`parallel_admission`' "$profiles_doc_text"
+assert_contains "profiles.md names exactly the three values" \
+    '`"confirm"`, `"warn"` (**the default** when omitted), or `"off"`' "$profiles_doc_text"
+assert_contains "profiles.md states that no value stops the workflow" \
+    '**No value of this key ever stops the workflow.**' "$profiles_doc_text"
+assert_contains "profiles.md says there is deliberately no block value" \
+    'There is deliberately no `block` value' "$profiles_doc_text"
+assert_not_contains "profiles.md carries no promotion criterion" \
+    'promot' "$profiles_doc_text"
+assert_not_contains "profiles.md carries no stop-and-replan claim" \
+    'stop-and-replan' "$profiles_doc_text"
+assert_contains "profiles.md warns that a bare off is a YAML boolean" \
+    'YAML parses a bare `off` as the boolean false' "$profiles_doc_text"
 
 # === Test 5: risk machinery is profile-CONDITIONAL via rendered_set (t635_33) ===
 #
