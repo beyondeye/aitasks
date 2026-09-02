@@ -360,3 +360,89 @@ two confirmed spawned "after" mitigations.
 inlined, the parse-assumption bullet drops to residual `low`. The code-health level
 stays **medium** — the bash-3.2 unknown (bullet 2) is unchanged by an inline test on
 this shell. Goal-achievement stays **low**.
+
+## Implementation notes
+
+**Pre-fix baseline (the "must fail today" requirement), measured before touching
+`lib/ledger_block.sh`:** `bash tests/test_ledger_lock_exit_trap.sh` →
+**35 passed, 42 failed (of 77)**, exit 1. The split is the point:
+
+- **Group 0 passed** against the unmodified library — the inline pre-phase
+  mitigation confirms the `trap -- '…' EXIT` rendering the guard parses, so the
+  guard is resting on a pinned fact, not a hope.
+- **Negative controls 4 / 5 / 6 / 7 passed** before the fix — they characterise
+  behaviour that must not change, and a fix that broke a sanctioned spelling
+  would have shown up as a *new* failure here.
+- **Every discriminating case failed**: 1 (naive chain + death → **0**), 2 / 2a
+  (no warning at all), 3 / 3b (explicit-arg chain → **0**), and the whole
+  status-domain matrix (the argument was ignored, so every value → 0).
+- **2b / 2c returned 42**, confirming in the real library the leak that made the
+  unconditional `rc=1` necessary: with `[[ $rc -ne 0 ]] || rc=1` the naive chain
+  publishes the *cleanup's* status, and a test whose cleanup succeeds cannot see
+  it.
+
+**Post-fix:** 77 passed, 0 failed.
+
+**Surrounding suites, all green after the change:**
+
+| suite | result |
+|---|---|
+| `tests/test_note_append.sh` (the seam's only chained consumer) | 110/110 |
+| `tests/test_gate_ledger.sh` | 37/37 |
+| `tests/test_gate_lock_characterization.sh` | 47/47 |
+| `tests/test_stale_lock.sh` | 134/134 |
+| `bash tests/run_all_python_tests.sh --test-dir tests` | PASSED (runner=pytest, exit=0) |
+| `shellcheck -S warning` on both edited scripts | clean (only pre-existing SC1091 source-follow infos) |
+
+`aitask_gate.sh` was left untouched as planned, so its three bare `_gate_lock_exit_trap`
+sites are byte-identical and the gate suites above are unchanged by construction.
+
+**No deviations from the approved plan.**
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan, in three files.
+  `.aitask-scripts/lib/ledger_block.sh` gains `_ait_ledger_exit_trap_is_first`
+  (reads `trap -p EXIT` from inside the firing trap and decides whether this
+  function is the trap's first command) and `ait_ledger_lock_exit_trap` gains an
+  optional status argument validated by a pattern-only 0–255 check, plus a
+  rewritten contract comment naming the two sanctioned spellings. The no-arg
+  form's `local rc=$?` capture is unchanged, so the three bare-trap sites behave
+  byte-identically. `.aitask-scripts/aitask_note.sh` — the seam's only chained
+  consumer — moved to the explicit-arg spelling, dropping the `(exit $rc)`
+  throwaway subshell that t1657_2 had used as a workaround.
+  `tests/test_ledger_lock_exit_trap.sh` is new: 258 lines, 77 assertions.
+- **Deviations from plan:** None.
+- **Issues encountered:** None during implementation. The two hazards the plan
+  was revised for were both found in review and confirmed by measurement before
+  any code was written: (1) `exit` truncates modulo 256, so a digit-only
+  validator would have let `256` / `512` exit 0 and re-opened the false success
+  through the new parameter; (2) `[[ $rc -ne 0 ]] || rc=1` on the misuse path
+  publishes the *preceding command's* status, so a cleanup returning 42 exited
+  42 — verified against the real library in the pre-fix baseline run (cases 2b /
+  2c returned 42).
+- **Key decisions:**
+  - **Guard, not just a comment** — the task preferred source enforcement, and
+    both were delivered: the guard detects the hazardous spelling, the parameter
+    gives chained consumers a correct one, and the comment states the contract.
+  - **The guard fails safe in every direction it cannot judge.** No EXIT trap,
+    someone else's handler, or an unparseable `trap -p` rendering all return "no
+    complaint", so an unexpected shell degrades to pre-t1681 behaviour rather
+    than inventing a failure. That degradation would be invisible, so group 2
+    asserts the guard *fires* (the warning text), not merely that the status is
+    nonzero — a shell that renders traps differently fails the suite loudly.
+  - **Pattern-only range check, no arithmetic.** `[[ 010 -le 255 ]]` accepts
+    `010` as octal and would exit **8** for a caller who wrote decimal ten, and
+    `08` / `099` make bash print `value too great for base` from inside an exit
+    path. A glob covers 0–255 exactly and silently.
+  - **The misuse path forces `rc=1` unconditionally**, because the value on entry
+    belongs to the preceding command, not to the guarded section: publishing it
+    yields a number that looks meaningful and is not.
+  - **`aitask_gate.sh` deliberately untouched.** Its `_gate_lock_exit_trap` is a
+    private byte-for-byte duplicate that never calls the seam, so gate behaviour
+    is unchanged by construction — which is what the task required. Collapsing
+    the duplicate onto the guarded seam is the spawned "after" mitigation
+    `converge_gate_lock_exit_trap_onto_seam`.
+- **Upstream defects identified:** None. (The `aitask_gate.sh` duplicate is a
+  known, in-scope divergence recorded as a planned mitigation above, not a
+  separate pre-existing defect.)
