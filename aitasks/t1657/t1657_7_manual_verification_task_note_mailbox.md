@@ -5,7 +5,7 @@ depends: [t1657_6]
 issue_type: manual_verification
 status: Ready
 labels: [verification, manual]
-verifies: [1657_3, 1657_4, 1657_5]
+verifies: [1657_2, 1657_3, 1657_4, 1657_5]
 anchor: 1657
 followup_kind: manual_verification
 created_at: 2026-09-01 12:42
