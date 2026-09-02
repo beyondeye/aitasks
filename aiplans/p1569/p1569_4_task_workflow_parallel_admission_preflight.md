@@ -792,6 +792,16 @@ rejected as disproportionate machinery to preserve one policy choice.
   for the same class of reason: two of the three call sites put the preflight in
   the same line as the drift-check reference, where a line comparison ties.
 
+### Upstream defects identified
+
+None.
+
+(`plan_paths.extract()`'s fence-unawareness is a design limitation of the shared
+extractor, not a latent bug — it is documented above and owned by t1688/t1343,
+not reported here. The `../../workflows/…` link depths in
+`website/.../execution-profiles.md` were checked and resolve clean under
+`check_links.py`.)
+
 ### Verification
 
 - `aitask_skill_verify.sh` — OK (13 templates × 3 agents, 4 stub surfaces).
