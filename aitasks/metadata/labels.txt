@@ -55,6 +55,7 @@ concern_format
 concurrency
 crash_recovery
 custom_shortcuts
+data_integrity
 dependencies
 development
 differ
