@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:18
-updated_at: 2026-09-02 09:25
+updated_at: 2026-09-02 16:51
 ---
 
 # Guard `ait_ledger_lock_exit_trap` against being chained behind another command
@@ -87,3 +88,8 @@ preference for source enforcement over documentation.
   today's implementation, not merely pass after the fix.
 - Every existing gate suite stays green on both backends: `gate` installs the
   trap bare and its behaviour must not change.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T13:51:32Z status=pass attempt=1 type=human
