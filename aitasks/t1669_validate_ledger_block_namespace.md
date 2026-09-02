@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -13,7 +15,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1657
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 16:42
-updated_at: 2026-09-02 16:37
+updated_at: 2026-09-02 16:38
 ---
 
 # Validate the ledger-block namespace before interpolating it into a regex
@@ -88,3 +90,5 @@ caller-supplied; today it is a fixed pattern, not an input.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-02T13:38:09Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-02T14:03:21Z status=pass attempt=1 type=human
