@@ -313,3 +313,58 @@ assertions and a verification pass — both levels stay `low`.*
 ### Planned mitigations
 - timing: pre-phase | name: assert_fixture_preconditions | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — submodule fixture depends on protocol.file.allow and could fail as a boundary failure | desc: Assert the parent is branch mode, each nested checkout is its own repo inside the parent tree with no .aitask-data of its own, and the submodule .git file exists.
 - timing: post-phase | name: falsify_against_relaxed_ladder | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the test could be green-but-blind for rung 2 or rung 3 | desc: Run the committed test from an isolated scratchpad project copy (PROJECT_DIR is derived from BASH_SOURCE and cannot be overridden by env), rebuilt with rm -rf before the baseline and before each of two independent mutations — a boundary-walking rung 2, and a boundary-walking ait_main_worktree_root that leaves rung 2 correct so execution reaches rung 3 — each preceded by a pre-flight proving the mutated ladder is live plus a residual-mutation guard proving rung 2 is pristine, and confirm Test 15's boundary assertions fail under each while both controls stay green.
+
+---
+
+## Final Implementation Notes
+
+**Landed.** Test 15 added to `tests/test_task_git.sh` (+145 lines) and a
+two-line pointer added to the `# BOUNDARY:` comment block in
+`.aitask-scripts/lib/task_utils.sh` (+2 lines, comment-only). Suite: **67
+passed, 0 failed** (was 48 — 19 new assertions). Shellcheck: **no new findings**
+on either file (`tests/test_task_git.sh` 8 findings before and after;
+`task_utils.sh` 31 before and after — both compared against the `HEAD` version
+of the same file, not against a clean exit).
+
+### Deviation — a real defect the falsification caught
+
+The first mutation-1 run failed only **6** of the expected 9 assertions: the
+"does NOT name the parent's data worktree" assertion **passed** under a
+boundary-walking ladder, and the "stays inside the nested repository" assertion
+failed for the wrong reason.
+
+Cause: `answer_canon_15()` resolved the answer as `cd "$dir/$ans"`. That is
+correct only for a **relative** answer. Rungs 2/3 answer an **absolute** path, so
+concatenation produced `/…/vendor/inner//tmp/…/.aitask-data` — a nonexistent
+path, which read as `UNRESOLVABLE:` and therefore "differs" from the parent's
+data worktree. The assertion was passing on a resolution failure rather than on
+the boundary holding.
+
+Fix: `(cd "$dir" && cd "$ans" && pwd -P)`, which handles both spellings and
+mirrors how consumers actually use the value (`git -C "$_AIT_DATA_WORKTREE"`
+from that cwd). The rationale is recorded in the helper's comment so it is not
+re-introduced. This is exactly what the post-phase mitigation existed to find —
+without it the test would have shipped with one of its three assertions inert.
+
+### Falsification results (post-phase `falsify_against_relaxed_ladder`)
+
+Isolated tree rebuilt with `rm -rf` before the baseline and before **each**
+mutation; copy sources recorded as
+`/home/ddt/Work/aitasks/{ait,.aitask-scripts,tests/lib,tests/test_task_git.sh}`.
+
+| run | guard | pre-flight answer | result |
+|---|---|---|---|
+| baseline (unmutated copy) | — | — | 67 passed, 0 failed |
+| **Mutation 1** — boundary-walking rung 2 | — | `/tmp/…/local/.aitask-data` | **58 passed, 9 failed** |
+| **Mutation 2** — boundary-walking `ait_main_worktree_root()`, rung 2 left pristine | `relax_n=0 rung2_n=1` → PASSED | `/tmp/…/local/.aitask-data` | **58 passed, 9 failed** |
+
+Under each mutation the 9 failures are exactly the 15c boundary contract — all
+three assertions × all three probes (`vendor/inner`, `vendor/inner/sub`,
+`vendor/dep`) — while the positive control (15a, parent root → `.aitask-data`),
+the adjacent control (15b, `vendor/` → parent's data worktree), the five
+fixture preconditions, and Tests 1–14 all stayed green. That pairing is what
+shows the failures come from the boundary rather than from a broken fixture.
+
+Mutation 2's pre-flight is the load-bearing one: rung 2 was verified pristine
+(`relax_n=0`), so execution genuinely reached rung 3 rather than short-circuiting
+above it.
