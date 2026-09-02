@@ -389,6 +389,17 @@ fi
 Extend the header's `REASON:` comment block only where it names what
 `not_scalar` covers.
 
+**`not_scalar` names two shapes, not "every non-scalar" — and the header and
+docs must say the narrower thing.** A **flow mapping on the key line**
+(`{foo: bar}`) is *not* refused as `not_scalar`: the line-based reader returns
+its text, so it is run as a command and fails as `command_error` (exit 2 —
+still fail-closed, still never a silent admit, which is what t1672 is about).
+Do **not** "fix" that by refusing flow mappings — measured, `{ echo
+ADMISSION_REASON: grouped; exit 2; }` is a **valid, working hook** that YAML
+also parses as a mapping, so the refusal would reject a working configuration.
+That is the same mistake as reading `[ -f Makefile ]` as a list, and the rule
+is the same: narrow the claim, do not broaden the behavior.
+
 ### 5. Docs — `website/content/docs/skills/aitask-pick/resource-admission.md`
 
 The existing sentence says only a *list* is refused. Extend it to state that
@@ -596,3 +607,69 @@ The second t1670 finding — `yaml.safe_dump` stripping every comment from
 do not fix it here.
 
 Step 9 (Post-Implementation) handles cleanup, archival, and merge.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps landed as approved. `PROJECT_CONFIG_SCHEMA`
+  gained a per-key `type`; `_format_yaml_block`, `_looks_like_block_list`,
+  `_list_if_canonical` and `_coerce_project_config_value` were added beside
+  `_format_yaml_value`; both `EditVerifyBuildScreen` statics and the
+  `save_project_settings` call site were rewritten against the shared
+  predicate, and the blanket `yaml.safe_load` + its notify guard removed.
+  `aitask_resource_admission.sh` gained `yaml_key_has_block_child()` and refuses
+  an indented block with `REASON:not_scalar` + exit 3. Docs updated. Tests:
+  new `tests/test_settings_project_config_value_types.py` (22 tests, real
+  `SettingsApp` + real shell helper via subprocess) and 10 cases added to
+  `tests/test_resource_admission.sh` (168/168).
+
+- **Deviations from plan:** One, raised in Step-8 review and confirmed by
+  measurement. The plan's header/docs wording claimed *every* non-scalar value
+  is refused as `not_scalar`. It is not: a **flow mapping on the key line**
+  (`{foo: bar}`) is returned as text by the line-based reader, run, and
+  reported as `command_error` (exit 2). The wording was narrowed rather than
+  the behavior broadened, because `{ echo ADMISSION_REASON: grouped; exit 2; }`
+  is a **valid working hook** that YAML also parses as a mapping — refusing
+  mappings would reject a working configuration, the same mistake as reading
+  `[ -f Makefile ]` as a list. Both shapes now have regression tests. The
+  flow-mapping path stays fail-closed, so t1672's goal (no silent admit) holds.
+
+- **Issues encountered:**
+  - The save-path fix alone is defeated by the editor. `_to_block_yaml` expanded
+    *any* parse-as-list into block form, so `[ -f Makefile ]` became
+    `- -f Makefile`, and the next save then *correctly* persisted a list — a
+    stored command turned into a list purely by being looked at. The provenance
+    check has to run before the value is expanded, not only after.
+  - `_to_compact_yaml` returned the YAML-*decoded* scalar, stripping
+    shell-significant quoting (`"$HOME/with space/run"` → word-splits). It
+    needed no edit to fire: opening the editor and saving was enough.
+  - The two dumpers disagreed on `allow_unicode`, so an edited Unicode list
+    would have failed a canonicality check. Fixed by routing every dump through
+    two named renderers instead of re-syncing options by hand.
+  - Gating **block** text on canonicality (the symmetric-looking move) turns
+    `- "make build"`, `- make build  # release` and re-indented lists into
+    scalar strings. Block form is unambiguous and is accepted on sight; only
+    flow form needs provenance.
+
+- **Key decisions:**
+  - **One predicate, three call sites.** Three private copies of the list-intent
+    rule are how they drifted apart; `_list_if_canonical` is now the single test.
+  - **The rule is asymmetric on purpose** — provenance for flow form,
+    accept-on-sight for block form. "Tidying" it into symmetry breaks real
+    values in one direction or the other; both halves are pinned by tests.
+  - **The notify guard was removed, not narrowed.** No value remains for which a
+    parse failure means an error, and keeping it would have rejected
+    `[ -f Makefile ] && make`. Cost: a mistyped `[a, b` saves as that literal
+    string (visible on the row) instead of aborting every other edit in the tab.
+  - **"Verbatim" is scoped to interior content.** The pre-existing
+    `row.raw_value.strip()` is unchanged; the narrowed claim is pinned by a test
+    rather than left as prose.
+  - **Verification beyond the suite:** every pre-fix behavior was reintroduced at
+    runtime (6 mutants) and each was caught — 12/3/3/10/4/3 failures, no gaps.
+    The original t1670 item-7 flow was then driven for real in tmux: the typed
+    command saved as one quoted scalar, and the hook returned `VERDICT:refuse` /
+    `DETAIL:no memory` (exit 1) where it previously returned
+    `REASON:none_configured` (exit 0).
+
+- **Upstream defects identified:** None
