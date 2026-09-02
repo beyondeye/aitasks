@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [git, bash_scripts, robustness, tests]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1658
 followup_kind: risk_mitigation
 created_at: 2026-09-01 18:55
-updated_at: 2026-09-01 18:55
+updated_at: 2026-09-02 08:57
 ---
 
 ## Origin
