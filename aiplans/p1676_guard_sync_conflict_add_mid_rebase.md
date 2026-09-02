@@ -287,3 +287,70 @@ Expected: all pass. The pre-phase additionally requires Tests 6, 7 and 8 to have
 Cleanup, archival of `t1676` + this plan, and merge follow the standard Step 9
 of `task-workflow`. The task is a `followup_kind: upstream_defect` spawned from
 t1599_3 under anchor 1599; the `risk_evaluated` gate is in its active set.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the approved plan, in the planned order.
+  `.aitask-scripts/aitask_sync.sh` — the interactive conflict loop in
+  `do_pull_rebase` was converted from `echo "$remaining" | while … done` to
+  `while … done <<< "$remaining"`, and its `task_git add "$f" 2>/dev/null ||
+  true` replaced with the `:940` idiom (`add_err="$(AIT_GIT_SKIP_STATE_CHECK=1
+  task_git add "$f" 2>&1)" || add_rc=$?`, warn + `all_resolved=false` on a
+  non-zero rc). `tests/test_sync_branch_mode_automerge.sh` — header extended
+  with the pipeline-subshell defect (numbered 4, continuing the file's existing
+  defect list), plus `setup_two_body_conflicts`, `make_resolver_editor`,
+  `assert_no_rebase_wedge`, and Tests 6-8.
+
+- **Deviations from plan:** One addition, no removals. Test 6 originally pinned
+  "both staged" only via the shared wedge check — but that check **passes
+  pre-fix**, because the pre-fix run ends in `rebase --abort`, which also leaves
+  a clean tree and unmarked files. Two assertions were added so the claim is
+  real: `assert_exit_zero_rc` on the sync (pre-fix exits 1) and
+  `assert_contains "pc2: two bodies"` in the local history, since only a rebase
+  that *advanced* proves every file was staged. This raised the pre-fix failure
+  count from 8 to 10.
+
+- **Issues encountered:** None. The fixture behaved as designed on the first
+  run: `try_auto_merge` left both body-divergent files in `remaining` and both
+  reached the interactive loop in a single rebase step.
+
+- **Key decisions:**
+  - The `add` stays inside `$( )`. With the loop now in the current shell under
+    `set -euo pipefail`, that containment is load-bearing: any `die` reached
+    through `task_git` surfaces as a non-zero `add_rc` instead of exiting the
+    script. (`AIT_GIT_SKIP_STATE_CHECK=1` already prevents the specific
+    `assert_data_worktree_clean` die, so this is defence in depth.)
+  - The two neighbouring *display-only* `echo … | while` loops (`:1036`,
+    `:1065`) were deliberately left alone — they only print and set nothing.
+  - `assert_no_rebase_wedge` resolves the data worktree git-dir with
+    `rev-parse --absolute-git-dir` rather than hardcoding
+    `.git/worktrees/-aitask-data/`, and treats an unresolvable git-dir as its
+    own failing state so "could not look" never reads as "nothing there".
+  - Test 8's non-zero-exit assertion is documented in-file as a **contract**,
+    not a discriminator: both sides of the `all_resolved` branch `return 1`, so
+    pre-fix exits non-zero too. It guards a future regression that swallows the
+    failure and reports `SYNCED`.
+
+- **Upstream defects identified:** None.
+
+## Verification pass (2026-09-02)
+
+| Suite | Result |
+|---|---|
+| `tests/test_sync_branch_mode_automerge.sh` | 43 passed, 0 failed (pre-fix: 33 passed, 10 failed) |
+| `tests/test_sync.sh` | 42 passed, 0 failed |
+| `tests/test_sync_auto_commit_scoping.sh` | 36 passed, 0 failed |
+| `tests/test_sync_deferral_and_quarantine.sh` | 52 passed, 0 failed |
+| `tests/test_task_git.sh` | 48 passed, 0 failed |
+| `shellcheck .aitask-scripts/aitask_sync.sh` | 8 pre-existing `SC1091` info findings, identical before and after |
+
+Pre-phase mitigation `characterize_interactive_loop` held: every new assertion
+failed against the unfixed script for its documented reason — Test 6 offered
+only `Editing: aitasks/t2_body.md`; Tests 7 and 8 printed `Rebase continue
+failed` instead of `Not all conflicts resolved`. Test 8 additionally showed
+*both* `Editor exited with error` warnings pre-fix, confirming that branch
+involves no `die()` and the lost `all_resolved=false` assignment is its sole
+defect.
+
+Post-phase mitigation `regress_sync_neighbours`: the four neighbouring suites
+and shellcheck above, all clean.
