@@ -153,3 +153,54 @@ symptom depends on. Nothing was stubbed.
   back the saved original bytes; file verified clean against HEAD afterwards. The
   usage counter for `claudecode/opus4_6 pick` was legitimately advanced 0 → 5 by
   the runs above and is left as-is.
+
+## Final Implementation Notes
+
+**Work done.** All 14 checklist items were executed autonomously against the live
+repository under genuine multi-agent contention — three other sessions held live
+locks with dirty `aitasks/` / `aiplans/` files throughout, which is the exact
+condition the parent task's symptom depends on and the condition every one of the
+prior test gaps left uncovered. No fixture or stub was used.
+
+**Result: 13 pass, 1 fail.**
+
+The two landed children hold up under real conditions:
+
+- **t1658_1 (converge seam).** The local-ref invariant held on every run: five
+  metadata commits were produced through the temp-clone push path and each one
+  reached the local branch with no manual sync, while the worktree was dirty with
+  other sessions' edits. The two rejected hazards stayed rejected — no stash was
+  created, no conflict marker appeared, and every commit's `--stat` shows only
+  `aitasks/metadata/models_claudecode.json`, never a swept foreign file. The
+  distinct partial outcome behaves exactly as designed when a fast-forward is
+  blocked: `UPDATED_REMOTE_ONLY:…`, exit 3, explanation on stderr, local edit
+  untouched.
+- **t1658_2 (repo-root anchoring).** `_AIT_DATA_WORKTREE` resolves to the main
+  checkout's `.aitask-data` from `website/`, `tests/`, inside the data worktree
+  itself, and from a real crew worktree that carries neither `.aitask-data` nor
+  `ait` — with branch and HEAD identical to the repo root in every case. The
+  silent legacy-mode fallback survives only where it should: genuinely outside any
+  repository. The metadata entry scripts run from a subdirectory without dying.
+
+**Issue found — item 7, follow-up t1696.** The one failure is not in the converge
+seam; it is in the *recovery instruction* the seam emits. When a metadata update
+lands the partial outcome, `verified_update_lib.sh:191` and `task_utils.sh:732,734`
+tell the user to run `./ait sync`. On a multi-agent box that command cannot do the
+job: it reconciles via `pull --rebase`, which needs a clean tree, and its own t1599
+lock protection deliberately leaves live-locked files dirty and then takes the
+`protected_dirty` deferral — so it exited 0 while leaving the branch behind 1, with
+the pushed commit still absent locally. `task_data_converge()` — the seam this very
+task added — recovered the identical state instantly (`fast-forwarded`, 0/0) with
+all dirty files byte-identical. The hint therefore points away from the one path
+that works. Nothing is lost (the next metadata update self-heals, since it calls
+`task_data_converge()` first), which is why this is a messaging/reachability defect
+rather than a correctness regression. The same wording is duplicated across the
+rendered `satisfaction-feedback.md` procedures and their goldens; t1696 lists every
+surface.
+
+**Useful for future work.** The contended state that makes this class of bug visible
+is cheap to reproduce here: force the partial by leaving
+`aitasks/metadata/models_claudecode.json` locally modified and running a metadata
+update, then observe recovery. Note that `ait sync` exiting 0 while failing to
+converge means a caller cannot detect the failure from its status — worth keeping in
+mind for anything that automates recovery.
