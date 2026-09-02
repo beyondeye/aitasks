@@ -626,6 +626,151 @@ assert_eq_trim "14: (C) the branch-mode root still answers '.aitask-data'" \
 unset -f detect_subproc_14
 rm -rf "$TMPDIR_14"
 
+# --- Test 15: a nested repository resolves to its OWN legacy mode (t1674) ---
+#
+# BOUNDARY test. Rungs 2 and 3 both stop at a repository boundary — rung 2 via
+# `git rev-parse --show-toplevel`, rung 3 via ait_main_worktree_root()'s
+# same-repo property — so a submodule, or any nested checkout, resolves to its
+# OWN root and therefore to legacy mode, never to the parent repo's data branch.
+# That is the correct answer, not an oversight (see the BOUNDARY note above
+# _ait_detect_data_worktree). Until this block it was held by that comment alone:
+# Test 13 covers cwd shapes and Test 14 the indeterminate-topology refusal, but
+# nothing exercised a nested repository, so a later change to rung 2 or rung 3
+# could silently move a nested checkout onto its parent's data branch.
+#
+# What makes it a boundary test rather than a restatement of "legacy answers '.'":
+#   * the parent fixture really IS branch mode, and still resolves that way (15a);
+#   * vendor/ — the immediate parent DIRECTORY of both nested checkouts, with no
+#     repository boundary — still resolves to the parent's data worktree (15b).
+#     So the only thing that differs between 15b and 15c is the boundary, not the
+#     depth and not the fixture;
+#   * each answer is compared PHYSICALLY, not textually: it must not name the
+#     parent's data worktree, and it must stay inside the nested repository.
+#
+# Falsified against two independent scratch-only mutations of the ladder (a
+# boundary-walking rung 2, and a boundary-walking ait_main_worktree_root that
+# leaves rung 2 intact so execution reaches rung 3). Under each, 15c flips to the
+# parent's data worktree while 15a/15b stay green.
+echo "--- Test 15: nested repository resolves to its own legacy mode ---"
+
+TMPDIR_15="$(setup_repo_with_remote)"
+ROOT_15="$TMPDIR_15/local"
+SCRIPT_DIR="$ROOT_15/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+(cd "$ROOT_15" && setup_data_branch </dev/null >/dev/null 2>&1)
+
+# vendor/ — a plain subdirectory of the parent. NO repository boundary; it is the
+# adjacent control, and the immediate parent directory of both nested checkouts.
+mkdir -p "$ROOT_15/vendor"
+
+# (A) a plain nested checkout: its own repository, no .aitask-data of its own.
+INNER_15="$ROOT_15/vendor/inner"
+(
+    git init --quiet "$INNER_15"
+    cd "$INNER_15" || exit 1
+    git config user.email "test@test.com"; git config user.name "Test"
+    echo nested > f.txt; git add f.txt; git commit --quiet -m init
+    mkdir -p sub
+) >/dev/null 2>&1
+
+# (B) a REAL submodule, cloned from the fixture's own local bare remote so there
+# is no network round-trip. `protocol.file.allow=always` is required on git 2.38+,
+# whose default `user` policy blocks file-transport submodule clones; older gits
+# ignore the unknown key.
+SUB_15="$ROOT_15/vendor/dep"
+git -c protocol.file.allow=always -C "$ROOT_15" \
+    submodule add --quiet "$TMPDIR_15/remote.git" vendor/dep >/dev/null 2>&1
+
+# Probe helper: resolve with a cold cache from <dir>, echo the answer.
+detect_from_15() {
+    _AIT_DATA_WORKTREE=""
+    pushd "$1" >/dev/null || { echo "PUSHD_FAILED"; return 0; }
+    _ait_detect_data_worktree
+    popd >/dev/null
+    printf '%s' "$_AIT_DATA_WORKTREE"
+}
+
+canon_15() { (cd "$1" 2>/dev/null && pwd -P) || echo "MISSING:$1"; }
+
+# The canonical directory a probe's ANSWER names, resolved FROM that probe's own
+# cwd. This is what turns the relative "." into a physical location, so the
+# comparisons below are about directories rather than about two spellings.
+#
+# `cd "$dir" && cd "$ans"` — NOT `cd "$dir/$ans"`. It must handle both spellings
+# the ladder produces: rung 1 answers a RELATIVE ".aitask-data" while rungs 2/3
+# answer an ABSOLUTE path, and that is exactly how consumers use the value
+# (`git -C "$_AIT_DATA_WORKTREE"` from that cwd). Concatenating would turn an
+# absolute answer into a nonexistent path, which silently made the "does NOT name
+# the parent's data worktree" assertion pass under a boundary-walking ladder —
+# caught by the rung-2 falsification run.
+answer_canon_15() {
+    local dir="$1" ans
+    ans="$(detect_from_15 "$dir")"
+    (cd "$dir" 2>/dev/null && cd "$ans" 2>/dev/null && pwd -P) \
+        || echo "UNRESOLVABLE:$ans"
+}
+
+# "within" iff <path> is <root> itself or strictly under it, physically.
+within_15() {
+    local p r
+    p="$(canon_15 "$1")"; r="$(canon_15 "$2")"
+    if [[ "$p" == "$r" ]]; then echo within; return 0; fi
+    case "$p/" in "$r"/?*) echo within ;; *) echo outside ;; esac
+}
+
+DATA_15="$(canon_15 "$ROOT_15/.aitask-data")"
+
+# --- Preconditions: the fixture really built what the assertions probe. -----
+# Hard assertions, never skips: an environment that blocks file-transport
+# submodule clones must fail HERE, naming the fixture, rather than at a boundary
+# assertion — and must never pass vacuously.
+assert_eq_trim "15: parent fixture really is a branch-mode project" "yes" \
+    "$([[ -e "$ROOT_15/.aitask-data/.git" ]] && echo yes || echo no)"
+assert_eq_trim "15: (B) the submodule fixture really was created" "yes" \
+    "$([[ -e "$SUB_15/.git" ]] && echo yes || echo no)"
+
+for nested_15 in "$INNER_15" "$SUB_15"; do
+    nlabel_15="${nested_15#"$ROOT_15"/}"
+    ntop_15="$(cd "$nested_15" && git rev-parse --show-toplevel 2>/dev/null)"
+    assert_eq_trim "15: ($nlabel_15) is its own repository, not the parent's" \
+        "$(canon_15 "$nested_15")" "$(canon_15 "$ntop_15")"
+    assert_eq_trim "15: ($nlabel_15) has no .aitask-data of its own" "absent" \
+        "$([[ -e "$nested_15/.aitask-data" ]] && echo present || echo absent)"
+    # Load-bearing: if it were NOT inside the parent's tree, "." would be trivially
+    # correct and the boundary would never be under test.
+    assert_eq_trim "15: ($nlabel_15) really is inside the parent's working tree" \
+        "within" "$(within_15 "$nested_15" "$ROOT_15")"
+done
+
+# --- 15a: positive control — the parent still resolves to its data worktree.
+assert_eq_trim "15a: the branch-mode parent root still resolves to .aitask-data" \
+    ".aitask-data" "$(detect_from_15 "$ROOT_15")"
+
+# --- 15b: adjacent control — same depth, no boundary, opposite answer.
+assert_eq_trim "15b: vendor/ (a plain subdirectory, no boundary) resolves to the parent's data worktree" \
+    "$ROOT_15/.aitask-data" "$(detect_from_15 "$ROOT_15/vendor")"
+
+# --- 15c: the boundary contract itself.
+for pair_15 in "$INNER_15|$INNER_15" "$INNER_15/sub|$INNER_15" "$SUB_15|$SUB_15"; do
+    probe_15="${pair_15%%|*}"
+    nroot_15="${pair_15##*|}"
+    plabel_15="${probe_15#"$ROOT_15"/}"
+
+    assert_eq_trim "15c: ($plabel_15) answers '.', its own legacy mode" "." \
+        "$(detect_from_15 "$probe_15")"
+    # The half that makes this a boundary test: a ladder that walked past the
+    # repository boundary would answer the parent's data worktree here.
+    assert_eq_trim "15c: ($plabel_15) does NOT name the parent's data worktree" \
+        "differs" \
+        "$([[ "$(answer_canon_15 "$probe_15")" == "$DATA_15" ]] && echo "MATCHED" || echo "differs")"
+    assert_eq_trim "15c: ($plabel_15) the answer stays inside the nested repository" \
+        "within" "$(within_15 "$(answer_canon_15 "$probe_15")" "$nroot_15")"
+done
+
+_AIT_DATA_WORKTREE=""
+unset -f detect_from_15 canon_15 answer_canon_15 within_15
+rm -rf "$TMPDIR_15"
+
 # --- Summary ---
 echo ""
 echo "==============================="

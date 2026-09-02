@@ -65,6 +65,8 @@ _AIT_DATA_WORKTREE=""
 # therefore to legacy mode — never to the parent repo's data branch. That is
 # ait_main_worktree_root()'s same-repo property and it is the correct answer, not
 # an oversight; do not "fix" it by walking up past a repository boundary.
+# Pinned by Test 15 in tests/test_task_git.sh (t1674) — a plain nested checkout
+# and a real submodule, both inside a branch-mode parent, must answer "." there.
 _ait_detect_data_worktree() {
     if [[ -n "$_AIT_DATA_WORKTREE" ]]; then return; fi
     local root=""
