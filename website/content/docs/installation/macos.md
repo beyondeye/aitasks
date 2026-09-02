@@ -109,7 +109,7 @@ If the third line shows orange, truecolor is working. If it shows the literal es
 ## See also
 
 - [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md) — current state of the Homebrew tap and the roadmap toward `homebrew-core`.
-- [`ait setup`](../commands/setup-install/) — what `ait setup` configures and how.
+- [`ait setup`]({{< relref "/docs/commands/setup-install" >}}) — what `ait setup` configures and how.
 - [Terminal Setup]({{< relref "terminal-setup" >}}) — `ait ide` workflow, `tmux` overview, multi-project sessions.
 - [Getting Started]({{< relref "/docs/getting-started" >}}) — first task walkthrough.
 

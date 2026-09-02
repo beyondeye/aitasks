@@ -54,3 +54,31 @@ one-or-two-anchor variant, and the complete list of literal-enumeration
 exceptions — in `aidocs/framework/adding_a_new_codeagent.md` §23b ("Genericization rule").
 Follow it there; this entry exists so doc writers who are *not* adding an agent
 still reach the rule from a general "how to write docs" entry point.
+
+## Internal links on the website: prefer `{{< relref >}}`, and sweep the build
+
+For a link between pages under `website/content/`, use
+`{{< relref "/docs/..." >}}` rather than a hand-written relative path. An anchor
+goes outside the shortcode:
+`[Text]({{< relref "/docs/tuis/monitor/reference" >}}#pane-classification)`.
+
+The reason is enforcement, not style. `refLinksErrorLevel` is unset, so Hugo's
+default `ERROR` applies and a relref whose target page does not exist **fails
+the build**. A hand-written relative path is just text — nothing validates it —
+and a `#fragment` naming a heading that does not exist builds green either way.
+That class stayed live on the published site until t1682 swept for it.
+
+After editing any page under `website/content/`, run:
+
+```bash
+cd website && python3 check_links.py --build
+```
+
+It resolves every same-site link in the *generated* HTML (never by mapping
+source filenames to output paths — `_index.md` builds to
+`<section>/index.html`, and the same source may carry site-root, page-relative
+and `../../` forms) and exits non-zero on any broken link. `--build` renders
+into a private temporary directory rather than reading `website/public/`, which
+is gitignored and may hold whatever anyone last built. The same check runs in
+`.github/workflows/hugo.yml` after the release build, so a dead link blocks the
+deploy. See `website/README.md` for the flags.

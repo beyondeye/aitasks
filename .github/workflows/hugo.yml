@@ -83,6 +83,16 @@ jobs:
             --baseURL "${{ steps.pages.outputs.base_url }}/"
         working-directory: website
 
+      # Resolves every same-site link in the built output. `hugo build` cannot:
+      # it fails a broken `{{ relref }}` but never a hand-written relative path
+      # or a dead `#fragment`. Sweeps the site the step above just built, so it
+      # is handed the same base URL from the same expression -- the two cannot
+      # drift, and a project-path Pages URL would otherwise false-fail every
+      # site-root href. Stdlib only; no extra setup needed.
+      - name: Check internal links
+        run: python3 check_links.py --base-url "${{ steps.pages.outputs.base_url }}/"
+        working-directory: website
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

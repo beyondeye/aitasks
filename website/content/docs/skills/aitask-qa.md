@@ -22,7 +22,7 @@ Run QA analysis on any task — discover tests, run them, identify gaps, and cre
 
 ## Step-by-Step
 
-1. **Profile selection** — Loads an execution profile to pre-answer QA questions. See [Execution Profiles](aitask-pick/execution-profiles/) for the profile schema
+1. **Profile selection** — Loads an execution profile to pre-answer QA questions. See [Execution Profiles]({{< relref "/docs/skills/aitask-pick/execution-profiles" >}}) for the profile schema
 2. **Task selection** — Select a task by ID or interactively from recently archived/active tasks. Supports both parent and child tasks
 3. **QA tier selection** — Choose analysis depth: Quick, Standard, or Exhaustive (see [Three Tiers](#three-tiers) below)
 4. **Change analysis** [Standard, Exhaustive] — Detects commits associated with the task, categorizes changed files into source code, test files, and config/docs
@@ -72,7 +72,7 @@ These keys in `aitasks/metadata/project_config.yaml` configure test and lint com
 | `test_command` | string or list | Shell command(s) for running project tests. If not set, the skill auto-detects test files |
 | `lint_command` | string or list | Shell command(s) for linting project code. If not set, linting is skipped |
 
-See [Build Verification](aitask-pick/build-verification/) for details on `test_command`, `lint_command`, and `verify_build`.
+See [Build Verification]({{< relref "/docs/skills/aitask-pick/build-verification" >}}) for details on `test_command`, `lint_command`, and `verify_build`.
 
 ## Workflows
 

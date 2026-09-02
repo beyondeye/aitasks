@@ -15,7 +15,7 @@ depth: [intermediate]
 ait ide
 ```
 
-This is the one-command path to the ait tmux IDE. `ait ide` resolves the tmux session name from `tmux.default_session` in `project_config.yaml` (defaulting to `aitasks`), creates or attaches to that session, and opens a `monitor` window inside it. Because it always passes an explicit session name, the [session-rename dialog](reference/#session-name-fallback-dialog) never fires.
+This is the one-command path to the ait tmux IDE. `ait ide` resolves the tmux session name from `tmux.default_session` in `project_config.yaml` (defaulting to `aitasks`), creates or attaches to that session, and opens a `monitor` window inside it. Because it always passes an explicit session name, the [session-rename dialog]({{< relref "/docs/tuis/monitor/reference" >}}#session-name-fallback-dialog) never fires.
 
 **Standalone — from inside an existing tmux session:**
 
@@ -34,7 +34,7 @@ The pane list zone renders two sections:
 - **`CODE AGENTS (N)`** — windows whose names start with a configured agent prefix (default `agent-`). These are running code agents started via `ait codeagent`. When the window name contains a task ID (e.g., `agent-t42-<...>`), the card shows the task number.
 - **`OTHER (N)`** — shells, logs, and any other window that is not an agent.
 
-Each section appears only when it has something in it. Windows classified as TUIs — those in the configured TUI list (board, codebrowser, settings, monitor, minimonitor, brainstorm) or starting with `brainstorm-` — are **not** listed in either section, and neither are companion panes (a minimonitor sidebar, or a shadow agent). See [Pane Classification](reference/#pane-classification) in the reference for the classification rules themselves.
+Each section appears only when it has something in it. Windows classified as TUIs — those in the configured TUI list (board, codebrowser, settings, monitor, minimonitor, brainstorm) or starting with `brainstorm-` — are **not** listed in either section, and neither are companion panes (a minimonitor sidebar, or a shadow agent). See [Pane Classification]({{< relref "/docs/tuis/monitor/reference" >}}#pane-classification) in the reference for the classification rules themselves.
 
 Each card shows:
 
@@ -72,7 +72,7 @@ colors:
 CODE AGENTS (5)  ⟳ AUTO  (● active ● prompt ● idle ● done)
 ```
 
-Classification rules are config-driven — you can change the agent prefixes and the TUI list by editing `aitasks/metadata/project_config.yaml` directly or via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab. See the [Reference](reference/#pane-classification) for details.
+Classification rules are config-driven — you can change the agent prefixes and the TUI list by editing `aitasks/metadata/project_config.yaml` directly or via [`ait settings`]({{< relref "/docs/tuis/settings" >}}) → Tmux tab. See the [Reference]({{< relref "/docs/tuis/monitor/reference" >}}#pane-classification) for details.
 
 ### Mouse Support
 
@@ -273,7 +273,7 @@ tmux rename-session -t "$OLD" "$NEW"
 ait monitor
 ```
 
-See the [Session-name fallback dialog](reference/#session-name-fallback-dialog) in the reference for the full decision logic.
+See the [Session-name fallback dialog]({{< relref "/docs/tuis/monitor/reference" >}}#session-name-fallback-dialog) in the reference for the full decision logic.
 
 ---
 

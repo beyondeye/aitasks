@@ -131,13 +131,13 @@ Execution profiles are YAML files with the following keys. All keys are optional
 | Key | Type | Options | Description |
 |-----|------|---------|-------------|
 | `explore_auto_continue` | bool | `true`, `false` | Auto-continue to implementation after exploration |
-| `explore_label_confirm` | enum | `ask`, `auto`, `existing_only` | How [`/aitask-explore`](../../skills/aitask-explore/) settles the new task's labels: confirm them, accept them silently, or restrict them to labels already in the project vocabulary |
+| `explore_label_confirm` | enum | `ask`, `auto`, `existing_only` | How [`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) settles the new task's labels: confirm them, accept them silently, or restrict them to labels already in the project vocabulary |
 
 ### QA
 
 | Key | Type | Options | Description |
 |-----|------|---------|-------------|
-| `qa_mode` | enum | `ask`, `create_task`, `implement`, `plan_only` | What to do with test proposals in [`/aitask-qa`](../../skills/aitask-qa/) |
+| `qa_mode` | enum | `ask`, `create_task`, `implement`, `plan_only` | What to do with test proposals in [`/aitask-qa`]({{< relref "/docs/skills/aitask-qa" >}}) |
 | `qa_run_tests` | bool | `true`, `false` | Whether to run discovered tests during QA analysis |
 
 ### Shadow Review
@@ -179,8 +179,8 @@ These keys control behavior for the fully autonomous remote workflow (`/aitask-p
 |-----|------|-------------|
 | `codeagent_coauthor_domain` | string | Email domain used for custom code-agent commit coauthors |
 | `verify_build` | string or list | Shell command(s) run after implementation to verify the build |
-| `test_command` | string or list | Shell command(s) for running project tests — used by [`/aitask-qa`](../../skills/aitask-qa/). Auto-detects if not set |
-| `lint_command` | string or list | Shell command(s) for linting project code — used by [`/aitask-qa`](../../skills/aitask-qa/). Skipped if not set |
+| `test_command` | string or list | Shell command(s) for running project tests — used by [`/aitask-qa`]({{< relref "/docs/skills/aitask-qa" >}}). Auto-detects if not set |
+| `lint_command` | string or list | Shell command(s) for linting project code — used by [`/aitask-qa`]({{< relref "/docs/skills/aitask-qa" >}}). Skipped if not set |
 | `default_profiles` | dict | Default execution profile per skill. Maps skill names (`pick`, `fold`, `review`, `pr-import`, `revert`, `explore`, `pickrem`, `pickweb`, `qa`, `shadow`) to profile names (without `.yaml`). Users can override in `userconfig.yaml`. The `--profile` argument overrides both |
 
 ## Model Entry Schema

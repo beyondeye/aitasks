@@ -7,7 +7,7 @@ maturity: [experimental]
 depth: [advanced]
 ---
 
-Audit drift between the aitasks skill source-of-truth (`.claude/skills/aitask-*/SKILL.md`) and the code-agent wrapper trees, plus drift in helper-script whitelist coverage across the permission-system touchpoints. Generates missing wrappers from inline templates and inserts missing whitelist entries at the alphabetically-correct positions, with a per-phase user confirmation gate. Companion to [`/aitask-add-model`](../../skills/aitask-add-model/) — both are framework-development skills, useful when you are adding skills or helper scripts to the framework itself.
+Audit drift between the aitasks skill source-of-truth (`.claude/skills/aitask-*/SKILL.md`) and the code-agent wrapper trees, plus drift in helper-script whitelist coverage across the permission-system touchpoints. Generates missing wrappers from inline templates and inserts missing whitelist entries at the alphabetically-correct positions, with a per-phase user confirmation gate. Companion to [`/aitask-add-model`]({{< relref "/docs/skills/aitask-add-model" >}}) — both are framework-development skills, useful when you are adding skills or helper scripts to the framework itself.
 
 **Usage:**
 ```
@@ -89,5 +89,5 @@ Plus the framework's per-agent setup tests stay green: [`tests/test_opencode_set
 
 ## Related
 
-- [`/aitask-add-model`](../../skills/aitask-add-model/) — Sibling framework-development skill for registering new code-agent models.
+- [`/aitask-add-model`]({{< relref "/docs/skills/aitask-add-model" >}}) — Sibling framework-development skill for registering new code-agent models.
 - [Skill authoring conventions in CLAUDE.md](https://github.com/dario-bs/aitasks/blob/main/CLAUDE.md) — "WORKING ON SKILLS / CUSTOM COMMANDS" defines the source-of-truth layout.

@@ -129,7 +129,7 @@ ait setup
 
 ### WSL notes
 
-WSL2 with Ubuntu 22.04+ or Debian 12+ works identically to native Linux — the `.deb` install is the recommended path for WSL. Run all install commands inside your WSL shell, not PowerShell. See the [Windows/WSL guide](windows-wsl/) for WSL setup details.
+WSL2 with Ubuntu 22.04+ or Debian 12+ works identically to native Linux — the `.deb` install is the recommended path for WSL. Run all install commands inside your WSL shell, not PowerShell. See the [Windows/WSL guide]({{< relref "/docs/installation/windows-wsl" >}}) for WSL setup details.
 
 ### Upgrade (Debian/Ubuntu)
 
@@ -226,6 +226,6 @@ The `.rpm` is currently distributed only via GitHub Releases — there is no [Fe
 - [GitHub Releases](https://github.com/beyondeye/aitasks/releases/latest) — `.deb` and `.rpm` artifacts.
 - [AUR package page](https://aur.archlinux.org/packages/aitasks)
 - [Packaging Distribution Status & Roadmap](https://github.com/beyondeye/aitasks/blob/main/aidocs/packaging/packaging_distribution_status.md) — current state of every Linux channel and roadmap toward official repos.
-- [`ait setup`](../commands/setup-install/) — what `ait setup` configures and how.
-- [Windows/WSL Installation Guide](windows-wsl/) — WSL2 host-side setup preceding the Debian/Ubuntu `.deb` path.
+- [`ait setup`]({{< relref "/docs/commands/setup-install" >}}) — what `ait setup` configures and how.
+- [Windows/WSL Installation Guide]({{< relref "/docs/installation/windows-wsl" >}}) — WSL2 host-side setup preceding the Debian/Ubuntu `.deb` path.
 - [Getting Started]({{< relref "/docs/getting-started" >}}) — first task walkthrough.

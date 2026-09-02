@@ -344,7 +344,7 @@ Minimonitor and monitor are complementary and can run side by side. A productive
 - **Window 2 — `agent-t43-...`:** another agent window with its own minimonitor split.
 - **Window 3+ — other TUIs:** board, codebrowser, settings, brainstorm, all reachable from any monitor via `j`.
 
-From any of the agent windows, Tab jumps into the code agent pane and j opens the TUI switcher to hop back to the full monitor dashboard. From monitor, `s` on an agent card brings you to the companion minimonitor alongside it. See [How to Switch tmux to the Focused Pane](../monitor/how-to/#how-to-switch-tmux-to-the-focused-pane) in the monitor docs for the reverse direction.
+From any of the agent windows, Tab jumps into the code agent pane and j opens the TUI switcher to hop back to the full monitor dashboard. From monitor, `s` on an agent card brings you to the companion minimonitor alongside it. See [How to Switch tmux to the Focused Pane]({{< relref "/docs/tuis/monitor/how-to" >}}#how-to-switch-tmux-to-the-focused-pane) in the monitor docs for the reverse direction.
 
 ### Configuring Auto-Spawn
 

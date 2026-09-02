@@ -104,8 +104,19 @@ shellcheck .aitask-scripts/aitask_*.sh
 ```bash
 cd website && npm install && ./serve.sh    # Local dev server
 hugo build --gc --minify                   # Production build (in website/)
+python3 check_links.py --build             # Internal-link check (in website/)
 ```
 Requires: Hugo extended (>=0.155.3), Go (>=1.23), Dart Sass, Node.js (18+).
+
+**Run `check_links.py` after editing any page under `website/content/`.**
+`hugo build` fails a broken `{{< relref >}}` but never a hand-written relative
+path or a dead `#fragment` — that whole class builds green. `--build` renders
+into a private temporary directory, so it does not touch `website/public/`
+(which is gitignored and may hold whatever anyone last built). CI runs the same
+check after the release build, so a dead link blocks the deploy.
+
+Prefer `{{< relref "/docs/..." >}}` over a hand-written relative path for
+internal links: a relref fails the build when a page is moved or renamed.
 
 ## Architecture
 

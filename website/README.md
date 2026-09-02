@@ -119,6 +119,61 @@ hugo mod get -u
 - `weight` controls ordering in the sidebar navigation (lower = higher)
 - See existing pages for examples
 
+### Internal links
+
+Use `{{< relref "/docs/..." >}}` rather than a hand-written relative path. A
+relref fails the build when the target page is moved or renamed; a relative
+path is just text and silently rots. Append an anchor outside the shortcode:
+`[Text]({{< relref "/docs/tuis/monitor/reference" >}}#pane-classification)`.
+
+## Checking Internal Links
+
+`hugo build` validates `{{< relref >}}` targets and nothing else. A
+hand-written relative path that resolves one directory level wrong, and a
+`#fragment` pointing at a heading that does not exist, both build **green** —
+so the whole class is invisible to the build and to CI.
+
+`check_links.py` closes that gap. It resolves every same-site link in the
+*generated* HTML against the file that renders it, checks fragments against the
+target page's `id` attributes, and exits non-zero on any broken link:
+
+```bash
+cd website
+python3 check_links.py --build     # builds its own copy, then sweeps
+```
+
+- Python 3 stdlib only — no dependencies beyond Hugo itself.
+- `--build` renders into a private temporary directory. It deliberately does
+  **not** use `public/`, which is gitignored and may contain whatever was last
+  built (a `hugo server` run, a non-minified build). Sweeping a stale or
+  differently-flagged tree gives an unreliable answer.
+- Pass `--base-url` when checking a site built with a non-default base URL; CI
+  passes the same GitHub Pages URL the build step used. Without it the base
+  path is auto-detected from the built RSS feed's `<channel><link>`.
+- `-v` prints the derived base path and where it came from, and lists the
+  base-agnostic links described below.
+
+### The `base-agnostic` count
+
+Hugo rewrites site-root links it owns (`relref`, `relURL`), but a path written
+by hand inside a shortcode parameter or raw HTML — `url="/docs/..."` on a Docsy
+`blocks/feature`, `href="/blog/"` in an `<a>` — passes through verbatim. Under
+the site's own base path (`/`) that is simply correct. Under a base URL with a
+path prefix it renders without that prefix, so the checker reports it under a
+separate **`base-agnostic`** count rather than as broken.
+
+They are still fully resolved: the target must exist and any `#fragment` must be
+present, so a genuinely dead one is still reported (as `outside-base` or
+`missing-anchor`). The count is printed on every run and `-v` lists each link,
+because an exception nobody can see is indistinguishable from a checker that
+stopped looking. A count that suddenly matches the total link count means the
+base path is wrong — which the `base path is the one the site was built with`
+control fails on independently.
+
+Run it after editing any page under `content/`. CI runs it right after the
+release build (`.github/workflows/hugo.yml`), so a dead link fails the job and
+the site does not deploy.
+
 ## Deployment
 
 Automatic on push of version tags (`v*`) via GitHub Actions. See `.github/workflows/hugo.yml`.

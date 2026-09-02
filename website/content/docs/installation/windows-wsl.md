@@ -49,7 +49,7 @@ ait setup
 
 If you already have the global `ait` shim installed (from a previous project), you can skip the `curl` step and just run `ait setup` in the new project directory.
 
-After setup completes, see [Authentication with Your Git Remote](../#authentication-with-your-git-remote) to configure GitHub access for task locking, sync, and issue integration.
+After setup completes, see [Authentication with Your Git Remote]({{< relref "/docs/installation/git-remotes" >}}#authentication-with-your-git-remote) to configure GitHub access for task locking, sync, and issue integration.
 
 ### Alternative: native `.deb` package
 

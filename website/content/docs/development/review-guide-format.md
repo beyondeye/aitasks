@@ -267,8 +267,8 @@ When the top similarity score is >= 5, the `/aitask-reviewguide-classify` skill 
 
 ## See Also
 
-- [Code Review Workflow](../workflows/code-review/) — high-level review cycle and guide management
-- [`/aitask-review`](../skills/aitask-review/) — run code reviews using guides
-- [`/aitask-reviewguide-classify`](../skills/aitask-reviewguide-classify/) — assign metadata to guides
-- [`/aitask-reviewguide-merge`](../skills/aitask-reviewguide-merge/) — consolidate overlapping guides
-- [`/aitask-reviewguide-import`](../skills/aitask-reviewguide-import/) — import external content as guides
+- [Code Review Workflow]({{< relref "/docs/workflows/code-review" >}}) — high-level review cycle and guide management
+- [`/aitask-review`]({{< relref "/docs/skills/aitask-review" >}}) — run code reviews using guides
+- [`/aitask-reviewguide-classify`]({{< relref "/docs/skills/aitask-reviewguide-classify" >}}) — assign metadata to guides
+- [`/aitask-reviewguide-merge`]({{< relref "/docs/skills/aitask-reviewguide-merge" >}}) — consolidate overlapping guides
+- [`/aitask-reviewguide-import`]({{< relref "/docs/skills/aitask-reviewguide-import" >}}) — import external content as guides

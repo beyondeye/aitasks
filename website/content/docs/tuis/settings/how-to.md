@@ -58,7 +58,7 @@ The Models tab is read-only. To update model definitions, edit the `aitasks/meta
    - **Sync on refresh** -- Toggles between `yes` and `no`
 4. Click **Save Board Settings** to persist
 
-> **Note:** The Columns section at the top is read-only. To customize columns, use the [Board TUI](../board/) directly.
+> **Note:** The Columns section at the top is read-only. To customize columns, use the [Board TUI]({{< relref "/docs/tuis/board" >}}) directly.
 
 ## Edit Project Config Values
 
