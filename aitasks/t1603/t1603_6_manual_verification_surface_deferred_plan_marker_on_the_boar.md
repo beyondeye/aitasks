@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: [t1603_5]
 issue_type: manual_verification
-status: Ready
+status: Implementing
 labels: [verification, manual]
-verifies: [1603_1, 1603_2, 1603_3, 1603_4, 1603_5]
+verifies: [t1603_1, t1603_2, t1603_3, t1603_4, t1603_5]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1595
 followup_kind: manual_verification
 created_at: 2026-08-30 13:32
-updated_at: 2026-08-30 13:32
+updated_at: 2026-09-02 09:58
 ---
 
 ## Manual Verification Task
