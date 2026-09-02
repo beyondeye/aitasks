@@ -155,26 +155,38 @@ mutation 2, which short-circuits before rung 3 and makes the pre-flight pass on
 a run that never tested rung 3 at all. So define the build once and call it
 before the baseline **and again before each mutation**:
 
+Every destination is spelled out — no path arithmetic. `tests/lib` must land at
+`$ISO/tests/lib` and `tests/test_task_git.sh` at `$ISO/tests/test_task_git.sh`,
+because that is what makes `TEST_SCRIPT_DIR` resolve to `$ISO/tests` and hence
+`PROJECT_DIR` to `$ISO`:
+
 ```bash
 ISO=<scratchpad>/isotree
 build_iso() {
   rm -rf "$ISO"                       # MANDATORY — never cp onto an existing $ISO
   mkdir -p "$ISO/tests"
-  for src in ait .aitask-scripts tests/lib tests/test_task_git.sh; do
-    echo "  copying: $PWD/$src"       # record the source paths for the log
-    cp -a "$src" "$ISO/${src#tests/}" 2>/dev/null || cp -a "$src" "$ISO/$src"
-  done
-  ls -d "$ISO/.aitask-scripts/.aitask-scripts" 2>/dev/null \
-    && { echo "NESTED_COPY — build is corrupt, abort"; return 1; }
-  return 0
+  echo "  copy src: $PWD/{ait,.aitask-scripts,tests/lib,tests/test_task_git.sh}"
+  cp -a ait                    "$ISO/ait"                       || return 1
+  cp -a .aitask-scripts        "$ISO/.aitask-scripts"           || return 1
+  cp -a tests/lib              "$ISO/tests/lib"                 || return 1
+  cp -a tests/test_task_git.sh "$ISO/tests/test_task_git.sh"    || return 1
+
+  # Layout assertions — the build is only usable if ALL of these hold.
+  local ok=0
+  [[ -f "$ISO/tests/test_task_git.sh"        ]] || { echo "MISSING: tests/test_task_git.sh"; ok=1; }
+  [[ -f "$ISO/tests/lib/asserts.sh"          ]] || { echo "MISSING: tests/lib/asserts.sh";   ok=1; }
+  [[ -f "$ISO/.aitask-scripts/lib/task_utils.sh" ]] || { echo "MISSING: task_utils.sh";      ok=1; }
+  [[ -x "$ISO/ait"                           ]] || { echo "MISSING: ait";                    ok=1; }
+  [[ -d "$ISO/.aitask-scripts/.aitask-scripts" ]] && { echo "NESTED_COPY — build corrupt";   ok=1; }
+  return "$ok"
 }
 build_iso && bash "$ISO/tests/test_task_git.sh"
 ```
 
-(Destinations are `$ISO/ait`, `$ISO/.aitask-scripts`, `$ISO/tests/lib`,
-`$ISO/tests/test_task_git.sh` — spell them explicitly if the loop above is
-awkward; the load-bearing parts are the `rm -rf`, the recorded source paths, and
-the nested-copy check.)
+The four `MISSING:` assertions are the point of the block: a destination typo
+makes `cp` succeed at the wrong path, so only an explicit existence check on the
+exact files the test needs can catch it. `build_iso` returning non-zero aborts
+the run — never interpret a test result from a failed build.
 
 That file set is sufficient and was confirmed green end-to-end (48/48) before
 any mutation — a baseline run of the freshly built, unmutated copy is itself
