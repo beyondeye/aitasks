@@ -341,13 +341,31 @@ below uses `command grep`. Do not use bare `grep`/`find` for evidence here.
    command grep -n 'BATCH_VERIFIES' .aitask-scripts/aitask_create.sh
    ```
    → parse + three serializer sites, none conditioned on `issue_type`.
-4. **No surface still calls the flag manual-verification-only:**
+4. **The `--verifies` contract surfaces carry the new wording and not the old.**
+   A substring search for "manual-verification tasks" is **not** a valid check
+   here: the corrected text contains that phrase too ("usually
+   manual-verification tasks, but any issue_type may carry a verifies list"), so
+   it would pass on both correct and incorrect content. Assert two arms per
+   surface — the exact old **exclusive** phrase absent, the new
+   **non-exclusive** phrase present:
+
+   | file | old phrase (ABSENT) | new phrase (PRESENT) |
+   |---|---|---|
+   | `.aitask-scripts/aitask_create.sh` | `(for issue_type: manual_verification)` | `but not restricted to one` |
+   | `.aitask-scripts/aitask_update.sh` | `Verifies options (batch mode, for manual-verification tasks):` | `issue_type may carry a verifies list` |
+   | `website/content/docs/commands/task-management.md` | ``this task verifies (for `manual_verification` tasks)`` | `but any issue type may carry it` |
+
    ```bash
-   command grep -rn 'manual_verification` tasks\|manual-verification tasks\|for issue_type: manual_verification' \
-     .aitask-scripts/aitask_create.sh .aitask-scripts/aitask_update.sh \
-     website/content/docs/commands/task-management.md
+   check() {  # label file old new
+     local rc=0
+     command grep -qF -- "$3" "$2" && { echo "FAIL[$1]: old exclusive wording present"; rc=1; }
+     command grep -qF -- "$4" "$2" || { echo "FAIL[$1]: new contract wording absent"; rc=1; }
+     [ $rc -eq 0 ] && echo "OK[$1]"; return $rc
+   }
    ```
-   → no hits on the `--verifies` surfaces.
+   **Negative control (required — this is what proves the check is not
+   vacuous):** run both arms against `git show <pre-edit-rev>:<file>`. Every
+   surface must fail **both** arms.
 5. **No remaining claim that `--followup-of` yields an `exact` origin or seeds:**
    ```bash
    command grep -n -- '--followup-of' aidocs/framework/task_premise_staleness.md
@@ -375,8 +393,11 @@ below uses `command grep`. Do not use bare `grep`/`find` for evidence here.
    → docstring only, never in code.
 7. **Dependency wired, and nothing dropped** (`--deps` replaces the whole list):
    ```bash
-   ./.aitask-scripts/aitask_query_files.sh resolve 1663_3
-   command grep -n '^depends:' aitasks/t1663/t1663_3_creation_time_seeding_and_carryover.md
+   # NOTE: `resolve` takes parent ids only and rejects `1663_3`; `child-file`
+   # is the child lookup. (t1673's own acceptance text named the wrong verb —
+   # corrected in the task file as part of this task.)
+   f=$(./.aitask-scripts/aitask_query_files.sh child-file 1663 3 | sed 's/^CHILD_FILE://')
+   command grep -n '^depends:' "$f"
    ./ait ls -v --children 1663 99
    ```
    → `depends:` contains both `1663_2` and `1673`; the listing renders t1663_3
@@ -430,3 +451,90 @@ already covered by deliverable 5, which is in this task's scope, and every other
 bullet is covered by an existing verification step or by the dependency edge
 this task wires. Spawning a task for any of them would duplicate work this plan
 already performs.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All five planned edits landed.
+  1. `aidocs/framework/task_premise_staleness.md` — Tier B redefined to *any task
+     carrying an `exact` origin* (was "for follow-up tasks"), with `t583_9` cited
+     as the live case the old wording excluded; the `--followup-of`
+     impossibility stated as a contract; seeding trigger corrected to
+     `--file-ref` / `--verifies`; the "before"-timed risk-mitigation paragraph
+     qualified ("no live subject in v1"); a new `### Tier B reachability`
+     subsection carrying the caller table, the type-agnostic `--verifies`
+     contract, the why-not-`anchor` argument, and the dated 2026-09-01
+     observation marked explicitly *not pass/fail*; the no-go closing paragraph
+     narrowed from "every new follow-up" to "every seeded task"; three new rows
+     in the baseline-lifecycle table; the "Topic-quality origins" deferred bullet
+     strengthened with the 2026-08-27 disjointness evidence; two new deferred
+     items (persisted exact-origin field; post-creation scope acquisition), both
+     owned by the retrospective child.
+  2. The three `--verifies` contract surfaces (`aitask_create.sh`,
+     `aitask_update.sh`, `website/content/docs/commands/task-management.md`)
+     reworded from manual-verification-**only** to "usually, but any issue type
+     may carry it".
+  3. `t1663_3` — corrected criterion in Context/Key files/Verification, the
+     non-MV non-follow-up contract fixture added as a required case, and
+     `depends: [t1663_2, 1673]`.
+  4. `t1663_5` — docs-handoff wording pinned so the website child cannot
+     reproduce "follow-up seeding".
+  5. `t1663_6` — Tier-B reachability added as a measured input; two new
+     dispositions added.
+
+- **Deviations from plan:** One, deliberate. The plan specified
+  `aitask_update.sh --commit` for the three sibling task files; `--commit` was
+  dropped because Step 8's review is non-skippable and those edits *are* the
+  deliverable. They were written in Step 7 and committed in Step 8 with the rest.
+
+- **Issues encountered:**
+  - `grep` and `find` are shimmed in this session to a helper that invokes
+    `claude -G`, which errors `unknown option '-G'` **and exits 0** — a silent
+    false negative on every evidence command. All verification was re-run with
+    `command grep`. The plan records this; it is a session/environment property,
+    not a repo defect.
+  - Two review rounds tightened the work before approval:
+    - The first draft claimed "every creation path writing `verifies:` is
+      manual-verification-only". False as stated — `aitask_create.sh` is
+      type-agnostic; the restriction is in two *callers*. Corrected, and the
+      three misleading help surfaces were fixed so the documented contract
+      matches the implementation the record now depends on.
+    - Tier B's written eligibility ("for follow-up tasks") contradicted the
+      resolver, which "deliberately never reads `followup_kind`". The corpus
+      already violated it (`t583_9`). Resolved by correcting the claim rather
+      than adding a gate.
+  - Step 8 review caught two verification defects, both fixed:
+    - t1673's own acceptance text prescribed
+      `aitask_query_files.sh resolve 1663_3`, but `resolve` rejects child ids.
+      Replaced with `child-file 1663 3` plus an explicit assertion that **both**
+      deps survived (`--deps` replaces the whole list).
+    - The "no MV-only surface remains" check was a substring grep that the
+      *corrected* wording also matches — it passed on both right and wrong
+      content. Replaced with a two-arm fixed-string check per surface (old
+      exclusive phrase ABSENT, new non-exclusive phrase PRESENT), plus a
+      negative control against the pre-edit revisions. The control was run:
+      all three surfaces failed both arms, proving the check discriminates.
+
+- **Key decisions:**
+  - **Seeding trigger** = `--file-ref` (Tier A) or `--verifies` (Tier B exact);
+    `--followup-of` alone does not seed. Chosen over narrowing to `--file-ref`
+    only (user-confirmed) because it mirrors the resolver contract and needs no
+    re-widening when a non-MV path gains `--verifies`.
+  - **Tier B not widened to accept `anchor`.** It would re-import the
+    undifferentiated-churn failure the computed-baseline no-go already rejected,
+    and the 2026-08-27 data shows the topic fallback can be *disjoint* from the
+    exact answer, not merely coarser.
+  - **`--verifies` declared type-agnostic and pinned by a fixture** rather than
+    asserted in prose, so a future type-gate fails a test instead of silently
+    dormanting Tier B.
+  - **The dated corpus numbers are recorded as observations, never as criteria** —
+    the load-bearing claims are the contract-level ones (`anchor` is never
+    `exact`; the resolver never reads `followup_kind`), which no data change can
+    falsify.
+  - **Honest narrowing recorded:** no in-framework *creation* caller produces a
+    non-MV `--verifies` task, so Tier B ships live-by-contract but unexercised,
+    and Tier A is v1's only exercised seeding path. Handed to the retrospective
+    child as a measured input rather than smoothed over.
+
+- **Upstream defects identified:** None
