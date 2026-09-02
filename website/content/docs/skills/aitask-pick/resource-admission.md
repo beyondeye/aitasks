@@ -32,10 +32,25 @@ message, no file. It is also editable in `ait settings` → **Project Config**.
 
 Unlike `verify_build` / `test_command` / `lint_command`, this key takes a
 **single command**, not a list — a project needing several probes points it at
-one wrapper script, which keeps "which refusal wins" from being a question. A
-list value is **refused**, whatever its length: `["./probe.sh"]` is rejected just
-as `[a, b]` is, so the rule has no length-dependent edge to trip over. (A scalar
-whose value happens to contain a comma is still a scalar.)
+one wrapper script, which keeps "which refusal wins" from being a question. Two
+shapes are **refused** outright, because neither leaves a command to run: a list
+whatever its length (`["./probe.sh"]` is rejected just as `[a, b]` is, so the
+rule has no length-dependent edge to trip over), and an indented block under the
+key. Both are loud — the task is parked with a config error — rather than being
+read as "no hook configured".
+
+Everything else on the key line is taken as the command it textually is. That
+includes text YAML would call a mapping: `{ make build; }` is a valid shell
+group command, so the value is run rather than second-guessed. A value that will
+not run is reported as a command error, which also parks the task.
+(A scalar whose value happens to contain a comma is still a scalar.)
+
+A command containing a colon-space must be quoted, or YAML reads it as a nested
+mapping rather than a command:
+
+```yaml
+resource_admission_command: 'sh -c "echo ADMISSION_REASON: low memory; exit 2"'
+```
 
 ## The exit contract
 

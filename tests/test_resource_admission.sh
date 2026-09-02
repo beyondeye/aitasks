@@ -251,6 +251,18 @@ list_case "block 2-item list"  'resource_admission_command:
   - a
   - b'
 
+# A NESTED BLOCK is the other non-scalar shape, and the dangerous one: unlike a
+# list it is INVISIBLE to both readers -- it resolves to zero values, exactly as
+# "key absent" does. Collapsing the two reported none_configured and exit 0 for a
+# project that HAD configured a hook, a silent admit that inverted the feature's
+# fail-closed posture. The Settings TUI produced this shape for any command
+# containing `: ` until t1672, and a hand edit still can.
+list_case "nested mapping block" 'resource_admission_command:
+  sh -c "echo ADMISSION_REASON: no memory; exit 2"'
+list_case "nested block, comment between" 'resource_admission_command:
+  # why
+  ./probe.sh'
+
 # NEGATIVE CONTROL for the shape check: a scalar whose VALUE contains a comma is
 # still a scalar. If the list detection over-triggered here, every project with a
 # quoted comma in its probe command would be parked with a config error.
@@ -259,6 +271,65 @@ run_helper "$comma" --task-id 42
 assert_eq_trim "(f) a scalar containing a comma is NOT read as a list" "1" "$RC"
 assert_eq_trim "(f) ...and it really ran" "refused" "$(field "$OUT" REASON)"
 assert_eq_trim "(f) ...with its own output as the reason" "a,b" "$(field "$OUT" DETAIL)"
+
+# --- negative controls for the BLOCK-shape check ---------------------------
+#
+# This check runs at EVERY Step-7 pick, so an over-trigger would park every task
+# in the project with a config error. Each shape below must reach its ORDINARY
+# verdict, never exit 3. The empty-key rows are the ones that carry the whole
+# distinction: an empty `key:` with no indented body is the documented way to
+# DISABLE the hook, and it must stay "not configured" rather than becoming a
+# config error.
+echo "--- (f2) block-shape check: shapes that are NOT a block ---"
+
+not_block_case() { # not_block_case <label> <yaml-lines> <expect-rc> <expect-reason>
+    local d
+    d="$(mktemp -d "$WORK/notblk_XXXXXX")"
+    mkdir -p "$d/aitasks/metadata"
+    { echo "project:"; echo "  name: demo"; printf '%s\n' "$2"; } \
+        > "$d/aitasks/metadata/project_config.yaml"
+    run_helper "$d" --task-id 42
+    assert_eq_trim "(f2) $1 ⇒ exit $3" "$3" "$RC"
+    assert_eq_trim "(f2) $1 ⇒ $4" "$4" "$(field "$OUT" REASON)"
+}
+
+not_block_case "empty key, nothing after" \
+    'resource_admission_command:' 0 none_configured
+not_block_case "empty key, then a TOP-LEVEL key" \
+    'resource_admission_command:
+verify_build: make' 0 none_configured
+not_block_case "empty key, blank line, then a top-level key" \
+    'resource_admission_command:
+
+verify_build: make' 0 none_configured
+not_block_case "empty key, then a top-level comment" \
+    'resource_admission_command:
+# unrelated' 0 none_configured
+# The correct use of a colon -- and this key's OWN documented reason convention
+# makes a colon-space its normal case, so the check must leave it alone.
+not_block_case "quoted scalar containing a colon-space" \
+    "resource_admission_command: 'sh -c \"echo ADMISSION_REASON: no memory; exit 2\"'" \
+    1 refused
+# A key that merely SHARES A PREFIX with ours must not be mistaken for it.
+not_block_case "a different key with a block value" \
+    'resource_admission_command_extra:
+  foo: bar' 0 none_configured
+
+# A FLOW MAPPING on the key line is NOT not_scalar, and that is deliberate.
+# `not_scalar` names the two shapes that leave no command to run -- a list and
+# an indented block. `{foo: bar}` leaves the text of a command, so it is run;
+# failing to run is a command error. Still FAIL-CLOSED (exit 2 parks the task),
+# which is the property t1672 is about -- it is never a silent admit.
+not_block_case "flow mapping is run, not classed not_scalar" \
+    'resource_admission_command: {foo: bar}' 2 command_error
+
+# NEGATIVE CONTROL, and the reason the case above is not "fixed" by refusing
+# flow mappings: `{ ...; }` is a valid shell GROUP COMMAND that YAML also parses
+# as a mapping. Rejecting mappings would reject this working hook -- the same
+# mistake as reading `[ -f Makefile ]` as a list.
+not_block_case "a shell group command really runs" \
+    'resource_admission_command: "{ echo ADMISSION_REASON: grouped; exit 2; }"' \
+    1 refused
 
 assert_exit3 "bad --task-id" "$unset_key" --task-id "x/../y"
 assert_exit3 "unknown argument" "$unset_key" --nope

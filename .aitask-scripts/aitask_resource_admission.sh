@@ -31,6 +31,19 @@
 #
 #   VERDICT:admit|refuse|error      -- ABSENT on exit 3 (see EXIT below)
 #   REASON:none_configured|admitted|refused|command_malformed|command_error|not_scalar
+#                                   -- not_scalar covers the two shapes that
+#                                      resolve to NO scalar: a list of any
+#                                      length, and an indented block. A value
+#                                      that merely LOOKS structured on the key
+#                                      line (`{foo: bar}`) is read as the
+#                                      command it textually is; if it will not
+#                                      run, that is command_malformed /
+#                                      command_error -- still fail-closed, but
+#                                      NOT not_scalar. Deliberate: `{ make
+#                                      build; }` is a valid shell group command
+#                                      and YAML parses it as a mapping, so
+#                                      refusing flow mappings would reject a
+#                                      working hook.
 #   DETAIL:<one-line human text>    -- sanitized (see SANITIZING)
 #   LOG:<path>|(none)               -- (none) = no command ran, nothing written
 #   DIAG:<one-line sanitized text>  -- exit 3 ONLY, and ALWAYS on exit 3
@@ -124,6 +137,33 @@ sanitize_line() {
 # LOG: reports (none) until a log has actually been created and proven
 # writable -- naming a path the caller cannot read anything from would send
 # them to diagnostics that do not exist.
+# yaml_key_has_block_child <file> <key>
+# True when <key> is a TOP-LEVEL key whose inline value is empty and whose next
+# content line is INDENTED -- i.e. its value is a nested block, not a scalar.
+#
+# read_yaml_list witnesses a block LIST but not a MAPPING: `k:` followed by an
+# indented `sh -c "..."` resolves to nothing at all, and "nothing" is
+# indistinguishable from "key absent" -- which turned a configured-but-mis-saved
+# hook into a silent admit (t1672). An empty `key:` with NO indented body is not
+# a block: that is the documented way to disable the hook and must keep reading
+# as "not configured".
+yaml_key_has_block_child() {
+    local file="$1" key="$2" answer
+    [[ -f "$file" ]] || return 1
+    answer="$(LC_ALL=C awk -v key="$key" '
+        seen == 0 {
+            if (index($0, key ":") == 1 &&
+                substr($0, length(key) + 2) ~ /^[[:space:]]*$/) seen = 1
+            next
+        }
+        /^[[:space:]]*$/ { next }
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]/   { print "block"; exit }
+        { exit }
+    ' "$file")"
+    [[ "$answer" == "block" ]]
+}
+
 diag_exit() {
     local msg="$1"
     printf 'LOG:%s\n' "$( [[ "${log_ready:-0}" == 1 ]] && printf '%s' "$log_path" || printf '(none)' )"
@@ -191,6 +231,17 @@ mapfile -t as_list < <(read_yaml_list "$CONFIG_FILE" "$RESOURCE_ADMISSION_KEY" 2
 if [[ ${#as_list[@]} -gt 0 ]]; then
     printf 'REASON:not_scalar\n'
     diag_exit "$RESOURCE_ADMISSION_KEY must be a single command, not a YAML list (got a ${#as_list[@]}-item list in $CONFIG_FILE) -- point it at one wrapper script instead"
+fi
+
+# A NESTED BLOCK IS NOT A SCALAR EITHER, and unlike a list it is INVISIBLE to
+# both readers above: it resolves to zero values, which is exactly what "key
+# absent" resolves to. Collapsing the two would report `none_configured` and
+# exit 0 for a project that HAS configured a hook -- a silent admit, inverting
+# this feature's fail-closed posture (t1672). Checked after the list refusal, so
+# a block LIST keeps its own message.
+if yaml_key_has_block_child "$CONFIG_FILE" "$RESOURCE_ADMISSION_KEY"; then
+    printf 'REASON:not_scalar\n'
+    diag_exit "$RESOURCE_ADMISSION_KEY must be a single command string, but its value in $CONFIG_FILE is an indented block, not a scalar -- put the command on the key line (quote it if it contains a colon)"
 fi
 
 declare -a cmds=()

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -187,6 +188,7 @@ _TAB_SWITCH_ACTIONS = {
 PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     "codeagent_coauthor_domain": {
         "summary": "Email domain used for custom code-agent commit coauthors",
+        "type": "string",
         "detail": (
             "Stored in aitasks/metadata/project_config.yaml and shared with the team. "
             "The task workflow uses it to build code-agent coauthor emails such as "
@@ -195,6 +197,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
     "verify_build": {
         "summary": "Build verification command(s) run after implementation",
+        "type": "string_or_list",
         "detail": (
             "Accepts a single shell command string or a YAML list of commands. "
             "Leave blank to disable build verification for task-workflow, "
@@ -203,6 +206,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
     "test_command": {
         "summary": "Test command(s) for QA analysis (used by /aitask-qa)",
+        "type": "string_or_list",
         "detail": (
             "Shell command(s) used by /aitask-qa to run project tests. "
             "Accepts a single string or YAML list. Leave blank for auto-detection."
@@ -210,6 +214,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
     "lint_command": {
         "summary": "Lint command(s) for QA analysis (used by /aitask-qa)",
+        "type": "string_or_list",
         "detail": (
             "Shell command(s) used by /aitask-qa to lint changed files. "
             "Accepts a single string or YAML list. Leave blank to skip."
@@ -217,6 +222,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
     "resource_admission_command": {
         "summary": "Command asked whether the host can afford to start implementing",
+        "type": "string",
         "detail": (
             "Consulted by task-workflow Step 7, after the plan is approved and "
             "before any branch or worktree is cut. Exit 0 admits; exit 2 defers "
@@ -230,6 +236,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
     "learn_skill_authoring_guide": {
         "summary": "Skill-authoring guide applied by /aitask-learn-skill",
+        "type": "string",
         "detail": (
             "Path to the skill-authoring best-practices guide that "
             "/aitask-learn-skill (generate.md) applies when writing a generated "
@@ -241,6 +248,7 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
     },
     "default_profiles": {
         "summary": "Default execution profile for each skill",
+        "type": "mapping",
         "detail": (
             "Maps skill names to profile names (without .yaml). "
             "Valid skills: pick, fold, review, pr-import, revert, explore, pickrem, pickweb, qa, shadow. "
@@ -329,6 +337,82 @@ def _format_yaml_value(value) -> str:
     return yaml.safe_dump(
         value, default_flow_style=True, sort_keys=False, allow_unicode=True,
     ).strip()
+
+
+def _format_yaml_block(value) -> str:
+    """Render a YAML list into the readable block form the editor shows."""
+    return yaml.safe_dump(
+        value, default_flow_style=False, sort_keys=False, allow_unicode=True,
+    ).strip()
+
+
+_BLOCK_LIST_OPENER = re.compile(r"^-(\s|$)")
+
+
+def _looks_like_block_list(text: str) -> bool:
+    """True when text's first content line opens a YAML block sequence.
+
+    Block form is UNAMBIGUOUS -- no shell command opens a line with `- ` -- so
+    a block edit is taken as a list whatever its spelling: quoted items,
+    trailing comments and re-indentation all stay lists. Only FLOW form is
+    ambiguous with a command, and only that goes through _list_if_canonical.
+
+    The decision is made on the FIRST content line, not on any line: a
+    multi-line scalar whose continuation happens to start with `- ` is not a
+    block list.
+    """
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        return bool(_BLOCK_LIST_OPENER.match(stripped))
+    return False
+
+
+def _list_if_canonical(text: str, renderer):
+    """The list `text` is the canonical `renderer` output for -- else None.
+
+    THE single list-intent test, shared by the project-config save path and
+    both directions of the multi-line command editor. Parsing alone is not
+    enough: `[ -f Makefile ]` is a shell test command and a perfectly good
+    verify_build, yet it parses to the list ['-f Makefile']. It is only a LIST
+    if the text is byte-for-byte what we would have written for that list --
+    which it is not, since we render `[-f Makefile]`. Provenance, not
+    intent-guessing: every list reaching these call sites was rendered by
+    _format_yaml_value.
+
+    ONLY for FLOW-form text, where the ambiguity actually lives. A block-form
+    edit (`- item` lines) is unambiguous and is handled by
+    _looks_like_block_list instead -- canonicality there would reject a
+    perfectly good `- "make build"`.
+    """
+    try:
+        parsed = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return None
+    if isinstance(parsed, list) and renderer(parsed) == text.strip():
+        return parsed
+    return None
+
+
+def _coerce_project_config_value(key: str, raw_value: str):
+    """Turn a Project Config editor string into the value that is stored.
+
+    raw_value arrives ALREADY TRIMMED by the caller (see
+    save_project_settings) and is otherwise stored EXACTLY as given -- no
+    re-parsing, no re-rendering. Only a key the schema declares
+    `string_or_list` may become a list, and only when _list_if_canonical says
+    raw_value IS the canonical flow rendering of one.
+
+    Re-parsing a string-typed key as a YAML document is what stored
+    `sh -c "echo ADMISSION_REASON: x; exit 2"` as a nested mapping, which the
+    admission hook then read as "not configured" -- a silent admit for a
+    project that had configured a hook (t1672).
+    """
+    if PROJECT_CONFIG_SCHEMA.get(key, {}).get("type") != "string_or_list":
+        return raw_value
+    parsed = _list_if_canonical(raw_value, _format_yaml_value)
+    return raw_value if parsed is None else parsed
 
 
 def _safe_id(name: str) -> str:
@@ -824,34 +908,46 @@ class EditVerifyBuildScreen(ModalScreen):
 
     @staticmethod
     def _to_block_yaml(value: str) -> str:
-        """Convert compact YAML to readable block-style for editing."""
+        """Expand a canonical flow list into block style for editing.
+
+        Only a value that IS the canonical flow rendering of a list is
+        expanded. A command that merely parses as one -- `[ -f Makefile ]` --
+        is left alone: expanding it to `- -f Makefile` would make the next
+        save persist a list, so a stored command would become a list purely by
+        being looked at (t1672).
+        """
         if not value:
             return ""
-        try:
-            parsed = yaml.safe_load(value)
-            if isinstance(parsed, list):
-                return yaml.safe_dump(parsed, default_flow_style=False).strip()
-        except yaml.YAMLError:
-            pass
-        return value
+        parsed = _list_if_canonical(value, _format_yaml_value)
+        return value if parsed is None else _format_yaml_block(parsed)
 
     @staticmethod
     def _to_compact_yaml(text: str) -> str:
-        """Convert edited text back to compact storage format."""
+        """Convert edited text back to compact storage format.
+
+        Block form is unambiguous list intent, so it is accepted whatever its
+        spelling -- quoted items, trailing comments, re-indentation. (YAML
+        comments are dropped, as safe_load drops them; the commands survive.)
+        Flow form is ambiguous with a shell command, so it must be the
+        canonical rendering to count as a list.
+
+        Everything else is returned as the ORIGINAL text. Returning the
+        YAML-decoded scalar instead used to strip shell-significant quoting --
+        `"$HOME/with space/run"` became `$HOME/with space/run`, which word-
+        splits when run -- and needed no edit to fire, since opening the
+        editor and saving was enough (t1672).
+        """
         text = text.strip()
         if not text:
             return ""
-        try:
-            parsed = yaml.safe_load(text)
-            if isinstance(parsed, list):
-                return yaml.safe_dump(
-                    parsed, default_flow_style=True, sort_keys=False,
-                ).strip()
-            if isinstance(parsed, str):
-                return parsed
-        except yaml.YAMLError:
-            pass
-        return text
+        if _looks_like_block_list(text):
+            try:
+                parsed = yaml.safe_load(text)
+            except yaml.YAMLError:
+                return text
+            return _format_yaml_value(parsed) if isinstance(parsed, list) else text
+        parsed = _list_if_canonical(text, _format_yaml_value)
+        return text if parsed is None else _format_yaml_value(parsed)
 
     def compose(self) -> ComposeResult:
         display_value = self._to_block_yaml(self.current_value)
@@ -2586,11 +2682,12 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
             if not raw_value:
                 data.pop(key, None)
                 continue
-            try:
-                data[key] = yaml.safe_load(raw_value)
-            except yaml.YAMLError as exc:
-                self.notify(f"Invalid YAML for {key}: {exc}", severity="error")
-                return
+            # Stored as typed (surrounding whitespace trimmed above); only a
+            # `string_or_list` key whose text is a canonical flow list becomes
+            # a list. The former blanket yaml.safe_load() re-parsed every
+            # value as a YAML document, so any command containing `: ` was
+            # stored as a nested mapping (t1672).
+            data[key] = _coerce_project_config_value(key, raw_value)
 
         self.config_mgr.save_project_settings(data)
         self.config_mgr.load_all()
