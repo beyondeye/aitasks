@@ -474,3 +474,147 @@ since planning. Do not adjust the expectation to match the output.
 Standard: commit the doc repairs, the checker and the CI step together;
 current-branch mode, so nothing to merge. Archive t1682 and its plan once the
 `risk_evaluated` gate is recorded.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-02 11:05)
+
+- **Requested by user:** The site-wide sweep surfaced 8 further links that
+  resolve only under a base path of `/` (7 in `content/_index.md` as Docsy
+  `blocks/feature url=` / `tour-tile href=` parameters and one raw `<a href>`,
+  1 in `docs/workflows/releases.md` as `](/blog/)`). The user's decision: those
+  links are **correct as written**, so `check_links.py` must carry an exception
+  for that link *type* rather than the content being changed — and the exception
+  must make the stated base-URL parity case pass instead of failing.
+
+- **Changes made:**
+  1. `check_links.py` — a same-site path that does not carry the configured
+     base path is re-resolved **at the output root**. If it resolves there it is
+     accepted and counted under a new **`base-agnostic`** total; if it does not,
+     it is still reported `outside-base`. Excepted links keep their full
+     resolution: the target file must exist and any `#fragment` must be present,
+     so a dead anchor on an excepted link is still `missing-anchor`.
+  2. The count is printed on **every** run and each link is listed under `-v`.
+     An exception nobody can see is indistinguishable from a checker that
+     stopped looking, which is the exact false-pass shape the other controls
+     exist to prevent.
+  3. A link is added to the `base-agnostic` list **only after it fully
+     resolves** — a first cut counted a dead excepted link both as accepted and
+     as broken (9 vs 8).
+  4. **Control 5 was re-keyed.** It previously asserted "every root-relative
+     href starts with `base_path`", which the accepted class now legitimately
+     violates. It is now keyed on a *named* href that carries the base path
+     (`/docs/` at root, `/aitasks/docs/` under a project path) captured from
+     `docs/index.html`, renamed `base path is the one the site was built with`.
+  5. `website/README.md` gained a "The `base-agnostic` count" subsection.
+
+- **Deviation from the plan's Verification step 4 (recorded deliberately):**
+  the wrong-base forced failure no longer discriminates by broken count — with
+  the exception in place, a bogus base path (`https://x/nope/`) sends every
+  root-relative href down the accept path, so `broken` is 0. **The load-bearing
+  assertion moved to the control**, which is exactly why control 5 was re-keyed
+  rather than dropped. Measured: base path `/nope/` → `broken: 0`,
+  `base-agnostic: 25108`, control 5 **False**, exit **1**. The 25108 count is
+  itself the loud signal. Verification step 4's forced-failure assertion should
+  be read as "control 5 fails and the run exits 1", not "`outside-base` records
+  appear".
+
+- **Re-verified after the change (all with the final checker):**
+  | case | result |
+  |---|---|
+  | pre-repair build, `--expect` | `broken: 28`, set equality, 6/6 controls, exit 1 |
+  | committed state (isolated build) | `broken: 0`, `base-agnostic: 0`, 6/6, exit 0 |
+  | (a) explicit root | `broken: 0`, `base-agnostic: 0`, 6/6, exit 0 |
+  | (b) explicit project path | `broken: 0`, `base-agnostic: 8` (all 8 named), 6/6, exit 0 |
+  | (c) auto-detect root | base path `/`, `broken: 0`, exit 0 |
+  | (d) auto-detect project path | base path `/aitasks/`, `broken: 0`, exit 0 |
+  | forced: wrong base `/nope/` | control 5 False, exit 1 |
+  | forced: `/docs/nope/` under project path | `outside-base` — the exception is not a blanket pass |
+  | forced: `/docs/tuis/#no-such-anchor` | `missing-anchor` — excepted links keep fragment checking |
+  | forced: `/aitasks/docs/nope/` | `missing-page` |
+  | control: `https://example.invalid/nope/` | not reported — scope still discriminates on origin |
+
+## Final Implementation Notes
+
+- **Actual work done:** `website/check_links.py` (new, stdlib-only, site-wide,
+  6 controls) checked in and wired into `.github/workflows/hugo.yml` as a
+  `Check internal links` step between `Build with Hugo` and `Upload artifact`,
+  sharing the build step's `${{ steps.pages.outputs.base_url }}/` expression so
+  the two cannot drift. All 28 broken links across 11 pages converted to
+  `{{< relref >}}`. Discoverability added to `CLAUDE.md`, `website/README.md`
+  and `aidocs/framework/documentation_conventions.md` (which previously carried
+  no link guidance at all).
+
+- **Deviations from plan:**
+  1. The task body listed 10 pages; the measured set is **11** —
+     `installation/macos.md` was missing from it, `linux.md` had 3 occurrences
+     (not 2) and `monitor/how-to.md` had 4 (not 2). The plan was built from the
+     measured set, which is why the count still reconciles to 28.
+  2. Verification step 1 (`cd website && hugo --gc --minify` writing to
+     `website/public/`) was folded into the `--build` runs, which execute the
+     identical command into a private destination. `website/public/` is shared
+     with concurrent sessions; the relref validation is what step 1 was for and
+     it is fully covered. The exact CI command *was* run against `public/` once,
+     for command-fidelity (verification step 6).
+  3. Verification step 4's wrong-base forced failure changed assertion — see
+     Change Request 1. The tripwire moved from the broken count to control 5.
+
+- **Issues encountered:**
+  - `website/public/` was rewritten by concurrent sessions **three times**
+    during this task, once switching from a `--minify` to a non-minified build,
+    which flipped the inherited unquoted-href control from `True` to `False` on
+    an unchanged repo. This is why the checker builds into a private
+    `tempfile.TemporaryDirectory()` and why the premise control fails closed
+    with an actionable message instead of vouching for an unverifiable tree.
+  - The shared worktree carried a large amount of unrelated in-flight work from
+    other sessions, including a `parallel_admission` row added to
+    `execution-profiles.md` — one of the 11 files this task edits. Only this
+    task's own hunks were committed: the file was staged as an explicit blob
+    (HEAD + this task's 4 edits) via `git hash-object` + `git update-index`,
+    leaving the other session's row untouched in the working tree. The
+    resulting committed state was then built **in isolation** (a content copy
+    with every foreign change reverted, via `hugo --contentDir`) and swept
+    clean — 0 broken, 6/6 controls — so the commit's claim does not depend on
+    anyone else's uncommitted work.
+
+- **Key decisions:**
+  - Base path is taken from `--base-url`, else auto-detected from the built RSS
+    feed's **`<channel><link>`**. The `<atom:link rel="self">` href was
+    explicitly rejected: it is `<root>/index.xml`, which would yield a base path
+    of `/index.xml` and mark every ordinary `/docs/...` link `outside-base` on
+    the *default* invocation.
+  - Same-site scope is decided by **origin**, not by "has a netloc". The
+    original sweep's rule dropped 1662 absolute same-origin links on 208 of the
+    216 pages while still printing a confident `broken : 0`.
+  - Site-root hrefs that do not carry the base path are an **accepted class**
+    (`base-agnostic`), per the user's decision that those 8 links are correct as
+    written. They are still fully resolved and are counted and listed, never
+    silently dropped.
+  - The pre-repair expectation was compared as a **multiset of
+    `page|href|reason` records**, not a count: `broken: 28` is reachable by
+    dropping one real defect and adding one false positive.
+
+- **Upstream defects identified:** None. (The 8 base-path-sensitive site-root
+  links found under a project-path base URL were adjudicated by the user as
+  correct as written and are handled by the checker's `base-agnostic` class —
+  they are a deliberate authoring convention here, not a defect.)
+
+### Commit split caused by a concurrent session (recorded, not a deviation in scope)
+
+Between this task's Step-8 review and its commit, a concurrent session committed
+`2384e4a64 feature: Add the advisory parallel-admission preflight to
+task-workflow (t1569_4)`, which **swept this task's four repairs to
+`website/content/docs/skills/aitask-pick/execution-profiles.md` into its own
+commit** along with its `parallel_admission` row.
+
+Consequence: of the 28 repairs, **24 are in `1a42aa71b` (t1682) and 4 already
+landed in `2384e4a64` (t1569_4)**. The staged-blob approach prepared before that
+commit would, once HEAD moved, have *deleted* the other session's row — it was
+discarded after `git diff --cached --stat` showed a single deletion instead of
+the expected 4 insertions / 4 deletions. That `--stat` check is the only reason
+this was caught before committing.
+
+Both site states were swept clean, so the split changes nothing about the
+result: 0 broken with the concurrent work present (the `public/` CI-fidelity
+run) and 0 broken with every foreign change reverted (the isolated
+`--contentDir` build).
