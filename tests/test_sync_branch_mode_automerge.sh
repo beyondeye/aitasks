@@ -26,6 +26,20 @@
 # Test 1 fails against pre-fix code (it reports CONFLICT:RESOLVED, not
 # AUTOMERGED). Tests 2 and 3 are the honesty guarantees the `|| true` made
 # unassertable.
+#
+# Tests 6-8 (t1676) cover the SAME class one stage later, in the INTERACTIVE
+# resolution loop that handles whatever the driver could not merge. Defects 1
+# and 2 above were never fixed there, and a third compounds them:
+#
+#   4. PIPELINE SUBSHELL — the loop ran as `echo "$remaining" | while … done`,
+#      so `assert_data_worktree_clean`'s die() (an `exit 1` that `|| true`
+#      cannot catch) ended the LOOP after the first file, and the `else`
+#      branch's `all_resolved=false` never escaped the subshell to reach the
+#      check that consumes it.
+#
+# Test 6 pins that every remaining file is offered and staged; Test 7 the
+# staging-failure route; Test 8 the editor-failure route, which involves no
+# die() and is therefore about the lost assignment alone.
 
 set -uo pipefail
 
@@ -364,6 +378,198 @@ assert_contains "The genuinely conflicted file IS offered for editing" \
     "Editing: aitasks/t2_body.md" "$int_clean"
 
 rm -rf "$TMP5b"
+
+# --- Shared scaffolding for the interactive-loop tests (6-8) --------------
+
+# Fixture: exactly ONE local commit conflicting with exactly ONE remote commit
+# over TWO files, so the whole conflict lands in a SINGLE rebase step. A
+# multi-step rebase would need a second _rebase_advance round and make "did the
+# rebase complete" ambiguous. BODY divergence (not frontmatter) is what makes
+# the merge driver return PARTIAL, so both files survive try_auto_merge into
+# `remaining` and actually reach the interactive loop — the same mechanism
+# Test 5 relies on for its single file. Echoes the tmpdir.
+setup_two_body_conflicts() {
+    local tmpdir
+    tmpdir="$(setup_branch_mode_repos)"
+    (
+        cd "$tmpdir/local"
+        # Drop the base fixture's `local: labels` commit so t1_sample.md does
+        # not participate and exactly one local commit is replayed.
+        git -C .aitask-data fetch -q origin
+        git -C .aitask-data reset -q --hard origin/aitask-data
+        printf -- '---\npriority: high\nstatus: Ready\n---\nBODY FROM LOCAL\n' \
+            > .aitask-data/aitasks/t2_body.md
+        printf -- '---\npriority: high\nstatus: Ready\n---\nBODY FROM LOCAL\n' \
+            > .aitask-data/aitasks/t3_body.md
+        git -C .aitask-data add -A
+        git -C .aitask-data -c user.email=test@test.com -c user.name=Test \
+            commit -q -m "local: two bodies"
+    ) >/dev/null 2>&1
+    (
+        cd "$tmpdir/pc2"
+        git pull -q
+        printf -- '---\npriority: high\nstatus: Ready\n---\nBODY FROM PC2\n' \
+            > aitasks/t2_body.md
+        printf -- '---\npriority: high\nstatus: Ready\n---\nBODY FROM PC2\n' \
+            > aitasks/t3_body.md
+        git add -A
+        git commit -q -m "pc2: two bodies"
+        git push -q
+    ) >/dev/null 2>&1
+    echo "$tmpdir"
+}
+
+# An $EDITOR that genuinely RESOLVES the file (keeps the "ours" side and drops
+# the markers) and exits 0, so the loop takes its staging branch rather than its
+# editor-failure branch. Path must contain no spaces — `$editor` is expanded
+# UNQUOTED at the call site.
+make_resolver_editor() {
+    local bindir="$1"
+    mkdir -p "$bindir"
+    cat > "$bindir/resolve-editor" <<'RESOLVEEOF'
+#!/usr/bin/env bash
+f="$1"
+awk '
+  /^<<<<<<< / { inconf=1; keep=1; next }
+  /^=======$/ { if (inconf) { keep=0; next } }
+  /^>>>>>>> / { if (inconf) { inconf=0; keep=1; next } }
+  { if (!inconf || keep) print }
+' "$f" > "$f.resolved" && mv "$f.resolved" "$f"
+RESOLVEEOF
+    chmod +x "$bindir/resolve-editor"
+}
+
+# Shared failure-path assertion for Tests 7 and 8. Both failure branches call
+# `task_git rebase --abort` (on _ait_git_subcmd_is_recovery, so it passes the
+# state guard), so a run that reports failure must ALSO leave a clean worktree —
+# otherwise the diagnostic is honest but the user is stranded mid-rebase.
+#
+# The git-dir is RESOLVED, not hardcoded as .git/worktrees/-aitask-data: that
+# name is an implementation detail of `git worktree add`. An unresolvable
+# git-dir is its own state and FAILS — "could not look" must never read as
+# "nothing there".
+assert_no_rebase_wedge() {
+    local desc="$1" repo="$2" gd state
+    gd=$(git -C "$repo/.aitask-data" rev-parse --absolute-git-dir 2>/dev/null || echo "")
+    if [[ -z "$gd" ]]; then
+        state="GITDIR_UNRESOLVED"
+    elif [[ -e "$gd/rebase-merge" || -e "$gd/rebase-apply" ]]; then
+        state="WEDGED"
+    else
+        state="clean"
+    fi
+    assert_eq "$desc: no rebase sentinel remains" "clean" "$state"
+    assert_eq "$desc: no unmerged paths remain" "" \
+        "$(git -C "$repo/.aitask-data" diff --name-only --diff-filter=U 2>/dev/null)"
+}
+
+# --- Test 6: the loop offers and stages EVERY remaining file ---
+echo "--- Test 6: interactive loop does not stop after the first file ---"
+
+TMP6="$(setup_two_body_conflicts)"
+make_resolver_editor "$TMP6/bin"
+
+# Positive control: the fixture must genuinely deliver BOTH files unmerged. A
+# fixture that only ever produced one conflict would pass pre-fix and prove
+# nothing — which is exactly the shape this defect hides in.
+(cd "$TMP6/local" && git -C .aitask-data fetch -q origin 2>/dev/null
+ git -C .aitask-data rebase origin/aitask-data >/dev/null 2>&1 || true)
+ctl6=$(cd "$TMP6/local" && git -C .aitask-data diff --name-only --diff-filter=U 2>/dev/null)
+assert_contains "Fixture yields t2_body.md unmerged" "aitasks/t2_body.md" "$ctl6"
+assert_contains "Fixture yields t3_body.md unmerged" "aitasks/t3_body.md" "$ctl6"
+(cd "$TMP6/local" && git -C .aitask-data rebase --abort >/dev/null 2>&1 || true)
+
+rc6=0
+out6=$(cd "$TMP6/local" && EDITOR="$TMP6/bin/resolve-editor" ./ait sync 2>/dev/null) || rc6=$?
+clean6=$(printf '%s' "$out6" | strip_ansi)
+
+# THE regression assertion: pre-fix, `task_git add` die()s inside the pipeline
+# subshell, ending the loop after the first file — t3 is never offered at all.
+assert_contains "First remaining file is offered" \
+    "Editing: aitasks/t2_body.md" "$clean6"
+assert_contains "SECOND remaining file is offered too" \
+    "Editing: aitasks/t3_body.md" "$clean6"
+
+# "Both STAGED" is what the two assertions below actually pin. A wedge check
+# alone would not: pre-fix the run ends in `rebase --abort`, which also leaves a
+# clean tree and unmarked files. Only a rebase that ADVANCED proves every file
+# was staged — and advancing requires the whole loop to have run.
+assert_exit_zero_rc "Resolved conflicts complete the sync" "$rc6"
+assert_contains "Rebase advanced: the remote commit is in local history" \
+    "pc2: two bodies" "$(cd "$TMP6/local" && git -C .aitask-data log --format=%s)"
+
+assert_no_rebase_wedge "Test 6" "$TMP6/local"
+assert_not_contains "committed t2_body.md has no leftover conflict markers" \
+    "<<<<<<<" "$(cd "$TMP6/local" && git -C .aitask-data show HEAD:aitasks/t2_body.md 2>/dev/null)"
+assert_not_contains "committed t3_body.md has no leftover conflict markers" \
+    "<<<<<<<" "$(cd "$TMP6/local" && git -C .aitask-data show HEAD:aitasks/t3_body.md 2>/dev/null)"
+
+rm -rf "$TMP6"
+
+# --- Test 7: a failed stage is reported, not swallowed, and leaves no wedge ---
+echo "--- Test 7: interactive staging failure is honest and unwedges ---"
+
+TMP7="$(setup_two_body_conflicts)"
+make_resolver_editor "$TMP7/bin"
+install_failing_add_shim "$TMP7/local" "$TMP7/shimbin"
+
+rc7=0
+out7=$(cd "$TMP7/local" && PATH="$TMP7/shimbin:$PATH" \
+    EDITOR="$TMP7/bin/resolve-editor" ./ait sync 2>"$TMP7/err.txt") || rc7=$?
+clean7=$(printf '%s' "$out7" | strip_ansi)
+err7=$(cat "$TMP7/err.txt")
+
+# Pre-fix, `2>/dev/null` discarded the diagnostic and the die() ended the loop,
+# so stderr said nothing at all about staging.
+assert_contains "Staging failure is reported" "could not stage" "$err7"
+assert_contains "Staging failure preserves git's own message" \
+    "simulated staging failure" "$err7"
+assert_contains "First remaining file offered (shim)" \
+    "Editing: aitasks/t2_body.md" "$clean7"
+assert_contains "Second remaining file offered (shim)" \
+    "Editing: aitasks/t3_body.md" "$clean7"
+assert_contains "Unstageable files are treated as unresolved" \
+    "Not all conflicts resolved" "$err7"
+assert_not_contains "Unstageable files do NOT fall through to rebase --continue" \
+    "Rebase continue failed" "$err7"
+assert_exit_nonzero_rc "Staging failure exits non-zero" "$rc7"
+assert_no_rebase_wedge "Test 7" "$TMP7/local"
+
+rm -rf "$TMP7"
+
+# --- Test 8: a failing editor reaches the all_resolved check ---
+echo "--- Test 8: editor failure reaches the all_resolved check ---"
+
+# The branch Tests 6 and 7 do not touch. No die() is involved here, so the ONLY
+# pre-fix defect is `all_resolved=false` dying with the pipeline subshell.
+TMP8="$(setup_two_body_conflicts)"
+
+rc8=0
+out8=$(cd "$TMP8/local" && EDITOR=false ./ait sync 2>"$TMP8/err.txt") || rc8=$?
+err8=$(cat "$TMP8/err.txt")
+
+# NOT a discriminator — with no die(), pre-fix code offers both files too. It
+# pins that the restructured loop still visits every file.
+assert_contains "Editor failure reported for the first file" \
+    "Editor exited with error for aitasks/t2_body.md" "$err8"
+assert_contains "Editor failure reported for the second file" \
+    "Editor exited with error for aitasks/t3_body.md" "$err8"
+
+# THE discriminator: pre-fix the lost assignment sent control into
+# _rebase_advance, which failed on the unstaged remainder and printed the other
+# message. Both directions are pinned so the branch flip cannot be faked.
+assert_contains "Editor failure aborts as unresolved" \
+    "Not all conflicts resolved" "$err8"
+assert_not_contains "Editor failure does NOT reach rebase --continue" \
+    "Rebase continue failed" "$err8"
+
+# CONTRACT, not a discriminator: both branches `return 1`, so pre-fix exits
+# non-zero too. It guards a future regression that swallows the failure and
+# reports SYNCED.
+assert_exit_nonzero_rc "Editor failure exits non-zero" "$rc8"
+assert_no_rebase_wedge "Test 8" "$TMP8/local"
+
+rm -rf "$TMP8"
 
 # --- Summary ---
 echo ""

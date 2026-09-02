@@ -1069,18 +1069,41 @@ do_pull_rebase() {
                 echo ""
                 info "Opening each conflicted file in $editor for resolution..."
 
+                # `<<<`, NOT `echo | while`: a pipeline runs the loop in a
+                # SUBSHELL, so `all_resolved=false` never reached the check
+                # below, and a die() in the body killed only the subshell —
+                # silently ending the loop after the FIRST file.
                 local all_resolved=true
-                echo "$remaining" | while IFS= read -r f; do
+                while IFS= read -r f; do
                     [[ -z "$f" ]] && continue
                     echo ""
                     info "Editing: $f"
                     if $editor "$(_resolve_conflict_path "$f")"; then
-                        task_git add "$f" 2>/dev/null || true
+                        # Staging a resolved conflict is exactly what this loop
+                        # exists to do, and it owns the rebase it is resolving —
+                        # so scope the documented bypass to this one call, as
+                        # the auto-merge site above does. Without it
+                        # assert_data_worktree_clean die()s mid-loop.
+                        #
+                        # Keep the call inside `$( )`: the loop now runs in the
+                        # CURRENT shell under `set -euo pipefail`, so a die()
+                        # reached through task_git must stay confined to the
+                        # substitution and surface as a non-zero rc.
+                        local add_err add_rc=0
+                        add_err="$(AIT_GIT_SKIP_STATE_CHECK=1 task_git add "$f" 2>&1)" || add_rc=$?
+                        if [[ $add_rc -ne 0 ]]; then
+                            # A file we could not stage is NOT resolved:
+                            # `rebase --continue` would fail later with the
+                            # diagnostic already thrown away by `2>/dev/null`.
+                            # warn() -> stderr, never info()/iinfo().
+                            warn "could not stage $f (git add rc=$add_rc): ${add_err:-<no output>}"
+                            all_resolved=false
+                        fi
                     else
                         warn "Editor exited with error for $f"
                         all_resolved=false
                     fi
-                done
+                done <<< "$remaining"
 
                 if [[ "$all_resolved" == true ]]; then
                     if ! _rebase_advance; then
