@@ -1033,19 +1033,6 @@ Full Python suite: **6313 passed, 1 failed** at the time of the first run; the
 single failure was t1658_2's then-uncommitted work (`data_symlinks.sh` missing
 from a fixture's copy list) and passes now that it has landed.
 
-## Out of scope — spawn as a follow-up
-
-`aitask_sync.sh:399` (in the interactive conflict-resolution loop) runs
-`task_git add "$f" 2>/dev/null || true` while the data worktree is mid-rebase.
-`add` is on neither allowlist, so `assert_data_worktree_clean` calls `die`
-(`exit 1`), which kills the `echo … | while` subshell after the first file with
-the diagnostic swallowed by `2>/dev/null`. The sibling site at `:261` handles it
-correctly with `AIT_GIT_SKIP_STATE_CHECK=1`.
-
-It is in a file this child owns but on a path this task does not otherwise
-touch, and the fix needs its own conflict-path regression test. Create it as a
-standalone follow-up at Step 8d rather than folding it in here.
-
 Post-implementation cleanup, archival and merge follow **Step 9** of the shared
 task workflow.
 
@@ -1115,3 +1102,63 @@ task workflow.
 - timing: post-phase | name: prescriptive_deferral_report | type: enhancement | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a deferral that does not self-clear must be actionable rather than mysterious | desc: every skipped file's report line names its reason, its holder, and the exact command that clears it; the DEFERRED line says what ends the deferral
 - timing: after | name: data_index_lock_adoption | type: bug | priority: high | effort: high | inline_risk: high | added_complexity: high | addresses: code-health + goal-achievement — the `data_index` mutex introduced in Step 3a is respected only by this sweep, leaving mutual exclusion incomplete | desc: make every `.aitask-data` index writer take the shared `data_index` lock — the claim path's acquire→write→commit in `aitask_pick_own.sh`, `aitask_gate.sh`, and the attach/artifact transactions — closing the residual TOCTOU that Steps 5a.1-4 only narrow
 - timing: post-phase | name: sync_token_contract_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the wire protocol spans 4 files in 2 languages and a missed token degrades silently to a red error | desc: derive the emitted-token set from `batch_out` literals and assert `parse_sync_output` recognises each, with a negative control
+
+## Final Implementation Notes
+
+- **Actual work done:** `auto_commit` replaced by a per-task sweep — NUL-safe
+  `-z -uall` scan, owner grouping, live-lock skip via `lock_holder_liveness`
+  with a cross-host guard, a `data_index` mutex over the whole classify→commit
+  phase, snapshot + path-state CAS, a publication guard with a durable
+  quarantine, and a prescriptive stderr report. `aitask_lock.sh` gained
+  `--list --batch` with an availability verdict; `task_git_commit_scoped` gained
+  an opt-in `--no-stage`; `DEFERRED` was wired through
+  `sync_action_runner.py` + both TUIs + the website docs. Three new test files
+  (36 + 52 assertions) plus 29 Python assertions.
+
+- **Deviations from plan:** `--no-stage` rather than a "stage only untracked"
+  mode in the helper, so staging and unstaging have one owner; the
+  wedged-worktree probe moved to the top of `main()` (it was unreachable in
+  `auto_commit` — `check_remote` die()s first with its message swallowed);
+  `LOCKS_NONE` dropped in favour of `LOCKS_OK`; the `DEFERRED` reason set is
+  three, not five. Each is argued in "Implementation notes" above.
+
+- **Issues encountered:** four review findings, all confirmed and fixed — the
+  `remote_ahead`-gated publication guard (inert in its own scenario), the
+  cleanliness-only quarantine release (fires immediately, since `commit -o`
+  leaves the path clean by construction), the age-based release (publishes
+  exactly what the hold withholds), and delimiter losslessness (a newline in a
+  path aborted the script with empty stdout; a `|` corrupted the quarantine
+  record and published a withheld commit). Also: `git status` collapses
+  untracked directories without `-uall`, bash drops NUL in command
+  substitution, and git exports `GIT_DIR` into hooks.
+
+- **Key decisions:** reuse the existing `stale_lock.sh`/`registry_lock.sh` mutex
+  rather than a private temp index (no `GIT_INDEX_FILE` precedent in the tree);
+  key the quarantine by `(path, blob)` so a rebase cannot invalidate it; make
+  termination an explicit operator decision (`--release-quarantine`) rather than
+  a timer; accept an all-or-nothing publication hold and record the narrower
+  partial-publication variant as deferred.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_sync.sh:1078 — interactive conflict loop runs
+    \`task_git add "$f" 2>/dev/null || true\` while the data worktree is
+    mid-rebase; \`add\` is on neither allowlist so \`assert_data_worktree_clean\`
+    calls \`die\` (exit 1), killing the \`echo | while\` subshell after the first
+    file with the diagnostic swallowed by \`2>/dev/null\`. The sibling site at
+    \`:940\` handles it correctly with \`AIT_GIT_SKIP_STATE_CHECK=1\`.`
+
+- **Notes for sibling tasks:**
+  - `task_git_commit_scoped` now takes an optional leading `--no-stage`. The
+    default is unchanged, so t1599_4's mechanical `add` + bare `commit` →
+    `commit -m <msg> -- <paths>` conversions are unaffected.
+  - `aitask_lock.sh --list --batch` is the machine-readable lock snapshot; its
+    verdict answers "is this snapshot trustworthy", never "is task X held".
+    The human `--list` is load-bearing for `aitask_board.py`'s `refresh_lock_map`.
+  - `tests/lib/sync_fixture.sh` is a reusable branch-mode fixture with a lock
+    branch and a hostname shim. Three traps it encodes: clone siblings with
+    `--branch aitask-data` (checking out `main` first materialises the `aitasks`
+    symlink, which a later `git add -A` commits over the real directory);
+    `unset GIT_DIR` at the top of any git hook; and nest every fixture under one
+    base dir removed by an `EXIT` trap.
+  - For t1599_4's tripwire: `aitask_sync.sh` no longer contains an unscoped
+    `task_git commit`.
