@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [framework, bash_scripts, concurrency]
+assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 created_at: 2026-09-02 09:18
-updated_at: 2026-09-02 09:18
+updated_at: 2026-09-02 09:25
 ---
 
 # Guard `ait_ledger_lock_exit_trap` against being chained behind another command
