@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1647_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [trails, artifacts]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1647
 created_at: 2026-09-01 18:49
-updated_at: 2026-09-01 18:49
+updated_at: 2026-09-02 16:10
 ---
 
 ## Context
