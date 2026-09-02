@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [scheduling, skills, task_workflow, aitask_pick, planning]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1569
 created_at: 2026-09-02 14:47
-updated_at: 2026-09-02 14:47
+updated_at: 2026-09-02 14:50
 ---
 
 Make parallel admission actually usable: give the checker an evidence source
