@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:02
-updated_at: 2026-09-02 09:46
+updated_at: 2026-09-02 18:37
 ---
 
 ## Origin
@@ -78,3 +79,8 @@ writer that t1678 has to bring under the `data_index` mutex — its audit cannot
 see call sites that do not exist yet. When this task lands, list the call sites
 it added in the Final Implementation Notes so t1678 does not have to rediscover
 them.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T15:37:48Z status=pass attempt=1 type=human
