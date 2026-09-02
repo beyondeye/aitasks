@@ -310,3 +310,105 @@ mechanical and does not change what the module delivers.
 - No `.sh` entry point in this child; t1647_3 owns the whitelisted wrapper.
 - The board keeps behavioral ownership of rendering; the lib owns
   discovery / dedup / overlap / load only.
+
+## Final Implementation Notes
+
+- **Actual work done:** Created `.aitask-scripts/lib/trail_discovery.py` (291 lines)
+  holding the 12 promoted symbols; `_task_id_sort_key` went to
+  `lib/topic_semantics.py` instead. `aitask_board.py` lost 253 lines and gained
+  an `import trail_discovery` + re-export block. Re-pointed 3 patch seams in
+  `tests/test_board_bytrail_view.py` and added `tests/test_trail_discovery.py`
+  (26 tests). Extraction and deletion were done programmatically via `ast` rather
+  than by hand, and verified two ways: the moved bodies are **byte-identical** to
+  the pre-change file (modulo the two intended `TASKS_DIR` → `_tasks_dir()`
+  rewrites), and the board's top-level symbol set lost **exactly** those 13 names
+  and nothing else.
+
+- **Deviations from plan:** Three, all corrections of plan claims that turned out
+  to be wrong when tested:
+  1. **The planned two-tree negative control was vacuous.** Proven by mutation:
+     freezing `_tasks_dir()` did NOT fail it. `task_dir()` returns the *relative*
+     `Path("aitasks")` by default, so a frozen value keeps resolving correctly
+     after a `chdir` — cwd is not a discriminating axis. The real vector is the
+     `TASK_DIR` **value**, which five board test modules
+     (`test_board_archived_relation_lookup`, `test_board_refresh_degrade`,
+     `test_board_decref_doomed_attachments`, `test_board_columns_seam`,
+     `test_board_movement`) set to **absolute** temp-tree paths. The control now
+     varies `TASK_DIR` per tree; both tests in `TaskDirResolutionTests` fail
+     against the frozen mutant and pass against the per-call resolver. Finding 4's
+     *mechanism* (stated as "the fixture freezes to the first tree via cwd") was
+     therefore wrong even though its *conclusion* — resolve lazily — was right.
+  2. **The seam severities were overstated in both directions** (measured by
+     reverting each receiver and running the tests):
+     - `:2944` — **1 of 7** tests fails, not "all six". Only
+       `test_discovery_sees_frontmatter_written_after_the_manager_was_built`
+       asserts `load_error == ""`; the other five assert on handles, which still
+       arrive, so they silently lose their stub instead of failing.
+     - `:3380` — passes under the revert; it spawns real subprocesses rather than
+       failing. A silent loss of isolation, not a breakage.
+     - `:2002` — passes under the revert, but NOT for the reason the plan gave.
+       `tests/lib/board_fixture.py:78` **deliberately** omits `.aitask-scripts`
+       from fixture trees, so `ARTIFACT_SCRIPT` points at a missing file with or
+       without the patch. The patch was never what made the binary missing, so
+       this seam was never the "most dangerous" one — its discriminating power
+       came from the fixture all along.
+     All three re-points are still correct (each restores the seam the test says
+     it is using), but only `:2944` was a real failure.
+  3. `_task_id_sort_key` landed in `topic_semantics` rather than
+     `trail_discovery` (user-confirmed at planning): it is generic task-id
+     parsing, `topic_semantics` already owns `parse_task_filename`, and
+     `trail_discovery` imports from there anyway — so it costs zero new import
+     edges and avoids putting a general helper in a trail-specific module.
+
+- **Issues encountered:**
+  - A first mutation probe appeared to show the `:2002` guard surviving a broken
+    production path. The mutation had not actually landed: `FileNotFoundError` is
+    a **subclass of `OSError`**, so removing it from
+    `except (TimeoutExpired, FileNotFoundError, OSError)` changed nothing. Re-run
+    with `except subprocess.TimeoutExpired` only, and the propagation was verified
+    directly before trusting either result.
+  - A `cd` inside one Bash step persisted into later steps and made relative paths
+    resolve from `.aitask-scripts/lib/`, briefly making `topic_semantics.py` look
+    deleted. Nothing was lost; absolute paths used afterwards.
+  - `main` advanced to v0.34.0 mid-task and a concurrent session committed its
+    board edits as `7ed466df6` (t1599_3). The board file was snapshotted to the
+    scratchpad before editing and never `git restore`/`stash`-ed, so that
+    session's uncommitted work was preserved; the symbol-set check above confirms
+    the extraction did not disturb it.
+
+- **Key decisions:**
+  - `_tasks_dir()` is a function, not a module constant — matching
+    `trail_gather._local_dirs()` and `archive_iter`'s parameterised
+    `archived_dir`. `TASKS_DIR` is deliberately absent from the module, and
+    `ReExportContractTests.test_no_module_level_task_dir_constant` pins that.
+  - The board's re-export block carries a comment stating that these names are
+    re-exports and that tests must patch them on `trail_discovery` — the seam is
+    invisible otherwise, and (per `:2002`) a wrongly-aimed patch can pass.
+  - Deletion and extraction were driven by `ast` line ranges rather than manual
+    edits, because the file was being concurrently modified and hand-editing a
+    14k-line file across 13 disjoint ranges is where transcription errors live.
+
+- **Upstream defects identified:** None
+
+- **Notes for sibling tasks:**
+  - **t1647_3 / the `/aitask-merge-trails` skill:** import
+    `discover_trails`, `load_trail_blob`, `dedupe_trail_records`,
+    `compute_trail_overlaps`, `trail_entry_refs`, `TrailInfo` and
+    `TRAIL_ARTIFACT_KIND` from `trail_discovery`. cwd must be the repo root.
+    `discover_trails()` returns `(infos, unreadable)` — **do not treat a
+    non-empty `unreadable` as "no trails"**; it is a retryable partial scan
+    (t1365). `load_trail_blob` is fail-closed: `doc=None` with a non-empty error,
+    never a partial document.
+  - **Patching rule for every sibling that writes tests:** these functions call
+    each other inside `trail_discovery`. Patch them on `trail_discovery`, never
+    on the board — and confirm the patch can still fail, because a wrongly-aimed
+    one is indistinguishable from a correct one while the code works.
+  - **Do not add a module-level `TASKS_DIR`** (or any cached dir constant) to
+    this module; the suite is single-process and `TASK_DIR` genuinely varies.
+  - Board-side rendering (`trail_summary_text`, `run_trail_drift`,
+    `TrailEntryView`, lanes, glyphs, `TRAIL_WATCH_*`, `TRAIL_GATHER_SCRIPT`,
+    `TRAIL_CLASSIFICATION_GLYPHS`) deliberately stayed in the board — t1647_5's
+    By-Trail command works against those, not against this module.
+  - **Acceptance-criterion narrowing (user-assented):** the task's "existing
+    tests pass UNCHANGED" was narrowed to "every guard must still hold, and still
+    be able to fail". 3 receivers changed; no test intent was altered.
