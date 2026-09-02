@@ -1,14 +1,15 @@
 ---
 priority: medium
 effort: medium
-depends: [1658_1]
+depends: [t1658_1]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [verification, bug]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1658
 followup_kind: verification_failure
 created_at: 2026-09-02 18:55
-updated_at: 2026-09-02 18:55
+updated_at: 2026-09-02 22:33
 ---
 
 ## Failed verification item from t1658_1
