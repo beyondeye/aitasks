@@ -551,3 +551,151 @@ and confirm its own panel keeps updating while parked.
 - timing: pre-phase | name: own_panel_capture_negative_control | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal risk 1 (§7 rests on one subtraction; silent stale panel) | desc: Assert the followed agent is excluded from the published parked set and still captured, including under a forced own-identity resolution failure and a stale post-rename name, with a negative control that fails when the subtraction is removed.
 - timing: post-phase | name: fail_loud_on_unknown_mark_kind | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 2 (bool→str signature widening across 5 call sites) | desc: `format_mark_glyph` raises on an unrecognised kind instead of falling through to the unmarked glyph.
 - timing: after | name: residual_agent_site_audit | type: chore | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal risk 2 (consumer-enumeration completeness) | desc: Re-audit `_resolve_shadow_target`, `_switcher_selected_session` and the minimonitor review loop against a parked agent and close any that turn out to be reachable.
+
+---
+
+## Implementation notes (t1685)
+
+Every section of the plan landed. Deviations and decisions taken during
+implementation, recorded here rather than silently:
+
+1. **`MarksFile.is_marked` was narrowed too** (not called out in the plan).
+   `MarksView.is_marked` became priority-only, and leaving the same-named
+   `MarksFile` method meaning "carries any mark" would have been a trap: two
+   methods with one name disagreeing about whether a parked agent is "marked".
+   Both now answer priority-only; `kind_of` / `kind_for` is the "any mark"
+   question.
+
+2. **The minimonitor hint went on the `p:pick task` line, not an 11th row.**
+   The plan proposed an 11th `KEY_HINTS_TEXT` row. Measured: the hints band is
+   docked bottom, so an extra row costs the pane list a row at every pane height
+   — `test_minimonitor_top_chrome_render.test_empty_chrome_costs_no_rows` caught
+   it (list height 20 → 19). Folding `P:parked` onto the existing
+   `c:concerns  p:pick task` line keeps ten rows, stays inside the 38-column
+   budget at 33 cells, and has the side benefit of putting `p` and `P` side by
+   side where the case distinction is visible.
+
+3. **The parked-set publisher is `_publish_parked_agents`**, a mixin method that
+   `getattr`-probes `set_parked_agents` — as planned — and is called from BOTH
+   `_refresh_data` (before the capture) and `_cycle_mark_for` (immediately after
+   a successful write), so a park takes effect on the very next capture rather
+   than the one after it.
+
+4. **`_hand_off_focus_before_hiding` is a mixin hook with a no-op default**,
+   overridden only by `MonitorApp`. Minimonitor list rows are read-only and its
+   followed agent lives in a docked panel, so it has nothing to hand off — that
+   is asserted rather than assumed (`test_minimonitor_needs_no_focus_handoff`).
+
+5. **Test doubles built with `SimpleNamespace` needed `parked=False`.**
+   `tests/test_multi_session_{monitor,minimonitor}.sh` build snapshot doubles by
+   hand; `parked` is a real defaulted `PaneSnapshot` field, so the doubles were
+   completed rather than making the renderer defensive with `getattr`.
+
+6. **Font measurement agreed with the task's table exactly** — `P` U+0050
+   covered by both supported families, `⏸` U+23F8 by neither (and emoji-capable),
+   `■` U+25A0 by both. No discrepancy to report.
+
+7. **`REJECTED_CODEPOINTS` → `EXTRA_MEASURED_CODEPOINTS`** in the generator: the
+   tuple stopped being all-rejections when `P` joined it.
+
+### Cross-session staging (raised at Step 8 review, addressed)
+
+**The working tree held two tasks' uncommitted work.** `t1686`
+(`companion_pane_filter_misses_shell_hosted_monitor`) was `Implementing` in a
+concurrent session and shares two files with this task:
+
+| file | t1685 hunks | t1686 hunks |
+|---|---|---|
+| `.aitask-scripts/monitor/monitor_core.py` | 8 | 10 |
+| `tests/test_multi_session_monitor.sh` | 2 | 3 |
+
+No hunk mixes the two tasks. Staging either file wholesale would have shipped
+another task's in-progress work under the `(t1685)` commit — wrong ownership,
+unreliable rollback, and possibly a half-finished behaviour landed on main.
+
+**Resolution — isolated build, staged as a blob, working tree untouched.** For
+each mixed file: copy the working-tree version into the scratchpad, **reverse**-
+apply a patch containing only the t1686 hunks, and stage the resulting blob with
+`git hash-object -w` + `git update-index --cacheinfo`. Nothing is written back to
+the shared checkout — no `git checkout`, `restore`, `stash` or `add -p` — so the
+other session cannot lose work to this commit.
+
+Verified before staging: each isolated file differs from `HEAD` by exactly the
+expected hunk count (8 and 2), contains **zero** added lines mentioning any t1686
+marker, still carries every t1685 symbol, and passes `py_compile` / `bash -n`.
+Verified after committing by running the parked suites in a throwaway
+`git worktree` checked out at the commit — i.e. against the committed content,
+not the composite working tree.
+
+Five further files carry t1686 work only and were deliberately **not** staged:
+`tests/test_agent_marks_generation.py`, `tests/test_monitor_companion_filter.py`,
+`tests/test_monitor_refresh_no_sync_tmux.py`, `tests/test_monitor_shadow_status.py`,
+`tests/test_multi_agent_window_substrate.sh`.
+
+## Final Implementation Notes
+
+- **Actual work done:** Every section of the plan landed, plus both inline
+  pre-phases and the inline post-phase. Store schema v2 with a real v1→v2 read
+  migration; `toggle` → `cycle` through the Python API, the CLI verb and the
+  locked shell writer; `PARK_GLYPH = "P"` with `format_mark_glyph` retyped from
+  `bool` to a mark kind; `TmuxMonitor.set_parked_agents` publish-down with the
+  capture/classify exclusion and an explicit `commit_snapshots` parked branch;
+  the `P` filter, parked row render, focus handoff, parked preview, session-bar
+  `N parked` term and consumer exclusions in both TUIs; the font-coverage
+  manifest extended and regenerated; three website pages rewritten.
+
+- **Deviations from plan:**
+  1. `MarksFile.is_marked` was narrowed to priority-only as well. The plan only
+     narrowed `MarksView.is_marked`; leaving two same-named methods disagreeing
+     about whether a parked agent is "marked" would have been a trap.
+  2. The minimonitor hint went onto the existing `c:concerns  p:pick task` line
+     rather than becoming an 11th `KEY_HINTS_TEXT` row. The plan proposed the
+     extra row and flagged the height budget for re-checking; the re-check found
+     a real cost — `test_minimonitor_top_chrome_render` measured the pane list
+     dropping from 20 rows to 19 at every pane height, because the hints band is
+     docked bottom. Folding `P:parked` in keeps ten rows, sits at 33 of the 38
+     available columns, and puts `p` and `P` side by side where the case
+     distinction is legible.
+  3. `MonitorApp._parked_pane_ids` needed a **class-level floor**, not just an
+     `__init__` default. Its consumers include the concern offer and the
+     signature scan, which are exercised by `__new__`-built test apps nowhere
+     near this feature — same rationale the mixin already records for
+     `_session_root_map`.
+
+- **Issues encountered:**
+  - Hand-rolled `SimpleNamespace` snapshot doubles in seven test modules raised
+    on the new `PaneSnapshot.parked` field. Resolved by completing the doubles
+    rather than making the renderer defensive with `getattr` — an incomplete
+    double does not "ignore" a field the code reads, it raises on it, and a
+    `getattr` default would also have silently tolerated a real snapshot missing
+    the field.
+  - `test_minimonitor_startup_input_latency`'s `_Boom` monitor double needed
+    `get_session_to_project_mapping_async` once that call moved above the
+    capture. Answered in the double so its `RuntimeError` still originates from
+    the capture, which is what that test is actually about.
+  - A dead `#auto-switch` anchor was introduced in the monitor how-to and caught
+    by `check_links.py --build` (`hugo build` never fails a dead fragment).
+
+- **Key decisions:**
+  - `_parked_agent_pairs()` is derived from the mark store and the session→root
+    map, with **no snapshot dependency**, so it is computable before the first
+    capture. This is what makes the startup case correct rather than one tick
+    late, and it is why the head of `_refresh_data` was reordered in both apps.
+  - The minimonitor subtraction is gated on an own-window identity **confirmed
+    by the current tick**, not on the name merely being non-`None`:
+    `_update_own_window_info` returns silently on five failure paths and each
+    leaves the previous name standing, so a post-rename stale name would
+    subtract the wrong pair and freeze the very panel the pane exists to show.
+    Unconfirmed publishes nothing — one tick of extra capture instead.
+  - The parked snapshot is built directly rather than through
+    `_apply_bookkeeping`, which owns `_last_content` / `_last_change_time` and
+    must never see a pane with no content.
+  - `format_mark_glyph` raises on an unrecognised kind instead of falling
+    through to `☆`; the reachability argument (both producers are total over the
+    three kinds) is recorded on the function so nobody "makes it safe" with a
+    `try/except` and restores the silent wrong-glyph fallthrough.
+  - The two mixed files were staged as isolated blobs — see "Cross-session
+    staging" above.
+
+- **Upstream defects identified:** None
+
