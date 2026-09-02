@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [1676, 1677]
 issue_type: bug
 status: Ready
 labels: [git, bash_scripts, robustness, crash_recovery]
@@ -9,7 +9,7 @@ gates: [risk_evaluated]
 anchor: 1599
 followup_kind: risk_mitigation
 created_at: 2026-09-02 09:02
-updated_at: 2026-09-02 09:02
+updated_at: 2026-09-02 09:45
 ---
 
 ## Origin
@@ -80,3 +80,33 @@ precedent, gated on `<lock_base>/.ait_sync_test_seams`) and assert the second
 blocks rather than interleaving. Include the fail-closed case: hold the lock
 from another process past the acquire budget and assert the writer commits
 nothing and reports the contention.
+
+## Dependencies — why, not just what
+
+`depends: [1676, 1677]`. Both edges are real; neither is bookkeeping.
+
+- **t1677 is an ORDERING dependency, not a file collision.** t1677's whole job is
+  to *create new index-writing call sites* — the settings TUI, the board and the
+  stats surface committing their own `aitasks/metadata/*` writes. This task's job
+  is to make every index writer take the `data_index` lock. Run before or
+  alongside t1677, this task's audit cannot see writers that do not exist yet, so
+  the adoption lands incomplete — and **this task's own tests would still pass**,
+  because nothing here knows those call sites were coming. Re-run the audit after
+  t1677 has landed:
+
+  ```bash
+  grep -rn "task_git \(add\|reset\|commit\)" .aitask-scripts/
+  ```
+
+- **t1676 is a file collision.** It edits the interactive conflict loop in
+  `.aitask-scripts/aitask_sync.sh`, which this task's audit also covers (5
+  `task_git add|reset|commit` sites there today). `.aitask-data` is a single
+  shared worktree, so two agents editing that file concurrently is the hazard
+  t1599 exists to remove.
+
+Sibling note: `t1599_4` is unblocked and sweeps `aitask_create.sh`,
+`aitask_update.sh`, `aitask_archive.sh`, `aitask_zip_old.sh` and
+`aitask_issue_import.sh` for unscoped commits. It does **not** collide on files
+with this task, but its tripwire scans every script and will report on
+`aitask_pick_own.sh` / `aitask_gate.sh` while this task is mid-flight — by
+design; it is instructed to report rather than edit across the boundary.

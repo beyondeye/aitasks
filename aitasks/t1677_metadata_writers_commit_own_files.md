@@ -64,3 +64,12 @@ Re-derive the writer list before starting; do not trust this one.
 - assert `ait sync` no longer reports it as ownerless (the report text is in
   `aitask_sync.sh`'s `_protect "ownerless"` branch)
 - negative control: the assertion must fail against today's write-without-commit
+
+## Downstream note
+
+`t1678` (data_index lock adoption) **depends on this task** and must run after
+it. Every metadata writer this task converts becomes a new `.aitask-data` index
+writer that t1678 has to bring under the `data_index` mutex — its audit cannot
+see call sites that do not exist yet. When this task lands, list the call sites
+it added in the Final Implementation Notes so t1678 does not have to rediscover
+them.
