@@ -35,8 +35,24 @@ Roadmap estimate -> candidate selected -> plan written
                                   |
                   Parallel-admission preflight     (this task)
                                   |
-                  proceed / confirm / stop-and-replan
+                  proceed / confirm / stop (user choice)
 ```
+
+> **SUPERSEDED 2026-09-02 — the preflight ships ADVISORY-ONLY.** By explicit user
+> decision during plan verification, **no verdict stops the workflow on its own**;
+> every stop is a choice the user makes at the prompt, and the profile knob is
+> `parallel_admission: confirm | warn | off` with **no `block` value**. The
+> reason: the checker's evidence is regex-extracted from plan prose, so a path a
+> plan merely *runs* inside a fenced command is indistinguishable from one it
+> edits — a false `CONFLICT` was measured live (it flagged
+> `aitask_audit_wrappers.sh`, which neither task edits, while demoting the five
+> files both genuinely edit to hub caveats). Making a mandatory stop safe would
+> have required a shell/Markdown parser plus a provenance channel plus a consumer
+> layer; that machinery was rejected as disproportionate. A hard-stop mode is
+> gated on **t1343**'s structured per-task declaration of intended edits, not on
+> this knob. Measurements below are kept as **superseded evidence** for t1343; the
+> conclusions drawn from them no longer hold.
+
 
 The framework already prevents two sessions claiming the same task (ownership
 locks), compares the approved plan's paths against commits on the base/output
@@ -65,12 +81,13 @@ what is in flight. The preflight must run **after** it, never before.
   "safe to run in parallel" — the checker observes, it does not reserve, and
   overlapping work can begin the instant after it passes. State that residual in
   the procedure text.
-- **CLEAR_CAVEATED** -> **require explicit confirmation under `block`**, naming
+- **CLEAR_CAVEATED** -> **require explicit confirmation under `confirm`**, naming
   the unverified source (e.g. "t259 holds a lock but is not `Implementing`, and
   its holder's liveness cannot be established"). Under `warn`, a visible note.
   Rendered **distinctly from CLEAR** in both modes.
-- **CONFLICT** -> **stop-and-replan by default**, naming the overlapping task(s)
-  and file(s); an explicit user override is the alternative.
+- **CONFLICT** -> **advisory**: name the overlapping task(s) and file(s), then
+  require explicit confirmation to continue. Continuing is listed first; stopping
+  is offered, never imposed.
 - **UNCHECKABLE** -> **require explicit user confirmation**, naming *why* the
   evidence was insufficient. Never auto-proceed.
 
@@ -98,20 +115,20 @@ A prompt with no remedy is what trains users to dismiss a guard.
 
 ### Profile knob
 
-`parallel_admission: block | warn | off` in `aitasks/metadata/profiles/*.yaml`
+`parallel_admission: confirm | warn | off` in `aitasks/metadata/profiles/*.yaml`
 plus the `seed/` mirrors, mirroring `remote_drift_check: warn|strong-only`.
 
-**CONFLICT's disposition is stop-and-replan in both `block` and `warn`** — that
-is the design and it does not change.
+**RETRACTED (see the SUPERSEDED note above).** This paragraph previously read
+"CONFLICT's disposition is stop-and-replan in both `block` and `warn` — that is
+the design and it does not change". It is no longer the design: no verdict stops
+the workflow on its own, and there is no `block` value. `warn` is the default
+because the signal is heuristic, not as a step toward something stricter.
 
-**Deviation, with evidence:** the knob **ships defaulting to `warn`**, not
-`block`. The measured projection against today's in-flight population is
-UNCHECKABLE on **100% of picks** (2 of 4 non-candidate `Implementing` tasks have
-no plan; t259's plan is all-phantom). Promoting the default to `block` is a
-separate, explicitly gated step whose entry criterion is t1569_3's measured
-UNCHECKABLE and false-CONFLICT rates falling to an agreed level. In `warn`,
-UNCHECKABLE still prompts for explicit confirmation — only the hard stop is
-deferred.
+**Superseded evidence (2026-08-27):** the projection against that day's in-flight
+population was UNCHECKABLE on 100% of picks (2 of 4 non-candidate `Implementing`
+tasks had no plan; t259's plan was all-phantom). Re-measured 2026-09-01: 13
+in-flight tasks, 3 `no_plan`, verdict CONFLICT — and that CONFLICT was a false
+positive. Kept for t1343; no promotion criterion is derived from it.
 
 ## Key files to modify
 
@@ -166,13 +183,15 @@ Required tests:
 3. A workflow-contract test pinning that the preflight sits **after** the drift
    check at **both** call sites.
 4. Live CLEAR / CLEAR_CAVEATED / CONFLICT / UNCHECKABLE rates recorded in the
-   Final Implementation Notes — they are the evidence for any later promotion of
-   the default to `block`.
+   Final Implementation Notes — calibration evidence handed to **t1343**, which
+   owns any future structured-declaration basis for a hard conflict. Not a
+   promotion criterion: there is nothing to promote to.
 
 ## Coordination — threshold sensitivity (t1643)
 
-t1643 re-measured the threshold and **supersedes t1569_3's rates** as the input
-to this task's `warn` → `block` decision. The numbers, the method and their
+t1643 re-measured the threshold and **supersedes t1569_3's rates**. There is no
+longer a `warn` → `block` decision for them to feed (see the SUPERSEDED note at
+the top); what follows is retained as **superseded evidence** for t1343. The numbers, the method and their
 caveats are in `aiplans/archived/p1643_threshold_sensitivity_replay.md`
 (Final Implementation Notes); re-run them with:
 
@@ -188,12 +207,14 @@ established:
 - **Recall of `CONFLICT ∪ CLEAR_CAVEATED` is invariant in the hub threshold.** A
   wrong threshold cannot cost recall, only grading. So the entry criterion above
   should not be written in terms of recall.
-- **Grading is what moves, and this task is the reason it matters.** Because
-  `CONFLICT` stops and `CLEAR_CAVEATED` merely confirms, the threshold decides
-  which of the two a real collision gets. At the shipped `HUB_THRESHOLD = 10`
-  only **~32%** of true collisions hard-stop (59% downgrade); at 20 it is ~67%
-  (23%), costing ~20pp of precision. Any `block` criterion has to name an
-  acceptable point on that curve.
+- **Grading moves with the threshold — but the premise this bullet rested on is
+  gone.** It assumed `CONFLICT` stops while `CLEAR_CAVEATED` merely confirms, so
+  the threshold decided which of the two a real collision got. **Both now
+  confirm**, so the hub threshold selects only prompt wording. The measurements
+  stand and are kept as superseded evidence for t1343: at the shipped
+  `HUB_THRESHOLD = 10` about **32%** of true collisions land on `CONFLICT` (59%
+  downgrade); at 20 it is ~67% (23%), costing ~20pp of precision. No criterion is
+  derived from them here.
 - **The availability rate is not yet decidable.** The live population is still
   ~96% UNCHECKABLE, driven entirely by tasks claimed but not yet planned. The
   excluded figures t1643 reports are a **counterfactual** ("what if nobody were
@@ -216,24 +237,36 @@ and the ordering, so the two checks cannot be confused for one:
 
 - **They are distinct and separately named.** *Parallel* admission asks whether
   other in-flight tasks collide with this one (profile knob
-  `parallel_admission: block|warn|off`, `aitask_parallel_admission.sh`,
+  `parallel_admission: confirm|warn|off`, `aitask_parallel_admission.sh`,
   `parallel-admission.md`). *Resource* admission asks whether the host can
   afford the phase (project key, one command, no profile knob). Neither may be
   folded into the other, and neither may claim the bare name "admission".
 - **Ordering, if both are wired: correctness before capacity.** The parallel
-  preflight — which can stop-and-replan — runs first; the resource hook runs
-  last, immediately before the fork. This task's own call sites already satisfy
+  preflight — which is advisory and never stops on its own — runs first; the
+  resource hook runs last, immediately before the fork. This task's own call sites already satisfy
   that: the planning Checkpoint precedes Step 7.
-- **Their dispositions differ on purpose.** A CONFLICT stops and replans; a
+- **Their dispositions differ on purpose.** A CONFLICT only *asks*; a
   resource refusal **parks with the plan intact**
   (`stop_reason=resource_admission`, which shares the `deferred` stop's marker
   stamp in `plan-approved-stop.md`).
-- **`plan-approved-stop.md`'s `stop_reason` vocabulary is now closed at three**
-  (`deferred`, `drift`, `resource_admission`) with an exhaustiveness guard and a
-  contract test pinning which side of the marker disposition each one selects.
-  If the parallel preflight's stop-and-replan reuses that sequence, it must add
-  its reason to the table and say which side it belongs on — the guard refuses
-  an unlisted reason rather than guessing.
+- **`plan-approved-stop.md`'s `stop_reason` vocabulary is now closed at four**
+  (`deferred`, `drift`, `resource_admission`, `parallel_admission`) with an
+  exhaustiveness guard and a contract test pinning which side of the marker
+  disposition each one selects. The preflight's **user-elected** "Stop and
+  re-plan" reuses that sequence, so `parallel_admission` is registered on the
+  **clearing** side — the guard refuses an unlisted reason rather than guessing.
+
+## Coordination — t1343 (declared claims)
+
+t1569_4 ships the advisory preflight at the same planning→implementation boundary
+`t1343_parallel_agent_file_conflict_advisory.md` targets, and t1343 is itself
+specified as *"An **advisory** (never blocking, never auto-acting) signal"*.
+
+**When t1343's structured per-task declaration of intended edits exists, it — not
+regex-scraped plan prose — becomes the only admissible basis for a hard
+conflict**, and an absent or unclear declaration must require confirmation rather
+than a guess. The live verdict rates and the false-CONFLICT observation in this
+task's Final Implementation Notes are calibration evidence for that decision.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->

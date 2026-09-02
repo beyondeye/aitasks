@@ -71,7 +71,7 @@ Roadmap estimate → candidate selected → plan written
                                   ↓
                   Parallel-admission preflight     (new, required)
                                   ↓
-                  proceed / confirm / stop-and-replan
+                  proceed / confirm / stop (user choice)
 ```
 
 **One shared checker, two consumers**: the roadmap calls it for an advisory
@@ -307,6 +307,32 @@ gatherer extension, and a staleness seam. Decompose into children; put the
 digest-exclusion contract are the parts most likely to invalidate the design.
 Prefer pure, testable units (file-set derivation, scoring, lane assignment) ahead
 of the agent-authored skill instructions.
+
+## Status of the parallel-admission preflight (t1569_4, landed 2026-09-02)
+
+t1569_4 shipped the preflight **advisory-only** — no verdict stops the workflow
+on its own — and **all three profiles ship `parallel_admission: "off"`**, so it
+is opted out by default. `warn` is still the absent-key default; this is an
+opt-out, not a change of default.
+
+The reason is availability, not design: an in-flight claim's file surface is read
+from its **plan file only** (`parallel_admission_collect.py:558-561` — no
+`origin_surface` fallback, unlike the candidate's `--from auto` at `:812-818`),
+and **9 of 16 `Implementing` tasks carry no plan** (56%, measured 2026-09-02). So
+**108 of 122** live candidates return `UNCHECKABLE`, with `no_plan` firing on all
+122. Enabled by default that is a prompt on nine picks in ten with nothing
+actionable to say.
+
+**The fix is owned by t1688**
+(`t1688_parallel_admission_prepick_assessment_and_task_body_surface.md`): give
+the checker an evidence source that exists in the claim→plan window (a task-body
+surface), and move the first safety question before the pick. When it lands,
+re-measure with `aitask_parallel_admission.sh replay --candidates auto` and flip
+the shipped profiles to `warn` if the UNCHECKABLE rate justifies a prompt.
+
+t1569_7's `[t1569_4]` verification items must be run against a profile that sets
+`parallel_admission: confirm` until then — under the shipped profiles the
+preflight is a no-op and every one of those checks would vacuously pass.
 
 ## Related tasks (deliberately NOT folded)
 

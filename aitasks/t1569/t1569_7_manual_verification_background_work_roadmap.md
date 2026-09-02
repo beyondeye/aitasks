@@ -26,6 +26,21 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1569_1] Confirm an ordinary trail refresh (no --with-inflight) is unchanged and does not touch the network.
 - [ ] [t1569_3] Drive the checker on the live repo and confirm CLEAR_CAVEATED is rendered visibly differently from CLEAR, not collapsed into it.
 - [ ] [t1569_3] Confirm an UNCHECKABLE result names the specific in-flight task it could not rule out, not an undifferentiated "something is unknown".
+> **[t1569_4] items: use a profile that sets `parallel_admission: confirm`.**
+> All three shipped profiles (`default`, `fast`, `remote`) ship
+> `parallel_admission: "off"`, so the preflight is a no-op under every one of
+> them and each check below would vacuously "pass" by never running. Copy a
+> profile, set `parallel_admission: confirm`, and verify against that.
+>
+> Why they ship off: measured 2026-09-02, 9 of 16 `Implementing` tasks carry no
+> plan file (56%), and an in-flight task's surface is read from its plan **only**
+> — there is no task-body/origin fallback on that side — so 108 of 122 live
+> candidates return `UNCHECKABLE`. Adding that fallback is the fix, owned by
+> **t1688** (`t1688_parallel_admission_prepick_assessment_and_task_body_surface.md`).
+> If t1688 has landed by the time these items are verified, re-check whether the
+> shipped profiles have been flipped back to `warn` — in that case verify against
+> them as shipped, not against a copy.
+
 - [ ] [t1569_4] Run /aitask-pick on a real task and confirm the preflight appears AFTER the remote drift check, not before.
 - [ ] [t1569_4] Confirm a freshly claimed candidate does NOT conflict with itself (task-workflow locks it at Step 4, long before the plan exists).
 - [ ] [t1569_4] Confirm each of CLEAR / CLEAR_CAVEATED / CONFLICT / UNCHECKABLE presents its intended disposition, and that UNCHECKABLE prints an operator remedy the user can actually act on.

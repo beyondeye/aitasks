@@ -669,3 +669,137 @@ point t1643 explicitly left to this task.
 ### Planned mitigations
 - timing: pre-phase | name: pin_procedure_and_golden_inventory | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 2 (blast radius / silent golden drift) | desc: assert the render test's file arrays equal the real task-workflow .md inventory and that every listed file has its goldens on disk, replacing the counts held in header prose
 - timing: pre-phase | name: pin_stop_reason_branch_position | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health risk 3 (a mis-placed fourth stop_reason clause passing green) | desc: derive the stop_reason list from plan-approved-stop.md's exhaustiveness sentence and assert generically that each reason sits in exactly one branch clause on the correct side of the stamp/clear commands
+
+---
+
+## Final Implementation Notes
+
+### Live verdict rates at implementation time (2026-09-02)
+
+```
+$ aitask_parallel_admission.sh replay --candidates auto --from plan \
+    --lock-freshness require-fresh
+RATES:122|0|0|14|108          # n | CLEAR | CLEAR_CAVEATED | CONFLICT | UNCHECKABLE
+CAUSE_RATE:no_plan|122
+CAUSE_RATE:stale_claim|122
+CAUSE_RATE:hub_overlap_only|10
+CAUSE_RATE:no_extractable_paths|9
+CAUSE_RATE:all_phantom|5
+```
+
+Over 122 live candidates: **0% CLEAR, 0% CLEAR_CAVEATED, 11.5% CONFLICT, 88.5%
+UNCHECKABLE.** `no_plan` and `stale_claim` fire on **all 122** — one in-flight
+task without a plan poisons every candidate's evidence, exactly the availability
+problem t1643 described and left undecided.
+
+**This is the decisive argument for shipping advisory-only.** Under the original
+mandatory design, 88.5% of picks would have hit a blocking confirmation and 11.5%
+a hard stop — friction on 100% of picks, which is how a guard gets switched off
+permanently. These numbers are **calibration evidence for t1343**, which owns the
+structured declaration that could make a hard stop defensible. They are **not** a
+promotion criterion: there is nothing to promote to.
+
+### Why all three shipped profiles ship `parallel_admission: "off"`
+
+Advisory-only fixes the *consequence* of a bad verdict. It does not fix the
+availability that produces one, and at 88.5% UNCHECKABLE an advisory prompt on
+nine picks in ten is still the fastest way to teach a user to dismiss the check.
+So `default`, `fast` and `remote` each **opt out explicitly**. `warn` remains the
+default for an absent key — this is an opt-out by the shipped profiles, not a
+change of default, and `tests/test_skill_render_task_workflow.sh` pins both
+halves (every shipped profile carries the quoted opt-out; an absent key renders
+the same body as an explicit `warn`).
+
+**The root cause, measured and located.** 9 of 16 `Implementing` tasks carry no
+plan file (**56%**, 2026-09-02: t1555_2 t1576 t1669 t1675 t1677 t1681 t1685 t1686
+t1687). An in-flight claim's file surface is derived from its **plan file only**
+— `parallel_admission_collect.py:558-561` falls straight to
+`Surface(..., "no_plan")` when `plan_path_for` returns `None`, with **no**
+`origin_surface` fallback. The *candidate* has one (`--from auto`,
+`:812-818`); the in-flight side does not. One unplanned in-flight task therefore
+poisons every candidate's evidence, which is why `CAUSE_RATE:no_plan` is 122 of
+122.
+
+**The fix is a task-body / origin fallback on the in-flight side**, giving a
+claimed-but-unplanned task a usable surface instead of a blanket `no_plan`. That
+is owned by follow-up **t1688**
+(`t1688_parallel_admission_prepick_assessment_and_task_body_surface.md`), which
+also moves the first safety question before the pick. Forward pointers are in the
+parent task t1569 and in t1569_7's `[t1569_4]` checklist. Once t1688 lands,
+re-measure with `replay --candidates auto` and flip the shipped profiles to
+`warn` if the UNCHECKABLE rate has fallen far enough to be worth a prompt.
+
+### The false CONFLICT, reproduced and understood
+
+`check --candidate 1569_4` returned `CONFLICT` against `t1663_1` on
+`.aitask-scripts/aitask_audit_wrappers.sh` — a path **neither task edits**. Both
+plans merely *invoke* `apply-helper-whitelist` inside a fenced `bash` block
+(`p1663_1:294`). Meanwhile the five files both tasks genuinely edit
+(`.claude/settings.local.json`, the three seed mirrors, `.codex/rules/default.rules`)
+were demoted to `hub` caveats at 57–65 touches each. The checker hard-stopped on a
+tool path and caveated the real collision.
+
+Cause: `plan_paths.extract()` (`lib/plan_paths.py:75`) is a pure regex over the
+whole plan body with **no code-fence awareness** (zero occurrences of "fence" in
+the module), and it is shared by three consumers — `aitask_remote_drift_check.sh`
+via `plan_paths_sh.sh`, `lib/trail_gather.py`, and this checker. Fixing it would
+have meant a provenance channel through `extract()` → `Surface.paths` (both bare
+strings today) plus a shell/Markdown classifier plus a consumer layer. That was
+rejected as disproportionate machinery to preserve one policy choice.
+
+### Deviations from the approved plan
+
+1. **Advisory-only, by explicit user decision.** Retracts the task file's bold
+   "CONFLICT's disposition is stop-and-replan in both `block` and `warn` — that
+   is the design and it does not change". Swept from 13 sites in the task file,
+   1 in the parent, and 1 shipped clause in `resource-admission.md` (Step 7).
+2. **Knob values are `confirm | warn | off`, not `block | warn | off`.** Nothing
+   blocks, so a `block` value would have been a lie.
+3. **`admission_surface_invoked_vs_edited` was withdrawn, not deferred.** It
+   existed only to make a mandatory stop safe. The structured-declaration fix
+   belongs to **t1343**, which already owns it; bidirectional coordination notes
+   were added instead of a new task.
+4. **All three shipped profiles ship `"off"`, which the plan did not call for.**
+   The approved plan had `default: warn`, `fast: warn`, `remote: off`. The
+   measured 88.5% UNCHECKABLE rate made `warn` untenable as a shipped value — see
+   the section above. `warn` is still the absent-key default, so this is an
+   opt-out by the shipped profiles rather than a change of default, and both
+   halves are pinned executably.
+5. **The Step-7 completeness grep is a one-time verification, not a committed
+   test.** The plan proposed asserting it in
+   `tests/test_task_workflow_reentry_drift.sh`, but a task file moves to
+   `aitasks/archived/` at completion, so the assertion would fail the moment this
+   task lands. The **durable** surfaces are guarded instead: Test 4e asserts that
+   no rendered profile of `parallel-admission.md`, and no line of `profiles.md`,
+   claims a stop-and-replan default or offers a `block` value. The task-file
+   sweep was verified once by grep; all surviving `block` mentions are inside a
+   passage explicitly labelled superseded.
+
+### Found during implementation
+
+- **`parallel_admission: off` is a YAML boolean.** YAML 1.1 parses a bare `off`
+  as `false`, so the Jinja gate never fired and `remote` rendered the full
+  procedure. Fixed on both sides: the shipped profiles quote `"off"`, and the
+  gate accepts `false` too, so a user's unquoted value cannot silently mean
+  `warn`. Documented in `profiles.md` and the website page.
+- **A first draft of the continue-first order assertion was vacuous.** It matched
+  the bare label `"Continue anyway"`, whose first occurrence is the intro's quote
+  of the drift check's option — so `head -n1` always landed above the option list
+  and the comparison held whatever the real order was. Caught by its own negative
+  control; the needle is now anchored to the option-list shape
+  (`- "Continue anyway" (description:`), and the mutation now fails as it should.
+  The `planning.md` ordering guard uses **byte** offsets rather than line numbers
+  for the same class of reason: two of the three call sites put the preflight in
+  the same line as the drift-check reference, where a line comparison ties.
+
+### Verification
+
+- `aitask_skill_verify.sh` — OK (13 templates × 3 agents, 4 stub surfaces).
+- `bash tests/run_all_python_tests.sh --test-dir tests` — `PYTHON SUITE: PASSED`.
+- 30 profile-, whitelist- and workflow-dependent bash suites — all pass, incl.
+  `test_skill_render_task_workflow.sh` (267), `test_task_workflow_reentry_drift.sh`
+  (71, with 4 new negative controls), `test_plan_approved_marker_contract.sh` (37),
+  `test_parallel_admission_preflight.sh` (38, new).
+- `shellcheck -S warning` clean on all four edited/added test files.
+- `hugo build --gc --minify` — exit 0; the new page renders and all four of its
+  outbound links resolve to real pages.

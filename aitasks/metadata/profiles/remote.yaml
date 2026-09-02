@@ -19,3 +19,14 @@ manual_verification_followup_mode: never
 # headless: never emit a label prompt, and never mint a new vocabulary entry
 # from an unattended run.
 explore_label_confirm: existing_only
+# SHIPPED OFF. Quoted deliberately: YAML 1.1 parses a bare `off` as the boolean
+# false (the renderer accepts both, but the quoted form says what it means).
+#
+# `warn` remains the default when the key is ABSENT -- this is an opt-OUT by the
+# shipped profiles, not a change of default. Measured 2026-09-02: 9 of 16
+# `Implementing` tasks carry no plan file (56%), and the in-flight surface is
+# derived from plan files ONLY (no task-body/origin fallback, unlike the
+# candidate), so 108 of 122 live candidates come back UNCHECKABLE. Until that
+# fallback lands the check would prompt on ~9 picks in 10 with nothing
+# actionable to say. Set `warn` or `confirm` in your own profile to opt in.
+parallel_admission: "off"

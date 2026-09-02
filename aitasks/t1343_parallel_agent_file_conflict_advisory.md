@@ -350,3 +350,26 @@ the change in:
 The following existing tasks have been folded into this task. Their requirements are incorporated in the description above. These references exist only for post-implementation cleanup.
 
 - **t666** (`t666_planning_check_sibling_task_overlap.md`)
+
+## Coordination — t1569_4 (advisory preflight, landed first)
+
+`t1569_4` wires the shared parallel-admission checker
+(`.aitask-scripts/aitask_parallel_admission.sh`) into `task-workflow` as a
+preflight at **this task's boundary** — planning→implementation, immediately
+after the remote-drift check. It is **advisory**, matching this task's own
+"never blocking, never auto-acting" framing: no verdict stops the workflow, and
+the profile knob is `parallel_admission: confirm | warn | off` with deliberately
+no `block` value.
+
+**Why that matters here.** t1569_4's evidence is regex-extracted from plan prose
+via `lib/plan_paths.py`, which has no code-fence awareness — a path a plan merely
+*runs* inside a fenced command is indistinguishable from one it declares it will
+edit. A false `CONFLICT` was measured live. That is precisely the gap this task's
+**declared** claim registry closes.
+
+**The contract between the two:** when this task's structured per-task
+declaration of intended edits exists, it — not regex-scraped plan prose —
+becomes the only admissible basis for a **hard** conflict, and an absent or
+unclear declaration must require confirmation rather than a guess. t1569_4's
+Final Implementation Notes carry live verdict rates and the false-CONFLICT
+observation as calibration evidence for setting that threshold.
