@@ -843,7 +843,7 @@
     {
       "name": "fable5",
       "cli_id": "claude-fable-5",
-      "notes": "Fable 5 — latest-generation Claude model",
+      "notes": "Fable 5 — previous-generation Fable model",
       "verified": {
         "pick": 100,
         "explore": 98,
@@ -1240,6 +1240,13 @@
           }
         }
       }
+    },
+    {
+      "name": "fable5_1",
+      "cli_id": "claude-fable-5-1",
+      "notes": "Fable 5.1 — most capable model, 1M context, 128K output, thinking always on",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
