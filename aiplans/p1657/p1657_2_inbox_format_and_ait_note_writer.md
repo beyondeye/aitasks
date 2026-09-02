@@ -6,7 +6,7 @@ Archived Sibling Plans: aiplans/archived/p1657/p1657_1_promote_ledger_block_subs
 Base branch: main
 Output branch: main
 plan_verified:
-  - claudecode/opus5 @ 2026-09-02 09:07
+  - claudecode/opus5 @ 2026-09-02 09:19
 ---
 
 # p1657_2 — Durable lane: `## Inbox` format and the `ait note` writer
@@ -789,6 +789,83 @@ Drive the **real registered** `INBOX_SPEC` (not the synthetic one) through
   `tests/test_ledger_block_multisection.py` green
 - `shellcheck .aitask-scripts/aitask_note.sh`
 - `bash tests/run_all_python_tests.sh` green
+
+## Final Implementation Notes
+
+- **Actual work done:** As planned, all eight main steps plus both inline
+  post-phases. New `.aitask-scripts/aitask_note.sh` (~560 lines); `INBOX_SPEC`
+  registered ahead of `GATE_SPEC` in `.aitask-scripts/board/aitask_merge.py`;
+  `ait` verb + 5 whitelist touchpoints; new `tests/test_note_append.sh` (110
+  assertions), `tests/test_note_section_order.sh` (20), and
+  `tests/test_inbox_union_roundtrip.py` (39). The t357 dogfood migrated into
+  t1657's Inbox in one path-scoped commit that also deleted the old prose block.
+
+- **Deviations from plan:**
+  - Touched **two more tests** in `test_merge_union_characterization.py` than
+    t1657_1's handoff named. Its shared `_INBOX_*` fixtures used placeholder ids
+    (`.aa`) and no provenance, so registering the spec made them invalid and
+    they would have bailed the union. Updated the fixtures to the real format and
+    corrected two prose claims that stopped being true. The other four tests in
+    the file pass unmodified.
+  - Added a `--migrate` verb (§0b) that the first plan revision did not have. It
+    was forced by F14: the dogfood claims a cross-repo sender, which `--from`
+    forbids by construction, so without it the step required hand-editing a
+    section whose own comment forbids exactly that.
+
+- **Issues encountered — five failure-reporting defects, each fix opening the next:**
+  - The NUL guard `[[ "$b" != *$'\0'* ]]` rejected **every** body: `$'\0'` is the
+    empty string, so the pattern degenerates to `**`. The real fix was deeper
+    than the typo — a bash variable cannot hold a NUL at all, so the check had to
+    move to the source bytes before the body reaches a variable.
+  - The collision seam had to become the **whole id**, not the suffix: an id is
+    `<iso>.<suffix>`, so a suffix-only override can never force a collision and
+    the re-mint would have shipped untested.
+  - F18–F20, F21, F22 are recorded above. The chain is worth reading as one
+    story: each was a case where a failure was reported as the wrong thing, and
+    the last (F22b) was a failure reported as **success**.
+  - **F22b is the one to remember.** `ait_ledger_lock_exit_trap` reads `$?` on
+    entry, so chaining any command in front of it destroys the status it exists
+    to preserve. A death inside the locked section exited 0 and the writer
+    emitted `NOTE_APPENDED` for a wedged lock. Filed upstream as **t1681**.
+
+- **Key decisions:**
+  - The writer's provenance validators deliberately **mirror** the merger's
+    rules. Whatever the writer commits, every other PC re-validates on merge, so
+    a value accepted here and rejected there is worse than either rule alone —
+    the block is already in git by then. They must change together.
+  - `migrated` is keyed on **presence**, not `== "yes"`. A block claiming the
+    variant without satisfying it is malformed, not an ordinary note.
+  - `dirty=unknown` **iff** `base=none`, fail-closed in both directions.
+    Measured that the trigger is `base=none` alone: on an unborn branch
+    `git rev-parse HEAD` fails but `git status` still reports, so `dirty` is
+    observable there and the sentinel would be a false disclaimer.
+  - The lock does **not** span the git commit. Contention is on the repo-global
+    `.git/index.lock`, not the per-task key, so spanning it buys no atomicity and
+    only lengthens the window in which a second `ait note` exhausts its budget.
+    The id-bearing `NOTE_APPENDED_UNCOMMITTED` outcome is what makes that safe.
+  - The subshell needs **two cleanup scopes**: its EXIT trap must not remove the
+    handoff files, because it fires exactly when the parent still needs them.
+
+- **Upstream defects identified:** **t1681** — `ait_ledger_lock_exit_trap` has no
+  guard or warning against being chained behind another command. The gate ledger
+  installs the trap bare and so never hits it, which is why it survived t1657_1's
+  review; t1657_3 and t1657_4 both add consumers that will want their own cleanup.
+
+- **Notes for sibling tasks:**
+  - **A real note was sent to t1657_3** through `ait note` itself, carrying the
+    t1681 trap warning and the receipt key-set contract. It is the first
+    genuinely useful use of the mailbox.
+  - **t1657_3 owns the receipt half of the validator.** It is authored and tested
+    here against synthetic blocks but has no real producer yet: `id`, `by`, `at`,
+    `mode` (`auto`|`explicit`), `ids`, and **no** provenance fields. Adding a key
+    without also adding it to `_RECEIPT_KEYS_REQUIRED`/`_OPTIONAL` will bail every
+    receipt to conflict markers.
+  - **t1657_6 (docs)** should cover: the two lanes, the trust posture, the
+    `> | ` sentinel as the injection defence, and the pre-existing hazard that
+    `aitask_update.sh --desc-file` drops body content (shared with `## Gate Runs`).
+  - **t1657_7** was extended to cover `1657_2` in its `verifies:` list — it
+    previously excluded the child that is the actual product.
+
 
 ## Step 9 (Post-Implementation)
 
