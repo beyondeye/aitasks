@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, minimonitor, textual]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5
 created_at: 2026-09-02 10:45
-updated_at: 2026-09-02 16:17
+updated_at: 2026-09-02 17:10
+completed_at: 2026-09-02 17:10
 ---
 
 ## Problem
@@ -156,3 +157,14 @@ minimonitor fixture + negative-control discipline).
 > **✅ gate:plan_approved** run=2026-09-02T13:17:12Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-09-02T14:05:39Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-09-02T14:10:38Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d220c09988063703
+
+> **✅ gate:risk_evaluated** run=2026-09-02T14:10:38Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1683/risk_evaluated_2026-09-02T14:10:38Z-risk_evaluated-a1.log`
