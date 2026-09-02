@@ -139,8 +139,43 @@ test, not a scratch probe, and against **both** load-bearing rungs, because the
 task's contract names rung 2 *and* rung 3 and a rung-2 mutation short-circuits
 before rung 3 ever executes.
 
-Setup, once: copy `.aitask-scripts/` into the scratchpad; run
-`tests/test_task_git.sh` with `PROJECT_DIR` pointed at the copy.
+**Setup — an isolated project tree, not an env override.** `PROJECT_DIR` cannot
+be injected: `tests/test_task_git.sh:8` unconditionally computes it as
+`"$(cd "$TEST_SCRIPT_DIR/.." && pwd)"` from `${BASH_SOURCE[0]}`, so an
+environment value is clobbered before it is ever read and the run would silently
+source the **real** ladder and go green while proving nothing. Instead build a
+copy of the project tree in the scratchpad and run the test *from inside it*, so
+`TEST_SCRIPT_DIR` is `<iso>/tests` and `PROJECT_DIR` resolves to `<iso>`:
+
+```bash
+ISO=<scratchpad>/isotree
+mkdir -p "$ISO/tests"
+cp -a ait                    "$ISO/ait"
+cp -a .aitask-scripts        "$ISO/.aitask-scripts"
+cp -a tests/lib              "$ISO/tests/lib"
+cp -a tests/test_task_git.sh "$ISO/tests/test_task_git.sh"
+bash "$ISO/tests/test_task_git.sh"
+```
+
+That file set is sufficient and was confirmed green end-to-end (48/48) before
+any mutation — a baseline run of the unmutated copy is itself required, so a
+later failure cannot be blamed on an incomplete copy.
+
+**Pre-flight after each mutation — assert the mutated ladder is actually live**,
+before interpreting any failure. Build a throwaway branch-mode parent with a
+nested `git init` checkout and probe it as a subprocess sourcing the *copy's*
+library:
+
+```bash
+(cd "$fixture/vendor/inner" && bash -c 'set -euo pipefail
+source "$1/lib/task_utils.sh"; _ait_detect_data_worktree
+echo "ANSWER:$_AIT_DATA_WORKTREE"' _ "$ISO/.aitask-scripts")
+```
+
+It MUST print the parent's `.aitask-data`. If it prints `.`, the mutation did not
+take and the whole mutation run is **void** — do not report its result either
+way. (Verified during planning: the mutated copy answered
+`<parent>/.aitask-data` while the real repo answered `.` for the same fixture.)
 
 **Mutation 1 — rung 2.** In the copy's `task_utils.sh`, replace rung 2's
 `git rev-parse --show-toplevel` with a loop that walks up from `$PWD` past
@@ -155,13 +190,16 @@ boundaries and, if an enclosing `.aitask-data/.git` is found, set
 misses for a nested checkout (inner has no `.aitask-data` of its own) and
 execution genuinely reaches rung 3, which then answers `<parent>/.aitask-data`.
 
+Each mutation is applied to a **freshly re-copied** `$ISO` (mutation 2 is not
+layered on mutation 1), and each is preceded by its own pre-flight.
+
 **Required outcome, recorded per mutation:** under each mutation independently,
 the Test 15 boundary assertions (1), (2) and (3) **fail** for both nested shapes,
 while the positive control (`$ROOT_15` → `.aitask-data`) and the adjacent control
 (`$ROOT_15/vendor` → `$ROOT_15/.aitask-data`) stay green — that pairing is what
 shows the failure comes from the boundary rather than from a broken fixture.
-Record which assertions failed for each mutation in the Final Implementation
-Notes.
+Record, in the Final Implementation Notes: the pre-flight answer, which
+assertions failed, and the controls' status — for each mutation.
 
 A test that cannot fail adds nothing. The relaxed ladders live only in the
 scratchpad; nothing in the repo is mutated.
@@ -218,4 +256,4 @@ assertions and a verification pass — both levels stay `low`.*
 
 ### Planned mitigations
 - timing: pre-phase | name: assert_fixture_preconditions | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — submodule fixture depends on protocol.file.allow and could fail as a boundary failure | desc: Assert the parent is branch mode, each nested checkout is its own repo inside the parent tree with no .aitask-data of its own, and the submodule .git file exists.
-- timing: post-phase | name: falsify_against_relaxed_ladder | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the test could be green-but-blind for rung 2 or rung 3 | desc: Run the committed test against two independent scratch-only mutations — a boundary-walking rung 2, and a boundary-walking ait_main_worktree_root that leaves rung 2 correct so execution reaches rung 3 — and confirm Test 15's boundary assertions fail under each while both controls stay green.
+- timing: post-phase | name: falsify_against_relaxed_ladder | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the test could be green-but-blind for rung 2 or rung 3 | desc: Run the committed test from an isolated scratchpad project copy (PROJECT_DIR is derived from BASH_SOURCE and cannot be overridden by env) against two independent mutations — a boundary-walking rung 2, and a boundary-walking ait_main_worktree_root that leaves rung 2 correct so execution reaches rung 3 — each preceded by a pre-flight proving the mutated ladder is live, and confirm Test 15's boundary assertions fail under each while both controls stay green.
