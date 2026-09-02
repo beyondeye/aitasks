@@ -436,3 +436,140 @@ nothing to merge, `main` is both base and output.
 ### Planned mitigations
 - timing: pre-phase | name: assert_fixture_rows_parsed | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — stub arity drift passing vacuously | desc: assert every hand-built list-panes fixture actually produced panes, green at the old arity first
 - timing: post-phase | name: live_shell_hosted_repro | type: manual_verification | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — ACs proven only at the parse seam | desc: run the real shell-hosted-minimonitor repro in a scratch tmux session and confirm single listing plus kill-window
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-02 15:05)
+- **Requested by user:** Two blocking concerns. (1) The plan's `live_shell_hosted_repro`
+  post-phase was never executed or recorded — patched-`tmux_run` tests cannot show that
+  real tmux emits and consumes the pane marker. (2) The full Python suite was reported as
+  "88 failures, all someone else's", which is an attribution claim, not a whole-repository
+  regression verdict. Also: fix the `agent_marks.toggle` breakage; commit only my own files.
+- **Changes made:** No source changes. Ran the live reproduction end to end and recorded
+  it below; obtained an isolated whole-repo suite verdict in a dedicated `git worktree` at
+  HEAD carrying only this task's seven files. The `agent_marks.toggle` breakage needed no
+  fix from this task — the concurrently-running t1685 session repaired it (to
+  `agent_marks.cycle`) and committed it while this task was in flight;
+  `tests/test_multi_session_monitor.sh` now passes 47/47.
+- **Files affected:** none (verification only); this plan file.
+
+## Live verification (post-phase `live_shell_hosted_repro`)
+
+Run on an **isolated** tmux server (`AITASKS_TMUX_SOCKET=t1686live` + a private
+`TMUX_TMPDIR`), never the working session; torn down afterwards.
+
+**Fixture — the reproduction, reproduced.** Window `agent-pick-9999`: pane `%0` a real
+agent, pane `%1` a plain interactive shell into which `./ait minimonitor` was typed.
+
+```
+%0 pane_pid=3509859 cmd=tail   marker=[]
+%1 pane_pid=3509862 cmd=python marker=[minimonitor:3523895]
+/proc/3509862/cmdline = "bash --norc -i"        <- what _is_companion_process sees
+child 3523895 = .../monitor/minimonitor_app.py  <- what the marker records
+```
+
+| Check | Result |
+|---|---|
+| `discover_panes()` lists `agent-pick-9999` | **once** (`%0` only; `%1` filtered) |
+| `_is_companion_process` on either `pane_pid` | `False` for **both** — the cmdline rung is genuinely blind here, so the marker is what did the work |
+| `find_companion_pane_id("1")` | `%1` (AC 3, against real tmux) |
+| `kill_agent_pane_smart("%0")` with the companion present | `killed_window=True` — the window collapsed (AC 2) |
+| Two real agents, unmarked sibling listed **last**: `kill_agent_pane_smart("%0")` | `killed_window=False`, `%1` survived |
+| Same fixture with the pre-fix `stdout.strip()` restored | `killed_window=True` — **the whole window died and took the surviving live agent with it** |
+
+That last pair is the live demonstration of the pre-existing defect fixed in step 5:
+before the change, killing one of two real agents destroyed the other.
+
+**One live-only finding:** an early probe called `find_companion_pane_id("0", …)` and got
+`None`. That was the probe's error, not the code's — this server's `base-index` is 1, so
+the window index is `1`. `tmux_run` returned `rc=1` for the bad target and the function
+correctly answered `None`. Worth recording because it is exactly the class of thing a
+stubbed `tmux_run` cannot surface: the synthetic tests supply their own window index and
+never exercise `tmux_window_target` against a real server.
+
+## Whole-repository regression verdict (isolated)
+
+The working tree is shared with two other in-flight tasks (t1685, since committed
+as `99f6ca2c2`; and t1677, still uncommitted), so a suite run there could not
+attribute failures. Verdict obtained instead in a dedicated `git worktree` at
+`HEAD` (`99f6ca2c2`) carrying **only this task's seven code/test files**, linked
+with `aitask_init_data.sh --link-worktree`:
+
+```
+PYTHON SUITE: PASSED (runner=pytest, exit=0)
+6546 passed, 2 skipped in 611.74s   +   11 passed (serial carve-out) in 42.15s
+```
+
+The first isolated run reported 2 failures, both in
+`tests/test_minimonitor_bottom_pin_live.py` — a serial carve-out module that
+boots a real TUI in a tmux pane. Diagnosis rather than assumption: the failing
+assertion was `'grab' not found in []` (a synthesised scrollbar press that saw no
+events at all), and `test_5` consumes `test_2`'s drag. Both then passed on a
+re-run, **and the same module passes identically at pristine `HEAD` with no
+changes at all** — so it is the documented load-sensitivity of that carve-out, not
+this diff. The clean full-suite re-run above is the verdict of record.
+
+For contrast, the same suite in the *shared* working tree reported 88 failures;
+every one traced to `_parked_pane_ids` / `PaneSnapshot.parked`, attributes that
+exist only in t1685 code in `monitor_app.py` / `minimonitor_app.py` — files this
+task never touches.
+
+## Final Implementation Notes
+
+- **Actual work done:** Made `@aitask_monitor_kind` the primary companion signal at
+  all three blind call sites in `monitor_core.py`, with the `#{pane_pid}` cmdline
+  heuristic retained as a live fallback rung. `is_live_companion_marker()` delegates
+  to `monitor_marker.monitor_marker_alive` — the canonical rule is called, never
+  re-derived. `#{@aitask_monitor_kind}` was **appended** to `_LIST_PANES_FORMAT`
+  (index-stable) and the inline arity literal replaced by `_LIST_PANES_ARITIES =
+  (9, 10, 11)`. Test coverage in `test_monitor_companion_filter.py` went 10 → 30,
+  driven by **real** pids (`os.getpid()` for live, a spawned-and-reaped pid for
+  stale, with a fixture guard asserting the dead pid really classifies as `stale`).
+  Stub arity swept across 5 test files; `aidocs/framework/tui_conventions.md`
+  updated. Both inline risk mitigations executed.
+- **Deviations from plan:** One addition, from user review — **step 5**, not in the
+  approved plan. Both single-window readers iterated `stdout.strip().splitlines()`;
+  `str.strip()` acts on the whole buffer and eats the trailing tab of the **last**
+  record when its final field is empty. Appending the marker would have broken
+  `find_companion_pane_id` that way, and `kill_agent_pane_smart` was **already
+  broken**: its format already ended in `#{@aitask_shadow_target}` (empty on every
+  non-shadow pane), so the last-listed pane was silently dropped from `records`.
+  Both now iterate bare `splitlines()`, skipping blank lines only. The pre-phase
+  mitigation also came in narrower than written: 4 of the 5 files already carried
+  exact non-empty pane-id expectations (which a dropped row fails), so only
+  `test_agent_marks_generation.py` needed the new `assert_rows_parse` guard — the
+  plan's own parenthetical ("or the exact expected non-empty pane-id set") allowed
+  for this, and the guard was proven live against a deliberately short row.
+- **Issues encountered:** The working tree was shared with two other in-flight
+  tasks throughout. t1685 (parked agents) was editing `monitor_core.py`,
+  `test_multi_session_monitor.sh` and the monitor apps; it committed as `99f6ca2c2`
+  mid-task, after which only this task's changes remained in those files. t1677
+  (metadata commit) still holds uncommitted hunks in
+  `aidocs/framework/tui_conventions.md`, so that file was committed via a filtered
+  2-hunk `git apply --cached` — the staged blob was verified to contain both of this
+  task's paragraphs, none of t1677's prose, and the same `## ` heading count as HEAD.
+  No `git stash` / `git restore` was used at any point; the two mutant runs snapshotted
+  to the scratchpad and restored by exact inverse edit, each verified byte-identical.
+- **Key decisions:** (1) The marker verdict is **not memoized**, unlike the cmdline
+  verdict — `monitor_marker_alive` is one `os.kill`, and caching it would re-open a
+  TTL-length window in which a companion that had exited stayed hidden, which is the
+  very staleness the marker exists to resolve. (2) The field was appended rather than
+  placed beside `@aitask_shadow_target`, so no existing 10-field record silently
+  reinterprets its `history_size` as a marker. (3) The arity set stays **closed**
+  (9, 10, 11) rather than becoming a `>= 9` minimum, so a drifted stub fails
+  loudly-by-absence; `ArityToleranceTests` pins both boundaries. (4) A stale marker
+  is deliberately not a companion, reusing `monitor_marker`'s own `stale` vs
+  `present` verdicts including its "unverifiable is not absence" rule.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:3053 — kill_agent_pane_smart iterated
+    stdout.strip().splitlines() over a format already ending in
+    #{@aitask_shadow_target}, silently dropping the last-listed unmarked pane; when
+    that pane was the only other real agent the whole window was killed with a live
+    agent still in it. Pre-existing (not introduced here), FIXED in this task
+    because it sits inside AC 2's call site — demonstrated live before and after.
+  - `tests/test_kill_agent_pane_smart.sh — the live fixture builds its companion as
+    the LAST pane, where dropping a helper changes no count, so it could never
+    observe the defect above. Left as-is (it remains a valid fallback-rung control),
+    but its ordering is why the bug survived. Not fixed here: changing another
+    task's live fixture ordering is out of scope for this defect.
+- **Notes for sibling tasks:** n/a (not a child task).
