@@ -47,6 +47,38 @@ def _monitor() -> TmuxMonitor:
     return TmuxMonitor(session="demo", multi_session=False)
 
 
+def assert_rows_parse(testcase: unittest.TestCase, stdout: str) -> None:
+    """Fixture guard: every hand-built `list-panes` row must reach a pane list.
+
+    `_parse_list_panes` silently `continue`s any record whose field count is
+    not in `_LIST_PANES_ARITIES`, so a stub left at a stale arity turns an
+    "expected empty" assertion into a **vacuous pass** — the test goes green
+    because the fixture never arrived, not because the code filtered it. Parse
+    the same stdout with the companion predicate forced False and require every
+    row to survive, so the assertions that follow are known to be about
+    behaviour rather than about a dropped stub.
+    """
+    import monitor.monitor_core as mc
+
+    rows = [line for line in stdout.splitlines() if line.strip()]
+    mon = TmuxMonitor(
+        session="fixtureguard", multi_session=False, agent_prefixes=["agent-"],
+        exclude_pane="",
+    )
+    original = mc._is_companion_process
+    mc._is_companion_process = lambda pid: False
+    try:
+        panes, shadows = mon._parse_list_panes(stdout, "fixtureguard")
+    finally:
+        mc._is_companion_process = original
+    testcase.assertEqual(
+        len(panes) + len(shadows), len(rows),
+        f"{len(rows) - len(panes) - len(shadows)} fixture row(s) were dropped "
+        "before classification (arity mismatch) — the assertions in this test "
+        "would pass vacuously",
+    )
+
+
 class DiscoveryFactRecordingTests(unittest.TestCase):
     def test_facts_are_not_visible_until_the_commit_publishes_them(self):
         mon = _monitor()
@@ -124,11 +156,15 @@ class RealDiscoveryEnumerationTests(unittest.TestCase):
     exists to handle promptly.
     """
 
-    _FIELDS = 9  # _LIST_PANES_FORMAT is 9 tab-separated fields
+    #: `_LIST_PANES_FORMAT`'s current field count (t1686 appended
+    #: `@aitask_monitor_kind`). A row built at an older arity is dropped whole
+    #: by `_parse_list_panes` — `assert_rows_parse` is what catches that.
+    _FIELDS = 11
 
-    def _row(self, window: str, pid: int) -> str:
+    def _row(self, window: str, pid: int, *, monitor_kind: str = "") -> str:
         return "\t".join(
-            ["1", window, "0", "%1", str(pid), "node", "80", "24", ""]
+            ["1", window, "0", "%1", str(pid), "node", "80", "24", "", "0",
+             monitor_kind]
         )
 
     def _monitor_with(self, stdout: str, *, companion: bool):
@@ -148,9 +184,9 @@ class RealDiscoveryEnumerationTests(unittest.TestCase):
     def test_session_with_only_the_excluded_companion_is_still_enumerated(self):
         import asyncio
 
-        mon = self._monitor_with(
-            self._row("agent-t42", 4242) + "\n", companion=True
-        )
+        stdout = self._row("agent-t42", 4242) + "\n"
+        assert_rows_parse(self, stdout)   # `panes == []` below must not be vacuous
+        mon = self._monitor_with(stdout, companion=True)
         sink: list = []
         panes, shadows = asyncio.run(
             mon.discover_panes_with_shadows_async(enum_sink=sink)

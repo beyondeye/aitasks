@@ -118,12 +118,14 @@ def _make_monitor(panes, shadows, content, *, patterns=None, idle_threshold=5.0)
 
 
 def _list_panes_line(
-    pane_id: str, window_name: str, *, shadow_target: str = "", pid: int = 99999999
+    pane_id: str, window_name: str, *, shadow_target: str = "", pid: int = 99999999,
+    monitor_kind: str = "",
 ) -> str:
+    """`_LIST_PANES_FORMAT` order, 11 fields (t1686 appended the monitor marker)."""
     idx = pane_id.lstrip("%")
     return "\t".join([
         idx, window_name, "0", pane_id, str(pid), "bash", "80", "24",
-        shadow_target,
+        shadow_target, "0", monitor_kind,
     ])
 
 

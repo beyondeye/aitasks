@@ -69,7 +69,8 @@ fake_sessions = [
 
 # Build a synthetic list-panes stdout (one agent pane per session).
 def make_row(widx, wname, pidx, pane_id, pid):
-    parts = [widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", ""]
+    # `_LIST_PANES_FORMAT` order, 11 fields (t1686 appended the monitor marker).
+    parts = [widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", "", "0", ""]
     return "\t".join(parts)
 
 rows_a = make_row("1", "agent-t42-claudecode", "0", "%1", 1001) + "\n"
@@ -285,7 +286,8 @@ fake_sessions = [
 ]
 
 def make_row(widx, wname, pidx, pane_id, pid):
-    return "\t".join([widx, wname, pidx, pane_id, str(pid), "python3", "80", "24", ""])
+    # 11 fields: …\t<shadow_target>\t<history_size>\t<monitor_kind>  (t1686)
+    return "\t".join([widx, wname, pidx, pane_id, str(pid), "python3", "80", "24", "", "0", ""])
 
 # Two agent panes, one is a companion (minimonitor).
 stdout = make_row("1", "agent-t1", "0", "%1", 1001) + "\n" + \
@@ -327,7 +329,8 @@ fake_sessions = [
 ]
 
 def make_row(widx, wname, pidx, pane_id, pid):
-    return "\t".join([widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", ""])
+    # 11 fields: …\t<shadow_target>\t<history_size>\t<monitor_kind>  (t1686)
+    return "\t".join([widx, wname, pidx, pane_id, str(pid), "bash", "80", "24", "", "0", ""])
 
 stdout = make_row("1", "agent-t1", "0", "%exclude_me", 1001) + "\n" + \
          make_row("1", "agent-t2", "0", "%keep_me", 1002) + "\n"

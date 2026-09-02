@@ -38,6 +38,7 @@ fi
 (
     cd "$REPO_ROOT"
     PYTHONPATH="$REPO_ROOT/.aitask-scripts" "$PYTHON_BIN" - <<'PYEOF'
+import os
 import sys
 from pathlib import Path
 
@@ -93,7 +94,7 @@ mc._is_companion_process = lambda pid: pid == 9999  # patch: pid 9999 == compani
 # exclude_pane="" pins the fixture: the default reads $TMUX_PANE, so running the
 # suite from inside a tmux pane would leak an ambient pane id into discovery.
 monitor = TmuxMonitor(session="testsess", exclude_pane="")
-FMT_LINE = "\t".join  # _LIST_PANES_FORMAT: 10 tab-separated fields (9 = legacy)
+FMT_LINE = "\t".join  # _LIST_PANES_FORMAT: 11 fields now (10 and 9 = legacy)
 
 MISSING = "<attr missing>"
 
@@ -113,20 +114,32 @@ def attr(obj, name):
     return getattr(obj, name, MISSING)
 
 
+# `os.getpid()` is a provably-live pid, so the marker row below is classified
+# by monitor_marker's REAL liveness rule rather than by a patched stand-in.
+LIVE_MARKER = "minimonitor:%d" % os.getpid()
+
 stdout = "\n".join([
-    # agent pane (target empty, pid not companion) -> kept
-    FMT_LINE(["0", "agent-pick-100", "0", "%1", "1234", "node", "80", "24", "", "500"]),
+    # agent pane (target empty, pid not companion, no marker) -> kept
+    FMT_LINE(["0", "agent-pick-100", "0", "%1", "1234", "node", "80", "24", "", "500", ""]),
     # shadow helper pane (target set) -> shadow list, even though pid not companion
-    FMT_LINE(["0", "agent-pick-100", "1", "%2", "1235", "node", "80", "24", "%1", "12"]),
-    # companion pane (pid 9999) in an agent-named window -> filtered
-    FMT_LINE(["0", "agent-pick-100", "2", "%3", "9999", "python", "80", "24", "", "40"]),
+    FMT_LINE(["0", "agent-pick-100", "1", "%2", "1235", "node", "80", "24", "%1", "12", ""]),
+    # companion pane (pid 9999) in an agent-named window -> filtered by cmdline
+    FMT_LINE(["0", "agent-pick-100", "2", "%3", "9999", "python", "80", "24", "", "40", ""]),
     # legacy 9-field row (no #{history_size}) -> parsed, history_size None
     FMT_LINE(["0", "agent-pick-100", "3", "%4", "1236", "node", "80", "24", ""]),
+    # legacy 10-field row (pre-t1686, no marker field) -> parsed, history_size 21
+    FMT_LINE(["0", "agent-pick-100", "4", "%6", "1237", "node", "80", "24", "", "21"]),
     # companion in a NON-agent window: classify_pane -> OTHER. This is the row
     # that discriminates the t1382 fix — under the old `category == AGENT and …`
     # conjunct the predicate was never consulted and this pane leaked through.
     # Every agent-pick-100 row above is filtered under either form.
-    FMT_LINE(["0", "noam_bugs", "0", "%5", "9999", "python", "80", "24", "", "7"]),
+    FMT_LINE(["0", "noam_bugs", "0", "%5", "9999", "python", "80", "24", "", "7", ""]),
+    # SHELL-HOSTED companion (t1686): pid 1238 is NOT a companion by cmdline —
+    # it is the pane's `-bash` — but the pane carries a live marker, so the
+    # marker rung must filter it. Under the pre-t1686 code this row survives as
+    # a second AGENT card for `agent-pick-100`, which is the reported symptom.
+    FMT_LINE(["0", "agent-pick-100", "5", "%7", "1238", "bash", "80", "24", "", "9",
+              LIVE_MARKER]),
 ])
 
 # Guard the return shape BEFORE unpacking: a regression to the pre-t1133 single
@@ -144,23 +157,26 @@ if shape_of(result) != "tuple[list, list]":
 else:
     panes, shadows = result
     check_eq("discovery keeps the real agent panes only",
-             [attr(p, "pane_id") for p in panes], ["%1", "%4"])
+             [attr(p, "pane_id") for p in panes], ["%1", "%4", "%6"])
     check_eq("shadow pane returned in the shadow list",
              [attr(p, "pane_id") for p in shadows], ["%2"])
     check_eq("shadow carries its followed-agent target",
              [attr(s, "shadow_target") for s in shadows], ["%1"])
     check_eq("companion panes excluded from both lists",
-             sorted(map(str, {"%3", "%5"} & {attr(p, "pane_id")
-                                             for p in panes + shadows})), [])
+             sorted(map(str, {"%3", "%5", "%7"} & {attr(p, "pane_id")
+                                                   for p in panes + shadows})), [])
     check_eq("10-field row parses history_size",
              [attr(p, "history_size") for p in panes
               if attr(p, "pane_id") == "%1"], [500])
     check_eq("legacy 9-field row parses with history_size None",
              [attr(p, "history_size") for p in panes
               if attr(p, "pane_id") == "%4"], [None])
+    check_eq("legacy 10-field row (pre-marker) still parses",
+             [attr(p, "history_size") for p in panes
+              if attr(p, "pane_id") == "%6"], [21])
     # Cache-boundary invariant: only agent-facing panes enter _pane_cache.
     check_eq("shadow + companions stay out of _pane_cache",
-             sorted(map(str, monitor._pane_cache)), ["%1", "%4"])
+             sorted(map(str, monitor._pane_cache)), ["%1", "%4", "%6"])
 
 # -- TaskInfoCache.get_task_id_for_pane (pane-keyed, cached) ------------------
 cache = TaskInfoCache(Path("/tmp"))

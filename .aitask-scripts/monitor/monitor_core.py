@@ -52,6 +52,11 @@ from agent_launch_utils import (  # noqa: E402
     tmux_window_target,
 )
 from followup_kinds import normalize_followup_kind  # noqa: E402
+# The companion pane marker + its liveness rule (t1451). Imported from the
+# module that OWNS the rule, not via agent_launch_utils' re-export: it is
+# stdlib-only, and discovery must consult the same single implementation the
+# single-instance guards and aitask_companion_cleanup.sh already use (t1686).
+from monitor_marker import MONITOR_KIND_OPTION, monitor_marker_alive  # noqa: E402
 from task_yaml import parse_frontmatter  # noqa: E402
 import gate_ledger  # noqa: E402  (shared gate-ledger parser; single derivation path)
 import dep_resolution  # noqa: E402  (shared local-`depends:` decision core, t1527)
@@ -307,8 +312,46 @@ _COMPANION_KEYWORDS = ("minimonitor", "monitor_app")
 _COMPANION_MEMO_TTL = 300.0
 
 
+def is_live_companion_marker(monitor_kind: str) -> bool:
+    """True when a pane's ``@aitask_monitor_kind`` proves a LIVE companion.
+
+    Pure, exactly like :func:`is_shadow_target`: it takes the already-read
+    option value, so the tmux read stays at the call site and this stays
+    unit-testable.
+
+    **The parse + liveness rule is not re-derived here.** It is
+    ``monitor_marker.monitor_marker_alive`` — the one implementation (t1451)
+    that the single-instance guards and ``aitask_companion_cleanup.sh`` already
+    consult. Two consequences follow from reusing its verdicts rather than
+    inventing local ones:
+
+    * a **stale** marker (recorded pid provably gone) is NOT a companion, so a
+      shell pane left behind by an exited minimonitor goes back to being an
+      ordinary pane immediately;
+    * a non-empty value that does not *parse* counts as present, per that
+      module's "unverifiable is not absence" rule.
+
+    ``.strip()`` runs first so a whitespace-only value reads as *absent* rather
+    than falling into the unparseable-⇒-present branch; tmux emits ``""`` for an
+    unset option, which ``monitor_marker_alive`` already reports as False.
+    """
+    return monitor_marker_alive(monitor_kind.strip())
+
+
 def _is_companion_process(pid: int) -> bool:
-    """Check if a process is a companion pane (minimonitor/monitor) via cmdline."""
+    """Check if a process is a companion pane (minimonitor/monitor) via cmdline.
+
+    **The FALLBACK rung since t1686** — :func:`is_live_companion_marker` is the
+    primary signal, and this runs only when the pane carries no marker or a
+    stale one. It is still load-bearing: ``App.run_test()`` mounts deliberately
+    pass ``mark_pane=False``, and panes predating t1451 were never stamped.
+
+    Its blind spot is why the marker leads. The pid handed in is tmux's
+    ``#{pane_pid}`` — the pane's **top-level** process. A companion launched as
+    the pane's start command *is* that process, but one restarted from an
+    interactive shell inside the pane is a *child* of ``-bash``, and no keyword
+    in this pane's cmdline will ever match.
+    """
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
             cmdline = f.read().decode("utf-8", errors="replace")
@@ -2012,11 +2055,25 @@ class TmuxMonitor:
             return PaneCategory.TUI
         return PaneCategory.OTHER
 
-    def _is_companion_pane(self, pane_id: str, pane_pid: int, session: str) -> bool:
-        """Memoized companion check for the discovery hot path.
+    def _is_companion_pane(
+        self, pane_id: str, pane_pid: int, session: str, monitor_kind: str = "",
+    ) -> bool:
+        """Two-rung companion check for the discovery hot path.
 
-        Wraps :func:`_is_companion_process` (which reads ``/proc`` on Linux and
-        shells out to ``ps`` everywhere else) so the per-refresh cost of the
+        **Rung 1 — the pane's own ``@aitask_monitor_kind`` marker (t1686).**
+        Primary, because the marker records the *app's own* pid, which is the
+        one ``#{pane_pid}`` cannot reach for a companion restarted inside an
+        interactive shell. Evaluated fresh on every tick and **deliberately not
+        memoized**: the memo exists to bound the cost of
+        :func:`_is_companion_process`' ``/proc`` (or ``ps``) read, whereas
+        :func:`is_live_companion_marker` is a single ``os.kill(pid, 0)``.
+        Caching it would open a window in which a companion that has exited —
+        marker now stale, shell pane still alive — stays hidden for the rest of
+        the TTL, which is precisely the staleness the marker exists to resolve.
+
+        **Rung 2 — cmdline identity, memoized.** Wraps
+        :func:`_is_companion_process` (which reads ``/proc`` on Linux and shells
+        out to ``ps`` everywhere else) so the per-refresh cost of the
         now-unconditional filter in :meth:`_parse_list_panes` is bounded.
 
         **Only positive verdicts are cached, deliberately.** A launcher pane
@@ -2033,6 +2090,8 @@ class TmuxMonitor:
         ``_parse_list_panes`` runs once per session per tick, and an unscoped
         sweep would evict the other sessions' live entries in multi-session mode.
         """
+        if is_live_companion_marker(monitor_kind):
+            return True
         now = self._monotonic()
         hit = self._companion_memo.get(pane_id)
         if (
@@ -2064,7 +2123,19 @@ class TmuxMonitor:
         "#{pane_width}", "#{pane_height}",
         "#{@aitask_shadow_target}",   # shadow helper marker (t986); "" when unset
         "#{history_size}",   # scrollback-growth work signal (t1159_2)
+        # Companion marker (t1686); "" when unset. APPENDED, never inserted
+        # beside @aitask_shadow_target: inserting would shift `history_size`
+        # and make every existing 10-field record parse its history value as a
+        # marker — a silent reinterpretation rather than a loud failure.
+        f"#{{{MONITOR_KIND_OPTION}}}",
     ])
+
+    #: Accepted `list-panes` record arities. 11 = current (t1686 marker); 10 =
+    #: pre-marker; 9 = pre-`history_size` (t1159_2). The set is CLOSED on
+    #: purpose: an unexpected arity is dropped whole, so a stub that drifts out
+    #: of the set fails loudly-by-absence instead of being reinterpreted
+    #: field-by-field.
+    _LIST_PANES_ARITIES = (9, 10, 11)
 
     def _parse_list_panes(
         self, stdout: str, session_name: str
@@ -2085,12 +2156,12 @@ class TmuxMonitor:
         panes: list[TmuxPaneInfo] = []
         shadows: list[TmuxPaneInfo] = []
         seen: set[str] = set()   # pane ids observed this pass, for the memo sweep
-        # Preserve an empty final @aitask_shadow_target field on non-shadow panes.
+        # NOT `stdout.strip()`: a record whose LAST field is empty (an unset
+        # @aitask_monitor_kind on the final pane) would lose its trailing tab to
+        # a whole-buffer strip and be dropped as a short record.
         for line in stdout.splitlines():
             parts = line.split("\t")
-            # 10 = current format; 9 = pre-history_size lines (test stubs) —
-            # still parsed, with history_size None (t1159_2).
-            if len(parts) not in (9, 10):
+            if len(parts) not in self._LIST_PANES_ARITIES:
                 continue
             pane_id = parts[3]
             if self.exclude_pane and pane_id == self.exclude_pane:
@@ -2107,6 +2178,8 @@ class TmuxMonitor:
                     history_size = int(parts[9])
                 except ValueError:
                     history_size = None
+            # "" on a pre-t1686 record, and on every unmarked pane.
+            monitor_kind = parts[10] if len(parts) > 10 else ""
             window_name = parts[1]
             seen.add(pane_id)
             if is_shadow_target(parts[8]):
@@ -2136,7 +2209,14 @@ class TmuxMonitor:
             # category meant the companion stopped being consulted and surfaced
             # as a second card for the renamed window. A companion is a helper
             # regardless of what its window is called.
-            if self._is_companion_pane(pane_id, pane_pid, session_name):
+            #
+            # Identity is now the pane's own marker first and its cmdline second
+            # (t1686) — a companion restarted from an interactive shell inside
+            # the pane has `-bash` as its `#{pane_pid}`, so cmdline matching
+            # alone left it listed as a duplicate agent card.
+            if self._is_companion_pane(
+                pane_id, pane_pid, session_name, monitor_kind
+            ):
                 continue
             pane = TmuxPaneInfo(
                 window_index=parts[0],
@@ -3077,20 +3157,38 @@ class TmuxMonitor:
     def find_companion_pane_id(
         self, window_index: str, session: str | None = None
     ) -> str | None:
-        """Find the minimonitor/companion pane ID in a given window."""
+        """Find the minimonitor/companion pane ID in a given window.
+
+        Same two-rung identity as :meth:`_is_companion_pane` (t1686): the pane's
+        own ``@aitask_monitor_kind`` marker first, its ``#{pane_pid}`` cmdline
+        second. Without the marker rung a companion restarted inside an
+        interactive shell was unfindable, so ``prefer_companion`` silently fell
+        back to the agent pane.
+        """
         target_session = session if session is not None else self.session
-        fmt = "#{pane_id}\t#{pane_pid}"
+        fmt = f"#{{pane_id}}\t#{{pane_pid}}\t#{{{MONITOR_KIND_OPTION}}}"
         rc, stdout = self.tmux_run([
             "list-panes", "-t",
             tmux_window_target(target_session, window_index), "-F", fmt,
         ])
         if rc != 0:
             return None
-        for line in stdout.strip().splitlines():
+        # NOT `stdout.strip()`: the last field is empty on every unmarked pane,
+        # and a whole-buffer strip eats the FINAL record's trailing tab — the
+        # interior records keep theirs only because a newline follows. The last
+        # pane in the window would then be short a field, be dropped here, and
+        # never reach the cmdline rung below.
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue          # blank lines are not records
             parts = line.split("\t")
-            if len(parts) != 2:
+            if len(parts) != 3:
                 continue
-            pane_id_str, pid_str = parts
+            pane_id_str, pid_str, monitor_kind = parts
+            # Marker first, and before the pid parse: a malformed `#{pane_pid}`
+            # must not suppress an otherwise valid marker verdict.
+            if is_live_companion_marker(monitor_kind):
+                return pane_id_str
             try:
                 pid = int(pid_str)
             except ValueError:
@@ -3138,23 +3236,40 @@ class TmuxMonitor:
         window_target = tmux_window_target(target_session, pane.window_index)
         rc, stdout = self.tmux_run([
             "list-panes", "-t", window_target,
-            "-F", "#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}",
+            "-F", "#{pane_id}\t#{pane_pid}\t#{@aitask_shadow_target}"
+                  f"\t#{{{MONITOR_KIND_OPTION}}}",
         ])
         if rc != 0:
             return self.kill_pane(pane_id), False
         records: list[tuple[str, bool]] = []
-        for line in stdout.strip().splitlines():
+        # NOT `stdout.strip()`. This loop decides whether to kill a PANE or the
+        # whole WINDOW, and the record most easily lost is the last one: the
+        # trailing field is empty on every unmarked pane, and a whole-buffer
+        # strip removes that final tab. A dropped last record that happened to
+        # be the only other real agent makes `count_other_real_agents` return 0
+        # and kills a window with a live agent still in it (t1686) — a defect
+        # that predates the marker field, and that the live fixture in
+        # `tests/test_kill_agent_pane_smart.sh` cannot see because it lists its
+        # companion last, where dropping a *helper* changes no count.
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue          # blank lines are not records
             parts = line.split("\t")
-            if len(parts) != 3:
+            if len(parts) != 4:
                 continue
-            other_id, pid_str, shadow_target = parts
+            other_id, pid_str, shadow_target, monitor_kind = parts
             try:
                 pid = int(pid_str)
             except ValueError:
                 continue
             # A pane is a helper (does NOT keep the window alive) when it is a
-            # companion (minimonitor/monitor) OR a shadow bound to an agent.
-            is_helper = is_shadow_target(shadow_target) or _is_companion_process(pid)
+            # companion (marker first, cmdline second — t1686) OR a shadow bound
+            # to an agent.
+            is_helper = (
+                is_shadow_target(shadow_target)
+                or is_live_companion_marker(monitor_kind)
+                or _is_companion_process(pid)
+            )
             records.append((other_id, is_helper))
         others = count_other_real_agents(records, pane_id)
 

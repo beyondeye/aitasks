@@ -556,9 +556,12 @@ in an agent window must account for it on two fronts:
 
 A running `ait monitor` / `ait minimonitor` stamps **its own** pane with
 `@aitask_monitor_kind`, the counterpart to the shadow's `@aitask_shadow_target`.
-Two consumers read it: the single-instance guards
-(`aitask_minimonitor.sh` and `agent_launch_utils.maybe_spawn_minimonitor`) and
-`aitask_companion_cleanup.sh`'s companion discovery.
+Three consumers read it: the single-instance guards
+(`aitask_minimonitor.sh` and `agent_launch_utils.maybe_spawn_minimonitor`),
+`aitask_companion_cleanup.sh`'s companion discovery, and **monitor /
+minimonitor pane discovery** — `monitor_core._is_companion_pane`,
+`find_companion_pane_id`, and `kill_agent_pane_smart`, which read it off the
+same `list-panes` call that already carries `@aitask_shadow_target`.
 
 It exists because **`#{pane_current_command}` cannot identify a monitor** — a
 live minimonitor pane reports `python`, so the guards' old substring match
@@ -590,6 +593,19 @@ so a minimonitor typed into an existing shell pane would stay invisible.
   (`0` present, `10` stale, `11` absent) sit outside the range a failing
   interpreter produces, and every other status must be treated as *present* —
   mapping one to `stale` would make a crash clear a live marker.
+- **In discovery the marker is the PRIMARY signal and the cmdline heuristic is
+  the fallback rung** (t1686). `monitor_core._is_companion_process` matches
+  `/proc/<pid>/cmdline` against `minimonitor` / `monitor_app`, but the pid it is
+  handed is `#{pane_pid}` — the pane's **top-level** process. A companion
+  launched as the pane's start command *is* that process; one restarted from an
+  interactive shell inside the pane is a child of `-bash`, so no keyword ever
+  matches and the companion surfaced as a second AGENT card sharing its agent's
+  window name. The marker records the *app's own* pid, which is exactly the one
+  the heuristic cannot reach. Keep the fallback: `App.run_test()` mounts pass
+  `mark_pane=False`, and panes predating t1451 were never stamped. A **stale**
+  marker is not a companion — the shell pane an exited minimonitor leaves behind
+  is an ordinary pane again — so the marker verdict is re-evaluated every tick
+  and never memoized, unlike the cmdline verdict.
 
 ## TUI footer must surface every operation on the affected tab/screen
 
