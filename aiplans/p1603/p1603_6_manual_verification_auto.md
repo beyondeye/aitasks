@@ -177,3 +177,57 @@ appear and the checks would have passed vacuously.
   (`fixture/`, `hugo_out/`, `build_fixture.py`, `click.sh`, `serve.log`,
   `served.html`) — removed.
 - `hugo server` started by `./serve.sh` — stopped.
+
+## Final Implementation Notes
+
+**Work done.** All 24 checklist items of t1603_6 reached a terminal state:
+**24 pass, 0 fail, 0 skip, 0 defer**. No code was changed — this is a
+manual-verification task, and every item passed, so no follow-up work was
+spawned.
+
+**Issues encountered and resolutions.**
+
+1. *Collapsible sections are not keyboard-reachable in `TaskDetailScreen`.*
+   `Tab` and arrow keys never land on a `Collapsible` title: the screen binds
+   almost every single letter (`p`, `l`, `u`, `c`, `s`, `r`, `e`, `d`, `n`,
+   `v`, …), and `Down` walks only the editable field widgets
+   (Priority → Effort → Status → Type → Follow-up) before stopping. Resolved by
+   injecting SGR mouse press/release sequences into the pane
+   (`tmux send-keys -l $'\e[<0;COL;ROWM'`), computing the display column from
+   the captured pane with east-asian-width accounting so double-width emoji do
+   not shift the click. **This is the technique to reuse for any future live
+   check of a board detail-screen section.**
+
+2. *A hand-written `active_gates` tuple is silently ignored.* The board
+   revalidates `active_gates_digest`; a fabricated digest fails, so the board
+   recomputes the active set from `gates:` under the governing profile. The
+   first fixture attempt therefore showed `build_verified` as an ordinary
+   pending gate inside a 3/5 total — items 18 and 17 would have passed
+   vacuously against the wrong rows. Resolved by `git init`-ing the fixture and
+   using the real writer:
+   `aitask_gate.sh materialize-active <id> --profile <profile with a
+   rendered_gates ceiling>`.
+
+3. *Staleness needs a real witness and a real digest move.* `stale_signed_gates`
+   pre-filters on `_has_stamped_witness` and `code_digest()` returns `None`
+   outside a git repo (unverifiable → accept), so a hand-written `.signed` file
+   in a non-git fixture produces a clean `pass`. Resolved by
+   `ait gate pass 9006 review_approved` (writes the code-bound witness) followed
+   by a tracked-source edit that moved the digest
+   `3a4133a211c98161` → `d7a30c4a0f61d63e`.
+
+**Item 14 — the one deviation, and its resolution.** The item asserts all four
+in-flight lanes are visible without horizontal scrolling at `>=176` columns.
+Measured live across 176→182: each lane box is exactly 44 columns and all four
+close only at **180 rendered columns**; at 176–179 the Blocked lane is clipped.
+p1603_3's own sweep records the four-lane span as **181 columns**
+(`virtual_size == 45*4+1`) and states the view scrolls at any width below 181 —
+so the board matches its designed and measured contract, and the checklist's
+`176` was a pre-measurement guess (4 × 44). Put to the user, who ruled
+**"pass — checklist number stale"**: no defect, no follow-up task.
+
+Note for anyone editing this surface: the 180/181-column threshold is recorded
+in p1603_3 and now here, but is **not** stated on the website board reference.
+
+**Useful for sibling tasks.** There are none — t1603_6 is the last child of
+t1603, and t1603_1…t1603_5 are all archived.
