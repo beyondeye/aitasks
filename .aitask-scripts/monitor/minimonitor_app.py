@@ -1989,9 +1989,13 @@ class MiniMonitorApp(
                     # anchor is authoritative, not the focused card's position
                     # (t1539). The lock refuses this scroll anyway; suppressing it
                     # here saves a queued no-op and makes the decision legible at
-                    # the call site. Active gestures — keyboard nav, on_app_focus
-                    # -> _auto_select_own_window — are unaffected: they run with
-                    # the lock clear.
+                    # the call site. The fallback below now says the same thing
+                    # for the same reason, so NEITHER branch of this method
+                    # scrolls (t1683) — a focus-in is not a scroll gesture, and
+                    # classifying it as one is what let it fight a click.
+                    # Keyboard nav is the real active gesture and is unaffected:
+                    # it runs with the lock clear and goes through
+                    # `Widget.focus()` directly, not through here.
                     card.focus(scroll_visible=False)
                     # Widget.focus() is deferred, so on_descendant_focus may
                     # not fire before the next refresh cycle. Set directly to
@@ -2002,23 +2006,67 @@ class MiniMonitorApp(
         # lives in its own static docked panel and is not focusable).
         self._auto_select_own_window()
 
+    def _first_list_card(self) -> MiniPaneCard | None:
+        """The first general-list agent card, or None when the list is empty."""
+        list_cards = list(self.query("#mini-pane-list MiniPaneCard"))
+        return list_cards[0] if list_cards else None
+
     def _auto_select_own_window(self) -> None:
-        """Focus the first general-list agent card, if any.
+        """Focus the first general-list agent card, if any. NEVER scrolls.
 
         The followed agent is shown in the static, non-focusable docked panel
         (``#mini-own-agent``), so there is nothing to auto-select there.
+
+        ``scroll_visible=False`` is unconditional rather than a parameter
+        because its only caller — ``_restore_focus``'s fallback — runs inside a
+        passive refresh where the captured anchor is authoritative (t1539), the
+        same reason the sibling branch above it already passes the flag.
+        Deliberately accepted consequence: when the focused agent dies out from
+        under a mid-list reader, focus moves to card 0 without dragging the list
+        back to the top, so card 0 may be off screen until the next arrow key
+        (t1683).
         """
-        list_cards = list(self.query("#mini-pane-list MiniPaneCard"))
-        if list_cards:
-            list_cards[0].focus()
+        card = self._first_list_card()
+        if card is not None:
+            card.focus(scroll_visible=False)
 
     def on_app_focus(self) -> None:
-        """Auto-select own window's agent when this pane regains terminal focus.
+        """Terminal focus-in: select a card only if nothing is focused.
 
-        Always re-selects the card matching this window's agent so that after
-        an "s" switch the target minimonitor highlights the correct agent.
+        Schedules only — the decision belongs in the deferred callback below,
+        and it must not be made here. Textual dispatches ``on_app_focus`` per
+        MRO class, subclass first, so this runs BEFORE ``App._on_app_focus``:
+        ``AppBlur`` has already cleared focus and Textual's own restore has not
+        run yet, which makes an inline ``self.focused is None`` check here
+        always pass.
+
+        Nor may this simply re-post the focus. ``Widget.focus()`` defers via
+        ``call_later`` onto the app's own FIFO, while click-focus is
+        synchronous inside ``Screen._forward_event``. A card-0 focus queued
+        from here therefore lands AFTER a click that was already queued behind
+        the focus-in, silently undoing it — the reported symptom (t1683).
         """
-        self._auto_select_own_window()
+        self.call_later(self._auto_select_after_focus_in)
+
+    def _auto_select_after_focus_in(self) -> None:
+        """The deferred half of ``on_app_focus`` — the guard belongs HERE.
+
+        By the time this runs, ``App._watch_app_focus`` has restored the
+        pre-blur widget (non-scrolling), and any click delivered with the
+        focus-in has already focused the card under the cursor. Anything
+        focused is therefore more authoritative than "card 0": a card Textual
+        restored, the card the user just clicked, or an open dialog's own
+        control. Only a completely unfocused app gets the fallback.
+
+        ``set_focus``, not ``Widget.focus()``: the latter defers a SECOND time,
+        and that callback would land after a click still queued behind this
+        one — re-creating the very overwrite this guard exists to prevent.
+        """
+        if self.focused is not None:
+            return
+        card = self._first_list_card()
+        if card is not None:
+            self.set_focus(card, scroll_visible=False)
 
     def _rebuild_session_bar(self, desync: str | None = None) -> None:
         agents = [

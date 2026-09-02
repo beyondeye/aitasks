@@ -210,6 +210,47 @@ The only other place that disables auto-focus today is
 `lib/agent_command_screen.py` (`AgentCommandScreen.AUTO_FOCUS = ""`), a modal
 shared by several apps.
 
+## Terminal focus-in: never re-drive focus from an `AppFocus` handler
+
+Textual already restores the pre-blur widget when the terminal regains focus —
+`App._watch_app_focus` re-focuses `_last_focused_on_app_blur` with
+`scroll_visible=False`, guarded on `screen.focused is None`. An app-level
+`on_app_focus` that focuses a widget of its own therefore duplicates that with a
+strictly worse version, and three Textual mechanics make it actively harmful:
+
+1. **`Widget.focus()` is deferred; click-focus is not.** `focus()` posts an
+   `events.Callback` via `app.call_later`, onto the app's own FIFO. A click goes
+   straight through `Screen._forward_event`, which calls
+   `set_focus(focusable_widget, scroll_visible=False)` **inline**. A focus queued
+   from an `AppFocus` handler therefore lands *after* a click that was already
+   queued behind the focus-in, and silently undoes it.
+2. **`focus()` defaults to `scroll_visible=True`.** So the same deferred call
+   also scrolls the container back to the focused widget — and if it flushes
+   *before* the click, the click lands at the same screen `y` over a different
+   row.
+3. **`on_*` handlers dispatch subclass-first.**
+   `MessagePump._get_dispatch_methods` walks `self.__class__.__mro__` in order,
+   so `YourApp.on_app_focus` runs **before** `App._on_app_focus`. An inline
+   `if self.focused is None:` check there always passes: `AppBlur` cleared focus
+   and Textual's restore has not run yet.
+
+If an app genuinely needs a "nothing was ever focused" fallback, the shape that
+works (`monitor/minimonitor_app.py`, t1683) is:
+
+- `on_app_focus` **only schedules** — `self.call_later(self._decide)`;
+- `_decide` evaluates `self.focused is not None` and bails. Test `is not None`,
+  not `isinstance(..., YourRowWidget)`: by then anything focused is more
+  authoritative, including an open modal's own control;
+- `_decide` settles focus with `self.set_focus(w, scroll_visible=False)`, **not**
+  `w.focus()` — the latter defers a *second* time and re-creates the overwrite.
+
+A headless `run_test` pilot **can** pin all of this (unlike startup focus above),
+but only if the click is posted as a real `events.MouseDown` onto the app queue.
+`pilot.click` `await`s a `pause()` before each event and calls
+`screen._forward_event` directly, so it drains the pending callback first and the
+"mouse already queued" interleaving becomes unreachable. See
+`tests/test_minimonitor_focus_in_click.py`.
+
 ## Modals pushed by multiple Apps must carry their own DEFAULT_CSS
 
 A `lib/` `ModalScreen` that can be pushed by more than one App must define its
