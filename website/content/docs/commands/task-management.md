@@ -59,7 +59,7 @@ echo "Long description" | ait create --batch --name "my_task" --desc-file -
 | `--status, -s STATUS` | Ready, Editing, Implementing, Postponed (default: Ready) |
 | `--labels, -l LABELS` | Comma-separated labels |
 | `--deps DEPS` | Comma-separated dependency task numbers |
-| `--verifies IDS` | Comma-separated task IDs this task verifies (for `manual_verification` tasks) |
+| `--verifies IDS` | Comma-separated task IDs this task verifies (usually a `manual_verification` task, but any issue type may carry it) |
 | `--also-blocks-dependents GATES` | Comma-separated gates that must also pass before this task's dependents unblock, beyond the registry defaults. Writes [`also_blocks_dependents`]({{< relref "/docs/development/task-format" >}}) |
 | `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
 | `--parent, -P NUM` | Create as child of parent task number |

@@ -123,8 +123,9 @@ Batch mode (for automation):
   --xdeprepo NAME        Cross-repo project name (resolved via the registry)
                          that --xdeps numbers refer to. Both fields are
                          required together.
-  --verifies VERIFIES    Comma-separated task IDs this task manually verifies
-                         (for issue_type: manual_verification)
+  --verifies VERIFIES    Comma-separated task IDs this task verifies. Usually a
+                         manual_verification task, but not restricted to one —
+                         any issue_type may carry it.
   --file-ref REF         Append a file reference; repeatable. REF format:
                          PATH | PATH:N | PATH:N-M | PATH:N-M^N-M^...
                          (^ joins multiple ranges on the same path).

@@ -198,7 +198,8 @@ Metadata options (batch mode):
                          that --xdeps numbers refer to. Required when --xdeps
                          is set; both must be cleared together.
 
-Verifies options (batch mode, for manual-verification tasks):
+Verifies options (batch mode; usually manual-verification tasks, but any
+issue_type may carry a verifies list):
   --verifies VERIFIES    Verifies list (comma-separated task IDs, replaces all)
   --add-verifies ID      Add a task ID to verifies (can be repeated)
   --remove-verifies ID   Remove a task ID from verifies (can be repeated)
