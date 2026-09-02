@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: low
-depends: []
+depends: [1683]
 issue_type: bug
 status: Ready
 labels: [tui, minimonitor]
