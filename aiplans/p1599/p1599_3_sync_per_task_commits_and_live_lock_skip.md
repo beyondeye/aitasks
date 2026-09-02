@@ -1066,7 +1066,7 @@ task workflow.
   write. The plan's premise that they "stay dirty until the session that changed
   them commits them" does not hold, so an ownerless dirty file becomes a
   *permanent* rebase deferral, blocking all task-data sync until a human
-  intervenes — a worse outcome than the swallow it replaces · severity: high · → mitigation: metadata_writers_commit_own_files (structural), inline post-phase prescriptive_deferral_report (actionability)
+  intervenes — a worse outcome than the swallow it replaces · severity: high · → mitigation: t1677 (structural), inline post-phase prescriptive_deferral_report (actionability)
 - `list_locks()` fails open in all three availability states today; if the
   tri-state probe is not wired, `LOCKS_UNAVAILABLE` silently degrades to
   `LOCKS_OK` and the sweep proceeds during an outage · severity: medium · → mitigation: addressed in Step 6 + the `LOCKS_UNAVAILABLE` test
@@ -1095,12 +1095,12 @@ task workflow.
   the claim path's acquire → write → commit sequence (`aitask_pick_own.sh`) is
   outside this child's ownership, so mutual exclusion is incomplete. Steps 5a.1-4
   reduce the window to a sub-millisecond one that cannot publish, but do not
-  eliminate it · severity: medium · → mitigation: data_index_lock_adoption
+  eliminate it · severity: medium · → mitigation: t1678
 
 ### Planned mitigations
-- timing: after | name: metadata_writers_commit_own_files | type: bug | priority: high | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — ownerless metadata files have no session that commits them, so an ownerless dirty file becomes a permanent rebase deferral | desc: make the settings TUI and board commit their own `aitasks/metadata/*` writes via `task_git_commit_scoped`, giving every tracked config edit an owner that clears it
+- timing: after | name: metadata_writers_commit_own_files | type: bug | priority: high | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — ownerless metadata files have no session that commits them, so an ownerless dirty file becomes a permanent rebase deferral | desc: make the settings TUI and board commit their own `aitasks/metadata/*` writes via `task_git_commit_scoped`, giving every tracked config edit an owner that clears it | created: t1677
 - timing: post-phase | name: prescriptive_deferral_report | type: enhancement | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — a deferral that does not self-clear must be actionable rather than mysterious | desc: every skipped file's report line names its reason, its holder, and the exact command that clears it; the DEFERRED line says what ends the deferral
-- timing: after | name: data_index_lock_adoption | type: bug | priority: high | effort: high | inline_risk: high | added_complexity: high | addresses: code-health + goal-achievement — the `data_index` mutex introduced in Step 3a is respected only by this sweep, leaving mutual exclusion incomplete | desc: make every `.aitask-data` index writer take the shared `data_index` lock — the claim path's acquire→write→commit in `aitask_pick_own.sh`, `aitask_gate.sh`, and the attach/artifact transactions — closing the residual TOCTOU that Steps 5a.1-4 only narrow
+- timing: after | name: data_index_lock_adoption | type: bug | priority: high | effort: high | inline_risk: high | added_complexity: high | addresses: code-health + goal-achievement — the `data_index` mutex introduced in Step 3a is respected only by this sweep, leaving mutual exclusion incomplete | desc: make every `.aitask-data` index writer take the shared `data_index` lock — the claim path's acquire→write→commit in `aitask_pick_own.sh`, `aitask_gate.sh`, and the attach/artifact transactions — closing the residual TOCTOU that Steps 5a.1-4 only narrow | created: t1678
 - timing: post-phase | name: sync_token_contract_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the wire protocol spans 4 files in 2 languages and a missed token degrades silently to a red error | desc: derive the emitted-token set from `batch_out` literals and assert `parse_sync_output` recognises each, with a negative control
 
 ## Final Implementation Notes
