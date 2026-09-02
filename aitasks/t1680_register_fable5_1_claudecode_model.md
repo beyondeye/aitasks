@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:17
-updated_at: 2026-09-02 09:19
+updated_at: 2026-09-02 10:25
 ---
 
 Register the new Claude model **Fable 5.1** for the `claudecode` code agent (register-only — do NOT promote to default).
@@ -57,3 +58,8 @@ Per the `aitask-add-model` skill: `aitasks/metadata/models_claudecode.json` goes
 ## Related (not folded — distinct scope)
 - **t967** — `claudecode/fable5` sessions launched with `--model claude-fable-5` fall back to Opus 4.8 via the content-safety auto-switch. The same behaviour will likely apply to `fable5_1`; that investigation stays on t967.
 - **t1150** — Fable's prose emitted in the same turn as an `AskUserQuestion` can be invisible; already mitigated by the skills' visibility rule.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T07:25:39Z status=pass attempt=1 type=human
