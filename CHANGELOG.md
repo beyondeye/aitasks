@@ -1,5 +1,75 @@
 # Changelog
 
+## v0.34.0
+
+### Features
+
+- **Backlog statistics** (t1544_2, t1544_3, t1544_4, t1544_5): `ait stats` and the stats TUI gained two backlog surfaces — Backlog Level (how many open tasks sat in each category week by week) and Backlog Net Flow (what arrived versus what closed). Categories unify issue types with follow-up kinds, and `--csv-backlog` exports the whole axis.
+- **Serialized Step 9 merges** (t1560_1, t1560_2): Two agents finishing a task no longer race each other's merge. A session-anchored mutex brokers the merge, queueing the losers and handing each one a documented disposition instead of letting two merges interleave.
+- **In-Flight Planned lane and workflow phases** (t1603_1, t1603_2, t1603_3): The board now distinguishes a task whose plan is approved but not yet started. Cards carry a deferred-plan badge, and each in-flight item shows the workflow phase it has reached, degrading honestly when the evidence isn't there.
+- **Gate progress in task detail** (t1603_4): The board's task detail pane gained a Gates section listing the task's active gates and how many have passed.
+- **Move tasks to a board column from a trail** (t1210_5): In the By-Trail view, `m` moves the focused task and `M` moves the whole wave — in wave order, through the same review dialog as an ordinary move.
+- **Richer trail run summaries** (t1644): Every `ait trail` run now ends with a structural recap of what it wrote and a pointer to the board view for it.
+- **Shared parallel-admission checker** (t1569_1, t1569_2, t1569_3, t1569_5): New shared machinery for deciding whether two tasks can safely run in parallel — a common gatherer for in-flight and planned facts, batch file-set and origin resolution, and roadmap scoring with dual freshness, premise drift and lanes.
+- **`ait note`** (t1657_2): Tasks gained an `## Inbox` section and a writer for it, so a note can be appended to any task with validated input, merge-aware ordering, and an outcome always reported on stdout.
+- **Task premise staleness design record** (t1561): Recorded the accepted design for generalising staleness detection from manual-verification tasks to any task — the `premise_baseline:` field, the check protocol, and the orthogonal scope/baseline axes.
+- **Fable 5.1 registered** (t1680): `claudecode/fable5_1` is now in the seed model registry.
+
+### Bug Fixes
+
+- **Drift check never overlapped in installed projects** (t1275): The remote drift check filtered a plan's referenced paths through a hardcoded list of this repository's own top-level directories, so in any other project it silently reported no overlap. The allowlist is gone.
+- **Local dependency resolution differed per surface** (t1527): `ait ls`, the board and the gate ledger each decided independently whether a task's dependencies were satisfied. All three now share one resolver, so a task can't look ready in one place and blocked in another.
+- **Auto-commits swept up other sessions' work** (t1599_1, t1599_2, t1599_3): The claim, fold-mark and sync commits staged broad paths and could publish another agent's in-flight edits. Each now commits only the paths it owns, skips files held by a live lock, and quarantines rather than publishes anything it can't attribute.
+- **Contributor address writes could be lost** (t1608, t1614, t1626): Appends to the contributor list were unlocked, could be masked by a failed write, and could be left uncommitted. They're now serialized, chained so a failure surfaces, and guaranteed a commit.
+- **Data-branch and task-worktree setup** (t1616, t1624, t1627, t1631, t1658_1, t1658_2): Failed remote probes, fetches, copies and commits no longer pass silently; task worktrees are git-ignored and get the data symlinks; a bare `ait init-data` inside a task worktree is classified instead of failing obscurely; a setup git can't perform reports git's own error and refuses; the local data branch converges after an off-branch push; and data-worktree resolution is anchored to the repo root rather than the current directory.
+- **`ait setup` overwrote a hand-maintained CLAUDE.md** (t1607, t1612): Setup appended a marked block to a `CLAUDE.md` that declared itself hand-maintained. It now honours the sentinel, and CLAUDE.md is regenerated alongside AGENTS.md through the same path.
+- **Gate exit-status handling** (t1605, t1610, t1621, t1642): A project command exiting 2 is recorded as a gate skip rather than a fail; the legacy verify-build path honours the same exit contract; the gate dispatch's exit status survives `set -e`; and the board's gate helpers respect the task's active gate set and its skips.
+- **Block-list YAML items kept their quotes** (t1609): A quoted item in a block-list frontmatter value resolved differently from the same item written inline. Both now go through one rule.
+- **Review loop disarmed for no reason** (t1606): The auto-recheck loop disarmed on ambiguity, recycled event identities across lifecycles and mis-capped its retention. Disarms now carry a readable reason, ambiguity no longer disarms, and unrecorded holds are surfaced.
+- **Minimonitor startup stalls and lost scroll position** (t1598, t1622, t1653, t1660): The first refresh ran on the app's message pump so keystrokes queued behind it, mount and refresh made blocking subprocess calls, and the bottom-of-list pin was lost on every refresh. All three are fixed, and the latency test now counts event-loop turns instead of wall time so it holds up in a loaded test lane.
+- **Agent panes sorted lexicographically** (t1659): Both monitors sorted tmux panes as text, putting window 10 before window 2. They now sort numerically.
+- **Multi-select marks could render as blanks** (t1638): The TUI multi-select glyphs are single-sourced onto codepoints the terminal fonts actually cover.
+- **Shadow capture mangled output under a non-C locale** (t1637): The ANSI strip is pinned to `LC_ALL=C`.
+- **Concern picker lost its key hints at 40 columns** (t1648): The picker's height cap evicted the help tier on short screens; height tiers are now measured against the laid-out children.
+- **Stats tables showed raw type names** (t1577): Issue types in the stats type table and the TUI bar chart render through the canonical display names.
+- **Frozen backlog footnote** (t1590): The backlog footnote quoted a percentage frozen at write time, and the stats preset defaults were pinned to it. Both are gone.
+- **`ait lock --list` mixed prose into stdout** (t1641): Degenerate cases printed notes alongside the records; the notes now go to stderr.
+- **`plan_approved_at` survived a decomposition** (t1640): Splitting a task into children left the parent's plan-approved marker in place. It's now cleared.
+- **Fold-mark aborts were not transactional** (t1668): An abort before the fold commit could leave partial mutations on disk. The fold's mutations now roll back as one.
+- **Codex and OpenCode instruction mirrors had drifted** (t1601): Regenerated from the canonical source, with a drift guard added.
+- **Project config values were re-parsed as YAML** (t1672): Settings saved from the board's project-config editor are stored as their declared type instead of being round-tripped through a YAML guess.
+- **`--no-worktree` branch-field docs were wrong** (t1578), and the sync auto-merge test now uses a portable ANSI strip (t1646).
+
+### Improvements
+
+- **Concern impact vectors and trade profiles** (t1636_1, t1636_2, t1636_3, t1636_4, t1651): A shadow-review concern now carries an impact vector — what it improves, what it worsens, and at what effort — over a closed seven-dimension vocabulary. All four producers emit it, and the picker renders it as a trade profile with magnitude colour-encoded and a detail panel for the focused concern.
+- **Edit a concern before copying it** (t1582): `e` in the concern picker opens the payload for editing before it's copied.
+- **Deferred-plan marker** (t1595): A task whose plan is approved but whose implementation is deliberately deferred records `plan_approved_at`, shown in `ait ls -v` and filterable with `--plan-approved` / `--no-plan-approved`.
+- **Pre-implementation resource admission hook** (t1597): The workflow can run a project-defined check before implementation starts and decline to proceed when the resources it needs aren't available.
+- **Filter `ait ls` by board column** (t1630): `ait ls --boardcol <col>`.
+- **Minimonitor header names the followed session** (t1580).
+- **Backlog level columns run chronologically** (t1588): The Backlog Level table reads oldest week first with `Now` last, matching Net Flow so the two can be read stacked.
+- **Fold-mark output buffered until the commit lands** (t1661): The fold's structured records are emitted only after the commit succeeds, so a failed commit can't report mutations that didn't persist.
+- **Shared backlog view helper** (t1586) and **shared ledger-block substrate** (t1657_1): `ait stats` and the stats TUI now share one backlog implementation, and the gate ledger, gate script and board merge build on one ledger-block implementation.
+
+### Documentation
+
+- **Implementation trails documented** (t1210_6): Two new pages cover the trail workflow and the `aitask-trail` skill, with the board reference and how-to corrected for the new move commands.
+- **Backlog stats documented** (t1544_6): The stats reference describes all thirteen rendered sections, the widened CSV format, and the two separate clocks the backlog and completion figures run on.
+- **Merge mutex documented** (t1560_3): The locks page names both locks and explains what the merge mutex covers, what it excludes, and how a queued merge resolves.
+- **Board Planned lane and gate surface documented** (t1603_5).
+- **Shadow trade profile documented** (t1636_7): How to read a concern's trade profile in the picker.
+- **Artifact, attachment and cross-repo dependency fields documented** (t1666): The frontmatter table gained `artifacts`, `attachments`, `xdeps` and `xdeprepo` rows plus a nested-field example, and the `issue_type` vocabulary was corrected across the docs.
+
+### Performance
+
+- **Backlog category resolved once per collection** (t1585): The archived tree is classified once rather than per statistic.
+- **Lazy plan-existence probe** (t1656): The board's workflow-phase seam only touches the filesystem for a plan when the phase actually depends on it.
+
+### Tests
+
+- **Hub threshold swept against a landed-file oracle** (t1643): The parallel-admission threshold is measured against real landed file sets rather than assumed.
+
 ## v0.33.0
 
 ### Features
