@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1658
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 18:55
-updated_at: 2026-09-02 08:57
+updated_at: 2026-09-02 16:23
 ---
 
 ## Origin
@@ -80,3 +81,8 @@ Test 14 (indeterminate-topology refusal), add a nested-repository case:
 bash tests/test_task_git.sh
 shellcheck tests/test_task_git.sh
 ```
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-02T13:23:21Z status=pass attempt=1 type=human
