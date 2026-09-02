@@ -1999,7 +1999,11 @@ class ThreadWorkerTests(ByTrailTestBase):
 
                 app._on_trail_watch = spy
                 missing = Path("/nonexistent/aitask_artifact.sh")
-                with patch.object(ab, "ARTIFACT_SCRIPT", missing):
+                # Patched on trail_discovery, not the board: _trail_versions
+                # lives there and reads ARTIFACT_SCRIPT from its own module
+                # namespace, so rebinding the board's re-export is not seen
+                # and the REAL binary would run (t1647_1).
+                with patch.object(ab.trail_discovery, "ARTIFACT_SCRIPT", missing):
                     app._install_trail_watch("art:trail-test", ["v1"])
                     app._trail_watch_tick()          # REAL worker + real subprocess call
                     ok = await self._wait(pilot, lambda: landed)
@@ -2940,8 +2944,13 @@ class TrailDiscoveryFreshnessTests(unittest.TestCase):
                 + list(manager.child_task_datas.values()))
 
     def _discover(self):
-        """Run real discovery with only the blob subprocess stubbed."""
-        with patch.object(self.ab, "load_trail_blob",
+        """Run real discovery with only the blob subprocess stubbed.
+
+        Patched on trail_discovery, not the board: discover_trails calls
+        load_trail_blob through its OWN module namespace, so rebinding the
+        board's re-export would leave the real subprocess running and the
+        load_error assertions below would fail (t1647_1)."""
+        with patch.object(self.ab.trail_discovery, "load_trail_blob",
                           lambda handle: ({"trail_id": handle}, "", [])):
             return self.ab.discover_trails()
 
@@ -3377,7 +3386,9 @@ class TrailDiscoveryPilotTests(unittest.TestCase):
                     encoding="utf-8")
 
                 # Real discovery this time; only the blob subprocess is stubbed.
-                with patch.object(ab, "load_trail_blob",
+                # Patched on trail_discovery, not the board — discover_trails
+                # resolves load_trail_blob in its own namespace (t1647_1).
+                with patch.object(ab.trail_discovery, "load_trail_blob",
                                   lambda h: ({"trail_id": h}, "", [])):
                     await pilot.press("s")
                     await pilot.pause()

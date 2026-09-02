@@ -1,11 +1,12 @@
 """topic_semantics.py - the board's by-topic (group-by-anchor) key semantics.
 
-Extracted verbatim from board/aitask_board.py (t1210_2) so non-board
-consumers (lib/trail_gather.py) can resolve topic membership without
-importing the Textual board. The board imports these functions back and
-remains the SEMANTIC OWNER of the by-topic rules: any future change here
-must keep tests/test_board_topic_group.py AND the trail_gather matrix-A
-parity fixtures green in the same commit.
+Extracted verbatim from board/aitask_board.py (t1210_2; ``_task_id_sort_key``
+followed in t1647_1) so non-board consumers (lib/trail_gather.py,
+lib/trail_discovery.py) can resolve topic membership without importing the
+Textual board. The board imports these functions back and remains the SEMANTIC
+OWNER of the by-topic rules: any future change here must keep
+tests/test_board_topic_group.py AND the trail_gather matrix-A parity fixtures
+green in the same commit.
 
 Functions are duck-typed over task objects exposing ``.filename`` (the
 task file's basename) and ``.metadata`` (parsed frontmatter dict) — the
@@ -30,6 +31,16 @@ def parse_task_filename(filename):
     if m:
         return m.group(1), m.group(2).replace("_", " ")
     return "", name.replace("_", " ")
+
+
+def _task_id_sort_key(task_id: str):
+    """Natural sort key for a task id: 't47_10' -> [47, 10], so children order
+    numerically rather than lexically. Non-numeric segments compare as strings."""
+    parts = str(task_id).lstrip("t").split("_")
+    key = []
+    for part in parts:
+        key.append(int(part) if part.isdigit() else part)
+    return key
 
 
 def _bare_topic_id(value):
