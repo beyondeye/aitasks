@@ -699,3 +699,4 @@ Five further files carry t1686 work only and were deliberately **not** staged:
 
 - **Upstream defects identified:** None
 
+- **Manual-verification failure:** item "Press `P` in `ait monitor` to hide parked agents, then `P` again to show them; confirm the list shrinks and grows" failed; follow-up task t1697.
