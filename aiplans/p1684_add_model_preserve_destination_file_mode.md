@@ -295,3 +295,68 @@ steps — no production-code surface, no new dependency, no reordering of the ma
 steps. Goal-achievement stands at **low**. Code-health is **medium**, not
 because of the inline phases but because the symlink-semantics change was
 surfaced during review; `assert_symlink_semantics` is what keeps it bounded.
+
+## Final Implementation Notes
+
+- **Actual work done:** Exactly the planned change, plus one extra test group
+  found in review. `.aitask-scripts/aitask_add_model.sh` now sources
+  `lib/atomic_write.sh` and routes all six write sites through a one-line
+  `commit_staged` helper (`ait_atomic_render "$dest" cat "$src"`), each guarded
+  with `|| { rm -f …; die … }`. The `$TMPDIR` staging temps and the
+  "validate both, then write both" ordering are unchanged — the temps are now
+  only ever read. `tests/test_add_model.sh` gained `file_mode()`,
+  `assert_no_staged_temp()`, and Tests 7/8/9. Final: 54 assertions, 0 failed;
+  `shellcheck` clean on the helper.
+- **Deviations from plan:** Two, both from review.
+  1. The plan's step 5 originally proposed `chmod 644` on the three local
+     `0600` files. Rejected during plan review and rewritten as an explicit
+     "do not normalize" decision: git's `100644` records only the executable
+     bit, so it cannot establish that the current `0600` is residue rather
+     than a deliberate restriction, and forcing `644` would contradict the
+     very rule this task installs. Verification 5 was changed from "assert the
+     real paths are 644" to "assert each real path still matches its own
+     recorded pre-run mode" — which passed IDENTICAL.
+  2. `assert_render_guards` was dropped as a mitigation and demoted to a
+     manual `grep` + `shellcheck` review check (Verification 3); a
+     source-shape assertion would be brittle and would not prove the guard's
+     effect. The `negative_control_pre_fix` mitigation was also simplified —
+     originally a scratchpad copy of the helper, which would have died on its
+     relative `lib/terminal_compat.sh` source; it became "run the new Test 7
+     against the unchanged helper in place, require failure, then require
+     pass after the fix".
+- **Issues encountered:**
+  - **Temp leak introduced by the fix itself, caught in Step 8 review.** The
+    pre-fix `mv` *consumed* its source; `commit_staged` copies it. So every
+    second-failure handler, which cleaned up only the second temp, stranded
+    the first. Present in all three subcommands (not just
+    `promote-default-agent-string` as first reported). Fixed by making all
+    three handlers remove both temps, and pinned by **Test 9**, which forces
+    the second write to fail via `chmod 500` on the fixture's `seed/` with
+    `TMPDIR` scoped to the fixture.
+  - **Symlink semantics were a real behavior change, not just a claim.** The
+    three write paths disagreed: `mv` *replaces* a symlinked destination
+    (orphaning the backing file) while `cat > "$dest"` *follows* it.
+    `ait_atomic_resolve` unifies them on follow-the-link. `aitasks` is itself
+    a directory symlink here, so this is live, not hypothetical. Pinned by
+    **Test 8**.
+- **Key decisions:**
+  - Reuse `lib/atomic_write.sh` rather than a local `stat`/`chmod` dance.
+    `aidocs/framework/shell_conventions.md:42` already mandates it, and
+    `ait_atomic_tmp` chmods the staging temp to `ait_file_mode "$dest"`, which
+    is precisely per-destination mode preservation. The seam was already in
+    the `tests/lib/test_scaffold.sh` baseline, so no scaffold change was owed.
+  - Keep the `$TMPDIR` staging temps instead of staging directly with
+    `ait_atomic_tmp`: they are the `--dry-run` diff inputs, and the
+    validate-both-before-writing-either ordering depends on them. The
+    lib's own docstring warns against hand-rolling `ait_atomic_tmp` +
+    `ait_atomic_commit`, which `commit_staged` avoids.
+  - Every test carries a negative control. Test 7 was written and run *before*
+    the fix (failed with `644 → 600`); Test 8 was checked against a
+    full-tree copy with `add-json` reverted to `mv` (symlink replaced,
+    backing file orphaned at 1 model); Test 9 was checked by re-introducing
+    the leak in `add-json` alone (stranded
+    `aitask_add_model_meta_xsM66i.json`).
+  - Both `# shellcheck source=` and `# shellcheck disable=SC1091` on the new
+    source line: the file was SC1091-clean before, and the `source=` directive
+    still lets `shellcheck -x` follow it.
+- **Upstream defects identified:** None
