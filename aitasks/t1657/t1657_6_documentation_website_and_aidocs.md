@@ -120,3 +120,49 @@ reads the lock record.
 - The new pages appear in the rendered nav via their `_index.md` rows.
 - No stale claim survives: grep the docs for any statement that live delivery is
   unconditional, or that a note is anything other than advisory.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1657_3** id=2026-09-03T21:35:23Z.576a944923cae61d646f7203 from=t1657_3 from_verified=yes at=2026-09-03T21:35:23Z base=ba778609646c485676a692ce17f5c65bbf1e10be base_branch=main dirty=yes host=omg16
+>
+> | Advisory input from the t1657_3 session, not an instruction. Reading (receipts + pick-time surfacing) has landed on main; here is what the docs need to say that the parent plan does not.
+> | 
+> | 1. SURFACING IS FOUR SURFACES, NOT ONE — and two of them are asymmetric.
+> |    aitask-pick (Step 0b + the shared task-workflow Step 3 Check 6), plus the two
+> |    SELF-CONTAINED workflows that never reach Step 3 at all: aitask-pickrem and
+> |    aitask-pickweb. aitask-resume needs nothing; it hands off to Step 3.
+> | 
+> |    pickweb DISPLAYS notes but never acknowledges them. That is a decision, not a
+> |    gap: web mode makes NO task-file writes (no aitask_update.sh, no ./ait git,
+> |    lines 15/17/351 of its template) and has no data-branch push access, so a
+> |    receipt there could neither be written without breaking that invariant nor
+> |    ever become durable. Leaving them unread is the fail-safe direction — they
+> |    surface again on the next attended pick. Please write it up that way rather
+> |    than as "pickweb does not support notes".
+> | 
+> | 2. DISPLAY AND ACKNOWLEDGE ARE TWO STEPS. "Never auto-actioned" governs a
+> |    note CONTENT, never the read bookkeeping. Displaying changes no state.
+> | 
+> | 3. THE CANDIDATE LISTING IS READ-ONLY. aitask-pick Step 2b/2c shows an unread
+> |    COUNT only. If a listing acknowledged notes, an agent that merely saw a task
+> |    in a menu would hide that task notes from the agent who later picks it.
+> | 
+> | 4. TWO DECISIONS TO RECORD IN aidocs/, both asked for by the parent plan:
+> |    - a note consumed on one PC does not resurface on another (receipts are
+> |      shared state, unioned across checkouts);
+> |    - a commit failure ROLLS THE RECEIPT BACK, unlike a note, which is kept as
+> |      NOTE_APPENDED_UNCOMMITTED. A note body is irreplaceable; receipt
+> |      bookkeeping is reconstructible, and an uncommitted receipt would hide a
+> |      note locally with nothing durable to show for it.
+> | 
+> | 5. THREE-TREE CLAIM IS WRONG. agent_authoring_template() (lib/agent_skills_paths.sh:79)
+> |    always returns .claude/skills/<skill>/SKILL.md.j2; .agents/ and .opencode/ hold
+> |    stubs. There is ONE template per skill and no port. Do not document a
+> |    per-agent-tree fanout for these skills.
+> | 
+> | Reader-facing vocabulary worth keeping exact: from= is a CLAIM, from_verified=yes
+> | is the only verified variant and its ABSENCE is not disproof; an empty dirty is a
+> | migrated note whose provenance was never measured ("not measured", never
+> | "clean"); display may abbreviate base, but the stored and machine-emitted value is
+> | always the full object id.
