@@ -286,6 +286,60 @@ def has_section(text: str) -> bool:
     return bool(re.search(r"(?m)^##\s+Inbox\s*$", text))
 
 
+def drop_block_by_id(text: str, block_id: str):
+    """Remove the ONE block whose ``id=`` is ``block_id``. -> (text, removed).
+
+    This is the commit-failure rollback for ``ait note read`` (t1657_3), and its
+    shape is the whole point: the task file is a **shared multi-writer surface**.
+    Between our append and this call another writer may legitimately have
+    appended to the same file, so restoring a pre-append snapshot would silently
+    destroy their work. Removing exactly our own block by its minted id leaves
+    every other block byte-identical.
+
+    Refuses (returns ``removed=False``) when the id is absent **or ambiguous**:
+    deleting one of two same-id blocks would be a guess, and ids are minted
+    unique inside the append lock precisely so this cannot happen.
+    """
+    target = None
+    for b in parse(text):
+        if b.fields.get("id", "") == block_id:
+            if target is not None:
+                return text, False
+            target = b
+    if target is None:
+        return text, False
+
+    lines = text.splitlines(keepends=True)
+    start = target.line_number - 1
+    marker_re = ledger_block.build_marker_re(NAMESPACE)
+
+    # The block ends at its LAST '>' line -- not at the first thing that
+    # terminates parsing. parse_blocks walks *through* blank lines, so ending
+    # the range there would swallow the blank separator that belongs to
+    # whatever comes next.
+    last = start
+    i = start + 1
+    while i < len(lines):
+        stripped = lines[i].rstrip("\n")
+        if marker_re.match(stripped) or ledger_block.SECTION_HEADER_RE.match(stripped):
+            break
+        if lines[i].startswith(">"):
+            last = i
+            i += 1
+            continue
+        if not lines[i].strip():
+            i += 1
+            continue
+        break
+
+    # Blocks are written as "\n\n{block}\n", so one blank line ahead of the
+    # marker is this block's own separator and goes with it.
+    head = start
+    if head > 0 and not lines[head - 1].strip():
+        head -= 1
+    return "".join(lines[:head] + lines[last + 1:]), True
+
+
 # --- CLI --------------------------------------------------------------------
 #
 # `aitask_query_files.sh inbox` delegates here rather than re-deriving anything
@@ -335,18 +389,70 @@ def _emit(task_id: str, path: str, out) -> None:
             f.get("dirty", "")), file=out)
 
 
-def main(argv) -> int:
-    if len(argv) < 2 or argv[0] != "unread":
-        print("usage: note_inbox.py unread <task-id> <path> [<task-id> <path>...]",
-              file=sys.stderr)
-        return 2
-    rest = argv[1:]
-    if len(rest) % 2:
+_USAGE = """usage:
+  note_inbox.py unread <task-id> <path> [<task-id> <path>...]
+  note_inbox.py acked <path>                 # ids covered by valid receipts
+  note_inbox.py note-ids <path>              # ids of valid notes present
+  note_inbox.py drop <path> <block-id>       # rollback: remove one block
+"""
+
+
+def _cmd_unread(rest) -> int:
+    if not rest or len(rest) % 2:
         print("note_inbox.py: expects (task-id, path) pairs", file=sys.stderr)
         return 2
     for i in range(0, len(rest), 2):
         _emit(rest[i], rest[i + 1], sys.stdout)
     return 0
+
+
+def _read(path: str) -> str:
+    return Path(path).read_text(encoding="utf-8")
+
+
+def main(argv) -> int:
+    if not argv:
+        print(_USAGE, file=sys.stderr)
+        return 2
+    verb, rest = argv[0], argv[1:]
+
+    if verb == "unread":
+        return _cmd_unread(rest)
+
+    if verb == "acked":
+        if len(rest) != 1:
+            print(_USAGE, file=sys.stderr)
+            return 2
+        for i in sorted(acknowledged_ids(parse(_read(rest[0])))):
+            print(i)
+        return 0
+
+    if verb == "note-ids":
+        # Valid NOTE ids present in the file. `ait note read` uses this to
+        # refuse acknowledging an id that names no note here.
+        if len(rest) != 1:
+            print(_USAGE, file=sys.stderr)
+            return 2
+        for b in parse(_read(rest[0])):
+            if not is_receipt(b) and validate_block(b):
+                print(b.fields.get("id", ""))
+        return 0
+
+    if verb == "drop":
+        if len(rest) != 2:
+            print(_USAGE, file=sys.stderr)
+            return 2
+        path, block_id = rest
+        new, removed = drop_block_by_id(_read(path), block_id)
+        if not removed:
+            print("DROP_FAILED", file=sys.stderr)
+            return 1
+        ledger_block.atomic_write(path, new)
+        print("DROPPED")
+        return 0
+
+    print(_USAGE, file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

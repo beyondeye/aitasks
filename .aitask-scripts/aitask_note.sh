@@ -46,6 +46,8 @@ source "$SCRIPT_DIR/lib/ledger_block.sh"
 source "$SCRIPT_DIR/lib/pid_anchor.sh"
 # shellcheck source=lib/git_utils.sh
 source "$SCRIPT_DIR/lib/git_utils.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 TASK_DIR="${TASK_DIR:-aitasks}"
 
@@ -57,12 +59,17 @@ TMPBODY="$(mktemp "${TMPDIR:-/tmp}/aitask_note.XXXXXX")"
 NOTE_ID_FILE="$(mktemp "${TMPDIR:-/tmp}/aitask_note_id.XXXXXX")"
 NOTE_ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/aitask_note_err.XXXXXX")"
 NOTE_STDERR_FILE="$(mktemp "${TMPDIR:-/tmp}/aitask_note_stderr.XXXXXX")"
+# The `read` verb's locked section prints its own final line (it owns the
+# commit, so only it knows which outcome applies); this carries it out of the
+# subshell.
+READ_OUT_FILE="$(mktemp "${TMPDIR:-/tmp}/aitask_note_read.XXXXXX")"
 # Two scopes, deliberately. The SUBSHELL must not remove the handoff files —
 # its EXIT trap fires when it finishes, which is precisely when the parent still
 # needs the id it just wrote. Only the parent tears those down.
 note_cleanup_body() { rm -f "$TMPBODY"; }
 note_cleanup() {
-    rm -f "$TMPBODY" "$NOTE_ID_FILE" "$NOTE_ERR_FILE" "$NOTE_STDERR_FILE"
+    rm -f "$TMPBODY" "$NOTE_ID_FILE" "$NOTE_ERR_FILE" "$NOTE_STDERR_FILE" \
+          "$READ_OUT_FILE"
 }
 trap note_cleanup EXIT
 
@@ -165,6 +172,7 @@ note_die() {
 show_help() {
     cat <<EOF
 Usage: aitask_note.sh <target-task-id> --from <id> [--text ... | --file ...]
+       aitask_note.sh read <task-id> --by <id> --ids <csv> [--mode auto|explicit]
 
 Append an attributed note to <target-task-id>'s "## Inbox" section and commit
 the task file path-scoped. A note is untrusted advisory input for the reader,
@@ -188,6 +196,29 @@ Migration (for content that predates the mailbox):
 
 Body limit: ${NOTE_MAX_BODY_BYTES} bytes. NUL is rejected; CR is stripped.
 
+Reading (acknowledgement receipts):
+  read <task-id> --by <id> --ids <csv> [--mode auto|explicit]
+
+  Marks the listed note ids read for <task-id>. Unread state is DERIVED — a
+  note is unread while its id appears in no valid receipt — so there is no
+  field to update and concurrent receipts union instead of conflicting.
+
+  --by  MUST be <task-id> itself: the reader is the session working on that
+        task, and the task id is the only durable identity (session names are
+        ephemeral). A mismatch is refused rather than recorded.
+  --ids Comma-separated note ids, each naming a note present in this file.
+  --mode  explicit (a human acknowledged) | auto (a headless run did).
+        Defaults to explicit — the case that applies when a human runs this by
+        hand. Recorded so the difference stays auditable rather than invisible.
+
+  DISPLAYING A NOTE IS NOT ACKNOWLEDGING IT. Use
+  'aitask_query_files.sh inbox <task-id>' to read; it never writes a receipt,
+  which is what makes it safe over a list of candidate tasks.
+
+  A commit failure ROLLS THE RECEIPT BACK (unlike a note, whose body is
+  irreplaceable): a receipt that is on disk but uncommitted would hide a note
+  locally with nothing durable to show for it.
+
 Output (exactly one line on stdout; advisories go to stderr):
   NOTE_APPENDED:<note-id>|<path>
   NOTE_APPENDED_UNCOMMITTED:<note-id>|<path>|<reason>
@@ -195,8 +226,19 @@ Output (exactly one line on stdout; advisories go to stderr):
   NOTE_SELF:<id>
   NOTE_ERROR:<reason>
 
+  read:
+  READ_RECORDED:<receipt-id>|<path>|<n-ids>            committed
+  READ_RECORDED_UNPUSHED:<receipt-id>|<path>|<n-ids>   committed, not pushed;
+                                                       other checkouts may
+                                                       re-show these notes
+  READ_NOOP:<task-id>                                  already acknowledged
+  READ_TARGET_MISSING:<id>
+  READ_ERROR:<reason>                                  no receipt; still unread
+  READ_ERROR:rollback-failed:<receipt-id>               needs a human
+
 Example:
   aitask_note.sh 357 --from 349 --text "the line numbers in your task are stale"
+  aitask_note.sh read 357 --by 357 --ids 2026-09-01T15:59:51Z.ffc6cbc52b41e6e70ad5fa49
 EOF
 }
 
@@ -449,9 +491,285 @@ note_append_locked() {
     exit 1
 }
 
+# --- The `read` verb: acknowledgement receipts (t1657_3) --------------------
+#
+# `ait note read <target> --by <id> --ids <csv> [--mode auto|explicit]`
+#
+# OUTPUT CONTRACT — exactly ONE line on stdout, always. Disjoint classes, so
+# "is this note acknowledged?" is answerable from stdout alone:
+#
+#   durable (a COMMITTED receipt exists):
+#     READ_RECORDED:<receipt-id>|<path>|<n-ids>
+#     READ_RECORDED_UNPUSHED:<receipt-id>|<path>|<n-ids>
+#   no receipt needed:
+#     READ_NOOP:<task-id>
+#   no receipt, the note stays UNREAD:
+#     READ_TARGET_MISSING:<id>  ·  READ_ERROR:<reason>
+#   needs a human:
+#     READ_ERROR:rollback-failed:<receipt-id>
+#
+# There is deliberately NO READ_RECORDED_UNCOMMITTED, and that is the one place
+# this path diverges from the write path above. An uncommitted receipt is the
+# worst of both worlds: the in-lock subtraction below SEES it, so the note is
+# hidden locally and a retry returns READ_NOOP, while nothing about it is
+# durable — clean the working tree and the note vanishes with no record it was
+# ever acknowledged. So a commit failure ROLLS BACK.
+#
+#   note (write) : keep on commit failure — the body is irreplaceable content,
+#                  and a retry would duplicate it.
+#   receipt (read): roll back — bookkeeping is reconstructible, and the retry is
+#                  free and idempotent by construction.
+READ_ICON="👁"
+
+note_read_die() {
+    printf 'READ_ERROR:%s\n' "$(note_sanitize_field "$1")"
+    exit 1
+}
+
+# Ids covered by valid receipts / ids of valid notes, both from the ONE shared
+# parse in lib/note_inbox.py. Never re-derived in bash.
+_note_read_py() {
+    "$NOTE_PY" "$SCRIPT_DIR/lib/note_inbox.py" "$@"
+}
+
+# Runs INSIDE the append lock, and owns the commit (see the rollback note
+# above). Prints exactly one line. Runs in a subshell for the F21 reason: the
+# seam's lock helpers `die`, which would otherwise tear the script down with
+# nothing on stdout.
+_note_read_inner() {
+    local file="$1" target_bare="$2" by="$3" mode="$4"; shift 4
+    local -a want=("$@")
+
+    ait_ledger_lock_acquire "$NOTE_NAMESPACE" "$LOCK_KEY" \
+        "note lock" "note append lock"
+    # Chained trap, seam spelling: capture the dying status FIRST. Anything in
+    # front of ait_ledger_lock_exit_trap resets $?, and since t1681 the seam
+    # detects that spelling and refuses to report success anyway.
+    trap 'ait_note_rc=$?; note_cleanup_body; ait_ledger_lock_exit_trap "$ait_note_rc"' EXIT
+
+    # --- The subtraction, decided in-lock -----------------------------------
+    #
+    # The caller's unread query ran OUTSIDE this lock, so between that query and
+    # this moment another session on this checkout may have acknowledged the
+    # same notes — and a plain retry re-sends the same ids. Appending
+    # unconditionally would write a second receipt covering ids already
+    # acknowledged. Set-union keeps the derived state right, but the file would
+    # accumulate redundant receipts and "a re-run appends nothing" would be a
+    # false claim.
+    local acked_out present_out
+    acked_out="$(_note_read_py acked "$file" 2>/dev/null)" \
+        || note_read_die "inbox-parse-failed"
+    present_out="$(_note_read_py note-ids "$file" 2>/dev/null)" \
+        || note_read_die "inbox-parse-failed"
+
+    local id remaining=() n=0
+    for id in "${want[@]}"; do
+        # Every requested id must name a note present in THIS file. The caller
+        # just displayed them from it, so an unknown id is a caller bug rather
+        # than a sync gap. (This constrains only the write path — the merger
+        # still accepts a well-formed receipt whose note has not reached that
+        # checkout yet.)
+        printf '%s\n' "$present_out" | grep -qxF "$id" \
+            || note_read_die "unknown-note-id:$id"
+        if ! printf '%s\n' "$acked_out" | grep -qxF "$id"; then
+            remaining+=("$id"); n=$(( n + 1 ))
+        fi
+    done
+
+    if (( n == 0 )); then
+        # Nothing left to acknowledge. Typed no-op: no receipt, nothing to retry.
+        ait_ledger_lock_release_checked
+        trap note_cleanup_body EXIT
+        printf 'READ_NOOP:%s\n' "$(note_sanitize_field "$target_bare")"
+        return 0
+    fi
+
+    # --- Mint and append ----------------------------------------------------
+    local attempt=0 candidate
+    NOTE_ID=""
+    while (( attempt < NOTE_ID_RETRIES )); do
+        candidate="$(note_mint_id)"
+        if ! grep -qF "id=$candidate" "$file" 2>/dev/null; then
+            NOTE_ID="$candidate"; break
+        fi
+        attempt=$(( attempt + 1 ))
+    done
+    [[ -n "$NOTE_ID" ]] || note_read_die "id-collision-retries-exhausted"
+
+    local ids_csv marker
+    ids_csv="$(IFS=,; printf '%s' "${remaining[*]}")"
+    # Exactly the merger's required key set, and NO provenance: a receipt is
+    # bookkeeping, not a tree-relative claim, so base/base_branch/base_mergebase/
+    # dirty/host are rejected on one.
+    marker="$(ait_ledger_marker "$NOTE_NAMESPACE" "read" "$READ_ICON" \
+        "id=$NOTE_ID" "by=$by" "at=$(note_iso_now)" "mode=$mode" "ids=$ids_csv")"
+    ait_ledger_append_section "$file" "$NOTE_SECTION_HEADER" \
+        "$NOTE_SECTION_COMMENT" "$marker" "" \
+        "$NOTE_ANCHOR_HEADER" "section_end"
+    printf '%s' "$NOTE_ID" > "$NOTE_ID_FILE"
+
+    # --- Commit, INSIDE the lock -------------------------------------------
+    #
+    # The write path deliberately releases first (contention is on the global
+    # .git/index.lock, so spanning it lengthens the window for a second
+    # `ait note`). A rollback cannot be done outside the lock, so this path
+    # accepts the longer hold. The cost is bounded: `ait note read` runs once
+    # per pick.
+    local reason=""
+    task_git add -- "$file" 2>/dev/null || reason="git-add-failed"
+    if [[ -z "$reason" ]]; then
+        [[ -z "${AIT_NOTE_READ_FAIL_COMMIT:-}" ]] || reason="git-commit-failed"
+    fi
+    if [[ -z "$reason" ]]; then
+        task_git commit -m "ait: Record note read receipt for t${target_bare}" \
+            -- "$file" >/dev/null 2>&1 || reason="git-commit-failed"
+    fi
+
+    if [[ -n "$reason" ]]; then
+        # Roll back by removing OUR block by its id — never by restoring a
+        # snapshot. The task file is a shared multi-writer surface, and another
+        # writer may legitimately have appended since our block landed.
+        if [[ -n "${AIT_NOTE_READ_FAIL_ROLLBACK:-}" ]] \
+           || ! _note_read_py drop "$file" "$NOTE_ID" >/dev/null 2>&1; then
+            # A failed rollback is its own terminal state, never swallowed: the
+            # receipt is on disk, uncommitted, hiding a note. Only a human can
+            # settle it.
+            task_git reset -q -- "$file" 2>/dev/null || true
+            warn "receipt appended but NOT committed, and the rollback failed.
+  The note is hidden locally until this is resolved. Remove the block with
+  id=$NOTE_ID from $file, or commit it:
+  ./ait git add -- $file && ./ait git commit -m \"ait: Record note read receipt for t${target_bare}\" -- $file"
+            ait_ledger_lock_release_checked
+            trap note_cleanup_body EXIT
+            printf 'READ_ERROR:rollback-failed:%s\n' "$NOTE_ID"
+            return 0
+        fi
+        # Unstage, or the next writer's path-scoped commit would carry our
+        # rolled-back content back in.
+        task_git reset -q -- "$file" 2>/dev/null || true
+        ait_ledger_lock_release_checked
+        trap note_cleanup_body EXIT
+        warn "receipt could not be committed ($reason) — rolled back; the note stays unread."
+        printf 'READ_ERROR:%s\n' "$(note_sanitize_field "$reason")"
+        return 0
+    fi
+
+    ait_ledger_lock_release_checked
+    trap note_cleanup_body EXIT
+
+    # Push is best-effort, but its failure is NOT silent here: an unpushed
+    # receipt means other checkouts still show these notes as unread. That is
+    # the accepted duplicate-display failure — stated rather than hidden.
+    # AIT_NOTE_READ_FAIL_{COMMIT,ROLLBACK,PUSH} are test-only fault injection
+    # through documented seams, so each degraded branch is provable rather than
+    # asserted. Never set in normal operation. (task_push retries three times
+    # before giving up, so driving this branch with a broken remote would make
+    # the test both slow and flaky.)
+    if [[ -z "${AIT_NOTE_READ_FAIL_PUSH:-}" ]] && task_push >/dev/null 2>&1; then
+        printf 'READ_RECORDED:%s|%s|%s\n' "$NOTE_ID" "$file" "$n"
+    else
+        warn "receipt committed locally but not pushed — other checkouts may
+  re-show these notes until the task data branch syncs."
+        printf 'READ_RECORDED_UNPUSHED:%s|%s|%s\n' "$NOTE_ID" "$file" "$n"
+    fi
+    return 0
+}
+
+note_read_main() {
+    local target_raw="${1:-}"
+    [[ -n "$target_raw" ]] || note_read_die "missing-target"
+    case "$target_raw" in -*) note_read_die "missing-target" ;; esac
+    shift
+
+    local by_raw="" ids_raw="" mode="explicit"
+    local n_by=0 n_ids=0 n_mode=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --by|--ids|--mode)
+                [[ $# -ge 2 ]] || note_read_die "missing-value:$1" ;;
+        esac
+        case "$1" in
+            --by)   by_raw="$2";  n_by=$((n_by+1));     shift 2 ;;
+            --ids)  ids_raw="$2"; n_ids=$((n_ids+1));   shift 2 ;;
+            --mode) mode="$2";    n_mode=$((n_mode+1)); shift 2 ;;
+            *) note_read_die "unknown-option:$1" ;;
+        esac
+    done
+    (( n_by   <= 1 )) || note_read_die "duplicate-option:--by"
+    (( n_ids  <= 1 )) || note_read_die "duplicate-option:--ids"
+    (( n_mode <= 1 )) || note_read_die "duplicate-option:--mode"
+    (( n_by  == 1 ))  || note_read_die "missing-by"
+    (( n_ids == 1 ))  || note_read_die "missing-ids"
+    # `mode` defaults to explicit rather than being required: the only caller
+    # that can omit it is a human typing this by hand, and that IS the explicit
+    # case. Every skill call site passes it, and the render assertions check so.
+    case "$mode" in auto|explicit) ;; *) note_read_die "bad-mode:$mode" ;; esac
+
+    local target_bare
+    target_bare="$(note_id_normalize "$target_raw")" \
+        || note_read_die "bad-task-id:$target_raw"
+
+    local file
+    if ! file="$(resolve_task_file "$target_bare" 2>/dev/null)"; then
+        printf 'READ_TARGET_MISSING:%s\n' "$(note_sanitize_field "$target_bare")"
+        return 1
+    fi
+
+    # ONE convention for receipt identity, enforced here rather than remembered
+    # at four call sites: `--by` is always the TARGET task's own id. The reader
+    # is the session working on that task, and the task id is the only durable
+    # identity available — session names are ephemeral, which is the whole
+    # premise of the note mailbox. A receipt naming its own task is legal; the
+    # writer refuses self-addressed *notes*, not receipts.
+    local by_bare
+    by_bare="$(note_id_normalize "$by_raw")" \
+        || note_read_die "bad-task-id:$by_raw"
+    [[ "$by_bare" == "$target_bare" ]] \
+        || note_read_die "by-must-be-target:$by_raw"
+
+    local -a want=()
+    local IFS_SAVE="$IFS" id
+    IFS=','; read -r -a want <<< "$ids_raw"; IFS="$IFS_SAVE"
+    (( ${#want[@]} > 0 )) || note_read_die "missing-ids"
+    for id in "${want[@]}"; do
+        [[ "$id" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\.[0-9a-f]{24}$ ]] \
+            || note_read_die "bad-note-id:$id"
+    done
+
+    NOTE_PY="$(resolve_python 2>/dev/null || true)"
+    [[ -n "$NOTE_PY" ]] || note_read_die "python-unavailable"
+
+    LOCK_KEY="$target_bare"
+    : > "$READ_OUT_FILE"
+    if ( _note_read_inner "$file" "$target_bare" "$(note_id_render "$by_bare")" \
+             "$mode" "${want[@]}" ) >"$READ_OUT_FILE" 2>>"$NOTE_STDERR_FILE"; then
+        cat "$NOTE_STDERR_FILE" >&2 2>/dev/null || true
+        local line; line="$(head -n1 "$READ_OUT_FILE" 2>/dev/null || true)"
+        [[ -n "$line" ]] || { printf 'READ_ERROR:%s\n' "no-outcome-reported"; return 1; }
+        printf '%s\n' "$line"
+        case "$line" in READ_RECORDED:*|READ_RECORDED_UNPUSHED:*|READ_NOOP:*) return 0 ;; esac
+        return 1
+    fi
+    cat "$NOTE_STDERR_FILE" >&2 2>/dev/null || true
+
+    # A typed inner line is the better message; a bare death is the lock giving up.
+    local inner; inner="$(head -n1 "$READ_OUT_FILE" 2>/dev/null || true)"
+    if [[ -n "$inner" ]]; then
+        printf '%s\n' "$inner"
+    else
+        printf 'READ_ERROR:%s\n' "lock-unavailable:$LOCK_KEY"
+    fi
+    return 1
+}
+
 main() {
     case "${1:-}" in
         --help | -h | help | "") show_help; return 0 ;;
+        # Dispatch BEFORE target resolution: note_id_normalize "read" would
+        # otherwise fail with bad-task-id:read. The name is reserved by
+        # construction — a note's marker name must equal its sender (t<id>),
+        # which can never be the bare word "read".
+        read) shift; note_read_main "$@"; return $? ;;
     esac
 
     local target_raw="$1"; shift
