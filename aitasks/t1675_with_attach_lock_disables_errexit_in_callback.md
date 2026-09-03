@@ -17,7 +17,7 @@ anchor: 1661
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 22:37
-updated_at: 2026-09-02 22:24
+updated_at: 2026-09-03 10:52
 ---
 
 ## Origin
