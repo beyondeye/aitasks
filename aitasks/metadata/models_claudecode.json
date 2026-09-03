@@ -1193,18 +1193,18 @@
         },
         "wrap": {
           "all_time": {
-            "runs": 1
+            "runs": 2
           },
           "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
             "period": "2026-08",
             "runs": 1
           },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
           "week": {
-            "period": "2026-W35",
+            "period": "2026-W36",
             "runs": 1
           }
         }
