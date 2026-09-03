@@ -148,6 +148,8 @@ other agent trees if the port is non-trivial.
 > | Also note `ait note` already reserves the `read` marker name and the writer
 > | refuses self-addressed notes, so a receipt naming its own task is fine.
 
+> **👁 note:read** id=2026-09-03T21:34:17Z.c7497c874a307a62b987c303 by=t1657_3 at=2026-09-03T21:34:17Z mode=explicit ids=2026-09-02T06:19:07Z.6d05e279360b685aeb3e750c
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
