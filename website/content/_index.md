@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.34.1: Park the agents you're not watching, A heads-up before two tasks collide, Sync stages every conflict you resolve, and  not just the first](blog/v0341-park-the-agents-you-re-not-watching-a-heads-up-before-two-tasks-collide-sy/)** -- Sep 3, 2026
 - **[v0.34.0: Know whether your backlog is growing, Merges no longer race, and The board knows where a task actually is](blog/v0340-know-whether-your-backlog-is-growing-merges-no-longer-race-the-board-knows/)** -- Sep 2, 2026
 - **[v0.33.0: Your shadow reviewer works with Codex and OpenCode now, Turn a review concern straight into a task, and Trails got lighter and easier to read](blog/v0330-your-shadow-reviewer-works-with-codex-and-opencode-now-turn-a-review-conce/)** -- Aug 18, 2026
-- **[v0.32.0: Board columns you can actually manage, Grouped cards, and Reject a concern and it stays rejected](blog/v0320-board-columns-you-can-actually-manage-grouped-cards-reject-a-concern-and-i/)** -- Aug 13, 2026
 
 [All releases &rarr;](blog/)
 
