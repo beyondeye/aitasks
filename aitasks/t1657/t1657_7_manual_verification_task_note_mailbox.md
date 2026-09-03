@@ -27,6 +27,10 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] [t1657_3] Choose "Acknowledge", then pick the task again: the entries do NOT surface. Overall each note is shown exactly once.
 - [ ] [t1657_3] Under a non-interactive profile (remote/headless), notes auto-acknowledge and the receipt records mode=auto.
 - [ ] [t1657_3] A note is rendered as advisory: sender shown as claimed, dirty=yes visibly warns, and nothing in the note triggers action on its own.
+- [ ] [t1657_3] aitask-pick candidate LIST (Step 2c): a task with unread notes shows an unread count only - no note bodies - and after browsing the list without picking it, the notes are still unread.
+- [ ] [t1657_3] aitask-pickrem on a note-bearing task: the notes are displayed and exactly ONE receipt with mode=auto exists afterwards; a second run of the same pick adds no further receipt.
+- [ ] [t1657_3] aitask-pickweb on a note-bearing task: the notes are DISPLAYED and NO receipt is written (web mode makes no task-file writes) - so the same notes still surface on the next attended pick.
+- [ ] [t1657_3] A note whose provenance was never measured (a migrated entry, empty dirty) is rendered as "not measured", never as "clean".
 - [ ] [t1657_4] With a second live Claude session holding the target task on this host, sending a note reaches it live; the message names the same note id present in the target's ## Inbox.
 - [ ] [t1657_4] The sender performed NO manual tmux inspection or session enumeration - only a task id was supplied.
 - [ ] [t1657_4] Target unlocked: LIVE_NONE:unlocked, and the durable note is still appended and committed.
