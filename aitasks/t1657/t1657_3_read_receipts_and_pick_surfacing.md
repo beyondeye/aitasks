@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t1657_2]
 issue_type: feature
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1657
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 12:35
-updated_at: 2026-09-03 12:48
+updated_at: 2026-09-04 00:06
 ---
 
 # Reading: read receipts and pick-time surfacing
@@ -144,3 +147,8 @@ other agent trees if the port is non-trivial.
 > | 
 > | Also note `ait note` already reserves the `read` marker name and the writer
 > | refuses self-addressed notes, so a receipt naming its own task is fine.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-03T21:06:38Z status=pass attempt=1 type=human
