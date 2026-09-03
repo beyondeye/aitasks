@@ -7,6 +7,37 @@ plan_verified: []
 
 # t1704 — Give the cross-repo config push an owner that commits in the target repo
 
+## ⚠️ Re-verify before implementing — this plan was written against a moving base
+
+Approved 2026-09-03 and **deliberately deferred**: at approval time **t1702** was
+in flight, uncommitted, in the same working tree, holding edits to both files this
+plan modifies most. t1704 now carries `depends: [1702]`.
+
+`fast`'s `plan_preference` for a parent task is `use_current`, so a re-pick will
+**skip verification and use this plan as-is**. Do not let it. Re-derive these two
+points against the landed tree first:
+
+1. **§2's anchor is stale as written.** It says the `--expect` comparison goes
+   "just before `task_git_commit_scoped`". t1702 replaced that call site in
+   `aitask_metadata_commit.sh` with `ait_commit_paths_staging_untracked`
+   (a new `lib/task_utils.sh` function, with `ait_unstage_staged_by_us` and an
+   `AIT_STAGED_BY_US` global unwound by an EXIT trap armed in the caller). The
+   guard must sit before *that* call, and its interaction with the staging
+   trap — a `REFUSED:changed` exit must leave nothing staged — has to be
+   re-checked, not assumed.
+2. **§1's edit site moved.** t1702 added ~74 lines to `lib/task_utils.sh` around
+   the commit helpers. Re-locate the `AIT_GIT_INPROGRESS_STATES` extraction and
+   re-confirm that `assert_data_worktree_clean` and `task_git_health` are still
+   its only two call sites.
+
+Also re-check whether t1702's new `lib/task_commit.py` overlaps
+`lib/metadata_commit.py` in a way that changes where §3's `preflight_metadata` /
+`expect` belong.
+
+Everything else in this plan — the decision matrix, the concurrency guard, the
+`clear_mask` failure policy, the test matrix — was derived from code t1702 does
+not touch and should still hold.
+
 ## Context
 
 t1677 gave every tracked `aitasks/metadata/*` write in **this** repo an owner that
