@@ -17,7 +17,7 @@ anchor: 1661
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 22:37
-updated_at: 2026-09-03 10:52
+updated_at: 2026-09-03 10:55
 ---
 
 ## Origin
@@ -107,3 +107,5 @@ after an abort is t1698's to fix.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-02T19:25:12Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-03T09:33:21Z status=pass attempt=1 type=human
