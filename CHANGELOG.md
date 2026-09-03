@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.34.1
+
+### Features
+
+- **Parallel-admission preflight** (t1569_4): The task workflow can now check, before implementation starts, whether an in-flight task is likely to collide with the one you picked. It ships advisory-only — it never blocks — and all three execution profiles opt out by default; enable it per profile with `parallel_admission`.
+- **Park code agents** (t1685): Agents in `ait monitor` and `ait minimonitor` can be parked with a tristate mark, so idle or long-lived ones stop crowding the list. `P` hides and re-shows parked agents, the session bar reports how many are parked, and parked agents are skipped by capture, concerns and previews.
+
+### Bug Fixes
+
+- **Only the first resolved conflict was staged during sync** (t1676): Resolving more than one conflict in `ait sync` staged just the first file and left the rebase wedged. Every resolved file is now staged, and a failed stage is reported instead of swallowed.
+- **Dead internal documentation links** (t1682): 28 broken links across 11 documentation pages are repaired, and a new site-wide link checker runs in CI, so a dead link now blocks the deploy instead of building green.
+- **Terminal focus-in stole the first click in minimonitor** (t1683): Alt-tabbing back to a window with `ait minimonitor` open re-selected the first agent card, so your first click landed somewhere else — and could yank focus out of an open dialog. Focus is now left alone whenever something is already focused.
+- **A shell-hosted companion pane looked like an agent** (t1686): A monitor or shadow pane started under a shell wasn't recognised as a companion and appeared in the agent list. Companions are now identified by their tmux marker. This also fixes a related defect where the last pane in a window could be dropped from the pane list, letting a "kill the window" action fire with a live agent still in it.
+- **`ait add-model` changed destination file permissions** (t1684): Writing a model registry reset each destination to default permissions and replaced symlinked destinations with regular files. Each destination now keeps its own mode, symlinks are followed rather than replaced, and a failed write no longer strands temp files.
+- **A chained cleanup handler lost a failing exit status** (t1681): A ledger-locked section whose exit trap ran other cleanup first reported success even when it failed. The trap now detects that spelling, warns, and accepts an explicit status from callers that need to chain.
+- **Invalid ledger namespaces were interpolated silently** (t1669): A namespace outside the documented charset could produce a ledger block that no reader can ever match. All five entry points now reject it up front.
+
+### Improvements
+
+- **Monitor panes ordered by window name** (t1679): Both monitors group panes by window name with natural ordering, so `agent2` sorts before `agent10` and windows stay in a stable, readable order.
+- **Trail discovery promoted to a shared library** (t1647_1): The board's trail-discovery helpers moved into a reusable library module so other trail tooling builds on the same code instead of reaching into the board.
+
+### Documentation
+
+- **Premise-staleness Tier B scope corrected** (t1673): The design record now states that any task carrying an exact origin is eligible, not only follow-ups. The `--verifies` help text in `ait create`, `ait update` and the command docs no longer claims the field is manual-verification-only.
+
+### Tests
+
+- **Nested-repository boundary pinned** (t1674): New coverage for a nested checkout or a real submodule inside a branch-mode project, asserting each resolves to its own legacy mode rather than walking up into the parent's task data.
+
 ## v0.34.0
 
 ### Features
