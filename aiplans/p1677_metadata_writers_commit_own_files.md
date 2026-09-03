@@ -586,3 +586,236 @@ bullets below are high-severity on their own.
 ### Planned mitigations
 - timing: post-phase | name: metadata_writer_inventory_guard | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the inventory is a claim about absence, and a writer missed today stays ownerless silently | desc: derive tracked-metadata write sites from source and assert each is wired to the commit seam or in a commented KNOWN_UNCOMMITTED allowlist with its reason
 - timing: after | name: cross_repo_config_push_owner | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — apply_push writes another repo's tracked codeagent_config.json and leaves it dirty there | desc: give the syncer's cross-repo config push an owner that commits in the target repo, deciding safely what to do when that repo is mid-work
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-03 11:35)
+
+- **Requested by user:** three blocking `allow_new` defects, each verified
+  CONFIRMED before any edit. All three are the same root cause: **`allow_new` is
+  a per-path permission ("I created this") that was being carried as a
+  batch-level flag, or dropped entirely.**
+
+  1. `lib/metadata_commit.py::remedy_command` never emitted `--allow-new`. The
+     failure path unstages what it staged, so a newly created project profile or
+     first-run chatlink config is left *untracked* — and the remedy the TUI
+     showed answered `REFUSED:untracked` instead of committing it.
+  2. `aitask_setup.sh::commit_setup_metadata_writes` passed `--allow-new` for
+     the whole batch, but `ensure_project_config_defaults` has **two** write
+     branches and the backfill one edits an *existing* `project_config.yaml`.
+     An untracked local copy was therefore published rather than refused.
+  3. `settings_app.py::_commit_imported` derived one `created_any` boolean for
+     the batch and forwarded it for every path, so an import that created one
+     config while overwriting a pre-existing untracked one admitted both.
+
+- **Changes made:**
+  - **The admission now rides on the result.** `CommitResult` gained an
+    `allow_new` field (defaulted, so existing 3-arg constructions still work);
+    `commit_metadata` stamps every exit through a local `_r()`. `remedy_command`
+    takes `allow_new` and is built **through `commit_command`**, so the
+    advertised string cannot drift from the argv actually run. The three
+    surfaces render `remedy_command(paths, allow_new=result.allow_new)`.
+
+    Chosen over adding a parameter to each notify callback for the reason the
+    commit already lives inside the writer: a parameter every surface must
+    remember to pass is one a surface eventually forgets.
+  - **`ait setup` records newness per path.** `_note_metadata_write <path> [new]`
+    splits into `AIT_SETUP_METADATA_NEW` / `_EXISTING`; the flush makes up to
+    two calls via a new `_flush_metadata_batch <allow_new> <path>...`. The
+    default is `existing`, so a call site added later without the argument fails
+    **closed** (refused) rather than open (published). Four creation sites pass
+    `new`; the backfill site keeps the default with a comment saying why.
+    `_flush_metadata_batch` builds the run argv and the shown remedy from the
+    same branch, so the warning cannot advertise a different admission.
+  - **The import partitions.** `_commit_imported` splits `paths` by pre-import
+    existence and commits each subset under its own admission.
+  - **Docs:** `tui_conventions.md` states the per-path rule and the
+    `result.allow_new` remedy requirement — a TUI author wiring a new writer
+    needs both.
+
+- **Tests added (10 new assertions/cases, every one with an executed negative
+  control):**
+  - `test_setup_metadata_commit_scope.sh` Tests 5-7: a backfilled pre-existing
+    untracked config is refused and stays untracked while its edit survives on
+    disk; the create branch still commits (so Test 5 cannot pass vacuously); a
+    mixed run does not let the two share an admission.
+  - `test_settings_commit_on_save.py` `RemedyMatchesTheAdmission`: the result
+    carries `allow_new`, the negative direction does **not** advertise the flag,
+    and — the assertion that matters — **running the exact advertised string
+    actually commits the file**.
+  - `test_settings_commit_on_save.py` `ImportAdmissionIsPerPath`: only the
+    created config is admitted, the overwritten one is *reported* refused rather
+    than silently dropped, and its content survives.
+
+- **Negative controls (each mutation applied, observed failing, then reverted):**
+  - flush the `updated` batch with `--allow-new` → 3 failures across Tests 5/7.
+  - `_commit_imported` back to the `created_any` boolean → 2 failures; both
+    files committed.
+  - `CommitResult` no longer stamped with `allow_new` → 2 failures, the remedy
+    run reproducing the reported symptom verbatim:
+    `REFUSED:untracked:aitasks/metadata/profiles/brandnew.yaml`.
+
+- **Not changed:** the helper's CLI. Both batch defects are fixed by
+  partitioning at the caller, which the reviewer's own dispositions endorsed;
+  making `--allow-new` take a path list would have rewritten the seam's
+  contract and its 50 passing assertions for no additional safety.
+
+## Final Implementation Notes
+
+- **Actual work done:** the plan as approved, in five parts, plus one review
+  round (see `## Post-Review Changes`) that made `allow_new` per-path
+  everywhere and put the admission on `CommitResult`.
+  - **The seam.** `lib/task_utils.sh::ait_metadata_commit_message` (file-naming
+    subject, single-sourced); `.aitask-scripts/aitask_metadata_commit.sh`
+    (explicit paths only, scope/tracked/user-layer admission, `--no-stage` plus
+    a `staged_by_us` unstage on failure, structured stdout, exit 0/1/2, never
+    pushes); `lib/metadata_commit.py` (subprocess wrapper, never raises on a git
+    failure, `allow_new` forwarded verbatim, `remedy_command`).
+    `aitask_sync.sh`'s ownerless report now names the helper as the remedy.
+  - **Wiring.** Settings `ConfigManager.save_codeagent` / `save_board` /
+    `save_project_settings` / `save_profile` / `delete_profile` (commit in the
+    method, `on_commit` callback wired once by `SettingsApp`);
+    `_handle_import` / the partial-import branch; board
+    `TaskManager.save_metadata(commit=True)` with `commit=False` at the startup
+    first-ship; `aitask_board_column.sh create`; chatlink `wizard._do_save`;
+    `aitask_setup.sh`'s four `ensure_*` passes via
+    `AIT_SETUP_METADATA_WRITTEN` + `commit_setup_metadata_writes`.
+    `settings_app._commit_profile` (an index-wide `git commit`) was deleted and
+    the modal's "Save and Commit" button collapsed into "Save".
+  - **Untracking.** `diffviewer/plan_browser.py` writes
+    `diffviewer_history.local.json` atomically and reads the legacy tracked path
+    only as a fallback. **The `./ait git rm` of the tracked file is deliberately
+    NOT done here** — see "Deviations".
+  - **Docs.** `tui_conventions.md` section rewritten; `sync.md` and the settings
+    `how-to.md` narrowed to match.
+  - **Tests.** 7 new files, 79 shell assertions + 33 Python tests, plus one
+    updated assertion in `tests/test_chatlink_tui.sh`.
+
+- **Deviations from plan:**
+  - **`--sweep` was removed from the helper entirely** (agreed pre-approval). A
+    "commit everything dirty under `aitasks/metadata/`" verb publishes whatever a
+    concurrent session is mid-editing. `ait setup` therefore records the exact
+    paths each `ensure_*` wrote.
+  - **The board's commit is synchronous, not `@work(thread=True)`.** A worker
+    must be started by the App, so each of the six column-gesture call sites
+    would have to drain a queue — reintroducing the "a caller can forget it"
+    failure that putting the commit inside `save_metadata` exists to prevent.
+    One path-scoped commit of one small JSON is on par with the subprocess calls
+    (`aitask_lock.sh --list`, `git status`) the refresh path already makes
+    inline. `TaskManager.on_metadata_commit` keeps it Textual-free.
+  - **The board-column commit test is a new file** (`test_board_column_commit.sh`)
+    rather than an extension of `test_board_column_cli.sh`, whose fixture is
+    deliberately git-free ("stays readable in one screen").
+  - **The inventory guard is Python, and its design changed.** Resolving an
+    enclosing function needs real parsing, and — more importantly — *no regex
+    over source is complete*: `plan_browser.py` builds its path as
+    `os.path.join("aitasks", "metadata", ...)` and is invisible to a literal
+    scan. A grep-derived allowlist would therefore have been the vacuous guard
+    the mitigation exists to avoid. The inventory is now **pinned data**
+    (`WIRED` / `KNOWN_UNCOMMITTED` by `file::function`) with discovery demoted
+    to a new-file tripwire; the test's docstring states plainly what it does not
+    catch. Four negative controls were run and each fails the intended assertion.
+  - **`diffviewer_history.json` is not `git rm`-ed in this commit.** Removing it
+    is a `./ait git` data-branch change, and the file is currently clean; doing
+    it in the same session as the code change would put a data-branch deletion
+    in front of a user whose diffviewer might still be running against it. The
+    code no longer writes it, which is what stops it dirtying — the removal is
+    safe to do at any later point.
+
+- **Issues encountered:**
+  - `import_all_configs` returns the literal `"shortcuts"` marker alongside real
+    filenames when a shortcuts subtree is merged into `userconfig.yaml`. It
+    names no file, so passing it would make the helper refuse the whole batch;
+    `_import_commit_paths` filters on `is_file()`.
+  - `aitask_setup.sh` overrides `warn()` to write to **stdout** (`:143`,
+    alongside `info`/`success`) rather than `terminal_compat.sh`'s stderr
+    version. The flush's failure message follows the script's own convention;
+    `test_setup_metadata_commit_scope.sh` captures stdout accordingly.
+  - `${#arr[@]}` on an empty array errors under `set -u` in bash 3.2, and the
+    empty case is the common one here — `commit_setup_metadata_writes` uses the
+    `${arr[@]+"${arr[@]}"}` guard.
+  - The inventory guard's own first run caught a real modelling error:
+    `aitask_pick_own.sh::store_email` writes `emails.txt` while
+    `commit_and_push` commits it. The wiring check is file-scoped against an
+    exact seam token, because writer and committer are legitimately different
+    functions.
+  - `settings_app.save_profile` shells out to `aitask_skill_rerender.sh`. The
+    Python fixture therefore exposes only the one script under test with `lib/`
+    symlinked, instead of symlinking the whole `.aitask-scripts` — otherwise a
+    test save could re-render skill closures in the real repository.
+  - **Two unreachable-code regressions, both caught in review, both the same
+    mistake.** Appending `return self._commit(...)` / a new `def` at an edit
+    anchor that ended *mid-function* orphaned the statements that followed:
+    `ConfigManager.delete_profile` stopped popping `self.profiles` /
+    `self.profile_layers` (the UI would keep offering a deleted profile until a
+    reload), and `SummaryScreen._do_save` stopped relabelling the Next button to
+    "Close" and stopped calling `_start_preflight()` — which also meant the new
+    commit outcome never reached the user, since the preflight pane is what
+    renders `_commit_hint()`. Both fixed, both pinned by a test with an
+    executed negative control, and an AST sweep for `unreachable statement after
+    return/raise` was run across every file this task edits (the only remaining
+    hit is the pre-existing, deliberately-documented `yield` after `raise
+    NotImplementedError` in `wizard.py:341`). **The lesson: when an edit appends
+    to the end of a function, re-read the whole function afterwards — a diff
+    that "looks like an append" can be an insertion.**
+  - `tests/test_chatlink_tui.sh` asserted the summary shows `never commits`.
+    That wording is now false — the wizard does commit — so the assertion was
+    updated rather than the behaviour: it now pins that the summary always
+    states the config's git position, and in that fixture (whose config lives
+    outside `aitasks/metadata/`) that the out-of-scope refusal names the remedy.
+    The committed branch is pinned in the new save-flow test.
+
+- **Key decisions:**
+  - Wrap the existing shell seam from Python rather than adding a second
+    scoped-commit implementation. Every pre-existing Python commit site in the
+    tree is a pathspec-less `git commit`; copying one would have re-created the
+    index-wide swallow t1599 exists to eliminate.
+  - `allow_new` is always **derived** from a pre-write existence check, never
+    hard-coded — it means "I created this", not "creation is allowed here".
+    `save_profile` derives it itself, which is what covers `_handle_new_profile`
+    without any caller having to remember.
+  - A commit failure never raises. The edit has already landed, so losing it
+    would be worse than a dirty file — but every surface reports the failure and
+    names the remedy, and `ait sync`'s ownerless report remains the independent
+    backstop.
+  - `gates.yaml` stays deliberately uncommitted (review-then-commit), and the
+    docs narrow the old "nothing else will ever commit it" claim rather than
+    replacing it with a cure.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/board/aitask_board.py:14164` — `_do_git_commit_tasks` runs
+    `git commit -m <msg>` with **no pathspec**, committing the whole shared
+    `.aitask-data` index; the delete (`:14029`) and rename (`:14126-14141`)
+    paths do the same. These commit task files, so they are outside this task's
+    metadata scope, but they can carry another session's staged work under this
+    board's message — the same defect class t1599 addressed for `ait sync`,
+    `aitask_pick_own.sh`, `aitask_create.sh` and `aitask_fold_mark.sh`.
+
+- **New `.aitask-data` index-writing call sites (for t1678):** the
+  `data_index` mutex audit cannot see these, so they are listed explicitly.
+  - `.aitask-scripts/aitask_metadata_commit.sh` — **the** new index writer:
+    `task_git add` (untracked paths only), `task_git reset` (failure cleanup),
+    and `task_git_commit_scoped --no-stage` (which itself runs `task_git status`
+    + `task_git commit`). Everything below funnels through it, so bringing this
+    one script under the mutex covers all of them.
+  - `.aitask-scripts/lib/metadata_commit.py::commit_metadata` — subprocess
+    wrapper; runs no git itself.
+  - Call sites that reach it: `settings_app.py::ConfigManager._commit`
+    (← `save_codeagent`, `save_board`, `save_project_settings`, `save_profile`,
+    `delete_profile`); `settings_app.py::SettingsApp._commit_imported`
+    (← `_handle_import` and its partial-import branch);
+    `aitask_board.py::TaskManager._commit_metadata_file` (← `save_metadata`,
+    reached from `add_column`, `update_column`, `delete_column`,
+    `merge_columns`, `ColumnManageScreen._shift`, and the card-reorder action);
+    `chatlink/wizard.py::_commit_config` (← `_do_save`);
+    `aitask_board_column.sh` top-level `create` branch; and
+    `aitask_setup.sh::_flush_metadata_batch`
+    (← `commit_setup_metadata_writes` ← the five `_note_metadata_write` sites).
+  - **Two of these now invoke the helper up to TWICE per user action** (review
+    round, above): `_flush_metadata_batch` is called once for created paths and
+    once for edited ones, and `_commit_imported` likewise commits its created and
+    pre-existing subsets separately. Each call is a separate scoped commit, so
+    t1678's mutex must cover the *call*, not the enclosing user action.
+  - `lib/task_utils.sh::ait_metadata_commit_message` is pure — no git.
