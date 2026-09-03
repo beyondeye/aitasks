@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: test
-status: Ready
+status: Implementing
 labels: [aitask_monitor, aitask_monitormini, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1382
 followup_kind: upstream_defect
 created_at: 2026-09-02 23:13
-updated_at: 2026-09-02 23:13
+updated_at: 2026-09-03 09:37
 ---
 
 ## Origin
