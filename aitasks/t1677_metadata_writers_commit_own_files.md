@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: high
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 1599
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5
 created_at: 2026-09-02 09:02
-updated_at: 2026-09-02 18:37
+updated_at: 2026-09-03 10:53
 ---
 
 ## Origin
