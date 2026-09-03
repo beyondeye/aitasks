@@ -6,6 +6,10 @@ issue_type: test
 status: Implementing
 labels: [aitask_monitor, aitask_monitormini, tmux]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1382
 followup_kind: upstream_defect
