@@ -20,6 +20,7 @@
 #   ./.aitask-scripts/aitask_query_files.sh recent-archived [limit]
 #   ./.aitask-scripts/aitask_query_files.sh task-status <N|N_M>
 #   ./.aitask-scripts/aitask_query_files.sh inflight
+#   ./.aitask-scripts/aitask_query_files.sh inbox <taskid> [<taskid>...]
 #
 # Add `--project <name>` before the subcommand to redirect the call to a
 # sibling aitasks project registered in the per-user index. The sibling's
@@ -36,6 +37,8 @@ source "$SCRIPT_DIR/lib/task_utils.sh"
 source "$SCRIPT_DIR/lib/archive_scan.sh"
 # shellcheck source=lib/cross_repo_reexec.sh
 source "$SCRIPT_DIR/lib/cross_repo_reexec.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 # --- Help ---
 show_help() {
@@ -70,6 +73,13 @@ Subcommands:
                                with a recorded "## Gate Runs" ledger), parents
                                and children, with derived re-entry state. Used
                                by aitask-pick's in-flight resume section.
+  inbox <taskid>...            List UNREAD "## Inbox" notes for each task
+                               (accepts several ids; answers in one pass).
+                               Unread = the note's id appears in no valid
+                               "note:read" receipt. STRICTLY READ-ONLY: it
+                               never writes a receipt, which is what makes it
+                               safe to call over a candidate list. Use
+                               `ait note read` to acknowledge.
 
 Output format (structured lines):
   TASK_FILE:<path>           Active task file found
@@ -97,6 +107,22 @@ Output format (structured lines):
                              resume-point); <archive_status> is
                              NO_GATES|ALL_PASS|BLOCKED:<csv> (archive-ready).
   NO_INFLIGHT                No in-flight gated tasks found
+  INBOX_UNREAD:<taskid>|<id>|<from>|<from_verified>|<at>|<base>|<dirty>
+                             One unread note. <from> is a CLAIM; render it as
+                             claimed. <from_verified> is "yes" or EMPTY, and
+                             empty means "not proven", never disproof. <base>
+                             is the FULL object id as stored (display may
+                             abbreviate; this channel must not). <dirty> is
+                             yes/no/unknown, or empty on a migrated note whose
+                             provenance was never measured.
+  INBOX_MALFORMED:<taskid>|<line>|<name>
+                             A block that failed validation and was DISCARDED.
+                             Reported so a discarded receipt (a note that keeps
+                             re-surfacing) or a discarded note is never
+                             indistinguishable from "nothing was there".
+  NO_INBOX:<taskid>          Task has no "## Inbox" section
+  NO_UNREAD:<taskid>         Section present, every note acknowledged
+  INBOX_ERROR:<taskid>|<reason>  Task file could not be read
 
 All subcommands exit 0. Use output lines (not exit codes) for status.
 
@@ -557,6 +583,52 @@ cmd_inflight() {
     done <<< "$sorted"
 }
 
+# cmd_inbox
+# List UNREAD "## Inbox" notes for one or more tasks (t1657_3).
+#
+# STRICTLY READ-ONLY. It never appends a receipt, and that is load-bearing
+# rather than incidental: aitask-pick summarises up to 15 CANDIDATE tasks the
+# user has not chosen, and if listing them acknowledged their notes, an agent
+# that merely saw a task in a menu would hide that task's notes from the agent
+# that later picks it. Acknowledging is `ait note read`, and only for a task
+# that was actually selected.
+#
+# Takes SEVERAL ids and answers in ONE python start -- 15 candidates would
+# otherwise mean 15 interpreter startups on every pick.
+#
+# The derivation is NOT re-implemented here: lib/note_inbox.py owns the schema
+# and the unread rule, and shares its per-block predicate with the merger's
+# INBOX_SPEC so a reader and a merge cannot disagree about what is valid.
+cmd_inbox() {
+    if [[ $# -eq 0 ]]; then
+        echo "INBOX_ERROR:|no-task-id-given"
+        return
+    fi
+
+    local py
+    if ! py="$(resolve_python 2>/dev/null)" || [[ -z "$py" ]]; then
+        # An unavailable interpreter is its own state, never "no notes".
+        local id
+        for id in "$@"; do echo "INBOX_ERROR:${id}|python-unavailable"; done
+        return
+    fi
+
+    # Resolve ids to paths here (bash owns task-file lookup), then hand the
+    # (id, path) pairs over in one call.
+    local -a pairs=()
+    local id file
+    for id in "$@"; do
+        if file="$(resolve_task_file "$id" 2>/dev/null)"; then
+            pairs+=("$id" "$file")
+        else
+            echo "INBOX_ERROR:${id}|task-not-found"
+        fi
+    done
+
+    [[ ${#pairs[@]} -gt 0 ]] || return
+    "$py" "$SCRIPT_DIR/lib/note_inbox.py" unread "${pairs[@]}"
+}
+
 # --- Main dispatch ---
 main() {
     # Cross-repo redirect (t832_1): if `--project <name>` appears anywhere
@@ -632,6 +704,10 @@ main() {
         inflight)
             shift
             cmd_inflight "$@"
+            ;;
+        inbox)
+            shift
+            cmd_inbox "$@"
             ;;
         *)
             die "Unknown subcommand: '$1'. Use --help for usage."

@@ -47,6 +47,7 @@ from followup_kinds import normalize_followup_kind  # noqa: E402
 # sys.path set up just above covers the sibling import.
 import gate_ledger  # noqa: E402
 import ledger_block  # noqa: E402  -- the generic marker-block substrate
+import note_inbox  # noqa: E402  -- the '## Inbox' schema, shared with the reader
 from atomic_write import atomic_write_text  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -443,7 +444,12 @@ def merge_frontmatter(
 # Gate-run "run=" stamps are ISO-8601-Z (the exact shape gate_ledger.iso_now()
 # emits). Valid ISO strings sort lexicographically == chronologically, which is
 # what derive_gate_runs() (last-in-file-order wins) needs for last-run-wins.
-_ISO_RUN_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+#
+# Promoted to ledger_block beside the iso_now() that produces it (t1657_3): the
+# note half of this module needed the same pattern on a READ path, and two
+# private copies of one value set is one too many. Aliased rather than
+# search-replaced so the gate spec below still reads in its own vocabulary.
+_ISO_RUN_RE = ledger_block.ISO_INSTANT_RE
 
 
 def _conflict_markers(local: str, remote: str) -> str:
@@ -512,156 +518,23 @@ GATE_SPEC = SectionSpec(
 
 # --- '## Inbox' — the task-note mailbox (t1657_2) ---------------------------
 #
-# Note ids are "<iso-utc>.<24-hex>"; every entry also carries an ISO "at=".
-_NOTE_ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\.[0-9a-f]{24}$")
-_LOCAL_TASK_RE = re.compile(r"^t[0-9]+(_[0-9]+)?$")
-# aidocs/framework/cross_repo_references.md: the 't' after '#' is tolerated.
-_XREPO_TASK_RE = re.compile(r"^[a-z0-9_-]+#t?([0-9]+(?:_[0-9]+)?)$")
-# A full object id, never an abbreviation. Both widths are accepted because the
-# merge may run in a fixture or a format-less context, where binding to
-# `git rev-parse --show-object-format` would leave NO rule at all; it degrades
-# to weaker-but-never-absent, never to accepting a short value. The WRITER pins
-# the exact width at the write site, which stays the stronger check.
-_FULL_OID_RE = re.compile(r"^([0-9a-f]{40}|[0-9a-f]{64})$")
-_BASE_SENTINELS = ("none", "unknown")
-# claimed_at carries the original note's own precision: a date, or an instant.
-_ISO_DATE_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z)?$")
-
-
-def _valid_oid(value: str) -> bool:
-    return bool(_FULL_OID_RE.match(value))
-
-
-# Allowed marker keys, per variant. An unknown key is REJECTED, not ignored
-# (t1657_2 F20): the contract is "reject, never repair", and a permissive
-# validator silently accepts exactly the blocks it exists to catch --
-# `migrated=no` (claiming the migration variant without taking it),
-# `claimed_at=<garbage>` on an ordinary note, or any future writer's key this
-# version cannot interpret. Ignoring those would union a block whose meaning
-# this code does not actually understand.
-_NOTE_KEYS_REQUIRED = {"id", "from", "at", "base", "dirty", "host"}
-_NOTE_KEYS_OPTIONAL = {"from_verified", "base_branch", "base_mergebase"}
-_MIGRATED_KEYS_REQUIRED = {"id", "from", "at", "base", "claimed_at", "migrated"}
-_MIGRATED_KEYS_OPTIONAL = {"base_branch", "base_mergebase"}
-_RECEIPT_KEYS_REQUIRED = {"id", "by", "at", "mode", "ids"}
-_RECEIPT_KEYS_OPTIONAL: set = set()
-
-
-def _keys_allowed(f, required: set, optional: set) -> bool:
-    """Exact key-set membership: every required key present, no extras."""
-    keys = set(f.keys())
-    return required <= keys and not (keys - required - optional)
-
-
-def _validate_inbox_provenance(f) -> bool:
-    """Provenance rules for a note block.
-
-    Checking only id/at/sender would let a block carrying an ABBREVIATED
-    ``base=451dd3af7`` pass and union -- exactly the ambiguity the full-oid
-    invariant exists to prevent, arriving by the one route writer-side tests
-    structurally cannot see: a block written on another PC.
-    """
-    base = f.get("base", "")
-    if not base:
-        return False
-    base_is_sentinel = base in _BASE_SENTINELS
-    if not base_is_sentinel and not _valid_oid(base):
-        return False
-
-    # No repo / no HEAD => no branch. Required with a real oid, forbidden with
-    # a sentinel -- either way the field and the base agree or the block is
-    # malformed.
-    has_branch = "base_branch" in f
-    if base_is_sentinel and has_branch:
-        return False
-    if not base_is_sentinel and not has_branch:
-        return False
-
-    if "base_mergebase" in f:
-        if base_is_sentinel or not _valid_oid(f["base_mergebase"]):
-            return False
-
-    if "migrated" in f:
-        # Migration variant: provenance is CLAIMED, not observed. dirty/host/
-        # from_verified are forbidden -- none of the three was ever measured,
-        # and writing dirty=no on a historical note would fabricate an
-        # observation. Absence here is the contract, not an omission.
-        #
-        # Keyed on PRESENCE, not on == "yes": `migrated=no` is not an ordinary
-        # note, it is a malformed one. Falling through to the ordinary branch
-        # would accept a block claiming a variant it does not satisfy.
-        if f["migrated"] != "yes":
-            return False
-        if not _ISO_DATE_RE.match(f.get("claimed_at", "")):
-            return False
-        return _keys_allowed(f, _MIGRATED_KEYS_REQUIRED, _MIGRATED_KEYS_OPTIONAL)
-
-    # 'unknown' IFF base=none, fail-closed in BOTH directions: yes/no with no
-    # repository is a fabricated observation, and 'unknown' with a real base is
-    # a refusal to measure something measurable. On an unborn branch
-    # (base=unknown) `git status` still reports, so dirty is measured there.
-    dirty = f.get("dirty", "")
-    if dirty not in ("yes", "no", "unknown"):
-        return False
-    if (dirty == "unknown") != (base == "none"):
-        return False
-
-    host = f.get("host", "")
-    if not host or any(c.isspace() for c in host):
-        return False
-    return _keys_allowed(f, _NOTE_KEYS_REQUIRED, _NOTE_KEYS_OPTIONAL)
-
-
-def _validate_inbox(b) -> bool:
-    """Reject, never repair -- a non-conforming block bails the whole body.
-
-    ``identity`` is ``(id,)``, so a block with a missing ``id`` would key on
-    ``("",)`` and two unrelated malformed blocks would collide as one entry.
-    """
-    f = b.fields
-    if not _NOTE_ID_RE.match(f.get("id", "")):
-        return False
-    if not _ISO_RUN_RE.match(f.get("at", "")):
-        return False
-
-    if b.name == "read":
-        # A read receipt (t1657_3). Receipts are not tree-relative claims, so
-        # a receipt bearing provenance is malformed.
-        if {"base", "base_branch", "base_mergebase", "dirty", "host"} & f.keys():
-            return False
-        if not _LOCAL_TASK_RE.match(f.get("by", "")):
-            return False
-        if f.get("mode") not in ("auto", "explicit"):
-            return False
-        ids = f.get("ids", "")
-        parts = ids.split(",") if ids else []
-        if not parts or not all(_NOTE_ID_RE.match(p) for p in parts):
-            return False
-        return _keys_allowed(f, _RECEIPT_KEYS_REQUIRED, _RECEIPT_KEYS_OPTIONAL)
-
-    # A note. The marker name IS the sender, so the two must agree -- for a
-    # cross-repo sender the name is the local 't<id>' part, since '#' is not a
-    # legal marker-name character.
-    sender = f.get("from", "")
-    if _LOCAL_TASK_RE.match(sender):
-        if b.name != sender:
-            return False
-    else:
-        m = _XREPO_TASK_RE.match(sender)
-        if not m or b.name != "t" + m.group(1):
-            return False
-    if "from_verified" in f and f["from_verified"] != "yes":
-        return False
-    return _validate_inbox_provenance(f)
-
-
+# The schema and its predicate live in lib/note_inbox.py (t1657_3). They were
+# here first, and moved for one reason: this validator ran ONLY inside
+# merge_body, so nothing validated an '## Inbox' on a READ path. The pick
+# surfaces need the same judgement -- a malformed local receipt still carries
+# `ids=` and would hide a real note with no merge ever involved to reject it.
+#
+# What is shared is the per-block PREDICATE, not the disposition. Here a False
+# bails the whole body to conflict markers (reject, never repair); the reader
+# drops just that block, because bailing there would hide every note in the
+# file. See note_inbox's module docstring.
 INBOX_SPEC = SectionSpec(
-    header="## Inbox",
-    comment="<!-- Appended by the note framework. Do not edit by hand; use "
-            "`./ait note`. -->",
-    namespace="note",
-    validate=_validate_inbox,
+    header=note_inbox.SECTION_HEADER,
+    comment=note_inbox.SECTION_COMMENT,
+    namespace=note_inbox.NAMESPACE,
+    # The SAME object the inbox reader calls, not a copy of it. A test pins this
+    # identity, so the two consumers cannot drift into two predicates.
+    validate=note_inbox.validate_block,
     # (id,) -- NOT (name, ...): one sender sends many notes, so a name-based
     # identity would collapse them all onto one key and report a false
     # ambiguous winner.

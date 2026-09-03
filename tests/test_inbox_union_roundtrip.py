@@ -60,6 +60,20 @@ def _note(sender: str, iso: str, suffix: str, body: str = "hi", **over) -> str:
     return f"> **✉ note:{name}** {kv}\n>\n> | {body}\n"
 
 
+def _receipt(iso: str, suffix: str, ids: str, mode: str = "explicit",
+             by: str = "t357", **over) -> str:
+    """One 'note:read' receipt block in the shipped format (t1657_3).
+
+    Receipts carry NO provenance -- they are bookkeeping, not tree-relative
+    claims -- which is why this is a separate builder rather than a _note()
+    variant.
+    """
+    f = {"id": f"{iso}.{suffix}", "by": by, "at": iso, "mode": mode, "ids": ids}
+    f.update(over)
+    kv = " ".join(f"{k}={v}" for k, v in f.items() if v is not None)
+    return f"> **👁 note:read** {kv}\n"
+
+
 def _inbox(*blocks: str) -> str:
     return f"## Inbox\n{_COMMENT}\n\n" + "\n".join(blocks)
 
@@ -404,6 +418,41 @@ class InboxPositiveValidationTest(unittest.TestCase):
         self._unions(_note("t349", "2026-09-01T10:00:00Z", "1" * 24,
                            from_verified="yes"),
                      "from_verified=yes must union")
+
+    # --- receipts (t1657_3) -------------------------------------------------
+    #
+    # The four receipt rejections above had NO complement until here, and the
+    # gap was not theoretical: dropping `mode` from RECEIPT_KEYS_REQUIRED flips
+    # every VALID receipt from accepted to rejected, and the whole suite still
+    # passed. A rejection set with no positive case cannot tell "rejects the bad
+    # ones" from "rejects everything".
+
+    def test_explicit_receipt_unions(self):
+        self._unions(_receipt("2026-09-01T12:00:00Z", "5" * 24,
+                              "2026-09-01T11:00:00Z." + "2" * 24),
+                     "a well-formed mode=explicit receipt must union")
+
+    def test_auto_receipt_unions(self):
+        # The headless half of the vocabulary. `auto` and `explicit` are both
+        # legal; only their provenance meaning differs.
+        self._unions(_receipt("2026-09-01T12:00:00Z", "5" * 24,
+                              "2026-09-01T11:00:00Z." + "2" * 24, mode="auto"),
+                     "a well-formed mode=auto receipt must union")
+
+    def test_receipt_covering_several_ids_unions(self):
+        # `ids=` is a CSV, and every member is validated -- so a multi-id
+        # receipt is the case that proves the loop accepts as well as rejects.
+        self._unions(_receipt("2026-09-01T12:00:00Z", "5" * 24,
+                              "2026-09-01T10:00:00Z." + "1" * 24 + ","
+                              + "2026-09-01T11:00:00Z." + "2" * 24),
+                     "a receipt covering several ids must union")
+
+    def test_child_task_by_unions(self):
+        # by= takes the t<parent>_<child> form as well as the bare t<id>.
+        self._unions(_receipt("2026-09-01T12:00:00Z", "5" * 24,
+                              "2026-09-01T11:00:00Z." + "2" * 24,
+                              by="t1657_3"),
+                     "a child-task by= must union")
 
 
 if __name__ == "__main__":

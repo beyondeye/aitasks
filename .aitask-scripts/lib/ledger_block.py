@@ -110,6 +110,18 @@ def _strip_wrapping_backticks(value: str) -> str:
     return value
 
 
+#: The exact shape :func:`iso_now` emits, as a matcher. It lives beside the
+#: writer that produces it because every ledger's instant stamps come from that
+#: one function: the gate ledger's ``run=``, and a note's / receipt's ``at=``.
+#: Both consumers validated it with a private copy of this pattern until t1657_3
+#: needed the note half on a read path as well — two copies of one value set,
+#: which is one too many.
+#:
+#: Valid ISO-8601-Z sorts lexicographically == chronologically, which is what
+#: the last-in-file-order-wins derivations rely on.
+ISO_INSTANT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+
 def iso_now() -> str:
     """Current UTC timestamp as ISO-8601-Z (second precision)."""
     return datetime.datetime.now(datetime.timezone.utc).strftime(
