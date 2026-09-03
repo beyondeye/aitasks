@@ -208,7 +208,11 @@ line itself** — the guard cannot know what a variable holds:
 - `|| return <literal non-zero>` (`|| return 1`)
 
 Everything else **fails the guard**, including `&&`, a bare `if mutator; then`,
-`; then`, `|| <var>=$?`, `|| return 0`, and `|| return "$anyvar"`. None of those
+`; then`, `|| <var>=$?`, `|| return 0`, `|| return "$anyvar"`, `|| true`, and
+`if ! mutator; then … fi`. That last one looks like handling but is not:
+`if ! attach_meta incref …; then warn "failed"; fi` branches on failure and
+**still continues**, which is t1675's bug verbatim. The guard cannot see whether
+a branch ends in `die` or in a bare `warn`, so it must not assume. None of those
 makes a failure terminal: `attach_meta incref … && log_ok` and
 `if artifact_manifest create …; then …; fi` both continue past a failed mutator
 and let a later command return success, and `rc=0; attach_meta incref … ||
@@ -219,9 +223,22 @@ tree (`aitask_project_resolve.sh`, `yaml_utils.sh`, `aitask_changelog.sh`, and
 shape. No mutator site uses a variable return today, so the tightening costs
 nothing.
 
-**The allowlist ships empty — there is no bypass.** The one site that would have
-needed an exemption, `aitask_fold_mark.sh:738-739`, is instead **refactored into
-a directly-recognized form**:
+**The allowlist is the guard's one judgement seam, and it is per-site.** Every
+exempted shape is one the matcher cannot verify, so widening `ACCEPT_RE` to admit
+them would admit the unsafe cases too — a swallowing `|| true` alongside a
+rollback's, an `if ! …; then warn` alongside the one that dies. Each entry
+instead cites its own evidence. Seven entries:
+
+| entry | evidence |
+|---|---|
+| 4 × `artifact_backend_delete … \|\| true` | best-effort, inside a rollback a line or two before `die`; a leftover blob is unreferenced and gc-reclaimable |
+| `aitask_artifact.sh:163` | pipeline **head**; `set -o pipefail` carries the status to the function's return, and both callers `\|\| die` |
+| `aitask_attach.sh:576` | **tail** position — the status *is* the function's return value, and the sole caller `\|\| die`s it |
+| `aitask_artifact.sh:572` | the tree's only `if !`; its branch restores from HEAD and dies at `:580-584` |
+
+The bar for an entry is *refactor first*. That is what
+`aitask_fold_mark.sh:738-739` did, trading `|| rc=$?` plus a next-line check for
+a **directly-recognized form**:
 
 ```bash
 # before: rc's non-zero-ness is only guaranteed by the NEXT line
@@ -240,9 +257,9 @@ still holds the failed command's status (probed — a helper returning 7 reports
 `$out`. This is strictly better than a machine-checked exemption: a later edit
 cannot weaken an adjacent check that no longer exists.
 
-The `ALLOWLIST` array is kept in the guard — empty, with the policy stated: any
-future entry must name a `file:line` **and** carry evidence the captured value is
-non-zero; prefer refactoring to a recognized form over adding an entry.
+An entry pins a **line number**, so it stops matching if the file shifts — which
+re-exposes its site to the guard rather than quietly exempting whatever moved
+into that line.
 
 A second rule flags a mutator inside a `$( )` within `[[ … ]]`, whose status is
 discarded even on a line that has `||`.
@@ -266,7 +283,8 @@ function *not* reachable from any callback. Flagged: a bare mutator; `&& log_ok`
 (the t1668 shape); `mutator || rc=$?` with **no** adjacent check; and
 `[[ -z "$(artifact_manifest get x)" ]] || die`.
 
-Two controls cover the allowlist mechanism itself, since it ships empty: a
+`if ! mutator; then warn "failed"; fi` is a required control — the shape that
+looks handled and is not. Two further controls cover the allowlist mechanism: a
 `file:line` entry suppresses **only** that exact line, and the same shape one
 line away is still flagged.
 
@@ -341,3 +359,64 @@ Step 9 (Post-Implementation) handles cleanup, archival and merge.
 
 The task's three scope items are covered: (1) the audit, (2) the durable fix,
 (3) the pinning test.
+
+## Final Implementation Notes
+
+- **Actual work done:** All three scope items landed as planned.
+  §1 — a `CALLBACK CONTRACT` block in `lib/attachment_lock.sh` (errexit is off;
+  the four measured non-fixes; the `|| die` rule; the rejected success-sentinel;
+  a forward pointer to t1698), a `RETURNS the helper's status; it NEVER dies`
+  note on the `attach_meta` and `artifact_manifest` fronts, and an extension of
+  the `_fold_attach_txn` comment recording the caller-re-suppression finding.
+  §2 — the audited sweep across `aitask_attach.sh` (+70) and
+  `aitask_artifact.sh` (+80), plus the `_fold_rebind_refs` refactor to a
+  directly-recognized form. All five structurally-invisible shapes were hoisted:
+  the `[[ … ]]` substitution, the three process substitutions, and the
+  pipeline-in-`if`. §3 — `tests/test_attach_lock_callback_contract.sh` (696
+  lines): 11 Part A behavioral pins, 8 per-verb negative controls, the Part B
+  static guard with its 7-entry per-line allowlist, and the Part C matcher
+  controls. **91 assertions, 0 failures.**
+
+- **Deviations from plan:** None in substance. The plan's Part A table is
+  implemented in full, including the `artifact move` (dir → local) pin that the
+  first session had not reached.
+
+- **Issues encountered:**
+  - The session implementing this task crashed after §1 and §2 were complete and
+    Part A was written up to A10. Work was resumed from the gate ledger
+    (`plan_approved`) with the uncommitted tree intact; nothing was redone.
+  - The plan's "every verb above" negative control was implemented for 2 of the
+    8 verbs. Extending it to all 8 required a second registered backend (`dir`),
+    two more fixture tasks and four reserved payloads — a payload shared with an
+    earlier pin makes the commit stage nothing for that path, which is precisely
+    how a control stops being one.
+  - **A control that passed for the wrong reason.** The first version of the gc
+    control asserted a global `swept 1`. It passed — on a *different* orphan.
+    `decref-deleted` clears only the ledger, so the task file still lists the
+    blob and gc's blocking-set scan correctly retains it. Replaced with a
+    self-contained control: its own untouched payload (`h.bin`), released with
+    `rm` (which drops both the ledger ref and the frontmatter entry), asserted by
+    the concrete outcome — that specific blob is gone. The global count moves
+    with unrelated orphans left by earlier pins and must not be the assertion.
+  - That fix also made the controls hold against the **unfixed** tree, which is
+    what a negative control has to do: it checks fixture and shim soundness, not
+    the fix. The earlier version failed pre-fix because a.bin carries a permanent
+    stuck ledger ref there — it was measuring the bug rather than the fixture.
+
+- **Key decisions:**
+  - The pre-fix control was run by extracting `git archive HEAD` into a
+    scratchpad and copying only the *new test* over it, so the scripts stay
+    unfixed while the pins are current. All 11 pins fail there (exit 0, the
+    success message, and a commit made) and no control does. Part B correctly
+    flags all 31 unguarded sites in that tree and 0 in this one.
+  - The gc pins fail pre-fix on exit status and success message but not on
+    "commits nothing" — pre-fix gc sweeps 0 and therefore commits nothing either.
+    Kept as-is: a pin has to fail pre-fix, not fail on every assertion.
+  - `dir` is registered as a second backend, never as the default, so
+    `artifact create` still resolves to `local` for every other pin.
+
+- **Upstream defects identified:** None. The three data-integrity defects this
+  audit surfaced were already split out to t1698 during planning (`depends:
+  [1675]`), and the new `|| die` abort points deliberately add no rollback — a
+  HEAD restore there would multiply t1698's defect 2. That residual on-disk
+  drift after an abort is t1698's, and the seam header says so.
