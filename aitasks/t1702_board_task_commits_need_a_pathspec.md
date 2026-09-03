@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5
 created_at: 2026-09-03 12:12
-updated_at: 2026-09-03 12:40
+updated_at: 2026-09-03 23:26
 ---
 
 ## Origin
@@ -62,3 +63,8 @@ file(s) it is acting on, so the pathspec is available at every call.
   appear in the board's commit, for each of the create / delete / rename paths
 - negative control: each assertion must fail against today's pathspec-less
   `git commit`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-09-03T20:26:42Z status=pass attempt=1 type=human
