@@ -344,16 +344,65 @@ state) reads as broken — the user loses sight of their current selection. When
 requirement says "view-only filter", confirm it means visible-on-screen rather
 than assuming hidden-but-state-preserved.
 
-## No auto-commit/push of project-level config from runtime TUIs
+## Project-level config: an explicit save commits, an incidental one never does
 
 Runtime `save()` paths in config modules must write only the user-level
-(`*.local.json`, gitignored) layer. Project-level (`*.json`, tracked) files
-are read-only at runtime unless there is an explicit user-initiated "export /
-publish" action.
+(`*.local.json`, `userconfig.yaml`, `profiles/local/` — all gitignored) layer.
+That half is unchanged: an incidental save must not touch a tracked file at all.
 
-Never call `git commit` or `./ait git push` from inside a TUI event handler
-for a config change. First-time ship of a project-level file is a one-time
-implementation commit; runtime saves after that must not touch it.
+Where a **project-level** (tracked) file *is* written, the write must be an
+explicit user-initiated save, and it **commits itself** (t1677):
+
+| Commits | Does not commit |
+|---|---|
+| Settings TUI save (agent defaults, board, project config, profiles) | a collapse / expand keystroke |
+| Board column add / rename / delete / merge / reorder | an auto-refresh or reload |
+| `aitask_board_column.sh create` | any periodic or background save |
+| chatlink wizard save | the board's startup first-ship of `board_config.json` |
+| `ait setup`'s populate-missing / backfill passes | a user-layer (`*.local.json`) write |
+
+**Why a commit, when the old rule forbade one.** `aitasks/metadata/*` has no
+derivable task id, so `ait sync`'s pre-sync sweep (t1599_3) refuses to attribute
+it — correctly, since sweeping it in is what left `board_config.json` with 8 of
+its 9 commits under unrelated tasks' messages. But nothing else committed those
+files either, so an ownerless dirty config became a **permanent** rebase
+deferral that blocked all task-data sync until a human intervened. A file with
+no task owner needs a writer that owns it.
+
+**How.** Always through `./.aitask-scripts/aitask_metadata_commit.sh` (Python:
+`lib/metadata_commit.py::commit_metadata`), never a hand-rolled
+`subprocess.run(["git", "commit", …])`. The helper is path-scoped and refuses an
+empty pathspec; a bare `git commit` takes the **whole shared `.aitask-data`
+index** and can carry another session's staged work under your message.
+
+**`--allow-new` is a per-path permission, not a batch mode.** It means "*this
+invocation created this file*", so derive it from an existence check taken
+before your own write — never hard-code it, and never compute one boolean for a
+batch. A writer that creates one config while overwriting a pre-existing
+*untracked* one must commit the two subsets in separate calls; a shared flag
+publishes local content it merely edited, which is exactly the fail-closed
+contract the helper exists to keep. When you report a failure, render the remedy
+from `result.allow_new` (`metadata_commit.remedy_command`): the failure path
+unstages what it staged, so a created file is left untracked and a remedy
+missing the flag answers `REFUSED:untracked` and clears nothing.
+
+**Still never push.** `./ait git push` from an event handler is a network
+round-trip on the UI thread; `ait sync` publishes.
+
+**Put the commit in the writer, not at its call sites** — one method that both
+writes and commits cannot be half-remembered by the next caller. Keep the
+committing class Textual-free with an `on_commit` callback the App wires once
+(`ConfigManager.on_commit`, `TaskManager.on_metadata_commit`).
+
+**A failed commit must never be silent.** The edit has already landed on disk,
+so the commit helper returns a failure rather than raising — which means every
+surface has to report it, naming the remedy command
+(`metadata_commit.remedy_command`). A swallowed failure recreates the exact
+ownerless-dirty-file state this rule exists to prevent.
+
+**Per-user runtime state does not belong in a tracked file at all.** An MRU
+list, a last-selected item, a collapsed-set — put it in the `*.local.json` layer
+rather than committing it on every navigation.
 
 ## Contextual-footer ordering: keep uppercase sibling adjacent to its lowercase primary
 
@@ -774,3 +823,40 @@ How to apply:
   `tests/lib/tmux_isolation.sh`; the refusal guard must be called **first**,
   because `require_isolated_tmux` unsets `$TMUX` and repoints `$TMUX_TMPDIR`.
   `tests/test_monitor_shadow_spawn_live.sh` is the reference caller.
+
+### Ad-hoc probes: `TMUX_TMPDIR` is not isolation
+
+Everything above covers **test scripts**. The gap it does not cover is the
+one-off `tmux …` an agent types into a shell to check a hypothesis, and that
+gap cost a live server on 2026-09-03 (t1699): a probe of the form
+`TMUX_TMPDIR=$D tmux new-session …; TMUX_TMPDIR=$D tmux kill-server` was run
+from inside an `ait` pane and killed the real `-L ait` server together with
+~30 agent panes, TUIs and shells — including the agent that issued it.
+
+**Inside a pane, `$TMUX` is set, and tmux takes the socket path from `$TMUX`
+and ignores `TMUX_TMPDIR`.** Directly observable:
+
+```bash
+$ TMUX_TMPDIR=/tmp/tmp.X tmux display-message -p '#{socket_path}'
+/tmp/tmux-1000/ait                                   # the LIVE server
+$ env -u TMUX TMUX_TMPDIR=/tmp/tmp.X tmux display-message -p '#{socket_path}'
+error connecting to /tmp/tmp.X/tmux-1000/default     # correctly isolated
+```
+
+So a `TMUX_TMPDIR` prefix is worse than no isolation: it reads as a sandbox
+while every command lands on the user's server.
+
+How to apply:
+- **Name the server in every ad-hoc tmux call: `-L <socket>`.** A throwaway
+  fixture gets `-L <throwaway-name>`; a deliberate touch of the live server
+  gets `-L ait` and says so. `-S <path>` works equally.
+- Stripping `$TMUX` (`env -u TMUX`, or the `unset TMUX` the test helper does)
+  is what makes a `TMUX_TMPDIR` redirect real — never rely on the redirect
+  alone.
+- `.claude/hooks/guard_live_tmux.py`, wired as a `PreToolUse` Bash hook in
+  `.claude/settings.json`, enforces both points for Claude Code sessions: it
+  denies a destructive verb (`kill-*`, `respawn-*`, `unlink-window`,
+  `source-file`) with no `-L`/`-S`, and denies any `TMUX_TMPDIR=`-prefixed
+  tmux call that does not also strip `$TMUX`. `tests/test_guard_live_tmux.sh`
+  pins it, including the verbatim t1699 command. The hook is a Claude Code
+  surface only — the rule above is what binds every other agent.

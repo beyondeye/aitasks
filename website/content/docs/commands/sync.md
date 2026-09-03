@@ -75,7 +75,13 @@ Anything it cannot vouch for is **skipped and reported on stderr**, and simply s
 
 Skipped files can block the later rebase, since `git pull --rebase` refuses to run with a dirty worktree. When that happens the run reports `DEFERRED:protected_dirty` and exits **successfully** — the deferral clears by itself once the owning session commits its work.
 
-An ownerless file is different: nothing else will ever commit it, so it stays dirty until you do. The report names the file and the exact command that clears it.
+An ownerless file is different: no session is going to commit it *for* you, so it stays dirty until it is committed. The report names the file and the exact command that clears it.
+
+Most config files do have an owner now. Every surface that writes a tracked file under `aitasks/metadata/` on an explicit save commits it itself — the [settings TUI]({{< relref "/docs/tuis/settings" >}}), board column edits, the chatlink wizard, and `ait setup`'s populate-missing passes — so those never reach the sweep as ownerless. What still can: a file you edited by hand, a config whose own commit failed, and `aitasks/metadata/gates.yaml`, which `ait gates sync-registry` deliberately leaves for you to review before committing. For any of them:
+
+```bash
+./.aitask-scripts/aitask_metadata_commit.sh aitasks/metadata/<file>
+```
 
 Three flags trade safety for availability, and each is deliberately never automatic:
 

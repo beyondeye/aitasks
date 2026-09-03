@@ -1985,6 +1985,89 @@ setup_data_branch() {
     fi
 }
 
+# --- Metadata files THIS setup run wrote (t1677) ------------------------------
+#
+# aitasks/metadata/* has no derivable task id, so `ait sync` refuses to attribute
+# it and nothing else committed the populate-missing / backfill writes below —
+# an ownerless dirty config became a permanent rebase deferral. `ait setup` is an
+# explicit user action, so it owns what it wrote.
+#
+# Deliberately NOT a "commit everything dirty under aitasks/metadata/" sweep:
+# that would commit whatever a CONCURRENT session was mid-editing, publishing
+# content this run never wrote. Each ensure_* appends only on its real write
+# path.
+#
+# PER-INVOCATION SIGNAL — reset once per run. Every ensure_* below early-exits in
+# the common case, which is exactly the shape that made a stale AIT_LABELS_ADDED
+# a real bug in t1662: a leaked entry would commit an earlier phase's file under
+# a later one.
+# Split by admission, not one list: --allow-new is a PER-PATH permission ("this
+# run created the file"), so a path this run merely EDITED must never ride in an
+# --allow-new batch. ensure_project_config_defaults' backfill pass writes an
+# already-existing project_config.yaml; under a single flag an untracked local
+# copy of it would be published to the data branch rather than refused, which is
+# exactly the fail-closed contract the helper exists to keep (t1677 review).
+AIT_SETUP_METADATA_NEW=()
+AIT_SETUP_METADATA_EXISTING=()
+
+# _note_metadata_write <repo-relative path> [new]
+# Pass the literal `new` ONLY when this invocation brought the file into
+# existence. The default records a pre-existing file, so a call site added later
+# without the argument fails closed (refused) rather than open (published).
+_note_metadata_write() {
+    if [[ "${2:-}" == "new" ]]; then
+        AIT_SETUP_METADATA_NEW+=("$1")
+    else
+        AIT_SETUP_METADATA_EXISTING+=("$1")
+    fi
+}
+
+# Commit what this run wrote. Best-effort: a failed metadata commit must never
+# abort setup, but it must never be silent either — an uncommitted file is a
+# standing state, so the warning names the command that clears it.
+# _flush_metadata_batch <allow_new:0|1> <path>... — one helper call, reporting a
+# failure with the remedy that MATCHES its own admission. Single-sourced so the
+# advertised command cannot drift from the one that ran.
+_flush_metadata_batch() {
+    local allow_new="$1"; shift
+    # Built in step: the command that RUNS and the command the warning SHOWS
+    # take the flag from the same branch, so the advice cannot drift from the
+    # invocation. `shown` carries the repo-relative spelling a user can paste.
+    local -a argv=( "$SCRIPT_DIR/aitask_metadata_commit.sh" )
+    local -a shown=( "./.aitask-scripts/aitask_metadata_commit.sh" )
+    if (( allow_new )); then
+        argv+=( --allow-new )
+        shown+=( --allow-new )
+    fi
+    argv+=( "$@" )
+    shown+=( "$@" )
+
+    local rc=0
+    "${argv[@]}" >/dev/null 2>&1 || rc=$?
+    if [[ $rc -eq 1 ]]; then
+        warn "Config file(s) written but NOT committed. Clear them with: ${shown[*]}"
+    fi
+    return 0
+}
+
+commit_setup_metadata_writes() {
+    # `${arr[@]+...}` guard: bash 3.2 errors on ${#arr[@]} for an EMPTY array
+    # under `set -u`, and the common case here is exactly that.
+    local -a created=( ${AIT_SETUP_METADATA_NEW[@]+"${AIT_SETUP_METADATA_NEW[@]}"} )
+    local -a updated=( ${AIT_SETUP_METADATA_EXISTING[@]+"${AIT_SETUP_METADATA_EXISTING[@]}"} )
+
+    # Two calls, never one — see AIT_SETUP_METADATA_NEW. Files this run created
+    # need --allow-new (they are untracked by construction); files it merely
+    # edited must be refused if they are untracked local content.
+    if (( ${#created[@]} )); then
+        _flush_metadata_batch 1 "${created[@]}"
+    fi
+    if (( ${#updated[@]} )); then
+        _flush_metadata_batch 0 "${updated[@]}"
+    fi
+    return 0
+}
+
 ensure_project_config_defaults() {
     local project_dir="$SCRIPT_DIR/.."
     local seed_config="$project_dir/seed/project_config.yaml"
@@ -2004,6 +2087,7 @@ ensure_project_config_defaults() {
         fi
         mkdir -p "$(dirname "$target_config")"
         cp "$seed_config" "$target_config"
+        _note_metadata_write "aitasks/metadata/project_config.yaml" new
         success "Created project_config.yaml"
         return
     fi
@@ -2031,6 +2115,9 @@ ensure_project_config_defaults() {
         }
     ' "$target_config" > "$tmp_file"
     cat "$tmp_file" > "$target_config" && rm "$tmp_file"
+    # Deliberately NOT `new`: this branch edits a file that already existed. If
+    # it is untracked local content the helper must refuse it, not publish it.
+    _note_metadata_write "aitasks/metadata/project_config.yaml"
     success "Updated project_config.yaml with codeagent_coauthor_domain"
 }
 
@@ -2054,6 +2141,7 @@ ensure_chatlink_config() {
     fi
     mkdir -p "$(dirname "$target_config")"
     cp "$seed_config" "$target_config"
+    _note_metadata_write "aitasks/metadata/chatlink_config.yaml" new
     success "Created chatlink_config.yaml"
 }
 
@@ -2084,6 +2172,7 @@ ensure_crew_runner_config() {
 
     mkdir -p "$(dirname "$target_config")"
     cp "$seed_config" "$target_config"
+    _note_metadata_write "aitasks/metadata/crew_runner_config.yaml" new
     success "Created crew_runner_config.yaml"
     return 0
 }
@@ -2170,6 +2259,7 @@ ensure_agent_config_seeds() {
         [[ -f "$seed_dir/$src_name" ]] || continue
         [[ -f "$dest_dir/$dest_name" ]] && continue
         cp "$seed_dir/$src_name" "$dest_dir/$dest_name"
+        _note_metadata_write "aitasks/metadata/$dest_name" new
         info "  Populated aitasks/metadata/$dest_name from seed"
         copied=$((copied + 1))
     done
@@ -4162,6 +4252,10 @@ main() {
 
     ensure_agent_config_seeds
     echo ""
+
+    # Own everything the four ensure_* passes above actually wrote — and nothing
+    # else. A no-op when they all early-exited, which is the common case.
+    commit_setup_metadata_writes
 
     setup_git_tui
     echo ""

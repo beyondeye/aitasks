@@ -14,7 +14,7 @@
 #    Save writes the merged YAML + 0600
 #    token (failure-aware: a raising token writer keeps the config write,
 #    renders the per-item FAILED state, and a later Save retries); the
-#    summary renders injected preflight results + the ./ait git commit hint.
+#    summary renders injected preflight results + the config's git state.
 #    Step order (t1186_3): intake → token → live check → allowlist →
 #    deny/repo → ceilings → summary, with the "Step N/7" title DERIVED from
 #    the _STEPS index (asserted at two different positions).
@@ -603,9 +603,17 @@ async def main():
         check("summary renders expensive preflight results",
               wiz_expensive["n"] == probes_before + 1
               and "agent command: fake-agent" in pf_text)
-        check("summary shows the ait git commit hint",
-              "./ait git add" in pf_text
-              and "never commits" in pf_text)
+        # The summary must always tell the user where the config stands with
+        # git. Since t1677 the wizard COMMITS its config, so the old "the
+        # wizard never commits" wording is gone. This fixture's config lives
+        # outside aitasks/metadata/, so the helper refuses it as out-of-scope
+        # (fail-closed) and the hint degrades to naming the remedy command --
+        # which is the property that matters: a config the wizard did not
+        # commit must never be reported silently. The committed branch is
+        # pinned in tests/test_chatlink_wizard_save_flow.py.
+        check("summary shows the config's git state",
+              "token file stays uncommitted/gitignored" in pf_text
+              and "aitask_metadata_commit.sh" in pf_text)
 
         # Save became Close; it dismisses the wizard.
         check("save button relabeled to Close",

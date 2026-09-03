@@ -56,6 +56,8 @@ except ImportError:  # entrypoint did not pre-insert .aitask-scripts/lib
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
     from profile_editor import CycleField
 
+from metadata_commit import commit_metadata, remedy_command
+
 from . import allowlist_fetch, config, config_write, live_check, paths, \
     policy, preflight, preflight_render, wizard_draft
 
@@ -1193,6 +1195,11 @@ class SummaryScreen(_WizardStep):
         super().__init__(state, **kwargs)
         self.seams = seams
         self._config_written = False
+        #: Outcome of this session's config commit (t1677); None until a save.
+        self._commit_result = None
+        #: Captured at construction, BEFORE any write, so `allow_new` says "I
+        #: created this file" rather than "creation is allowed here".
+        self._config_was_tracked = self.seams.config_path.exists()
         self._token_written = False
         self._allow_replace = False
         self._probing = False
@@ -1286,10 +1293,33 @@ class SummaryScreen(_WizardStep):
             wizard_draft.clear_draft()
         except OSError:
             pass
+        self._commit_result = self._commit_config()
         self._render_save_state()
         self._error("")
         self.query_one("#btn_wiz_next", Button).label = "Close"
+        # Runs LAST, and after _commit_result is set: the preflight pane renders
+        # _commit_hint(), which reports this save's commit outcome.
         self._start_preflight()
+
+    def _commit_config(self):
+        """Commit the config this save just wrote (t1677).
+
+        `chatlink_config.yaml` has no derivable task id, so `ait sync` refuses to
+        attribute it and — until this — nothing else committed it, leaving a
+        dirty file that blocks task-data sync. A wizard save is an explicit
+        user-initiated action, the carve-out `tui_conventions.md` permits.
+
+        Returns the CommitResult so `_commit_hint` can degrade to the old
+        "review & commit it yourself" text on failure, which is a reachable and
+        already-correct fallback rather than silence.
+        """
+        try:
+            rel = str(self.seams.config_path.relative_to(paths.project_root()))
+        except ValueError:
+            return None
+        # A first run creates the file, so `allow_new` is derived from whether it
+        # was tracked before — never hard-coded.
+        return commit_metadata([rel], allow_new=not self._config_was_tracked)
 
     def _handle_replace(self, confirmed: bool | None) -> None:
         if not confirmed:
@@ -1341,10 +1371,20 @@ class SummaryScreen(_WizardStep):
             rel = self.seams.config_path.relative_to(paths.project_root())
         except ValueError:
             rel = self.seams.config_path
+        result = getattr(self, "_commit_result", None)
+        if result is not None and result.status == "committed":
+            return (f"committed: {result.subject}\n"
+                    "(the token file stays uncommitted/gitignored)")
+        if result is not None and result.status in ("failed", "refused"):
+            # Degrade to exactly the pre-t1677 instruction rather than to
+            # silence: an uncommitted config is a standing state a human must
+            # clear, so it must always come with the command that clears it.
+            return (f"config saved but NOT committed ({result.detail})\n"
+                    f"  {remedy_command([str(rel)], allow_new=result.allow_new)}\n"
+                    "(the token file stays uncommitted/gitignored)")
         return ("review & commit the config when ready:\n"
                 f"  ./ait git add {rel} && ./ait git commit\n"
-                "(the wizard never commits; the token file stays "
-                "uncommitted/gitignored)")
+                "(the token file stays uncommitted/gitignored)")
 
 
 class _ResumeDraftScreen(ModalScreen):

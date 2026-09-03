@@ -62,6 +62,7 @@ from config_utils import (  # noqa: E402
     validate_export_bundle,
 )
 from launch_modes import DEFAULT_LAUNCH_MODE, normalize_launch_mode  # noqa: E402
+from metadata_commit import commit_metadata, remedy_command  # noqa: E402
 
 from textual import on  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
@@ -91,14 +92,22 @@ BOARD_CONFIG = METADATA_DIR / "board_config.json"
 PROJECT_CONFIG = METADATA_DIR / "project_config.yaml"
 PROFILES_DIR = METADATA_DIR / "profiles"
 LOCAL_PROFILES_DIR = PROFILES_DIR / "local"
-_DATA_WORKTREE = Path(".aitask-data")
 
+def _repo_rel(path) -> str:
+    """Repo-relative form of a metadata path, for the commit helper.
 
-def _task_git_cmd() -> list[str]:
-    """Return git command prefix for task data operations."""
-    if _DATA_WORKTREE.exists() and (_DATA_WORKTREE / ".git").exists():
-        return ["git", "-C", str(_DATA_WORKTREE)]
-    return ["git"]
+    `metadata_dir()` is already relative in the normal case; a `TASK_DIR`
+    override may make it absolute, and the helper's scope check is
+    repo-relative. Falls back to the path as given when it lies outside the
+    cwd — the helper then refuses it, which is the fail-closed outcome.
+    """
+    p = Path(path)
+    if not p.is_absolute():
+        return str(p)
+    try:
+        return str(p.relative_to(Path.cwd()))
+    except ValueError:
+        return str(p)
 
 
 # The board_config.json layer split lives in lib/board_columns.py so the board,
@@ -514,9 +523,25 @@ def _aggregate_verifiedstats(
 # ConfigManager
 # ---------------------------------------------------------------------------
 class ConfigManager:
-    """Load and save all aitasks config files."""
+    """Load and save all aitasks config files.
+
+    Every project-layer save COMMITS the file it wrote (t1677). `aitasks/metadata`
+    files have no derivable task id, so `ait sync` refuses to attribute them and
+    nothing else was committing them — an ownerless dirty config became a
+    permanent rebase deferral. A Settings save is an explicit user-initiated
+    action, which is exactly the carve-out
+    `aidocs/framework/tui_conventions.md` allows; user-layer (`*.local.json`)
+    saves still commit nothing, and nothing here ever pushes.
+
+    The commit lives in these methods rather than at their call sites so a ninth
+    caller cannot forget it. `on_commit` keeps the manager Textual-free:
+    `SettingsApp` wires it to a notifier once.
+    """
 
     def __init__(self):
+        #: Called with (CommitResult, paths) after every project-layer commit
+        #: attempt. Set by SettingsApp; None in headless use.
+        self.on_commit = None
         self.codeagent: dict = {}
         self.codeagent_project: dict = {}
         self.codeagent_local: dict = {}
@@ -586,6 +611,19 @@ class ConfigManager:
                 except Exception:
                     pass
 
+    def _commit(self, paths, *, allow_new: bool = False):
+        """Commit project-layer paths this save just wrote, then report.
+
+        `allow_new` must always be DERIVED from an existence check taken before
+        the write — it means "I created this file", never "creation is allowed
+        here". A hard-coded True is a standing relaxation that lets a later edit
+        add a stray local file to the data branch without anyone noticing.
+        """
+        result = commit_metadata(paths, allow_new=allow_new)
+        if self.on_commit is not None:
+            self.on_commit(result, paths)
+        return result
+
     def save_codeagent(self, project_data: dict, local_data: dict):
         save_project_config(str(CODEAGENT_CONFIG), project_data)
         if local_data:
@@ -595,6 +633,7 @@ class ConfigManager:
             lp = local_path_for(str(CODEAGENT_CONFIG))
             if lp.is_file():
                 lp.unlink()
+        return self._commit([_repo_rel(CODEAGENT_CONFIG)])
 
     def save_board(self, merged: dict):
         project_data, user_data = split_config(
@@ -603,9 +642,11 @@ class ConfigManager:
         save_project_config(str(BOARD_CONFIG), project_data)
         if user_data:
             save_local_config(str(local_path_for(str(BOARD_CONFIG))), user_data)
+        return self._commit([_repo_rel(BOARD_CONFIG)])
 
     def save_project_settings(self, data: dict):
         save_yaml_config(str(PROJECT_CONFIG), data)
+        return self._commit([_repo_rel(PROJECT_CONFIG)])
 
     def save_profile(self, filename: str, data: dict, layer: str = "project"):
         if layer == "user":
@@ -614,6 +655,10 @@ class ConfigManager:
         else:
             PROFILES_DIR.mkdir(parents=True, exist_ok=True)
             path = PROFILES_DIR / filename
+        # Captured BEFORE the write: this method both updates and CREATES (the
+        # "+ Add new profile" flow reaches it with a project-layer name that does
+        # not exist yet), and only the writer can tell the two apart.
+        is_new = not path.exists()
         with open(path, "w", encoding="utf-8") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         self.profiles[filename] = data
@@ -631,6 +676,9 @@ class ConfigManager:
             )
         except (OSError, subprocess.TimeoutExpired):
             pass
+        # A user-layer profile lives under profiles/local/, which is gitignored,
+        # so this comes back SKIPPED and commits nothing — no branch needed.
+        return self._commit([_repo_rel(path)], allow_new=is_new)
 
     def delete_profile(self, filename: str):
         """Delete a profile file from disk (handles both layers)."""
@@ -643,6 +691,13 @@ class ConfigManager:
             path.unlink()
         self.profiles.pop(filename, None)
         self.profile_layers.pop(filename, None)
+        # Commit LAST, and after the in-memory maps are updated: this returns,
+        # so anything placed below it would never run.
+        #
+        # A tracked file removed from disk is a dirty DELETION, and
+        # `commit -o -- <path>` records it. A never-committed new profile
+        # deleted again is simply NOCHANGE, which is correct.
+        return self._commit([_repo_rel(path)])
 
 
 # ---------------------------------------------------------------------------
@@ -1358,11 +1413,10 @@ class SaveProfileConfirmScreen(ModalScreen):
                 id="edit_title",
             )
             with Horizontal(id="edit_buttons"):
+                # No separate "Save and Commit": since t1677 a save IS the
+                # commit, because a project profile nothing commits is an
+                # ownerless dirty file that blocks task-data sync.
                 yield Button("Save", variant="success", id="btn_save_profile_ok")
-                yield Button(
-                    "Save and Commit", variant="primary",
-                    id="btn_save_profile_commit",
-                )
                 yield Button(
                     "Cancel", variant="default", id="btn_save_profile_cancel",
                 )
@@ -1370,10 +1424,6 @@ class SaveProfileConfirmScreen(ModalScreen):
     @on(Button.Pressed, "#btn_save_profile_ok")
     def do_save(self):
         self.dismiss("save")
-
-    @on(Button.Pressed, "#btn_save_profile_commit")
-    def do_save_commit(self):
-        self.dismiss("save_commit")
 
     @on(Button.Pressed, "#btn_save_profile_cancel")
     def do_cancel(self):
@@ -1666,6 +1716,9 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         super().__init__()
         self.current_tui_name = "settings"
         self.config_mgr = ConfigManager()
+        # One wiring point for every project-layer commit the manager makes, so
+        # ConfigManager itself stays Textual-free (t1677).
+        self.config_mgr.on_commit = self._notify_commit
         self._profile_id_map: dict[str, str] = {}  # safe_id -> filename
         self._selected_profile: str | None = None  # currently selected profile filename
         self._expanded_field: str | None = None  # field key with expanded description
@@ -3683,38 +3736,12 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
     def _handle_save_profile(self, result: str | None, filename: str):
         if result is None:
             return
+        # The commit is ConfigManager.save_profile's own, path-scoped through
+        # aitask_metadata_commit.sh. The former "save_commit" branch ran a
+        # pathspec-less `git commit`, which took the WHOLE shared .aitask-data
+        # index and could carry another session's staged work under this
+        # message — the swallow t1599 exists to eliminate.
         self._save_profile(filename)
-        if result == "save_commit":
-            self._commit_profile(filename)
-
-    def _commit_profile(self, filename: str):
-        layer = self.config_mgr.profile_layers.get(filename, "project")
-        if layer == "user":
-            path = LOCAL_PROFILES_DIR / filename
-        else:
-            path = PROFILES_DIR / filename
-        data = self.config_mgr.profiles.get(filename, {})
-        name = data.get("name", filename)
-        git_cmd = _task_git_cmd()
-        try:
-            subprocess.run(
-                [*git_cmd, "add", str(path)],
-                capture_output=True, timeout=5,
-            )
-            result = subprocess.run(
-                [*git_cmd, "commit", "-m",
-                 f"ait: Updated execution profile {name}"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if result.returncode == 0:
-                self.notify(f"Committed profile '{name}'")
-            else:
-                self.notify(
-                    f"Commit failed: {result.stderr.strip()}",
-                    severity="error",
-                )
-        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-            self.notify(f"Git error: {exc}", severity="error")
 
     def _revert_profile(self, filename: str):
         """Revert a profile to its on-disk state, discarding unsaved changes."""
@@ -3989,9 +4016,66 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
         keybinding_registry.refresh_all()
         self._populate_shortcuts_tab()
 
+    def _notify_commit(self, result, paths):
+        """Surface the outcome of a project-layer metadata commit.
+
+        A swallowed failure is the whole defect: the config edit landed but
+        nothing committed it, and an ownerless dirty file blocks task-data sync
+        until a human clears it. So a failure always names the remedy.
+        `nochange` / `skipped` are silent — a user-layer save committing nothing
+        is the designed outcome, not news.
+        """
+        if result.status == "committed":
+            self.notify(result.subject or "Committed config change")
+        elif result.status in ("failed", "refused"):
+            self.notify(
+                f"Config saved but NOT committed ({result.detail}). "
+                f"Clear it with: {remedy_command(paths, allow_new=result.allow_new)}",
+                severity="error", timeout=10,
+            )
+
+    def _import_commit_paths(self, written):
+        """Repo-relative metadata paths for the names import_all_configs wrote.
+
+        Filtered to entries that are real files: the returned list also carries
+        the literal `"shortcuts"` marker when a shortcuts subtree was merged
+        into `userconfig.yaml`, and that names no file at all — passing it would
+        make the helper refuse the whole batch and commit nothing.
+        """
+        return [_repo_rel(METADATA_DIR / name) for name in written
+                if (METADATA_DIR / name).is_file()]
+
+    def _commit_imported(self, written, pre_existing):
+        """Commit what the import wrote, PARTITIONED by pre-import existence.
+
+        `allow_new` is derived, never hard-coded: an import legitimately
+        introduces a config the project did not have, but passing the flag
+        unconditionally would let a later change add a stray local file to the
+        data branch unnoticed.
+
+        It is also a PER-PATH permission -- "I created this" -- so one boolean
+        for the whole batch is not enough. An import that creates one config
+        while overwriting a pre-existing *untracked* one would then admit both,
+        publishing the second instead of refusing it (t1677 review). Committing
+        the two subsets separately keeps each path's admission its own.
+        """
+        paths = self._import_commit_paths(written)
+        if not paths:
+            return
+        created = [p for p in paths if p not in pre_existing]
+        updated = [p for p in paths if p in pre_existing]
+        for subset, allow_new in ((created, True), (updated, False)):
+            if subset:
+                self._notify_commit(
+                    commit_metadata(subset, allow_new=allow_new), subset
+                )
+
     def _handle_import(self, result):
         if result is None:
             return
+        # Snapshot BEFORE the import so `allow_new` reflects what this
+        # invocation actually created.
+        pre_existing = {_repo_rel(q) for q in METADATA_DIR.glob("*")}
         try:
             written = import_all_configs(
                 result["path"], str(METADATA_DIR),
@@ -3999,12 +4083,16 @@ class SettingsApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 selected_files=result.get("selected_files"),
             )
             self._reload_all_configs()
+            self._commit_imported(written, pre_existing)
             self.notify(f"Imported {len(written)} item(s)")
         except ConfigImportPartialError as exc:
             # Some files were committed before the failure. Reloading is
             # mandatory here: keeping the in-memory config would re-render state
             # that no longer matches disk, and a later save would write it back.
             self._reload_all_configs()
+            # The files that DID land still need an owner — a partial import is
+            # exactly the state that would otherwise sit dirty forever.
+            self._commit_imported(exc.written, pre_existing)
             self.notify(
                 f"Import partially applied — {len(exc.written)} item(s) "
                 f"written ({', '.join(exc.written)}) before failing: {exc.cause}",

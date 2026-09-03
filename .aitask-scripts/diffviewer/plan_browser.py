@@ -9,11 +9,30 @@ from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.widgets import Static
 
+try:
+    from atomic_write import atomic_write_text
+except ImportError:  # imported without the app's sys.path setup
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "lib"))
+    from atomic_write import atomic_write_text
+
 
 # Maximum number of history entries to persist
 MAX_HISTORY = 10
 
-HISTORY_FILE = os.path.join("aitasks", "metadata", "diffviewer_history.json")
+#: Per-user MRU list, so it lives in the USER layer (t1677). It used to be
+#: written to the tracked `diffviewer_history.json` on every navigation, which
+#: made a git-tracked file dirty from pure browsing — 13 commits, every one of
+#: them swept in under an unrelated task's message, and a standing dirty file
+#: that blocks task-data sync. Committing a per-user MRU list would be the wrong
+#: fix; `*.local.json` is already gitignored on the data branch.
+HISTORY_FILE = os.path.join("aitasks", "metadata", "diffviewer_history.local.json")
+
+#: Read-only fallback for repos upgraded from before that move. Never written:
+#: a user's existing tracked file is left exactly as it is — nothing here
+#: deletes it — it simply stops changing, and so goes (and stays) clean.
+LEGACY_HISTORY_FILE = os.path.join(
+    "aitasks", "metadata", "diffviewer_history.json")
 
 
 class _BrowserEntry(Static):
@@ -198,19 +217,32 @@ class PlanBrowser(VerticalScroll):
                 self._refresh_listing()
 
     def _load_history(self) -> None:
-        """Load history from persistent JSON file."""
-        try:
-            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
+        """Load history from the user-layer JSON file.
+
+        Falls back to the legacy tracked path when no user-layer file exists
+        yet, so an upgraded repo keeps its history instead of silently
+        forgetting it. The fallback is read-only.
+        """
+        for path in (HISTORY_FILE, LEGACY_HISTORY_FILE):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
                 self._history = data.get("recent", [])[:MAX_HISTORY]
-        except (OSError, json.JSONDecodeError, KeyError):
-            self._history = []
+                return
+            except (OSError, json.JSONDecodeError, KeyError, AttributeError):
+                continue
+        self._history = []
 
     def _save_history(self) -> None:
-        """Save history to persistent JSON file."""
+        """Save history to the user-layer JSON file, atomically.
+
+        Only ever writes HISTORY_FILE — never the legacy tracked path.
+        """
         try:
             os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
-            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-                json.dump({"recent": self._history[:MAX_HISTORY]}, f, indent=2)
+            atomic_write_text(
+                HISTORY_FILE,
+                json.dumps({"recent": self._history[:MAX_HISTORY]}, indent=2),
+            )
         except OSError:
             pass

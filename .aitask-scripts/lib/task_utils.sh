@@ -375,6 +375,40 @@ task_git_commit_scoped() {
     task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null || return 1
 }
 
+# --- Shared metadata commits (t1677) ---
+
+# ait_metadata_commit_message <path>... — the commit subject for a shared
+# aitasks/metadata file. Prints it on stdout; returns 2 (printing nothing) when
+# given no paths.
+#
+# It names the FILE, never a task. Two sessions can dirty the same shared config
+# while each holds a different task lock, so only a file-naming message stays
+# true regardless of who wrote it — the same rule aitask_pick_own.sh applies to
+# the contributor list ("ait: Record contributor email").
+#
+# Single-sourced so the writers and aitask_sync.sh's prescriptive ownerless
+# report cannot drift: the report tells the user the command that produces this
+# very subject.
+ait_metadata_commit_message() {
+    (( $# )) || return 2
+    local first="${1##*/}"
+    if (( $# == 1 )); then
+        printf 'ait: Update %s' "$first"
+        return 0
+    fi
+    if (( $# <= 3 )); then
+        local p out=""
+        for p in "$@"; do
+            [[ -n "$out" ]] && out+=", "
+            out+="${p##*/}"
+        done
+        printf 'ait: Update %s' "$out"
+        return 0
+    fi
+    # Past three, listing every basename stops being a subject line.
+    printf 'ait: Update %s and %d more metadata files' "$first" "$(( $# - 1 ))"
+}
+
 # --- Contributor list (shared by both of its writers) ---
 
 # The one canonical path. aitask_pick_own.sh and aitask_create.sh each keep a

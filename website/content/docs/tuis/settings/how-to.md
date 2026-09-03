@@ -130,8 +130,7 @@ Any skill that supports profiles accepts `--profile <name>` to override both tea
    - **Enum fields** -- Press **Enter** or **Space** to cycle through available options + `(unset)`
    - **String fields** -- Press **Enter** to open a text editor dialog
 5. Press **?** on any field to toggle between summary and expanded descriptions
-6. Click **Save Profile** to persist changes
-7. Optionally click **Commit** to commit the profile file to git
+6. Click **Save Profile** to persist changes -- a project-scoped profile is committed as part of the save
 
 Setting a field to `(unset)` removes it from the profile YAML, which means the corresponding question will be asked interactively during the workflow.
 
@@ -148,6 +147,10 @@ Setting a field to `(unset)` removes it from the profile YAML, which means the c
 6. Click **Save Profile**
 
 Project-scoped profiles are saved to `aitasks/metadata/profiles/` (git-tracked). User-scoped profiles are saved to `aitasks/metadata/profiles/local/` (gitignored).
+
+Saving a project-scoped file commits it for you, under a message naming the file. That is deliberate: files under `aitasks/metadata/` belong to no task, so [`ait sync`]({{< relref "/docs/commands/sync" >}}) will not commit them on your behalf, and one left dirty blocks task-data sync until someone clears it. User-scoped files are gitignored and are never committed. Nothing here pushes.
+
+If a commit fails, the settings TUI says so and names the command that clears it -- your edit is already saved to disk either way.
 
 ## Export Configuration
 

@@ -638,9 +638,16 @@ _sweep_dirty() {
                 # Never sweep an ownerless path into a residual commit — that is
                 # what left aitasks/metadata/stats_config.json with three of its
                 # four commits attributed to unrelated tasks. The report must be
-                # PRESCRIPTIVE: nothing else will ever commit these files, so an
-                # ownerless dirty file is a standing state a human must clear.
-                _protect "ownerless" "ownerless, NOT auto-committed: $path — nothing else commits this file. Clear it with: ./ait git add '$path' && ./ait git commit -m 'ait: Update ${path##*/}'   (or re-run with --commit-unowned)"
+                # PRESCRIPTIVE: an ownerless dirty file is a standing state.
+                #
+                # Since t1677 the config-editing surfaces (settings TUI, board
+                # column CRUD, chatlink wizard, `ait setup`) commit their own
+                # writes, so most metadata files DO have an owner now — what
+                # reaches here is a hand edit, a deliberately human-reviewed file
+                # like gates.yaml, or a commit that failed. The remedy names the
+                # same helper those writers use, so the advice and the behaviour
+                # cannot drift.
+                _protect "ownerless" "ownerless, NOT auto-committed: $path — no session is going to commit this file for you. Clear it with: ./.aitask-scripts/aitask_metadata_commit.sh '$path'   (or, for a path outside aitasks/metadata/, ./ait git add '$path' && ./ait git commit -m '$(ait_metadata_commit_message "$path")')   (or re-run with --commit-unowned)"
                 continue
             fi
         fi

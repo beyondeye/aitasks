@@ -64,6 +64,7 @@ from trail_discovery import (
     _trail_versions, load_trail_blob, discover_trails,
 )
 from atomic_write import atomic_write_text
+from metadata_commit import commit_metadata, remedy_command
 from task_yaml import (
     _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
     FRONTMATTER_RE, BOARD_KEYS, BOARD_LAYOUT_KEYS,
@@ -1403,6 +1404,9 @@ class TaskManager:
         # save-time column reconciliation, t1377_3). The app passes `self.notify`;
         # tests leave it None and read `reconcile_warnings` instead.
         self._on_warning = on_warning
+        # Called with (CommitResult, paths) after each board_config.json commit
+        # (t1677). The app wires it to a notifier; tests leave it None or read it.
+        self.on_metadata_commit = None
         self.reconcile_warnings: list[str] = []
         # Column ids this board instance has already seen. Seeded by
         # load_metadata, refreshed by save_metadata. It is what distinguishes an
@@ -1497,7 +1501,9 @@ class TaskManager:
         self._reset_collapsed_groups(
             remap_group_keys(raw) if isinstance(raw, list) else ())
         if not METADATA_FILE.exists():
-            self.save_metadata()
+            # Startup first-ship, not a user gesture: create the file, commit
+            # nothing. Launching the board must never produce a commit.
+            self.save_metadata(commit=False)
 
     def _prune_orphan_collapsed_columns(self):
         """Drop `collapsed_columns` entries naming a column that no longer exists.
@@ -1684,7 +1690,24 @@ class TaskManager:
         _, user_data = self._config_layers()
         self._write_user_layer(user_data)
 
-    def save_metadata(self):
+    def save_metadata(self, commit: bool = True):
+        """Persist both config layers; commit the project one by default.
+
+        `board_config.json` has no derivable task id, so `ait sync` refuses to
+        attribute it and nothing else committed it — 8 of its 9 commits landed
+        under unrelated tasks' messages, and a dirty copy blocks task-data sync
+        outright. Every caller of this method is an explicit column gesture
+        (add / rename / delete / merge / reorder), which is the user-initiated
+        carve-out `aidocs/framework/tui_conventions.md` permits.
+
+        `commit=False` is for the ONE caller that is not a gesture: the startup
+        first-ship in `load_metadata`, where the file is created because it did
+        not exist. That is the "first-time ship is a one-time implementation
+        commit" case, and launching the board must not produce a commit.
+
+        Settings-only writes go through `save_settings`, which touches the
+        gitignored user layer only and still commits nothing.
+        """
         self._reconcile_external_columns()
         project_data, user_data = self._config_layers()
         # Two files, no cross-file transaction: tag each failure with its phase so
@@ -1696,6 +1719,26 @@ class TaskManager:
             raise MetadataWriteError("project", exc) from exc
         self._write_user_layer(user_data)
         self._refresh_known_col_ids()
+        if commit:
+            self._commit_metadata_file()
+
+    def _commit_metadata_file(self):
+        """Commit `board_config.json` path-scoped and report via `on_commit`.
+
+        Synchronous rather than a `@work(thread=True)` worker: a worker would
+        have to be started by the App, so each of the six column-gesture call
+        sites would need to drain a queue — precisely the "a caller can forget
+        it" failure that putting the commit in `save_metadata` avoids. One
+        path-scoped commit of one small JSON is on par with the subprocess calls
+        (`aitask_lock.sh --list`, `git status`) the refresh path already makes
+        inline.
+
+        `on_commit` keeps TaskManager Textual-free; `KanbanApp` wires it once.
+        """
+        paths = [str(METADATA_FILE)]
+        result = commit_metadata(paths)
+        if self.on_metadata_commit is not None:
+            self.on_metadata_commit(result, paths)
 
     @property
     def auto_refresh_minutes(self) -> int:
@@ -8806,6 +8849,8 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # `notify` is the single sink for save-time reconciliation warnings
         # (t1377_3); TaskManager has no screen of its own to raise them on.
         self.manager = TaskManager(on_warning=self.notify)
+        # One wiring point for every board_config.json commit (t1677).
+        self.manager.on_metadata_commit = self._notify_metadata_commit
         self.search_filter = ""
         self.base_filter = "all"          # "all" | "locked" | "free" | "inflight" | "bytopic" | "bytrail"
         self.git_filter_active = False
@@ -8859,6 +8904,22 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
         # thinks nothing happened can confirm `R` again and spawn a second
         # expensive refresh agent (t1268).
         self._trail_launch_pending = False
+
+    def _notify_metadata_commit(self, result, paths):
+        """Surface the outcome of a board_config.json commit.
+
+        A swallowed failure is the whole defect this closes: the column change
+        landed on disk but nothing committed it, and an ownerless dirty file
+        blocks task-data sync until a human clears it. So a failure always names
+        the remedy. Success is quiet — a commit per column edit is expected, and
+        a toast for each would be noise.
+        """
+        if result.status in ("failed", "refused"):
+            self.notify(
+                f"Columns saved but NOT committed ({result.detail}). "
+                f"Clear it with: {remedy_command(paths, allow_new=result.allow_new)}",
+                severity="error", timeout=10,
+            )
 
     def check_action(self, action: str, parameters) -> bool | None:
         """Control visibility of conditional actions in the footer bar."""
