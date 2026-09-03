@@ -730,13 +730,17 @@ _fold_merge_one_artifact() {
 # otherwise be silently skipped and the fold would commit partial state.
 _fold_rebind_refs() {
     local primary_id="$1"; shift
-    local fid changed out rc _m
+    local fid changed out _m
     for fid in "$@"; do
         fid="${fid#t}"
         [[ -z "$fid" ]] && continue
-        rc=0
-        out="$(attach_meta rebind "$fid" "$primary_id")" || rc=$?
-        (( rc == 0 )) || die "fold: attachment rebind failed for t${fid} (exit ${rc})"
+        # Fail-propagation must be visible in the line itself: `|| rc=$?` moves
+        # the guarantee to a SEPARATE line that a later edit can weaken, and the
+        # contract guard (tests/test_attach_lock_callback_contract.sh) cannot see
+        # across lines. `$?` in the die ARGUMENT still holds the failed
+        # substitution's status, so the message keeps its exit code (t1675).
+        out="$(attach_meta rebind "$fid" "$primary_id")" \
+            || die "fold: attachment rebind failed for t${fid} (exit $?)"
         while IFS= read -r changed; do
             [[ -n "$changed" ]] || continue
             _m="$(attach_meta_relpath "$changed")"
@@ -777,6 +781,13 @@ _fold_attach_txn() {
     #
     # NOTE: with_attach_lock runs us as `"$@" || rc=$?`, so errexit is DISABLED
     # for everything below. Every mutating call must check its own status.
+    # The full contract -- including the four ways of restoring errexit that were
+    # measured and all fail -- is in lib/attachment_lock.sh under "CALLBACK
+    # CONTRACT" (t1675). Note the suppression here is doubly determined: the
+    # `|| _fold_attach_rc=$?` at THIS file's with_attach_lock call site
+    # re-suppresses errexit through the whole callback chain regardless of what
+    # the wrapper does, so no change to attachment_lock.sh can relax this rule
+    # for the fold path.
     local _cur
     _cur="$(trap -p EXIT)"; _cur="${_cur#trap -- }"; _cur="${_cur% EXIT}"
     eval "trap '_fold_abort_cleanup; '$_cur EXIT"

@@ -36,6 +36,13 @@ artifact_manifest_dir() {
 
 # artifact_manifest <subcommand> [args...] -- run the lock-free manifest helper.
 # Callers MUST already hold the global attach lock for mutating subcommands.
+#
+# RETURNS the helper's exit status; it NEVER dies. Inside a with_attach_lock
+# callback errexit is suppressed, so an unchecked call here fails silently --
+# every in-transaction call site must carry an explicit `|| die` (contract and
+# rationale: lib/attachment_lock.sh, "CALLBACK CONTRACT"). Note `get` on a
+# MISSING handle legitimately exits 0 with empty output, so "" and failure are
+# different answers and only `|| die` tells them apart.
 artifact_manifest() {
     local py; py="$(require_python)"
     "$py" "$_AIT_ARTIFACT_MANIFEST_DIR_SELF/artifact_manifest.py" \

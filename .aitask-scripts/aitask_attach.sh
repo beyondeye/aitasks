@@ -260,15 +260,22 @@ _attach_add_txn() {
     local meta_file; meta_file="$(attach_meta_dir)/$(artifact_shard_path "$hash").json"
     [[ -f "$meta_file" ]] && meta_pre=true
 
-    # Store blob (idempotent atomic copy) + populate cache.
-    artifact_backend_put "$hash" "$file"
+    # Store blob (idempotent atomic copy) + populate cache. Explicit `|| die` on
+    # every status-returning mutator: errexit is suppressed in here (see the
+    # CALLBACK CONTRACT in lib/attachment_lock.sh).
+    artifact_backend_put "$hash" "$file" \
+        || die "ait attach add: could not store the blob for $hash"
     artifact_resolve "$hash" >/dev/null
 
     local added_at; added_at="$(date '+%Y-%m-%d %H:%M')"
-    attach_meta incref "$hash" "$task_id" "mime=$mime" "size=$size" "backend=$backend"
+    attach_meta incref "$hash" "$task_id" "mime=$mime" "size=$size" "backend=$backend" \
+        || die "ait attach add: ledger incref failed for $hash (nothing committed)"
     require_python >/dev/null
+    # Unchecked, this was the headline t1675 defect: the append failed, the trio
+    # still committed, and `add` reported success with no frontmatter entry.
     "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$task_file" attachments \
-        "hash=$hash" "name=$name" "mime=$mime" "size=$size" "added_at=$added_at" "backend=$backend"
+        "hash=$hash" "name=$name" "mime=$mime" "size=$size" "added_at=$added_at" "backend=$backend" \
+        || die "ait attach add: could not add the attachments entry to $task_file (nothing committed)"
 
     # Commit the trio (blob + meta + task) as one commit.
     local blob_rel meta_rel
@@ -299,7 +306,13 @@ _attach_rollback_add() {
     # anyway, but remove eagerly for a clean rollback).
     if [[ "$blob_pre" == false ]]; then
         task_git reset -q -- "$blob_rel" >/dev/null 2>&1 || true
-        artifact_backend_delete "$hash"
+        # Best-effort BY DESIGN, unlike every other mutator call in this file:
+        # this runs on the already-failing path, one line before `die`, so there
+        # is nothing left to abort. A failed delete leaves an unreferenced blob
+        # that `ait attach gc` reclaims. Explicit `|| true` so the intent is not
+        # mistaken for the t1675 swallow; the contract guard carries a matching
+        # ALLOWLIST entry.
+        artifact_backend_delete "$hash" || true
     fi
 }
 
@@ -352,9 +365,11 @@ _attach_rm_txn() {
         || die "ait attach rm: no attachment matching '$ref' on t${task_id}"
     # decref stamps orphaned_at if this empties refs (the gc grace clock); blob
     # NOT deleted here — reclamation is `ait attach gc` (also t1030_3).
-    attach_meta decref "$hash" "$task_id" "now=$(date +%s)"
+    attach_meta decref "$hash" "$task_id" "now=$(date +%s)" \
+        || die "ait attach rm: ledger decref failed for $hash (nothing committed)"
     "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" remove "$task_file" attachments \
-        --match-key hash --match-val "$hash"
+        --match-key hash --match-val "$hash" \
+        || die "ait attach rm: could not remove the attachments entry from $task_file (nothing committed)"
     local meta_rel; meta_rel="$(attach_meta_relpath "$hash")"
     if ! _attach_commit "ait: Detach attachment from t${task_id}" "$meta_rel" "$task_file"; then
         task_git reset -q -- "$task_file" "$meta_rel" >/dev/null 2>&1 || true
@@ -437,7 +452,7 @@ _attach_decref_deleted_txn() {
 
     local now; now="$(date +%s)"
     local -A seen_relpath=()
-    local stage=() task_id task_file hash rel survivors sid ah
+    local stage=() task_id task_file hash rel survivors sid ah cur_refs
     for task_id in "$@"; do
         task_id="${task_id#t}"
         # Doomed ids are derived from files the caller is about to delete, so an
@@ -465,13 +480,20 @@ _attach_decref_deleted_txn() {
             # blind incref on a drifted / already-rebound state would resurrect an
             # orphan (incref clears orphaned_at) or grant unearned ownership. Confirm
             # the doomed id is a current referent before moving it to the survivor(s).
-            if [[ -n "$survivors" ]] && attach_meta refs "$hash" | grep -qxF "$task_id"; then
+            # Hoisted out of the `if` on purpose: as a pipeline its failure was
+            # indistinguishable from "no match", silently taking the elif branch
+            # and orphaning the ref instead of rebinding it (t1675).
+            cur_refs="$(attach_meta refs "$hash")" \
+                || die "ait attach decref-deleted: could not read refs for $hash (nothing committed)"
+            if [[ -n "$survivors" ]] && printf '%s\n' "$cur_refs" | grep -qxF "$task_id"; then
                 # incref survivors FIRST so refs never transiently empties -> decref
                 # cannot stamp a spurious orphaned_at.
                 for sid in $survivors; do
-                    attach_meta incref "$hash" "$sid"
+                    attach_meta incref "$hash" "$sid" \
+                        || die "ait attach decref-deleted: rebind incref failed for $hash -> t${sid}"
                 done
-                attach_meta decref "$hash" "$task_id" "now=$now"
+                attach_meta decref "$hash" "$task_id" "now=$now" \
+                    || die "ait attach decref-deleted: rebind decref failed for $hash (t${task_id})"
                 printf 'REBOUND:%s:%s:%s\n' "$task_id" "$hash" "${survivors// /,}"
             elif [[ -n "$survivors" ]]; then
                 # Survivor lists it, but the doomed id no longer references it in the
@@ -482,7 +504,8 @@ _attach_decref_deleted_txn() {
             else
                 # decref PER (task_id, hash): a blob shared by two doomed tasks must
                 # lose BOTH refs. `now=` drives the orphaned_at stamp (cf _attach_rm_txn).
-                attach_meta decref "$hash" "$task_id" "now=$now"
+                attach_meta decref "$hash" "$task_id" "now=$now" \
+                    || die "ait attach decref-deleted: decref failed for $hash (t${task_id})"
                 printf 'DECREFED:%s:%s\n' "$task_id" "$hash"
             fi
             rel="$(attach_meta_relpath "$hash")"
@@ -576,13 +599,23 @@ _attach_gc_txn() {
     blocking="$(_attach_gc_blocking_hashes)" || \
         die "ait attach gc: could not compute the blocking set (see error above) — sweep aborted, no blobs deleted"
 
+    # Hoisted out of the process substitution: its status is unobservable there,
+    # so a failed read yielded an EMPTY list -> the loop became a no-op -> gc
+    # reported `swept 0` and exited 0 for a sweep that never ran (t1675).
+    local zero_refs
+    zero_refs="$(attach_meta zero-refcount)" \
+        || die "ait attach gc: could not list zero-refcount blobs — sweep aborted, no blobs deleted"
+
     local swept=0 retained=0
     local -a del_paths=()
     local h refs orphaned_at meta_file
     while IFS= read -r h; do
         [[ -n "$h" ]] || continue
         # Re-confirm zero refs under the held lock (zero-refcount is advisory).
-        refs="$(attach_meta refs "$h")"
+        # `|| die` is load-bearing: an unchecked failure yields "", which reads as
+        # "no refs" and moves a still-referenced blob one gate closer to deletion.
+        refs="$(attach_meta refs "$h")" \
+            || die "ait attach gc: could not read refs for $h — sweep aborted"
         if [[ -n "$refs" ]]; then retained=$((retained + 1)); continue; fi
         # Belt-and-suspenders: a live/archived task still lists it -> keep.
         if printf '%s\n' "$blocking" | grep -qxF "$h"; then
@@ -590,19 +623,24 @@ _attach_gc_txn() {
         fi
         # Grace window: skip orphans more recent than the grace period. A missing
         # orphaned_at (pre-feature orphan) is treated as eligible (age = inf).
-        orphaned_at="$(attach_meta orphaned-at "$h")"
+        # The DESTRUCTIVE one. Unlike the refs read above there is no second gate
+        # after this: an unchecked failure yields "", which is read as "age =
+        # infinite" -> eligible -> the blob is deleted inside its grace window.
+        orphaned_at="$(attach_meta orphaned-at "$h")" \
+            || die "ait attach gc: could not read orphaned-at for $h — sweep aborted, no blobs deleted"
         if [[ -n "$orphaned_at" ]] && (( now - orphaned_at < grace_sec )); then
             retained=$((retained + 1)); continue
         fi
         # Reclaim: delete blob + meta (v1 is local-only; add rejects other
         # backends, so every stored blob is local).
         export ARTIFACT_BACKEND="local"
-        artifact_backend_delete "$h"
+        artifact_backend_delete "$h" \
+            || die "ait attach gc: could not delete the blob for $h — sweep aborted"
         meta_file="$(attach_meta_dir)/$(artifact_shard_path "$h").json"
         rm -f "$meta_file"
         del_paths+=( "$(artifact_local_blob_relpath "$h")" "$(attach_meta_relpath "$h")" )
         swept=$((swept + 1))
-    done < <(attach_meta zero-refcount)
+    done <<< "$zero_refs"
 
     if (( swept > 0 )); then
         if ! _attach_commit "ait: GC ${swept} orphaned attachment(s)" "${del_paths[@]}"; then

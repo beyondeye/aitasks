@@ -252,8 +252,15 @@ _artifact_create_txn() {
             && die "ait artifact create: t${task_id} already lists artifact ${handle}"
     done < <(_artifact_records "$task_file")
 
-    # Manifest collision guard — handles are minted once, globally.
-    [[ -z "$(artifact_manifest get "$handle")" ]] \
+    # Manifest collision guard — handles are minted once, globally. Hoisted out
+    # of the `[[ ]]`: a command substitution's status is DISCARDED there, so a
+    # failed read read as "" -> "no collision" -> mint over an existing manifest.
+    # `get` on a missing handle legitimately exits 0 with empty output, so "" and
+    # failure are different answers and only `|| die` separates them (t1675).
+    local existing_manifest
+    existing_manifest="$(artifact_manifest get "$handle")" \
+        || die "ait artifact create: could not read the manifest for ${handle}"
+    [[ -z "$existing_manifest" ]] \
         || die "ait artifact create: handle ${handle} already exists — pass --handle to choose another"
 
     # Pre-existence (for deterministic rollback; blob may be shared content).
@@ -264,14 +271,17 @@ _artifact_create_txn() {
     # from the verified local bytes — the write-back wrapper (design §5).
     artifact_store "$hash" "$file"
 
-    artifact_manifest create "$handle" "$hash" "backend=$backend"
+    artifact_manifest create "$handle" "$hash" "backend=$backend" \
+        || die "ait artifact create: could not create the manifest for ${handle} (nothing committed)"
     require_python >/dev/null
     if [[ -n "$name" ]]; then
         "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$task_file" artifacts \
-            "handle=$handle" "kind=$kind" "name=$name"
+            "handle=$handle" "kind=$kind" "name=$name" \
+            || die "ait artifact create: could not add the artifacts entry to $task_file (nothing committed)"
     else
         "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" append "$task_file" artifacts \
-            "handle=$handle" "kind=$kind"
+            "handle=$handle" "kind=$kind" \
+            || die "ait artifact create: could not add the artifacts entry to $task_file (nothing committed)"
     fi
 
     # Commit the trio (blob + manifest + task) as one path-scoped commit.
@@ -308,7 +318,10 @@ _artifact_rollback_create() {
         if [[ "$backend" == "local" ]]; then
             task_git reset -q -- "$(artifact_local_blob_relpath "$hash")" >/dev/null 2>&1 || true
         fi
-        artifact_backend_delete "$hash"
+        # Best-effort: a rollback runs on the already-failing path, so there is
+        # nothing left to abort and a leftover blob is gc-reclaimable. Explicit
+        # `|| true` so this reads as intent, not as the t1675 swallow.
+        artifact_backend_delete "$hash" || true
     fi
 }
 
@@ -331,13 +344,16 @@ _artifact_update_txn() {
     local handle="$1" file="$2"
     local hash current
     hash="$(artifact_sha256 "$file")"
-    current="$(artifact_manifest current "$handle")"
+    current="$(artifact_manifest current "$handle")" \
+        || die "ait artifact update: could not read the current version of ${handle}"
     if [[ "$hash" == "$current" ]]; then
         success "Artifact ${handle} is already current (${hash}) — nothing to do"
         return 0
     fi
 
-    local backend; backend="$(_artifact_manifest_backend "$handle")"
+    local backend
+    backend="$(_artifact_manifest_backend "$handle")" \
+        || die "ait artifact update: cannot read backend for ${handle}"
     # Fails closed pre-mutation if the manifest names an unregistered backend.
     artifact_registry_activate "$backend"
 
@@ -353,7 +369,10 @@ _artifact_update_txn() {
 
     # Write-back: put + presence verify + warm cache from local bytes (§5).
     artifact_store "$hash" "$file"
-    artifact_manifest set-current "$handle" "$hash"
+    # Unchecked, this reported `current is now <hash>` at exit 0 while `current`
+    # had not moved -- a false success claim, not merely a missed error (t1675).
+    artifact_manifest set-current "$handle" "$hash" \
+        || die "ait artifact update: could not repoint ${handle} to ${hash} (nothing committed)"
 
     local manifest_rel commit_paths=()
     manifest_rel="$(artifact_manifest_relpath "$handle")"
@@ -364,7 +383,7 @@ _artifact_update_txn() {
         task_git reset -q -- "${commit_paths[@]}" >/dev/null 2>&1 || true
         task_git checkout -- "$manifest_rel" >/dev/null 2>&1 || true
         if [[ "$blob_pre" == false && "$backend" == "local" ]]; then
-            artifact_backend_delete "$hash"
+            artifact_backend_delete "$hash" || true   # best-effort: already aborting
         fi
         die "ait artifact update: commit failed — rolled back"
     fi
@@ -405,9 +424,14 @@ _artifact_move_txn() {
     # Validate the TARGET first: dies pre-mutation if unregistered/misconfigured.
     artifact_registry_activate "$target"
 
+    # Hoisted out of the process substitution: its status is unobservable there,
+    # so a failed read produced an EMPTY list and was misreported below as
+    # "has no versions" -- a wrong cause for a manifest that may have many (t1675).
+    local versions_out
+    versions_out="$(artifact_manifest versions "$handle")" \
+        || die "ait artifact move: could not read versions for ${handle} — nothing moved"
     local versions=() v
-    while IFS= read -r v; do [[ -n "$v" ]] && versions+=( "$v" ); done \
-        < <(artifact_manifest versions "$handle")
+    while IFS= read -r v; do [[ -n "$v" ]] && versions+=( "$v" ); done <<< "$versions_out"
     (( ${#versions[@]} > 0 )) || die "ait artifact move: ${handle} has no versions"
 
     # Phase 1: resolve EVERY version from the source into the local cache
@@ -438,7 +462,11 @@ _artifact_move_txn() {
     done
 
     # Phase 3: repoint + commit (manifest always; blobs only for a local target).
-    artifact_manifest set-backend "$handle" "$target"
+    # Unchecked, this reported `Moved ... to backend '<target>'` at exit 0 with
+    # the manifest still naming the SOURCE backend -- the blobs were copied but
+    # the ledger never moved (t1675).
+    artifact_manifest set-backend "$handle" "$target" \
+        || die "ait artifact move: could not repoint ${handle} to backend '${target}'"
     local manifest_rel; manifest_rel="$(artifact_manifest_relpath "$handle")"
     commit_paths+=( "$manifest_rel" )
     if ! _artifact_commit "ait: Move artifact ${handle} to backend ${target}" "${commit_paths[@]}"; then
@@ -476,19 +504,29 @@ _artifact_rm_txn() {
     # stale-reference case (failed/manual cleanup, data-branch inconsistency):
     # still remove the broken frontmatter entry so the task stays repairable
     # through the same verb — just skip the manifest/blob work.
-    local manifest_json versions=()
-    manifest_json="$(artifact_manifest get "$handle")"
+    # `|| die` separates "no manifest" from "could not read it": both yield "",
+    # and unchecked, a failed read took the stale-reference branch below and
+    # dropped a LIVE frontmatter entry while orphaning its manifest (t1675).
+    local manifest_json versions=() versions_out
+    manifest_json="$(artifact_manifest get "$handle")" \
+        || die "ait artifact rm: could not read the manifest for ${handle}"
     if [[ -n "$manifest_json" ]]; then
+        versions_out="$(artifact_manifest versions "$handle")" \
+            || die "ait artifact rm: could not read versions for ${handle}"
         while IFS= read -r v; do
             [[ -n "$v" ]] && versions+=( "$v" )
-        done < <(artifact_manifest versions "$handle")
+        done <<< "$versions_out"
     fi
     local backend="local"
-    [[ -n "$manifest_json" ]] && backend="$(_artifact_manifest_backend "$handle")"
+    if [[ -n "$manifest_json" ]]; then
+        backend="$(_artifact_manifest_backend "$handle")" \
+            || die "ait artifact rm: cannot read backend for ${handle}"
+    fi
 
     require_python >/dev/null
     "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" remove "$task_file" artifacts \
-        --match-key handle --match-val "$handle"
+        --match-key handle --match-val "$handle" \
+        || die "ait artifact rm: could not remove the artifacts entry from $task_file (nothing committed)"
 
     if [[ -z "$manifest_json" ]]; then
         warn "manifest for ${handle} is missing — removing the stale frontmatter reference only"
@@ -504,7 +542,8 @@ _artifact_rm_txn() {
     # Another task (active, archived, or Folded — revivable) still lists the
     # handle -> keep the manifest, drop only this task's entry.
     local other
-    other="$(_artifact_handle_referenced_elsewhere "$handle" "$task_file")"
+    other="$(_artifact_handle_referenced_elsewhere "$handle" "$task_file")" \
+        || die "ait artifact rm: could not scan for other references to ${handle}"
     if [[ -n "$other" ]]; then
         if ! _artifact_commit "ait: Remove artifact ${handle} from t${task_id}" "$task_file"; then
             task_git reset -q -- "$task_file" >/dev/null 2>&1 || true
@@ -545,7 +584,8 @@ _artifact_rm_txn() {
         for h in ${versions[@]+"${versions[@]}"}; do
             [[ -f "$(attach_meta_dir)/$(artifact_shard_path "$h").json" ]] && continue
             printf '%s\n' "$remaining" | grep -qxF "$h" && continue
-            artifact_backend_delete "$h"
+            artifact_backend_delete "$h" \
+                || die "ait artifact rm: could not delete the orphaned blob $h"
             del_paths+=( "$(artifact_local_blob_relpath "$h")" )
             swept=$((swept + 1))
         done

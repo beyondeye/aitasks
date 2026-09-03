@@ -36,6 +36,13 @@ attach_meta_dir() {
 
 # attach_meta <subcommand> [args...] -- run the lock-free per-blob ledger helper.
 # Callers MUST already hold the global attach lock for mutating subcommands.
+#
+# RETURNS the helper's exit status; it NEVER dies. Inside a with_attach_lock
+# callback errexit is suppressed, so an unchecked call here fails silently --
+# every in-transaction call site must carry an explicit `|| die` (contract and
+# rationale: lib/attachment_lock.sh, "CALLBACK CONTRACT"). That applies to reads
+# too: a failed `refs` / `orphaned-at` capture yields "", which the gc sweep
+# would misread as "no refs" / "age = infinite" and delete a live blob.
 attach_meta() {
     local py; py="$(require_python)"
     "$py" "$_AIT_ATTACHMENT_META_DIR_SELF/attachment_meta.py" \
