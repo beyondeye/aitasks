@@ -81,7 +81,16 @@ task_body() { cat "$(task_file "$1")"; }
 # Number of receipt blocks in a task file. The DERIVED state would look correct
 # even while the file accumulated duplicates, so idempotency is asserted by
 # COUNTING BLOCKS, never by re-checking NO_UNREAD.
-receipt_count() { grep -c 'note:read' "$(task_file "$1")" 2>/dev/null || true; }
+#
+# Anchored to the MARKER line, not to a bare 'note:read' substring: a task body
+# that merely talks about receipts would otherwise be counted as one. (Measured
+# on t1657_3 itself, whose description contains the phrase in prose.) A note
+# body cannot forge a match here anyway -- the writer's '> | ' sentinel sits
+# between the quote marker and the text -- but the helper should measure what
+# its name claims regardless of who is protecting it.
+receipt_count() {
+    grep -cE '^> \*\*[^*]+ note:read\*\* ' "$(task_file "$1")" 2>/dev/null || true
+}
 
 # Send a note and echo its id.
 send_note() {
