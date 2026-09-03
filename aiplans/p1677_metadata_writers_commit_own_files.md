@@ -566,7 +566,7 @@ bullets below are high-severity on their own.
   writes **another repo's** tracked `codeagent_config.json` and is deliberately
   out of scope, because a repo-scoped seam cannot commit into a repo that may be
   mid-work. The goal "every tracked metadata write has an owner" is therefore
-  met for this repo's own surfaces only · severity: medium · → mitigation: cross_repo_config_push_owner
+  met for this repo's own surfaces only · severity: medium · → mitigation: t1704
 - `gates.yaml` stays deliberately uncommitted (`ait gates sync-registry` asks a
   human to review first), so a permanent ownerless deferral remains reachable by
   design. This task **narrows** the premise "nothing else commits those files";
@@ -585,7 +585,7 @@ bullets below are high-severity on their own.
 
 ### Planned mitigations
 - timing: post-phase | name: metadata_writer_inventory_guard | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — the inventory is a claim about absence, and a writer missed today stays ownerless silently | desc: derive tracked-metadata write sites from source and assert each is wired to the commit seam or in a commented KNOWN_UNCOMMITTED allowlist with its reason
-- timing: after | name: cross_repo_config_push_owner | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — apply_push writes another repo's tracked codeagent_config.json and leaves it dirty there | desc: give the syncer's cross-repo config push an owner that commits in the target repo, deciding safely what to do when that repo is mid-work
+- timing: after | name: cross_repo_config_push_owner | type: bug | priority: medium | effort: medium | inline_risk: high | added_complexity: high | addresses: goal-achievement — apply_push writes another repo's tracked codeagent_config.json and leaves it dirty there | desc: give the syncer's cross-repo config push an owner that commits in the target repo, deciding safely what to do when that repo is mid-work | created: t1704
 
 ---
 
