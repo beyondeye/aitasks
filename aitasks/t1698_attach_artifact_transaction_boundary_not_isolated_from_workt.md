@@ -3,13 +3,14 @@ priority: high
 effort: medium
 depends: [1675]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, robustness, data_integrity]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1661
 followup_kind: review_finding
 created_at: 2026-09-02 22:18
-updated_at: 2026-09-02 22:18
+updated_at: 2026-09-03 12:42
 ---
 
 ## Origin
