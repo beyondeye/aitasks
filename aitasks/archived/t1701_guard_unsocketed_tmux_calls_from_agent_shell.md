@@ -3,10 +3,12 @@ priority: high
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Done
 labels: [tmux, tmux_destructive, crash_recovery, claudecode, test_infrastructure]
+implemented_with: claudecode/opus5
 created_at: 2026-09-03 12:12
-updated_at: 2026-09-03 12:12
+updated_at: 2026-09-03 12:14
+completed_at: 2026-09-03 12:14
 ---
 
 ## Summary
