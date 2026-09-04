@@ -384,12 +384,12 @@ Post-implementation cleanup, archival and merge follow **Step 9**.
 - The same defect remains in `aitask_archive.sh` (3 sites), so "the board never
   swallows a bystander" is true only for these three paths — the board's
   archive gesture still routes through that script · severity: medium
-  · → mitigation: archive_sh_pathspec_scope
+  · → mitigation: t1710
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_delete_commit_contents | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — scoping _do_delete strands the parent/folded writes | desc: measure today's delete-commit file list in a fixture and pin it as the pathspec the fixed _do_delete must reproduce
 - timing: pre-phase | name: probe_commit_o_pathspec_classes | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — commit -o aborts on an unknown pathspec | desc: pin `git commit -o --` behaviour for tracked-deleted / untracked-existing / never-known / empty pathspecs before writing the classification loop
-- timing: after | name: archive_sh_pathspec_scope | type: bug | priority: medium | effort: low | inline_risk: high | added_complexity: medium | addresses: goal-achievement — the same defect remains in aitask_archive.sh | desc: route aitask_archive.sh's three pathspec-less `task_git commit` calls (lines 283, 565, 645) through the scoped seam, and retire the staged-deletion window its board caller opens with `git rm` at aitask_board.py:13661
+- timing: after | name: archive_sh_pathspec_scope | type: bug | priority: medium | effort: low | inline_risk: high | added_complexity: medium | addresses: goal-achievement — the same defect remains in aitask_archive.sh | desc: route aitask_archive.sh's three pathspec-less `task_git commit` calls (lines 283, 565, 645) through the scoped seam, and retire the staged-deletion window its board caller opens with `git rm` at aitask_board.py:13661 | created: t1710
 
 ### Reassessment (post-inline, post-review)
 
