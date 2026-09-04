@@ -834,14 +834,21 @@ marker. So:
 - **Auditing t1647_2 will over-report its blast radius** by one unrelated
   task file.
 
-**Do not "fix" this by rewriting history unilaterally.** At the time of
-writing the commit sits ~7 deep on `aitask-data` with 36 unpushed commits from
-several concurrent sessions, and t1704's owner
-(`cross-repo-config-commit-owner`, pid 2035338) is a live interactive session.
-Rewriting would change other sessions' commit hashes underneath them and
-delete a gate pass its owner believes is recorded. Nothing is pushed, so a
-clean split remains possible later — but only in a quiet window with every
-data-branch writer quiesced, and coordinated with the t1704 owner.
+**SETTLED (user decision, 2026-09-04): this is never to be repaired by
+rewriting history. The documentation above IS the fix.** A rebase splitting
+`f73eb1706` was considered and declined. The commit sits ~7 deep on
+`aitask-data` under 36 unpushed commits from several concurrent sessions, and
+t1704's owner (`cross-repo-config-commit-owner`, pid 2035338) was a live
+interactive session at the time; rewriting would change other sessions' commit
+hashes underneath them and delete a gate pass its owner believes is recorded.
+That trade was judged not worth it for a defect whose entire practical impact
+is one over-broad file set.
+
+**Therefore the revert-exclusion instruction above is permanent, not
+transitional.** It is the only thing standing between a future revert of
+t1647_2 and the silent loss of t1704's gate state, so it must survive
+archival of this plan. The t1704 owner was notified directly so the
+conflation is known on both sides.
 
 **Lesson for the workflow (the reason this is recorded rather than silently
 patched):** on a shared task-data branch, never stage-then-amend. Commit with
