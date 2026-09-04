@@ -3,11 +3,12 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [minimonitor, tmux, codeagent, tui, session_persistence]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-04 10:50
-updated_at: 2026-09-04 10:50
+updated_at: 2026-09-04 10:52
 ---
 
 ## Goal
