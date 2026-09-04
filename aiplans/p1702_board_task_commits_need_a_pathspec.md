@@ -42,10 +42,32 @@ it runs two uncommitted writers:
   Ready --folded-into ""` → rewrites each **revived folded task file**
   (`:13756`).
 
-Neither passes `--commit`. Scoping the delete commit to only the doomed paths
-would leave those writes dirty and **ownerless** — exactly the permanent
-rebase-deferral state t1599_3 quarantines. The pathspec must be widened to
-include them.
+Neither passes `--commit`. The pathspec must be widened to include them.
+
+> **CORRECTED BY MEASUREMENT — pre-phase `characterize_delete_commit_contents`.**
+> The plan asserted that the index-wide commit *currently sweeps these writes in*,
+> so scoping would be a regression. It does not. Measured against the unmodified
+> code (a child delete that also revives a folded task, with a foreign staged
+> edit present):
+>
+> ```
+> $ git show --name-status HEAD
+> D   aiplans/p10/p10_2_beta.md
+> D   aitasks/t10/t10_2_beta.md
+> M   aitasks/t99_bystander.md      <- the foreign session's staged edit
+> $ git status --porcelain
+>  M  aitasks/t10/t10_3_gamma.md    <- revived folded task, left DIRTY
+>  M  aitasks/t10_parent.md         <- children_to_implement edit, left DIRTY
+> ```
+>
+> `aitask_update.sh` writes those to the worktree without staging, and a
+> pathspec-less `git commit` takes the *index* — so only what `git rm` had staged
+> plus the foreign entry ever landed. Widening the pathspec is therefore a **fix
+> for a pre-existing omission** (both writes were already left ownerless, the
+> permanent rebase-deferral state t1599_3 quarantines), not the avoidance of a
+> regression this change would introduce. The work is unchanged; only the
+> rationale is. The measured baseline is pinned in
+> `tests/test_board_scoped_task_commit.py`'s module docstring.
 
 (`aitask_attach.sh decref-deleted` already self-commits path-limited, so it
 needs nothing.)
@@ -119,14 +141,27 @@ process leave the same wreckage:
    `assert_data_worktree_clean commit` once **before** the staging loop, so that
    die lands with nothing staged.
 2. **Fail fast, then clean.** The staging loop records each path into
-   `AIT_STAGED_BY_US` **as it is staged**; a failing `add` calls
-   `ait_unstage_staged_by_us` and returns 1 immediately rather than continuing
-   into a commit that cannot succeed anyway.
+   `AIT_STAGED_BY_US` **before it calls `add`** — see Change Request 1: recording
+   after a successful `add` leaves a window in which a signal unwinds nothing. A
+   failing `add` then calls `ait_unstage_staged_by_us` and returns 1 immediately
+   rather than continuing into a commit that cannot succeed anyway.
 3. **Cover the abort that is left.** Each helper script installs
    `trap 'ait_unstage_staged_by_us' EXIT` **before** its first call, so a signal
    or an unforeseen `die` still unwinds this invocation's entries. The trap
    lives in the scripts, not the library, so it cannot clobber a caller's own
    EXIT trap; both callers set none today.
+
+   **Measured while implementing:** bash runs an EXIT trap on a fatal SIGTERM
+   too, even at default disposition, so the EXIT trap alone carries the killed
+   run. Explicit `INT`/`TERM` handlers were written, found to change nothing
+   observable, and removed rather than shipped unfalsifiable.
+
+   **What the redundancy costs in test power** (verified by mutation): deleting
+   the EXIT trap alone fails the killed-after-staging test; deleting the
+   library's inline cleanup alone fails *nothing*, because the trap masks it;
+   deleting both fails two tests. The inline cleanup is kept anyway — it is what
+   a future third caller that forgets the trap still gets — and the asymmetry is
+   recorded in the test header so it is not mistaken for an untested branch.
 
 Body = the block currently inlined in `aitask_metadata_commit.sh::main`
 (stage-untracked → `task_git_commit_scoped --no-stage` → `task_git reset` the
@@ -365,3 +400,139 @@ closed in the design rather than deferred, each with a failing-capable test.
 wiring remain, both covered by Verification). **Goal-achievement risk: low**
 (unchanged; the archive residue is now owned by a spawned follow-up — whose
 scope grew to include that site's `git rm` staging as well as its pathspec).
+
+---
+
+## Post-Review Changes
+
+### Change Request 1 (2026-09-04 00:15)
+
+- **Requested by user:** `task_utils.sh` records `AIT_STAGED_BY_US` only *after*
+  `task_git add` succeeds. A signal landing in that window runs the EXIT trap
+  with an empty ownership list, leaving the just-staged path in the shared index
+  for a later index-wide commit. Record ownership before the mutating add, and
+  add a regression test for the boundary. Disposition: blocking.
+- **Verified:** CONFIRMED, and reproduced before changing anything. A PATH-shim
+  `git` that runs the real `add` and then SIGTERMs the helper left
+  `aitasks/t80_first.md` staged — the new Test 9c failed against the unfixed
+  code (62 passed, 1 failed), which is what proves the test is not vacuous.
+- **Changes made:**
+  1. `ait_commit_paths_staging_untracked` now appends to `AIT_STAGED_BY_US`
+     **before** `task_git add`, closing the window. The comment records why
+     over-recording is free: `git reset -- <paths>` tolerates a path it never
+     staged — measured rc 0, the genuinely staged entries in the same set are
+     still unstaged, and the worktree is untouched — so the only case this
+     over-records (an `add` that then failed) costs nothing.
+  2. `tests/test_task_commit_scoped.sh` gains **Test 9c**, the killed-between-
+     add-and-record boundary, using the same PATH-shim seam as Test 9b moved one
+     step earlier. 63 assertions, all passing.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`,
+  `tests/test_task_commit_scoped.sh`.
+- **Note on the cleanup tests, so their overlap is not mistaken for
+  redundancy** (measured mutation table, re-run with 9c present and kept in the
+  test header):
+
+  | mutation | tests that fail |
+  |---|---|
+  | delete the script's EXIT trap | 9b, 9c |
+  | delete the library's inline cleanup | none (the trap masks it) |
+  | delete both | 8, 9b, 9c |
+  | record ownership after `add` instead of before | 9c |
+
+  Test 8 pins that a cleanup mechanism exists at all; Test 9 pins that the
+  wedged-worktree abort fires *before* the staging loop; 9b and 9c **both** pin
+  the EXIT trap — they are signal tests, so nothing else can unwind them — and
+  9c alone additionally pins the record-before-add ordering this change fixed.
+  The earlier version of this note named only 9b as trap-dependent, which was
+  written before 9c existed and was wrong.
+
+### Change Request 2 (2026-09-04 00:35)
+
+- **Requested by user:** the mutation table in `test_task_commit_scoped.sh`'s
+  header still named only Test 9b as EXIT-trap-dependent, and only Tests 8/9b as
+  failing when both cleanup paths go. Test 9c is equally trap-dependent — its
+  shim signals after the real `add`, so without the trap it also leaves the path
+  staged. Align the table, the regression and the plan note. Disposition:
+  follow-up.
+- **Verified:** CONFIRMED. Rather than reason the new rows, all four mutations
+  were re-applied and re-run. Measured: EXIT trap alone → 9b **and 9c** fail;
+  library cleanup alone → nothing fails; both → 8, 9b, 9c; record-after-add →
+  9c only.
+- **Changes made:** the header table is now a measured four-row matrix (every
+  row produced by applying the mutation and re-running), with an explicit note
+  that it must be re-measured rather than guessed at whenever a test is added
+  here; Test 9b's inline note now points at the table; the plan note above is
+  replaced by the same matrix and says plainly that its earlier form was wrong.
+- **Files affected:** `tests/test_task_commit_scoped.sh`,
+  `aiplans/p1702_board_task_commits_need_a_pathspec.md`.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** All three board commit sites (`_do_delete`,
+  `_do_rename_task`, `_do_git_commit_tasks`) now commit through a new scoped
+  seam. New: `.aitask-scripts/aitask_task_commit.sh` (the task/plan analogue of
+  `aitask_metadata_commit.sh`) and `.aitask-scripts/lib/task_commit.py` (the
+  Python wrapper, shaped like `metadata_commit.py`). `lib/task_utils.sh` gained
+  `ait_commit_paths_staging_untracked` + `ait_unstage_staged_by_us`, the single
+  staging/commit/cleanup core, and `aitask_metadata_commit.sh` was migrated onto
+  it so that logic exists once rather than twice. Beyond adding the pathspec, the
+  delete path stopped calling `git rm` (it unlinks instead) and the rename and
+  commit-dialog paths dropped their `git add` calls, so a board operation now
+  touches the shared index only through its own commit. Tests:
+  `tests/test_task_commit_scoped.sh` (63 assertions) and
+  `tests/test_board_scoped_task_commit.py` (12). Docs: a new
+  "Task and plan files" section in `aidocs/framework/tui_conventions.md`.
+
+- **Deviations from plan:**
+  - The plan justified widening the delete pathspec as *avoiding a regression*.
+    The `characterize_delete_commit_contents` pre-phase disproved that: today's
+    index-wide commit never carried the parent / revived-folded writes either
+    (they are written to the worktree unstaged, and a bare `git commit` takes the
+    index). The widening is a fix for a **pre-existing** ownerless-write bug. Same
+    work, corrected rationale; the measured baseline is pinned in the board test's
+    module docstring.
+  - Explicit `INT`/`TERM` handlers were written per the plan's "cover the abort
+    that is left" rule, then measured to change nothing (bash runs an EXIT trap on
+    a fatal SIGTERM at default disposition) and removed rather than shipped
+    unfalsifiable.
+  - The board test was first written with its own hand-rolled fixture; the
+    `tests/test_board_fixture_harness.py` live-tree guard correctly rejected it.
+    Rewritten onto `tests/lib/board_fixture.py::enter_fixture_tree` rather than
+    adding an entry to that guard's `CHDIR_ALLOWED` allowlist.
+
+- **Issues encountered:**
+  - Two blocking review findings, both confirmed by reproduction before any edit:
+    `git rm` parking staged deletions in the shared index (CR pre-review), and
+    ownership being recorded *after* `task_git add` so a signal in that window
+    unwound nothing (Change Request 1 — reproduced with a PATH-shim `git`,
+    Test 9c failing 62/1 against the unfixed code).
+  - The mutation table documenting which test pins which cleanup path went stale
+    the moment Test 9c was added (Change Request 2). Re-measured rather than
+    reasoned; the header now instructs future editors to do the same.
+  - `git reset -- <paths>` was measured (rc 0, other entries still unstaged,
+    worktree untouched) before relying on it to tolerate an over-recorded path.
+
+- **Key decisions:**
+  - Wrap the shell seam from Python rather than reimplement scoped-commit rules
+    there — the same choice t1677 made, for the same reason.
+  - Accept untracked-but-existing paths with **no** `--allow-new` flag: a new task
+    file is a normal board commit, so the gate would be always-passed dead weight;
+    the `aitasks/`/`aiplans/` scope check is what bounds the helper.
+  - Drop paths that are neither tracked nor on disk (`SKIPPED:unknown:`) rather
+    than let one abort the whole commit — `commit -o` fails outright on a pathspec
+    git has never seen.
+  - No allowlist / `ait` dispatcher entry: the only caller is a Python TUI
+    (`aidocs/framework/aitasks_extension_points.md`), same as the metadata helper.
+
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_archive.sh:283,565,645 — three pathspec-less `task_git
+    commit` calls, the same defect class as this task, reachable from the board's
+    own archive gesture`
+  - `.aitask-scripts/board/aitask_board.py:13718 — the archive path's `git rm`
+    stages deletions into the shared index and depends on aitask_archive.sh's
+    index-wide commit to consume them; it must be retired together with the above`
+
+  Both are the confirmed `archive_sh_pathspec_scope` "after" mitigation recorded
+  in `### Planned mitigations`, deliberately out of scope here.
