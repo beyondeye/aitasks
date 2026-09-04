@@ -808,3 +808,43 @@ a re-plan. Code-health is unchanged at medium — two hand-maintained
   (cardinality-only leaves exactly the two cross-record tests failing).
 
 - **Upstream defects identified:** None.
+
+## ⚠️ Commit-scope contamination — READ BEFORE REVERTING OR AUDITING t1647_2
+
+**Commit `f73eb1706` contains one file that does NOT belong to this task:**
+`aitasks/t1704_cross_repo_config_push_owner.md` (t1704's `implemented_with`
+attribution and a `plan_approved` gate-ledger pass).
+
+**How it happened.** The delivery was committed cleanly as `c87ab7a41122`
+(four files, no contamination — still an ancestor of HEAD). A follow-up
+`ait git add` + `commit --amend` then ran against the **shared data-branch
+index** while a concurrent live session was mid-write on t1704. The amend did
+not replace `c87ab7a` — the shared worktree's HEAD had already advanced — so
+it produced a *second* commit, `f73eb1706`, carrying t1704's staged change
+along with this task's own p1647_2 / p1647_3 edits.
+
+**Concrete consequence (verified, not theoretical).**
+`aitask_revert_analyze.sh --task-files 1647_2` lists
+`aitasks/t1704_cross_repo_config_push_owner.md` in this task's file set,
+because the file-set seam is derived from the commits that carry a `(tNN)`
+marker. So:
+
+- **Reverting t1647_2 would revert t1704's gate pass and attribution.**
+  Any revert of this task MUST exclude `aitasks/t1704_*.md` explicitly.
+- **Auditing t1647_2 will over-report its blast radius** by one unrelated
+  task file.
+
+**Do not "fix" this by rewriting history unilaterally.** At the time of
+writing the commit sits ~7 deep on `aitask-data` with 36 unpushed commits from
+several concurrent sessions, and t1704's owner
+(`cross-repo-config-commit-owner`, pid 2035338) is a live interactive session.
+Rewriting would change other sessions' commit hashes underneath them and
+delete a gate pass its owner believes is recorded. Nothing is pushed, so a
+clean split remains possible later — but only in a quiet window with every
+data-branch writer quiesced, and coordinated with the t1704 owner.
+
+**Lesson for the workflow (the reason this is recorded rather than silently
+patched):** on a shared task-data branch, never stage-then-amend. Commit with
+an explicit pathspec (`ait git commit -m … -- <paths>`), which ignores the
+index entirely, and re-read `git show --stat` against the intended path list
+before moving on.
