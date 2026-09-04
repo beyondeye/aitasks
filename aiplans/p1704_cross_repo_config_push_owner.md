@@ -7,6 +7,78 @@ plan_verified: []
 
 # t1704 — Give the cross-repo config push an owner that commits in the target repo
 
+## ✅ Re-verification done (2026-09-04) — t1702 landed as `60b16986f`
+
+The pass the section below demanded was run before any code was written. All
+three points resolved:
+
+| Point | Finding |
+|---|---|
+| §1 anchor | **Holds.** Still exactly two call sites — `task_utils.sh:243` (`assert_data_worktree_clean`) and `:288` (`task_git_health`) — both spelling the six states inline. |
+| §2 anchor | **Moved exactly as anticipated.** `aitask_metadata_commit.sh:147` now calls `ait_commit_paths_staging_untracked`, with the `ait_unstage_staged_by_us` EXIT trap armed at `:144`. The `--expect` guard was placed *before* the trap arm, where nothing is staged yet — so a `REFUSED:changed` exit trivially leaves the shared index untouched, rather than depending on the unwind. |
+| `task_commit.py` overlap | **None.** It is a *sibling* wrapper (`aitask_task_commit.sh`, task/plan files), not an overlap with `metadata_commit.py` (`aitask_metadata_commit.sh`, `aitasks/metadata/*`). §3 stayed where planned. |
+
+The pre-phase characterization test was run before AND after the constant
+extraction — 105 assertions, green both times — and a mutant that drops
+`REVERT_HEAD` from one loop fails it with 3 assertions. The refactor is
+provably behaviour-preserving rather than merely plausible.
+
+## Implementation notes — decisions and deviations
+
+Five things the plan did not specify, decided during implementation:
+
+1. **The preflight runs with `AIT_GIT_SKIP_STATE_CHECK=1`.** Not in the plan,
+   and load-bearing: `_is_ignored` uses `task_git check-ignore`, which is *not*
+   on `_ait_git_subcmd_is_readonly`'s allowlist, so `assert_data_worktree_clean`
+   would **die** on precisely the wedged destination the preflight exists to
+   report. Bypassing the guard for a mode that only ever reads is correct, and
+   it keeps the single resolution ladder the plan asked for rather than forking
+   `_is_ignored`. Pinned by seam Test 13, whose control asserts no `MIDOP:` line
+   appears once the state is cleared.
+
+2. **`tests/lib/branch_mode_repo.py` — a shared fixture, not an inline one.**
+   The plan said the new file would build its own, but two modules need the same
+   topology (see 3), and two copies of a git fixture is the shape that silently
+   drifts. It is still *not* shared with `test_settings_commit_on_save.py`, for
+   the reason the plan gives: that one `chdir`s, and the property under test
+   here is that cwd stays elsewhere. A `tearDown` assertion pins that directly.
+
+3. **Three pre-existing `test_cross_repo_settings.py` tests were repaired, not
+   deleted.** They pinned the old contract (`apply_push` writes
+   unconditionally) against a non-git fixture, so the new refusal correctly
+   stopped them. Their actual subjects — clear-mask prune, keep-other-keys, and
+   the project-before-clear ordering — are all still true, so they were given a
+   committable branch-mode destination instead. Deleting them would have
+   discarded three live guards.
+
+4. **The `aitask_codeagent.sh` resolver stub was de-duplicated.** `make_repo`
+   now calls `branch_mode_repo.install_resolver_stub`. Writing a second copy
+   surfaced a real bug in the first draft — the copy omitted the
+   `AGENT_STRING:` protocol prefix, which made every `effective` read as None —
+   which is exactly the drift a second copy causes.
+
+5. **§5 gained tests the plan did not list.** `_render_apply_outcome` had no
+   coverage, and the first draft leaked a raw `[Errno 2] No such file or
+   directory` at the user for the version-skew refusal, and restated each
+   refusal twice. `ResultLineRenderingTests` now pins that every reason renders
+   a distinct user-facing line, that no raw reason token or exception string
+   reaches the UI, and that a mid-operation refusal names the state (the one
+   detail that tells the user which `--abort` to run over there).
+
+Two cases beyond the plan's matrix: **a helper that exists but predates
+`--preflight`** (version skew's realistic shape — an older copy answers an
+unknown flag with usage text and exit 0, which is why `preflight_metadata`
+requires the protocol's own `MODE:` line rather than trusting exit 0), and
+**every in-progress state**, walked from `AIT_GIT_INPROGRESS_STATES` itself so
+the test cannot drift from the guard.
+
+Three mutants were run against the finished code, each caught by exactly the
+tests that should catch it: dropping the step-4 re-read fails the write-side
+race test; dropping `expect=holders` fails the commit-side race and the
+raced-mask tests; dropping the step-7 durability gate fails both mask tests.
+
+## Original re-verification instructions (superseded by the section above)
+
 ## ⚠️ Re-verify before implementing — this plan was written against a moving base
 
 Approved 2026-09-03 and **deliberately deferred**: at approval time **t1702** was
@@ -475,3 +547,88 @@ declared `risk_evaluated` gate, and archival.
 - timing: pre-phase | name: characterize_inprogress_state_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the AIT_GIT_INPROGRESS_STATES extraction rewrites two loops in the repo's most central shell library | desc: pin all six in-progress git states against assert_data_worktree_clean before and after the constant extraction
 - timing: after | name: skew_refusal_names_the_version | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — an un-upgraded destination is refused with dest_commit_unavailable and reads as a broken push | desc: name the destination's installed framework version in the dest_commit_unavailable result line and point at the syncer's Versions tab
 - timing: after | name: shared_metadata_write_mutex | type: enhancement | priority: medium | effort: high | inline_risk: high | added_complexity: high | addresses: goal-achievement — the compare-and-commit guard detects and refuses but does not exclude, so a concurrent edit in the target makes the push fail rather than succeed | desc: make every destination-repo metadata writer take a shared lib/stale_lock.sh lock around write-and-commit, upgrading cross-repo push from detect-and-refuse to real mutual exclusion
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven change sections landed as planned, plus the
+  pre-phase characterization test. `apply_push` now returns an `ApplyOutcome`
+  (never `None`), takes a preflight in the destination immediately before the
+  write, refuses all six mid-work states **without writing**, commits through
+  the destination's own `aitask_metadata_commit.sh` under a compare-and-commit
+  guard, and clears a requested `clear_mask` only when the project commit is
+  durable. `apply_push` moved out of `KNOWN_UNCOMMITTED` into `WIRED` with seam
+  token `commit_metadata(`, as the task required.
+
+- **Deviations from plan:**
+  1. **The preflight runs with `AIT_GIT_SKIP_STATE_CHECK=1`.** Not anticipated,
+     and load-bearing: `_is_ignored` uses `task_git check-ignore`, which is not
+     on `_ait_git_subcmd_is_readonly`'s allowlist, so `assert_data_worktree_clean`
+     would have **died** on exactly the wedged destination the preflight exists
+     to report. Bypassing the guard for a read-only mode preserves the single
+     resolution ladder rather than forking `_is_ignored`.
+  2. **The fixture became shared** (`tests/lib/branch_mode_repo.py`) instead of
+     inline. Two modules need the same branch-mode topology, and two copies of a
+     git fixture is the shape that drifts. Still not shared with
+     `test_settings_commit_on_save.py`, for the reason the plan gives (that one
+     `chdir`s; this seam's whole point is that cwd stays elsewhere — pinned by a
+     `tearDown` assertion).
+  3. **Three pre-existing `test_cross_repo_settings.py` tests were repaired,
+     not deleted.** They pinned the old unconditional-write contract against a
+     non-git fixture, so the new refusal correctly stopped them. Their real
+     subjects (clear-mask prune, keep-other-keys, project-before-clear ordering)
+     are all still true, so they were given a committable destination.
+  4. **§5 gained tests the plan did not list** (`ResultLineRenderingTests`), and
+     they caught two real defects in the first draft — see below.
+  5. **Two cases beyond the matrix:** a helper that exists but predates
+     `--preflight`, and every in-progress state walked from
+     `AIT_GIT_INPROGRESS_STATES` itself.
+
+- **Issues encountered:**
+  - The first renderer draft **leaked a raw `[Errno 2] No such file or
+    directory` at the user** for the version-skew refusal, and restated every
+    other refusal twice. Fixed: the mapped sentence is the whole user-facing
+    message, with one documented exception (a mid-operation refusal names the
+    state, which is the only thing telling the user which `--abort` to run).
+  - The first copy of the resolver stub **omitted the `AGENT_STRING:` protocol
+    prefix**, making every `effective` read as `None`. This is precisely the
+    drift a duplicated stub causes, so `make_repo` now delegates to the one
+    definition instead of carrying a copy.
+  - `allow_new` was initially derived with `any()` over the committable set —
+    the "one boolean for a batch" that `tui_conventions.md` explicitly forbids.
+    It is now derived from the single committable path, with an assertion that
+    fails loudly if a future change makes a second path committable.
+
+- **Key decisions:**
+  - **`--expect` sits before the EXIT trap is armed**, not merely before the
+    commit. At that point nothing has been staged, so a `REFUSED:changed` exit
+    trivially leaves the shared `.aitask-data` index untouched rather than
+    depending on the unwind path being correct.
+  - **`raced` is a distinct status from `refused`.** A race is a retryable fact
+    about the world; a refusal is a fact about the request. Reporting a race as
+    a rejection would tell the user their push was invalid when it was not.
+  - **A `PreflightResult` of `failed` is never treated as clean.** Requiring the
+    protocol's own `MODE:` line is what makes an older helper — which answers an
+    unknown flag with usage text and exit 0 — land in `failed` rather than
+    reading as a successful inspection of a healthy destination.
+  - **The seam never pushes**, and the result line says "not pushed" explicitly,
+    because a user who assumes otherwise will not go and push that repo.
+
+- **Verification:** new matrix 29 passed; `test_cross_repo_settings.py` 40;
+  `test_metadata_writer_inventory.py` 6; `test_settings_commit_on_save.py`
+  passed; `test_syncer_rows.py` 136; `test_metadata_commit_seam.sh` 98;
+  `test_task_git.sh` 105 (green before **and** after the constant extraction);
+  shellcheck clean against the HEAD baseline; `check_links.py --build` PASSED.
+  The full python suite passed; a later re-run failed only
+  `test_board_movement.py::…::test_attribution_tier_localises_an_injected_cost`
+  — a timing benchmark 2 ms over a 25 ms bound at load 4.66, which passes
+  standalone and whose own docstring documents this flake shape (t1510).
+  `lib/task_utils.sh` is not on that test's import path.
+
+  Four mutants were run, each caught by exactly the tests that should catch it:
+  dropping `REVERT_HEAD` from one in-progress loop (3 failures in
+  `test_task_git.sh`); dropping the step-4 re-read (write-side race test);
+  dropping `expect=holders` (commit-side race + raced-mask tests); dropping the
+  step-7 durability gate (both mask tests).
+
+- **Upstream defects identified:** None
+
