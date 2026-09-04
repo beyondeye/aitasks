@@ -65,6 +65,8 @@ from trail_discovery import (
 )
 from atomic_write import atomic_write_text
 from metadata_commit import commit_metadata, remedy_command
+from task_commit import commit_task_paths
+from task_commit import remedy_command as task_remedy_command
 from task_yaml import (
     _TaskSafeLoader, _FlowListDumper, _normalize_task_ids,
     FRONTMATTER_RE, BOARD_KEYS, BOARD_LAYOUT_KEYS,
@@ -621,6 +623,61 @@ def _task_git_cmd() -> list[str]:
     if DATA_WORKTREE.exists() and (DATA_WORKTREE / ".git").exists():
         return ["git", "-C", str(DATA_WORKTREE)]
     return ["git"]
+
+
+def _task_file_paths_for_ids(ids) -> list[str]:
+    """Resolve bare task ids ('10', '10_2', 't10_2') to their on-disk task files.
+
+    Globs rather than reading `TaskManager.task_datas`, so it is valid from
+    inside a thread worker and independent of what the board has loaded. A
+    parent id cannot match its own children: parents live in `aitasks/` and
+    children in `aitasks/t<parent>/`, so the two globs are disjoint.
+
+    Used to widen a scoped commit's pathspec to files the operation wrote as a
+    SIDE EFFECT — a parent's `children_to_implement`, a revived folded task —
+    which a pathspec naming only the doomed files would leave ownerless (t1702).
+    """
+    out: list[str] = []
+    for tid in ids or []:
+        bare = str(tid).lstrip("t")
+        if not bare:
+            continue
+        out.extend(sorted(glob.glob(str(TASKS_DIR / f"t{bare}_*.md"))))
+        out.extend(sorted(glob.glob(str(TASKS_DIR / "t*" / f"t{bare}_*.md"))))
+    return out
+
+
+def _task_commit_notice(result, message, paths, *, success_text, failure_lead):
+    """Map a `commit_task_paths` result to (text, severity) for a notification.
+
+    A failed commit is NEVER silent (t1677's rule, inherited here): the files are
+    already written or deleted on disk, so swallowing the failure recreates the
+    ownerless-dirty-file state `ait sync`'s pre-sync sweep quarantines. The error
+    text therefore always names the remedy command.
+    """
+    if result.status == "committed":
+        return success_text, "information"
+    if result.status in ("nochange", "skipped"):
+        return "Nothing to commit", "warning"
+    return (
+        f"{failure_lead} ({result.detail}). "
+        f"Clear it with: {task_remedy_command(message, paths)}",
+        "error",
+    )
+
+
+def _dedup_paths(*groups) -> list[str]:
+    """Flatten path groups, dropping repeats but preserving first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for group in groups:
+        for p in group or []:
+            sp = str(p)
+            if sp not in seen:
+                seen.add(sp)
+                out.append(sp)
+    return out
+
 
 def _sanitize_name(name: str) -> str:
     """Sanitize task name: lowercase, underscores, alphanumeric only, max 60 chars."""
@@ -13779,18 +13836,28 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
             folded_ids = [str(fid).lstrip("t") for fid in task.metadata.get("folded_tasks", [])]
             if task.filepath.parent.name.startswith("t"):
                 parent_num = task.filepath.parent.name
+        # Files this delete WRITES rather than removes: the parent's
+        # children_to_implement edit and each revived folded task. They must be in
+        # the commit's pathspec or the writes are left ownerless — measured: today
+        # they are left dirty-and-unstaged, because the index-wide commit only
+        # ever carried what `git rm` had staged (t1702).
+        extra_paths = _task_file_paths_for_ids(
+            ([parent_num] if parent_num else []) + list(folded_ids))
         self.push_screen(LoadingOverlay("Deleting task..."))
-        self._do_delete(task_num, paths_str, folded_ids, parent_num)
+        self._do_delete(task_num, paths_str, folded_ids, parent_num, extra_paths)
 
     @work(thread=True)
     def _do_delete(self, task_num: str, paths: list[str], folded_ids: list[str],
-                   parent_num: str | None):
+                   parent_num: str | None, extra_paths: list[str] | None = None):
         """Run delete subprocess in a thread worker.
 
         If parent_num is set, this is a child-task delete: the child is
         first removed from the parent's children_to_implement (so the
         parent's metadata stays consistent), and after the commit lands
         the parent is checked for orphan status to prompt archival.
+
+        `extra_paths` are files this delete WROTE (the parent, revived folded
+        tasks); they join the doomed paths in the scoped commit's pathspec.
         """
         try:
             # Decref the doomed tasks' attachments BEFORE any mutation, so a
@@ -13828,17 +13895,20 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                     capture_output=True, text=True, timeout=10
                 )
 
+            # Unlink, deliberately NOT `git rm`. `git rm` removes from the working
+            # tree AND FROM THE INDEX, parking staged deletions in the shared
+            # .aitask-data index for the whole window before this operation's own
+            # commit — where any concurrent index-wide commit publishes them under
+            # a foreign message. Scoping our commit closes the swallow in one
+            # direction; dropping the staging closes it in the other. The scoped
+            # `commit -o` records a tracked path's deletion straight from worktree
+            # state (verified), and an untracked one has nothing to commit and is
+            # dropped by the helper's classification. t1702
             for path in paths:
-                result = subprocess.run(
-                    [*_task_git_cmd(), "rm", "-f", path],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode != 0:
-                    # Fallback for untracked files
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
             # Remove empty child directories
             child_task_dir = TASKS_DIR / task_num
@@ -13854,15 +13924,15 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                 except OSError:
                     pass
 
-            result = subprocess.run(
-                [*_task_git_cmd(), "commit", "-m", f"ait: Delete task {task_num} and associated files"],
-                capture_output=True, text=True, timeout=15
+            message = f"ait: Delete task {task_num} and associated files"
+            commit_paths = _dedup_paths(paths, extra_paths)
+            result = commit_task_paths(message, commit_paths)
+            text, severity = _task_commit_notice(
+                result, message, commit_paths,
+                success_text=f"Deleted task {task_num}",
+                failure_lead=f"Task {task_num} deleted but NOT committed",
             )
-            if result.returncode == 0:
-                self.app.call_from_thread(self.notify, f"Deleted task {task_num}", severity="information")
-            else:
-                error = result.stderr.strip() or result.stdout.strip()
-                self.app.call_from_thread(self.notify, f"Delete commit failed: {error}", severity="error")
+            self.app.call_from_thread(self.notify, text, severity=severity)
         except subprocess.TimeoutExpired:
             self.app.call_from_thread(self.notify, "Git operation timed out", severity="error")
         except FileNotFoundError:
@@ -13947,36 +14017,28 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
                         new_filename: str):
         """Rename task/plan files, commit, and sync in a background thread."""
         try:
-            # Rename task file
+            # Rename task file (and the plan file if present). No `git add` here:
+            # the scoped commit stages the untracked NEW paths itself, and the
+            # tracked-and-now-missing OLD paths need no index entry — `commit -o`
+            # records their deletion from worktree state. Staging a tracked path
+            # would replace whatever a concurrent session had staged for it in the
+            # shared .aitask-data index. t1702
             old_task.rename(new_task)
+            commit_paths = [str(old_task), str(new_task)]
 
-            # Git add old (removal) and new task paths
-            subprocess.run(
-                [*_task_git_cmd(), "add", str(old_task), str(new_task)],
-                capture_output=True, text=True, timeout=10,
-            )
-
-            # Rename plan file if present
             if old_plan and new_plan:
                 old_plan.rename(new_plan)
-                subprocess.run(
-                    [*_task_git_cmd(), "add", str(old_plan), str(new_plan)],
-                    capture_output=True, text=True, timeout=10,
-                )
+                commit_paths += [str(old_plan), str(new_plan)]
 
             # Commit
             commit_msg = f"ait: Rename {task_num}: {humanized_name}"
-            result = subprocess.run(
-                [*_task_git_cmd(), "commit", "-m", commit_msg],
-                capture_output=True, text=True, timeout=15,
+            result = commit_task_paths(commit_msg, commit_paths)
+            text, severity = _task_commit_notice(
+                result, commit_msg, commit_paths,
+                success_text=f"Renamed to {new_filename}",
+                failure_lead=f"Renamed to {new_filename} but NOT committed",
             )
-            if result.returncode == 0:
-                self.app.call_from_thread(
-                    self.notify, f"Renamed to {new_filename}", severity="information")
-            else:
-                error = result.stderr.strip() or result.stdout.strip()
-                self.app.call_from_thread(
-                    self.notify, f"Commit failed: {error}", severity="error")
+            self.app.call_from_thread(self.notify, text, severity=severity)
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             self.app.call_from_thread(
                 self.notify, f"Rename failed: {e}", severity="error")
@@ -14001,22 +14063,21 @@ class KanbanApp(TuiSwitcherMixin, ShortcutsMixin, App):
 
     @work(thread=True)
     def _do_git_commit_tasks(self, filepaths: list[str], count: int, message: str, refocus: str):
-        """Run git add+commit in a thread worker."""
+        """Run the scoped task-file commit in a thread worker.
+
+        Scoped to the task files the dialog listed, so a dirty PLAN file no
+        longer rides along — that is the intended bystander exclusion, and the
+        message names tasks. No `git add` loop: the seam stages an untracked new
+        task file and leaves tracked ones alone. t1702
+        """
         try:
-            for fp in filepaths:
-                subprocess.run(
-                    [*_task_git_cmd(), "add", fp],
-                    capture_output=True, text=True, timeout=10
-                )
-            result = subprocess.run(
-                [*_task_git_cmd(), "commit", "-m", message],
-                capture_output=True, text=True, timeout=15
+            result = commit_task_paths(message, filepaths)
+            text, severity = _task_commit_notice(
+                result, message, filepaths,
+                success_text=f"Committed {count} file(s)",
+                failure_lead="Changes NOT committed",
             )
-            if result.returncode == 0:
-                self.app.call_from_thread(self.notify, f"Committed {count} file(s)", severity="information")
-            else:
-                error = result.stderr.strip() or result.stdout.strip()
-                self.app.call_from_thread(self.notify, f"Commit failed: {error}", severity="error")
+            self.app.call_from_thread(self.notify, text, severity=severity)
         except subprocess.TimeoutExpired:
             self.app.call_from_thread(self.notify, "Git commit timed out", severity="error")
         except FileNotFoundError:

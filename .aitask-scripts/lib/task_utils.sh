@@ -375,6 +375,90 @@ task_git_commit_scoped() {
     task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null || return 1
 }
 
+# --- Scoped commit with owned staging (t1702) ---
+#
+# Paths THIS invocation staged, in order. A GLOBAL rather than a local, so a
+# caller can arm `trap 'ait_unstage_staged_by_us' EXIT` before its first call and
+# still unwind a run that dies mid-flight — assert_data_worktree_clean EXITS the
+# process, and an entry left in the shared .aitask-data index is worse than a
+# dirty file: it is invisible to `ait sync`'s ownerless report and rides along in
+# whoever commits next.
+# shellcheck disable=SC2034  # read by ait_unstage_staged_by_us / callers' traps
+AIT_STAGED_BY_US=()
+
+# ait_unstage_staged_by_us — the ONE cleanup path, used by every failure exit and
+# by the callers' EXIT traps. Every recorded entry was verified untracked before
+# staging, so the reset has no HEAD version to restore. Idempotent: it empties
+# the list, so a trap firing after an explicit cleanup is a no-op.
+ait_unstage_staged_by_us() {
+    (( ${#AIT_STAGED_BY_US[@]} )) || return 0
+    task_git reset -q -- "${AIT_STAGED_BY_US[@]}" >/dev/null 2>&1 || true
+    AIT_STAGED_BY_US=()
+}
+
+# ait_commit_paths_staging_untracked <msg> <path>... — commit exactly these
+# paths, staging ONLY the ones git does not track yet and unstaging exactly those
+# again on ANY failure.
+# Returns 0 = committed, 2 = verified nothing to commit, 1 = failed.
+#
+# The .aitask-data index is SHARED by every session on the machine, so an
+# unconditional `add` of a TRACKED path can replace an entry another session
+# staged. `commit -o` takes worktree content and needs no staging for a tracked
+# path (verified: a tracked-but-deleted path commits its deletion with an empty
+# index), so only an UNTRACKED path is ever added — and only because a pathspec
+# cannot name a file git does not know (verified: `commit -o -- <untracked>`
+# fails with "did not match any file(s) known to git").
+#
+# Two rules make the cleanup total, because a partial staging run and an aborted
+# process leave the same wreckage:
+#   1. Pre-flight the abort. assert_data_worktree_clean treats add/commit/reset as
+#      non-readonly and DIES — exiting the process — while ls-files is readonly.
+#      The first `add` is therefore the first call that can abort, and it can
+#      abort mid-loop. Calling the guard up front lands that die with nothing
+#      staged.
+#   2. Fail fast, then clean. A failing `add` cleans up and returns immediately
+#      rather than continuing into a commit that could not succeed anyway.
+# The residue — a signal, or an exit this function cannot foresee — is covered by
+# the caller's EXIT trap.
+ait_commit_paths_staging_untracked() {
+    local msg="$1"; shift
+    # Load-bearing, same as in task_git_commit_scoped: an empty pathspec is what
+    # makes `git commit` take the whole shared index.
+    (( $# )) || return 2
+
+    assert_data_worktree_clean commit
+
+    local p rc=0
+    for p in "$@"; do
+        task_git ls-files --error-unmatch -- "$p" >/dev/null 2>&1 && continue
+        # Record ownership BEFORE the mutating `add`, never after. A signal
+        # landing in between would otherwise run the EXIT trap with an empty
+        # ownership list, leaving a path git has ALREADY staged in the shared
+        # index for someone else's commit to collect (reproduced: a shim that
+        # signals right after the real `add` left the file staged).
+        #
+        # Over-recording is free: this can only name a path whose `add` then
+        # failed, and `git reset -- <paths>` tolerates a path it never staged —
+        # verified rc 0, the genuinely staged entries in the same set are still
+        # unstaged, and the worktree is untouched.
+        AIT_STAGED_BY_US+=("$p")
+        if ! task_git add -- "$p" >/dev/null 2>&1; then
+            ait_unstage_staged_by_us
+            return 1
+        fi
+    done
+
+    task_git_commit_scoped --no-stage "$msg" "$@" || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        ait_unstage_staged_by_us
+    else
+        # The commit consumed them (verified: the index is clean for the
+        # committed paths afterwards, and a foreign entry is untouched).
+        AIT_STAGED_BY_US=()
+    fi
+    return $rc
+}
+
 # --- Shared metadata commits (t1677) ---
 
 # ait_metadata_commit_message <path>... — the commit subject for a shared

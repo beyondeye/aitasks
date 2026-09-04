@@ -404,6 +404,35 @@ ownerless-dirty-file state this rule exists to prevent.
 list, a last-selected item, a collapsed-set — put it in the `*.local.json` layer
 rather than committing it on every navigation.
 
+## Task and plan files: commit them path-scoped, and stage nothing you need not
+
+The same rule as above, for `aitasks/` and `aiplans/` rather than
+`aitasks/metadata/`. Always through
+`./.aitask-scripts/aitask_task_commit.sh` (Python:
+`lib/task_commit.commit_task_paths`), never a hand-rolled
+`subprocess.run([..., "commit", ...])`. A bare `git commit` takes the **whole
+shared `.aitask-data` index**, which every session on the machine writes to, so
+it publishes another session's staged work under your message (t1702; t1599 for
+the shell half).
+
+**Name every file the operation WROTE, not only the ones it removed.** A board
+delete also rewrites the parent's `children_to_implement` and revives each folded
+task; those go in the pathspec too. A write left out is an ownerless dirty file,
+which `ait sync`'s pre-sync sweep refuses to attribute and therefore defers
+forever.
+
+**Scoping the commit is only half of it.** `git rm` removes from the working tree
+**and from the index**, parking staged deletions in the shared index for the
+whole window before your own commit — where anyone's index-wide commit collects
+them. Delete from the worktree (`os.remove`) and let the scoped `commit -o`
+record the deletion from worktree state; it needs no index entry for a tracked
+path. Staging is unavoidable only for an *untracked* path, because a pathspec
+cannot name a file git does not know, and that residue is unwound on any failure
+(`ait_unstage_staged_by_us`, armed as the helper script's EXIT trap).
+
+**Still never push, and a failed commit must never be silent** — same reasons as
+above; render the remedy from `task_commit.remedy_command`.
+
 ## Contextual-footer ordering: keep uppercase sibling adjacent to its lowercase primary
 
 When a pane's footer includes both a lowercase primary action (e.g., `d` =

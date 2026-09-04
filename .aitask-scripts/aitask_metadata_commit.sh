@@ -87,7 +87,7 @@ main() {
         return 2
     fi
 
-    local -a paths=() staged_by_us=()
+    local -a paths=()
     local p
 
     for p in "$@"; do
@@ -133,31 +133,18 @@ main() {
     local msg
     msg="$(ait_metadata_commit_message "${paths[@]}")"
 
-    # Stage ONLY the untracked paths — a pathspec cannot name a file git does not
-    # know about, so they have no alternative, while a tracked path needs no
-    # staging at all because `commit -o` takes worktree content. Recording what we
-    # staged is what lets the failure path unstage OUR entries and nobody else's;
-    # the .aitask-data index is shared by every session on this machine.
-    for p in "${paths[@]}"; do
-        if ! _is_tracked "$p"; then
-            if task_git add -- "$p" >/dev/null 2>&1; then
-                staged_by_us+=("$p")
-            fi
-        fi
-    done
+    # Staging, committing and the unstage-on-failure cleanup live once, in
+    # lib/task_utils.sh::ait_commit_paths_staging_untracked (t1702) — this script
+    # and aitask_task_commit.sh both need them, and duplicating logic this subtle
+    # is how one copy silently drifts. The trap is armed HERE rather than inside
+    # the library so it cannot clobber a caller's own EXIT trap; it covers the
+    # exits the function itself cannot (a `die` inside task_git, or a signal —
+    # measured: bash runs an EXIT trap on a fatal SIGTERM too, so EXIT alone
+    # covers a killed run and no INT/TERM handler is needed).
+    trap 'ait_unstage_staged_by_us' EXIT
 
     local rc=0
-    task_git_commit_scoped --no-stage "$msg" "${paths[@]}" || rc=$?
-
-    if [[ $rc -ne 0 ]]; then
-        # A path left STAGED is worse than a dirty one: it is invisible to the
-        # ownerless report and rides along in the next index-wide commit. Scope
-        # the cleanup to entries this invocation created — every one was verified
-        # untracked before staging, so the reset has no HEAD version to restore.
-        if (( ${#staged_by_us[@]} )); then
-            task_git reset -q -- "${staged_by_us[@]}" >/dev/null 2>&1 || true
-        fi
-    fi
+    ait_commit_paths_staging_untracked "$msg" "${paths[@]}" || rc=$?
 
     case "$rc" in
         0) printf 'COMMITTED:%d:%s\n' "${#paths[@]}" "$msg"; return 0 ;;
