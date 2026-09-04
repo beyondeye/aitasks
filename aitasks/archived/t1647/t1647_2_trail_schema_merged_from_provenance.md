@@ -1,9 +1,11 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: low
 depends: [t1647_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [trails, artifacts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -14,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1647
 implemented_with: claudecode/opus5
 created_at: 2026-09-01 18:49
-updated_at: 2026-09-04 13:02
+updated_at: 2026-09-04 16:30
+completed_at: 2026-09-04 16:30
 ---
 
 ## Context
@@ -91,3 +94,17 @@ marker-matches-authoring and lite shape; do not touch it.
   → VALID.
 
 Parent plan: `aiplans/p1647_merge_trails_skill_shared_helpers_board_command_docs.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **🔄 gate:risk_evaluated** run=2026-09-04T13:30:29Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e9bb67cabddbf2b0
+
+> **✅ gate:risk_evaluated** run=2026-09-04T13:30:29Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1647_2/risk_evaluated_2026-09-04T13:30:29Z-risk_evaluated-a1.log`
