@@ -2380,6 +2380,13 @@ class WrapperIntegrationTests(TrailGatherCase):
         subprocess.run(["git", "config", "user.name", "t"],
                        cwd=self.repo.root, check=True)
         self.repo.write_task("100", "root")
+        # `ait artifact create` STAGES the owner's task file, and since t1698 it
+        # refuses to start when a path it would stage has uncommitted changes —
+        # otherwise its commit absorbs whatever edit was in flight. write_task
+        # leaves t100 untracked, so commit it before the create below.
+        subprocess.run(["git", "add", "-A"], cwd=self.repo.root, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture: tasks"],
+                       cwd=self.repo.root, check=True)
         snap = self.snapshot("--scope", "task", "100")
         trail = self.make_trail(snap)
         create = subprocess.run(

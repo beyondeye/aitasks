@@ -51,6 +51,8 @@ source "$SCRIPT_DIR/lib/attachment_meta.sh"
 source "$SCRIPT_DIR/lib/artifact_manifest.sh"
 # shellcheck source=lib/artifact_registry.sh
 source "$SCRIPT_DIR/lib/artifact_registry.sh"
+# shellcheck source=lib/txn_snapshot.sh
+source "$SCRIPT_DIR/lib/txn_snapshot.sh"
 
 KIND_RE='^[a-z][a-z0-9_]{0,31}$'
 HANDLE_RE='^art:[a-z0-9][a-z0-9._-]{0,127}$'
@@ -76,6 +78,11 @@ artifact manifest and never rewrite the task file.
                                                Fetch the current (or a specific) version.
   versions <handle>                            List versions oldest-first (* = current).
   help                                         Show this help.
+
+These verbs stage whole paths, so they REFUSE to start when a path they would
+commit (the task file, an attachment meta JSON, an artifact manifest) already
+has uncommitted changes — otherwise the commit would absorb your edit. Commit or
+revert that path first. Blobs are content-addressed and never checked.
 
 <task> accepts a parent id (e.g. 16) or a child id (e.g. 16_2), with or without
 the leading `t`. <kind> classifies the render type (html_plan, mockup, report,
@@ -232,6 +239,7 @@ cmd_create() {
 # _artifact_create_txn -- the full create transaction (runs under the lock).
 _artifact_create_txn() {
     local task_id="$1" task_file="$2" file="$3" kind="$4" name="$5" handle="$6" backend="$7"
+    txn_begin "ait artifact create"
     # Registry membership + config validation — dies actionably pre-mutation.
     artifact_registry_activate "$backend"
 
@@ -267,6 +275,19 @@ _artifact_create_txn() {
     local blob_pre=false
     artifact_backend_head "$hash" && blob_pre=true
 
+    local manifest_rel; manifest_rel="$(artifact_manifest_relpath "$handle")"
+
+    # Transaction boundary (t1698). Both NON-BLOB paths this stages are checked
+    # for pre-existing dirt (whole-path staging would otherwise absorb it) and
+    # snapshotted, so any abort below restores their pre-transaction bytes and
+    # index entries rather than HEAD.
+    txn_require_clean "ait artifact create" "$task_file"
+    txn_require_clean "ait artifact create" "$manifest_rel"
+    txn_snap_add "$task_file"
+    txn_snap_add "$manifest_rel"
+    _ARTIFACT_TXN_HASH="$hash"; _ARTIFACT_TXN_BACKEND="$backend"; _ARTIFACT_TXN_BLOB_PRE="$blob_pre"
+    txn_on_rollback _artifact_rollback_create_blobs
+
     # Store blob (idempotent atomic put + presence verify) and warm the cache
     # from the verified local bytes — the write-back wrapper (design §5).
     artifact_store "$hash" "$file"
@@ -287,42 +308,41 @@ _artifact_create_txn() {
     # Commit the trio (blob + manifest + task) as one path-scoped commit.
     # Only local-backend blobs live on the data branch; other backends hold
     # their blobs outside git, so only manifest + task file are staged.
-    local manifest_rel commit_paths=()
-    manifest_rel="$(artifact_manifest_relpath "$handle")"
+    local commit_paths=()
     [[ "$backend" == "local" ]] && commit_paths+=( "$(artifact_local_blob_relpath "$hash")" )
     commit_paths+=( "$manifest_rel" "$task_file" )
     if ! _artifact_commit "ait: Create artifact ${handle} on t${task_id}" \
             "${commit_paths[@]}"; then
-        _artifact_rollback_create "$task_file" "$manifest_rel" "$handle" "$backend" "$hash" "$blob_pre"
-        die "ait artifact create: commit failed — rolled back to pre-create state"
+        txn_abort "ait artifact create: commit failed — rolled back to pre-create state"
     fi
+    txn_end
     success "Created artifact ${handle} (v1 ${hash}) on t${task_id}"
     printf 'HANDLE:%s\n' "$handle"
 }
 
-# _artifact_rollback_create -- restore HEAD copies of pre-existing files and
-# remove newly-created ones, so a failed commit leaves no drift (under lock).
-# The txn's backend activation is still in effect, so backend_delete routes
-# to the same backend the blob was put on.
-_artifact_rollback_create() {
-    local task_file="$1" manifest_rel="$2" handle="$3" backend="$4" hash="$5" blob_pre="$6"
-    # Task .md always pre-exists -> unstage + restore from HEAD.
-    task_git reset -q -- "$task_file" >/dev/null 2>&1 || true
-    task_git checkout -- "$task_file" >/dev/null 2>&1 || true
-    # Manifest: create dies on pre-existing, so it is always new here -> delete.
-    task_git reset -q -- "$manifest_rel" >/dev/null 2>&1 || true
-    rm -f "$(artifact_manifest_dir)/${handle#art:}.json"
-    # Blob: only created this op -> unstage (local only — nothing staged for
-    # other backends) + delete from the backend.
-    if [[ "$blob_pre" == false ]]; then
-        if [[ "$backend" == "local" ]]; then
-            task_git reset -q -- "$(artifact_local_blob_relpath "$hash")" >/dev/null 2>&1 || true
-        fi
-        # Best-effort: a rollback runs on the already-failing path, so there is
-        # nothing left to abort and a leftover blob is gc-reclaimable. Explicit
-        # `|| true` so this reads as intent, not as the t1675 swallow.
-        artifact_backend_delete "$hash" || true
+# _artifact_rollback_create_blobs -- the BLOB half of create's rollback,
+# registered with txn_on_rollback. The task file AND the manifest are restored
+# by the snapshot: the manifest is always new here (create dies on a
+# pre-existing one), and the snapshot represents absence explicitly, so restore
+# deletes it — the old hand-rolled `rm -f` is no longer needed.
+#
+# Reads FILE-SCOPE globals, never the dying frame's locals: it runs from the
+# EXIT trap. The txn's backend activation is still in effect, so
+# artifact_backend_delete routes to the backend the blob was put on.
+_ARTIFACT_TXN_HASH=""
+_ARTIFACT_TXN_BACKEND="local"
+_ARTIFACT_TXN_BLOB_PRE=true
+_artifact_rollback_create_blobs() {
+    [[ "$_ARTIFACT_TXN_BLOB_PRE" == false ]] || return 0
+    if [[ "$_ARTIFACT_TXN_BACKEND" == "local" ]]; then
+        task_git reset -q -- "$(artifact_local_blob_relpath "$_ARTIFACT_TXN_HASH")" >/dev/null 2>&1 \
+            || txn_rollback_failed "index: the blob path for ${_ARTIFACT_TXN_HASH} (still staged)"
     fi
+    # RECORDED, not swallowed (t1698): the rollback's verdict is derived from
+    # what is recorded, so a silent failure here would let the caller announce a
+    # complete rollback while a blob this transaction created survives.
+    artifact_backend_delete "$_ARTIFACT_TXN_HASH" \
+        || txn_rollback_failed "blob ${_ARTIFACT_TXN_HASH} on backend ${_ARTIFACT_TXN_BACKEND} — created by this transaction and could not be deleted"
 }
 
 # ── Verb: update ─────────────────────────────────────────────────────────────
@@ -351,6 +371,7 @@ _artifact_update_txn() {
         return 0
     fi
 
+    txn_begin "ait artifact update"
     local backend
     backend="$(_artifact_manifest_backend "$handle")" \
         || die "ait artifact update: cannot read backend for ${handle}"
@@ -367,6 +388,18 @@ _artifact_update_txn() {
     local blob_pre=false
     artifact_backend_head "$hash" && blob_pre=true
 
+    local manifest_rel; manifest_rel="$(artifact_manifest_relpath "$handle")"
+
+    # Transaction boundary (t1698). The manifest is the ONLY non-blob path this
+    # stages — `update` never touches a task file (the stable-handle /
+    # mutable-manifest split), so a dirty task file must NOT block it. That
+    # narrowing is asserted in tests/test_attach_txn_worktree_isolation.sh
+    # rather than assumed.
+    txn_require_clean "ait artifact update" "$manifest_rel"
+    txn_snap_add "$manifest_rel"
+    _ARTIFACT_TXN_HASH="$hash"; _ARTIFACT_TXN_BACKEND="$backend"; _ARTIFACT_TXN_BLOB_PRE="$blob_pre"
+    txn_on_rollback _artifact_rollback_create_blobs
+
     # Write-back: put + presence verify + warm cache from local bytes (§5).
     artifact_store "$hash" "$file"
     # Unchecked, this reported `current is now <hash>` at exit 0 while `current`
@@ -374,19 +407,12 @@ _artifact_update_txn() {
     artifact_manifest set-current "$handle" "$hash" \
         || die "ait artifact update: could not repoint ${handle} to ${hash} (nothing committed)"
 
-    local manifest_rel commit_paths=()
-    manifest_rel="$(artifact_manifest_relpath "$handle")"
-    commit_paths=( "$manifest_rel" )
+    local commit_paths=( "$manifest_rel" )
     [[ "$backend" == "local" ]] && commit_paths+=( "$(artifact_local_blob_relpath "$hash")" )
     if ! _artifact_commit "ait: Update artifact ${handle}" "${commit_paths[@]}"; then
-        # Manifest pre-exists -> restore from HEAD; blob only if newly created.
-        task_git reset -q -- "${commit_paths[@]}" >/dev/null 2>&1 || true
-        task_git checkout -- "$manifest_rel" >/dev/null 2>&1 || true
-        if [[ "$blob_pre" == false && "$backend" == "local" ]]; then
-            artifact_backend_delete "$hash" || true   # best-effort: already aborting
-        fi
-        die "ait artifact update: commit failed — rolled back"
+        txn_abort "ait artifact update: commit failed — rolled back"
     fi
+    txn_end
     success "Updated artifact ${handle} — current is now ${hash}"
 }
 
@@ -413,6 +439,20 @@ cmd_move() {
 # non-destructive (source blobs stay — recoverable / shared-store safe),
 # resumable (a re-run after any failure converges; a same-backend re-run is a
 # clean no-op), and no task-file path is ever staged (stable-handle split).
+# _artifact_rollback_move_blobs -- the BLOB half of move's rollback: delete only
+# the TARGET blobs this move created (pre-existing target blobs stay). Recorded
+# rather than swallowed, so a leaked copy cannot hide behind a clean-rollback
+# claim. Reads file-scope globals — it runs from the EXIT trap.
+_ARTIFACT_TXN_NEW_HASHES=()
+_artifact_rollback_move_blobs() {
+    (( ${#_ARTIFACT_TXN_NEW_HASHES[@]} )) || return 0
+    local nh
+    for nh in "${_ARTIFACT_TXN_NEW_HASHES[@]}"; do
+        artifact_backend_delete "$nh" \
+            || txn_rollback_failed "blob ${nh} on backend ${_ARTIFACT_TXN_BACKEND} — copied there by this move and could not be deleted"
+    done
+}
+
 _artifact_move_txn() {
     local handle="$1" target="$2" source
     source="$(_artifact_manifest_backend "$handle")" \
@@ -421,8 +461,24 @@ _artifact_move_txn() {
         success "Artifact ${handle} is already on backend '${target}' — nothing to do"
         return 0
     fi
+    # AFTER the no-op return, as in _artifact_update_txn: a callback that
+    # `return`s does not reach txn_end, and with_attach_lock's release clears the
+    # EXIT trap, so opening a transaction above this point would leak the
+    # snapshot directory on every no-op move.
+    txn_begin "ait artifact move"
     # Validate the TARGET first: dies pre-mutation if unregistered/misconfigured.
     artifact_registry_activate "$target"
+
+    # Transaction boundary (t1698). Like `update`, `move` stages the manifest
+    # and (for a local target) blobs — never a task file, so a dirty task file
+    # must not block it. Placed after the same-backend no-op return above, which
+    # stages nothing.
+    local manifest_rel; manifest_rel="$(artifact_manifest_relpath "$handle")"
+    txn_require_clean "ait artifact move" "$manifest_rel"
+    txn_snap_add "$manifest_rel"
+    _ARTIFACT_TXN_NEW_HASHES=()
+    _ARTIFACT_TXN_BACKEND="$target"
+    txn_on_rollback _artifact_rollback_move_blobs
 
     # Hoisted out of the process substitution: its status is unobservable there,
     # so a failed read produced an EMPTY list and was misreported below as
@@ -449,10 +505,10 @@ _artifact_move_txn() {
     # load-bearing; backend CONTENT correctness is owned by dir-put's
     # pre-existing-dest verification / local resolve's canonical check).
     # Track per-version pre-existence so rollback deletes only what WE created.
-    local i commit_paths=() new_hashes=()
+    local i commit_paths=()
     artifact_registry_activate "$target"
     for i in "${!versions[@]}"; do
-        artifact_backend_head "${versions[$i]}" || new_hashes+=( "${versions[$i]}" )
+        artifact_backend_head "${versions[$i]}" || _ARTIFACT_TXN_NEW_HASHES+=( "${versions[$i]}" )
         artifact_backend_put "${versions[$i]}" "${srcs[$i]}" \
             || die "ait artifact move: put failed for ${versions[$i]} on '${target}'"
         artifact_backend_head "${versions[$i]}" \
@@ -467,20 +523,15 @@ _artifact_move_txn() {
     # the ledger never moved (t1675).
     artifact_manifest set-backend "$handle" "$target" \
         || die "ait artifact move: could not repoint ${handle} to backend '${target}'"
-    local manifest_rel; manifest_rel="$(artifact_manifest_relpath "$handle")"
     commit_paths+=( "$manifest_rel" )
     if ! _artifact_commit "ait: Move artifact ${handle} to backend ${target}" "${commit_paths[@]}"; then
-        # Restore HEAD state fully: unstage everything, restore the manifest,
-        # and delete only the target blobs THIS move created (pre-existing
-        # target blobs stay). Target activation is still in effect.
-        task_git reset -q -- "${commit_paths[@]}" >/dev/null 2>&1 || true
-        task_git checkout -- "$manifest_rel" >/dev/null 2>&1 || true
-        local nh
-        for nh in ${new_hashes[@]+"${new_hashes[@]}"}; do
-            artifact_backend_delete "$nh" || true
-        done
-        die "ait artifact move: commit failed — manifest and target backend restored to pre-move state, re-run to retry"
+        # The manifest comes back from the SNAPSHOT (pre-transaction bytes and
+        # index entry, so a caller's dirty manifest is not clobbered); the
+        # target blobs this move created are deleted by the registered hook,
+        # whose target activation is still in effect.
+        txn_abort "ait artifact move: commit failed — manifest and target backend restored to pre-move state, re-run to retry"
     fi
+    txn_end
     success "Moved ${handle} to backend '${target}' (${#versions[@]} version(s) copied; source blobs on '${source}' were NOT deleted)"
 }
 
@@ -494,8 +545,27 @@ cmd_remove() {
     with_attach_lock _artifact_rm_txn "$task_id" "$task_file" "$ref"
 }
 
+# _artifact_rollback_rm_blobs -- the BLOB half of rm's rollback: rm is
+# destructive (it sweeps orphaned version blobs), so the hook puts them back
+# from HEAD. Recorded rather than swallowed: a blob that does not come back is
+# GONE, which before t1698 was announced as a clean rollback.
+_ARTIFACT_TXN_SWEPT_BLOBS=()
+_artifact_rollback_rm_blobs() {
+    (( ${#_ARTIFACT_TXN_SWEPT_BLOBS[@]} )) || return 0
+    task_git reset -q -- "${_ARTIFACT_TXN_SWEPT_BLOBS[@]}" >/dev/null 2>&1 \
+        || txn_rollback_failed "index: ${_ARTIFACT_TXN_SWEPT_BLOBS[*]} (still staged)"
+    local b
+    for b in "${_ARTIFACT_TXN_SWEPT_BLOBS[@]}"; do
+        task_git checkout -- "$b" >/dev/null 2>&1 \
+            || txn_rollback_failed "blob $b — swept by this removal and NOT restored; recover it with 'git checkout HEAD -- $b'"
+    done
+}
+
 _artifact_rm_txn() {
     local task_id="$1" task_file="$2" ref="$3"
+    txn_begin "ait artifact rm"
+    _ARTIFACT_TXN_SWEPT_BLOBS=()
+    txn_on_rollback _artifact_rollback_rm_blobs
     local handle
     handle="$(_artifact_resolve_ref "$task_file" "$ref")" \
         || die "ait artifact rm: no artifact matching '$ref' on t${task_id}"
@@ -523,6 +593,14 @@ _artifact_rm_txn() {
             || die "ait artifact rm: cannot read backend for ${handle}"
     fi
 
+    # Transaction boundary (t1698). The task file is staged on EVERY branch
+    # below, so it is checked here, before the first mutation. The manifest is
+    # staged only on the last-reference branch, so its own check lives there —
+    # requiring it clean on the stale-reference and referenced-elsewhere
+    # branches would refuse operations that never touch it.
+    txn_require_clean "ait artifact rm" "$task_file"
+    txn_snap_add "$task_file"
+
     require_python >/dev/null
     "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" remove "$task_file" artifacts \
         --match-key handle --match-val "$handle" \
@@ -531,10 +609,9 @@ _artifact_rm_txn() {
     if [[ -z "$manifest_json" ]]; then
         warn "manifest for ${handle} is missing — removing the stale frontmatter reference only"
         if ! _artifact_commit "ait: Remove stale artifact reference ${handle} from t${task_id}" "$task_file"; then
-            task_git reset -q -- "$task_file" >/dev/null 2>&1 || true
-            task_git checkout -- "$task_file" >/dev/null 2>&1 || true
-            die "ait artifact rm: commit failed — rolled back"
+            txn_abort "ait artifact rm: commit failed — rolled back"
         fi
+        txn_end
         success "Removed stale artifact reference ${handle} from t${task_id}"
         return 0
     fi
@@ -546,10 +623,9 @@ _artifact_rm_txn() {
         || die "ait artifact rm: could not scan for other references to ${handle}"
     if [[ -n "$other" ]]; then
         if ! _artifact_commit "ait: Remove artifact ${handle} from t${task_id}" "$task_file"; then
-            task_git reset -q -- "$task_file" >/dev/null 2>&1 || true
-            task_git checkout -- "$task_file" >/dev/null 2>&1 || true
-            die "ait artifact rm: commit failed — rolled back"
+            txn_abort "ait artifact rm: commit failed — rolled back"
         fi
+        txn_end
         success "Removed artifact ${handle} from t${task_id}; manifest kept (still referenced by ${other})"
         return 0
     fi
@@ -562,7 +638,19 @@ _artifact_rm_txn() {
     local manifest_rel manifest_path
     manifest_rel="$(artifact_manifest_relpath "$handle")"
     manifest_path="$(artifact_manifest_dir)/${handle#art:}.json"
-    rm -f "$manifest_path"
+    # The manifest is staged from HERE on, so this is where its own boundary
+    # check belongs — immediately before the delete that is its first mutation.
+    txn_require_clean "ait artifact rm" "$manifest_rel"
+    txn_snap_add "$manifest_rel"
+    # `|| die` is LOAD-BEARING, not defensive. errexit is suppressed in here, so
+    # an unchecked failure continued into the commit: `git add` on a still-present
+    # manifest stages it UNCHANGED, the task-file edit committed anyway, and the
+    # verb printed "manifest deleted" at exit 0 — leaving an orphan manifest that
+    # no task references and `ait attach gc` can never see past. Measured against
+    # a read-only manifests/ directory before this guard existed. Dying hands the
+    # armed transaction trap the job of restoring both paths.
+    rm -f "$manifest_path" \
+        || die "ait artifact rm: could not delete the manifest for ${handle} (nothing committed)"
 
     local del_paths=( "$task_file" "$manifest_rel" )
     local swept=0
@@ -577,15 +665,14 @@ _artifact_rm_txn() {
             # be re-run once the named manifest is repaired. (Computing the
             # scan before mutation is not an option: it would include this
             # doomed manifest's own hashes and block the whole sweep.)
-            task_git reset -q -- "$task_file" "$manifest_rel" >/dev/null 2>&1 || true
-            task_git checkout -- "$task_file" "$manifest_rel" >/dev/null 2>&1 || true
-            die "ait artifact rm: could not compute remaining manifest references (see the malformed-manifest error above) — rolled back; repair that manifest and re-run"
+            txn_abort "ait artifact rm: could not compute remaining manifest references (see the malformed-manifest error above) — rolled back; repair that manifest and re-run"
         fi
         for h in ${versions[@]+"${versions[@]}"}; do
             [[ -f "$(attach_meta_dir)/$(artifact_shard_path "$h").json" ]] && continue
             printf '%s\n' "$remaining" | grep -qxF "$h" && continue
             artifact_backend_delete "$h" \
                 || die "ait artifact rm: could not delete the orphaned blob $h"
+            _ARTIFACT_TXN_SWEPT_BLOBS+=( "$(artifact_local_blob_relpath "$h")" )
             del_paths+=( "$(artifact_local_blob_relpath "$h")" )
             swept=$((swept + 1))
         done
@@ -594,10 +681,9 @@ _artifact_rm_txn() {
     fi
 
     if ! _artifact_commit "ait: Remove artifact ${handle} from t${task_id}" "${del_paths[@]}"; then
-        task_git reset -q -- "${del_paths[@]}" >/dev/null 2>&1 || true
-        task_git checkout -- "${del_paths[@]}" >/dev/null 2>&1 || true
-        die "ait artifact rm: commit failed — rolled back"
+        txn_abort "ait artifact rm: commit failed — rolled back"
     fi
+    txn_end
     success "Removed artifact ${handle} from t${task_id} (manifest deleted, ${swept} orphan blob(s) swept; recoverable from data-branch history)"
 }
 

@@ -20,10 +20,22 @@
 #     catches the shapes it claims to.
 #
 # NOT ASSERTED HERE, deliberately: the on-disk state left behind after a
-# transaction aborts. These guards stop a failure being reported as SUCCESS;
-# the residual working-tree drift, and the transaction-boundary defects around
-# it, belong to t1698. Asserting a clean worktree here would silently require
-# the rollback work that task owns.
+# transaction aborts. These guards stop a failure being reported as SUCCESS; the
+# residual working-tree drift, and the transaction-boundary defects around it,
+# are t1698's and are pinned in tests/test_attach_txn_worktree_isolation.sh —
+# one post-mutation state pin per rollback-hook shape, plus the dirty-path
+# preflight.
+#
+# Two consequences of that split are visible in this file, and both are load
+# bearing rather than incidental:
+#
+#   * A1 and A7 leave a mutated meta JSON behind PRE-t1698. Post-t1698 their
+#     rollback removes it, which is why the reruns further down (A2's `rm`, the
+#     A12 controls) are not refused by the new dirty-path preflight. If they
+#     ever ARE refused, the rollback is not firing on the `die` path — do not
+#     "fix" that with a hygiene line, diagnose the EXIT-trap chain.
+#   * A8b asserts the ABSENCE of the orphan-manifest hygiene this file used to
+#     need. See its comment.
 #
 # Fault injection uses the documented AIT_PYTHON override (python_resolve.sh
 # resolution order, rung 1) with a passthrough shim that fails exactly one
@@ -236,13 +248,15 @@ pin "artifact-create/frontmatter-append" "Created artifact"
 assert_not_contains "artifact-create: no artifacts entry reaches HEAD" \
     "artifacts:" "$(git show HEAD:aitasks/t5_demo.md)"
 
-# Fixture hygiene, and itself a demonstration of what t1698 owns: A8 aborted
-# AFTER `artifact_manifest create` succeeded, so an uncommitted orphan manifest
-# is left on disk. Nothing here rolls that back (t1675 stops the false success,
-# not the drift), and leaving it would make A9's real create die on the
-# handle-collision guard. Drop it explicitly rather than letting the next pin
-# fail for an unrelated reason.
-rm -f artifacts/manifests/t5-report.json
+# A8b. The hygiene line that used to live here is GONE, and its absence is the
+# assertion. A8 aborts AFTER `artifact_manifest create` succeeded; pre-t1698
+# nothing rolled that back, so an uncommitted orphan manifest was left on disk
+# and had to be `rm -f`'d by hand or A9's real create would die on the
+# handle-collision guard. t1698's rollback removes the drift itself, so the
+# fixture no longer needs help — and A9 succeeding below is the end-to-end proof
+# that the EXIT-trap rollback actually fired on the `die` path.
+assert_file_not_exists "artifact-create: the aborted create left no orphan manifest" \
+    "artifacts/manifests/t5-report.json"
 
 # ── A9. artifact update ← artifact_manifest.py set-current ───────────────────
 # Pre-fix this printed "current is now <hash>" at exit 0 WITHOUT moving current.
@@ -371,7 +385,7 @@ MUTATORS=(
   'artifact_backend_delete'
 )
 
-# ALLOWLIST — `<file>:<line>` sites exempted from the rule, seven of them.
+# ALLOWLIST — `<file>:<line>` sites exempted from the rule, six of them.
 #
 # This is the guard's ONE judgement seam, and it is deliberately per-site rather
 # than a widened ACCEPT_RE: every form below is one the matcher cannot verify, so
@@ -382,45 +396,53 @@ MUTATORS=(
 # The bar for adding one: refactor to a recognized form FIRST if you can — that
 # is what aitask_fold_mark.sh's `attach_meta rebind` did, trading `|| rc=$?` plus
 # a next-line check for `|| die "... $?"`. Only when the shape genuinely cannot
-# propagate (a best-effort rollback, a pipeline head, a tail call) does an entry
-# belong here, and it must cite why the failure is either carried or harmless.
+# propagate (a recorded rollback failure, a pipeline head, a tail call) does an
+# entry belong here, and it must cite why the failure is either carried or
+# reported.
 #
 # Note what an entry costs: it pins a LINE NUMBER, so it silently stops matching
 # if the file shifts. That is intentional — a stale entry re-exposes its site to
 # the guard rather than quietly exempting whatever moved into that line.
 ALLOWLIST=(
-  # ── Best-effort blob deletes on an already-failing path ────────────────────
-  # Each runs inside a rollback, at most a line or two before `die`: there is
-  # nothing left to abort, and a blob left behind is unreferenced and reclaimed
-  # by `ait attach gc`. Every one carries an explicit `|| true` in the source, so
-  # the intent reads as a decision rather than as the t1675 swallow. `|| true` is
-  # deliberately NOT an accepted form globally — it neither terminates nor
-  # propagates — so each site is exempted individually and visibly here.
-  ".aitask-scripts/aitask_attach.sh:315"      # _attach_rollback_add
-  ".aitask-scripts/aitask_artifact.sh:324"    # _artifact_rollback_create
-  ".aitask-scripts/aitask_artifact.sh:386"    # _artifact_update_txn, commit-failure branch
-  ".aitask-scripts/aitask_artifact.sh:480"    # _artifact_move_txn, commit-failure branch
+  # ── Blob deletes inside a rollback hook (t1698) ────────────────────────────
+  # Each is the blob half of a verb's rollback, registered with
+  # txn_on_rollback and reached from the transaction's EXIT trap. They do NOT
+  # terminate and they do NOT propagate a status — by design: a failure
+  # restoring one path must not skip the rest.
+  #
+  # THE JUSTIFICATION CHANGED IN t1698, and it is now stronger. These used to
+  # carry `|| true` on the grounds that a leftover blob is gc-reclaimable and
+  # there was nothing left to abort. They now carry
+  # `|| txn_rollback_failed "<what, with its recovery instruction>"`, which
+  # records the failure into the rollback's verdict — so the caller can no
+  # longer announce a complete rollback over a blob that survived. The line
+  # still matches no ACCEPT_RE form, so it is still exempted here, but the
+  # reason is "the failure is REPORTED", not "the failure is harmless".
+  ".aitask-scripts/aitask_attach.sh:335"      # _attach_rollback_add_blobs
+  ".aitask-scripts/aitask_artifact.sh:344"    # _artifact_rollback_create_blobs (create AND update)
+  ".aitask-scripts/aitask_artifact.sh:451"    # _artifact_rollback_move_blobs
 
   # Pipeline HEAD, not a swallow: every script here runs under `set -o pipefail`,
   # so the pipeline's status carries this failure to the function's return value,
   # and both callers of _artifact_manifest_backend check it with `|| die`. The
   # guard cannot see a non-final pipeline position — its documented blind spot.
-  ".aitask-scripts/aitask_artifact.sh:163"
+  ".aitask-scripts/aitask_artifact.sh:170"
 
   # TAIL position: this is the last command of _attach_gc_blocking_hashes, so its
   # status IS the function's return value, and the sole caller checks it —
   # `blocking="$(_attach_gc_blocking_hashes)" || die` in _attach_gc_txn, whose
   # comment records that the `|| die` is load-bearing for exactly this reason.
-  ".aitask-scripts/aitask_attach.sh:576"
+  ".aitask-scripts/aitask_attach.sh:614"
 
   # `if ! remaining="$(artifact_manifest referenced-hashes)"; then` — the ONE
-  # `if !` in the tree. Its branch is genuinely terminating: it restores the task
-  # file and manifest from HEAD and then dies (aitask_artifact.sh:580-584), so
-  # the failure is handled, not observed. `if !` is NOT an accepted form: the
-  # guard cannot see whether a branch ends in `die` or in a bare `warn`, and the
-  # bare-warn version is exactly the t1675 bug. Exempted here, by line, so the
-  # verification stays a human-checked citation instead of a blanket rule.
-  ".aitask-scripts/aitask_artifact.sh:572"
+  # `if !` in the tree. Its branch is genuinely terminating: since t1698 it calls
+  # `txn_abort`, which rolls the transaction back (restoring the task file and
+  # manifest to their PRE-TRANSACTION bytes, not HEAD) and then dies. `if !` is
+  # NOT an accepted form: the guard cannot see whether a branch ends in `die` or
+  # in a bare `warn`, and the bare-warn version is exactly the t1675 bug.
+  # Exempted here, by line, so the verification stays a human-checked citation
+  # instead of a blanket rule.
+  ".aitask-scripts/aitask_artifact.sh:660"
 )
 
 # ACCEPTED status handlers — forms whose failure handling is visible in the line

@@ -82,7 +82,7 @@ Create and refresh end by printing a compact account of the trail that was just 
 
 ## Storage
 
-Trails are stored through the artifact substrate, owned by a task and versioned immutably — every earlier version stays retrievable. Manage them with [`ait artifact`]({{< relref "/docs/commands/task-management" >}}) (`ls`, `get`, `versions`, `rm`).
+Trails are stored through the artifact substrate, owned by a task and versioned immutably — every earlier version stays retrievable. Manage them with [`ait artifact`]({{< relref "/docs/commands/task-management" >}}) (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes — commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
 
 There is no `ait trail` command: trails are reached through this skill and through the board's By-Trail view.
 

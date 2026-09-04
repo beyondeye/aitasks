@@ -46,6 +46,8 @@ source "$SCRIPT_DIR/lib/attachment_lock.sh"
 source "$SCRIPT_DIR/lib/attachment_meta.sh"
 # shellcheck source=lib/artifact_manifest.sh
 source "$SCRIPT_DIR/lib/artifact_manifest.sh"
+# shellcheck source=lib/txn_snapshot.sh
+source "$SCRIPT_DIR/lib/txn_snapshot.sh"
 
 NOT_YET="not yet available — backend move arrives with a remote-backend task"
 
@@ -62,6 +64,11 @@ Manage content-addressed file attachments on a task (design §6).
   move <task> <name-or-hash> --to <backend>    Move an attachment backend. (not yet implemented)
   gc                                           Sweep fully-orphaned blobs (opt-in; honors grace).
   help                                         Show this help.
+
+These verbs stage whole paths, so they REFUSE to start when a path they would
+commit (the task file, an attachment meta JSON, an artifact manifest) already
+has uncommitted changes — otherwise the commit would absorb your edit. Commit or
+revert that path first. Blobs are content-addressed and never checked.
 
 Internal (used by the board on hard-delete; not for routine manual use):
   decref-deleted [--protect-task <id>]... <task-id>...   Release (or rebind to survivors) a deleted task's attachment refs.
@@ -231,6 +238,7 @@ cmd_add() {
 # _attach_add_txn -- the full add transaction (runs under the global attach lock).
 _attach_add_txn() {
     local task_id="$1" task_file="$2" file="$3" backend="$4" name="$5"
+    txn_begin "ait attach add"
     export ARTIFACT_BACKEND="$backend"
 
     # Size cap.
@@ -254,11 +262,30 @@ _attach_add_txn() {
         [[ "$n" == "$name" ]] && die "ait attach add: an attachment named '${name}' already exists on t${task_id} — pass --name to disambiguate"
     done <<< "$pairs"
 
-    # Pre-existence (for deterministic rollback).
-    local blob_pre=false meta_pre=false
+    # Blob pre-existence, so the rollback hook deletes only what THIS
+    # transaction created. The meta JSON needs no such flag any more: the
+    # snapshot represents absence explicitly, so a meta file the transaction
+    # created is deleted on restore and a pre-existing one comes back with its
+    # pre-transaction bytes — including a dirty edit, which the old
+    # restore-from-HEAD destroyed.
+    local blob_pre=false
     artifact_backend_head "$hash" && blob_pre=true
-    local meta_file; meta_file="$(attach_meta_dir)/$(artifact_shard_path "$hash").json"
-    [[ -f "$meta_file" ]] && meta_pre=true
+
+    local blob_rel meta_rel
+    blob_rel="$(artifact_local_blob_relpath "$hash")"
+    meta_rel="$(attach_meta_relpath "$hash")"
+
+    # Transaction boundary (t1698). Refuse if a NON-BLOB path this stages is
+    # already dirty -- `git add` is whole-path, so the commit would absorb the
+    # edit -- then snapshot those paths so ANY abort below restores their
+    # pre-transaction bytes and index entries rather than HEAD. The blob is
+    # content-addressed: nothing to absorb, and its rollback is the hook.
+    txn_require_clean "ait attach add" "$task_file"
+    txn_require_clean "ait attach add" "$meta_rel"
+    txn_snap_add "$task_file"
+    txn_snap_add "$meta_rel"
+    _ATTACH_TXN_HASH="$hash"; _ATTACH_TXN_BLOB_REL="$blob_rel"; _ATTACH_TXN_BLOB_PRE="$blob_pre"
+    txn_on_rollback _attach_rollback_add_blobs
 
     # Store blob (idempotent atomic copy) + populate cache. Explicit `|| die` on
     # every status-returning mutator: errexit is suppressed in here (see the
@@ -278,42 +305,35 @@ _attach_add_txn() {
         || die "ait attach add: could not add the attachments entry to $task_file (nothing committed)"
 
     # Commit the trio (blob + meta + task) as one commit.
-    local blob_rel meta_rel
-    blob_rel="$(artifact_local_blob_relpath "$hash")"
-    meta_rel="$(attach_meta_relpath "$hash")"
     if ! _attach_commit "ait: Attach ${name} to t${task_id}" "$blob_rel" "$meta_rel" "$task_file"; then
-        _attach_rollback_add "$task_file" "$meta_rel" "$meta_file" "$meta_pre" "$blob_rel" "$hash" "$blob_pre"
-        die "ait attach add: commit failed — rolled back to pre-attach state"
+        txn_abort "ait attach add: commit failed — rolled back to pre-attach state"
     fi
+    txn_end
     success "Attached '${name}' (${hash}) to t${task_id}"
 }
 
-# _attach_rollback_add -- restore HEAD copies of pre-existing files and remove
-# newly-created ones, so a failed commit leaves no drift (runs under the lock).
-_attach_rollback_add() {
-    local task_file="$1" meta_rel="$2" meta_file="$3" meta_pre="$4" blob_rel="$5" hash="$6" blob_pre="$7"
-    # Task .md always pre-exists -> unstage + restore from HEAD.
-    task_git reset -q -- "$task_file" >/dev/null 2>&1 || true
-    task_git checkout -- "$task_file" >/dev/null 2>&1 || true
-    # Meta file: restore if it pre-existed, else unstage + delete.
-    task_git reset -q -- "$meta_rel" >/dev/null 2>&1 || true
-    if [[ "$meta_pre" == true ]]; then
-        task_git checkout -- "$meta_rel" >/dev/null 2>&1 || true
-    else
-        rm -f "$meta_file"
-    fi
-    # Blob: only created this op -> unstage + delete (orphan would be GC-reclaimed
-    # anyway, but remove eagerly for a clean rollback).
-    if [[ "$blob_pre" == false ]]; then
-        task_git reset -q -- "$blob_rel" >/dev/null 2>&1 || true
-        # Best-effort BY DESIGN, unlike every other mutator call in this file:
-        # this runs on the already-failing path, one line before `die`, so there
-        # is nothing left to abort. A failed delete leaves an unreferenced blob
-        # that `ait attach gc` reclaims. Explicit `|| true` so the intent is not
-        # mistaken for the t1675 swallow; the contract guard carries a matching
-        # ALLOWLIST entry.
-        artifact_backend_delete "$hash" || true
-    fi
+# _attach_rollback_add_blobs -- the BLOB half of add's rollback, registered with
+# txn_on_rollback. The task file and the meta JSON are restored by the snapshot
+# (pre-transaction bytes AND index entry); blobs keep unstage-and-delete because
+# they are content-addressed and snapshotting one would copy up to 25 MB.
+#
+# Reads FILE-SCOPE globals, never the dying frame's locals: it is invoked from
+# the EXIT trap, so it must not depend on a caller's `local`s being in scope.
+_ATTACH_TXN_HASH=""
+_ATTACH_TXN_BLOB_REL=""
+_ATTACH_TXN_BLOB_PRE=true
+_attach_rollback_add_blobs() {
+    [[ "$_ATTACH_TXN_BLOB_PRE" == false ]] || return 0
+    task_git reset -q -- "$_ATTACH_TXN_BLOB_REL" >/dev/null 2>&1 \
+        || txn_rollback_failed "index: $_ATTACH_TXN_BLOB_REL (still staged)"
+    # RECORDED, not swallowed (t1698). This used to be `|| true` on the grounds
+    # that a leftover blob is gc-reclaimable and there was nothing left to abort
+    # — but the rollback's verdict is derived from what is recorded, and a
+    # silent failure here let the caller claim a complete rollback. The contract
+    # guard's ALLOWLIST entry still exempts the line; its justification is now
+    # "the failure is reported", not "the failure is harmless".
+    artifact_backend_delete "$_ATTACH_TXN_HASH" \
+        || txn_rollback_failed "blob ${_ATTACH_TXN_HASH} — created by this transaction and could not be deleted; reclaim it with 'ait attach gc'"
 }
 
 # ── Verb: get ────────────────────────────────────────────────────────────────
@@ -361,8 +381,16 @@ cmd_remove() {
 
 _attach_rm_txn() {
     local task_id="$1" task_file="$2" ref="$3"
+    txn_begin "ait attach rm"
     local hash; hash="$(_attach_resolve_ref "$task_file" "$ref")" \
         || die "ait attach rm: no attachment matching '$ref' on t${task_id}"
+    local meta_rel; meta_rel="$(attach_meta_relpath "$hash")"
+    # Transaction boundary (t1698): both staged paths, checked and snapshotted
+    # before the first mutation. `rm` stages no blob, so it registers no hook.
+    txn_require_clean "ait attach rm" "$task_file"
+    txn_require_clean "ait attach rm" "$meta_rel"
+    txn_snap_add "$task_file"
+    txn_snap_add "$meta_rel"
     # decref stamps orphaned_at if this empties refs (the gc grace clock); blob
     # NOT deleted here — reclamation is `ait attach gc` (also t1030_3).
     attach_meta decref "$hash" "$task_id" "now=$(date +%s)" \
@@ -370,12 +398,10 @@ _attach_rm_txn() {
     "$(require_python)" "$SCRIPT_DIR/lib/frontmatter_patch.py" remove "$task_file" attachments \
         --match-key hash --match-val "$hash" \
         || die "ait attach rm: could not remove the attachments entry from $task_file (nothing committed)"
-    local meta_rel; meta_rel="$(attach_meta_relpath "$hash")"
     if ! _attach_commit "ait: Detach attachment from t${task_id}" "$meta_rel" "$task_file"; then
-        task_git reset -q -- "$task_file" "$meta_rel" >/dev/null 2>&1 || true
-        task_git checkout -- "$task_file" "$meta_rel" >/dev/null 2>&1 || true
-        die "ait attach rm: commit failed — rolled back"
+        txn_abort "ait attach rm: commit failed — rolled back"
     fi
+    txn_end
     success "Removed attachment '${ref}' from t${task_id}"
 }
 
@@ -418,8 +444,19 @@ cmd_decref_deleted() {
         ${protect_ids[@]+"${protect_ids[@]}"} "${args[@]}"
 }
 
+# _attach_decref_guard_meta <hash> -- the per-path half of the transaction
+# boundary for the two verbs that DISCOVER their paths while iterating. Both
+# helpers dedup on their OWN set, so calling this twice for a hash two doomed
+# tasks share is a no-op rather than a false refusal.
+_attach_decref_guard_meta() {
+    local rel; rel="$(attach_meta_relpath "$1")"
+    txn_require_clean "ait attach decref-deleted" "$rel"
+    txn_snap_add "$rel"
+}
+
 _attach_decref_deleted_txn() {
     local n_protect="$1"; shift
+    txn_begin "ait attach decref-deleted"
     # Map each folded-origin hash -> the revived (surviving) task id(s) that still
     # list it, so a doomed ref can be REBOUND to the survivor(s) instead of merely
     # released (t1096). A hash listed by >1 revived folded task -> ALL become
@@ -486,6 +523,7 @@ _attach_decref_deleted_txn() {
             cur_refs="$(attach_meta refs "$hash")" \
                 || die "ait attach decref-deleted: could not read refs for $hash (nothing committed)"
             if [[ -n "$survivors" ]] && printf '%s\n' "$cur_refs" | grep -qxF "$task_id"; then
+                _attach_decref_guard_meta "$hash"
                 # incref survivors FIRST so refs never transiently empties -> decref
                 # cannot stamp a spurious orphaned_at.
                 for sid in $survivors; do
@@ -502,6 +540,7 @@ _attach_decref_deleted_txn() {
                 printf 'REBIND_NOOP:%s:%s\n' "$task_id" "$hash"
                 continue
             else
+                _attach_decref_guard_meta "$hash"
                 # decref PER (task_id, hash): a blob shared by two doomed tasks must
                 # lose BOTH refs. `now=` drives the orphaned_at stamp (cf _attach_rm_txn).
                 attach_meta decref "$hash" "$task_id" "now=$now" \
@@ -523,12 +562,11 @@ _attach_decref_deleted_txn() {
         # identical bytes -> an empty commit would fail; only commit if changed.
         if ! task_git diff --cached --quiet -- "${stage[@]}" 2>/dev/null; then
             if ! _attach_commit "ait: Release/rebind attachments of deleted task(s): $*" "${stage[@]}"; then
-                task_git reset  -q -- "${stage[@]}" >/dev/null 2>&1 || true
-                task_git checkout  -- "${stage[@]}" >/dev/null 2>&1 || true
-                die "ait attach decref-deleted: commit failed — rolled back"
+                txn_abort "ait attach decref-deleted: commit failed — rolled back"
             fi
         fi
     fi
+    txn_end
     printf 'STAGED:%s\n' "${#stage[@]}"
 }
 
@@ -582,7 +620,30 @@ cmd_gc() {
 }
 
 # _attach_gc_txn -- the orphan sweep (runs under the global attach lock).
+# _attach_gc_rollback_blobs -- the BLOB half of gc's rollback. gc is the
+# DESTRUCTIVE verb: it DELETES blobs, so its hook puts them back from HEAD (they
+# are content-addressed and committed, so HEAD is their correct source; the meta
+# JSONs beside them are restored by the snapshot instead, because those can
+# carry a pre-existing dirty edit).
+#
+# A failure here means a blob this transaction deleted is GONE, so it is
+# recorded, not swallowed — before t1698 that was announced as a clean rollback.
+_ATTACH_TXN_GC_BLOBS=()
+_attach_gc_rollback_blobs() {
+    (( ${#_ATTACH_TXN_GC_BLOBS[@]} )) || return 0
+    task_git reset -q -- "${_ATTACH_TXN_GC_BLOBS[@]}" >/dev/null 2>&1 \
+        || txn_rollback_failed "index: ${_ATTACH_TXN_GC_BLOBS[*]} (still staged)"
+    local b
+    for b in "${_ATTACH_TXN_GC_BLOBS[@]}"; do
+        task_git checkout -- "$b" >/dev/null 2>&1 \
+            || txn_rollback_failed "blob $b — deleted by this sweep and NOT restored; recover it with 'git checkout HEAD -- $b'"
+    done
+}
+
 _attach_gc_txn() {
+    txn_begin "ait attach gc"
+    _ATTACH_TXN_GC_BLOBS=()
+    txn_on_rollback _attach_gc_rollback_blobs
     local grace_sec now
     grace_sec="$(parse_duration_to_seconds "$(_attach_gc_grace)")"
     now="$(date +%s)"
@@ -633,24 +694,44 @@ _attach_gc_txn() {
         fi
         # Reclaim: delete blob + meta (v1 is local-only; add rejects other
         # backends, so every stored blob is local).
+        #
+        # The transaction boundary goes HERE, immediately before this blob's
+        # first mutation — gc discovers its paths while iterating, so it cannot
+        # check at entry. It therefore covers the SWEPT set, not the CANDIDATE
+        # set: a blob retained by the refs / blocking / grace gates above
+        # `continue`d already and is never staged, so a dirty meta JSON on a
+        # retained candidate must not refuse a valid sweep.
+        local blob_rel meta_rel
+        blob_rel="$(artifact_local_blob_relpath "$h")"
+        meta_rel="$(attach_meta_relpath "$h")"
+        txn_require_clean "ait attach gc" "$meta_rel"
+        txn_snap_add "$meta_rel"
+        _ATTACH_TXN_GC_BLOBS+=( "$blob_rel" )
         export ARTIFACT_BACKEND="local"
         artifact_backend_delete "$h" \
             || die "ait attach gc: could not delete the blob for $h — sweep aborted"
         meta_file="$(attach_meta_dir)/$(artifact_shard_path "$h").json"
-        rm -f "$meta_file"
-        del_paths+=( "$(artifact_local_blob_relpath "$h")" "$(attach_meta_relpath "$h")" )
+        # Checked for the same reason as the manifest delete in
+        # _artifact_rm_txn: errexit is suppressed, so an unchecked failure would
+        # commit the blob DELETION beside a meta file that is still present —
+        # a zero-ref ledger entry pointing at a blob that no longer exists,
+        # reported as a clean sweep.
+        rm -f "$meta_file" \
+            || die "ait attach gc: could not delete the ledger meta file for $h — sweep aborted"
+        del_paths+=( "$blob_rel" "$meta_rel" )
         swept=$((swept + 1))
     done <<< "$zero_refs"
 
     if (( swept > 0 )); then
         if ! _attach_commit "ait: GC ${swept} orphaned attachment(s)" "${del_paths[@]}"; then
             # Restore the just-deleted tracked files so a failed commit leaves no
-            # deleted-on-disk-but-uncommitted split-brain.
-            task_git reset -q -- "${del_paths[@]}" >/dev/null 2>&1 || true
-            task_git checkout -- "${del_paths[@]}" >/dev/null 2>&1 || true
-            die "ait attach gc: commit failed — restored ${swept} blob(s); no changes made"
+            # deleted-on-disk-but-uncommitted split-brain: the meta JSONs from
+            # the snapshot (pre-transaction bytes, so a dirty one is not
+            # clobbered), the blobs from HEAD via the registered hook.
+            txn_abort "ait attach gc: commit failed — restored ${swept} blob(s); no changes made"
         fi
     fi
+    txn_end
     success "gc: swept ${swept} orphaned attachment(s), retained ${retained} referenced/in-grace blob(s)"
 }
 

@@ -73,6 +73,13 @@ if [[ -z "${_AIT_TEST_SCAFFOLD_LOADED:-}" ]]; then
         # suite, so without this every scaffolded test that sources it dies at
         # source time. Depends only on terminal_compat.sh (already copied above).
         cp "$PROJECT_DIR/.aitask-scripts/lib/data_symlinks.sh"     "$repo_dir/.aitask-scripts/lib/"
+        # txn_snapshot.sh is the shared transaction boundary (t1698), sourced at
+        # startup by aitask_fold_mark.sh — eagerly, because the fold arms its
+        # transaction at top level. aitask_attach.sh and aitask_artifact.sh
+        # source it too. Depends only on terminal_compat.sh and task_utils.sh
+        # (task_git), and the scaffolded tests that drive those scripts copy
+        # task_utils.sh themselves.
+        cp "$PROJECT_DIR/.aitask-scripts/lib/txn_snapshot.sh"      "$repo_dir/.aitask-scripts/lib/"
     }
 
     # --- Python module closure ---------------------------------------------

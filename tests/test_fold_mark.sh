@@ -957,9 +957,20 @@ _seed_attachment() {
 # _install_failing_frontmatter_patch — make the attachment/artifact frontmatter
 # merge fail. This is the documented mutating seam INSIDE the attach
 # transaction, reached only after the rebind has already rewritten meta files.
+# It is invoked THROUGH python (`"$(require_python)" .../frontmatter_patch.py`),
+# so the stub must be valid Python. If an executable `.fm_side_effect` exists in
+# the repo root it is run at the INSTANT the stub fails (t1698): a
+# restore-failure case needs a path to become unwritable BETWEEN the fold's own
+# writes and the rollback's `cp` back, and chmod'ing it any earlier would break
+# Steps 4-5, which legitimately write the primary.
 _install_failing_frontmatter_patch() {
-    printf '#!/usr/bin/env python3\nimport sys\nsys.stderr.write("stub: append refused\\n")\nsys.exit(7)\n' \
-        > .aitask-scripts/lib/frontmatter_patch.py
+    cat > .aitask-scripts/lib/frontmatter_patch.py <<'STUB'
+import os, subprocess, sys
+if os.access(".fm_side_effect", os.X_OK):
+    subprocess.run(["./.fm_side_effect"])
+sys.stderr.write("stub: append refused\n")
+sys.exit(7)
+STUB
     chmod +x .aitask-scripts/lib/frontmatter_patch.py
 }
 
@@ -1278,6 +1289,126 @@ test_abort_inside_attach_txn_rolls_back() {
     teardown
 }
 
+# t1698: the fold wrappers must carry the RESTORE VERDICT, not just run the
+# restore. _fold_rollback used to return _fold_prune_unsnapshotted_meta's status
+# (discarding the restore's) and all four call sites printed an unconditional
+# "rolled back every mutation" — so a partial rollback was announced as a
+# complete one. Two cases, because the two halves fail independently.
+test_fold_partial_restore_is_reported() {
+    echo "=== Test: t1698 — a fold whose RESTORE fails says so ==="
+    if [[ "$(id -u)" -eq 0 ]]; then
+        echo "SKIP: needs an unwritable file to force a restore failure; running"
+        echo "      as root, where the write bit is ignored and the forcing would"
+        echo "      silently do nothing (the case would pass vacuously)."
+        return 0
+    fi
+    setup_project
+    _copy_attachment_libs
+    write_task aitasks/t10_primary.md
+    _seed_attachment aitasks/t20_a.md 20 "restore window blob"
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # Make the primary unrestorable at the MOMENT the transaction aborts —
+    # after Steps 4-5 have legitimately written it, before the rollback's `cp`
+    # back. The FILE's own write bit, not its parent's: cp over an existing file
+    # opens and truncates, so a read-only directory would let the copy through
+    # and the case would pass vacuously.
+    printf '#!/usr/bin/env bash\nchmod a-w aitasks/t10_primary.md\n' > .fm_side_effect
+    chmod +x .fm_side_effect
+
+    _install_failing_frontmatter_patch
+    _run_fold_split --commit-mode fresh 10 20
+    chmod u+w aitasks/t10_primary.md 2>/dev/null || true
+    rm -f .fm_side_effect
+
+    assert_exit_nonzero_rc "the fold still fails" "$FOLD_RC"
+    assert_contains "the report says the rollback did not fully restore" \
+        "did NOT fully restore" "$FOLD_ERR"
+    assert_contains "it names the un-restored path" "t10_primary.md" "$FOLD_ERR"
+    assert_contains "it names the retained recovery directory" "ait_txn_snap" "$FOLD_ERR"
+    assert_not_contains "and NEVER claims a full rollback" \
+        "rolled back every mutation" "$FOLD_ERR"
+
+    teardown
+}
+
+test_fold_partial_prune_is_reported() {
+    echo "=== Test: t1698 — a fold whose PRUNE fails says so ==="
+    if [[ "$(id -u)" -eq 0 ]]; then
+        echo "SKIP: needs an unwritable directory to force a prune failure (root"
+        echo "      ignores the write bit, so the case would pass vacuously)."
+        return 0
+    fi
+    setup_project
+    _copy_attachment_libs
+    write_task aitasks/t10_primary.md
+    _seed_attachment aitasks/t20_a.md 20 "prune window blob"
+    git add -A
+    git commit -m "Setup" --quiet
+
+    # _fold_prune_unsnapshotted_meta deletes meta files the transaction CREATED,
+    # and nothing in the shipped ledger creates one during a fold — the function
+    # is defensive (its own comment says so). So this path is not reachable
+    # without help: inject a transaction-created meta file plus an unwritable
+    # shard directory, and the REAL prune code then runs and its REAL `rm -f`
+    # fails. This is an injected scenario, not a production one.
+    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = '    _fold_snapshot_meta_tree\n'
+assert old in s, "meta-tree call not found"
+inject = old + '    mkdir -p attachments/meta/zz\n' \
+             + '    printf "{}\\n" > attachments/meta/zz/injected.json\n' \
+             + '    chmod a-w attachments/meta/zz   # TEST INJECTION: break the prune\n'
+open(p, 'w').write(s.replace(old, inject, 1))
+PYEOF
+    grep -q 'TEST INJECTION: break the prune' .aitask-scripts/aitask_fold_mark.sh \
+        || { echo "FAIL: prune-break injection did not land"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); teardown; return 1; }
+
+    _install_failing_frontmatter_patch
+    _run_fold_split --commit-mode fresh 10 20
+    chmod u+w attachments/meta/zz 2>/dev/null || true
+
+    assert_exit_nonzero_rc "the fold still fails" "$FOLD_RC"
+    # The verdict must come from the RECORDED set: txn_rollback_failed returns 0
+    # and sits in the prune loop's tail, so `_fold_prune_unsnapshotted_meta ||
+    # rc=1` would be a no-op and this would read as a complete rollback.
+    assert_contains "a prune-only failure still reports a partial rollback" \
+        "did NOT fully restore" "$FOLD_ERR"
+    assert_contains "it names the meta file that could not be deleted" \
+        "attachments/meta/zz/injected.json" "$FOLD_ERR"
+    assert_not_contains "and NEVER claims a full rollback" \
+        "rolled back every mutation" "$FOLD_ERR"
+
+    teardown
+}
+
+test_fold_clean_rollback_still_claims_full() {
+    echo "=== Test: t1698 — control: a CLEAN fold rollback does claim full ==="
+    setup_project
+    _copy_attachment_libs
+    write_task aitasks/t10_primary.md
+    _seed_attachment aitasks/t20_a.md 20 "clean control blob"
+    git add -A
+    git commit -m "Setup" --quiet
+
+    _install_failing_frontmatter_patch
+    _run_fold_split --commit-mode fresh 10 20
+
+    # Without this control the two cases above would pass against a build that
+    # never prints the full-rollback message at all.
+    assert_contains "a complete rollback claims every mutation was rolled back" \
+        "rolled back every mutation" "$FOLD_ERR"
+    assert_not_contains "and prints no partial report" \
+        "did NOT fully restore" "$FOLD_ERR"
+    assert_eq "the primary really came back" "" \
+        "$(read_frontmatter_field aitasks/t10_primary.md folded_tasks)"
+
+    teardown
+}
+
 # --- Negative controls -------------------------------------------------------
 #
 # Rebuild the fixture's copy of aitask_fold_mark.sh with the PRE-FIX Step 6
@@ -1357,7 +1488,13 @@ PY
     # transaction block that sits above the guard helpers, and all three
     # t1599_2 controls below would keep "passing" while proving nothing.
     local marker
-    for marker in '^_fold_abort_cleanup() {' '^_fold_snap_add() {' '^_fold_emit() '; do
+    # `_fold_snap_add` was the top-of-block marker until t1698 promoted the
+    # snapshot primitive to lib/txn_snapshot.sh. `_fold_prune_unsnapshotted_meta`
+    # replaces it: it is now the FIRST function in the transaction block, so a
+    # span that widened upward loses it first — and it exists both in the real
+    # block and in install_prefix_no_abort_rollback's stubbed one, so the guard
+    # keeps working when the two injectors compose.
+    for marker in '^_fold_abort_cleanup() {' '^_fold_prune_unsnapshotted_meta() {' '^_fold_emit() '; do
         grep -q "$marker" .aitask-scripts/aitask_fold_mark.sh \
             || { echo "FAIL: negative control excised too much — '$marker' is gone"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     done
@@ -1427,17 +1564,22 @@ p = sys.argv[1]
 s = open(p).read()
 start = s.index('# --- fold transaction (t1668)')
 end = s.index('\n', s.index('# --- end fold transaction')) + 1
+# The snapshot primitive moved to lib/txn_snapshot.sh (t1698), so the stubs
+# below SHADOW the lib names rather than this file's old private ones. The block
+# sits well below the `source` line, so redefining them here wins.
 pre = """# --- fold transaction (t1668) --- PRE-FIX BUILD: no snapshot, no trap
-_fold_snap_dir=""
-_fold_snap_paths=()
 _fold_txn_active=false
 _fold_meta_root=""
 _fold_meta_pre=()
-_fold_snap_add() { :; }
+txn_snap_init() { :; }
+txn_snap_add() { :; }
+txn_snap_restore() { :; }
+txn_snap_cleanup() { :; }
 _fold_snapshot_meta_tree() { :; }
-_fold_restore_snapshots() { :; }
 _fold_prune_unsnapshotted_meta() { :; }
+_fold_rollback_report() { :; }
 _fold_abort_cleanup() { :; }
+_FOLD_ROLLBACK_OK=1
 _fold_rollback() {
     task_git reset -q -- "${fold_paths[@]}" >/dev/null 2>&1 || true
     task_git checkout -- "${fold_paths[@]}" >/dev/null 2>&1 || true
@@ -1455,7 +1597,7 @@ PY
     # excision.
     grep -q '^_fold_txn_active=true$' .aitask-scripts/aitask_fold_mark.sh \
         && { echo "FAIL: negative control left the transaction armed"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
-    grep -q '_fold_snap_add "\$_p"' .aitask-scripts/aitask_fold_mark.sh \
+    grep -q 'txn_snap_add "\$_p"' .aitask-scripts/aitask_fold_mark.sh \
         && { echo "FAIL: negative control left the snapshot loop in place"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
     return 0
@@ -1681,6 +1823,9 @@ test_attach_txn_nonzero_return_rolls_back
 test_abort_inside_attach_txn_rolls_back
 
 # Negative controls (must observe the defect against the pre-fix build)
+test_fold_partial_restore_is_reported
+test_fold_partial_prune_is_reported
+test_fold_clean_rollback_still_claims_full
 test_negative_control_no_abort_rollback
 test_negative_control_fresh
 test_negative_control_amend_sweeps

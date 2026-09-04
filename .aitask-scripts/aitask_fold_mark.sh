@@ -66,6 +66,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
 # shellcheck source=lib/task_utils.sh
 source "$SCRIPT_DIR/lib/task_utils.sh"
+# The shared transaction boundary (t1698). Sourced EAGERLY, unlike the ledger
+# libs below: txn_snap_init runs at top level when the fold transaction is
+# armed, long before Step 5b's lazy sources exist.
+# shellcheck source=lib/txn_snapshot.sh
+source "$SCRIPT_DIR/lib/txn_snapshot.sh"
 # The per-blob attachment ledger libs (attachment_lock.sh + attachment_meta.sh)
 # are sourced LAZILY in Step 5b — only when a folded task actually carries an
 # attachment — so a plain fold needs neither lib present (keeps the common path
@@ -425,68 +430,22 @@ done
 # (aitask_fold_content.sh merges the folded descriptions into it immediately
 # before this script runs, and does not commit), the caller may have staged
 # that, and an aborted fold may discard neither.
-_fold_snap_dir=""
-_fold_snap_paths=()          # index i -> repo path; i.blob / i.idx hold its state
 _fold_txn_active=false
 _fold_meta_root=""           # set by _fold_snapshot_meta_tree (Step 5b only)
 _fold_meta_pre=()            # meta files present before the attach transaction
 
-_fold_snap_init() {
-    _fold_snap_dir="$(mktemp -d "${TMPDIR:-/tmp}/ait_fold_snap_XXXXXX")" \
-        || die "fold: could not create the snapshot directory"
-}
-
-# _fold_snap_add <path> -- record one path's pre-mutation state. Absence is
-# represented explicitly (no .blob file) so restore can delete a path the
-# transaction created.
-_fold_snap_add() {
-    local p="$1" i="${#_fold_snap_paths[@]}"
-    [[ -n "$_fold_snap_dir" ]] || die "internal: snapshot dir not created"
-    if [[ -f "$p" ]]; then
-        cp -- "$p" "$_fold_snap_dir/$i.blob" || die "fold: could not snapshot $p"
-    fi
-    # Empty when the path is not in the index; otherwise ONE line per index
-    # entry ("<mode> <sha> <stage>\t<path>") -- THREE of them for a path in an
-    # unresolved merge. Captured verbatim so update-index --index-info can
-    # replay every stage; parsing a single mode/sha out of this and writing a
-    # stage-0 entry would silently resolve the user's conflict.
-    #
-    # FAIL CLOSED on a read failure. `ls-files` exits 0 with empty output for a
-    # path that is simply not in the index, so a NON-ZERO exit can only mean the
-    # index could not be read -- and swallowing that would record "absent",
-    # which on rollback makes --force-remove DELETE the caller's real index
-    # entry instead of restoring it. Dying here is safe precisely because it is
-    # still before the arm: no fold mutation exists yet to roll back.
-    task_git ls-files --stage -- "$p" > "$_fold_snap_dir/$i.idx" 2>/dev/null \
-        || die "fold: could not read the index entry for $p — refusing to start a transaction that could not be rolled back"
-    _fold_snap_paths[i]="$p"
-}
-
-# _fold_restore_snapshots -- put every snapshotted path back, index and worktree.
+# The snapshot primitive itself lives in lib/txn_snapshot.sh (t1698): this
+# file's private _fold_snap_init / _fold_snap_add / _fold_restore_snapshots were
+# promoted there verbatim-in-behaviour so `ait fold`, `ait attach` and
+# `ait artifact` share ONE implementation. What stays here is the fold-specific
+# wrapping: fold arms BEFORE the attach lock (the verbs arm inside it), and its
+# rollback has an extra prune half.
 #
-# The index half always REMOVES the current entry first (--force-remove drops
-# every stage of a path, conflicted or not) and then replays the captured lines.
-# That is what makes an unmerged path round-trip: all its stages come back
-# exactly as they were, and a path that had no entry at all stays out.
-_fold_restore_snapshots() {
-    local i p
-    (( ${#_fold_snap_paths[@]} )) || return 0
-    for i in "${!_fold_snap_paths[@]}"; do
-        p="${_fold_snap_paths[$i]}"
-        if [[ -f "$_fold_snap_dir/$i.blob" ]]; then
-            cp -- "$_fold_snap_dir/$i.blob" "$p" 2>/dev/null \
-                || warn "fold rollback: could not restore $p"
-        else
-            rm -f -- "$p" 2>/dev/null || true    # did not exist pre-fold
-        fi
-        task_git update-index --force-remove -- "$p" >/dev/null 2>&1 || true
-        if [[ -s "$_fold_snap_dir/$i.idx" ]]; then
-            task_git update-index --index-info < "$_fold_snap_dir/$i.idx" >/dev/null 2>&1 \
-                || warn "fold rollback: could not restore the index entry for $p"
-        fi
-    done
-    task_git update-index -q --refresh >/dev/null 2>&1 || true
-}
+# Fold gains the lib's dedup for free, and that is a strict improvement:
+# fold_paths can name the same file twice, and the meta tree is snapshotted at
+# Step 5b AFTER Steps 3-5 already mutated the task files. The dedup makes the
+# second txn_snap_add a no-op, so restore yields the true pre-fold bytes rather
+# than the post-Step-5 ones.
 
 # _fold_prune_unsnapshotted_meta -- drop any meta file the attach transaction
 # created (nothing in the shipped ledger does, but the snapshot must be able to
@@ -500,18 +459,42 @@ _fold_prune_unsnapshotted_meta() {
         for k in ${_fold_meta_pre[@]+"${_fold_meta_pre[@]}"}; do
             [[ "$k" == "$p" ]] && { known=true; break; }
         done
-        $known || rm -f -- "$p" 2>/dev/null || true
+        # Records rather than swallowing: a meta file the transaction created
+        # and could not delete is residual drift exactly like a failed byte
+        # restore, and _fold_rollback's verdict is derived from what is recorded.
+        $known || rm -f -- "$p" 2>/dev/null \
+            || txn_rollback_failed "meta: $p (created by this fold, not deleted)"
     done < <(find "$_fold_meta_root" -type f -name '*.json' 2>/dev/null)
 }
 
 # _fold_rollback -- undo the whole fold transaction. Idempotent: it disarms the
 # transaction flag, so the EXIT trap below does not repeat what an explicit
 # Step 6 failure arm already did.
+# Returns non-zero when EITHER half left something un-restored.
+#
+# `_fold_prune_unsnapshotted_meta || rc=1` would be a NO-OP and must not be
+# written: txn_rollback_failed returns 0 by design (so one failure does not skip
+# the remaining restores) and sits in the prune loop's tail position, so the
+# function returns 0 even having recorded a failure — a prune-only failure would
+# sail through as a complete rollback. Measured with that exact shape: verdict
+# rc=0, recorded=1. The verdict is DERIVED from what was recorded instead.
 _fold_rollback() {
     _fold_txn_active=false
-    _fold_restore_snapshots
-    _fold_prune_unsnapshotted_meta
+    txn_snap_restore || true               # recorded, not swallowed
+    _fold_prune_unsnapshotted_meta         # records via txn_rollback_failed
+    txn_rollback_ok
 }
+
+# _fold_rollback_report [<rc>] -- thin wrapper over the lib's single wording, so
+# the EXIT handler and Step 6's three failure arms cannot drift from each other
+# OR from what the eight attach/artifact verbs say about the same event. <rc> is
+# the dying status; pass nothing for an explicit arm.
+_fold_rollback_report() {
+    local rc="${1:-}"
+    txn_rollback_report "$_FOLD_ROLLBACK_OK" \
+        "fold aborted before the commit step${rc:+ (exit ${rc})}"
+}
+_FOLD_ROLLBACK_OK=1
 
 # _fold_abort_cleanup -- the EXIT handler. Rolls back an armed transaction and
 # always removes the snapshot directory. It never calls exit and every command
@@ -519,17 +502,19 @@ _fold_rollback() {
 _fold_abort_cleanup() {
     local rc=$?
     if [[ "$_fold_txn_active" == true ]]; then
-        _fold_rollback
-        warn "fold aborted before the commit step (exit ${rc}) — rolled back every mutation; nothing was committed"
+        _FOLD_ROLLBACK_OK=1; _fold_rollback || _FOLD_ROLLBACK_OK=0
+        _fold_rollback_report "$rc"
     fi
-    if [[ -n "$_fold_snap_dir" && -d "$_fold_snap_dir" ]]; then
-        rm -rf "$_fold_snap_dir"
-    fi
+    # txn_snap_cleanup, not a bare `rm -rf`: it RETAINS the directory when the
+    # snapshot half failed to restore, because it is then the only surviving
+    # copy of the pre-fold bytes and the message above just told the user to
+    # look in it.
+    txn_snap_cleanup
     return 0
 }
 
-_fold_snap_init
-for _p in "${fold_paths[@]}"; do _fold_snap_add "$_p"; done
+txn_snap_init
+for _p in "${fold_paths[@]}"; do txn_snap_add "$_p"; done
 trap '_fold_abort_cleanup' EXIT
 _fold_txn_active=true
 # --- end fold transaction ----------------------------------------------------
@@ -766,7 +751,7 @@ _fold_snapshot_meta_tree() {
     while IFS= read -r p; do
         [[ -n "$p" ]] || continue
         _fold_meta_pre+=( "$p" )
-        _fold_snap_add "attachments/meta/${p#"$d"/}"   # data-root-relative
+        txn_snap_add "attachments/meta/${p#"$d"/}"   # data-root-relative
     done < <(find "$d" -type f -name '*.json' 2>/dev/null | sort)
 }
 
@@ -788,9 +773,7 @@ _fold_attach_txn() {
     # re-suppresses errexit through the whole callback chain regardless of what
     # the wrapper does, so no change to attachment_lock.sh can relax this rule
     # for the fold path.
-    local _cur
-    _cur="$(trap -p EXIT)"; _cur="${_cur#trap -- }"; _cur="${_cur% EXIT}"
-    eval "trap '_fold_abort_cleanup; '$_cur EXIT"
+    txn_chain_exit_trap '_fold_abort_cleanup'
 
     _fold_snapshot_meta_tree
     _fold_rebind_refs "$primary_id" \
@@ -995,8 +978,12 @@ case "$commit_mode" in
                 echo "NO_COMMIT"
                 ;;
             *)
-                _fold_rollback
-                die "fold commit failed — rolled back the whole fold transaction"
+                _FOLD_ROLLBACK_OK=1; _fold_rollback || _FOLD_ROLLBACK_OK=0
+                _fold_rollback_report
+                if (( _FOLD_ROLLBACK_OK == 1 )); then
+                    die "fold commit failed — rolled back the whole fold transaction"
+                fi
+                die "fold commit failed — see the incomplete-rollback report above"
                 ;;
         esac
         ;;
@@ -1005,7 +992,8 @@ case "$commit_mode" in
         # mutations are already written, and leaving them dirty hands the next
         # unscoped commit exactly the bystander this task removes.
         if ! _fold_amend_guard; then
-            _fold_rollback
+            _FOLD_ROLLBACK_OK=1; _fold_rollback || _FOLD_ROLLBACK_OK=0
+            _fold_rollback_report
             die "$_fold_amend_refusal"
         fi
         (( ${#fold_paths[@]} )) || die "internal: empty fold path set"
@@ -1015,8 +1003,12 @@ case "$commit_mode" in
             _fold_flush_records
             echo "AMENDED"
         else
-            _fold_rollback
-            die "fold amend-commit failed — rolled back the whole fold transaction"
+            _FOLD_ROLLBACK_OK=1; _fold_rollback || _FOLD_ROLLBACK_OK=0
+            _fold_rollback_report
+            if (( _FOLD_ROLLBACK_OK == 1 )); then
+                die "fold amend-commit failed — rolled back the whole fold transaction"
+            fi
+            die "fold amend-commit failed — see the incomplete-rollback report above"
         fi
         ;;
     none)
