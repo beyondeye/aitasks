@@ -771,6 +771,109 @@ _AIT_DATA_WORKTREE=""
 unset -f detect_from_15 canon_15 answer_canon_15 within_15
 rm -rf "$TMPDIR_15"
 
+# --- Test 16: every in-progress git state wedges the data worktree ---
+# Characterization test (t1704 pre-phase). assert_data_worktree_clean and
+# task_git_health each spell the six in-progress state names out inline, and
+# t1704 extracts them into a single AIT_GIT_INPROGRESS_STATES constant. Before
+# that extraction only ONE of the six (rebase-merge) was exercised anywhere in
+# the suite — tests/test_task_push.sh:505 and
+# tests/test_sync_deferral_and_quarantine.sh:349 — so an extraction that
+# silently dropped any of the other five would still pass green.
+#
+# This runs BEFORE and AFTER the extraction: the before/after pair is what makes
+# the refactor provably behaviour-preserving rather than merely plausible.
+echo "--- Test 16: all six in-progress states refuse a mutating call ---"
+
+TMPDIR_16="$(setup_repo_with_remote)"
+SCRIPT_DIR="$TMPDIR_16/local/.aitask-scripts"
+mkdir -p "$SCRIPT_DIR"
+(cd "$TMPDIR_16/local" && setup_data_branch </dev/null >/dev/null 2>&1)
+ROOT_16="$TMPDIR_16/local"
+
+# The admin git-dir _ait_data_gitdir resolves to from the primary checkout.
+GITDIR_16="$ROOT_16/.git/worktrees/-aitask-data"
+
+assert_eq_trim "16: fixture has the data worktree's admin git-dir" "yes" \
+    "$([[ -d "$GITDIR_16" ]] && echo yes || echo no)"
+
+# Probe: run assert_data_worktree_clean with a cold cache in a SUBSHELL, because
+# it calls die() — which exits the process — and echo the verdict. Nothing here
+# increments the shared counters, so no file-backed counter opt-in is needed.
+probe_16() {
+    local state_dir="$1"; shift
+    (
+        cd "$ROOT_16" || exit 99
+        _AIT_DATA_WORKTREE=""
+        assert_data_worktree_clean "$@" >/dev/null 2>&1
+    ) && echo "allowed" || echo "refused"
+}
+
+# Which of the six are directories on disk and which are files. Planted
+# faithfully rather than all as files: the production check uses -e, but a
+# fixture that misrepresents the shape teaches the next reader the wrong thing.
+for spec_16 in \
+    "rebase-merge:dir" \
+    "rebase-apply:dir" \
+    "MERGE_HEAD:file" \
+    "CHERRY_PICK_HEAD:file" \
+    "REVERT_HEAD:file" \
+    "BISECT_LOG:file"
+do
+    state_16="${spec_16%%:*}"
+    kind_16="${spec_16##*:}"
+
+    # Negative control FIRST, per state: with nothing planted the same mutating
+    # call must be allowed. Without this the "refused" assertion below could
+    # pass because of some unrelated wedge in the fixture.
+    assert_eq_trim "16 ($state_16): control — a clean worktree allows commit" \
+        "allowed" "$(probe_16 "$state_16" commit)"
+
+    if [[ "$kind_16" == "dir" ]]; then
+        mkdir -p "$GITDIR_16/$state_16"
+    else
+        : > "$GITDIR_16/$state_16"
+    fi
+
+    # The contract: a mutating subcommand is refused while this state is present.
+    assert_eq_trim "16 ($state_16): a mutating commit is refused" \
+        "refused" "$(probe_16 "$state_16" commit)"
+    # `add` too — the first mutating call ait_commit_paths_staging_untracked
+    # makes, and the one whose mid-loop die the staging cleanup is built around.
+    assert_eq_trim "16 ($state_16): a mutating add is refused" \
+        "refused" "$(probe_16 "$state_16" add)"
+
+    # A readonly subcommand must still get through while wedged — otherwise a
+    # user could not inspect the mess they are being told to recover from.
+    assert_eq_trim "16 ($state_16): a readonly status is still allowed" \
+        "allowed" "$(probe_16 "$state_16" status --porcelain)"
+    # So must the recovery subcommand the die message actually advertises.
+    assert_eq_trim "16 ($state_16): the advertised recovery call is allowed" \
+        "allowed" "$(probe_16 "$state_16" rebase --abort)"
+
+    # The refusal must NAME the state, because the die message is the only thing
+    # telling the user which recovery command to run.
+    msg_16="$(
+        cd "$ROOT_16" || exit 99
+        _AIT_DATA_WORKTREE=""
+        assert_data_worktree_clean commit 2>&1 || true
+    )"
+    assert_contains_ci "16 ($state_16): the refusal names the state" \
+        "$state_16" "$msg_16"
+
+    rm -rf "${GITDIR_16:?}/$state_16"
+done
+
+# The bypass is part of the contract too: t1704's preflight mode reports the
+# state rather than dying, and other callers rely on the escape hatch.
+mkdir -p "$GITDIR_16/rebase-merge"
+assert_eq_trim "16: AIT_GIT_SKIP_STATE_CHECK=1 bypasses the refusal" "allowed" \
+    "$(AIT_GIT_SKIP_STATE_CHECK=1 probe_16 rebase-merge commit)"
+rm -rf "$GITDIR_16/rebase-merge"
+
+_AIT_DATA_WORKTREE=""
+unset -f probe_16
+rm -rf "$TMPDIR_16"
+
 # --- Summary ---
 echo ""
 echo "==============================="

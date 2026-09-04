@@ -87,6 +87,11 @@ WIRED: dict[str, str] = {
     ".aitask-scripts/aitask_board_column.sh::<module>": "aitask_metadata_commit.sh",
     # chatlink wizard
     ".aitask-scripts/chatlink/wizard.py::_do_save": "_commit_config(",
+    # The cross-repo push — the one writer targeting ANOTHER repo (t1704). It
+    # commits through the DESTINATION's own copy of the seam
+    # (commit_metadata(root=...)), and refuses outright when that repo is
+    # mid-work rather than leaving an ownerless dirty file there.
+    ".aitask-scripts/lib/cross_repo_settings.py::apply_push": "commit_metadata(",
     # ait setup's populate-missing / backfill passes
     ".aitask-scripts/aitask_setup.sh::ensure_project_config_defaults": "_note_metadata_write",
     ".aitask-scripts/aitask_setup.sh::ensure_chatlink_config": "_note_metadata_write",
@@ -110,10 +115,6 @@ KNOWN_UNCOMMITTED: dict[str, str] = {
     # Deliberate human review.
     ".aitask-scripts/lib/gate_registry_sync.py::sync_registry":
         "gates.yaml is review-then-commit by design (aitask_gate.sh warns)",
-    # Out of scope: writes ANOTHER repo's config, which a repo-scoped seam
-    # cannot safely commit into. Tracked as a t1677 follow-up.
-    ".aitask-scripts/lib/cross_repo_settings.py::apply_push":
-        "writes a foreign repo's config; follow-up task owns it",
     # Run inside a task that commits, and also write seed/ on the code branch.
     ".aitask-scripts/aitask_add_model.sh::cmd_add_json": "runs inside a task that commits",
     ".aitask-scripts/aitask_add_model.sh::cmd_promote_config": "runs inside a task that commits",

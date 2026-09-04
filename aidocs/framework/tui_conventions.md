@@ -404,6 +404,75 @@ ownerless-dirty-file state this rule exists to prevent.
 list, a last-selected item, a collapsed-set — put it in the `*.local.json` layer
 rather than committing it on every navigation.
 
+### Writing into ANOTHER repo (t1704)
+
+`commit_metadata(root=…)` targets a foreign root — it runs
+`<root>/.aitask-scripts/aitask_metadata_commit.sh` with `cwd=<root>`, i.e. the
+**destination's own copy** of the helper. The only production caller is
+`lib/cross_repo_settings.py::apply_push` (the syncer's Settings-tab push). If
+you add another, inherit this whole rule rather than re-deriving it — the
+commit is the easy half.
+
+**Scrub the environment.** Pass `env=resolver_env()`. The helper's
+`METADATA_PREFIX` reads `${TASK_DIR:-aitasks}`, and `lib/agent_string.sh`
+documents `TASK_DIR` / `METADATA_DIR` / `DEFAULT_AGENT_STRING` as caller
+overrides that outrank `cwd`, so an inherited value aims the destination's
+helper at the wrong tree.
+
+**Ask before you write, and refuse rather than guess.**
+`metadata_commit.preflight_metadata(paths, root=…, env=…)` inspects the
+destination through the same scope / ignore / tracked ladder the commit uses.
+Refuse **before writing** on every one of these — each means someone else's
+work is at stake, and a refusal they can see beats a commit they did not
+authorize:
+
+| Destination state | Why |
+|---|---|
+| the target file is tracked and **dirty** | their session is mid-edit |
+| the target file is present but **untracked** | unclassified foreign content |
+| the data worktree is mid rebase/merge/cherry-pick/revert/bisect | `MIDOP:` |
+| the data worktree is on a **detached HEAD** | the commit would be unreachable |
+| **legacy layout** (no `.aitask-data`) | the commit lands on its code branch |
+| the helper is missing, too old, or unrunnable | fail closed on version skew |
+
+A `PreflightResult.status` of `failed` is **not** evidence of a clean
+destination. Requiring the protocol's own `MODE:` line is what makes an older
+helper — which answers an unknown flag with usage text and exit 0 — land in
+`failed` rather than reading as a successful inspection.
+
+**Guard the commit with the bytes you wrote.** `commit -o -- <path>` takes the
+path's **worktree content at commit time**, so a racer who edits between your
+write and your commit gets their bytes published under
+`ait: Update <file>` — the framework attributing content it never wrote, which
+is the exact failure t1599_3's quarantine exists to stop. Pass
+`expect={path: file_holding_those_bytes}`; the helper re-compares immediately
+before committing and answers `raced`, having staged and committed nothing.
+It is fail-closed: once `expect` is given, every committable path needs an
+entry.
+
+**What this does not buy.** Detect-and-refuse, not mutual exclusion. Real
+exclusion needs every metadata writer in the *destination* repo — its own
+Settings TUI, board column CRUD, chatlink wizard — to take a shared
+`lib/stale_lock.sh` lock around write-and-commit. Until then a concurrent edit
+makes the push *fail* rather than succeed; it never makes it publish or
+discard.
+
+**Never push, and say so.** The seam's no-push rule holds across repos too. A
+destination whose data branch is behind its remote gets a local commit and
+reconciles on its own next `ait sync` — tell the user that, or they will go
+looking for a push that never happened.
+
+**Report every outcome, including the refusals.** A silent dirty file in
+someone else's repo is the ownerless state this section exists to end, merely
+relocated. Return a typed outcome (`ApplyOutcome`), never `None` and never a
+bare bool, and render one line per destination.
+
+**Order a dependent write after durability, not after the write.** `apply_push`
+clears a local override only when the project commit came back `committed` or
+`nochange`. Clearing it while the project file is uncommitted (or holds a
+racer's bytes) would leave that repo *using* a value that exists only as a dirty
+file — neither the promised outcome nor the safe partial.
+
 ## Task and plan files: commit them path-scoped, and stage nothing you need not
 
 The same rule as above, for `aitasks/` and `aiplans/` rather than

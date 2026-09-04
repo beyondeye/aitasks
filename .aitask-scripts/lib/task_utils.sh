@@ -153,6 +153,20 @@ ait_cd_repo_root() {
     cd "$root" || die "Cannot cd to repo root $root"
 }
 
+# The git states that mean "this worktree is mid-operation". ONE named set: the
+# names were spelled out inline in both assert_data_worktree_clean and
+# task_git_health, and t1704 added a third reader (aitask_metadata_commit.sh's
+# --preflight, via ait_data_inprogress_state below) — a third copy of a list
+# whose members can only be verified against live git was not acceptable.
+#
+# Order is load-bearing for the FIRST-match readers: it is the order the two
+# pre-existing loops used, so the state a wedged worktree reports is unchanged.
+# rebase-merge and rebase-apply are directories; the other four are files —
+# `-e` covers both, which is why every reader uses it.
+AIT_GIT_INPROGRESS_STATES=(
+    rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG
+)
+
 # Resolve the data worktree's git-dir. Empty when in legacy mode or when the
 # git-dir cannot be resolved.
 #
@@ -175,6 +189,50 @@ _ait_data_gitdir() {
     # even though the data worktree is perfectly reachable through the
     # .aitask-data symlink. Ask git, which resolves it from anywhere.
     git -C "$_AIT_DATA_WORKTREE" rev-parse --absolute-git-dir 2>/dev/null || printf ''
+    return 0
+}
+
+# ait_data_mode — print `branch` or `legacy` for this repo's task-data layout.
+#
+# A named accessor rather than another reader of _AIT_DATA_WORKTREE: that global
+# is this library's cache, and a script outside it that reads the cache directly
+# inherits the responsibility for priming it. Callers want the classification,
+# not the path.
+#
+# ALWAYS returns 0, for the same `set -e` reason as _ait_data_gitdir.
+ait_data_mode() {
+    _ait_detect_data_worktree
+    if [[ "$_AIT_DATA_WORKTREE" == "." ]]; then
+        printf 'legacy'
+    else
+        printf 'branch'
+    fi
+    return 0
+}
+
+# ait_data_inprogress_state — print the FIRST in-progress git state the data
+# worktree is stuck in, or nothing when it is clean.
+#
+# Reports rather than refuses, which is what separates it from
+# assert_data_worktree_clean: a preflight has to be able to SAY "mid-merge"
+# without dying, and dying is that function's entire contract.
+#
+# Works in both modes — in legacy mode _ait_data_gitdir answers empty and this
+# prints nothing, which is the honest answer for "the data worktree" when there
+# is not a separate one.
+#
+# ALWAYS returns 0: an empty answer means clean-or-uninspectable, and every
+# caller distinguishes those by asking ait_data_mode as well.
+ait_data_inprogress_state() {
+    local gitdir state
+    gitdir="$(_ait_data_gitdir)"
+    [[ -z "$gitdir" ]] && return 0
+    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
+        if [[ -e "$gitdir/$state" ]]; then
+            printf '%s' "$state"
+            return 0
+        fi
+    done
     return 0
 }
 
@@ -240,7 +298,7 @@ assert_data_worktree_clean() {
     [[ -z "$gitdir" ]] && return 0
 
     local state hit=""
-    for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
         if [[ -e "$gitdir/$state" ]]; then hit="$state"; break; fi
     done
     [[ -z "$hit" ]] && return 0
@@ -285,7 +343,7 @@ task_git_health() {
         return 0
     fi
 
-    for state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+    for state in "${AIT_GIT_INPROGRESS_STATES[@]}"; do
         [[ -e "$gitdir/$state" ]] && hits+=("$state")
     done
 
