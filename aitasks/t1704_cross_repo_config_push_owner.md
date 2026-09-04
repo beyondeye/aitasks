@@ -3,7 +3,7 @@ priority: medium
 effort: medium
 depends: [1702]
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [git, task_metadata, robustness]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,10 +11,11 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 plan_approved_at: 2026-09-03 23:44
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
 created_at: 2026-09-03 12:22
-updated_at: 2026-09-03 23:44
+updated_at: 2026-09-04 16:02
 ---
 
 ## Origin
