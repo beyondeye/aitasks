@@ -1224,3 +1224,69 @@ and the other 20 shell suites plus shellcheck unchanged and green.
 at Step 8d: document the clean-owner-file precondition in the `aitask-trail`
 skill (`.j2` source, every rendered variant, the goldens) and spawn the
 Codex / OpenCode port tasks.
+
+---
+
+## Final Implementation Notes
+
+- **Actual work done:** `lib/txn_snapshot.sh` (new) promotes `aitask_fold_mark.sh`'s
+  private t1668 snapshot facility into a shared transaction boundary: a
+  fail-closed dirty-path preflight, a snapshot-backed rollback of pre-transaction
+  bytes AND index entries fired from the transaction's EXIT trap, and a single
+  derived verdict so a partial rollback is never announced as a complete one.
+  All eight `ait attach` / `ait artifact` verb paths open with `txn_begin` and
+  register their blob half as a hook; `ait fold` drops its private copies and
+  shares the lib. Landed as `87245845b` (15 files, +1903/−235).
+
+- **Deviations from plan:**
+  1. `tests/lib/test_scaffold.sh` DID need the lib. The plan argued it would not
+     (the lib does not join `./ait`'s source-on-startup chain), but the real
+     trigger is "a helper that learns to source the new lib" being run inside a
+     scaffolded fake repo — which is exactly `test_fold_mark.sh`. Every case
+     died at source time under `set -e` with no FAIL line.
+  2. `txn_abort` and `txn_rollback_report` were added to the lib. The plan had
+     nine call sites wording the same event themselves.
+  3. The plan's `_fold_rollback` sketch used `|| rc=1` plumbing, which is a
+     silent no-op against a recorder that returns 0. Every verdict is now
+     derived from the recorded set.
+  4. Three defects found during wiring were fixed rather than deferred (below).
+
+- **Issues encountered:**
+  - `test_fold_mark.sh`'s span-boundary guard pinned `^_fold_snap_add() {`, a
+    function the promotion removes. Re-anchored to
+    `_fold_prune_unsnapshotted_meta`, now the first function in the block.
+  - t1675's ALLOWLIST pins line numbers by design, so it went stale three times
+    as the scripts shifted. Each time it correctly re-exposed its sites.
+  - Forcing a restore failure needs the FILE's write bit, not its parent's — cp
+    over an existing file opens and truncates. Forcing a *hook* failure needs the
+    permission to change between the sweep's delete and its restore, which the
+    fault shim now does at the instant it fires.
+  - The whole-file pre-fix control is a smoke test, not evidence: the fixture is
+    linear, so the first pin that fails to refuse mutates state later pins build
+    on. Per-pin status is recorded in the test header.
+
+- **Key decisions:**
+  - The preflight lives at the verbs, never in the seam: `ait fold` writes task
+    files in Steps 4-5 and commits at Step 6, so at its Step 5b attach
+    transaction they are legitimately dirty with its own work.
+  - Two independent dedup sets (clean-checked, snapshotted), because a single
+    `seen` set makes whichever helper ran first silence the other.
+  - Blob paths keep HEAD restore / backend delete rather than being snapshotted:
+    content-addressed, and a snapshot would copy up to 25 MB with gc sweeping
+    many.
+  - The snapshot directory is RETAINED when the snapshot half fails to restore —
+    it is then the only surviving copy of the pre-transaction bytes.
+
+- **Upstream defects identified:**
+  - `aitask_fold_mark.sh:~800 — fold has NO EXIT trap after its Step 5b attach
+    transaction returns.` `registry_lock_release` runs `trap - EXIT`, clearing
+    the `_fold_abort_cleanup` handler that `_fold_attach_txn` chained on. The
+    shipped Step 6 arms all call `_fold_rollback` explicitly, so no current path
+    is broken, but a `die` anywhere between Step 5b and those arms would abort
+    with no rollback. Pre-existing (t1668), untouched by this task, and not
+    reachable by any shipped path — which is why it was left alone rather than
+    fixed opportunistically.
+  - `website/content/docs/skills/aitask-trail.md:85 — cross-reference points at
+    /docs/commands/task-management for `ait artifact`, which contains no
+    attach/artifact content.` A dead-end pointer rather than a dead link, so
+    `check_links.py` passes it. Pre-existing.
