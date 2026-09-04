@@ -1092,3 +1092,135 @@ false`), then archive t1698 and its plan per `task-workflow` Step 9. The
 - timing: pre-phase | name: fail_loud_restore_contract | type: bug | priority: high | effort: medium | inline_risk: low | added_complexity: medium | addresses: code-health — every restore action in the tree is fail-quiet (txn_snap_restore's writes under suppressed errexit, the verb blob hooks' `|| true`, fold's prune), and the fold wrappers it is promoted from then claim a full rollback unconditionally at four call sites | desc: add txn_rollback_failed as the single reporting seam and route the snapshot half, every verb blob hook and fold's prune through it; derive EVERY verdict from the recorded set through a single txn_rollback_ok (never `|| rc=1`, a silent no-op against a recorder that returns 0 — measured) and give txn_snap_restore a delta-derived status; split _txn_exit_trap and all four fold call sites into a full-rollback and a partial-rollback message that lists each un-restored item with its own recovery instruction; preserve the snapshot directory when the snapshot half is incomplete (including replacing fold's bare rm -rf with txn_snap_cleanup); pin with a restore-time fault case and a forced hook-failure case in tests/test_txn_snapshot.sh, a forced gc blob-restore failure in the verb suite, and end-to-end fold cases for a failed restore AND a failed prune with a positive control in tests/test_fold_mark.sh
 - timing: pre-phase | name: pin_attach_lock_not_leaked_on_abort | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the rollback's EXIT trap must chain onto registry_lock's, which overwrites on acquire and clears on release | desc: characterization test pinning that attachments/.attach.lock is absent after a faulted attach add / artifact create, written before the change so it captures today's correct behaviour and fails loudly if the trap chain leaks the lock
 - timing: after | name: trail_skill_dirty_owner_refusal_note | type: documentation | priority: medium | effort: medium | inline_risk: low | added_complexity: high | addresses: code-health — aitask_update.sh --batch leaves task files dirty, so ait artifact create <owner> now refuses mid-session and the aitask-trail create flow only reports it through a generic "surface and stop" arm | desc: document the clean-owner-file precondition and its remedy in .claude/skills/aitask-trail/SKILL.md.j2 next to the existing "handle already exists" guidance, regenerate every rendered variant and the goldens under tests/golden/skills/aitask-trail/, and spawn the companion Codex / OpenCode port tasks
+
+---
+
+## Implementation notes (as landed)
+
+### Deviations from the plan, and why
+
+1. **`tests/lib/test_scaffold.sh` DID need the new lib — the plan said it would
+   not.** The plan reasoned that `setup_fake_aitask_repo()` mirrors only
+   `./ait`'s source-on-startup chain, which `txn_snapshot.sh` does not join. The
+   real trigger is narrower than that: `aitask_fold_mark.sh` now sources the lib
+   at startup, and `test_fold_mark.sh` runs it inside a scaffolded fake repo, so
+   every one of its cases died at source time with `set -e` and no FAIL line.
+   The rule in `aidocs/framework/shell_conventions.md` is about "a helper that
+   learns to source the new lib", and that is exactly what happened. Added, with
+   the reason recorded beside the entry.
+
+2. **`test_fold_mark.sh`'s span-boundary guard needed a new marker.** It pins
+   `'^_fold_snap_add() {'` to prove an excision did not swallow the transaction
+   block. That function no longer exists; `_fold_prune_unsnapshotted_meta` is now
+   the first function in the block (so a span widening upward loses it first) and
+   exists in both the real and the stubbed build.
+
+3. **`txn_abort` / `txn_rollback_report` were added to the lib.** The plan had
+   each verb's commit-failure arm calling `txn_rollback` and dying, and fold
+   carrying its own `_fold_rollback_report`. That is two wordings for one event
+   across nine call sites. Both now route through one lib function.
+
+4. **The whole-file pre-fix control is a smoke test, not the evidence.** The
+   fixture is linear, so the first pre-fix pin that fails to refuse mutates state
+   the later pins build on. R3 "passed" the pre-fix run for that reason alone;
+   re-measured in an isolated pre-fix fixture it discriminates sharply
+   (`blobs 2 -> 1`, worktree left with ` D` deletions). Per-pin control status —
+   including the two pins that are non-discriminating BY CONSTRUCTION — is
+   recorded in the test file's header rather than claimed here.
+
+### What the pre-fix controls actually showed
+
+Both headline defects reproduced on the pre-fix tree before any code was
+written, and again from the finished suite:
+
+```
+defect 1  add exit=0, commit "ait: Attach a.bin to t5" touches aitasks/t5_demo.md
+          git show HEAD:aitasks/t5_demo.md | grep -c 'USER EDIT IN FLIGHT'  ->  1
+defect 2  before: 1 ; "commit failed — rolled back" ; rm exit=1 ; after: 0
+defect 3  gc rc=1, blobs 2 -> 1, porcelain=[ D <blob>; D <meta>;]
+```
+
+`R8` (`artifact rm` faulted at `referenced-hashes`) is **non-discriminating by
+construction** — that branch already had an inline HEAD restore pre-fix, and on
+a clean fixture HEAD-restore and snapshot-restore are byte-identical. It is kept
+as a regression guard for the `txn_abort` conversion, labelled as such.
+
+### Verification results
+
+```
+tests/test_txn_snapshot.sh                    42/42
+tests/test_attach_txn_worktree_isolation.sh  132/132
+tests/test_fold_mark.sh                      228/228
+tests/test_attach_lock_callback_contract.sh   92/92
++ test_attach_{local_backend,meta,archive_gc,gc_manifest_blocking,
+  task_delete_decref,fold_rebind,scaffold}, test_attachment_meta_lib,
+  test_artifact_{cli,dir_backend,fold_transfer,share_resolution,manifest_lib},
+  test_fold_{content,validate}, test_archive_folded, test_task_git   all PASS
+tests/test_trail_gather.py                   152/152
+shellcheck (4 changed shell files)           clean
+website/check_links.py --build               SWEEP: PASSED
+```
+
+Mutant checks (each verified to land, then reverted):
+
+| mutant | caught by |
+|---|---|
+| `_txn_fs_path` → CWD-relative (pre-fix branch-mode bug) | `test_txn_snapshot.sh` D1 |
+| `txn_rollback_ok` → `return 0` (fail-quiet verdict) | C2, C3 |
+| `_fold_rollback` → `_fold_prune_unsnapshotted_meta \|\| return 1` | both new fold pins |
+
+
+### Two review findings, fixed in-task rather than deferred
+
+Both were raised at Step 8 with a suggested disposition of *follow-up*. Both were
+reproduced first, and both were fixed here instead: they are low-effort and land
+inside code this task authored, and the second is a correctness hole in the very
+invariant the task exists to establish.
+
+**1. `_artifact_move_txn` opened its transaction above the no-op return** — so a
+same-backend move ran `txn_begin`, then `return 0` without `txn_end`, and
+`with_attach_lock`'s release cleared the EXIT trap, stranding the mktemp
+snapshot directory on every no-op. `_artifact_update_txn` already had the
+ordering right; `move` did not, and the plan had specified "after the
+same-backend no-op return". Fixed, and pinned with a private `TMPDIR` so the
+assertion is about this call rather than about whatever else is in `/tmp`.
+
+**2. Two direct `rm -f`s inside the transaction bodies were unchecked** —
+`aitask_artifact.sh`'s manifest delete and `aitask_attach.sh`'s ledger-meta
+delete. errexit is suppressed in there, so a failure did not abort; it fell
+through to the commit. Measured against a read-only directory, before the guard:
+
+```
+ait artifact rm:  rc=0
+                  "Removed artifact art:t30-report from t30 (manifest deleted, ...)"
+                  commits added=1
+                  manifest still on disk: YES ; still in HEAD: YES
+                  task still lists it: no
+```
+
+An orphan manifest that no task references and `ait attach gc` can never see
+past — the exact fail-closed state the t1076_2 guard exists to prevent, produced
+at exit 0 with a success message. The `gc` twin commits a blob DELETION beside a
+meta file that is still present. This is the t1675 false-success class
+reappearing inside the t1698 boundary, so both are now `|| die`: dying hands the
+armed trap the restore. Post-fix the same probe gives `rc=1`, no commit, the
+artifact still listed, `porcelain=[]`.
+
+A sweep confirmed these were the only two unchecked filesystem mutations in
+either transaction body (the two `cp`s are in the read-only `get` verb).
+
+Covered by section F of `tests/test_attach_txn_worktree_isolation.sh`
+(permission faults on both deletes, plus the two no-op leak pins). All four
+mutants — unchecked manifest delete, unchecked meta delete, `move` txn_begin
+above its no-op, `update` txn_begin above its no-op — were verified to land and
+each is caught, the last two independently of one another.
+
+Final counts after these fixes: `test_attach_txn_worktree_isolation.sh` 149/149,
+and the other 20 shell suites plus shellcheck unchanged and green.
+
+### Follow-up owed
+
+`trail_skill_dirty_owner_refusal_note` — the spawned "after" mitigation, created
+at Step 8d: document the clean-owner-file precondition in the `aitask-trail`
+skill (`.j2` source, every rendered variant, the goldens) and spawn the
+Codex / OpenCode port tasks.
