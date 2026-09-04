@@ -1061,8 +1061,8 @@
         },
         "pick": {
           "all_time": {
-            "runs": 265,
-            "score_sum": 26500
+            "runs": 266,
+            "score_sum": 26600
           },
           "prev_month": {
             "period": "2026-08",
@@ -1071,13 +1071,13 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 44,
-            "score_sum": 4400
+            "runs": 45,
+            "score_sum": 4500
           },
           "week": {
             "period": "2026-W36",
-            "runs": 54,
-            "score_sum": 5400
+            "runs": 55,
+            "score_sum": 5500
           }
         },
         "changelog": {
