@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [1702]
 issue_type: bug
@@ -10,7 +12,6 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-plan_approved_at: 2026-09-03 23:44
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
@@ -86,3 +87,5 @@ Re-derive the call path before starting; do not trust these line numbers.
 > Note: deferred
 
 > **✅ gate:plan_approved** run=2026-09-04T13:07:24Z status=pass attempt=2 type=human
+
+> **✅ gate:review_approved** run=2026-09-04T13:40:54Z status=pass attempt=1 type=human
