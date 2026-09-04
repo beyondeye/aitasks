@@ -1329,6 +1329,23 @@
             "period": "2026-W36",
             "runs": 3
           }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1
+          }
         }
       }
     }
