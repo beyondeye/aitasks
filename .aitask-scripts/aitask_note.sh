@@ -727,13 +727,30 @@ note_read_main() {
     [[ "$by_bare" == "$target_bare" ]] \
         || note_read_die "by-must-be-target:$by_raw"
 
-    local -a want=()
+    local -a raw_ids=()
     local IFS_SAVE="$IFS" id
-    IFS=','; read -r -a want <<< "$ids_raw"; IFS="$IFS_SAVE"
-    (( ${#want[@]} > 0 )) || note_read_die "missing-ids"
-    for id in "${want[@]}"; do
+    IFS=','; read -r -a raw_ids <<< "$ids_raw"; IFS="$IFS_SAVE"
+    (( ${#raw_ids[@]} > 0 )) || note_read_die "missing-ids"
+
+    # `ids=` is a SET: it names which notes this receipt acknowledges, and a
+    # note can only be acknowledged once. Canonicalize here, BEFORE the lock,
+    # rather than letting the in-lock loop see repeats — otherwise
+    # `--ids A,A` stores `ids=A,A` and reports two acknowledgements for one
+    # note. The derived unread state survives that (the reader unions into a
+    # set), but the stored record and the count would both be untrue.
+    #
+    # De-duplicate rather than reject: a caller assembling ids from two display
+    # passes has committed no error, and the set it means is unambiguous.
+    # First-seen order is preserved so the emitted receipt is deterministic.
+    local -a want=()
+    for id in "${raw_ids[@]}"; do
         [[ "$id" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\.[0-9a-f]{24}$ ]] \
             || note_read_die "bad-note-id:$id"
+        local seen="" prev
+        for prev in ${want[@]+"${want[@]}"}; do
+            [[ "$prev" == "$id" ]] && { seen=1; break; }
+        done
+        [[ -n "$seen" ]] || want+=("$id")
     done
 
     NOTE_PY="$(resolve_python 2>/dev/null || true)"

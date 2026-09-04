@@ -180,6 +180,27 @@ out="$(run_note read 804 --by 804 --ids "$NW" 2>/dev/null)"
 assert_eq "3i. query->lock window collapses to READ_NOOP" "READ_NOOP:804" "$out"
 assert_eq "3j. ... with no duplicate receipt" "1" "$(receipt_count 804)"
 
+# `ids=` is a SET. A repeated id must not be stored twice, nor counted twice:
+# the derived unread state would survive it (the reader unions into a set), so
+# only the STORED RECORD and the reported count can catch this -- assert both.
+ND1="$(send_note 806 807 "dup only")"
+out="$(run_note read 806 --by 806 --ids "$ND1,$ND1,$ND1" 2>/dev/null)"
+assert_contains "3m. a repeated id counts ONCE" "|1" "$out"
+line="$(grep -E '^> \*\*[^*]+ note:read\*\* ' "$(task_file 806)" | tail -n1)"
+assert_eq "3n. ... and is stored once" "ids=$ND1" "${line##* }"
+assert_eq "3o. ... in exactly one receipt" "1" "$(receipt_count 806)"
+
+# Duplicates ACROSS the acknowledged/unacknowledged split: {A} is already
+# acknowledged and B is repeated, so the receipt must carry B exactly once.
+NP1="$(send_note 807 808 "P1")"
+NP2="$(send_note 807 809 "P2")"
+run_note read 807 --by 807 --ids "$NP1" >/dev/null 2>&1
+out="$(run_note read 807 --by 807 --ids "$NP1,$NP2,$NP2,$NP1" 2>/dev/null)"
+assert_contains "3p. partial overlap with repeats counts the remainder once" "|1" "$out"
+line="$(grep -E '^> \*\*[^*]+ note:read\*\* ' "$(task_file 807)" | tail -n1)"
+assert_eq "3q. ... storing only the unacknowledged id" "ids=$NP2" "${line##* }"
+assert_eq "3r. ... and both notes are now read" "NO_UNREAD:807" "$(run_query inbox 807)"
+
 # An id naming no note in this file is a caller bug, refused before any write.
 before="$(task_body 805)"
 out="$(run_note read 805 --by 805 --ids "2026-01-01T00:00:00Z.$(printf 'f%.0s' {1..24})" 2>/dev/null)"
