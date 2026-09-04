@@ -533,7 +533,7 @@ declared `risk_evaluated` gate, and archival.
   (`commit_command(root=…)`), so every sibling repo not yet upgraded past t1677
   is refused with `dest_commit_unavailable` — fail-closed and correct, but
   indistinguishable to a user from "the push broke" · severity: medium ·
-  → mitigation: skew_refusal_names_the_version
+  → mitigation: t1713 (skew_refusal_names_the_version)
 - `--preflight` is a new mode on that same destination-resolved helper, so its
   contract can only ever be exercised against fixtures, never against a real
   older target · severity: low · → mitigation: TBD (accepted — the refusal is
@@ -541,12 +541,12 @@ declared `risk_evaluated` gate, and archival.
 - The compare-and-commit guard detects and refuses but does not exclude: the
   destination's own writers take no lock, so a residual same-process window
   remains in which a concurrent edit is neither published nor overwritten but
-  the push simply fails · severity: medium · → mitigation: shared_metadata_write_mutex
+  the push simply fails · severity: medium · → mitigation: t1714 (shared_metadata_write_mutex)
 
 ### Planned mitigations
 - timing: pre-phase | name: characterize_inprogress_state_guard | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — the AIT_GIT_INPROGRESS_STATES extraction rewrites two loops in the repo's most central shell library | desc: pin all six in-progress git states against assert_data_worktree_clean before and after the constant extraction
-- timing: after | name: skew_refusal_names_the_version | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — an un-upgraded destination is refused with dest_commit_unavailable and reads as a broken push | desc: name the destination's installed framework version in the dest_commit_unavailable result line and point at the syncer's Versions tab
-- timing: after | name: shared_metadata_write_mutex | type: enhancement | priority: medium | effort: high | inline_risk: high | added_complexity: high | addresses: goal-achievement — the compare-and-commit guard detects and refuses but does not exclude, so a concurrent edit in the target makes the push fail rather than succeed | desc: make every destination-repo metadata writer take a shared lib/stale_lock.sh lock around write-and-commit, upgrading cross-repo push from detect-and-refuse to real mutual exclusion
+- timing: after | name: skew_refusal_names_the_version | type: enhancement | priority: medium | effort: low | inline_risk: low | added_complexity: medium | addresses: goal-achievement — an un-upgraded destination is refused with dest_commit_unavailable and reads as a broken push | desc: name the destination's installed framework version in the dest_commit_unavailable result line and point at the syncer's Versions tab | created: t1713
+- timing: after | name: shared_metadata_write_mutex | type: enhancement | priority: medium | effort: high | inline_risk: high | added_complexity: high | addresses: goal-achievement — the compare-and-commit guard detects and refuses but does not exclude, so a concurrent edit in the target makes the push fail rather than succeed | desc: make every destination-repo metadata writer take a shared lib/stale_lock.sh lock around write-and-commit, upgrading cross-repo push from detect-and-refuse to real mutual exclusion | created: t1714
 
 ## Final Implementation Notes
 
