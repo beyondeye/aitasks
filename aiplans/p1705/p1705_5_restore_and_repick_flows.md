@@ -10,6 +10,28 @@ plan_verified: []
 
 # t1705_5 — Restore and re-pick flows
 
+## Step 0 — tmux preflight (run BEFORE anything else; blocking)
+
+This task destructively manipulates tmux (`respawn-pane -k`, real `pane-died`
+cleanup hooks, `kill-window`/`kill-server` on an isolated server). Its live
+tests call `tests/lib/tmux_isolation.sh::require_clean_ait_server`, which
+refuses to run from inside tmux or while the dedicated `-L ait` server has any
+pane. Check this **first**, before planning or editing a file:
+
+```bash
+[ -z "${TMUX:-}" ] && echo "PREFLIGHT_OK: not inside tmux" || { echo "PREFLIGHT_BLOCKED: this session runs inside tmux ($TMUX)"; }
+tmux -L ait list-panes -a -F '#{pane_id} #{window_name}' 2>/dev/null && echo "NOTE: the -L ait server has panes — stop 'ait ide' / close them before running the live suites" || echo "PREFLIGHT_OK: -L ait server idle"
+```
+
+- `PREFLIGHT_BLOCKED` → **do not implement.** Execute the workflow's **Task
+  Abort Procedure** (`task-abort.md`) so the task reverts to `Ready` with its
+  plan kept, and tell the user to re-pick from a terminal that is NOT inside
+  tmux. Do not set `AIT_LIVE_TMUX_TEST_FORCE=1` — it is for a dedicated CI
+  box only.
+- `-L ait` server has panes → implementation may proceed, but the live suites
+  will refuse until that server is stopped; say so in the Final
+  Implementation Notes if verification had to wait.
+
 ## Context
 
 The acknowledged two-phase restore (PINNED §D), re-pick, Restore-All, the
@@ -105,7 +127,7 @@ acknowledgement path is the real one.
 (ordering vs model flag), refusal with `invoke pick`, invalid session id
 rejected, `RESUME_UNSUPPORTED:opencode`.
 
-`tests/test_restore_flows_live.sh` (isolated server, fake agent on `PATH` as
+`tests/test_restore_flows_live.sh` (isolated server — `require_clean_ait_server` **then** `require_isolated_tmux`, because the fixture arms the real cleanup hook; fake agent on `PATH` as
 `claude` and `codex`, real hook, real store, `AITASKS_FROZEN_STANDIN_CMD` →
 `tests/lib/fake_standin.sh`, `restore_ack_grace=5`, `stale_op_grace=2` via
 a scratch `project_config.yaml`): happy resume (`ack=hook`, captures deleted,

@@ -11,6 +11,28 @@ created_at: 2026-09-04 16:04
 updated_at: 2026-09-04 16:04
 ---
 
+## Step 0 — tmux preflight (run BEFORE anything else; blocking)
+
+This task destructively manipulates tmux (`respawn-pane -k`, real `pane-died`
+cleanup hooks, `kill-window`/`kill-server` on an isolated server). Its live
+tests call `tests/lib/tmux_isolation.sh::require_clean_ait_server`, which
+refuses to run from inside tmux or while the dedicated `-L ait` server has any
+pane. Check this **first**, before planning or editing a file:
+
+```bash
+[ -z "${TMUX:-}" ] && echo "PREFLIGHT_OK: not inside tmux" || { echo "PREFLIGHT_BLOCKED: this session runs inside tmux ($TMUX)"; }
+tmux -L ait list-panes -a -F '#{pane_id} #{window_name}' 2>/dev/null && echo "NOTE: the -L ait server has panes — stop 'ait ide' / close them before running the live suites" || echo "PREFLIGHT_OK: -L ait server idle"
+```
+
+- `PREFLIGHT_BLOCKED` → **do not implement.** Execute the workflow's **Task
+  Abort Procedure** (`task-abort.md`) so the task reverts to `Ready` with its
+  plan kept, and tell the user to re-pick from a terminal that is NOT inside
+  tmux. Do not set `AIT_LIVE_TMUX_TEST_FORCE=1` — it is for a dedicated CI
+  box only.
+- `-L ait` server has panes → implementation may proceed, but the live suites
+  will refuse until that server is stopped; say so in the Final
+  Implementation Notes if verification had to wait.
+
 ## Context
 
 Fifth child of t1705 (frozen code agents). Implements **restore** (relaunch
@@ -79,7 +101,7 @@ server.
    allowed but the ack can only be `liveness` (captures kept) — say so in
    the result line.
 
-## Tests (`tests/test_restore_flows_live.sh`, isolated tmux; plus
+## Tests (`tests/test_restore_flows_live.sh`, isolated tmux with `require_clean_ait_server` first — the fixture arms the real cleanup hook; plus
 `tests/test_codeagent_resume_session.sh`)
 
 Fake agent binary (`tests/lib/fake_agent.sh` from t1705_1, extended): honours
