@@ -1315,7 +1315,7 @@
       "usagestats": {
         "explore": {
           "all_time": {
-            "runs": 2
+            "runs": 3
           },
           "prev_month": {
             "period": "",
@@ -1323,11 +1323,11 @@
           },
           "month": {
             "period": "2026-09",
-            "runs": 2
+            "runs": 3
           },
           "week": {
             "period": "2026-W36",
-            "runs": 2
+            "runs": 3
           }
         }
       }
