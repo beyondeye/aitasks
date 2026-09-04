@@ -43,6 +43,7 @@ FIXTURE_NAMES = [
     "shadow_review_loop.json",
     "gate_framework.json",
     "cross_topic_multiple_trails.json",
+    "merged_trail.json",
 ]
 
 #: The schema version the current `const` replaced. Kept as a named constant so
@@ -208,6 +209,196 @@ class NarrativeOverviewProperty(unittest.TestCase):
         schema = json.loads(AIDOCS_SCHEMA.read_text(encoding="utf-8"))
         narrative = schema["properties"]["narrative"]
         self.assertNotIn("overview", narrative.get("required", []))
+
+
+class MergedFromProperty(unittest.TestCase):
+    """`merged_from` — direct merge/recovery provenance (t1647_2).
+
+    Optional-additive at the ROOT, which is what makes the back-compat case
+    below load-bearing: the root is `additionalProperties: false` with
+    `schema_version` const "1.1.0" and the loader rejects any other version,
+    so a required field or a version bump would turn every stored trail into
+    ERROR:invalid_trail at once.
+
+    The field is DIRECT provenance, not an ancestry ledger: a merge writes
+    exactly two records (the base's pre-merge snapshot and the folded
+    source's) and REPLACES any previous value. Deeper ancestry is not stored
+    because each record's `version` is the `ait artifact get --version` key
+    for the previous hop. The shape rules below are what the schema can
+    enforce; the two-record convention itself is pinned on the fixture in
+    tests/test_implementation_trail_design.py.
+    """
+
+    FIELD_PATH = "$.merged_from"
+
+    #: A well-formed record — the folded source of a single merge.
+    RECORD = {
+        "handle": "art:trail-folded-source",
+        "version": "8f26b0c15ae4",
+        "title": "Folded source",
+        "merged_at": "2026-09-04T09:00:00Z",
+    }
+
+    #: Its partner — the base's pre-merge snapshot, same merge event.
+    BASE_RECORD = {
+        "handle": "art:trail-base",
+        "version": "4e1c9a7b3d20",
+        "title": "Base, pre-merge",
+        "merged_at": "2026-09-04T09:00:00Z",
+    }
+
+    def _doc(self, merged_from):
+        doc = fixture("gate_framework.json")
+        doc["merged_from"] = merged_from
+        return doc
+
+    def _record(self, **overrides):
+        record = dict(self.RECORD)
+        record.update(overrides)
+        return record
+
+    def _without(self, key):
+        record = dict(self.RECORD)
+        del record[key]
+        return record
+
+    def _pair(self, record):
+        """A two-record merge whose ONLY defect is `record`'s.
+
+        The per-record negatives below must not also trip the
+        one-merge-event rule — a document invalid for two reasons cannot
+        show which rule caught it.
+        """
+        return [self.BASE_RECORD, record]
+
+    def assert_rule(self, doc, rule):
+        issues = issues_for(doc)
+        self.assertTrue(
+            any(i.rule == rule and i.path.startswith(self.FIELD_PATH)
+                for i in issues),
+            "expected a %r issue under %s: %s"
+            % (rule, self.FIELD_PATH, issues))
+
+    # --- the back-compat case ------------------------------------------
+
+    def test_absent_key_validates(self):
+        """THE load-bearing case: no trail authored before this field carries
+        it, and every one of them must stay valid."""
+        doc = fixture("gate_framework.json")
+        self.assertNotIn("merged_from", doc)
+        self.assertEqual(issues_for(doc), [])
+
+    def test_property_is_optional(self):
+        """Not in root `required` — the corpus-level twin of the above."""
+        schema = json.loads(AIDOCS_SCHEMA.read_text(encoding="utf-8"))
+        self.assertNotIn("merged_from", schema["required"])
+
+    def test_schema_version_was_not_bumped(self):
+        """An additive optional property must not move the const: a bump
+        would reject every stored document rather than accept a new one."""
+        schema = json.loads(AIDOCS_SCHEMA.read_text(encoding="utf-8"))
+        self.assertEqual(
+            schema["properties"]["schema_version"]["const"], "1.1.0")
+
+    # --- accepted shapes ------------------------------------------------
+
+    def test_two_record_merge_validates(self):
+        """The shape a merge actually writes: base pre-merge + folded source,
+        sharing one merged_at."""
+        base = self._record(handle="art:trail-base", version="4e1c9a7b3d20",
+                            title="Base, pre-merge")
+        self.assertEqual(issues_for(self._doc([base, self.RECORD])), [])
+
+    def test_optional_title_may_be_omitted(self):
+        self.assertEqual(issues_for(self._doc(self._pair(self._without("title")))), [])
+
+    # --- rejected shapes ------------------------------------------------
+
+    def test_empty_array_is_rejected(self):
+        """`minItems: 1` — an empty array claims a merge happened while
+        naming nothing, which is strictly worse than omitting the key."""
+        self.assert_rule(self._doc([]), "minItems")
+
+    def test_missing_version_is_rejected(self):
+        """`version` is the retirement-recovery anchor AND the walk-back
+        fetch key; a record without it names a trail nobody can retrieve."""
+        self.assert_rule(self._doc(self._pair(self._without("version"))), "required")
+
+    def test_missing_handle_is_rejected(self):
+        self.assert_rule(self._doc(self._pair(self._without("handle"))), "required")
+
+    def test_missing_merged_at_is_rejected(self):
+        self.assert_rule(self._doc(self._pair(self._without("merged_at"))), "required")
+
+    def test_extra_key_under_items_is_rejected(self):
+        """`additionalProperties: false` on the record: a writer must not
+        smuggle state into a provenance fact."""
+        self.assert_rule(
+            self._doc(self._pair(self._record(retired="yes"))), "additionalProperties")
+
+    def test_non_timestamp_merged_at_is_rejected(self):
+        self.assert_rule(
+            self._doc(self._pair(self._record(merged_at="2026-09-04 09:00"))), "pattern")
+
+    def test_empty_handle_is_rejected(self):
+        self.assert_rule(self._doc(self._pair(self._record(handle=""))), "minLength")
+
+    def test_empty_version_is_rejected(self):
+        self.assert_rule(self._doc(self._pair(self._record(version=""))), "minLength")
+
+    def test_non_object_record_is_rejected(self):
+        self.assert_rule(self._doc(self._pair("art:trail-folded-source")), "type")
+
+    def test_non_array_value_is_rejected(self):
+        self.assert_rule(self._doc(self.RECORD), "type")
+
+    # --- the one-merge-event shape (semantic rule) ----------------------
+    #
+    # The schema stops at `minItems`: `maxItems` is not in
+    # SUPPORTED_KEYWORDS, and putting it there would trip the
+    # unknown-keyword RuntimeError rather than constrain anything. So
+    # cardinality and the cross-record rules live in _check_merged_from,
+    # and these are their negative controls. Each shape below LOADED
+    # CLEANLY before that rule existed, while silently defeating the
+    # retirement-recovery consumer, which identifies the folded source as
+    # the record whose handle differs from the base's.
+
+    def _merge(self, *records):
+        return self._doc(list(records))
+
+    def assert_shape_rejected(self, doc):
+        self.assert_rule(doc, "merged_from_shape")
+
+    def test_one_record_is_rejected(self):
+        """Leaves either no base version or no folded source — and the
+        exclude-the-base identification has nothing to choose between."""
+        self.assert_shape_rejected(self._merge(self.RECORD))
+
+    def test_three_records_are_rejected(self):
+        """`merged_from` is one-hop and written wholesale: a third record
+        means either inherited ancestry or a multi-fold, and both make the
+        folded-source identification ambiguous."""
+        third = self._record(handle="art:trail-third")
+        self.assert_shape_rejected(
+            self._merge(self.BASE_RECORD, self.RECORD, third))
+
+    def test_duplicate_handles_are_rejected(self):
+        """Two records naming one trail yield zero or two candidates when
+        the consumer excludes the base handle."""
+        self.assert_shape_rejected(
+            self._merge(self.BASE_RECORD,
+                        self._record(handle=self.BASE_RECORD["handle"])))
+
+    def test_split_merged_at_is_rejected(self):
+        """Both records describe ONE merge event. Differing stamps claim two,
+        in a field a merge replaces wholesale."""
+        self.assert_shape_rejected(
+            self._merge(self.BASE_RECORD,
+                        self._record(merged_at="2026-08-01T09:00:00Z")))
+
+    # The positive control for this whole section is
+    # test_two_record_merge_validates above: without it, every assertion
+    # here could pass because the rule rejected everything.
 
 
 class LiteShapeRule(unittest.TestCase):

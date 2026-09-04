@@ -1,0 +1,189 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-merge-provenance",
+  "title": "Merge provenance and artifact retirement (merged)",
+  "owner": "aitasks#1647",
+  "scope": {
+    "kind": "multi_topic",
+    "initiating_task": "aitasks#1647",
+    "topics": ["aitasks#1647", "aitasks#1159"],
+    "selection_note": "SYNTHETIC FIXTURE for the merged-document case. Produced by folding art:trail-artifact-retirement (topic aitasks#1159) into art:trail-merge-provenance (topic aitasks#1647); both sources were topic-scoped, so the result is multi_topic over the union of their roots and membership stays live per topic. Ids, timestamps, digests and artifact versions are frozen synthetic values."
+  },
+  "generation": {
+    "generated_at": "2026-09-04T09:00:00Z",
+    "generator": {
+      "agent_string": "claudecode/opus5",
+      "skill": "aitask-merge-trails"
+    },
+    "project_revision": { "aitasks": "17357fb28" },
+    "input_digest": "3f81ac5e9d24b6708c1f",
+    "inputs": [
+      { "ref": "aitasks#1647_2", "kind": "task_file" },
+      { "ref": "aitasks#1647_3", "kind": "task_file" },
+      { "ref": "aitasks#1159", "kind": "task_file" },
+      { "ref": "aitasks:aiplans/p1647/p1647_2_trail_schema_merged_from_provenance.md", "kind": "plan_file" }
+    ]
+  },
+  "merged_from": [
+    {
+      "handle": "art:trail-merge-provenance",
+      "version": "4e1c9a7b3d20",
+      "title": "Merge provenance (base, pre-merge)",
+      "merged_at": "2026-09-04T09:00:00Z"
+    },
+    {
+      "handle": "art:trail-artifact-retirement",
+      "version": "8f26b0c15ae4",
+      "title": "Artifact retirement (folded source)",
+      "merged_at": "2026-09-04T09:00:00Z"
+    }
+  ],
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-09-04T09:00:00Z",
+    "drift_reasons": []
+  },
+  "narrative": {
+    "problem_statement": "Two trails had grown over the same work: one tracking how a merged trail records where it came from, the other tracking what it takes to retire an artifact cleanly. Which tasks should land next once they are treated as one body of work?",
+    "recommendation_summary": "Land the schema field first, then the preflight that reads it, then the retirement sweep the folded trail contributed. The schema record is what the preflight resumes from, so it is a genuine prerequisite rather than a preference; the retirement sweep only needs the preflight's verdict, so it forms its own later wave.",
+    "overview": "The merge did not simply concatenate two orderings. The folded trail's retirement work turned out to depend on a field the base trail was still designing, so the two waves are ordered by that dependency rather than by either source's original sequence.",
+    "method_note": "Membership is the union of both sources' entries, deduplicated by canonical task ref; wave ordinals and per-wave positions were renumbered for the merged document. Each task's canonical topic was read from its own anchor resolution and never reassigned.",
+    "caveats": [
+      "The ordering between the two former trails rests on the schema-then-consumer dependency; if the preflight were rewritten to not read merged_from, wave 2 could move earlier."
+    ]
+  },
+  "waves": [
+    {
+      "wave_id": "w1-provenance-record",
+      "ordinal": 1,
+      "title": "Record the provenance",
+      "purpose": "Put the merge provenance into the schema and the preflight that consumes it, so a half-finished retirement is recoverable rather than silent.",
+      "why_now": "Everything the folded trail contributed assumes a durable record of what was folded; without it the retirement sweep has nothing to resume from.",
+      "consequence_of_delay": "Every merge performed before this lands leaves an unrecoverable half-state if it is interrupted.",
+      "entries": [
+        {
+          "entry_id": "e-1647-2-schema",
+          "task": "aitasks#1647_2",
+          "topic": "aitasks#1647",
+          "position": 1,
+          "classification": "hard_prerequisite",
+          "snapshot": {
+            "status": "Implementing",
+            "priority": "medium",
+            "effort": "low",
+            "depends": []
+          },
+          "rationale": "The optional merged_from property is the durable record the whole retirement-recovery path reads; nothing downstream can be written against a field that does not exist yet.",
+          "expected_outcome": "A merged document records both the base's pre-merge version and the folded source's, so an interrupted retirement can be resumed deterministically.",
+          "why_order_matters": "The preflight in the next entry reads this field by name; building it first would mean coding against a shape still under discussion.",
+          "confidence": "high",
+          "evidence_refs": ["ev-schema-copies"]
+        },
+        {
+          "entry_id": "e-1647-3-preflight",
+          "task": "aitasks#1647_3",
+          "topic": "aitasks#1647",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": ["aitasks#1647_2"]
+          },
+          "rationale": "The preflight is the only consumer that can turn a recorded merge into a forced recovery, so it is what makes the schema record load-bearing rather than decorative.",
+          "expected_outcome": "A merge request against a base with an outstanding retirement stops and resumes that retirement instead of authoring a new merge.",
+          "confidence": "high",
+          "evidence_refs": ["ev-preflight-plan"]
+        }
+      ]
+    },
+    {
+      "wave_id": "w2-retirement-sweep",
+      "ordinal": 2,
+      "title": "Complete the retirement path",
+      "purpose": "Land the folded trail's own contribution — sweeping the references that keep a retired artifact alive — now that the preflight can tell a pending retirement from a finished one.",
+      "why_now": "This was the folded trail's leading wave, but it reads the preflight's verdict, so the merge moves it after wave 1 rather than preserving its original position.",
+      "entries": [
+        {
+          "entry_id": "e-1159-retirement",
+          "task": "aitasks#1159",
+          "topic": "aitasks#1159",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": []
+          },
+          "rationale": "Carried in from the folded trail: retiring an artifact means removing every owner reference to it, not just the manifest entry, and the sweep is what makes that complete.",
+          "expected_outcome": "A retired handle resolves nowhere, which is exactly the condition the preflight uses to decide a retirement finished.",
+          "confidence": "medium",
+          "caveats": [
+            "Effort is inherited from the folded trail's estimate and was not re-derived during the merge."
+          ],
+          "evidence_refs": ["ev-retirement-note"]
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "aitasks#1647_2",
+      "to": "aitasks#1647_3",
+      "type": "hard_depends",
+      "provenance": "fact",
+      "note": "Mirrors the recorded depends edge on t1647_3; the preflight reads the merged_from field this task adds."
+    },
+    {
+      "from": "aitasks#1647_3",
+      "to": "aitasks#1159",
+      "type": "advisory_precedes",
+      "provenance": "advisory",
+      "note": "No recorded dependency. The sweep is easier to verify once the preflight can distinguish a pending retirement from a finished one, but it does not require it."
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs-both-sources-topic-scoped",
+      "kind": "shared_surface_collision",
+      "statement": "Both source trails were topic-scoped and their entry sets overlapped on the trail subsystem, which is what made them merge candidates rather than merely adjacent work.",
+      "affects": ["aitasks#1647_2", "aitasks#1159"],
+      "evidence_refs": ["ev-schema-copies", "ev-retirement-note"]
+    }
+  ],
+  "exclusions": [
+    {
+      "task": "aitasks#1647_6",
+      "reason_code": "non_blocking",
+      "reason": "Documentation for the merge flow. Real work, but it describes the result rather than gating it, so it does not belong in either wave."
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-schema-copies",
+      "source_type": "task_file",
+      "ref": "aitasks#1647_2",
+      "observed_at": "2026-09-04T08:40:00Z",
+      "summary": "Adds the optional merged_from root property to both schema copies; no schema_version bump, so stored trails stay valid."
+    },
+    {
+      "evidence_id": "ev-preflight-plan",
+      "source_type": "plan_file",
+      "ref": "aitasks:aiplans/p1647/p1647_3_trail_merge_preflight_helper.md",
+      "observed_at": "2026-09-04T08:45:00Z",
+      "summary": "Preflight plan: half-merge detection reads the base document's merged_from records before any new merge is authored."
+    },
+    {
+      "evidence_id": "ev-retirement-note",
+      "source_type": "task_file",
+      "ref": "aitasks#1159",
+      "observed_at": "2026-09-04T08:50:00Z",
+      "summary": "Carried in from the folded trail: retirement removes every owner reference to a handle, and the blob stays recoverable from data-branch history."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "deep"
+  }
+}
