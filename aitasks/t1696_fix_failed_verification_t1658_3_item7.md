@@ -13,7 +13,7 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1658
 followup_kind: verification_failure
 created_at: 2026-09-02 18:55
-updated_at: 2026-09-02 22:34
+updated_at: 2026-09-04 16:45
 ---
 
 ## Failed verification item from t1658_1
@@ -136,3 +136,80 @@ in t1658_3 item 8 - only the `./ait sync` recovery wording is at issue.)
 ### Next steps
 
 Reproduce the failure locally (see the commits and files above, and the origin archived plan for implementation context), identify the offending change, and fix. This task was auto-generated from a manual-verification failure in t1658_3 item #7.
+
+## Scope correction: the DIVERGED state has no recovery at all (observed 2026-09-04)
+
+The analysis above was recorded from the **fast-forwardable** partial state
+(`behind 1 / ahead 0`), where `task_data_converge()` recovers immediately. That
+is not the state this repo actually drifts into. Observed live on `omg16` today,
+on `aitask-data`:
+
+```
+ahead/behind vs origin/aitask-data:  46  12     (was 30 / 8 ~20 min earlier, still growing)
+merge-base:                          8e32d4070
+origin-only commits touch ONLY:      aitasks/metadata/models_claudecode.json
+worktree:                            4-5 task files permanently dirty
+                                     (live /aitask-pick agents t1647_2, t1704, t1705)
+```
+
+**Both recovery paths refuse, so the two findings above compose into a deadlock:**
+
+- `task_data_converge()` does **not** self-heal here. Its fast-forward arm is
+  reached only when `ahead == 0`; with both counts non-zero it takes the earlier
+  early return at `lib/task_utils.sh:985-990` -> `STATUS=diverged`,
+  `REASON=local_diverged`, and hands off to `./ait sync`.
+- `./ait sync` takes the `protected_dirty` deferral at `aitask_sync.sh:1278`
+  (`(( ${#PROTECTED_DIRTY[@]} )) && remote_ahead > 0`) and exits 0 before the
+  rebase, because the shared worktree is dirty by design on a multi-agent box.
+
+So each guard forwards recovery to the other and neither executes. The state is
+**absorbing, not self-healing**: every subsequent pick fires
+`commit_and_push_from_remote_clone()`, whose pre-converge is itself the
+`diverged` no-op, then pushes one more commit to origin only. The gap grew by
+16 local + 4 remote commits during a single session of observation.
+
+### Corrections to the assessment above
+
+- "the next metadata update self-heals because it calls `task_data_converge()`
+  before committing" holds **only while `ahead == 0`**. Once any local commit
+  lands while origin is ahead, the pre-converge becomes a no-op and the
+  divergence is permanent.
+- "the defect is the misdirecting recovery instruction ..., not the convergence
+  seam" is too narrow. In the diverged state there is **no reachable recovery to
+  point the hint at** — rewording alone cannot fix this case. The suggested
+  direction ("have `ait sync` run `task_data_converge()` on its `protected_dirty`
+  deferral path") is also insufficient on its own, since that call returns
+  `diverged` without acting.
+
+### What actually recovered it
+
+A merge (not a rebase) resolves it with the worktree dirty, because the two
+sides are path-disjoint — origin's commits touch only `models_claudecode.json`,
+which was clean locally and untouched by all 46 local commits. Performed by hand:
+
+1. `git worktree add --detach <tmp> <local-tip>`; `git merge origin/aitask-data`
+   there (clean, one file changed).
+2. `git -C .aitask-data merge --ff-only <merge-commit>` — the merge commit
+   descends from the local tip, so this is a fast-forward that **fails closed**
+   if an agent commits in the window (it did, on the first attempt; retried).
+3. `git push origin aitask-data`.
+
+Result `cd994a6ef`, `0 / 0`, with every dirty agent file left untouched. Note
+step 2 is exactly the `merge --ff-only` seam t1658_1 chose — it works here too;
+what is missing is a step that first *creates* a descendant of the local tip
+when `ahead != 0`, which is the gap in the `diverged` arm.
+
+A fix should therefore give the `diverged` arm a real action (a path-disjointness
+check plus an off-worktree merge is one option that preserves the
+"never stash, never commit other sessions' files" contract), not only a better
+hint. Any such change must keep failing closed when the dirty paths *do* overlap.
+
+### Related: stale locks widen the blocked set
+
+`PROTECTED_DIRTY` is computed from the lock branch, which is not self-cleaning.
+At the time of this observation 9 of the 12 locks on `aitask-locks` named dead
+pids, the oldest (`t259`) held since 2026-02-26. `t1699_lock.yaml` (pid 3874251,
+dead) was protecting a dirty file and was released manually; the other 8 stale
+locks remain. Each one can pin a file into `PROTECTED_DIRTY` indefinitely and
+make the deferral above fire more often than the live sessions alone warrant.
+Worth a separate task — stale-lock reaping is not in this task's scope.
