@@ -99,3 +99,16 @@ disagree with the rest of the framework:
   fix was taken first
 - `aidocs/framework/shadow_agent.md` — the stamp-at-spawn precedent
 - `aidocs/framework/tmux_gateway.md` — per-pane state is keyed by `pane_id`
+
+## Notes for sibling tasks
+
+- **t1705 (frozen code agents, 2026-09-04):** its children read agent identity
+  via `classify_pane()` prefix + `task_id_from_window_name()` and key
+  `~/.config/aitasks/agent_sessions.json` on `(root, window, window_slot)` with
+  the `@aitask_record` pane option as the pane join (pane id/pid are location
+  data, never identity). When `@aitask_agent` / `@aitask_task_id` land here,
+  sweep `.aitask-scripts/lib/agent_sessions.py`, `lib/agent_freeze.py`,
+  `aitask_session_hook.sh` and the frozen discovery branch in
+  `monitor/monitor_core.py` so they read the stamps first and fall back to the
+  prefix/regex. Reverse link: `aitasks/t1705/t1705_2_framework_session_store.md`
+  §Coordination.

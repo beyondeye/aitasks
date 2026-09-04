@@ -1,9 +1,11 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: high
 effort: high
 depends: []
 issue_type: feature
-status: Implementing
+status: Ready
 labels: [minimonitor, tmux, codeagent, tui, session_persistence]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -11,9 +13,8 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 children_to_implement: [t1705_1, t1705_2, t1705_3, t1705_4, t1705_5, t1705_6, t1705_7, t1705_8, t1705_9, t1705_10]
-assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-04 10:50
-updated_at: 2026-09-04 16:13
+updated_at: 2026-09-04 16:15
 ---
 
 ## Goal
