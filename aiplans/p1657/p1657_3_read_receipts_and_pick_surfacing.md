@@ -641,3 +641,104 @@ Cleanup, archival and merge per `task-workflow` Step 9. Two coordination items:
 - timing: post-phase | name: pure_move_characterization | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: schema extraction silently changing merge behavior on a multi-writer data path | desc: run the two merge characterization suites unedited against the extracted module, then mutate an extracted predicate to prove the guard can fail
 - timing: post-phase | name: listing_readonly_invariant | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: a listing site silently consuming receipts | desc: byte-compare candidate task files before/after a batched inbox query, with a forced-failure mutant proving the check can fail
 - timing: post-phase | name: cross_surface_render_assertions | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: four near-identical inbox blocks drifting across surfaces | desc: per-entry-point render assertions pinning each surface's block by content and position, each with its negative control
+
+## Final Implementation Notes
+
+Landed in 5 commits (`e438875ac`, `6b561c5fb`, `da5c9e4d8`, `ba7786096`,
+plus the `ids=` set fix). 29 files, +2429/-155.
+
+### What exists now, for a sibling to build on
+
+**`.aitask-scripts/lib/note_inbox.py`** — the `## Inbox` schema and the unread
+derivation. `validate_block(b)` is the ONE predicate; `aitask_merge.INBOX_SPEC.validate`
+**is that same function object** (pinned by an identity assertion), so a merge and
+a read can never disagree about what is valid. Also exports `RECEIPT_NAME`,
+`is_receipt`, `parse`, `acknowledged_ids`, `split`, `unread`, `has_section`,
+`drop_block_by_id`, and a CLI (`unread` / `acked` / `note-ids` / `drop`).
+
+**`ledger_block.ISO_INSTANT_RE`** — promoted from `aitask_merge._ISO_RUN_RE`,
+which `GATE_SPEC` also used. If you need to match an `iso_now()` stamp, import it;
+do not write a fourth copy.
+
+**`aitask_query_files.sh inbox <id>...`** — batched, strictly read-only, emits
+`INBOX_UNREAD` / `INBOX_MALFORMED` / `NO_INBOX` / `NO_UNREAD` / `INBOX_ERROR`,
+every line prefixed with the task id so a batch is attributable.
+
+**`ait note read <task> --by <id> --ids <csv> [--mode auto|explicit]`** — see
+`--help`. Outcomes are disjoint by design: `READ_RECORDED` /
+`READ_RECORDED_UNPUSHED` (a committed receipt exists) · `READ_NOOP` (none needed)
+· `READ_TARGET_MISSING` / `READ_ERROR` (none written, note stays unread) ·
+`READ_ERROR:rollback-failed:<id>` (needs a human).
+
+### Five things that will cost you time if you meet them cold
+
+1. **The three "obvious" simplifications are all wrong, and each has a test.**
+   - Appending a receipt unconditionally: a retry or a concurrent same-checkout
+     ack then writes a duplicate. The subtraction happens INSIDE the lock.
+   - Keeping the receipt when its commit fails (what the *write* path correctly
+     does): the subtraction then sees it, so the note is hidden locally and the
+     retry returns `READ_NOOP`, while nothing is durable. A receipt ROLLS BACK.
+   - Rolling back by restoring the pre-append file: the task file is a shared
+     multi-writer surface and another writer may have appended meanwhile.
+     `drop_block_by_id` removes only our own block.
+
+2. **`ids=` is a SET.** `--ids A,A` used to store `ids=A,A` and report 2. The
+   reader unions into a set, so the DERIVED state hid it — only the stored record
+   and the count could catch it. Any new assertion about receipt contents must
+   read the stored `ids=` string, never re-check `NO_UNREAD`.
+
+3. **`INBOX_MALFORMED` is not decoration.** A discarded receipt makes a note
+   keep re-surfacing; a discarded note is one nobody sees. Without the line,
+   either is indistinguishable from "there was nothing there". Render it as a
+   warning, never as a note.
+
+4. **There is ONE template per skill.** `lib/agent_skills_paths.sh:79
+   agent_authoring_template()` always returns `.claude/skills/<skill>/SKILL.md.j2`;
+   `.agents/` and `.opencode/` hold stubs. The parent task's "three trees, not
+   one" note is wrong about this — do NOT spawn per-agent-tree port tasks. What
+   IS multi-fold: `aitask-pickrem` / `aitask-pickweb` carry
+   `prerender_for_headless: true`, so their committed `*-remote-*` variants in all
+   three trees must be regenerated with `aitask_skill_rerender.sh <profile>` (once
+   per profile) or `test_skill_render_*` Test 6 fails against HEAD.
+
+5. **Goldens come from `skill_template.py` stdout**, not from copying a rendered
+   variant. And `aitask-pickrem` / `aitask-pickweb` keep **remote-only** goldens —
+   generating default/fast ones for them leaves orphans.
+
+### Scope decisions a sibling should not re-litigate
+
+- **`aitask-pickweb` displays notes but never acknowledges them.** Web mode makes
+  no task-file writes at all (no `aitask_update.sh`, no `./ait git`) and has no
+  data-branch push access, so a receipt there could neither be written without
+  breaking that invariant nor ever become durable. Unread is the fail-safe
+  direction: the notes surface again on the next attended pick. This is a
+  decision, not a gap — t1657_6 has a note asking for it to be documented as one.
+- **Headless profiles auto-acknowledge** (`mode=auto`). The objection that this
+  burns a note for the human it was addressed to was raised and declined; the
+  `mode` field is the audit trail.
+- **The `ait note read` commit runs inside the lock**, unlike the write path which
+  deliberately releases first. Rollback requires it. Cost: a concurrent `ait note`
+  to the same task can hit `lock-unavailable` during a receipt commit; bounded
+  because `note read` runs once per pick.
+
+### A pre-existing gap this task closed
+
+`test_inbox_union_roundtrip.py` had FOUR receipt tests, all rejections, and no
+positive complement — so dropping `mode` from `RECEIPT_KEYS_REQUIRED` broke every
+valid receipt while the whole suite still passed. Added the complements. Worth
+remembering as a shape: a rejection set with no positive case cannot distinguish
+"rejects the bad ones" from "rejects everything".
+
+### Verification actually run
+
+`test_note_read_receipts.sh` (74) · `test_inbox_surfacing_render.sh` (48) ·
+`test_note_append.sh` (110) · `test_note_section_order.sh` (20) ·
+`test_skill_render_aitask_pick` (97) / `_pickrem` (67) / `_pickweb` (86) /
+`_task_workflow` (290) · `aitask_skill_verify.sh` · full Python suite.
+Every load-bearing claim was mutation-checked: defeating the subtraction fails 6,
+removing the rollback fails 8, making the listing acknowledge fails 11, pickweb
+writing a receipt fails 1, pickrem's block drifting out of Step 2 fails 7,
+removing the `ids=` de-duplication fails 4.
+
+End-to-end: this task's own inbox note (from the t1657_2 session) was surfaced,
+acknowledged exactly once, and `READ_NOOP` on retry.
