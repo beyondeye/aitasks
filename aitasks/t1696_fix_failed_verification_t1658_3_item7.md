@@ -14,6 +14,8 @@ anchor: 1658
 followup_kind: verification_failure
 created_at: 2026-09-02 18:55
 updated_at: 2026-09-04 16:45
+boardcol: now
+boardidx: 29766
 ---
 
 ## Failed verification item from t1658_1
@@ -212,4 +214,4 @@ pids, the oldest (`t259`) held since 2026-02-26. `t1699_lock.yaml` (pid 3874251,
 dead) was protecting a dirty file and was released manually; the other 8 stale
 locks remain. Each one can pin a file into `PROTECTED_DIRTY` indefinitely and
 make the deferral above fire more often than the live sessions alone warrant.
-Worth a separate task — stale-lock reaping is not in this task's scope.
+Tracked separately as **t1715** (stale-lock reaping); not in this task's scope.
