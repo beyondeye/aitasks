@@ -10,9 +10,10 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
+children_to_implement: [t1705_1]
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-09-04 10:50
-updated_at: 2026-09-04 10:52
+updated_at: 2026-09-04 16:01
 ---
 
 ## Goal
