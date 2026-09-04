@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: medium
-depends: [1657_4]
+depends: [t1657_4]
 issue_type: feature
 status: Ready
 labels: [codeagent, framework, concurrency, bash_scripts]
@@ -9,6 +9,8 @@ gates: [risk_evaluated]
 anchor: 1657
 created_at: 2026-09-04 11:53
 updated_at: 2026-09-04 11:53
+boardcol: now
+boardidx: 22598
 ---
 
 # Codex live-delivery adapter for task notes, via app-server thread enumeration
