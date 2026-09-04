@@ -749,3 +749,62 @@ dishonest lower: this plan now settles four contracts whose enforcement lives in
 three sibling tasks, and step 6 can specify them but not guarantee they survive
 a re-plan. Code-health is unchanged at medium — two hand-maintained
 `FIXTURE_NAMES` lists a guard reduces but does not erase.
+
+## Final Implementation Notes
+
+- **Actual work done:** As planned — `merged_from` added to both schema copies
+  byte-identically (no `schema_version` bump, not in root `required`), the
+  `merged_trail.json` fixture, both `FIXTURE_NAMES` lists extended, the
+  `ast`-based list-sync guard, the union-shaped drift regressions, and the
+  p1647_3 / p1647_4 / p1647_6 corrections.
+
+- **Deviations from plan — one, and it strengthens the deliverable.** The plan
+  said "the two-record convention itself is pinned on the fixture". Review
+  found that is not a contract: `minItems: 1` plus no cross-record rule meant a
+  one-record, three-record, duplicate-handle, split-`merged_at`, or exactly
+  duplicated `merged_from` **loaded cleanly** on any real document. That
+  silently defeats the retirement-recovery consumer (t1647_3), which identifies
+  the folded source as *the record whose handle differs from the base's* —
+  one record leaves no base version or no folded source, three make the
+  exclusion ambiguous, and duplicate handles yield zero or two candidates.
+  Added `_check_merged_from` in `lib/trail_schema.py` (rule
+  `merged_from_shape`) enforcing exactly two records, distinct handles, and a
+  shared `merged_at`, with a negative control per shape.
+  `p1647_3` was updated to rely on the enforced shape instead of re-checking it.
+
+  **The schema was the wrong place for this.** `maxItems` is not in
+  `SUPPORTED_KEYWORDS`, and unknown keywords are a deliberate `RuntimeError`
+  tripwire — adding it there would crash the validator rather than constrain
+  anything. Cardinality therefore lives with the cross-record rules the schema
+  could never express, alongside `lite_shape` / `depth_marker`.
+
+- **Issues encountered:**
+  - The `hard_depends` relation direction is **prerequisite → dependent**:
+    `_check_hard_depends` requires `from` to appear in **`to`**'s recorded
+    `snapshot.depends`. The first fixture draft had it backwards and was
+    rejected by `hard_depends_mirror`.
+  - A multi-id `snapshot` without `--owner` emits `OWNER:none`, which fails the
+    `owner` pattern — the same trap `SKILL.md.j2:520` warns about. The drift
+    tests pass `--owner`, as the merge producer must.
+  - `import test_trail_schema` is not safe for the list-sync guard: there is no
+    `tests/__init__.py`, so resolution differs between the pytest and
+    `unittest discover` backends. Used `ast` (the plan's named fallback, and an
+    existing precedent at `test_trail_gather.py:2193`).
+
+- **Key decisions:** Recorded in full as findings 1, 2, 2a, 2b and 2c above —
+  merge provenance excluded from `generation.inputs` (a `kind: other` record
+  refuses the document's entire drift verdict); `merged_from` one-hop and
+  written wholesale, with ancestry left walkable via
+  `ait artifact get --version`; the retirement obligation keyed on the record
+  rather than the caller's argument; one snapshot supplying inputs and digest
+  together; and the result-scope policy reusing the existing
+  `ad_hoc`→`--scope task` mapping.
+
+- **Verification:** `PYTHON SUITE: PASSED (runner=pytest, exit=0)`; schema
+  copies byte-identical; fixture `VALID:trail-merge-provenance` at
+  `--expect-depth deep` with both `depth_marker` and `lite_shape` negative
+  controls firing; all live trails still `CURRENT`. Every new guard was
+  mutation-tested, including per-half mutants of `_check_merged_from`
+  (cardinality-only leaves exactly the two cross-record tests failing).
+
+- **Upstream defects identified:** None.

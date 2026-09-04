@@ -91,10 +91,16 @@ the base is the only trail. Advisory only (RFC §13-A6 — never auto-dedup).
    source's — and the base is live but has *moved past* its recorded
    pre-merge version. A rule that did not exclude it would fire
    `ERROR:merge_conflict` on every well-formed merged document. The
-   exactly-two-records-with-distinct-handles contract (t1647_2, pinned by
-   `tests/test_implementation_trail_design.py::MergedProvenanceContract`)
-   is what makes "the record whose handle differs from the base's"
-   unambiguous.
+   exactly-two-records-with-distinct-handles contract is what makes "the
+   record whose handle differs from the base's" unambiguous — and t1647_2
+   **enforces it in the validator**, not merely on a fixture: `merged_from`
+   with one, three, or duplicate-handle records, or with a split
+   `merged_at`, is rejected with rule `merged_from_shape`
+   (`lib/trail_schema.py::_check_merged_from`). So this step may rely on the
+   shape rather than re-checking it: any document that loads at all has
+   exactly two records naming distinct trails. Handle a `load_trail_blob`
+   validation failure as `ERROR:invalid_trail:<handle>` per step 2, which
+   already covers a malformed base.
 4. Emit the plan:
    - `BASE:<handle>|<owner_id>|<depth>|<current_version>`
    - `FOLDED:<handle>|<owner_id>|<depth>|<current_version>`

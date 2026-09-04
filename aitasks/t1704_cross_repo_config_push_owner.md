@@ -14,8 +14,9 @@ plan_approved_at: 2026-09-03 23:44
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5
 created_at: 2026-09-03 12:22
-updated_at: 2026-09-04 16:02
+updated_at: 2026-09-04 16:07
 ---
 
 ## Origin
@@ -83,3 +84,5 @@ Re-derive the call path before starting; do not trust these line numbers.
 > **✅ gate:plan_approved** run=2026-09-03T20:43:47Z status=pass attempt=1 type=human
 >
 > Note: deferred
+
+> **✅ gate:plan_approved** run=2026-09-04T13:07:24Z status=pass attempt=2 type=human
