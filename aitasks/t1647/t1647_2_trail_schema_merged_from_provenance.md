@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1647
+implemented_with: claudecode/opus5
 created_at: 2026-09-01 18:49
-updated_at: 2026-09-03 12:47
+updated_at: 2026-09-04 13:02
 ---
 
 ## Context

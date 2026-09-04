@@ -77,12 +77,34 @@ Re-verify anchors against the landed state before editing.
 5. **`aidocs/implementation_trail_design.md`** — add the merge flow to the
    RFC: invocation surfaces; the `aitask_trail_merge.sh`
    candidates/preflight protocol in summary (module docstrings stay the
-   pinned source); `merged_from` + `generation.inputs` `other`-ref
-   provenance; deep-wins; the single full-write-set confirmation, the
+   pinned source); `merged_from` provenance — see the correction below;
+   the result-scope policy (p1647_4 step 3b);
+   deep-wins; the single full-write-set confirmation, the
    post-confirmation two-handle stale-base guard (and its stated no-CAS
    residual), update-before-rm ordering, all-owner retirement, and the
    RESUME / merge_conflict states. Keep §13-A6 intact (merge is explicit
    user intent, never auto-dedup) and reference it.
+
+   **Correction from t1647_2 — the earlier "`generation.inputs` `other`-ref
+   provenance" wording above was wrong and must not reach the RFC.** Merge
+   provenance is deliberately **outside** `generation.inputs`: those are
+   live-resolvable drift sources, a retired trail has no resolver, and an
+   input kind without one refuses the document's **entire** staleness verdict
+   (`_classify_stored_inputs` in `lib/trail_gather.py`, pinned by
+   `tests/test_trail_gather.py::test_content_kinds_without_resolver_fail_closed`).
+   The RFC prose must state that exclusion **and its reason**, so no later
+   reader re-derives the broken convention. Also state that `merged_from` is
+   one-hop and written wholesale, and that deeper ancestry stays walkable via
+   `ait artifact get <handle> --version <version>` — otherwise the absent
+   ancestry reads as an omission worth "fixing".
+
+6. **`aidocs/implementation_trail_design.md` root field-group list**
+   (currently ~L225-256) — add `merged_from` to it. That list enumerates the
+   root properties by group and became incomplete when t1647_2 landed the
+   field; it is prose and **not** test-pinned, so nothing else will catch the
+   gap. Group it with **Generation/provenance**, and follow the `overview`
+   bullet's precedent of closing with why the addition needed no
+   `schema_version` bump.
 
 ## Checks
 

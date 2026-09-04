@@ -58,6 +58,12 @@ exception to the "separate aitasks per agent" rule).
    `RESUME:retirement_pending|<handle>|<owners>` at ANY invocation → offer
    ONLY "complete the retirement" (run the remaining rms after
    confirmation) / "abort". Never re-author from this state.
+   **`<handle>` need not be either trail the user named.** Preflight is
+   record-aware (t1647_3 step 3, corrected by t1647_2 finding 2a): a pending
+   retirement recorded on the base blocks *any* new merge against it, because
+   `merged_from` is written wholesale and authoring one would erase that
+   handle's only recovery record. Report the handle preflight named, not the
+   one the user asked about.
    `ERROR:merge_conflict` → explain and stop.
 2. **Preflight.** `aitask_trail_merge.sh preflight -- <base> <folded>
    [depth-flag]`. Display depth pair, `RESULT_DEPTH`, the
@@ -67,6 +73,34 @@ exception to the "separate aitasks per agent" rule).
    counts before continuing. Any `ERROR:` → stop.
 3. **Fetch.** `ait artifact get <handle> --out <scratch>` × 2 (scratchpad
    paths).
+3b. **Resolve the RESULT SCOPE — decides both the stored `scope.kind` and the
+   snapshot call in step 4** (added by t1647_2 finding 2c; p1647_4 previously
+   left this undefined for mixed pairs). **There is no `--scope ad_hoc`:**
+   `snapshot --scope` accepts exactly `task|topic|multi_topic`
+   (`lib/trail_gather.py`), while `scope.kind` also permits `ad_hoc` — and
+   `ad_hoc` is live, being 2 of the 5 stored trails today. This reuses the
+   framework's existing rules rather than inventing a convention:
+   `.claude/skills/aitask-trail/SKILL.md.j2:323` (ad_hoc maps to task scope),
+   `:526-532` (the refresh re-snapshot rule — same stored-trail→snapshot-call
+   problem), and `:404-408` ("the gatherer cannot mix scopes").
+
+   | base `scope.kind` | folded `scope.kind` | result `scope.kind` | snapshot call | membership |
+   |---|---|---|---|---|
+   | `topic` | `topic` | `multi_topic` | `--scope multi_topic <union of roots>` | live per topic |
+   | `topic`/`multi_topic` | `topic`/`multi_topic` | `multi_topic` | `--scope multi_topic <union of roots>` | live per topic |
+   | either side `task` or `ad_hoc` | | `ad_hoc` | `--scope task <union of both sources' recorded member ids>` | pinned to the exact union |
+
+   Keeping the base's own topic after folding another topic would lose live
+   related-task detection for the folded topic, which is why topic∪topic
+   widens to `multi_topic`; conversely any pair touching a `task`/`ad_hoc`
+   source resolves to `ad_hoc` over the exact recorded union, so membership
+   never widens past the two sources.
+
+   `scope.topics` on the result is the union of both sources' `topics` in
+   every row — the schema calls it "a projection, not an assignment", so it
+   never defines membership. `scope.selection_note` MUST name both source
+   handles and the rule row applied.
+
 4. **Author the merged document — agent re-authoring, never a mechanical
    union** (a lite union is schema-invalid: lite = exactly 1 evidence
    record, NO observations/relations/exclusions):
@@ -80,13 +114,53 @@ exception to the "separate aitasks per agent" rule).
    - `trail_id` + handle = base's; `title` re-authored if needed.
    - `merged_from`: TWO entries — folded source AND the base's pre-merge
      version — each `{handle, version (Step-2 baseline), title, merged_at
-     (now, UTC ISO-8601)}`.
+     (now, UTC ISO-8601)}`. **Both entries share one `merged_at`** (they
+     describe one event), and the value is written **wholesale**: a later
+     merge REPLACES it rather than extending it, and inherited ancestry is
+     never carried forward. Deeper history stays walkable because each
+     `version` is the exact `ait artifact get <handle> --version` key for the
+     previous hop. (Contract settled and verified in t1647_2; the schema
+     `description` is authoritative, and
+     `tests/test_implementation_trail_design.py::MergedProvenanceContract`
+     pins it.)
    - `generation`: `generated_at` now; `generator.agent_string` per
      `$AITASK_AGENT_STRING` / self-detection;
-     `generator.skill: "aitask-merge-trails"`; `inputs` = union of relevant
-     source inputs PLUS one `{"kind": "other", "ref": "<handle>@<version>"}`
-     per source; recompute `input_digest` policy: reuse the base's digest
-     inputs contract (state in the doc which snapshot the digest covers).
+     `generator.skill: "aitask-merge-trails"`.
+
+     **`inputs` and `input_digest` — one snapshot, both values, no artifact
+     refs (corrected by t1647_2; previously this bullet said "union of source
+     inputs PLUS one `{"kind": "other", ...}` per source" and left the digest
+     to "reuse the base's digest inputs contract"). Both halves were wrong:**
+
+     - **No artifact refs in `inputs`, ever.** `_classify_stored_inputs`
+       (`lib/trail_gather.py`) routes every input kind without a live
+       resolver — `other` included, the only kind that would accept a handle
+       — to a staged error, and the caller then does
+       `if errors: emit_errors(...); return 0`. **One** such record refuses
+       the document's **entire** staleness verdict, so every merged trail
+       would report `ERROR:undriftable_input:` forever in the board and on
+       refresh. Pinned by
+       `tests/test_trail_gather.py::test_content_kinds_without_resolver_fail_closed`.
+       Merge provenance lives in `merged_from` only, which is a **root**
+       property and therefore outside the digest by construction.
+     - **The digest cannot be reused, combined, or derived from stored
+       inputs.** `_normalize_input_record` requires `exists` plus
+       per-`(kind, exists)` state fields; stored `generation.inputs` records
+       carry only `{ref, kind}`, so hashing them raises. And `input_digest`
+       is a truncated sha256 over sorted *live* records, so two source
+       digests cannot be merged. Reusing the base's digest ships a document
+       that drift reports **STALE the moment it is written**, while every
+       schema and depth check passes.
+     - **Do this instead:** take **one**
+       `./.aitask-scripts/aitask_trail_gather.sh snapshot` run over the
+       **deduplicated union** of both sources' scope ids (scope per the
+       result-scope policy in step 3b below), passing `--owner <base owner>`
+       — mandatory on a multi-id snapshot, or the gatherer emits `OWNER:none`
+       and the document fails the `owner` pattern. Write **that single run's**
+       `INPUT:` pairs as the `{ref, kind}` records **and** its `DIGEST:` value
+       into the merged document together. The pairing is what makes the
+       document self-consistent; splitting it across two runs reintroduces the
+       staleness the guard exists to prevent.
    - `freshness`: `{"state": "current", "checked_at": now}`.
    - Adapt the "Trail JSON authoring rules" section of
      `.claude/skills/aitask-trail/SKILL.md.j2` (~L799) inline: transport
@@ -151,6 +225,26 @@ exception to the "separate aitasks per agent" rule).
   completing-command guidance + resumable re-invocation; RESUME never
   re-authors. Keep each pin greppable on one rendered line
   (golden-prose-pin rule).
+
+  **Plus four pins required by t1647_2 (findings 1, 2a, 2b, 2c).** These are
+  the failure modes t1647_2's own tests are structurally blind to — its drift
+  tests build their own snapshots, and drift never reads `scope.kind` — so
+  this contract test is where they become executable:
+  1. **result-scope policy** — the step-3b rows are stated, an `ad_hoc`
+     result snapshots as `--scope task <union of recorded member ids>`, and
+     **no `--scope ad_hoc` exists**;
+  2. **one snapshot, both values** — `inputs` and `input_digest` come from a
+     single run over the deduplicated union, with `--owner`; source digests
+     are never reused or combined;
+  3. **no artifact refs in `generation.inputs`** — merge provenance lives in
+     `merged_from` only (a mirrored `kind: other` record refuses the whole
+     drift verdict);
+  4. **`merged_from` is written wholesale as exactly two records** (base
+     pre-merge + folded source) and never accumulates inherited ancestry;
+     and the producer **refuses to author while preflight reports
+     `RESUME:retirement_pending`**, whichever handle it names — the
+     consumer-side half of finding 2a, without which the record-aware
+     detection in t1647_3 is merely advisory.
 - `tests/test_codeagent_merge_trails.sh` — model
   `test_codeagent_trail.sh`.
 - `bash tests/test_skill_dispatch_contract.sh` — must pass (auto-covers the
@@ -165,3 +259,12 @@ exception to the "separate aitasks per agent" rule).
   slash command.
 - Live dry read path: `/aitask-merge-trails trail-mobile` (approximate) in a
   sandbox session reaches the BASE_CANDIDATE question without any write.
+- **The merged document must be CURRENT the moment it is written** (t1647_2
+  finding 2b): `aitask_trail_gather.sh drift --trail <merged>` returns
+  `CURRENT` with no `ERROR:` lines immediately after the merge, and `STALE`
+  after mutating one source's task state. Check **both** result shapes — a
+  same-scope merge (`topic`∪`topic` → `multi_topic`) **and** a mixed-scope one
+  (→ `ad_hoc`), since only the second exercises the kind with no snapshot
+  verb. A document that is stale on arrival is the exact failure the
+  one-snapshot recipe exists to prevent, and it passes every schema and depth
+  check, so nothing else catches it.

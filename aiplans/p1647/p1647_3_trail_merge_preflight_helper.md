@@ -60,16 +60,41 @@ the base is the only trail. Advisory only (RFC §13-A6 — never auto-dedup).
    `ERROR:same_trail`.
 2. Load both docs via `load_trail_blob` — failure →
    `ERROR:invalid_trail:<handle>`.
-3. **Half-merged detection FIRST (reference-aware):** if the base doc has a
-   `merged_from` entry whose `handle` == folded handle:
-   - folded resolves AND folded current version == entry `version` →
-     `RESUME:retirement_pending|<folded_handle>|<remaining_owner_csv>`
-     (owners still referencing the handle) and STOP — no plan lines. The
-     consumer completes the remaining `rm`s; it never re-authors.
-   - folded resolves but its version moved →
-     `ERROR:merge_conflict:<folded_handle>` and stop.
-   - (A fully retired folded trail no longer resolves → step 1 already
-     yielded `ERROR:unresolved` — no false resume by construction.)
+3. **Half-merged detection FIRST (record-aware):** iterate **every**
+   folded-source record in the base doc's `merged_from` — the record whose
+   `handle` differs from the **resolved base handle** — and apply the
+   outcomes below to each. **This runs regardless of which folded ref the
+   caller passed**, and keying it on the caller's argument instead is a
+   correctness bug (corrected by t1647_2; see the `merged_from` schema
+   description, which states the retirement obligation):
+
+   > `merged_from` is written **wholesale** — a later merge replaces the
+   > value rather than extending it. So a pending A+B retirement that is
+   > invisible to an A+C request does not merely go unnoticed: authoring A+C
+   > **erases B's recovery record**, orphaning a live trail whose content is
+   > already absorbed into A. The check must therefore be driven by what the
+   > base document records, not by what the caller asked for.
+
+   Per folded-source record:
+   - source resolves AND its current version == the record's `version` →
+     `RESUME:retirement_pending|<that_handle>|<remaining_owner_csv>`
+     (owners still referencing the handle) and STOP — no plan lines, and
+     **not** a plan for the pair the caller named. The consumer completes the
+     remaining `rm`s; it never re-authors.
+   - source resolves but its version moved →
+     `ERROR:merge_conflict:<that_handle>` and stop.
+   - source no longer resolves → that retirement completed; continue to the
+     next record, then to step 4.
+
+   **Excluding the base's own record is required, not incidental.** A merge
+   writes two records — the base's pre-merge snapshot and the folded
+   source's — and the base is live but has *moved past* its recorded
+   pre-merge version. A rule that did not exclude it would fire
+   `ERROR:merge_conflict` on every well-formed merged document. The
+   exactly-two-records-with-distinct-handles contract (t1647_2, pinned by
+   `tests/test_implementation_trail_design.py::MergedProvenanceContract`)
+   is what makes "the record whose handle differs from the base's"
+   unambiguous.
 4. Emit the plan:
    - `BASE:<handle>|<owner_id>|<depth>|<current_version>`
    - `FOLDED:<handle>|<owner_id>|<depth>|<current_version>`
@@ -145,3 +170,19 @@ get direct unit tests in `tests/test_trail_merge.py`.
   `./.aitask-scripts/aitask_trail_merge.sh preflight -- art:trail-mobile-shadow-driving art:trail-mobile-shadow-driving-deep`
   → `RESULT_DEPTH:deep`, 6 `OVERLAP:` lines, no `*_ONLY`, one
   `FOLDED_REF:1118|active`.
+- **Record-aware half-merge regression (t1647_2 finding 2a) — partial A+B,
+  then a requested A+C.** Set up a base A whose `merged_from` names a
+  still-resolving B at exactly its recorded version, then invoke
+  `preflight -- A C`. Assert it emits `RESUME:retirement_pending|<B>|…`
+  and **no plan lines at all** — never a `BASE:`/`FOLDED:` plan for the A+C
+  pair the caller named. Keying the check on the caller's folded ref passes
+  every other test in this file and fails only this one.
+- **Its negative control (required — without it the test cannot distinguish
+  "blocked correctly" from "blocked always"):** with B no longer resolving,
+  the same `preflight -- A C` call emits a normal A+C plan. Add the
+  version-moved sibling too: with B resolving at a *different* version,
+  expect `ERROR:merge_conflict:<B>`.
+- **The base's own record must not trip the check:** a preflight against a
+  well-formed merged document — whose `merged_from` includes the base's own
+  pre-merge version, which no longer matches the base's current version —
+  emits a normal plan, not `ERROR:merge_conflict`.
