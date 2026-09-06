@@ -47,6 +47,9 @@ goal.
 | 6 | **`note_sender_is_self()` already parses the lock record** (host/pid/token/kind) with the exact four `sed` extractions the resolver needs. | Extracted into `lib/lock_record.sh`; both callers use it. |
 | 7 | `aidocs/framework/aitasks_extension_points.md` prose says "7-touchpoint checklist" but its table lists **5**, and `aitask_note.sh` is whitelisted in exactly those 5. | Plan uses 5; the doc's stale count is handed to t1657_6 (docs child), not fixed here. |
 | 8 | **The resolver cannot assert `NOTE_APPENDED:` survival.** It takes a task id and returns a code — it never appends a note nor calls `SendMessage`. The task's AC to that effect describes the *composition*, which t1657_5 declares as its single join point. | Tests scoped to result codes; the two behavioral assertions relocated to t1657_5 and handed over durably via `ait note`. |
+| 10 | **REVIEW (blocking): usage prose leaked onto stdout.** A no-argument invocation printed 16 lines of help *and then* `LIVE_ERROR:usage`, breaking the "exactly ONE line on stdout, always" contract — a caller reading the first line would parse `Usage:` as the result. | Help goes to stderr for every invalid invocation; `--help` is the one documented exception. Pinned by a LINE-COUNT assertion, not a prefix match. |
+| 11 | **REVIEW (blocking): a manifest name match alone produced `LIVE_PANE`.** `adapter_for_family` never checked that the row named a procedure, or that the file existed — so a truncated row promised a live endpoint the caller had nothing to deliver through. Worse, the degradation test used nonexistent `fake.md` paths as *accepted* rows, making the hole the contract. | The procedure file must exist and be readable, and column 2 became a bare filename resolved inside the delivery directory (no `/`, no `..`). Tests rebuilt on real files, with cases for every unusable-row shape. |
+| 12 | **REVIEW (blocking): `-r` alone is true for a DIRECTORY.** The first fix for row 11 checked only readability, so a manifest row naming a directory still passed the agent gate and emitted `LIVE_PANE` — the same broken promise, one shape further in. Reproduced directly. | `-f && -r`: readable must mean *readable as a procedure*. Added as a case to the unusable-row set. |
 | 9 | **The live-tmux positive case as written was vacuous.** Claiming a task writes only the lock; `implemented_with` lands at Step 7 attribution, so a fresh claim short-circuits at step 5 (`agent_unknown`) and never reaches PID→pane. Real evidence: `t1569_6` is live in pane `%2` right now with the field empty. | Fixture seeds `implemented_with`, plus an explicit ordering control and a socket negative control. |
 
 Confirmed unchanged: `aitask_lock.sh` stdout contract (`aitask_lock.sh:402`),
@@ -71,6 +74,12 @@ LIVE_ERROR:<reason>                                                 exit 2
 failure — hence exit 0, disjoint from `LIVE_ERROR` (the resolver itself could not
 run: bad usage, unresolvable task file). Every advisory goes to stderr via
 `warn()`.
+
+**"Exactly one line" holds on the misuse paths too.** A usage error prints its
+help to **stderr** and still emits its single `LIVE_ERROR:usage` line on stdout,
+so a caller reading the first line can never find prose there. `-h` / `--help` is
+the sole exception — that invocation is addressed to a human — and it is pinned
+as an exception so it stays deliberate rather than becoming a second leak.
 
 Resolution order — reuse the canonical seams, do not reimplement:
 
@@ -124,9 +133,25 @@ boundary — the framework launches every managed agent on the gateway socket.
 `agents.txt` — the manifest; two whitespace-separated columns, `#` comments:
 
 ```
-# <agent-family>  <adapter procedure>
-claudecode        .aitask-scripts/live_delivery/claudecode.md
+# <agent-family>  <adapter procedure filename>
+claudecode        claudecode.md
 ```
+
+Column 2 is a **bare filename resolved inside this directory** — not a
+repo-relative path. That is what makes the same manifest work under the
+`AIT_LIVE_DELIVERY_DIR` test seam, and it lets a `/` or `..` in the column be
+*refused* rather than followed: the manifest is a data file, so its paths are
+untrusted input.
+
+**A name match is not enough to call a family supported.** `LIVE_PANE` is a
+promise the caller acts on — a live endpoint *and* a procedure to deliver
+through. A truncated row, or one naming a file that is not there, would break
+that promise one layer too late: the caller is told the endpoint is live and then
+finds nothing to run. So the row must resolve to a **readable regular file**
+(`-f && -r`, not `-r` alone — that is true for a directory, which is a readable
+path but not a readable procedure) before the gate opens. Anything less answers
+`agent_unsupported:<family>`, which is exactly what a family with no usable
+adapter is.
 
 Framework-owned data shipped inside `.aitask-scripts/`, exactly like
 `.aitask-scripts/gates_reference.yaml` (`install.sh:502` — "source is the
@@ -257,8 +282,22 @@ single join point. See "Deviation from the task's stated AC" below.
      socket repointed at a nonexistent server → `no_pane`, so case 1 cannot pass
      vacuously.
 - **Manifest guard** — with `AIT_LIVE_DELIVERY_DIR` pointing at a fixture
-  containing a fabricated family, that family resolves; with it absent, the same
-  input yields `agent_unsupported`. Proves the manifest drives the decision.
+  containing a fabricated family **and a procedure file that exists**, that
+  family resolves; with it absent, the same input yields `agent_unsupported`.
+  Proves the manifest drives the decision.
+- **Unusable-row guard** — one case per shape a truncated install or a hand-edit
+  actually produces: a row with no procedure column, a row naming a missing file,
+  a row naming a **directory**, a row naming an unreadable file, a `../`
+  traversal, and a subdirectory path that *does* resolve. All must answer `agent_unsupported`, never `LIVE_PANE`.
+  Fixture rows point at **real files**: a test that accepts a nonexistent
+  procedure would make the hole the contract.
+- **Shipped-manifest check** — the manifest that actually ships must satisfy its
+  own rule, or the live lane is dead in the product while every fixture case
+  passes.
+- **stdout purity on misuse** — a no-argument call and a too-many-arguments call
+  each put exactly **one** line on stdout (asserted as a line count, not a
+  prefix), that line is `LIVE_ERROR:usage`, the exit status is 2, and the help
+  text is present on stderr. `--help` is pinned separately as the one exception.
 - **`tests/test_live_endpoint_no_sendkeys.sh`** — asserts no `send-keys` on any
   delivery path (resolver *and* adapter procedure).
 - `grep -rn 'ListAgents\|SendMessage\|claudecode' .aitask-scripts/aitask_live_endpoint.sh`
@@ -350,3 +389,91 @@ Cleanup, archival and merge per `task-workflow` Step 9.
 live-tmux ordering trap is closed by the seeded fixture, but the
 two-real-sessions acceptance remains unassertable in-suite and is carried by
 t1657_7.*
+
+## Final Implementation Notes
+
+- **Actual work done:** All five plan steps landed as designed, plus the three
+  inline post-phase mitigations.
+  - `.aitask-scripts/aitask_live_endpoint.sh` — the resolver. One stdout line
+    always; `LIVE_PANE:` / `LIVE_NONE:` at exit 0, `LIVE_ERROR:` at exit 2.
+    Reuses `aitask_lock.sh --check`, `lock_holder_liveness`,
+    `extract_implemented_with` and the `lib/tmux_exec.sh` gateway; reimplements
+    none of them.
+  - `.aitask-scripts/live_delivery/` — `agents.txt` (adapter manifest) and
+    `claudecode.md` (the Claude adapter procedure). Shipped inside
+    `.aitask-scripts/` on the `gates_reference.yaml` precedent, so it needed no
+    `seed/` mirror and no `aitask_setup.sh` edit.
+  - `.aitask-scripts/lib/lock_record.sh` — the shared lock-record parse;
+    `aitask_note.sh::note_sender_is_self` refactored onto it in the same commit.
+  - Whitelist: 5 touchpoints, mirroring `aitask_note.sh`. No `ait` dispatcher entry.
+  - Tests: `test_live_endpoint_degradation.sh` (53), `_tmux_live.sh` (16),
+    `_no_sendkeys.sh` (26).
+  - The `durable_handoff_to_t1657_5` mitigation was executed with `ait note` —
+    dogfooding the mailbox this tree is building. It returned
+    `NOTE_APPENDED:2026-09-06T10:31:51Z.735d5174ae0697c82769afcc` with
+    `from_verified=yes`, which is also live proof of the refactored sender check.
+
+- **Deviations from plan:** Two, both recorded as findings in the plan body.
+  (1) The manifest's second column became a **bare filename resolved inside the
+  delivery directory** rather than a repo-relative path — it makes the
+  `AIT_LIVE_DELIVERY_DIR` seam coherent and lets `/` and `..` be refused rather
+  than followed. (2) Two of the task's own acceptance criteria
+  (`NOTE_APPENDED:` survival per branch; post-write adapter failure) were
+  **relocated to t1657_5**: the resolver neither writes notes nor calls
+  `SendMessage`, so only the composition owner can assert them.
+
+- **Issues encountered:**
+  - The plan's two internal contradictions (agent gate vs. the "no `claudecode`
+    literal" criterion; adapter placed in an unrendered orphan slot) were found
+    during the verify pass and resolved before implementation.
+  - `ListAgents` renders `#{window_id}`, not `@#{window_index}` — measured, they
+    differ for the same pane. The first draft would have emitted a target that
+    looked right and joined to nothing.
+  - The live-tmux positive case was initially designed on a bare claim, which
+    short-circuits at `agent_unknown` before the correlator runs; the fixture now
+    seeds `implemented_with` and keeps the unseeded run as an ordering control.
+  - Review round 1: usage prose leaked onto stdout on an invalid invocation,
+    breaking the one-line contract. Fixed (help to stderr; `--help` the sole
+    exception) and pinned by line count.
+  - Review round 2: `adapter_for_family` accepted a name match without checking
+    that a procedure existed — and the first test wrote nonexistent `fake.md`
+    rows as *accepted*, making the hole the contract. Fixed and rebuilt on real
+    files.
+  - Review round 3: `-r` alone is true for a directory, so the round-2 fix still
+    let a row naming a directory through. Now `-f && -r`.
+
+- **Key decisions:**
+  - **`LIVE_NONE` exits 0.** A degradation is a successful resolution; only
+    `LIVE_ERROR` (exit 2) means the resolver could not run. The two sets are
+    disjoint so "no endpoint" and "resolver broke" are never confusable.
+  - **`unknown` is never collapsed into `dead`** (the t1465 class), and a legacy
+    lock with no `pid:` line reaches that branch — an explicit, tested row.
+  - **The agent gate is data-driven.** No agent literal in the resolver; the
+    manifest decides, and it must resolve to a readable regular file before a
+    family counts as supported, because `LIVE_PANE` is a promise the caller acts on.
+  - **Agent-family check precedes PID→pane** — cheaper, and it makes
+    `agent_unknown` reachable during the Step 4 → Step 7 attribution window.
+  - **The adapter is a procedure, not a script**, and lives outside the skill
+    tree: profile-invariant, agent-neutral, and not subject to the renderer's
+    reachability walk.
+
+- **Upstream defects identified:**
+  - `aidocs/framework/aitasks_extension_points.md:319 — prose says "7-touchpoint
+    checklist" while its own table lists 5; `aitask_note.sh` is whitelisted in
+    exactly those 5, so the count is stale. Handed to t1657_6 (the docs child),
+    not fixed here.
+
+- **Notes for sibling tasks:**
+  - **t1657_5 owns the composition** and has been sent a durable note with the
+    two relocated assertions and the full resolver/adapter contract. Read its
+    `## Inbox` first.
+  - The resolver's stdout contract mirrors `aitask_note.sh`: exactly one line,
+    advisories to stderr. Follow it in any new helper here.
+  - `AIT_LIVE_DELIVERY_DIR` is the documented seam for driving the manifest from
+    a fixture; `AITASKS_TMUX_SOCKET` pointed at a nonexistent server is the
+    documented way to force `no_pane` without touching a real tmux server.
+  - When testing the live lane, remember `implemented_with` is written at Step 7,
+    not at claim time — a freshly claimed fixture task answers `agent_unknown`.
+  - `tests/test_lock_anchor_tmux_live.sh` is the template for isolated-tmux
+    tests; `tests/test_note_append.sh` is the template for a lock-bearing
+    fixture repo.
