@@ -72,9 +72,11 @@ server.
    "raw", agent_string=…)` plus `--resume-session`; repick via the existing
    pick launch argv — reuse the `minimonitor_app.py:3021` /
    `monitor_app.py:3612` shape through a shared helper, do not fork it) →
-   `restore-begin --mode` (nonce) → `env AITASK_RESTORE_RECORD=<id>
-   AITASK_RESTORE_NONCE=<n> AITASK_RESTORE_MODE=<m>
-   AITASK_RESTORE_EXPECT_SESSION=<sid>` prefix → `set-option -pu
+   `restore-begin --mode` (nonce) → the four `AITASK_RESTORE_*` variables
+   (`AITASK_RESTORE_RECORD=<id> AITASK_RESTORE_NONCE=<n>
+   AITASK_RESTORE_MODE=<m> AITASK_RESTORE_EXPECT_SESSION=<sid>`) delivered by
+   **`respawn-pane -e` — preferred; see the env-passing note below (t1716)** —
+   or by the equivalent `env …` command prefix → `set-option -pu
    @aitask_standin_ready` → `respawn-pane -k` (or `launch_in_tmux` into a
    new window named by `unique_window_name` when `pane_id=""`) →
    `restore-launched --nonce --pane --pane-pid` → poll `show` until
@@ -134,6 +136,41 @@ ordering vs the model flag, `RESUME_UNSUPPORTED:opencode`.
 - The pick-launch argv helper extraction touches `monitor/minimonitor_app.py`
   and `monitor/monitor_app.py` minimally (a shared function in
   `lib/agent_launch_utils.py`); t1705_7 wires the keys.
+
+## Env passing to the restored agent — decided by evidence (t1716)
+
+Both mechanisms that could carry the four `AITASK_RESTORE_*` variables into the
+respawned agent are **measured**, by Cases 3 and 3b of
+`tests/test_frozen_standin_spike.sh` (t1705_1's probe, extended by **t1716**):
+
+| mechanism | `#{pane_pid}` == agent pid | variable delivered |
+|---|---|---|
+| `env VAR=… <cmd>` prefix in the command string (Case 3) | yes | yes |
+| `respawn-pane -e VAR=value` (Case 3b, t1716) | yes | yes |
+
+**Prefer `-e`.** tmux sets the variable in the spawned process's environment
+itself, so the command string carries no wrapper at all and nothing has to exec
+through `env`. It needs no tmux version bump — `-e` is present on the 3.6a this
+was measured against:
+
+```
+respawn-pane [-k] [-c start-directory] [-e environment] [-t target-pane]
+             [shell-command [argument ...]]
+```
+
+The `env` prefix stays proven and is the fallback for a build without `-e`.
+
+⚠ **Why `#{pane_pid}` is the assertion that matters for either choice.**
+`launch_in_tmux`'s contract is that the pane's pid **is** the agent process,
+because a wrapper that *outlives* the agent would make a dead agent's lock keep
+reading as alive (`pid_anchor`, t1465) — a quieter failure than the false-crash
+bug that contract replaced. Any change to how this task delivers the variables
+must re-check that property, not just that the variables arrive.
+
+Re-run the evidence with `bash tests/test_frozen_standin_spike.sh` (~8s, no
+agent binaries needed). Full cross-child contract:
+`## Spike findings (t1705_1) — PINNED` in
+`aiplans/p1705_frozen_codeagents_session_store_and_viewer_tui.md`.
 
 ## Reference patterns
 

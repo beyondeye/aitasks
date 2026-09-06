@@ -572,6 +572,7 @@ any line below; every line is reproduced in-suite, not from a one-off probe.
 - pane-died on respawn-pane -k: **does not fire**; stamp visible to hook: n/a (hook never ran)
 - pane options survive respawn: **yes** (and `#{pane_pid}` changes, as required)
 - env prefix keeps pane_pid = agent pid: **yes** (variable delivered to the process)
+- `respawn-pane -e VAR=value` keeps pane_pid = agent pid: **yes** (native alternative to the env prefix; both work)
 - run-shell -b survives caller pane kill: **yes**
 - claude SessionStart: fields `cwd, hook_event_name, model, session_id, source, transcript_path`; fires on `--resume`: **yes** (matcher `startup|resume`)
 - codex hooks: **config.toml `[hooks]` AND project `.codex/hooks.json`** (both honoured, project must be trusted); codex resume: **present**
@@ -602,10 +603,22 @@ stand-in), and the cleanup script must still learn about frozen panes for the
 one, still routes through `pane-died`. Keep the `@aitask_frozen` stamp; drop the
 claim that freezing without it destroys the window.
 
-**2. `env VAR=… <cmd>` is a safe launch prefix.** `#{pane_pid}` remains the
-launched process's pid and the variables reach it, so `launch_in_tmux`'s
-no-wrapper contract (the `pid_anchor` lock-liveness dependency, t1465) is
-preserved. Child 5's restore path may use it to pass `AITASK_RESTORE_*`.
+**2. Both env-passing mechanisms are safe; child 5 may pick either.**
+`#{pane_pid}` remains the launched process's pid and the variables reach it, so
+`launch_in_tmux`'s no-wrapper contract (the `pid_anchor` lock-liveness
+dependency, t1465) is preserved — measured **twice**, for the two mechanisms
+that could carry `AITASK_RESTORE_*`:
+
+| mechanism | pane_pid == agent pid | variable delivered |
+|---|---|---|
+| `env VAR=… <cmd>` prefix in the command string (Case 3) | yes | yes |
+| `respawn-pane -e VAR=value` (Case 3b) | yes | yes |
+
+**Prefer `-e`.** tmux sets the variable in the spawned process's environment
+itself, so the command string carries no wrapper at all and nothing execs
+through `env`. It is present on 3.6a — `respawn-pane [-k] [-c start-directory]
+[-e environment] [-t target-pane] [shell-command …]` — so this needs no version
+bump. The prefix stays proven and usable as a fallback for a build without `-e`.
 Note the platform constraint this had to be proved around: **macOS has no
 `/proc`, and `ps eww` / `ps -E` return nothing under SIP**, so a foreign
 process's environment cannot be read at all — the process must self-report. Do
