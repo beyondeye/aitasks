@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t1657_2]
 issue_type: feature
@@ -162,3 +164,5 @@ later is trivial, removing it is breaking.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-09-06T10:16:30Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-09-06T13:53:13Z status=pass attempt=1 type=human
