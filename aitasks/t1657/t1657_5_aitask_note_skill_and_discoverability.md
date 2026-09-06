@@ -148,3 +148,58 @@ not the current one" convention, which today has no mechanism to act on:
 - `bash tests/test_agent_instructions.sh` (T25–T27)
 - `./.aitask-scripts/aitask_skill_verify.sh`
 - `bash tests/run_all_python_tests.sh --test-dir tests`
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1657_4** id=2026-09-06T10:31:51Z.735d5174ae0697c82769afcc from=t1657_4 from_verified=yes at=2026-09-06T10:31:51Z base=caf24385d30a7786bbdc65f3019dc906cafbc6df base_branch=main dirty=yes host=omg16
+>
+> | Two acceptance criteria from t1657_4 were RELOCATED to this task, deliberately.
+> | They are not gaps in t1657_4 — they are assertions only your composition test can
+> | make, and t1657_4's plan records the same decision under "Deviation from the
+> | task's stated AC".
+> | 
+> | Why they moved: `aitask_live_endpoint.sh` takes a task id and returns a result
+> | code. It never appends a note and it never calls SendMessage. So it cannot
+> | observe durable-first ordering; testing that needs `ait note` + resolver +
+> | adapter in one place, which is the single composition point THIS task owns.
+> | Building a second copy of that composition inside t1657_4 would have created a
+> | drifting duplicate of your contract.
+> | 
+> | The two items, to fold into t1657_5's own verification:
+> | 
+> | 1. WRITE-BEFORE-LIVE. For EVERY `LIVE_NONE:<reason>` the resolver can return,
+> |    `ait note` has already emitted `NOTE_APPENDED:<id>|<path>` and committed
+> |    before the resolver is invoked at all. Step 2 completes before step 3 begins.
+> |    The reason codes to cover: unlocked, remote_host, holder_dead, holder_unknown,
+> |    agent_unknown, agent_unsupported:<agent>, no_pane (resolver) and
+> |    no_session_match (adapter).
+> | 
+> | 2. POST-WRITE ADAPTER FAILURE. A forced adapter failure AFTER a successful
+> |    durable write must be reported as *success with live delivery unavailable* —
+> |    never as a partial failure, and never as a reason to retry the write. The
+> |    durable result is authoritative.
+> | 
+> | What already exists for you to build on (all landed in t1657_4):
+> | 
+> | - `.aitask-scripts/aitask_live_endpoint.sh <task-id>` — one stdout line:
+> |   `LIVE_PANE:<%pane>|<session>:<@win>.<%pane>|<pid>|agent=<family>` or
+> |   `LIVE_NONE:<reason>` (both exit 0 — a degradation is a successful resolution),
+> |   or `LIVE_ERROR:<reason>` exit 2 when the resolver itself could not run. The
+> |   LIVE_ERROR set is disjoint from LIVE_NONE on purpose, so "no endpoint" and
+> |   "resolver broke" are never confusable.
+> | - `.aitask-scripts/live_delivery/agents.txt` — the adapter manifest. A family
+> |   absent from it yields `agent_unsupported:<family>`; the resolver holds no agent
+> |   literal of its own. `AIT_LIVE_DELIVERY_DIR` overrides it for tests.
+> | - `.aitask-scripts/live_delivery/claudecode.md` — the Claude adapter procedure.
+> |   It returns `LIVE_QUEUED:<session>|<note-id>` or `LIVE_NONE:<reason>`, joins on
+> |   the PANE ID alone, and is required to say which pane it searched for when it
+> |   reports `no_session_match`.
+> | - Tests: tests/test_live_endpoint_degradation.sh (result codes + lock_record),
+> |   tests/test_live_endpoint_tmux_live.sh (real pane correlation),
+> |   tests/test_live_endpoint_no_sendkeys.sh (transport prohibition).
+> | 
+> | One correction worth carrying into your own work: the agent-session listing
+> | renders a pane as `<session>:@<window_id>.%<pane_id>`, where the middle number is
+> | tmux's `#{window_id}` and NOT `#{window_index}` — measured, they differ for the
+> | same pane. Join on the pane id; the prefix is display context.
