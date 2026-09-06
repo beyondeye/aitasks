@@ -3,17 +3,17 @@ priority: high
 effort: medium
 depends: []
 issue_type: test
-status: Implementing
+status: Ready
 labels: [tmux, tmux_destructive, codeagent, claudecode, codexcli, session_persistence, test_infrastructure]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-assigned_to: dario-e@beyond-eye.com
+plan_approved_at: 2026-09-06 10:58
 anchor: 1705
 created_at: 2026-09-04 16:01
-updated_at: 2026-09-06 09:26
+updated_at: 2026-09-06 10:58
 ---
 
 ## Step 0 — tmux preflight (run BEFORE anything else; blocking)
