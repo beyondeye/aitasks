@@ -1,7 +1,7 @@
 ---
 priority: high
 effort: high
-depends: []
+depends: [1343, t1569_4]
 issue_type: refactor
 status: Ready
 labels: [gates, backend]
